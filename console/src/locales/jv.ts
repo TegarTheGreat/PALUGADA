@@ -928,7 +928,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Parengaken peran ngginakaken alat {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Ndadosaken peran saged nggambar saking andharan. Gambaripun dipunsimpen ing file perusahaan, lan draf peran nyebutaken namanipun.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Ndadosaken peran saged manggihaken kaca: irah-irahan, alamat, lan pethikan cekak saben kaca. Tembung padosanipun dipunkintun dhateng panyedhiya ingkang panjenengan pilih.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Ndadosaken peran saged maos setunggal kaca minangka teks resik, ingkang dipunpendhet dening panyedhiya, sanes dening server punika.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Ndadosaken peran saged maos setunggal kaca minangka teks resik. Menawi dèrèng wonten panyedhiya ingkang dipunpilih, browser pamasangan punika piyambak ingkang maos, menawi wonten, lan alamatipun boten dipunkintunaken dhateng sinten kémawon.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Ndadosaken peran saged ngewahi teks dados rekaman swanten, ingkang dipunsimpen ing file perusahaan.",
   "Lift": "Pungkasi",
   "Lift the pause": "Pungkasi endhegan",

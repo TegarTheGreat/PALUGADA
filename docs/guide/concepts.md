@@ -239,7 +239,8 @@ and fixes each one's tier, with the reason it is not the tier above or below.
 - The platform implements the ones that need nobody's account: `web.fetch`,
   `uptime.check`, `files.list`, `doc.draft`, `email.draft`, `memory.search`
   and `skill.read`; `web.search` and `web.extract` through the search
-  provider you choose; `image.generate` and `speech.synthesize` through the
+  provider you choose, and `web.extract` in the deployment's own browser
+  until you choose one; `image.generate` and `speech.synthesize` through the
   picture and voice providers you choose, kept as files; `speech.transcribe`,
 which writes down a recording in the company's files; and the tools a run uses to work inside the company:
   `plan.record`, `task.delegate`, `task.await`, `owner.ask`,

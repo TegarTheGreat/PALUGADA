@@ -937,7 +937,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Rollerin {name} araçlarını kullanmasına izin ver",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Bir rolün bir açıklamadan görsel çizmesini sağlar. Görsel şirketin dosyalarında saklanır ve rolün taslağında adı geçer.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Bir rolün sayfa bulmasını sağlar: her biri için başlık, adres ve kısa bir alıntı. Sorgular seçtiğiniz sağlayıcıya gider.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Bir rolün bir sayfayı temiz metin olarak okumasını sağlar; sayfayı bu sunucu değil sağlayıcı getirir.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Bir rolün bir sayfayı temiz metin olarak okumasını sağlar. Sağlayıcı seçilmediyse sayfayı, varsa bu kurulumun kendi tarayıcısı okur ve adres başka kimseye gitmez.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Bir rolün metni sesli kayda dönüştürmesini sağlar; kayıt şirketin dosyalarında saklanır.",
   "Lift": "Kaldır",
   "Lift the pause": "Duraklatmayı kaldır",

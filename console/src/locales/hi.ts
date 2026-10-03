@@ -881,7 +881,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "भूमिकाओं को {name} के टूल इस्तेमाल करने दें",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "भूमिका को विवरण से चित्र बनाने देता है। चित्र कंपनी की फ़ाइलों में रखा जाता है, और भूमिका के ड्राफ़्ट में उसका नाम होता है।",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "भूमिका को पेज खोजने देता है: हर एक का शीर्षक, पता और एक अंश। इसकी खोजें आपके चुने प्रदाता के पास जाती हैं।",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "भूमिका को कोई एक पेज साफ़ टेक्स्ट के रूप में पढ़ने देता है, जिसे यह सर्वर नहीं, प्रदाता लाता है।",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "भूमिका को कोई एक पेज साफ़ टेक्स्ट के रूप में पढ़ने देता है। कोई प्रदाता न चुना हो, तो इस डिप्लॉयमेंट का अपना ब्राउज़र उसे पढ़ता है, यदि उसमें एक है, और पता किसी और को नहीं भेजा जाता।",
   "Lets a role turn text into a voice recording, kept in the company's files.": "भूमिका को टेक्स्ट से आवाज़ की रिकॉर्डिंग बनाने देता है, जो कंपनी की फ़ाइलों में रखी जाती है।",
   "Lift": "हटाएँ",
   "Lift the pause": "रोक हटाएँ",

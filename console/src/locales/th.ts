@@ -930,7 +930,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "ให้บทบาทใช้เครื่องมือของ {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "ให้บทบาทวาดภาพจากคำบรรยาย ภาพจะเก็บไว้ในไฟล์ของบริษัท และฉบับร่างของบทบาทจะระบุชื่อภาพ",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "ให้บทบาทค้นหาหน้าเว็บ ได้ชื่อเรื่อง ที่อยู่ และข้อความตัวอย่างของแต่ละหน้า คำค้นจะส่งไปยังผู้ให้บริการที่คุณเลือก",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "ให้บทบาทอ่านหน้าเว็บเป็นข้อความล้วน โดยผู้ให้บริการเป็นผู้ดึงหน้า ไม่ใช่เซิร์ฟเวอร์นี้",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "ให้บทบาทอ่านหน้าเว็บเป็นข้อความล้วน หากยังไม่ได้เลือกผู้ให้บริการ เบราว์เซอร์ของระบบนี้เองจะเป็นผู้อ่าน ถ้ามี และที่อยู่จะไม่ถูกส่งไปที่ใดอีก",
   "Lets a role turn text into a voice recording, kept in the company's files.": "ให้บทบาทแปลงข้อความเป็นไฟล์เสียง เก็บไว้ในไฟล์ของบริษัท",
   "Lift": "ปลดกักกัน",
   "Lift the pause": "ยกเลิกการหยุดชั่วคราว",

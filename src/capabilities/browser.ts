@@ -17,6 +17,7 @@ import { askOwner } from '../inbox/inbox.ts';
 import { assertNotHeld } from '../browser/holds.ts';
 import { checkSteps, MAX_STEPS, STEP_KINDS, type ActInput, type ActResult, type ActStep, type Browsers, type PageReading } from '../browser/browsers.ts';
 import { KEYS } from '../browser/page.ts';
+import { EXTRACT_SCHEMA, extractDescribed, MAX_PAGE_CHARS, type ExtractInput, type ExtractOutput } from './search.ts';
 
 function hostOf(url: unknown): string | null {
   try {
@@ -168,6 +169,37 @@ export function browserHandover(): Capability<{ reason: string }, { answered: bo
       throw new PalugadaError('owner.asked', 'the owner has been asked to take the browser over; this task waits until they give it back', {
         inboxItemId: asked.inboxItemId,
       });
+    },
+  };
+}
+
+/** Who read the page, as `web.extract` says it. */
+const BROWSER_READER = 'This deployment\'s browser';
+
+/**
+ * `web.extract` with no reading provider chosen: the page read in this
+ * deployment's own browser, in a context made for that one reading
+ * (`Browsers.extract`), so the address is not sent to anybody else and no
+ * company's sign-ins go with it. What the page's own scripts draw is read,
+ * as with a provider; unlike one, the page is reached from this server, so
+ * its address is held to the rules `web.fetch` is.
+ */
+export function webExtractByBrowser(browsers: Browsers): Capability<ExtractInput, ExtractOutput> {
+  return {
+    name: 'web.extract',
+    inputSchema: EXTRACT_SCHEMA,
+    adapter: 'extract:browser',
+    defaultTier: 0,
+    readsOutside: true,
+    describe: extractDescribed,
+    async execute(input, ctx) {
+      const url = String(input.url ?? '');
+      if (!/^https?:\/\//.test(url)) throw new PalugadaError('contract.violation', 'web.extract reads an http or https page', { field: 'url' });
+      const page = await browsers.extract({ companyId: ctx.companyId }, url, MAX_PAGE_CHARS, ctx.signal);
+      if (page.text === '') {
+        throw new PalugadaError('capability.unreachable', `${hostOf(page.url) ?? page.url} showed nothing readable`, { url: page.url });
+      }
+      return { provider: BROWSER_READER, url: page.url, title: page.title || null, text: page.text, truncated: page.more > 0 };
     },
   };
 }

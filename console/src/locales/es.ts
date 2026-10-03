@@ -911,7 +911,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Permitir que los roles usen las herramientas de {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Permite que un rol cree una imagen a partir de una descripción. Se guarda en los archivos de la empresa, y el borrador del rol la menciona.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Permite que un rol encuentre páginas: el título, la dirección y un extracto de cada una. Sus consultas van al proveedor que usted elija.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Permite que un rol lea una página como texto limpio, obtenida por el proveedor y no por este servidor.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Permite que un rol lea una página como texto limpio. Si no se elige ningún proveedor, la lee el propio navegador de esta instancia, si tiene uno, y la dirección no se envía a nadie más.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Permite que un rol convierta texto en una grabación de voz, que se guarda en los archivos de la empresa.",
   "Lift": "Liberar",
   "Lift the pause": "Levantar la pausa",

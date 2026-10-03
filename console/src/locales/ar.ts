@@ -908,7 +908,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "السماح للأدوار باستخدام أدوات {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "يتيح للدور رسم صورة من وصف. تُحفظ الصورة في ملفات الشركة، وتذكرها مسودة الدور باسمها.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "يتيح للدور إيجاد الصفحات: عنوان كل منها ورابطها ومقتطف منها. وتذهب استعلاماته إلى المزوّد المختار.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "يتيح للدور قراءة صفحة واحدة كنص نظيف، يجلبها المزوّد لا هذا الخادم.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "يتيح للدور قراءة صفحة واحدة كنص نظيف. إن لم يُختر مزوّد، يقرؤها متصفح هذه المنصة نفسها إن وُجد، ولا يُرسل العنوان إلى أي جهة أخرى.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "يتيح للدور تحويل النص إلى تسجيل صوتي، يُحفظ في ملفات الشركة.",
   "Lift": "رفع",
   "Lift the pause": "رفع الإيقاف المؤقت",

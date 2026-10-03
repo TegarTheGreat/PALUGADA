@@ -891,7 +891,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Hayaang gamitin ng mga role ang mga tool ng {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Hinahayaan ang isang role na gumuhit ng larawan mula sa isang paglalarawan. Itinatago ito sa mga file ng kumpanya, at binabanggit ito ng draft ng role.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Hinahayaan ang isang role na maghanap ng mga page: pamagat, address at snippet ng bawat isa. Pumupunta ang mga query nito sa provider na pipiliin mo.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Hinahayaan ang isang role na basahin ang isang page bilang malinis na teksto, na kinukuha ng provider sa halip na ng server na ito.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Hinahayaan ang isang role na basahin ang isang page bilang malinis na teksto. Kung walang napiling provider, ang sariling browser ng deployment na ito ang bumabasa nito, kung mayroon, at hindi ipinapadala ang address kaninuman.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Hinahayaan ang isang role na gawing voice recording ang teksto, na itinatago sa mga file ng kumpanya.",
   "Lift": "Alisin",
   "Lift the pause": "Alisin ang pause",

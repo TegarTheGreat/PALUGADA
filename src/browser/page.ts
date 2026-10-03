@@ -143,6 +143,33 @@ export const PAGE_SCRIPT = `(() => {
         : whole;
       return { url: location.href, title: document.title, text, elements, moreElements: more };
     },
+    /**
+     * What the page says, without what is around it: its menu, its header
+     * and footer, what it suggests reading next. Those are hidden for the
+     * moment it takes to read the rest as a person sees it, and put back.
+     */
+    article(maxText) {
+      const articles = document.querySelectorAll('article');
+      const root = articles.length === 1 ? articles[0] : (document.querySelector('main, [role=main]') || document.body);
+      if (!root) return { url: location.href, title: document.title, text: '', more: 0 };
+      const around = 'nav, aside, form, dialog, [role=navigation], [role=complementary], [role=search], [role=dialog], [aria-hidden=true]'
+        + (root === document.body ? ', header, footer, [role=banner], [role=contentinfo]' : '');
+      const hidden = [];
+      let whole = '';
+      try {
+        for (const el of root.querySelectorAll(around)) {
+          hidden.push([el, el.getAttribute('style')]);
+          el.style.setProperty('display', 'none', 'important');
+        }
+        whole = root.innerText.replace(/\\n{3,}/g, '\\n\\n').trim();
+      } finally {
+        for (const [el, style] of hidden.reverse()) {
+          if (style === null) el.removeAttribute('style');
+          else el.setAttribute('style', style);
+        }
+      }
+      return { url: location.href, title: document.title, text: whole.slice(0, maxText), more: Math.max(0, whole.length - maxText) };
+    },
     /** The element a ref names, as it is now; or why there is none. */
     check(ref) {
       const el = refs.get(ref);

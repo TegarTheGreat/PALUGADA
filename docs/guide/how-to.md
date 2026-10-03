@@ -684,7 +684,9 @@ each is tier 3 and asks you every time; reading the page
 
 A role finds pages with `web.search` and reads one as clean text with
 `web.extract`. Both go to a provider you choose: its index, its price, and
-where the queries go.
+where the queries go. Until you choose one for reading pages, a deployment
+with a Chromium reads them in its own browser, and the address goes to
+nobody else.
 
 1. Open **This deployment**, **Tools**.
 2. Under **Web search**, choose a **Provider**. Those under **Free to start,
@@ -696,8 +698,9 @@ where the queries go.
    it would give a role are shown, and nothing is saved.
 4. Press **Save** and confirm with a code. PALUGADA starts itself again, and
    `web.search` is bound.
-5. Do the same under **Reading pages** for `web.extract`. Jina Reader reads
-   twenty pages a minute without a key.
+5. Do the same under **Reading pages** for `web.extract`, or leave it for
+   the deployment's browser to read them. Jina Reader reads twenty pages a
+   minute without a key; a Firecrawl of your own is **Your own server**.
 
 The standard template grants both to Delivery and Growth, and the planner
 searches before it plans; give them to another role on **Team**. What a

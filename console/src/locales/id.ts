@@ -831,7 +831,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Izinkan peran memakai alat {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Memungkinkan peran menggambar dari sebuah deskripsi. Gambarnya disimpan di berkas perusahaan, dan draf peran menyebut namanya.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Memungkinkan peran menemukan halaman: judul, alamat, dan cuplikan masing-masing. Kata kuncinya dikirim ke penyedia yang Anda pilih.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Memungkinkan peran membaca satu halaman sebagai teks bersih, diambil oleh penyedia, bukan oleh server ini.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Memungkinkan peran membaca satu halaman sebagai teks bersih. Bila belum ada penyedia yang dipilih, browser milik deployment ini sendiri yang membacanya, jika ada, dan alamatnya tidak dikirim ke pihak lain.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Memungkinkan peran mengubah teks menjadi rekaman suara, disimpan di berkas perusahaan.",
   "Lift": "Cabut",
   "Lift the pause": "Cabut jeda",

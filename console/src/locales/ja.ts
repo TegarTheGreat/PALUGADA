@@ -906,7 +906,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "ロールに {name} のツールを使わせる",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "ロールが説明から画像を生成できるようにします。画像は会社のファイルに保存され、ロールの下書きにその名前が記されます。",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "ロールがページを検索できるようにします。各ページのタイトル、アドレス、抜粋が返ります。検索クエリは選んだプロバイダーに送られます。",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "ロールが 1 つのページをクリーンなテキストとして読めるようにします。ページの取得は、このサーバーではなくプロバイダーが行います。",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "ロールが 1 つのページをクリーンなテキストとして読めるようにします。プロバイダーを選んでいない場合は、このインスタンス自身のブラウザ（あれば）が読み、アドレスは他のどこにも送られません。",
   "Lets a role turn text into a voice recording, kept in the company's files.": "ロールがテキストを音声録音に変換できるようにします。録音は会社のファイルに保存されます。",
   "Lift": "解除",
   "Lift the pause": "一時停止を解除",

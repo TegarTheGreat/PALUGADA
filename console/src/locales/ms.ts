@@ -930,7 +930,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Benarkan peranan menggunakan alat {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Membolehkan peranan melukis gambar daripada penerangan. Ia disimpan dalam fail syarikat, dan draf peranan itu menamakannya.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Membolehkan peranan mencari halaman: tajuk, alamat dan petikan ringkas bagi setiap satu. Pertanyaannya dihantar kepada penyedia yang anda pilih.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Membolehkan peranan membaca satu halaman sebagai teks bersih, diambil oleh penyedia dan bukannya oleh pelayan ini.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Membolehkan peranan membaca satu halaman sebagai teks bersih. Jika tiada penyedia dipilih, pelayar pemasangan ini sendiri yang membacanya, jika ada, dan alamatnya tidak dihantar kepada sesiapa pun.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Membolehkan peranan menukar teks kepada rakaman suara, disimpan dalam fail syarikat.",
   "Lift": "Tamatkan",
   "Lift the pause": "Tamatkan jeda",

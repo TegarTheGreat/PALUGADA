@@ -912,7 +912,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Rollen de tools van {name} laten gebruiken",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Laat een rol een afbeelding maken op basis van een beschrijving. Die wordt in de bestanden van het bedrijf bewaard, en het concept van de rol verwijst ernaar.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Laat een rol pagina's vinden: van elke een titel, een adres en een fragment. De zoekopdrachten gaan naar de aanbieder die je kiest.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Laat een rol één pagina als schone tekst lezen, opgehaald door de aanbieder in plaats van door deze server.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Laat een rol één pagina als schone tekst lezen. Is er geen aanbieder gekozen, dan leest de eigen browser van deze installatie haar, als die er een heeft, en gaat het adres naar niemand anders.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Laat een rol tekst omzetten in een spraakopname, bewaard in de bestanden van het bedrijf.",
   "Lift": "Opheffen",
   "Lift the pause": "Pauze opheffen",

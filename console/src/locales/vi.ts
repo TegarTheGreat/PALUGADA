@@ -935,7 +935,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Cho phép vai trò dùng công cụ của {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Cho phép vai trò vẽ hình từ mô tả. Hình được lưu trong tệp của công ty, và bản nháp của vai trò ghi tên hình đó.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Cho phép vai trò tìm trang web: tiêu đề, địa chỉ và đoạn trích của mỗi trang. Truy vấn được gửi đến nhà cung cấp bạn chọn.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Cho phép vai trò đọc một trang dưới dạng văn bản sạch, do nhà cung cấp tải về thay vì máy chủ này.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Cho phép vai trò đọc một trang dưới dạng văn bản sạch. Khi chưa chọn nhà cung cấp, trình duyệt riêng của hệ thống này sẽ đọc trang, nếu có, và địa chỉ không được gửi cho ai khác.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Cho phép vai trò chuyển văn bản thành bản ghi âm giọng nói, lưu trong tệp của công ty.",
   "Lift": "Gỡ",
   "Lift the pause": "Bỏ tạm dừng",

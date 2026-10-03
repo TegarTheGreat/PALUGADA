@@ -897,7 +897,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "允许角色使用 {name} 的工具",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "让角色根据描述生成图片。图片保存在公司文件中，角色的草稿会注明其名称。",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "让角色查找网页：返回每个网页的标题、地址和摘要。查询会发送给您选择的提供商。",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "让角色以纯净文本读取单个网页，由提供商而非本服务器抓取。",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "让角色以纯净文本读取单个网页。未选择提供商时，由本部署自己的浏览器（如果有）读取，网址不会发给任何其他方。",
   "Lets a role turn text into a voice recording, kept in the company's files.": "让角色把文本转为语音录音，保存在公司文件中。",
   "Lift": "解除",
   "Lift the pause": "解除暂停",

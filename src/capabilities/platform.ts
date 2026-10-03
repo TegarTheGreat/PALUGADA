@@ -28,7 +28,7 @@ import { speechTranscribe, type ListenBinding } from './listen.ts';
 import { filesList, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
-import { browserCapabilities } from './browser.ts';
+import { browserCapabilities, webExtractByBrowser } from './browser.ts';
 import type { Browsers } from '../browser/browsers.ts';
 
 export interface PlatformCapabilityOptions {
@@ -46,7 +46,10 @@ export interface PlatformCapabilityOptions {
   /** Omitted means the drafting pair stays unbound. */
   llm?: LlmClient;
   draftModel?: string;
-  /** The search and reading providers the owner chose; omitted, `web.search` and `web.extract` stay unbound. */
+  /**
+   * The search and reading providers the owner chose; omitted, `web.search`
+   * stays unbound, and `web.extract` is the browser's when there is one.
+   */
   search?: ToolBinding<SearchProvider>;
   extract?: ToolBinding<ExtractProvider>;
   /** Pictures and speech, kept in the company's files. */
@@ -62,6 +65,7 @@ export interface PlatformCapabilityOptions {
   /**
    * The companies' browsers (`src/browser/`): a Chromium this deployment
    * found or was given. Omitted, `browser.read` and `browser.act` stay unbound.
+   * Given, it also reads pages for `web.extract` when no provider is chosen.
    */
   browser?: Browsers;
 }
@@ -85,7 +89,10 @@ export function platformCapabilities(
     built.push(filesList(options.files) as unknown as Capability<never, never>);
   }
   if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
+  // A page is read by the provider the owner chose; with none, by this
+  // deployment's browser when it has one, which sends the address nowhere.
   if (options.extract) built.push(webExtract(options.extract) as unknown as Capability<never, never>);
+  else if (options.browser) built.push(webExtractByBrowser(options.browser) as unknown as Capability<never, never>);
   if (options.image) built.push(imageGenerate(options.image) as unknown as Capability<never, never>);
   if (options.speech) built.push(speechSynthesize(options.speech) as unknown as Capability<never, never>);
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);

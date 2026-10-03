@@ -790,7 +790,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     },
     ...(browsers ? { browser: browsers } : {}),
   });
-  notes.push(...toolBindings.notes);
+  // With no page reader bound, the browser reads pages: say so where the
+  // note would have said they cannot be read.
+  const unread = 'web.extract is unbound: ';
+  notes.push(...toolBindings.notes.map((note) => (browsers && note.startsWith(unread)
+    ? `web.extract reads pages in this deployment's browser, as no provider is bound: ${note.slice(unread.length)}`
+    : note)));
   // A search for a role's documents reaches the provider through this: the
   // binding is the deployment's, and the search runs inside a capability.
   useMeaning(toolBindings.embed ?? null);

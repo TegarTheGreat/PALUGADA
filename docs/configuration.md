@@ -337,7 +337,8 @@ or the one these name:
 | `PALUGADA_SEARCH_PROVIDER` | Where `web.search` goes: `brave`, `tavily`, `exa`, `firecrawl`, `perplexity`, `parallel`, `keenable`, `jina`, `serpapi`, `serper`, or your own `searxng` or `firecrawl-self-hosted` |
 | `PALUGADA_SEARCH_URL` | Your own server's address, for `searxng` and `firecrawl-self-hosted` |
 | `PALUGADA_SEARCH_KEY_REF` | The provider's key, as a secret reference. `tavily`, `firecrawl` and `keenable` answer without one, at a rate-limited free tier |
-| `PALUGADA_EXTRACT_PROVIDER` | Where `web.extract` goes: `jina`, `firecrawl`, `tavily`, `exa`, `parallel` or `keenable` |
+| `PALUGADA_EXTRACT_PROVIDER` | Where `web.extract` goes: `jina`, `firecrawl`, `tavily`, `exa`, `parallel`, `keenable`, or your own `firecrawl-self-hosted`. Unset, a deployment with a Chromium reads pages in its own browser |
+| `PALUGADA_EXTRACT_URL` | Your own server's address, for `firecrawl-self-hosted` |
 | `PALUGADA_EXTRACT_KEY_REF` | Its key. `jina` (20 pages a minute), `firecrawl`, `tavily` and `keenable` answer without one |
 
 `image.generate`, `speech.synthesize` and `speech.transcribe` are chosen the same way; the last two also let the owner speak to the assistant and hear it, which needs no files. What they

@@ -156,7 +156,10 @@ refer to `docs/PRD.md`.
    (`src/capabilities/reachable.ts`). A company's browser does the same for
    every request a page makes -- pictures, scripts, redirects -- through the
    platform's proxy (`src/browser/egress.ts`), with Chromium resolving no
-   name itself and no exception for loopback.
+   name itself and no exception for loopback. `web.extract` with no
+   provider chosen reads in that browser too, under the same proxy, in a
+   context made for the one reading and thrown away after it: no company's
+   sign-ins go with it, and nothing a page leaves reaches the next.
 7b. The owner's own hand in the browser takes their device, holds the
    company's work off the browser while it lasts, and lapses when left; what
    they type goes to the page and to no event, journal or log

@@ -908,7 +908,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "역할이 {name}의 도구를 쓰게 하기",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "역할이 설명으로 이미지를 그리게 해요. 이미지는 회사 파일에 보관되고, 역할의 초안에 그 이름이 적혀요.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "역할이 페이지를 찾게 해요: 각 페이지의 제목, 주소, 요약을 보여 줘요. 검색어는 선택한 제공업체로 보내져요.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "역할이 한 페이지를 깔끔한 텍스트로 읽게 해요. 페이지는 이 서버가 아니라 제공업체가 가져와요.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "역할이 한 페이지를 깔끔한 텍스트로 읽게 해요. 제공업체를 고르지 않았다면 이 인스턴스의 브라우저가 (있다면) 읽고, 주소는 다른 누구에게도 보내지 않아요.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "역할이 텍스트를 음성 녹음으로 바꾸게 해요. 녹음은 회사 파일에 보관돼요.",
   "Lift": "해제",
   "Lift the pause": "일시 중지 해제",

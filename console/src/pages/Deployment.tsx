@@ -915,7 +915,7 @@ interface ToolsView {
 
 const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   search: { title: N('Web search'), hint: N('Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.') },
-  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text, fetched by the provider rather than by this server.') },
+  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text. With no provider chosen, this deployment\'s own browser reads it, if it has one, and the address goes to nobody else.') },
   image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
   speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
   listen: { title: N('Listening'), hint: N('Writes down what is said: what you say to the assistant, and recordings in the company\'s files for a role.') },
@@ -939,6 +939,7 @@ const TOOL_ABOUT: Record<string, string> = {
   'extract:firecrawl': N('A free tier without a key'),
   'extract:tavily': N('A free tier without a key'),
   'extract:keenable': N('A free tier without a key, shared by IP'),
+  'extract:firecrawl-self-hosted': N('A Firecrawl you run'),
   'image:openai': N('GPT Image'),
   'image:fal': N('FLUX and other open models, fast and cheap'),
   'image:openrouter': N('Image models from several labs, one key'),

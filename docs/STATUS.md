@@ -8135,6 +8135,54 @@ What changed:
   stopped platform started and found answering.
 - **Not done**: installing without Docker, and a hosted instance.
 
+## 2.125 With no reader chosen, the deployment's browser reads pages (tools research, recommendation 4)
+
+`docs/RESEARCH-TOOLS-2026-10-03.md` found that every `web.extract` went to
+a third party that saw the address, and recommended a local reader and a
+self-hosted Firecrawl. A deployment with a Chromium (2.121, 2.123) already
+has the local reader: it reads a page as a person sees it, scripts and
+all, which a library parsing the HTML does not, and adds no dependency.
+
+What changed:
+
+- **`web.extract` is the browser's** when no provider is bound and the
+  deployment has a Chromium (`webExtractByBrowser`,
+  `src/capabilities/browser.ts`): same name, schema and output, adapter
+  `extract:browser`, tier 0, `readsOutside`. A provider the owner chose is
+  used instead, and one chosen but not usable (no key, no address) leaves
+  the browser reading and says why at boot, where the note used to say the
+  capability was unbound.
+- **What a page says, without what is around it.** `__palugada.article`
+  (`src/browser/page.ts`) reads the one `article`, else `main`, else the
+  body, as `innerText`, with menus, asides, forms, dialogs and anything
+  hidden from a screen reader left out -- and the header and footer too
+  when it reads the whole body -- by hiding them for the moment of the
+  reading and putting each element's own style back. At most 60,000
+  characters, as with a provider, and `truncated` says when there were
+  more.
+- **Nobody's browser.** `Browsers.extract` makes a context for the one
+  reading, through the same proxy and under the same address rules, and
+  disposes of it after: no company's sign-ins are sent, nothing the page
+  sets is sealed, nothing reaches the next reading, and no tab is left
+  for the owner's **Browser**. The site is told the company's language
+  and time zone, as the company's browser tells it. Four read at once;
+  a fifth waits as a busy capability does.
+- **A Firecrawl you run** reads pages too (`firecrawl-self-hosted`, with
+  `PALUGADA_EXTRACT_URL`), as it already searched.
+- **The console** says under **Tools**, **Reading pages**, that with no
+  provider the deployment's own browser reads pages when it has one.
+- **Tested.** `browser.test.ts`: bound to the browser with no provider and
+  to Jina with one; an article page read without its menu, footer and
+  aside, with what its script wrote; read twice for a company signed in
+  elsewhere, and sent no cookie either time; a metadata address refused as
+  inside this network; the company's sealed sign-in unchanged and its tabs
+  as they were. `web-search.test.ts`: the self-hosted Firecrawl goes to the
+  owner's server; boot with the browser off says `web.extract` is unbound,
+  and with a Chromium says the browser reads pages and binds it.
+- **Not done**: the research's Readability provider, which the browser
+  makes unnecessary where there is a Chromium. A deployment with neither a
+  Chromium nor a provider still has no `web.extract`, and says so at boot.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8178,12 +8226,13 @@ this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
 **Thirty-nine of the fifty-two catalogued capabilities are unbound on a bare
-boot -- thirty-six on a machine with a Chromium -- and that is the design
+boot -- thirty-five on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Eleven need configuration, not
 an account: `files.list`, `doc.draft` and `email.draft` a files root and a
-model; `web.search`, `web.extract`, `image.generate`, `speech.synthesize` and
-`speech.transcribe` a provider chosen under **Tools**; and `browser.read`,
-`browser.act` and `browser.handover` a Chromium. The other twenty-eight need a deployment's own vendor entry,
+model; `web.search`, `image.generate`, `speech.synthesize` and
+`speech.transcribe` a provider chosen under **Tools**; `web.extract` one of
+those or a Chromium; and `browser.read`, `browser.act` and
+`browser.handover` a Chromium. The other twenty-eight need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them

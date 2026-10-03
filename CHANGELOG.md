@@ -320,6 +320,10 @@ The first version. What it holds, in the order an owner meets it.
   your install, mends what is safe to mend, and says what to do about the
   rest; `sh ~/palugada/install.sh rollback` goes back to the code the last
   update replaced, which each update now keeps (STATUS 2.124).
+- With no provider chosen under **Tools** for **Reading pages**, a role
+  reads a page in the deployment's own browser, without any company's
+  sign-ins, and the address goes to nobody else; a Firecrawl you run can
+  be chosen there too (STATUS 2.125).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

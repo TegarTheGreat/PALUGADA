@@ -915,7 +915,7 @@ export const DICTIONARY: Dictionary = {
   "Let roles use the tools of {name}": "Разрешить ролям использовать инструменты {name}",
   "Lets a role draw a picture from a description. It is kept in the company's files, and the role's draft names it.": "Позволяет роли нарисовать изображение по описанию. Оно сохраняется в файлах компании, а в черновике роли указано его имя.",
   "Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.": "Позволяет роли находить страницы: заголовок, адрес и фрагмент каждой. Запросы уходят выбранному вами провайдеру.",
-  "Lets a role read one page as clean text, fetched by the provider rather than by this server.": "Позволяет роли прочитать одну страницу как чистый текст; страницу загружает провайдер, а не этот сервер.",
+  "Lets a role read one page as clean text. With no provider chosen, this deployment's own browser reads it, if it has one, and the address goes to nobody else.": "Позволяет роли прочитать одну страницу как чистый текст. Если провайдер не выбран, её читает собственный браузер этой установки, если он есть, и адрес никуда больше не уходит.",
   "Lets a role turn text into a voice recording, kept in the company's files.": "Позволяет роли превращать текст в голосовую запись, которая сохраняется в файлах компании.",
   "Lift": "Снять",
   "Lift the pause": "Снять паузу",

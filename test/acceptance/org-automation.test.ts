@@ -216,14 +216,19 @@ test('a role that hands work on is told which roles there are to hand it to (N1)
   }));
   assert.equal(marketer.sections.some((section) => section.kind === 'team'), false);
 
-  // A frozen role is listed as one whose work waits, so it is not chosen blind.
+  // A frozen role is listed as one, so it is not chosen blind: handed work,
+  // it refuses it, which is what the list says.
   await withTenant(company.companyId, (tx) => tx.query(
     "UPDATE roles SET frozen_at = now(), frozen_reason = 'test' WHERE slug = 'bookkeeper'"));
   const again = await withTenant(company.companyId, (tx) => buildContext(tx, {
     companyId: company.companyId, divisionId: company.divisionIds.ops!, taskId: route.id,
   }));
   assert.match(again.sections.find((section) => section.kind === 'team')!.body,
-    /^- bookkeeper: Dimas, CFO, in Finance\. .*\(Frozen by the owner: work handed to it waits until they unfreeze it\.\)$/m);
+    /^- bookkeeper: Dimas, CFO, in Finance\. .*\(Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so\.\)$/m);
+  await assert.rejects(new CapabilityBroker(registry).invoke({
+    companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.ops!,
+    roleId: company.roleIds.coordinator!, taskId: route.id, idempotencyKey: 'to-the-frozen',
+  }, 'task.delegate', { role: 'bookkeeper', brief: 'Pay the roaster.' }), /is frozen and cannot be given work/);
 });
 
 test('a delegation takes a role by its slug, title or name, and a name that is none of them is told the roles there are (N1)', async () => {

@@ -330,8 +330,9 @@ const TEAM_LIMIT = 60;
  * were gone and the owner's request had produced nothing. A role is named by
  * its slug, so the list leads with the slug, then who the role is and its
  * first sentence of charter, which says what its job is. A frozen role is
- * listed as one, because work handed to it waits for the owner. Not dropped
- * to fit: without it the role cannot do the one thing it is for.
+ * listed as one, because delegating to it is refused until the owner
+ * unfreezes it. Not dropped to fit: without it the role cannot do the one
+ * thing it is for.
  */
 async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
   const { rows } = await tx.query<{
@@ -351,7 +352,7 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
     const who = [role.display_name, role.title].filter(Boolean).join(', ');
     const where = who ? `${who}, in ${role.division}.` : `In ${role.division}.`;
     const job = firstSentence(role.system_prompt);
-    const frozen = role.frozen ? ' (Frozen by the owner: work handed to it waits until they unfreeze it.)' : '';
+    const frozen = role.frozen ? ' (Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so.)' : '';
     return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${frozen}`;
   });
   const more = rows.length - lines.length;

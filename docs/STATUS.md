@@ -5871,7 +5871,8 @@ to the marketer.
   to" (`teamSections`, `src/context/builder.ts`). It lists every other role
   of the company by slug, then its name, title and division, then the first
   sentence of its charter, which in every template says what the role does.
-  A frozen role is marked as one whose work waits for the owner. The list
+  A frozen role is marked as frozen and taking no work, which is what
+  delegating to it meets: `createSubTask` refuses it. The list
   stops at sixty roles and says how many more there are. It follows the
   role's contract and is never dropped to fit: without it the role cannot do
   the one thing it is for. A runtime is handed it among its notes
@@ -5891,7 +5892,8 @@ to the marketer.
 - **Tested.** `org-automation.test.ts`:
   - The coordinator's pack lists every other role and not itself.
   - The marketer, which cannot hand work on, gets no list.
-  - A frozen role is marked.
+  - A frozen role is marked, and delegating to it is refused, as the mark
+    says.
   - A runtime running the coordinator is handed the list among its notes.
     This assertion failed until `team` was added to `NOTE_KINDS`.
   - A delegation by title and by name reaches the marketer.

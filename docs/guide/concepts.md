@@ -159,7 +159,9 @@ read-back, an unhealthy capability, no runtime to run it, a cycle between
 roles, splitting into more sub-tasks than it may have, one run writing more
 tokens than its role allows a run, a journal that no longer matches, or a
 crash loop (it lost its worker three times). To try again, use **Do it
-again**, which starts a new task.
+again**, which starts a new task. What the stopped task already wrote or
+sent is not done a second time: the new task is told it, and a write it
+repeats word for word is answered from the old task's record.
 
 A task its budget stopped is the exception. It puts an item in your inbox
 naming the work and the account that has no tokens left, and it reaches your

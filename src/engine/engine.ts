@@ -24,7 +24,8 @@ import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
-import { journalOf, reopenFinalTurns, runStep, type StepKind } from './journal.ts';
+import { journalOf, reopenFinalTurns, runStep, writtenBefore, type StepKind } from './journal.ts';
+import { unfinishedAttempts } from './owner-control.ts';
 import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
@@ -687,6 +688,10 @@ export class Engine {
     // randomness inside a handler is a defect.
     let stepIndex = 0;
 
+    // N12: the attempts at this work that did not finish, when this run does
+    // it again. What they wrote stands, and is not written again.
+    const lineage = await withTenant(companyId, (tx) => unfinishedAttempts(tx, taskId));
+
     // F5.12: the lease is kept while the run is in flight, not only when a
     // step commits. One step can be long -- a child task awaited, an agent CLI
     // thinking with no tool call to show for it -- and a lease renewed only at
@@ -776,7 +781,7 @@ export class Engine {
         const index = stepIndex++;
         placed?.(index);
         const { value } = await runStep(
-          { companyId, taskId },
+          { companyId, taskId, keyTaskId: lineage.at(-1) },
           {
             stepIndex: index,
             name,
@@ -852,6 +857,20 @@ export class Engine {
       }
       try {
         return await step(`capability:${name}`, 'tool', { name, input }, async (key) => {
+            // N12: a write an unfinished attempt before this one already
+            // made with this very call is answered from its record. The
+            // rerun was a task of its own, and made it again.
+            const before = lineage.length === 0 ? null : await withTenant(companyId, async (tx) => {
+              const found = await writtenBefore(tx, lineage, `capability:${name}`, { name, input });
+              if (found) {
+                await appendEvent(tx, {
+                  companyId, projectId: task.projectId, taskId, type: 'tool.not_repeated', actor: 'engine',
+                  payload: { capability: name, fromTaskId: found.taskId, stepIndex: found.stepIndex },
+                });
+              }
+              return found;
+            });
+            if (before) return before.output as O;
             const result = await this.#options.broker.invoke<I, O>(
               {
                 companyId, projectId: task.projectId, divisionId: task.divisionId,

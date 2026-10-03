@@ -56,6 +56,7 @@ function describe(step: TraceStep): {
     };
   }
   if (step.name === 'tool.called' && capability) return { title: t('Called {capability}', { capability }), badges, parts, error, failed: false, outside: false };
+  if (step.name === 'tool.not_repeated' && capability) return { title: t('{capability} not done again: an earlier attempt had already done it', { capability }), badges: [], parts, error, failed: false, outside: false };
   if (step.name === 'tool.verified' && capability) return { title: t('{capability} read back and matched', { capability }), badges: [], parts, error, failed: false, outside: false };
   if (step.name === 'tool.verify_failed' && capability) return { title: t('{capability} read back differently', { capability }), badges: [], parts, error, failed: true, outside: false };
   if (step.name === 'content.read_outside' && capability) return { title: t('Read content from outside through {capability}', { capability }), badges: [], parts, error, failed: false, outside: true };

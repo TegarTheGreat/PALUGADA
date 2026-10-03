@@ -70,6 +70,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'agent_run.leftover_ended': N("A process left running by this task's run was ended"),
   'tool.called': N('Capability used'),
   'tool.cost': N('Capability cost recorded'),
+  'tool.not_repeated': N('Not done again: an earlier attempt had already done it'),
   'approval.requested': N('Approval requested'),
   'approval.used': N('Approved action executed'),
   'approval.superseded': N('Approval replaced by a new proposal'),

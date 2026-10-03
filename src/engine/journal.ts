@@ -27,6 +27,13 @@ export type StepKind = 'llm' | 'tool' | 'internal';
 export interface StepContext {
   companyId: string;
   taskId: string;
+  /**
+   * The task a tool call's key is made from, when it is not this one: the
+   * first of the unfinished attempts this one does again (N12), so a write
+   * whose answer never came reaches the vendor under the key it was first
+   * sent with.
+   */
+  keyTaskId?: string | undefined;
 }
 
 export interface StepRecord {
@@ -110,7 +117,9 @@ export async function runStep<T>(
   const kept = keptInput(options.kind, options.input);
   // A tool call is keyed by what it does, so a write tried again is the
   // same write to the vendor; every other step by its place in the run.
-  const key = options.kind === 'tool' ? callKey(ctx.taskId, inputHash) : idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
+  const key = options.kind === 'tool'
+    ? callKey(ctx.keyTaskId ?? ctx.taskId, inputHash)
+    : idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
 
   const claim = await withTenant(ctx.companyId, async (tx) => {
     const step = await findStep(tx, ctx.taskId, options.stepIndex);
@@ -198,6 +207,57 @@ export async function runStep<T>(
   }
 
   return { value, replayed: false };
+}
+
+/**
+ * The committed writes of earlier attempts at the same work (N12): their tool
+ * steps whose call the broker made at tier 1 or above, oldest first. A read
+ * is not among them; it changed nothing, and what it read may have changed
+ * since.
+ */
+const EARLIER_WRITES = `
+  SELECT s.task_id, s.step_index, s.name, s.input, s.output
+    FROM task_steps s
+   WHERE s.task_id = ANY($1::uuid[]) AND s.kind = 'tool' AND s.status = 'committed'
+     AND EXISTS (SELECT 1 FROM events e
+                  WHERE e.task_id = s.task_id AND e.type = 'tool.called'
+                    AND e.payload->>'idempotencyKey' = s.idempotency_key
+                    AND (e.payload->>'tier')::int >= 1)`;
+
+export interface EarlierWrite {
+  taskId: string;
+  stepIndex: number;
+  name: string;
+  input: unknown;
+  output: unknown;
+}
+
+/** The writes the earlier attempts committed, oldest first. */
+export async function earlierWrites(tx: TenantClient, attempts: readonly string[]): Promise<EarlierWrite[]> {
+  if (attempts.length === 0) return [];
+  const { rows } = await tx.query<{ task_id: string; step_index: number; name: string; input: unknown; output: unknown }>(
+    `${EARLIER_WRITES} ORDER BY s.committed_at, s.step_index`, [attempts]);
+  return rows.map((row) => ({
+    taskId: row.task_id, stepIndex: row.step_index, name: row.name, input: row.input, output: row.output,
+  }));
+}
+
+/**
+ * The write an earlier attempt already made with this very call -- the same
+ * step name and the same input -- if one did (N12).
+ */
+export async function writtenBefore(
+  tx: TenantClient,
+  attempts: readonly string[],
+  name: string,
+  input: unknown,
+): Promise<EarlierWrite | null> {
+  if (attempts.length === 0) return null;
+  const { rows } = await tx.query<{ task_id: string; step_index: number; name: string; input: unknown; output: unknown }>(
+    `${EARLIER_WRITES} AND s.name = $2 AND s.input_hash = $3 ORDER BY s.committed_at, s.step_index LIMIT 1`,
+    [attempts, name, hashInput(input)]);
+  const row = rows[0];
+  return row ? { taskId: row.task_id, stepIndex: row.step_index, name: row.name, input: row.input, output: row.output } : null;
 }
 
 /** Records this claim of a step as failed, and nobody else's. */

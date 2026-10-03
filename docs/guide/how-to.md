@@ -303,7 +303,10 @@ Open the task from **Work** (or **Open the task** on an inbox item).
   and your optional note. A halted task is never retried by itself; this is
   how you retry it. The new task is told everything you said to the tasks
   it replaces: your notes, and your answers to their questions, however
-  many times the work was done again.
+  many times the work was done again. When the task it replaces did not
+  finish, the new one carries on from it: it is told what that one wrote
+  or sent, and the same write is answered from that record rather than
+  made twice. Work that finished, done again, is done again in full.
 - **Replay against the journal** runs the handler again with every side
   effect answered from the record. Nothing leaves. It is offered only for a
   role this deployment runs as code in its own process; a role run by a

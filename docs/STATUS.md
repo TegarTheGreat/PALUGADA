@@ -6777,6 +6777,54 @@ What changed:
   running, the run that asks again is given the answer and does not park,
   and a second answer is refused as already decided.
 
+## 2.91 Doing unfinished work again does not do again what it already did (F5.2, N12)
+
+Found by the analysis of 3 October (N12), from the code. **Do it again**
+makes a new task, so every write the new task made carried a key of its
+own (`callKey` is made from the task) and its journal was empty. The run
+was told only that the attempt before it "ended halted" -- not that it had
+written the note, sent the email or posted the update. A rerun after a
+deadline, a hop limit or a stop could therefore make every write again,
+and tier 1 and 2 writes are not put to the owner on the way.
+
+What changed:
+
+- **Which attempts count** (`unfinishedAttempts`,
+  `src/engine/owner-control.ts`): the attempts before this one, back to
+  the last that finished. Work that finished, asked for again, is new work:
+  the owner saw it done, and asking again means doing it again -- the
+  report written afresh, the newsletter sent once more.
+- **The run is told what they wrote.** Among its notes, and never dropped
+  for room: each write those attempts committed -- a call the broker made at
+  tier 1 or above -- with what it was given and what it returned, as data,
+  the last twenty of them. A read is not listed: it changed nothing, and
+  what it read may have changed since.
+- **The same write is answered from their record** (`writtenBefore`,
+  `src/engine/journal.ts`; the engine's `callTool`). A call with the same
+  capability and the same input as a write they committed returns what it
+  returned then, is journalled in this task, and is recorded as
+  `tool.not_repeated`, which the task's history shows as "not done again:
+  an earlier attempt had already done it". Nothing reaches the vendor, and
+  nothing is charged. A read is made again.
+- **A write whose answer never came goes under the key it was first sent
+  with.** A tool call's key is now made from the first of the unfinished
+  attempts rather than from the rerun, so a vendor that acted on a call
+  whose answer was lost when the attempt stopped can tell the second for
+  the same write.
+- **Not changed:** a call worded differently is a different call. The run
+  is told not to reword a call to do the same thing twice; it is not
+  prevented from writing something new.
+- **Not covered:** what an earlier attempt handed to another role. A child
+  task is a task of its own, and the rerun's children start fresh: a
+  coordinator's rerun can still have a child do again what the earlier
+  attempt's child did. Open.
+- **Tested.** `model-runtime.test.ts`: an attempt reads, writes a note,
+  sends a second note whose answer is lost, and is stopped; done again, the
+  run is told of the first note, makes the same three calls, and the read
+  is made again, the first note is answered from the record, and the
+  second goes to the vendor under its first key. Done again once more after
+  finishing, the same note is written again under a key of its own.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

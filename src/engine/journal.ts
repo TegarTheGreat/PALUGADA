@@ -240,6 +240,29 @@ export async function reopenFinalTurns(companyId: string, taskId: string, reason
   });
 }
 
+/**
+ * The turns that asked for an action the owner has a question about,
+ * reopened (N6), inside the transaction that records the question.
+ *
+ * The owner asked on an approval card and no model read it: the run went
+ * back to work, replayed from the journal the turn that had asked for the
+ * action -- a model's turn is journalled by its number alone -- made the same
+ * call, met the same open card and waited again. The model's turns after the
+ * last thing the run did in the world are asked again, with the question in
+ * their context; the tool steps before them stay committed, so nothing done
+ * is done twice, and the call waiting on the card was never committed.
+ */
+export async function reopenForQuestionWithin(tx: TenantClient, taskId: string, question: string): Promise<number> {
+  const { rowCount } = await tx.query(
+    `UPDATE task_steps SET status = 'failed', error = $2
+      WHERE task_id = $1 AND kind = 'llm' AND status = 'committed'
+        AND step_index > coalesce((SELECT max(step_index) FROM task_steps
+                                    WHERE task_id = $1 AND kind <> 'llm' AND status = 'committed'), -1)`,
+    [taskId, `the owner asked: ${question}`.slice(0, 2_000)],
+  );
+  return rowCount ?? 0;
+}
+
 /** One step of a task's journal, as far as evidence that cites it needs (engine/done.ts). */
 export interface JournalEntry {
   index: number;

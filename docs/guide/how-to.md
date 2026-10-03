@@ -217,7 +217,11 @@ never asked to be it.
    **History** and searched with it.
 4. Press **Approve** or **Deny**. To send a question back instead, write it
    in the note and press **Ask a question**. The item stays open, and the
-   task reads your question on its next run before it proposes again.
+   agent is asked again with your question in front of it. Its answer
+   appears on the same card under **The agent answered**, beside **You
+   asked**, and the card waits for your decision again; if the question
+   changed what it proposes, the card is replaced by one for the new
+   action, carrying the question and answer with it.
 
 A tier 3 action asks for a code after you press **Approve**, every time. The
 code covers that one action: if the agent comes back with a different amount

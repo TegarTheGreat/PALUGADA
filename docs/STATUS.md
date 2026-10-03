@@ -6710,6 +6710,41 @@ What changed:
 - **Tested.** `model-runtime.test.ts`: a run stopped after its first turn
   and resumed has that turn's words in its transcript once.
 
+## 2.89 A question on an approval card reaches the model, and its answer the card (F10.3, N6)
+
+Found by the audit of 30 September (Task 4, item 1) and still open on
+2 October (N6). The owner asked a question on an approval card; the console
+said "Question sent to the agent", and no model read it. The task went back
+to work, the agent loop replayed from its journal the turn that had asked
+for the action -- a model's turn is journalled by its number, and replayed
+without asking the model -- made the same call, met the same open card
+(`requestApproval` keeps one card per task and capability) and waited
+again. The question was in a context no model was given. And the run was
+told to "record your answer against inbox item …", with nothing to record
+it with. Only a role run by code in this process ever read a question,
+which is what the old tests covered.
+
+What changed:
+
+- **Asking reopens the turn** (`reopenForQuestionWithin`,
+  `src/engine/journal.ts`), in the transaction that records the question:
+  the model's turns after the last thing the run did in the world are asked
+  again. Tool steps before them stay committed, so nothing done is done
+  twice; the call waiting on the card was never committed.
+- **The run answers in its own words.** It is told to answer first, in a
+  sentence or two for the owner, then to ask for the action again if it
+  still stands, changed if it should be, or to say why not.
+- **The answer is kept on the card.** When the run asks for the action
+  again, what it said since the question is recorded with it on the card
+  (`asked`), and the card waits for the owner's decision again. If the
+  action changed, the new card carries the exchange; a run that said nothing
+  leaves the answer empty. The card shows **You asked** and **The agent
+  answered**, or that the agent is still reading.
+- **Tested.** `model-runtime.test.ts`: a run asks for a tier 3 transfer;
+  the owner asks why; the model is asked again with the question in its
+  context, answers and asks again; the same card holds the question and the
+  answer and is undecided.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

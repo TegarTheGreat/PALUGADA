@@ -16,6 +16,7 @@ import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, transitionWithin } from '../engine/tasks.ts';
+import { reopenForQuestionWithin } from '../engine/journal.ts';
 import { releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
@@ -121,6 +122,35 @@ export interface InboxItem {
    * (0083): an approval a policy asked for, at tier 2 or below, by a role.
    */
   allowFor: boolean;
+  /**
+   * What the owner asked on this card and what the run answered, oldest
+   * first; a question still waiting for its answer is last, with none (N6).
+   */
+  asked: Exchange[];
+}
+
+/** A question the owner asked on an approval card, and what the run answered; null until it has (N6). */
+export interface Exchange {
+  question: string;
+  answer: string | null;
+}
+
+/**
+ * What a run said after the owner asked about a card: the lines of its
+ * transcript since the question, which is its answer. Null when it said
+ * nothing and simply asked for the action again.
+ */
+async function answerSince(tx: TenantClient, taskId: string, itemId: string): Promise<string | null> {
+  const { rows } = await tx.query<{ body: string }>(
+    `SELECT n.body FROM run_notes n
+      WHERE n.task_id = $1
+        AND n.said_at > (SELECT max(e.occurred_at) FROM events e
+                          WHERE e.task_id = $1 AND e.type = 'owner.asked' AND e.payload->>'inboxItemId' = $2)
+      ORDER BY n.said_at, n.seq`,
+    [taskId, itemId],
+  );
+  const said = rows.map((row) => row.body).join('\n').trim();
+  return said ? said.slice(0, 2_000) : null;
 }
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
@@ -135,6 +165,8 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
   // an owner quick enough to answer it moved a task that was not waiting --
   // which the state machine refused, *after* the decision had been recorded.
   return withTenant(input.companyId, async (tx) => {
+    // What the owner asked about this action, and what the run answered (N6).
+    let asked: Exchange[] = [];
     // The task first, as every writer here takes it: task, then its items.
     if (input.taskId) {
       await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR NO KEY UPDATE', [input.taskId]);
@@ -150,14 +182,29 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       // describing the first proposal would have the owner approve something
       // other than what would run. That item is withdrawn as superseded and
       // the new proposal is asked about in its place.
-      const { rows } = await tx.query<{ id: string; action_fingerprint: string | null }>(
-        `SELECT id, action_fingerprint FROM inbox_items
+      const { rows } = await tx.query<{
+        id: string; action_fingerprint: string | null; decision: string | null; owner_note: string | null;
+        payload: { asked?: Exchange[] };
+      }>(
+        `SELECT id, action_fingerprint, decision, owner_note, payload FROM inbox_items
           WHERE task_id = $1 AND kind = 'approval' AND status = 'open'
             AND capability_name IS NOT DISTINCT FROM $2
           ORDER BY created_at LIMIT 1`,
         [input.taskId, input.capabilityName],
       );
       const open = rows[0] ?? null;
+      // The owner asked about this card, and the run has come back to the
+      // action (N6): what it said since the question is its answer, kept on
+      // the card with the question, and the card waits for the owner's
+      // decision again -- on this card, or on the one that supersedes it.
+      asked = [...(open?.payload.asked ?? [])];
+      if (open?.decision === 'ask') {
+        asked.push({ question: open.owner_note ?? '', answer: await answerSince(tx, input.taskId, open.id) });
+        await appendEvent(tx, {
+          companyId: input.companyId, taskId: input.taskId, type: 'approval.answered', actor: 'broker',
+          payload: { inboxItemId: open.id, answered: asked.at(-1)!.answer !== null },
+        });
+      }
       const superseded = open !== null && input.actionFingerprint !== undefined
         && open.action_fingerprint !== null && open.action_fingerprint !== input.actionFingerprint;
       if (open && superseded) {
@@ -175,6 +222,14 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
         });
       }
       const existing = open && !superseded ? open.id : null;
+      if (existing && open?.decision === 'ask') {
+        await tx.query(
+          `UPDATE inbox_items SET decision = NULL, decided_at = NULL, decided_via = NULL,
+                  payload = payload || jsonb_build_object('asked', $2::jsonb)
+            WHERE id = $1`,
+          [existing, JSON.stringify(asked)],
+        );
+      }
       if (existing) {
         // Only if the task is actually somewhere it can wait from. A task
         // already parked on this item needs no second transition, and one that
@@ -199,7 +254,7 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
         input.companyId, input.taskId ?? null, input.title ?? input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
-        JSON.stringify(input.payload ?? {}), ttl, notifyAfter,
+        JSON.stringify({ ...(input.payload ?? {}), ...(asked.length > 0 ? { asked } : {}) }), ttl, notifyAfter,
         input.actionFingerprint ?? null,
       ],
     );
@@ -1001,7 +1056,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
-      allow_for: boolean;
+      allow_for: boolean; asked: Exchange[] | null; asking: string | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1009,7 +1064,9 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
-              CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input
+              CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
+              i.payload->'asked' AS asked,
+              CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -1036,6 +1093,9 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
         allowFor: r.allow_for,
+        // What the owner asked and the run answered, and a question still
+        // waiting for its answer last (N6).
+        asked: [...(r.asked ?? []), ...(r.asking !== null ? [{ question: r.asking, answer: null }] : [])],
       });
     }
     return items;
@@ -1670,6 +1730,11 @@ export async function decide(
         actor: 'owner',
         payload: { inboxItemId: itemId, question: note },
       });
+      // And the model is asked again, with the question in front of it (N6):
+      // replayed, the turn that asked for the action asked for it again and
+      // nobody read the question. What it says is the answer on this card
+      // (`requestApproval`).
+      if (row.kind === 'approval') await reopenForQuestionWithin(tx, row.task_id, note ?? '');
     }
     // Through `running` for a question too, because that is the only edge out
     // of waiting_approval and the task genuinely is running again -- with a

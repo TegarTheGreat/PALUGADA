@@ -632,10 +632,14 @@ export async function buildContext(
       sections.push({
         kind: 'owner_question',
         title: 'The owner has asked you a question',
+        // Answered in the run's own words (N6): what it says next is shown
+        // to the owner on the card, beside the question. It was told to
+        // record its answer against the item, with nothing to record it with.
         body:
           `${question.question}\n\n` +
-          'Answer it before proposing the action again. Record your answer ' +
-          `against inbox item ${question.inboxItemId}.`,
+          'Answer it first, in a sentence or two for the owner: what you say next is shown to them on the ' +
+          'card, beside their question. Then ask for the action again if it still stands, changed if the ' +
+          'question showed it should be, or say why it no longer does.',
       });
     }
 

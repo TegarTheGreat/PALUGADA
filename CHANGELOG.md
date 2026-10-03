@@ -171,6 +171,9 @@ The first version. What it holds, in the order an owner meets it.
   and only the page that showed it can make it yours. Everyone who opened
   the link used to be shown the same one, so whoever saw it first kept a
   copy of your authenticator (STATUS 2.82).
+- A question you ask on an approval card reaches the agent, and its answer
+  appears on the same card for you to decide on. The agent never read it:
+  it repeated its request and the card waited again (STATUS 2.89).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

@@ -230,6 +230,55 @@ test('a refused tool is an answer the model works around; a wait for the owner e
 });
 
 /**
+ * N6 (the audit of 30 September, open on 2 October). The owner asked a
+ * question on an approval card, the console said "Question sent to the
+ * agent", and no model ever read it: the run went back to work, replayed
+ * from its journal the turn that had asked for the action, made the same
+ * call, met the same open card, and waited again. The question sat in a
+ * context nobody built. Asking now reopens that turn, so the model is asked
+ * again with the question in front of it, and what it says is the answer on
+ * the card, which waits for the owner's decision again.
+ */
+test('a question on an approval card reaches the model, and its answer reaches the card (F10.3, N6)', async () => {
+  const fixture = await createCompany('model-asked');
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'domain.transfer', adapter: 'test:registrar', defaultTier: 3,
+    async execute() { throw new Error('never reached'); },
+    async verify() { return true; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'domain.transfer');
+  await withTools(fixture, ['domain.transfer']);
+  const task = await newTask(fixture);
+  await planTask(fixture.companyId, task.id, [{ capability: 'domain.transfer' }]);
+  const run = (model: ScriptedModel) => new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  const { listOpen, decide } = await import('../../src/inbox/inbox.ts');
+  const transferCall = { type: 'tool_use' as const, id: 'call-1', name: 'domain__transfer', input: { domain: 'example.test' } };
+
+  const first = new ScriptedModel([{ content: [{ type: 'text', text: 'Moving the domain.' }, transferCall], stopReason: 'tool_use' }]);
+  assert.equal((await run(first)).status, 'waiting_approval');
+  const [card] = (await listOpen(fixture.companyId)).filter((item) => item.kind === 'approval');
+  await decide(fixture.companyId, card!.id, 'ask', 'Why move it now?');
+
+  const second = new ScriptedModel([
+    { content: [{ type: 'text', text: 'Because the registrar raises its price on Friday.' }, { ...transferCall, id: 'call-2' }], stopReason: 'tool_use' },
+  ]);
+  assert.equal((await run(second)).status, 'waiting_approval');
+  assert.equal(second.requests.length, 1, 'the model was asked again, not handed its earlier turn back');
+  assert.match(second.requests[0]!.system, /The owner has asked you a question[\s\S]*Why move it now\?/);
+
+  const [again, ...more] = (await listOpen(fixture.companyId)).filter((item) => item.kind === 'approval');
+  assert.equal(more.length, 0);
+  assert.equal(again!.id, card!.id, 'the same card');
+  assert.deepEqual(again!.asked, [{ question: 'Why move it now?', answer: 'Because the registrar raises its price on Friday.' }]);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ decision: string | null }>(
+    'SELECT decision FROM inbox_items WHERE id = $1', [card!.id]));
+  assert.equal(rows[0]!.decision, null, 'and it waits for the owner\'s decision again');
+});
+
+/**
  * A write that failed, reported as done (a chaos run on 2026-09-29, with a
  * CRM that refused the note): the model answered every criterion "met", and
  * the task completed with a summary saying the note was written. The engine

@@ -57,6 +57,11 @@ export interface InboxItem {
   input?: unknown;
   /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
   allowFor?: boolean;
+  /**
+   * What the owner asked on this card and what the agent answered, oldest
+   * first; a question still waiting for its answer is last, with none (N6).
+   */
+  asked?: Array<{ question: string; answer: string | null }>;
 }
 
 /** A yes the owner gave for a while (0083). */

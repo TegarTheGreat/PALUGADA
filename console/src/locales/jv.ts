@@ -1255,6 +1255,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "Waos email ingkang mlebet",
   "Read the review": "Waos panliten",
   "Read the skill": "Waos kaprigelan punika",
+  "Read the skills": "Waos sedaya kaprigelan punika",
   "Read your site's visits and goals.": "Maos kunjungan lan ancas situs panjenengan.",
   "Read, deploy and restart what runs on your Coolify": "Maos, deploy, lan restart punapa ingkang mlampah ing Coolify panjenengan",
   "Reading pages": "Maos kaca",

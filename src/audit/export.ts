@@ -269,7 +269,7 @@ const SECTIONS: Section[] = [
     name: 'skill_versions',
     sql: `SELECT id, skill_id, version, body, author, changelog, state,
                  review_request_id, reviewed_at, approved_at, activated_at,
-                 rejected_reason, created_at, review_task_id, review_note
+                 rejected_reason, created_at, review_task_id, review_note, batch, batch_name
             FROM skill_versions ORDER BY skill_id, version`,
   },
   {

@@ -654,7 +654,11 @@ function Detail({
             <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
           {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
-          {item.kind === 'skill_candidate' && <Anchor component="button" size="sm" onClick={openSkills}>{t('Read the skill')}</Anchor>}
+          {item.kind === 'skill_candidate' && (
+            <Anchor component="button" size="sm" onClick={openSkills}>
+              {(item.skillCount ?? 1) > 1 ? t('Read the skills') : t('Read the skill')}
+            </Anchor>
+          )}
         </Group>
         <Collapse expanded={traceOpen}>
           <Box>{trace ? <TraceView trace={trace} companyId={companyId} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>

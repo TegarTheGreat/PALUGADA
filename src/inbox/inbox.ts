@@ -27,7 +27,9 @@ import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
 import { budgetHaltWords } from '../owner/budget-halt.ts';
-import { askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard } from '../owner/platform-cards.ts';
+import {
+  askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard, skillCard, skillsCard,
+} from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
@@ -126,6 +128,8 @@ export interface InboxItem {
    * (0083): an approval a policy asked for, at tier 2 or below, by a role.
    */
   allowFor: boolean;
+  /** How many skills a skill card asks about: one, or a bundle's (B9). Null on any other card. */
+  skillCount: number | null;
   /**
    * What the owner asked on this card and what the run answered, oldest
    * first; a question still waiting for its answer is last, with none (N6).
@@ -926,25 +930,58 @@ export async function proposeSkillWithin(tx: TenantClient, input: {
   reviewerSaid: string | null;
   notifyAfter: Date;
 }): Promise<string> {
+  const card = skillCard(await ownerReadingWithin(tx), {
+    slug: input.slug, version: input.version, author: input.author, changelog: input.changelog, reviewerSaid: input.reviewerSaid,
+  });
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO inbox_items
        (company_id, kind, title, action_summary, rationale, consequence_if_denied,
         payload, notify_after)
-     VALUES ($1,'skill_candidate',$2,$3,$4,
-             'Nothing changes; the current version of the skill stays in force.',
-             $5,$6)
+     VALUES ($1,'skill_candidate',$2,$3,$4,$5,$6,$7)
      RETURNING id`,
     [
       input.companyId,
-      `Skill ${input.slug} v${input.version}`,
+      card.title,
       input.summary,
-      `Proposed by ${input.author}.\n\n${input.changelog}` +
-        (input.reviewerSaid ? `\n\nThe reviewer approved it: ${input.reviewerSaid}` : '\n\nThe reviewer approved it.'),
+      card.detail,
+      card.consequence,
       JSON.stringify({
         skillVersionId: input.skillVersionId,
         slug: input.slug,
         version: input.version,
         author: input.author,
+      }),
+      input.notifyAfter,
+    ],
+  );
+  return rows[0]!.id;
+}
+
+/**
+ * Asks the owner about the skills one bundle brought, once (B9): every
+ * version the reviewer approved, on one card. A yes switches on each that is
+ * still waiting, a no turns each down, and any of them can be decided on the
+ * Skills page instead -- the card goes when none is left.
+ */
+export async function proposeSkillsWithin(tx: TenantClient, input: {
+  companyId: string;
+  bundle: string;
+  skills: Array<{ versionId: string; slug: string; version: number; summary: string; reviewerSaid: string | null }>;
+  refused: Array<{ slug: string; reason: string | null }>;
+  notifyAfter: Date;
+}): Promise<string> {
+  const card = skillsCard(await ownerReadingWithin(tx), { bundle: input.bundle, skills: input.skills, refused: input.refused });
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items
+       (company_id, kind, title, action_summary, rationale, consequence_if_denied, payload, notify_after)
+     VALUES ($1,'skill_candidate',$2,$3,$4,$5,$6,$7)
+     RETURNING id`,
+    [
+      input.companyId, card.title, card.summary, card.detail, card.consequence,
+      JSON.stringify({
+        bundle: input.bundle,
+        skillVersionIds: input.skills.map((skill) => skill.versionId),
+        skills: input.skills.map((skill) => ({ versionId: skill.versionId, slug: skill.slug, version: skill.version })),
       }),
       input.notifyAfter,
     ],
@@ -1071,7 +1108,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
-      allow_for: boolean; asked: Exchange[] | null; asking: string | null;
+      allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1081,7 +1118,9 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               i.payload->'asked' AS asked,
-              CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking
+              CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
+              CASE WHEN i.kind = 'skill_candidate'
+                   THEN coalesce(jsonb_array_length(i.payload->'skillVersionIds'), 1) END AS skill_count
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -1108,6 +1147,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
         allowFor: r.allow_for,
+        skillCount: r.skill_count,
         // What the owner asked and the run answered, and a question still
         // waiting for its answer last (N6).
         asked: [...(r.asked ?? []), ...(r.asking !== null ? [{ question: r.asking, answer: null }] : [])],
@@ -1667,13 +1707,21 @@ export async function decide(
     // used to do neither -- the decision was recorded and the skill stayed a
     // candidate, with nothing left in the inbox to say so.
     if (row.kind === 'skill_candidate' && decision !== 'ask') {
+      // Imported here: skills.ts raises this item, so a static import each
+      // way would be a cycle for no benefit.
+      const skills = await import('../skills/skills.ts');
       const versionId = String(row.payload.skillVersionId ?? '');
       if (versionId) {
-        // Imported here: skills.ts raises this item, so a static import each
-        // way would be a cycle for no benefit.
-        const skills = await import('../skills/skills.ts');
         if (decision === 'approve') await skills.activateSkillVersionWithin(tx, companyId, versionId);
         else await skills.rejectSkillVersionWithin(tx, companyId, versionId, note);
+      }
+      // A bundle's card (B9): each still waiting. One decided on the Skills
+      // page since stays as it was decided there.
+      const versionIds = Array.isArray(row.payload.skillVersionIds) ? (row.payload.skillVersionIds as unknown[]).map(String) : [];
+      for (const id of versionIds) {
+        if (!await skills.awaitsOwnerWithin(tx, id)) continue;
+        if (decision === 'approve') await skills.activateSkillVersionWithin(tx, companyId, id);
+        else await skills.rejectSkillVersionWithin(tx, companyId, id, note);
       }
     }
 

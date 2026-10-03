@@ -265,6 +265,11 @@ The first version. What it holds, in the order an owner meets it.
   language, name roles, tasks and capabilities as you know them, give money
   in your currency and times on your clock. They were in English with the
   platform's codes, cents and UTC (STATUS 2.112).
+- Installing a bundle -- or starting a company from company-os -- asks you
+  about its skills once: one review reads them all and one card lists them,
+  each with what the reviewer said, to switch on together or one by one on
+  **Skills**. It was a card and a reviewer run for every skill, eleven of
+  each before you had asked for anything (STATUS 2.113).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

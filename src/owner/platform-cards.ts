@@ -532,3 +532,61 @@ export function runQuestionCard(reading: OwnerReading, facts: { role: string; qu
     consequence: say(language, 'The task is stopped, and nothing it was going to do happens.'),
   };
 }
+
+/* --------------------------------------------------------------- skills --- */
+
+function authorSaid(language: string | null, author: string): string {
+  switch (author) {
+    case 'owner': return say(language, 'You proposed it.');
+    case 'bundle': return say(language, 'It came with a bundle.');
+    case 'agent': return say(language, 'An agent proposed it.');
+    case 'distillation': return say(language, 'It was learned from the company\'s work.');
+    default: return author;
+  }
+}
+
+/** A version of a skill a reviewer approved, put to the owner (F15.3). */
+export function skillCard(reading: OwnerReading, facts: {
+  slug: string; version: number; author: string; changelog: string; reviewerSaid: string | null;
+}): Card & { consequence: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Skill "{skill}", version {version}', { skill: facts.slug, version: number(reading, facts.version) }),
+    detail: [
+      authorSaid(language, facts.author),
+      facts.changelog,
+      facts.reviewerSaid
+        ? say(language, 'The reviewer approved it: {note}', { note: facts.reviewerSaid })
+        : say(language, 'The reviewer approved it.'),
+    ].filter(Boolean).join('\n\n'),
+    consequence: say(language, 'Nothing changes; the current version of the skill stays in force.'),
+  };
+}
+
+/**
+ * The skills one bundle brought, after one review, put to the owner as one
+ * question (B9): what each is for, what the reviewer said of it, and the
+ * ones it turned down.
+ */
+export function skillsCard(reading: OwnerReading, facts: {
+  bundle: string;
+  skills: ReadonlyArray<{ slug: string; summary: string; reviewerSaid: string | null }>;
+  refused: ReadonlyArray<{ slug: string; reason: string | null }>;
+}): Card & { summary: string; consequence: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Skills the bundle "{bundle}" brings: {count}', { bundle: facts.bundle, count: number(reading, facts.skills.length) }),
+    summary: facts.skills.map((skill) => `• ${skill.slug}: ${skill.summary}`).join('\n'),
+    detail: [
+      say(language, 'The reviewer read them all and approved these:'),
+      ...facts.skills.map((skill) => `• ${skill.slug}: ${skill.reviewerSaid ?? say(language, 'No reason was given.')}`),
+      ...(facts.refused.length > 0
+        ? ['', say(language, 'It turned these down, and they stay off:'),
+          ...facts.refused.map((skill) => `• ${skill.slug}: ${skill.reason ?? say(language, 'No reason was given.')}`)]
+        : []),
+      '',
+      say(language, 'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.'),
+    ].join('\n'),
+    consequence: say(language, 'Nothing changes; none of these skills is switched on.'),
+  };
+}

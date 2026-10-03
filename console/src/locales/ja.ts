@@ -1233,6 +1233,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "メールボックスを見る",
   "Read the review": "レビューを読む",
   "Read the skill": "スキルを読む",
+  "Read the skills": "スキル一覧を読む",
   "Read your site's visits and goals.": "サイトの訪問数とコンバージョン目標を読み取ります。",
   "Read, deploy and restart what runs on your Coolify": "Coolify で動いているものの読み取り、デプロイ、再起動",
   "Reading pages": "ページ読み取り",

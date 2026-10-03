@@ -1158,6 +1158,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "Baca email masuk",
   "Read the review": "Baca reviewnya",
   "Read the skill": "Baca skill-nya",
+  "Read the skills": "Baca semua skill",
   "Read your site's visits and goals.": "Membaca kunjungan dan sasaran situs Anda.",
   "Read, deploy and restart what runs on your Coolify": "Baca, deploy, dan restart apa yang berjalan di Coolify Anda",
   "Reading pages": "Membaca halaman",

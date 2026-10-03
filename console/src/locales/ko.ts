@@ -1235,6 +1235,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "메일함 보기",
   "Read the review": "검토 읽기",
   "Read the skill": "스킬 읽기",
+  "Read the skills": "스킬 모두 읽기",
   "Read your site's visits and goals.": "사이트 방문 수와 목표를 읽어요.",
   "Read, deploy and restart what runs on your Coolify": "Coolify에서 실행 중인 것을 읽고, 배포하고, 재시작",
   "Reading pages": "페이지 읽기",

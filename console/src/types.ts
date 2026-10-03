@@ -59,6 +59,8 @@ export interface InboxItem {
   input?: unknown;
   /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
   allowFor?: boolean;
+  /** How many skills a skill card asks about: one, or all a bundle brought (B9). */
+  skillCount?: number | null;
   /**
    * What the owner asked on this card and what the agent answered, oldest
    * first; a question still waiting for its answer is last, with none (N6).

@@ -1245,6 +1245,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "Lire la boîte e-mail",
   "Read the review": "Lire la revue",
   "Read the skill": "Lire la compétence",
+  "Read the skills": "Lire les compétences",
   "Read your site's visits and goals.": "Lire les visites et les objectifs de votre site.",
   "Read, deploy and restart what runs on your Coolify": "Lire, déployer et redémarrer ce qui tourne sur votre Coolify",
   "Reading pages": "Lecture de pages",

@@ -7500,6 +7500,42 @@ What changed:
   now reads a sentence ending in a question mark as a sentence, not as a
   ternary's condition.
 
+## 2.113 A bundle's skills are reviewed once and asked about on one card (B9)
+
+Found by the analysis of 3 October (step 4 of the first hour, defect B9). A
+company made from company-os opened with eleven skill cards in the owner's
+inbox, in English, before they had asked for anything, each after a
+reviewer run of its own -- about 198 thousand tokens on the first day's
+paperwork. The owner chose (3 October): one review of a bundle's skills
+together and one card for the bundle, with nothing switched on without their
+yes.
+
+What changed:
+
+- **One batch per install** (0108): the skills a bundle brings, their checks
+  and their quarantine marks are written in one transaction, each version
+  carrying the install's `batch` and the bundle's name, so a worker finds the
+  whole batch or none of it.
+- **One review**: each is still screened against its own checks (F15.5);
+  those that pass go to the reviewer as one task that reads every document
+  as data and answers for each by its slug (`SKILL_BATCH_REVIEW_CRITERIA`).
+  A skill the review gives no verdict on is turned down, as a review that
+  ends without one always was. A version proposed on its own is reviewed on
+  its own, as before.
+- **One card**, in the owner's language: "Skills the bundle "…" brings: 10",
+  each skill with what it is for and what the reviewer said of it, and the
+  ones it turned down with why. Approve switches on every one still waiting;
+  deny turns them all down with the owner's note. Any of them can be decided
+  on the Skills page instead; the card stays while one is undecided and goes
+  when none is. A single skill's card is said in the owner's language too.
+- **The console** links a bundle's card to **Read the skills**.
+- **Tested.** `skill-batches.test.ts`: company-os's eleven skills are
+  screened and given to one review; one card asks about the ten it approved,
+  in Indonesian, naming the eleventh and why; the owner's yes switches on
+  the ten except one turned down on the Skills page first; their no turns all
+  down with their note; and approving each on the Skills page withdraws the
+  card after the last.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

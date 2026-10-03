@@ -1263,6 +1263,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "Aos kotak email",
   "Read the review": "Aos tilikan",
   "Read the skill": "Aos kaparigelan ieu",
+  "Read the skills": "Aos sadaya kaparigelan ieu",
   "Read your site's visits and goals.": "Maos kunjungan sareng udagan situs anjeun.",
   "Read, deploy and restart what runs on your Coolify": "Maos, deploy, sareng restart naon anu jalan dina Coolify anjeun",
   "Reading pages": "Maos kaca",

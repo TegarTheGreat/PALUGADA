@@ -1218,6 +1218,7 @@ export const DICTIONARY: Dictionary = {
   "Read the mailbox": "Basahin ang mailbox",
   "Read the review": "Basahin ang review",
   "Read the skill": "Basahin ang kasanayan",
+  "Read the skills": "Basahin ang mga kasanayan",
   "Read your site's visits and goals.": "Basahin ang mga pagbisita at layunin ng iyong site.",
   "Read, deploy and restart what runs on your Coolify": "Basahin, i-deploy at i-restart ang tumatakbo sa iyong Coolify",
   "Reading pages": "Pagbasa ng mga page",

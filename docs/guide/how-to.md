@@ -1088,11 +1088,11 @@ the reason.
   role: a **Name**, a **Token ceiling**, optionally a **Money ceiling** in
   US dollars (or the currency you read money in), what it is **For**,
   **Which one**, and **The account above it**. It takes a code.
-- An account's ceilings are for its whole life: tokens spent stay spent.
-  When one runs out -- its bar turns red and work is refused with "raise its
-  ceiling under Money" -- press **Ceilings** on its row and raise the
-  **Token ceiling** or the **Money ceiling**. Raising takes a code; lowering
-  does not.
+- An account's ceilings are for a calendar month in UTC: on the first, what
+  it has spent starts again from nothing. When one runs out before then --
+  its bar turns red and work is refused with "raise its ceiling under
+  Money" -- press **Ceilings** on its row and raise the **Token ceiling** or
+  the **Money ceiling**. Raising takes a code; lowering does not.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
   told something is going wrong: **Daily cost** in US dollars (or the
   currency you read money in), **Failure rate, 0 to 1** and **Policy denials

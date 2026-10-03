@@ -249,7 +249,7 @@ Look for the cause in this order:
 - **The budget account has no room.** A task is claimed only when its
   account can cover its reservation on top of what is already running.
   Check **Accounts** on **Money**, and raise the account's **Ceilings** if
-  it has spent them: tokens spent stay spent.
+  it has spent them: what it spent counts until the month ends (UTC).
 - **No worker is running.** `GET /api/health` answers 503 with `no tick has
   finished since …`, or not at all. Check the process and its logs.
 

@@ -22,7 +22,7 @@ import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
-import { actorSaid, dateTime, eventSentence, haltReason, money, relative, stepSaid, time, waitingFor } from '../format.ts';
+import { actorSaid, capabilitySaid, dateTime, eventSentence, haltReason, money, relative, stepSaid, time, waitingFor } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
@@ -554,7 +554,7 @@ function outsideLabel(name: string): string {
 }
 
 function capabilityOf(event: { payload: Record<string, unknown> }): string | null {
-  return typeof event.payload.capability === 'string' ? event.payload.capability : null;
+  return typeof event.payload.capability === 'string' ? capabilitySaid(event.payload.capability) : null;
 }
 
 function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) {

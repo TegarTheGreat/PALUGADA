@@ -34,7 +34,7 @@ import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Digest, InboxItem, StandingApproval, Trace } from '../types.ts';
-import { dateTime, goalKind, money, relative } from '../format.ts';
+import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
@@ -57,7 +57,23 @@ const batchApprovable = (item: InboxItem) => item.tier !== 3 && !item.question &
  * title made from it said "bookkeeper asks: ..." in English, whatever the
  * owner reads (the analysis of 3 October, §2.3 item 7).
  */
-const headline = (item: InboxItem) => item.question ?? item.title;
+const headline = (item: InboxItem) => {
+  if (item.question) return item.question;
+  // An action the broker asks about is titled by its code and its arguments
+  // ("record.delete: recordId cust-042"): it is named for what it does, and
+  // its arguments follow; the card lists them whole.
+  const action = described(item);
+  if (action !== null) return action ? `${capabilitySaid(item.capabilityName!)}: ${action}` : capabilitySaid(item.capabilityName!);
+  return item.title;
+};
+
+/** The arguments of a title the broker wrote as `capability: arguments`, or null when it is not one. */
+const described = (item: InboxItem): string | null => {
+  const name = item.capabilityName;
+  if (!name) return null;
+  if (item.title === name) return '';
+  return item.title.startsWith(`${name}:`) ? item.title.slice(name.length + 1).trim() : null;
+};
 
 /** Who is asking, by the name the owner gave the role; its short name is the platform's. */
 const whoAsks = (item: InboxItem) => item.roleName ?? item.roleSlug;
@@ -443,7 +459,7 @@ function Detail({
     setError(null);
     try {
       const done = await requireFactor(
-        t('{capability} for {role}, {period}', { capability: item.capabilityName ?? '', role: whoAsks(item) ?? '', period: label }),
+        t('{capability} for {role}, {period}', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '', period: label }),
         (proof) => send('approve', proof, hours),
       );
       if (!done) return;
@@ -566,7 +582,7 @@ function Detail({
             </Tooltip>
           )}
         </Group>
-        <Title order={3} fz={20} lh={1.3}>{item.question && who ? t('A question from {role}', { role: who }) : item.title}</Title>
+        <Title order={3} fz={20} lh={1.3}>{item.question && who ? t('A question from {role}', { role: who }) : headline(item)}</Title>
         <Group gap={8} mt={8} wrap="nowrap">
           <Avatar size={26} radius="xl" src={item.roleSlug ? rolePicture(item.roleSlug) : '/brand/palugada-app-icon.svg'} alt="" />
           <Text size="sm" c="dimmed">{asker} · {relative(item.createdAt)}</Text>
@@ -574,7 +590,9 @@ function Detail({
       </Box>
       <Divider />
       <Stack p="lg" gap="md">
-        {item.actionSummary && item.actionSummary !== item.title && (
+        {/* The broker's line of arguments is not shown again: they are listed whole below. */}
+        {item.actionSummary && item.actionSummary !== item.title
+          && !(item.capabilityName && item.actionSummary.startsWith(`${item.capabilityName}:`) && argumentsOf(item.input).length > 0) && (
           <Block label={t('What will happen')}>{item.actionSummary}</Block>
         )}
         {/* Every argument, whole: the line above is cut to fit, and what is
@@ -624,7 +642,7 @@ function Detail({
 
         {!item.question && (
           <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-            {item.capabilityName && <Fact label={t('Capability')} value={item.capabilityName} />}
+            {item.capabilityName && <Fact label={t('Capability')} value={capabilitySaid(item.capabilityName)} />}
             <Fact label={t('Estimated cost')} value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : t('None declared')} />
           </SimpleGrid>
         )}
@@ -730,7 +748,7 @@ function Detail({
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ?? '', role: whoAsks(item) ?? '' })}</Menu.Label>
+                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
                   {ALLOW_FOR.map((choice) => (
                     <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
                   ))}
@@ -769,7 +787,7 @@ function Standing({ companyId, standing, changed }: {
     setBusy(entry.id);
     try {
       await api('POST', `/api/companies/${companyId}/standing-approvals/${entry.id}/revoke`);
-      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: entry.capabilityName, role: entry.roleSlug }) });
+      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: capabilitySaid(entry.capabilityName), role: entry.roleSlug }) });
       changed();
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
@@ -791,7 +809,7 @@ function Standing({ companyId, standing, changed }: {
           <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
             <Box style={{ minWidth: 0 }}>
               <Text size="sm" truncate>
-                <Text span fw={600}>{entry.capabilityName}</Text>{' · '}{entry.roleSlug}
+                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.roleSlug}
               </Text>
               <Text size="xs" c="dimmed">
                 {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}

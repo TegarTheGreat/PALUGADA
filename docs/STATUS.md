@@ -6979,6 +6979,40 @@ What changed:
   account's path ("ops/growth"), and a role's short name elsewhere in the
   console (Home, the schedule list, standing approvals).
 
+## 2.96 A capability is named for what it does, and an approval says why without the platform's words (F10.2, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7). An
+approval card was headed "record.delete: recordId cust-042", the timeline
+badged events "crm.note", the trace said "dns.update done", and the progress
+line "Using email.send": capabilities by their codes. The reason on every
+approval the broker raised began "Task 6f1c…-… requested record.delete at
+tier 3", and one about outside content ended with a requirement's number,
+"(F8.9)".
+
+What changed:
+
+- **A name for every capability in the catalogue** (`CAPABILITY_NAMES`,
+  `console/src/format.ts`), in all twenty languages: "Delete a record",
+  "Send an email", "Release to the live site", "Read the books". Held by
+  `test/documents/console-events.test.ts`, which reads the catalogue. A
+  capability from outside it -- a vendor's, an MCP server's tool -- keeps its
+  own name.
+- **Used wherever the owner reads one**: an approval card is headed by what
+  the action does, followed by its arguments ("Delete a record: recordId
+  cust-042"), and the line of arguments is not repeated above the full list
+  of them; the timeline's badges, the trace, the progress line ("Now: Send an
+  email"), the "allow for a while" choices and the standing approvals.
+- **The reason is said to the owner** (`src/broker/broker.ts`): "This work
+  asked for it at tier 3, which cannot be reversed." The card names the
+  action and links the work; the task's id and the capability's code are not
+  in it, nor the requirement's number.
+- **Tested.** `capability-broker.test.ts`: a tier 3 approval's reason is the
+  sentence above, without the task's id or the capability's code;
+  `triggers.test.ts`, without "(F8.9)"; and the documents test above.
+- **Still open in this item:** a chat's card is headed by the broker's title,
+  which names the capability by its code -- the chats' dictionaries do not
+  name capabilities yet -- and an account by its path ("ops/growth").
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

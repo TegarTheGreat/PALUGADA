@@ -195,6 +195,11 @@ The first version. What it holds, in the order an owner meets it.
   "A question from Sari", and in a chat "Sari bertanya:" -- instead of
   "bookkeeper asks:" in English, and a chat says the question once
   (STATUS 2.95).
+- An approval is headed by what the action does -- "Delete a record:
+  recordId cust-042" -- and the timeline, the trace and the progress line
+  name capabilities the same way, in your language, instead of
+  "record.delete". An approval's reason no longer starts with the task's id
+  (STATUS 2.96).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

@@ -11,7 +11,7 @@ import {
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { RunBriefing, Trace, TraceRun, TraceStep } from '../types.ts';
-import { count, dateTime, goalKind, haltReason, money, stepSaid } from '../format.ts';
+import { capabilitySaid, count, dateTime, goalKind, haltReason, money, stepSaid } from '../format.ts';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, StatusBadge } from './ui.tsx';
 
@@ -34,7 +34,7 @@ function describe(step: TraceStep): {
   failed: boolean; outside: boolean;
 } {
   const detail = step.detail;
-  const capability = typeof detail.capability === 'string' ? detail.capability : null;
+  const capability = typeof detail.capability === 'string' ? capabilitySaid(detail.capability) : null;
   const badges: string[] = [];
   if (typeof detail.tier === 'number') badges.push(t('tier {tier}', { tier: detail.tier }));
   if (Array.isArray(detail.policies) && detail.policies.length > 0) badges.push(t('policies: {names}', { names: detail.policies.join(', ') }));
@@ -42,7 +42,7 @@ function describe(step: TraceStep): {
   const error = typeof detail.error === 'string' ? detail.error : null;
   const parts: Array<{ label: string; value: unknown }> = [];
   if (step.name.startsWith('capability:')) {
-    const name = step.name.slice('capability:'.length);
+    const name = capabilitySaid(step.name.slice('capability:'.length));
     const asked = (detail.input as { input?: unknown } | undefined)?.input ?? detail.input;
     if (asked !== undefined) parts.push({ label: t('What it was asked'), value: asked });
     if (detail.output !== undefined) parts.push({ label: t('What came back'), value: detail.output });

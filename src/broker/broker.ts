@@ -703,13 +703,16 @@ export class CapabilityBroker {
             ? 'You approved this once already, and the worker carrying it out stopped before it could say ' +
               'whether it happened: it may already have happened. Check before approving it again.\n\n'
             : '') +
-          `Task ${ctx.taskId} requested ${name} at tier ${tier}` +
+          // To the owner, about the work in front of them: the task's id and the
+          // capability's code were the platform's words (§2.3 item 7), and the
+          // card names the action and links the work.
+          `This work asked for it at tier ${tier}` +
           (policy.effect === 'require_approval'
             ? `, and policy ${policy.matched.map((m) => m.slug).join(', ')} requires your approval.`
             : outside && !requiresOwnerApproval(tier)
               ? outside === 'begun'
-                ? ', and the task began with content from outside the company (F8.9).'
-                : ', and the work read content from outside the company before asking (F8.9).'
+                ? ', and the task began with content from outside the company.'
+                : ', and the work read content from outside the company before asking.'
               : guardianAsks !== null
                 ? `, after the work read content from outside the company, and the guardian asked you first: ${guardianAsks}`
                 : ', which cannot be reversed.') +

@@ -100,3 +100,21 @@ test('the timelines say who acted in words, not as the code that wrote it', asyn
     assert.doesNotMatch(text, /\{event\.actor\}/, `${path} shows an event's actor as its code`);
   }
 });
+
+/**
+ * A capability is named for what it does (§2.3 item 7): an approval asked
+ * the owner to approve "record.delete", and the timeline badged its events
+ * "crm.note". Every capability the catalogue knows has a name in
+ * `console/src/format.ts`.
+ */
+test('every capability in the catalogue has a name the owner reads', async () => {
+  const catalogue = await readFile(join(SERVER, 'broker', 'catalogue.ts'), 'utf8');
+  const names = [...catalogue.matchAll(/^ {4}name: '([a-z][a-z_.]*)',$/gm)].map((match) => match[1]!);
+  assert.ok(names.length >= 40, `found only ${names.length} capabilities in the catalogue`);
+  const format = await readFile(join(CONSOLE, 'format.ts'), 'utf8');
+  const table = format.slice(format.indexOf('const CAPABILITY_NAMES'), format.indexOf('export function capabilitySaid'));
+  assert.ok(table.length > 0, 'console/src/format.ts keeps CAPABILITY_NAMES');
+  const named = new Set([...table.matchAll(/^ {2}'([a-z_.]+)': N\(/gm)].map((match) => match[1]!));
+  const missing = names.filter((name) => !named.has(name)).sort();
+  assert.deepEqual(missing, [], `capabilities shown to the owner by their code: ${missing.join(', ')}`);
+});

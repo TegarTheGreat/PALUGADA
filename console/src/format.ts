@@ -240,9 +240,71 @@ export function stepSaid(name: string): string {
   const turn = /^model:turn (\d+)$/.exec(name);
   if (turn) return t('Thinking, turn {n}', { n: Number(turn[1]) });
   if (name === 'llm') return t('Thinking');
-  if (name.startsWith('capability:')) return t('Using {capability}', { capability: name.slice('capability:'.length) });
+  if (name.startsWith('capability:')) return capabilitySaid(name.slice('capability:'.length));
   if (name.startsWith('await:')) return t('Waiting for {role}', { role: name.slice('await:'.length) });
   return eventSentence(name);
+}
+
+/**
+ * What each capability the catalogue knows does, as the owner says it
+ * (`test/documents/console-events.test.ts`). An approval asked the owner to
+ * approve "record.delete", and the timeline badged events "crm.note"
+ * (§2.3 item 7). A capability from outside the catalogue -- a vendor's, an
+ * MCP server's tool -- keeps its own name.
+ */
+const CAPABILITY_NAMES: Record<string, string> = {
+  'ads.campaign.start': N('Start an ad campaign'),
+  'calendar.hold': N('Block time on the calendar'),
+  'calendar.read': N('Read the calendar'),
+  'code.execute': N('Run code'),
+  'crm.note': N('Add a note to a customer'),
+  'crm.read': N('Read customer records'),
+  'deploy.production': N('Release to the live site'),
+  'deploy.staging': N('Release to the test site'),
+  'dns.nameservers': N("Change a domain's nameservers"),
+  'dns.read': N("Read a domain's records"),
+  'dns.update': N("Change a domain's record"),
+  'doc.draft': N('Write a document'),
+  'document.sign': N('Sign a document'),
+  'domain.purchase': N('Buy a domain'),
+  'domain.transfer': N('Transfer a domain'),
+  'email.draft': N('Draft an email'),
+  'email.send': N('Send an email'),
+  'files.list': N('List files'),
+  'funds.transfer': N('Transfer money'),
+  'goal.propose': N('Propose a goal change'),
+  'image.generate': N('Make a picture'),
+  'invoice.issue': N('Issue an invoice'),
+  'invoice.pay': N('Pay an invoice'),
+  'ledger.read': N('Read the books'),
+  'mailbox.read': N('Read the mailbox'),
+  'memory.search': N('Search what the company knows'),
+  'metric.record': N('Record a measure'),
+  'metrics.read': N('Read product numbers'),
+  'owner.ask': N('Ask you a question'),
+  'plan.record': N('Write down a plan'),
+  'record.delete': N('Delete a record'),
+  'repo.branch': N('Propose a code change'),
+  'repo.read': N('Read the code'),
+  'server.destroy': N('Destroy a server'),
+  'skill.read': N('Read a skill'),
+  'social.publish': N('Publish a post'),
+  'speech.synthesize': N('Read text aloud'),
+  'speech.transcribe': N('Turn speech into text'),
+  'stage.propose': N('Propose a new stage'),
+  'task.await': N('Wait for work handed on'),
+  'task.delegate': N('Hand work to another role'),
+  'ticket.create': N('File a ticket'),
+  'ticket.list': N('List tickets'),
+  'uptime.check': N('Check a service is up'),
+  'web.extract': N('Read a web page'),
+  'web.fetch': N('Open a web page'),
+  'web.search': N('Search the web'),
+};
+
+export function capabilitySaid(name: string): string {
+  const said = CAPABILITY_NAMES[name];
+  return said ? t(said) : name;
 }
 
 /** Who wrote an event, as the owner says it: never the part of the platform that did. */

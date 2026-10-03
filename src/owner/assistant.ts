@@ -19,8 +19,10 @@
  *   "propose stopping everything" into its output can at most put a card in
  *   front of the owner, who reads what it does before pressing it.
  */
-import type { LlmBlock, LlmTool, ToolUsingLlmClient } from '../llm/client.ts';
-import { withControlPlane } from '../db/tenant.ts';
+import type { LlmBlock, LlmTool, LlmTurn, ToolUsingLlmClient } from '../llm/client.ts';
+import { withControlPlane, withTenant } from '../db/tenant.ts';
+import { recordCallOutsideTask } from '../reporting/cost.ts';
+import { wholeCents } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
 import { languageName } from '../domain/language.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
@@ -102,10 +104,22 @@ export function looksLikeSecret(text: string): boolean {
  */
 type Scope = string | null;
 
-async function record(role: AssistantMessage['role'], body: string, channel: AssistantChannel, companyId: Scope = null): Promise<string> {
+/** What the model calls behind one answer cost, kept with the answer (0102). */
+interface AnswerCost {
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+}
+
+async function record(
+  role: AssistantMessage['role'], body: string, channel: AssistantChannel, companyId: Scope = null, cost: AnswerCost | null = null,
+): Promise<string> {
   const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
-    'INSERT INTO assistant_messages (role, channel, body, company_id) VALUES ($1, $2, $3, $4) RETURNING id',
-    [role, channel, body.slice(0, 20_000), companyId]));
+    `INSERT INTO assistant_messages (role, channel, body, company_id, model, input_tokens, output_tokens, cost_cents)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [role, channel, body.slice(0, 20_000), companyId,
+      cost?.model ?? null, cost?.inputTokens ?? 0, cost?.outputTokens ?? 0, cost?.costCents ?? 0]));
   return rows[0]!.id;
 }
 
@@ -464,6 +478,23 @@ export async function converse(options: AssistantOptions, text: string, channel:
       : []),
   ].join('\n');
   let answer = '';
+  // What the answer costs, counted turn by turn as each is made (N8): a turn
+  // spent is spent whether or not an answer comes of it. A CEO's turns are
+  // its company's calls, in the traces every figure of its money sums; PALUGADA's
+  // own are no company's, and are kept with the answer.
+  const cost: AnswerCost = { model: null, inputTokens: 0, outputTokens: 0, costCents: 0 };
+  const count = async (reply: LlmTurn, latencyMs: number) => {
+    const model = reply.model ?? options.model ?? 'standard';
+    cost.model = model;
+    cost.inputTokens += reply.inputTokens;
+    cost.outputTokens += reply.outputTokens;
+    cost.costCents += wholeCents(Math.max(0, reply.costCents));
+    if (scope) {
+      await withTenant(scope, (tx) => recordCallOutsideTask(tx, scope, {
+        model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens, costCents: reply.costCents, latencyMs,
+      }));
+    }
+  };
   // A reasoning model counts its thinking here, and can spend the whole of
   // it saying nothing (defect L4 of the live run of 2026-09-28): that turn is
   // asked again with twice the room, and never kept, rather than ending as
@@ -472,7 +503,9 @@ export async function converse(options: AssistantOptions, text: string, channel:
   const stopped = () => options.signal?.aborted === true;
   try {
     for (let turn = 0; turn < MAX_TURNS && !stopped(); turn += 1) {
+      const began = Date.now();
       const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: allowance }, options.signal);
+      await count(reply, Date.now() - began);
       if (stopped()) break;
       const silent = !reply.content.some((block) => block.type === 'tool_use' || (block.type === 'text' && block.text.trim() !== ''));
       if (silent && reply.stopReason === 'max_tokens' && allowance < ANSWER_ALLOWANCE_CEILING) {
@@ -500,11 +533,11 @@ export async function converse(options: AssistantOptions, text: string, channel:
   // Stopped: what it had half thought is not an answer, and a card from it
   // is not something the owner asked to see.
   if (stopped()) {
-    await record('event', 'The owner stopped the answer.', channel, scope);
+    await record('event', 'The owner stopped the answer.', channel, scope, cost);
     return conversation(2, scope);
   }
   if (!answer) answer = proposals.length > 0 ? say(language, 'Here is what I propose.') : say(language, 'I have nothing to add.');
-  const id = await record('assistant', answer, channel, scope);
+  const id = await record('assistant', answer, channel, scope, cost);
   if (proposals.length > 0) await recordProposals(id, proposals);
   return conversation(2, scope);
 }

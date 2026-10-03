@@ -1041,6 +1041,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA parantos nyambung: di dieu PALUGADA bakal ngawartosan naon anu meryogikeun anjeun.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA nuju dimimitian deui supados tiasa nganggé setélan énggal ieu. Muat deui kacana sakedap deui.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "Asistén PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "Pakét peran sareng kaparigelan, sareng panerbit anu dipercanten ku anjeun.",
   "Pages, databases and comments": "Kaca, database, sareng koméntar",
   "Pair": "Gandengkeun",

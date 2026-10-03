@@ -1002,6 +1002,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA 已连接：它会在这里告诉您需要处理的事项。",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA 正在重启以启用它。请稍后刷新。",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "PALUGADA 助手",
   "Packages of roles and skills, and the publishers you trust.": "角色与技能的打包套件，以及您信任的发布者。",
   "Pages, databases and comments": "页面、数据库和评论",
   "Pair": "配对",

@@ -1013,6 +1013,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA متصلة: هنا ستخبرك بما يحتاج إليك.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "تُعيد PALUGADA تشغيل نفسها لاستخدامه. يُرجى التحديث بعد لحظات.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "مساعد PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "حزم من الأدوار والمهارات، والناشرون الموثوقون لديك.",
   "Pages, databases and comments": "الصفحات وقواعد البيانات والتعليقات",
   "Pair": "إقران",

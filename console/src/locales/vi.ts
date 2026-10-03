@@ -1040,6 +1040,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA đã kết nối: đây là nơi PALUGADA sẽ báo cho bạn những việc cần bạn.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA đang khởi động lại để áp dụng. Hãy tải lại trang sau giây lát.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "Trợ lý PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "Các gói vai trò và kỹ năng, cùng những nhà phát hành bạn tin cậy.",
   "Pages, databases and comments": "Trang, cơ sở dữ liệu và bình luận",
   "Pair": "Ghép nối",

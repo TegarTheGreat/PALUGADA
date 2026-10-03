@@ -309,7 +309,14 @@ starts again, and raising a ceiling is how an account that ran out gets more
 before then.
 
 On top of the accounts, each company has a monthly ceiling, USD 200 unless
-you change it, counted per calendar month in UTC.
+you change it, counted per calendar month in UTC. It counts every model call
+the company makes, not only its tasks': your conversations with its CEO and
+the nightly distilling of its memory are its spending too. Those two draw on
+no account, since they are not work an account was reserved for, and your
+conversation is never refused for money; a company paused at its ceiling
+stops distilling until it is resumed. PALUGADA's own assistant belongs to no
+company, and what it costs is shown on its own line under **Every company**
+on **Money**.
 
 - At 80% you are told once: "Monthly budget is 80% spent".
 - At 100% the company pauses: no new task starts and no external action runs

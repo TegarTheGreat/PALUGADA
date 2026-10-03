@@ -121,6 +121,10 @@ The first version. What it holds, in the order an owner meets it.
 - Work a run did not do ends as "Not done", with the run's reason on the
   task and in the chat, rather than "Done" in green. It is not tried again
   on the same facts (STATUS 2.77).
+- Conversations with a CEO and the distilling of a company's memory are
+  counted in its spending and its monthly ceiling; PALUGADA's own
+  assistant's cost is shown under **Every company** on **Money**
+  (STATUS 2.78).
 
 ### The owner
 

@@ -996,6 +996,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "Nakakonekta ang PALUGADA: dito nito sasabihin sa iyo kung ano ang kailangan ka.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "Nagre-restart ang PALUGADA para gamitin ito. Mag-refresh maya-maya.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "Assistant ng PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "Mga pakete ng mga role at kasanayan, at ang mga publisher na pinagkakatiwalaan mo.",
   "Pages, databases and comments": "Mga page, database at komento",
   "Pair": "I-pair",

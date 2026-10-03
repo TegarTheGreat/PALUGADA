@@ -1042,6 +1042,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA bağlandı: sizi bekleyen şeyleri buradan bildirecek.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA bunu kullanmak için yeniden başlıyor. Birazdan sayfayı yenileyin.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "PALUGADA asistanı",
   "Packages of roles and skills, and the publishers you trust.": "Rol ve beceri paketleri ile güvendiğiniz yayıncılar.",
   "Pages, databases and comments": "Sayfalar, veritabanları ve yorumlar",
   "Pair": "Eşleştir",

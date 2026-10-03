@@ -6361,6 +6361,42 @@ What changed:
   completes as before. `owner-channels.test.ts`: the Indonesian notice reads
   "Tidak dikerjakan: …" with the run's reason.
 
+## 2.78 Every model call is counted in what is spent (N8)
+
+Found on the live run of 2 October (N8) and in the code. Three conversations
+with a company's CEO, one of them thirty-nine seconds of several turns, left
+no row in `llm_traces`, and neither did memory distillation
+(`src/memory/distillation.ts`). The engine traces the calls of tasks, and
+these are not tasks -- while the month's ceiling, the daily cost alert, the
+digest and the Money page all sum `llm_traces`. Each of them was short by
+what the owner's conversations and the company's learning cost.
+
+What changed:
+
+- **A CEO's turns are its company's calls.** Each turn is a trace of the
+  company, outside any task, written as the answer arrives: a turn that led
+  to no answer, a reasoning turn asked again, a conversation the owner
+  stopped, all cost what they cost.
+- **So is distillation.** Each call, facts and procedures alike, is traced
+  when it answers, before the answer is judged.
+- **Neither draws on an account.** They are not work an account was
+  reserved for, and the owner's conversation is never refused for money.
+  The month's ceiling counts them, and a company paused at it stops
+  distilling until it is resumed; the watermark keeps its place.
+- **PALUGADA's own assistant** belongs to no company, and `llm_traces` is a
+  tenant table. An answer keeps what it cost (0102), and `GET
+  /api/control/cost` adds it up beside the companies; the Money page shows
+  it on its own line under **Every company**.
+- **Not changed:** the weekly digest's per-division breakdown joins traces
+  to tasks, so its divisions add up to less than the company's total by what
+  was spent outside tasks.
+- **Tested.** `metering.test.ts`: a CEO conversation of two turns is two
+  traces at what the model charged, rounded up, in that company and no
+  other; a turn before a failure still counts; the spend guard and the cost
+  timeline read the sum. PALUGADA's assistant charges no company and shows
+  in the deployment's figure. Distillation's calls are traced. A paused
+  company's worker distils nothing until resumed.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

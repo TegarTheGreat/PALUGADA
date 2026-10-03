@@ -1035,6 +1035,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA telah disambungkan: di sinilah ia akan memberitahu anda apa yang memerlukan anda.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA dimulakan semula untuk menggunakannya. Muat semula sebentar lagi.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "Pembantu PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "Pakej peranan dan kemahiran, serta penerbit yang anda percayai.",
   "Pages, databases and comments": "Halaman, pangkalan data dan komen",
   "Pair": "Gandingkan",

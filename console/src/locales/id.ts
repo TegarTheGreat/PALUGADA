@@ -936,6 +936,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA terhubung: di sinilah PALUGADA akan memberi tahu apa yang butuh Anda.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA sedang dimulai ulang untuk memakainya. Muat ulang sebentar lagi.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "Asisten PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "Paket peran dan skill, serta penerbit yang Anda percayai.",
   "Pages, databases and comments": "Halaman, database, dan komentar",
   "Pair": "Pasangkan",

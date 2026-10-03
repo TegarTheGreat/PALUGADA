@@ -52,7 +52,7 @@ import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
-import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
+import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused } from './governance/spend-guard.ts';
 import { startNewPeriods } from './engine/budget.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
@@ -912,6 +912,11 @@ export class Worker {
         this.#learnedAt.set(company, now.getTime());
         return;
       }
+      // Learning is spending, now that it is counted (N8): a company paused
+      // at its month's ceiling does not go on paying a model to distil. Not
+      // marked as learned, so it reads its history once resumed; the
+      // watermark has kept its place.
+      if (await isSpendPaused(company, now)) return;
 
       const scopes = await withTenant(company, async (tx) => {
         // Every division, and the company's oldest project to attribute the

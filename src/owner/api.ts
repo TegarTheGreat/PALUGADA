@@ -79,7 +79,7 @@ import { readGovernanceLog } from '../governance/store.ts';
 import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
 import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
 import { healthFor, preflightGrants } from '../broker/preflight.ts';
-import { costTimeline, platformCost } from '../reporting/cost.ts';
+import { assistantCost, costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import { CREDENTIAL_SECRETS, redactor, type SecretManager } from '../secrets/manager.ts';
 import { checkVendorEntry, vendorPresets, type VendorSpec } from '../capabilities/vendors.ts';
@@ -2922,7 +2922,11 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/control/cost',
-        handle: async ({ query }) => ({ companies: await platformCost(windowFrom(query)) }),
+        // PALUGADA's own assistant beside the companies: it is no company's (N8).
+        handle: async ({ query }) => ({
+          companies: await platformCost(windowFrom(query)),
+          assistant: await assistantCost(windowFrom(query)),
+        }),
       },
 
       {

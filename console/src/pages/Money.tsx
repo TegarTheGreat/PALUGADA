@@ -27,7 +27,8 @@ export function Money({ ctx }: PageProps) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
     const [spend, cost, platform, accounts, structure]: [
-      Spend, { timeline: CostPeriod[] }, { companies: Array<{ slug: string; costCents: number; tokens: number }> },
+      Spend, { timeline: CostPeriod[] },
+      { companies: Array<{ slug: string; costCents: number; tokens: number }>; assistant: { costCents: number; tokens: number } },
       { accounts: Account[] }, Structure,
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/spend`),
@@ -55,7 +56,7 @@ export function Money({ ctx }: PageProps) {
   const { spend, cost, platform, accounts, structure } = view.data;
   const used = spend.limitCents > 0 ? (spend.spentCents / spend.limitCents) * 100 : 0;
   const tone = used >= 100 ? 'red' : used >= 80 ? 'orange' : 'brand';
-  const topCompany = Math.max(1, ...platform.companies.map((row) => row.costCents));
+  const topCompany = Math.max(1, ...platform.companies.map((row) => row.costCents), platform.assistant.costCents);
 
   return (
     <Stack gap="lg">
@@ -152,6 +153,16 @@ export function Money({ ctx }: PageProps) {
               <Progress value={(row.costCents / topCompany) * 100} size="md" mt={4} radius="xl" />
             </div>
           ))}
+          {/* PALUGADA's own assistant is no company's, and costs money too (N8). */}
+          {platform.assistant.costCents > 0 && (
+            <div>
+              <Group justify="space-between">
+                <Text size="sm" fw={600} c="dimmed">{t("PALUGADA's assistant")}</Text>
+                <Text size="sm">{money(platform.assistant.costCents)} <Text span c="dimmed" size="xs">· {t('{count} tokens', { count: count(platform.assistant.tokens) })}</Text></Text>
+              </Group>
+              <Progress value={(platform.assistant.costCents / topCompany) * 100} size="md" mt={4} radius="xl" color="gray" />
+            </div>
+          )}
         </Stack>
       </Section>
 

@@ -1013,6 +1013,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA가 연결됐어요. 확인이 필요한 일을 여기서 알려 드릴게요.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA가 이 설정을 쓰기 위해 다시 시작하고 있어요. 잠시 후 새로고침하세요.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "PALUGADA 어시스턴트",
   "Packages of roles and skills, and the publishers you trust.": "역할과 스킬의 패키지, 그리고 신뢰하는 게시자.",
   "Pages, databases and comments": "페이지, 데이터베이스, 댓글",
   "Pair": "페어링",

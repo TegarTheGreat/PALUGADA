@@ -1023,6 +1023,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA est connecté : c’est ici qu’il vous signalera ce qui requiert votre décision.",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA redémarre pour l’utiliser. Actualisez la page dans un instant.",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "Assistant de PALUGADA",
   "Packages of roles and skills, and the publishers you trust.": "Des packs de rôles et de compétences, et les éditeurs auxquels vous faites confiance.",
   "Pages, databases and comments": "Pages, bases de données et commentaires",
   "Pair": "Appairer",

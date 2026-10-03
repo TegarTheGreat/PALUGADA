@@ -1011,6 +1011,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA が接続されました。あなたの対応が必要なことをここでお知らせします。",
   "PALUGADA is starting again to use it. Refresh in a moment.": "PALUGADA はこれを使うために再起動しています。しばらくしてから再読み込みしてください。",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "PALUGADAのアシスタント",
   "Packages of roles and skills, and the publishers you trust.": "ロールとスキルのパッケージと、信頼する発行元。",
   "Pages, databases and comments": "ページ、データベース、コメント",
   "Pair": "ペアリング",

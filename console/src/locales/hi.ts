@@ -986,6 +986,7 @@ export const DICTIONARY: Dictionary = {
   "PALUGADA is connected: this is where it will tell you what needs you.": "PALUGADA जुड़ गया है: किस चीज़ में आपकी ज़रूरत है, यह यहीं बताएगा।",
   "PALUGADA is starting again to use it. Refresh in a moment.": "इसे इस्तेमाल करने के लिए PALUGADA फिर से शुरू हो रहा है। थोड़ी देर में रिफ़्रेश करें।",
   "PALUGADA {version}": "PALUGADA {version}",
+  "PALUGADA's assistant": "PALUGADA का सहायक",
   "Packages of roles and skills, and the publishers you trust.": "भूमिकाओं और स्किल के पैकेज, और वे प्रकाशक जिन पर आप भरोसा करते हैं।",
   "Pages, databases and comments": "पेज, डेटाबेस और टिप्पणियाँ",
   "Pair": "पेयर करें",

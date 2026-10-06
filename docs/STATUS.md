@@ -10091,6 +10091,59 @@ folder is the store, the journal's `madeFiles` (2.165) says which task made what
   only uploads removed, a staff seat, sorting), with `staff-routes`, `console-routes`, `console-i18n` and
   `console-events` holding the surface.
 
+## 2.167 A letter carries the company's files (the audit of 6 October, O3; P1.4, part 2)
+
+`email.send` could say what a company thought and could not send what it had made: the quotation a role
+drafted, the invoice it issued, the price list the owner uploaded stayed in the company's folder while the
+letter that was meant to carry them went without. No table and no migration; the files are the ones
+2.166 lets the owner see.
+
+- **Named, asked about, sent.** `email.send` takes `attachments`: up to five paths in the company's files, as
+  `files.list` names them, ten megabytes together. The owner's card names every one, before the subject so
+  that the card's cut at 240 characters takes the subject and not a file (the whole input is on the card too),
+  as a paperclip and the paths, which no dictionary has to translate: `email.send: budi@kantor.example 📎
+  drafts/offer.md, generated/logo.png — Penawaran kopi`. A yes is for that exact list (the action's
+  fingerprint covers it): one file more or fewer is another question. The result carries each file's path,
+  size and SHA-256 as they were at the moment the letter left, so the journal says what went, and the read-back
+  holds the letter to its files as it holds it to its recipients.
+- **What may leave.** The file is read as `files.read` reads one (`readCompanyFile`: inside this company's
+  directory, a link followed only to see where it goes, opened without following one), and then the folder it is
+  *really* in is checked against an allow-list: `uploads`, `drafts`, `generated`, `computed`, `invoices`. What a
+  stranger sent (the `received` folder of part 5) is never sent on, by name or by a link that leads to it, and a
+  folder added later is not sendable until someone decides it is: the list is of what may, not of what may not.
+  A file at the top of the company's files, another company's file, a link out, a folder, a file named twice
+  (however spelled), a sixth file, more than ten megabytes, and a path with a line break in it are each refused
+  as an input that is wrong, naming what is accepted. A deployment with no `PALUGADA_FILES_ROOT` says so.
+- **The message.** `multipart/mixed`: the letter first, as it was, then each file in base64 in lines of 76,
+  `Content-Disposition: attachment` with a plain `filename` and the real one as `filename*` (RFC 2231) for a
+  name beyond ASCII. The name is `plainFileName` of the file's own, so nothing a person typed ends a header; two
+  files of one name arrive as `offer.md` and `offer-2.md`; a name that would still carry a line break, a quote or
+  a backslash into a header is refused by `composeMail` itself, whoever calls it. A `message/*` kind is sent as
+  plain bytes (a part of that kind may not be encoded, and a file is not a message here). The boundary is made
+  from the message's own id, so a letter made again after a crash is the same bytes. A letter with no files is
+  byte-for-byte the letter it was.
+- **A server that says how much it takes** (`SIZE`, RFC 1870) is not sent more: the letter is refused before
+  `MAIL FROM` with "the mail server takes messages up to 1.0 MB; this one is 2.0 MB", not after the whole of it
+  has gone. A message over a megabyte is given a minute of silence to be answered in, so a slow acceptance is not
+  a timeout that invites a second send of the same letter.
+- **Not done (this part):** the card names a file by its path, not by its contents: a role that rewrites
+  `drafts/offer.md` between the yes and the send sends the new text, and the SHA-256 in the journal is what says
+  so afterwards (a hash on the card would need the file read before the owner is asked; `describe` and
+  `summarize` are synchronous, and the bytes may change again before the send); a file larger than ten megabytes
+  or a link to one (a download link is a public address and a new unauthenticated surface); a file the owner
+  chose on the card rather than one a role named; inline images and HTML mail (a letter is plain text, as it was);
+  attachments for a vendor's `email.send` (the vendor file's own body); the other five parts of P1.4.
+- **Also found.** `test/helpers/browser.ts` removed a browser's profile once, and a Chromium helper still
+  writing into it made `rm` fail with `ENOTEMPTY`, which failed a test of something else and left its console
+  open, so the whole suite waited on a process that would never end: the removal is tried again, and a profile
+  that cannot be removed is a temporary directory left, not a failed test. The assistant's own test caught
+  that the two POST routes of 2.166 had no word on whether the assistant may propose them (it may not, with a
+  reason each).
+- **Tested** in `mail-attachments.test.ts` (the card, the exact bytes and names, a yes that covers these files and
+  no others, each refusal and that nothing was said to the mail server, no files root, a server's size, a
+  message over a megabyte to the byte, names, the tool's own description, the read-back), each safeguard seen to
+  fail when taken out.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

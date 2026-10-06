@@ -237,12 +237,16 @@ export interface Smtp {
   port: number;
   /** Every message accepted: who it was from, to, and the data as sent. */
   sent: Array<{ from: string; to: string[]; data: string; user: string }>;
+  /** Every command line the client sent, in order, the data of a message left out. */
+  commands: string[];
+  /** The largest message the server says it takes (`250-SIZE`, RFC 1870), or none. */
+  size: number | null;
   close(): Promise<void>;
 }
 
 /** An SMTP server on a plain port that a client must upgrade with STARTTLS before it may sign in. */
 export async function smtpServer(certificate: Certificate, account: { user: string; password: string }): Promise<Smtp> {
-  const state: Smtp = { port: 0, sent: [], close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  const state: Smtp = { port: 0, sent: [], commands: [], size: null, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
   const server: Server = createPlainServer((plain) => {
     let socket: Socket = plain;
     let secure = false;
@@ -271,8 +275,10 @@ export async function smtpServer(certificate: Certificate, account: { user: stri
             continue;
           }
           const verb = line.split(' ')[0]!.toUpperCase();
+          if (verb !== 'AUTH') state.commands.push(line);
           if (verb === 'EHLO') {
             say('250-smtp.test greets you');
+            if (state.size !== null) say(`250-SIZE ${state.size}`);
             say(secure ? '250 AUTH PLAIN LOGIN' : '250 STARTTLS');
           } else if (verb === 'STARTTLS' && !secure) {
             say('220 2.0.0 Ready to start TLS');

@@ -268,6 +268,10 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   passed, which goes by itself, six an hour per conversation at most; refunds,
   prices of its own, complaints, the law, personal data and promises always come
   to the owner.
+- A letter can carry files. A role names up to five files of the company's own -- what it drafted, made
+  or was given, ten megabytes together -- and the owner's card names every one before they say yes;
+  what a stranger sent is never sent on, nor another company's file. The mail server's own size limit is
+  heard before the letter is sent (STATUS 2.167).
 - Each company has a browser of its own, for sites with no API: a role reads
   pages as a person sees them and fills in a form only after the owner's
   yes, with every field and button on the card; sign-ins are sealed between

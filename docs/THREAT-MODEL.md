@@ -284,6 +284,12 @@ refer to `docs/PRD.md`.
 - A division's mailbox key reaches every message in the mailbox, and
   `mailbox.read` is tier 0: a role granted it can read any of them, codes
   a site sent included. What it may send is `email.send`, at tier 2.
+- A letter may carry files, named by path on the owner's card. They are read from this company's own
+  directory, never through a link out of it, and only from the folders of what the company made or was given
+  (never from what strangers sent, which is kept apart): a role that read an injection cannot send the owner's
+  contracts away by naming them, because the card says which files, and a file that is not in an allowed folder
+  is refused whatever it is called. What the card cannot say is what a named file holds at the moment of the
+  send; the journal keeps its hash.
 
 ### 2.3 A compromised or misbehaving runtime
 

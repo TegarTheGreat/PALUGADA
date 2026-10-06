@@ -38,13 +38,15 @@
  * entry for `email.send` is the one used, as before.
  */
 import { createHash } from 'node:crypto';
+import { basename, sep } from 'node:path';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { withTenant } from '../db/tenant.ts';
 import { isPalugadaError, PalugadaError } from '../errors.ts';
 import { FETCH_MAX_BYTES, ImapSession, MailRefused } from '../chats/imap.ts';
 import { failureSaid, mailSettings, type MailOptions, type MailSettings } from '../chats/mail.ts';
 import { readMail, type Mail } from '../chats/mime.ts';
-import { composeMail, smtpSession } from '../chats/smtp.ts';
+import { composeMail, smtpSession, type Attachment } from '../chats/smtp.ts';
+import { mimeOf, plainFileName, readCompanyFile } from './files.ts';
 import { recipientDomainOf } from './vendors.ts';
 
 /** The division's key both capabilities sign in with. */
@@ -58,6 +60,16 @@ const SNIPPET_MAX = 300;
 /** The most a letter is addressed to, on To and on Cc. */
 const RECIPIENTS_MAX = 10;
 const TEXT_MAX = 20_000;
+/** The most files a letter carries, and the most bytes of them together: a mail server takes about as much. */
+const ATTACHMENTS_MAX = 5;
+const ATTACHMENTS_BYTES = 10 * 1024 * 1024;
+/**
+ * The company's folders a letter may take a file from: what the owner handed
+ * over and what the company made. Everything else is left out by being left
+ * off this list, so a folder added later -- what strangers sent is one --
+ * is never sent on until somebody decides it may be.
+ */
+const SENDABLE = new Set(['uploads', 'drafts', 'generated', 'computed', 'invoices']);
 
 /** An address as SMTP takes one: no name, no list, no space, ASCII. */
 const ADDRESS = "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$";
@@ -294,6 +306,8 @@ export interface EmailSendInput {
   subject: string;
   text: string;
   inReplyTo?: string;
+  /** Files in the company's files, as files.list names them. */
+  attachments?: string[];
 }
 
 export interface EmailSendOutput {
@@ -303,6 +317,8 @@ export interface EmailSendOutput {
   subject: string;
   /** What the server said when it took the message. */
   queued: string;
+  /** What went with it, as it was at the moment it left. */
+  attachments: Array<{ path: string; bytes: number; sha256: string }>;
 }
 
 function recipients(value: unknown, field: string, required: boolean): string[] {
@@ -318,8 +334,66 @@ function recipients(value: unknown, field: string, required: boolean): string[] 
   });
 }
 
+/** The files a letter is asked to carry, as paths: the shape alone, before any file is looked at. */
+function attachmentPaths(value: unknown): string[] {
+  if (value === undefined) return [];
+  const list = Array.isArray(value) ? value : null;
+  if (!list || list.length > ATTACHMENTS_MAX) throw wrong(`attachments is a list of at most ${ATTACHMENTS_MAX} files in the company's files, such as drafts/offer.md`, 'attachments');
+  return list.map((one) => {
+    const path = typeof one === 'string' ? one.trim() : '';
+    if (!path || path.length > 1_000 || /[\u0000-\u001f\u007f]/.test(path)) throw wrong('attachments holds paths in the company\'s files, such as drafts/offer.md, each on one line', 'attachments');
+    return path;
+  });
+}
+
+/**
+ * The files a letter carries, read the way every file of the company is read
+ * (inside its own directory, a link followed only to see where it goes,
+ * opened without following one) and held to what may leave: a file of the
+ * company's own making or the owner's giving, five at most, ten megabytes
+ * together. What a stranger sent is never sent on, whatever it was named or
+ * whatever link leads to it, because the folder checked is the one the file
+ * is really in.
+ */
+async function filesOf(paths: string[], ctx: Pick<CapabilityContext, 'companyId'>, options: MailOptions): Promise<{ files: Attachment[]; kept: EmailSendOutput['attachments'] }> {
+  if (paths.length === 0) return { files: [], kept: [] };
+  if (!options.filesRoot) {
+    throw wrong('attachments are files in the company\'s files, and this deployment keeps none (PALUGADA_FILES_ROOT is not set)', 'attachments');
+  }
+  const files: Attachment[] = [];
+  const kept: EmailSendOutput['attachments'] = [];
+  const seen = new Set<string>();
+  const named = new Set<string>();
+  let total = 0;
+  for (const path of paths) {
+    let got;
+    try {
+      got = await readCompanyFile(options.filesRoot, ctx.companyId, path, ATTACHMENTS_BYTES - total, `the files of a letter come to at most ${ATTACHMENTS_BYTES / 1_048_576} MB together`);
+    } catch (failure) {
+      // Said as what it is to the one who asked: a path that is wrong, not a service that is down.
+      if (isPalugadaError(failure, 'capability.unreachable')) throw wrong((failure as Error).message, 'attachments');
+      throw failure;
+    }
+    if (!SENDABLE.has(got.path.split(sep)[0]!) || !got.path.includes(sep)) {
+      throw wrong(`${path} is not a file a letter may carry: it carries what the company made or was given, from ${[...SENDABLE].join(', ')}`, 'attachments');
+    }
+    if (seen.has(got.path)) throw wrong(`${path} is named twice: a letter carries a file once`, 'attachments');
+    seen.add(got.path);
+    total += got.size;
+    // Two files of one name -- offer.md in drafts and in uploads -- arrive as offer.md and offer-2.md.
+    const plain = plainFileName(basename(got.real));
+    const dot = plain.lastIndexOf('.');
+    let name = plain;
+    for (let n = 2; named.has(name.toLowerCase()); n += 1) name = dot > 0 ? `${plain.slice(0, dot)}-${n}${plain.slice(dot)}` : `${plain}-${n}`;
+    named.add(name.toLowerCase());
+    files.push({ name, mime: mimeOf(name), bytes: got.bytes });
+    kept.push({ path: got.path, bytes: got.size, sha256: createHash('sha256').update(got.bytes).digest('hex') });
+  }
+  return { files, kept };
+}
+
 /** The letter as it was asked for, held to its shape: the card shows it, and nothing else may leave. */
-function letterOf(input: EmailSendInput): { to: string[]; cc: string[]; subject: string; text: string; inReplyTo: string | null } {
+function letterOf(input: EmailSendInput): { to: string[]; cc: string[]; subject: string; text: string; inReplyTo: string | null; attachments: string[] } {
   const to = recipients(input.to, 'to', true);
   const cc = recipients(input.cc, 'cc', false);
   const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
@@ -328,7 +402,7 @@ function letterOf(input: EmailSendInput): { to: string[]; cc: string[]; subject:
   if (!text.trim() || text.length > TEXT_MAX) throw wrong(`text is the letter, 1 to ${TEXT_MAX} characters`, 'text');
   const inReplyTo = input.inReplyTo === undefined ? null : String(input.inReplyTo);
   if (inReplyTo !== null && !/^<[^<>\s]{1,995}>$/.test(inReplyTo)) throw wrong('inReplyTo is the messageId of the message this answers, as mailbox.read gave it', 'inReplyTo');
-  return { to, cc, subject, text, inReplyTo };
+  return { to, cc, subject, text, inReplyTo, attachments: attachmentPaths(input.attachments) };
 }
 
 function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOutput> {
@@ -350,6 +424,11 @@ function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOu
         subject: { type: 'string', minLength: 1, maxLength: 300, pattern: ONE_LINE },
         text: { type: 'string', minLength: 1, maxLength: TEXT_MAX, description: 'The letter, in plain text, in the language the reader writes in.' },
         inReplyTo: { type: 'string', pattern: '^<[^<>\\s]{1,995}>$', description: 'The messageId of the message this answers, so it is shown in its thread.' },
+        attachments: {
+          type: 'array', maxItems: ATTACHMENTS_MAX, items: { type: 'string', minLength: 1, maxLength: 1_000 },
+          description: `Files to send with it, from the company's files: what the company made or the owner gave -- drafts/offer.md, uploads/price-list.xlsx. At most ${ATTACHMENTS_MAX}, ${ATTACHMENTS_BYTES / 1_048_576} MB together. `
+            + 'What strangers sent the company cannot be sent on. The owner sees every file named when they are asked.',
+        },
       },
       additionalProperties: false,
       description: 'Sends a letter from the division\'s mailbox, after the owner says yes. Everything a letter must carry goes in the one call.',
@@ -358,22 +437,26 @@ function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOu
       const all = [...(Array.isArray(input.to) ? input.to : []), ...(Array.isArray(input.cc) ? input.cc : [])];
       return { moneyCents: 0, recipientDomain: recipientDomainOf(all), batchSize: all.length };
     },
+    // A paperclip and the paths, before the subject: the card is cut at a
+    // length, and what leaves with the letter is what the owner must see.
     summarize: (input) => {
       const to = Array.isArray(input.to) ? input.to.join(', ') : '';
       const cc = Array.isArray(input.cc) && input.cc.length > 0 ? `, cc ${input.cc.join(', ')}` : '';
-      return `${to}${cc} — ${String(input.subject ?? '')}`;
+      const files = Array.isArray(input.attachments) && input.attachments.length > 0 ? ` \u{1F4CE} ${input.attachments.map(String).join(', ')}` : '';
+      return `${to}${cc}${files} — ${String(input.subject ?? '')}`;
     },
     preflight: preflightFor('email.send', options, { imap: false, smtp: true }),
     async execute(input, ctx) {
       const letter = letterOf(input);
       const account = await accountOf(ctx);
+      const carried = await filesOf(letter.attachments, ctx, options);
       const { rows: [company] } = await withTenant(ctx.companyId, (tx) => tx.query<{ name: string }>(
         'SELECT name FROM companies WHERE id = $1', [ctx.companyId]));
       const domain = account.address.split('@')[1]!;
       const key = createHash('sha256').update(`${ctx.companyId}/${ctx.taskId}/${ctx.idempotencyKey}`).digest('hex').slice(0, 32);
       const composed = composeMail({
         from: account.address, fromName: company?.name ?? null, to: letter.to, cc: letter.cc,
-        subject: letter.subject, text: letter.text, inReplyTo: letter.inReplyTo, messageId: `<${key}@${domain}>`,
+        subject: letter.subject, text: letter.text, inReplyTo: letter.inReplyTo, messageId: `<${key}@${domain}>`, attachments: carried.files,
       });
       let queued: string | null;
       try {
@@ -385,13 +468,14 @@ function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOu
         if (failure instanceof MailRefused) throw wrong(`the mail server refused the letter: ${failure.message}`, 'to');
         throw failureSaid(failure, account, 'SMTP', false);
       }
-      return { messageId: composed.messageId, to: letter.to, cc: letter.cc, subject: letter.subject, queued: queued ?? '' };
+      return { messageId: composed.messageId, to: letter.to, cc: letter.cc, subject: letter.subject, queued: queued ?? '', attachments: carried.kept };
     },
     // SMTP's one read-back: the server took this letter, for these people.
     async verify(input, result) {
       const letter = letterOf(input);
       return /^250\b/.test(result.queued)
-        && JSON.stringify([result.to, result.cc]) === JSON.stringify([letter.to, letter.cc]);
+        && JSON.stringify([result.to, result.cc]) === JSON.stringify([letter.to, letter.cc])
+        && result.attachments.length === letter.attachments.length;
     },
   };
 }

@@ -104,7 +104,10 @@ export async function openPage(
       socket.close();
       process_.kill();
       await new Promise((resolve) => process_.once('exit', resolve));
-      await rm(profile, { recursive: true, force: true });
+      // Chromium's own helpers may still be writing into the profile as the
+      // browser exits; a directory that is not empty yet is tried again, and
+      // one that stays so does not fail a test of something else.
+      await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => undefined);
     },
   };
 }

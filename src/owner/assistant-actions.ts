@@ -825,6 +825,8 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/control/agents/:name/login/cancel': 'part of the sign-in in Agent CLIs',
   '/api/companies/:companyId/skills/import': 'a skill arrives with its publisher\'s signature, which the assistant cannot make',
   '/api/publishers': 'trusting a publisher is a key the owner checks with the publisher',
+  '/api/companies/:companyId/files': 'a file is handed over from the owner\'s own device, on Memory > Files: the model neither holds the bytes nor puts a file into the company\'s files in the owner\'s name',
+  '/api/companies/:companyId/files/delete': 'what the owner uploaded is theirs to take out, on Memory > Files, where they see what it is',
   '/api/companies/:companyId/devices': 'a device registers itself',
   '/api/companies/:companyId/devices/:deviceId/pair': 'pairing compares a fingerprint on the device itself, in Devices',
   '/api/companies/:companyId/devices/:deviceId/challenge': 'a device asks for its own challenge',

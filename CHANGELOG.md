@@ -534,6 +534,10 @@ The first version. What it holds, in the order an owner meets it.
   file to your device, and removes what you put in. A role that can read files can read what you uploaded,
   as outside content; what the company's roles made is listed beside it. `files.list` now gives folders
   first and each in name order (STATUS 2.166).
+- A letter can carry files. `email.send` takes up to five files of the company's own -- what a role
+  drafted, made or was given, ten megabytes together -- and the owner's card names every one; what a stranger
+  sent and another company's files cannot be sent. A mail server that says how large a message it takes is not
+  sent a larger one (STATUS 2.167).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

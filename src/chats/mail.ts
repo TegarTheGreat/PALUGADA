@@ -37,6 +37,8 @@ export interface MailOptions {
   /** A certificate authority to trust besides the system's, for a server with a private one. */
   ca?: string;
   timeoutMs?: number;
+  /** The folder every company's files are in (`PALUGADA_FILES_ROOT`): where a letter's attachments are found. */
+  filesRoot?: string;
 }
 
 /** How often a mailbox is read. */

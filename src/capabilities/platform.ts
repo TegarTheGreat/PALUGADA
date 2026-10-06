@@ -124,7 +124,7 @@ export function platformCapabilities(
   if (options.chat) built.push(...chatCapabilities(options.chat));
   if (options.browser) built.push(...browserCapabilities(options.browser));
   // A division's own mailbox; a service bound for either name replaces it.
-  built.push(...mailboxCapabilities(options.mail ?? {}));
+  built.push(...mailboxCapabilities({ ...(options.mail ?? {}), ...(options.files ? { filesRoot: options.files.root } : {}) }));
   // The company's own customer record; a CRM the owner connects replaces it.
   built.push(...crmCapabilities());
   // The company's own books; an accounting service the owner connects replaces them.

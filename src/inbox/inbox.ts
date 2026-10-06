@@ -410,6 +410,13 @@ export interface IncidentInput {
   taskId?: string | undefined;
   title: string;
   detail: string;
+  /**
+   * A name for what the incident is about, for a fault that every task meets
+   * at once -- a refused model key. While an incident with this name is open
+   * in the company, it is that one the owner has to deal with, and another
+   * is not raised beside it.
+   */
+  once?: string | undefined;
 }
 
 export async function raiseIncident(input: IncidentInput): Promise<string> {
@@ -419,13 +426,22 @@ export async function raiseIncident(input: IncidentInput): Promise<string> {
 /** The same, inside a transaction that also changed what the incident is about. */
 export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput): Promise<string> {
   {
+    if (input.once) {
+      const { rows: open } = await tx.query<{ id: string }>(
+        `SELECT id FROM inbox_items
+          WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = $1
+          ORDER BY created_at LIMIT 1`,
+        [input.once],
+      );
+      if (open[0]) return open[0].id;
+    }
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, task_id, kind, title, action_summary, rationale,
-          consequence_if_denied, notify_after)
-       VALUES ($1,$2,'incident',$3,$3,$4,'', now())
+          consequence_if_denied, payload, notify_after)
+       VALUES ($1,$2,'incident',$3,$3,$4,'', $5, now())
        RETURNING id`,
-      [input.companyId, input.taskId ?? null, input.title, input.detail],
+      [input.companyId, input.taskId ?? null, input.title, input.detail, JSON.stringify(input.once ? { once: input.once } : {})],
     );
     const id = rows[0]!.id;
     await appendEvent(tx, {

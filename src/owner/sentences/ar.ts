@@ -334,4 +334,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'قراءة صفحة في المتصفح',
   'Fill in a page in the browser': 'تعبئة صفحة في المتصفح',
   'Ask you to take over the browser': 'يطلب منك تولي المتصفح',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    'رفض {host} مفتاح النموذج ({status})، لذا لا يمكن تشغيل أي عمل يحتاج إلى النموذج. افتح الإعدادات، هذه المنصة، النموذج، والصق مفتاحًا صالحًا، ثم اختبره واحفظه.',
+  '{host} refused the model key, and work is waiting': 'رفض {host} مفتاح النموذج، والعمل في انتظار',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح.',
 };

@@ -336,4 +336,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Baca halaman dalam pelayar',
   'Fill in a page in the browser': 'Isi halaman dalam pelayar',
   'Ask you to take over the browser': 'Meminta anda mengambil alih pelayar',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} menolak kunci model ({status}), jadi tiada kerja yang memerlukan model dapat berjalan. Buka Tetapan, Pemasangan ini, Model, tampal kunci yang berfungsi, uji dan simpan.',
+  '{host} refused the model key, and work is waiting': '{host} menolak kunci model, dan kerja sedang menunggu',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Kerja yang menunggu model akan diteruskan sendiri sebaik sahaja kunci yang berfungsi digunakan.',
 };

@@ -2029,6 +2029,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "Ждёт своих рабочих часов",
   "Waiting for review": "Ждёт проверки",
   "Waiting for the model to answer": "Ждёт ответа модели",
+  "Waiting for a model key that works": "Ждёт рабочий ключ модели",
   "Waiting for work it handed on": "Ждёт переданную дальше работу",
   "Waiting for you": "Ждёт вас",
   "Waiting for you to sign in there…": "Ждём, пока вы войдёте там…",

@@ -153,6 +153,35 @@ test('the owner asks; the assistant reads and proposes; nothing changes until th
   }
 });
 
+test('a model that refuses its key is said to the owner in words, with where to put a key that works', async () => {
+  await setDeploymentLanguages({ console: 'id' });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  const refused = new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (401): User not found.', {
+    model: 'm', keyRefused: true, status: 401, host: 'openrouter.ai', providerSaid: 'User not found.', keySetting: 'PALUGADA_MODEL_KEY_REF',
+  });
+  const model: ToolUsingLlmClient = {
+    async turn() {
+      throw refused;
+    },
+    async complete() {
+      throw refused;
+    },
+  };
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', '/api/assistant/messages', token, { text: 'Halo' });
+    assert.equal(said.status, 200);
+    const answer: string = said.body.messages.at(-1).body;
+    assert.match(answer, /^openrouter\.ai menolak kunci model \(401\)/);
+    assert.match(answer, /Buka Pengaturan, Deployment ini, Model/);
+    assert.match(answer, /User not found\./, 'what the provider said, as it said it');
+    assert.doesNotMatch(answer, /PALUGADA_MODEL_KEY_REF|"error"|The model did not answer/, 'no variable, no raw JSON, no English');
+  } finally {
+    await api.close();
+  }
+});
+
 test('a key typed into the conversation is not kept, and never reaches the model', async () => {
   await setDeploymentLanguages({ console: 'id' });
   const model = new ScriptedModel([]);

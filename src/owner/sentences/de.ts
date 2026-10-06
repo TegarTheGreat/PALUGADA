@@ -337,4 +337,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Seite im Browser lesen',
   'Fill in a page in the browser': 'Seite im Browser ausfüllen',
   'Ask you to take over the browser': 'Bittet Sie, den Browser zu übernehmen',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} hat den Schlüssel des Modells abgelehnt ({status}), daher kann keine Arbeit laufen, die das Modell braucht. Öffnen Sie Einstellungen, Diese Instanz, Modell, fügen Sie einen funktionierenden Schlüssel ein, testen Sie ihn und speichern Sie.',
+  '{host} refused the model key, and work is waiting': '{host} hat den Modellschlüssel abgelehnt, und die Arbeit wartet',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Arbeit, die auf das Modell wartet, läuft von selbst weiter, sobald ein funktionierender Schlüssel verwendet wird.',
 };

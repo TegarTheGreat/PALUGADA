@@ -592,6 +592,7 @@ const WAIT_REASONS: Record<string, string> = {
   vendor: N('A service asked it to wait'),
   slot: N('Waiting its turn at a tool'),
   model: N('Waiting for the model to answer'),
+  model_key: N('Waiting for a model key that works'),
   service: N('Waiting for a service to answer again'),
   retry: N('Trying again shortly'),
 };
@@ -621,7 +622,8 @@ export function waitingFor(
   }
   if (onWork && waiting.on) return { text: t('Waiting for {role}', { role: who(waiting.on) }), onYou: false };
   const sentence = waiting.reason ? WAIT_REASONS[waiting.reason] : undefined;
-  return sentence ? { text: t(sentence), onYou: false } : null;
+  // A refused key is the one wait only the owner can end.
+  return sentence ? { text: t(sentence), onYou: waiting.reason === 'model_key' } : null;
 }
 
 export function statusLabel(status: string): string {

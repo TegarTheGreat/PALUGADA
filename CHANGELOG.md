@@ -391,6 +391,12 @@ The first version. What it holds, in the order an owner meets it.
   edit; balances per currency and this month's profit. The bookkeeper reads
   and records the same books. An accounting service you connect takes over
   (STATUS 2.139).
+- A model key the provider refuses (a wrong or revoked key, a 401) is said
+  in your language with where to put one that works, and the inbox holds one
+  card for the company instead of every task halting silently. The work
+  waits, longer each time, up to ten hours, and carries on by itself when a
+  key that works is in use, rather than waiting for you to resume each task
+  (STATUS 2.140).
 - The reviewers a company is given (`reviewer`, `qa-reviewer`,
   `platform-reviewer`) are now asked for a verdict a reading can use, so a
   review is no longer sent to you as "undecided" for want of one; and a

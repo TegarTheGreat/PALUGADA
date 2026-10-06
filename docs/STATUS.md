@@ -8968,6 +8968,50 @@ deployment it was not.
   not reversed, the balances and the entries in order; an export restored
   balancing. The binding, the tiers and the template.
 
+## 2.140 A refused model key is said in words, told once, and waited out
+
+The owner's complaint of 6 October: an OpenRouter key that answered `401
+User not found.` reached the owner, in the assistant's chat, as
+`The model did not answer: the model API refused the key (401); check
+PALUGADA_MODEL_KEY_REF: {"error":{...}}` -- English, raw JSON, the name of a
+variable the console owner never set -- and every task that met it halted
+with "No runtime could take it" and **nothing in the inbox**. The owner had
+to find the cause, fix it, and resume each task by hand.
+
+- **The transport says facts, not a sentence about a variable.** A 401 or
+  403 throws `model.unavailable` carrying `keyRefused`, the status, the
+  host and what the provider said, taken out of its JSON (`error.message`,
+  as OpenAI, Anthropic and OpenRouter send it). The message names the host
+  and the status; the setting's name stays in the details, for an operator
+  reading the record. A 400-class refusal is read the same way.
+- **The owner reads one composed sentence**, in their language: which host
+  refused, and "Open Settings, This deployment, Model, paste a key that
+  works, test it and save", then the provider's own words as they were. The
+  assistant answers with it instead of the raw error.
+- **One card for the company.** The first refusal raises an incident --
+  deduplicated by a name on the item (`once`), so ten tasks meeting it raise
+  one card, and a new one only after the owner has answered it.
+- **The work waits and carries on.** A task that meets a refused key goes to
+  `waiting_window` for the new reason `model_key` ("Waiting for a model key
+  that works", shown as waiting on the owner), looks again after a minute,
+  two, five, fifteen, an hour, three, six, and halts only when those are
+  spent (about ten hours) -- by then the card is long in the inbox. A refused
+  call costs nothing, and it is not the task failing: no attempt is spent.
+  The model-outage waits (F13.6) count their own events and are unchanged.
+- **Not done:** a saved key takes effect at the next start, and the waiting
+  task looks again at its own time, so after the owner fixes the key the work
+  resumes within the step it was in, not at once. Waking the parked tasks
+  when the key is saved is the next step if that is felt.
+- **Also fixed on the way:** the card for a review whose verdict could not be
+  recorded wrote the platform's error into its detail in English where it is
+  raised; it is now the card's record, composed like the others.
+- **Tested** in `out-of-process-runtimes.test.ts` (one card for two tasks, the
+  waits growing, the work finishing when the key works with no attempt spent;
+  the waits spent, no second card, and a new card after the first is
+  answered), `model-runtime.test.ts` (the transport's facts, no variable in
+  the message, not retried) and `assistant.test.ts` (the sentence in
+  Indonesian, no raw JSON).
+
 ## 2.141 The shipped reviewers are asked for a verdict, and one that cannot be recorded stops nothing (audit of 3 October, P0-2 and P0-3)
 
 The audit of `docs/AUDIT-2026-10-03-ONE-MAN-COMPANY.md` checked, in code, two

@@ -2020,6 +2020,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "作業時間帯を待っています",
   "Waiting for review": "レビューを待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",
+  "Waiting for a model key that works": "使えるモデルのキーを待っています",
   "Waiting for work it handed on": "引き継いだ作業を待っています",
   "Waiting for you": "あなたの確認待ち",
   "Waiting for you to sign in there…": "そちらでのサインインを待っています…",

@@ -2049,6 +2049,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "Đang chờ đến giờ làm việc",
   "Waiting for review": "Đang chờ rà soát",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",
+  "Waiting for a model key that works": "Đang chờ khóa mô hình hợp lệ",
   "Waiting for work it handed on": "Đang chờ việc đã giao cho người khác",
   "Waiting for you": "Đang chờ bạn",
   "Waiting for you to sign in there…": "Đang chờ bạn đăng nhập ở đó…",

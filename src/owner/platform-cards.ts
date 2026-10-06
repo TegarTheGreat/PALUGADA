@@ -267,6 +267,26 @@ export function modelFailedCard(reading: OwnerReading, facts: { model: string; t
   };
 }
 
+/**
+ * The model's key was refused (401 or 403). It names the provider, says what
+ * stopped and where to put a key that works, and ends with what the provider
+ * said in its own words. One sentence, so the assistant's chat answer and the
+ * inbox card read the same.
+ */
+export function modelKeyRefusedSaid(language: string | null, facts: { host: string; status: number; providerSaid: string | null }): string {
+  return withRecord(say(language,
+    '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.',
+    { host: facts.host, status: String(facts.status) }), facts.providerSaid);
+}
+
+export function modelKeyRefusedCard(reading: OwnerReading, facts: { host: string; status: number; providerSaid: string | null }): Card {
+  const { language } = reading;
+  return {
+    title: say(language, '{host} refused the model key, and work is waiting', { host: facts.host }),
+    detail: `${modelKeyRefusedSaid(language, facts)}\n\n${say(language, 'What is waiting for the model carries on by itself once a key that works is in use.')}`,
+  };
+}
+
 export function writeUnverifiedCard(reading: OwnerReading, facts: { record: string }): Card {
   const { language } = reading;
   return {
@@ -297,7 +317,8 @@ export function reviewUnreadableCard(reading: OwnerReading, facts: { capability:
   const { language } = reading;
   return {
     title: say(language, 'Review produced no usable verdict: {capability}', { capability: capabilitySaid(language, facts.capability) }),
-    detail: say(language, 'The reviewing task ended without a decision that could be read. The proposed action is still blocked and needs your judgement.'),
+    detail: withRecord(say(language, 'The reviewing task ended without a decision that could be read. The proposed action is still blocked and needs your judgement.'),
+      facts.record),
   };
 }
 

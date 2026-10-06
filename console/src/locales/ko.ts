@@ -2022,6 +2022,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "작업 시간대를 기다리는 중",
   "Waiting for review": "검토 대기 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",
+  "Waiting for a model key that works": "사용할 수 있는 모델 키를 기다리는 중",
   "Waiting for work it handed on": "넘겨준 작업을 기다리는 중",
   "Waiting for you": "내 확인 대기",
   "Waiting for you to sign in there…": "그쪽에서 로그인하기를 기다리는 중…",

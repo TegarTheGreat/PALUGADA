@@ -335,4 +335,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': '브라우저에서 페이지 읽기',
   'Fill in a page in the browser': '브라우저에서 페이지 작성하기',
   'Ask you to take over the browser': '브라우저를 넘겨받아 달라고 요청하기',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host}이(가) 모델 키를 거부했습니다({status}). 모델이 필요한 작업은 실행할 수 없습니다. 설정, 이 인스턴스, 모델을 열어 사용할 수 있는 키를 붙여넣고 테스트한 뒤 저장하세요.',
+  '{host} refused the model key, and work is waiting': '{host}이(가) 모델 키를 거부해 작업이 대기 중입니다',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    '모델을 기다리던 작업은 사용할 수 있는 키가 적용되면 자동으로 이어집니다.',
 };

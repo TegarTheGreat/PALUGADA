@@ -2005,6 +2005,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "Naghihintay sa oras ng trabaho nito",
   "Waiting for review": "Naghihintay ng review",
   "Waiting for the model to answer": "Naghihintay sumagot ang model",
+  "Waiting for a model key that works": "Naghihintay ng key ng modelo na gumagana",
   "Waiting for work it handed on": "Naghihintay sa gawaing ipinasa nito",
   "Waiting for you": "Naghihintay sa iyo",
   "Waiting for you to sign in there…": "Hinihintay kang mag-sign in doon…",

@@ -1945,6 +1945,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "Menunggu jam kerjanya",
   "Waiting for review": "Menunggu tinjauan",
   "Waiting for the model to answer": "Menunggu model menjawab",
+  "Waiting for a model key that works": "Menunggu kunci model yang berfungsi",
   "Waiting for work it handed on": "Menunggu pekerjaan yang diserahkannya",
   "Waiting for you": "Menunggu Anda",
   "Waiting for you to sign in there…": "Menunggu Anda masuk di sana…",

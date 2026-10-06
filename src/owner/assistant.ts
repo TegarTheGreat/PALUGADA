@@ -23,10 +23,11 @@ import type { LlmBlock, LlmTool, LlmTurn, ToolUsingLlmClient } from '../llm/clie
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 import { wholeCents } from '../engine/pricing.ts';
-import { PalugadaError } from '../errors.ts';
+import { isPalugadaError, PalugadaError } from '../errors.ts';
 import { deploymentLanguages, languageName } from '../domain/language.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { say } from './say.ts';
+import { modelKeyRefusedSaid } from './platform-cards.ts';
 import { firstHourBrief, firstHourOf, firstHourOpener } from './first-hour.ts';
 import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, UNREADABLE, type AssistantAction } from './assistant-actions.ts';
 
@@ -558,7 +559,16 @@ export async function converse(options: AssistantOptions, text: string, channel:
       messages.push({ role: 'user', content: results });
     }
   } catch (failure) {
-    if (!stopped()) answer = say(language, 'The model did not answer: {reason}', { reason: (failure as Error).message.slice(0, 300) });
+    if (!stopped()) {
+      // A refused key is said with where to put a working one, not with the
+      // provider's raw error and the name of a variable.
+      answer = isPalugadaError(failure, 'model.unavailable') && failure.details.keyRefused === true
+        ? modelKeyRefusedSaid(language, {
+          host: String(failure.details.host), status: Number(failure.details.status),
+          providerSaid: typeof failure.details.providerSaid === 'string' && failure.details.providerSaid !== '' ? failure.details.providerSaid : null,
+        })
+        : say(language, 'The model did not answer: {reason}', { reason: (failure as Error).message.slice(0, 300) });
+    }
   }
   // Stopped: what it had half thought is not an answer, and a card from it
   // is not something the owner asked to see.

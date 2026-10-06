@@ -337,4 +337,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'ब्राउज़र में पेज पढ़ें',
   'Fill in a page in the browser': 'ब्राउज़र में पेज भरें',
   'Ask you to take over the browser': 'आपसे ब्राउज़र अपने हाथ में लेने को कहें',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} ने मॉडल की कुंजी अस्वीकार कर दी ({status}), इसलिए मॉडल पर निर्भर कोई भी काम नहीं चल सकता। सेटिंग्स, यह डिप्लॉयमेंट, मॉडल खोलें, काम करने वाली कुंजी चिपकाएँ, उसे जाँचें और सहेजें।',
+  '{host} refused the model key, and work is waiting': '{host} ने मॉडल की कुंजी अस्वीकार कर दी, और काम प्रतीक्षा में है',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'मॉडल की प्रतीक्षा कर रहा काम, काम करने वाली कुंजी इस्तेमाल होते ही अपने-आप आगे बढ़ जाएगा।',
 };

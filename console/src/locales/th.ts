@@ -2044,6 +2044,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "รอช่วงเวลาทำงาน",
   "Waiting for review": "รอการตรวจทาน",
   "Waiting for the model to answer": "รอโมเดลตอบ",
+  "Waiting for a model key that works": "รอคีย์โมเดลที่ใช้ได้",
   "Waiting for work it handed on": "รองานที่ส่งต่อไป",
   "Waiting for you": "รอคุณอยู่",
   "Waiting for you to sign in there…": "กำลังรอให้คุณลงชื่อเข้าใช้ที่นั่น…",

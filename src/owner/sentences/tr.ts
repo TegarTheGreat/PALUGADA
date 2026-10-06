@@ -338,4 +338,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Tarayıcıda bir sayfa oku',
   'Fill in a page in the browser': 'Tarayıcıda bir sayfayı doldur',
   'Ask you to take over the browser': 'Tarayıcıyı devralmanızı istemek',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} yapay zekâ modelinin anahtarını reddetti ({status}); bu yüzden modele ihtiyaç duyan hiçbir iş çalışamıyor. Ayarlar, Bu kurulum, Yapay zekâ modeli bölümünü açın, çalışan bir anahtar yapıştırın, deneyin ve kaydedin.',
+  '{host} refused the model key, and work is waiting': '{host} modelin anahtarını reddetti ve iş bekliyor',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder.',
 };

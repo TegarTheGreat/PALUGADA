@@ -673,11 +673,25 @@ test('an overloaded provider is tried again, then left to the fallback model; a 
     await down.close();
   }
 
-  const refused = await provider([{ status: 401, body: { type: 'error', error: { type: 'authentication_error' } } }]);
+  // A refused key is said as a fact the engine and the owner's screens can
+  // act on -- who refused, with what status, in the provider's own words --
+  // and not as a sentence naming a variable the console owner never set
+  // (the OpenRouter 401 of 6 October reached the owner as raw JSON).
+  const refused = await provider([{ status: 401, body: { error: { message: 'User not found.', code: 401 } } }]);
   try {
     const client = new AnthropicClient({ apiKey: 'sk-wrong-key-0123456789', baseUrl: refused.url });
     await assert.rejects(client.complete({ model: 'standard', system: 's', messages: [{ role: 'user', content: 'u' }] }),
-      (error: unknown) => isPalugadaError(error, 'model.unavailable') && /PALUGADA_MODEL_KEY_REF/.test((error as Error).message));
+      (error: unknown) => {
+        assert.ok(isPalugadaError(error, 'model.unavailable'));
+        assert.equal(error.details.keyRefused, true);
+        assert.equal(error.details.status, 401);
+        assert.equal(error.details.host, new URL(refused.url).host);
+        assert.equal(error.details.providerSaid, 'User not found.');
+        assert.equal(error.details.keySetting, 'PALUGADA_MODEL_KEY_REF', 'an operator still finds the setting, in the record');
+        assert.match(error.message, /refused the key \(401\): User not found\./);
+        assert.doesNotMatch(error.message, /PALUGADA_MODEL_KEY_REF|\{/, 'no variable name, no raw JSON');
+        return true;
+      });
     assert.equal(refused.received.length, 1, 'a wrong key is not retried');
   } finally {
     await refused.close();

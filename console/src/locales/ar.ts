@@ -2022,6 +2022,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "ينتظر ساعات عمله",
   "Waiting for review": "بانتظار المراجعة",
   "Waiting for the model to answer": "ينتظر ردّ النموذج",
+  "Waiting for a model key that works": "في انتظار مفتاح نموذج صالح",
   "Waiting for work it handed on": "ينتظر عملًا سلّمه إلى غيره",
   "Waiting for you": "بانتظارك",
   "Waiting for you to sign in there…": "بانتظار تسجيل دخولك هناك…",

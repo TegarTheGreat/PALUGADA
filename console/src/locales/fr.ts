@@ -2032,6 +2032,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "Attend ses heures de travail",
   "Waiting for review": "En attente de revue",
   "Waiting for the model to answer": "Attend la réponse du modèle",
+  "Waiting for a model key that works": "Attend une clé du modèle valide",
   "Waiting for work it handed on": "Attend un travail confié à d’autres",
   "Waiting for you": "Vous attend",
   "Waiting for you to sign in there…": "En attente de votre connexion là-bas…",

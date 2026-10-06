@@ -52,7 +52,7 @@ import {
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { modelFailedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard } from '../owner/platform-cards.ts';
+import { modelFailedCard, modelKeyRefusedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard } from '../owner/platform-cards.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
 import type { LlmClient } from '../llm/client.ts';
 
@@ -153,6 +153,16 @@ export const MAX_RATE_LIMIT_PARKS = 5;
  */
 export const RETRY_WAITS_MS: readonly number[] = [10_000, 40_000, 160_000];
 export const MODEL_OUTAGE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000, 240_000, 480_000];
+/**
+ * How long a task waits for a model whose key was refused, before it halts:
+ * a minute, and then longer, to ten hours in all. Not a provider's moment --
+ * only a person changes a key -- but the person is not at the screen, and a
+ * task halted the first time would have to be resumed by hand, one by one,
+ * once they have. A refused call costs nothing, so the task looks again, and
+ * carries on when the key that works is in use; the owner is told at the
+ * first refusal (`#waitForKey`), once for the whole company.
+ */
+export const MODEL_KEY_WAITS_MS: readonly number[] = [60_000, 120_000, 300_000, 900_000, 3_600_000, 10_800_000, 21_600_000];
 /**
  * How long a task waits for a capability whose vendor is having a moment
  * (H2): a minute, doubling, five times -- about half an hour -- before the
@@ -1543,7 +1553,8 @@ export class Engine {
     const waits = await withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM events
-          WHERE task_id = $1 AND type = 'task.model_waited' AND occurred_at > now() - interval '1 hour'`,
+          WHERE task_id = $1 AND type = 'task.model_waited' AND occurred_at > now() - interval '1 hour'
+            AND payload->>'keyRefused' IS NULL`,
         [taskId],
       );
       return Number(rows[0]!.count);
@@ -1569,6 +1580,45 @@ export class Engine {
     });
     await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
     return null;
+  }
+
+  /**
+   * A model whose key was refused (401, 403). Every task that needs the model
+   * meets the same refusal, and only the owner can change a key, so the owner
+   * is told once -- one card for the company, saying where to put a key that
+   * works -- and each task waits for it (`MODEL_KEY_WAITS_MS`) instead of
+   * halting. When the waits are spent it halts as before: the card is
+   * already in the inbox.
+   */
+  async #waitForKey(companyId: string, taskId: string, error: PalugadaError): Promise<RunOutcome | null> {
+    const providerSaid = error.details.providerSaid;
+    const card = modelKeyRefusedCard(await withTenant(companyId, ownerReadingWithin), {
+      host: String(error.details.host ?? ''), status: Number(error.details.status ?? 401),
+      providerSaid: typeof providerSaid === 'string' && providerSaid !== '' ? providerSaid : null,
+    });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail, once: 'model_key_refused' });
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.model_waited' AND payload->>'keyRefused' = 'true'
+            AND occurred_at > now() - interval '1 day'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    if (waits >= MODEL_KEY_WAITS_MS.length) return null;
+    const waitUntil = new Date(Date.now() + MODEL_KEY_WAITS_MS[waits]!);
+    await withTenant(companyId, async (tx) => {
+      await appendEvent(tx, {
+        companyId,
+        taskId,
+        type: 'task.model_waited',
+        actor: 'engine',
+        payload: { model: String(error.details.model ?? 'the model'), error: error.message, waitUntil: waitUntil.toISOString(), wait: waits + 1, keyRefused: true },
+      });
+    });
+    await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'model_key' });
+    return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
   }
 
   /**
@@ -1698,6 +1748,11 @@ export class Engine {
       'journal.divergence': 'journal_divergence',
     };
 
+    // A model that refused its key: the owner told once, the task waits.
+    if (code === 'model.unavailable' && (error as PalugadaError).details.keyRefused === true) {
+      const parked = await this.#waitForKey(companyId, taskId, error as PalugadaError);
+      if (parked) return parked;
+    }
     // A model that did not answer: waited for, a few times, before it halts.
     if (code === 'model.unavailable' && (error as PalugadaError).details.providerDown === true) {
       const waited = await this.#waitForModel(companyId, taskId, error as PalugadaError);

@@ -340,4 +340,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'อ่านหน้าเว็บในเบราว์เซอร์',
   'Fill in a page in the browser': 'กรอกหน้าเว็บในเบราว์เซอร์',
   'Ask you to take over the browser': 'ขอให้คุณรับช่วงเบราว์เซอร์',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} ปฏิเสธคีย์โมเดล ({status}) งานที่ต้องใช้โมเดลจึงทำงานไม่ได้ เปิด การตั้งค่า, ระบบนี้, โมเดล แล้ววางคีย์ที่ใช้ได้ ทดสอบ แล้วบันทึก',
+  '{host} refused the model key, and work is waiting': '{host} ปฏิเสธคีย์โมเดล และงานกำลังรออยู่',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'งานที่รอโมเดลอยู่จะทำต่อเองทันทีที่ใช้คีย์ที่ใช้ได้',
 };

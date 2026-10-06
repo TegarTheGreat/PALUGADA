@@ -1995,6 +1995,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "अपने काम के घंटों का इंतज़ार कर रहा है",
   "Waiting for review": "समीक्षा का इंतज़ार",
   "Waiting for the model to answer": "मॉडल के जवाब का इंतज़ार कर रहा है",
+  "Waiting for a model key that works": "काम करने वाली मॉडल कुंजी की प्रतीक्षा",
   "Waiting for work it handed on": "सौंपे गए काम का इंतज़ार कर रहा है",
   "Waiting for you": "आपका इंतज़ार",
   "Waiting for you to sign in there…": "वहाँ आपके साइन इन करने का इंतज़ार…",

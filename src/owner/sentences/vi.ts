@@ -341,4 +341,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Đọc một trang trong trình duyệt',
   'Fill in a page in the browser': 'Điền một trang trong trình duyệt',
   'Ask you to take over the browser': 'Nhờ bạn tiếp quản trình duyệt',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} đã từ chối khóa mô hình ({status}), nên không công việc nào cần mô hình có thể chạy. Mở Cài đặt, Hệ thống này, Mô hình, dán khóa hợp lệ, kiểm tra rồi lưu.',
+  '{host} refused the model key, and work is waiting': '{host} đã từ chối khóa mô hình, và công việc đang chờ',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Công việc đang chờ mô hình sẽ tự tiếp tục khi khóa hợp lệ được dùng.',
 };

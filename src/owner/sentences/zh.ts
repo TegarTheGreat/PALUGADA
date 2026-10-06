@@ -336,4 +336,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': '在浏览器中读取网页',
   'Fill in a page in the browser': '在浏览器中填写网页',
   'Ask you to take over the browser': '请你接管浏览器',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} 拒绝了模型密钥（{status}），因此所有需要模型的工作都无法运行。请打开 设置、本部署、模型，粘贴一个可用的密钥，测试后保存。',
+  '{host} refused the model key, and work is waiting': '{host} 拒绝了模型密钥，工作正在等待',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    '等待模型的工作会在换用可用密钥后自动继续。',
 };

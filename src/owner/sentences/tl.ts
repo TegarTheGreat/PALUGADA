@@ -334,4 +334,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Basahin ang isang pahina sa browser',
   'Fill in a page in the browser': 'Punan ang isang pahina sa browser',
   'Ask you to take over the browser': 'Hilingin sa iyong hawakan ang browser',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    'Tinanggihan ng {host} ang key ng modelo ({status}), kaya walang gawaing nangangailangan ng modelo ang maaaring tumakbo. Buksan ang Mga Setting, Deployment na ito, Modelo, i-paste ang key na gumagana, subukan ito at i-save.',
+  '{host} refused the model key, and work is waiting': 'Tinanggihan ng {host} ang key ng modelo, at naghihintay ang trabaho',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Kusang magpapatuloy ang trabahong naghihintay sa modelo kapag gumagamit na ng key na gumagana.',
 };

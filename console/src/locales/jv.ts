@@ -2042,6 +2042,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for its work hours": "Nengga jam kerjanipun",
   "Waiting for review": "Nengga panliten",
   "Waiting for the model to answer": "Nengga modhèl mangsuli",
+  "Waiting for a model key that works": "Nengga kunci modhèl ingkang saged dipunginakaken",
   "Waiting for work it handed on": "Nengga padamelan ingkang dipunserahaken",
   "Waiting for you": "Ngentosi panjenengan",
   "Waiting for you to sign in there…": "Ngentosi panjenengan mlebet wonten ing ngriku…",

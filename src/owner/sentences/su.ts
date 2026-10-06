@@ -335,4 +335,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Maca kaca dina browser',
   'Fill in a page in the browser': 'Ngeusian kaca dina browser',
   'Ask you to take over the browser': 'Nyuhunkeun anjeun nyandak alih browser',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} nolak konci modél ({status}), jadi euweuh pagawéan anu butuh modél anu bisa jalan. Buka Setélan, Pamasangan ieu, Modél AI, témpélkeun konci anu tiasa dipaké, uji, tuluy simpen.',
+  '{host} refused the model key, and work is waiting': '{host} nolak konci modél, sarta pagawéan keur ngantosan',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Pagawéan anu ngantosan modél bakal diteruskeun sorangan sanggeus konci anu tiasa dipaké geus dipaké.',
 };

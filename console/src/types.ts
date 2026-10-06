@@ -837,3 +837,12 @@ export interface BrowserScreen {
   width: number;
   height: number;
 }
+
+/** What the deployment reported when it started (`/api/control/setup`). */
+export interface SetupReport {
+  notes: string[];
+  todo: string[];
+  version?: string;
+  /** No model is set: no role on the in-process runtime can work until one is. */
+  modelMissing?: boolean;
+}

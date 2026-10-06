@@ -9446,6 +9446,35 @@ screens in front of them, and is not made blind here.
 - **Not done**: reordering, merging or renaming pages, and the first-run flow
   beyond what the tour already says, which need the owner's own screens.
 
+## 2.152 The first thing a new deployment needs is a model, and Home says so (the owner's complaint of 6 October: "onboarding tidak jelas")
+
+Drawn in Chromium on a fresh deployment, the first screen offered ten pages of a
+company that did not exist, an empty state saying "Start your first company",
+and nothing about the one thing without which that company could do nothing: a
+model. The yellow notice that did exist, "N things switched off until
+configured", was drawn only once a company existed, and its one button was
+"Set the model" whether or not a model was set -- the list it counted is mostly
+optional channels in the operator's words (`no push channel: set
+PALUGADA_PUSH_URL`). An owner started a company, gave it work, and met a missing
+or refused key as a failed run.
+
+- **`modelMissing`** on `GET /api/control/setup`, from the boot note `no model:`
+  that `main.ts` has always written when there is none. Tested in
+  `setup-checklist.test.ts`: with and without a model, the optional notes
+  unchanged.
+- **Home says it first and alone**: a red notice, "No model is set, so no role
+  can do any work yet. Choose one before you start a company", with **Set the
+  model**, above the empty state as well as above a company's page. When a model
+  is set, the notice is the count of what is switched off with **Review the
+  checklist**, which opens it; the checklist's own "Set the model" button is
+  there only when there is no model.
+- **Before there is a company** the sidebar shows Home and This deployment, and
+  not the ten pages of a company that does not exist; they appear with the first.
+- **Not done**: the checklist still shows the operator's notes as written, in
+  English; saying each in the owner's words in every language is a separate
+  piece of work, and the model, the one that matters, is now said apart from
+  them.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

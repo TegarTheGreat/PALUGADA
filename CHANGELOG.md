@@ -451,7 +451,12 @@ The first version. What it holds, in the order an owner meets it.
 - Each page in the sidebar says what it is for under its name, and the two
   buttons that open a conversation say how they differ: the CEO is for one
   company and has things done; Ask PALUGADA is for the model, the channels and
-  new companies (STATUS 2.151).
+  new companies (STATUS 2.151). The sidebar no longer hides most of its pages
+  below the fold, and before there is a company it shows only Home and This
+  deployment.
+- A deployment with no model says so first, in red, on Home, with the button
+  that sets one; the rest of what it reported at start is a count and a way to
+  the checklist, not the same "Set the model" button for each (STATUS 2.152).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

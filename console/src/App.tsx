@@ -29,7 +29,7 @@ import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
-import type { Company, SearchHit, Staff, Structure } from './types.ts';
+import type { Company, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
@@ -186,7 +186,7 @@ function Console({ device, staff, recovered, signOut }: {
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages, money]: [
-      { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[]; version?: string }, Languages,
+      { companies: Company[] }, { stopAll: boolean }, SetupReport, Languages,
       { currency: string | null; rate: number | null },
     ] = await Promise.all([
       api('GET', '/api/companies'),
@@ -373,7 +373,7 @@ function Console({ device, staff, recovered, signOut }: {
     return !text || `${action.label ?? ''} ${action.description ?? ''}`.toLowerCase().includes(text);
   };
 
-  const setup: { notes: string[]; todo: string[]; version?: string } = base.data?.setup ?? { notes: [], todo: [] };
+  const setup: SetupReport = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
@@ -513,11 +513,13 @@ function Console({ device, staff, recovered, signOut }: {
 
         <AppShell.Section grow component={ScrollArea} type="auto" offsetScrollbars="y" mt="sm">
           <NavLink label={t('Home')} py={7} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
-          {PAGES.filter((page) => page.group === 'decide').map((page) => navLink(page))}
+          {/* Until there is a company there is nothing for these pages to show:
+              the first thing to do is on Home, and the deployment's own page. */}
+          {company && PAGES.filter((page) => page.group === 'decide').map((page) => navLink(page))}
           {company && <div className="nav-section-label">{company.name}</div>}
-          {PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map((page) => navLink(page))}
-          {owner && <Divider my="xs" />}
-          {owner && PAGES.filter((page) => page.group === 'setup').map((page) => navLink(page))}
+          {company && PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map((page) => navLink(page))}
+          {owner && company && <Divider my="xs" />}
+          {owner && company && PAGES.filter((page) => page.group === 'setup').map((page) => navLink(page))}
           {owner && <NavLink
             label={t('This deployment')}
             py={7}
@@ -613,6 +615,7 @@ function Console({ device, staff, recovered, signOut }: {
               startCompany={owner ? () => setStarting(true) : null}
               restoreCompany={owner ? () => setRestoring(true) : null}
               setup={setup}
+              checklist={() => setChecklist(true)}
             />
           ) : (
             <CompanyPageView key={`${context.companyId}:${route.page}:${route.section}`} ctx={context} route={route as Extract<Route, { kind: 'company' }>} />
@@ -679,9 +682,11 @@ function Console({ device, staff, recovered, signOut }: {
         <Text size="sm" c="dimmed" mb="md">
           {t('What the deployment reported when it started. Each one is something switched off until it is configured: the model is set on the This deployment page, and the rest in the environment, which docs/configuration.md lists.')}
         </Text>
-        <Button mb="md" variant="light" leftSection={<IconServer2 size={16} />} onClick={() => { setChecklist(false); go({ kind: 'deployment', section: 'model' }); }}>
-          {t('Set the model')}
-        </Button>
+        {setup.modelMissing && (
+          <Button mb="md" variant="light" color="red" leftSection={<IconServer2 size={16} />} onClick={() => { setChecklist(false); go({ kind: 'deployment', section: 'model' }); }}>
+            {t('Set the model')}
+          </Button>
+        )}
         <Stack gap="xs">
           {setup.notes.map((note) => {
             const done = !setup.todo.includes(note);

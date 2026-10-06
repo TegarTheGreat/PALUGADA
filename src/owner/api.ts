@@ -1236,6 +1236,10 @@ export class OwnerApi {
           return {
             notes,
             todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to |charters kept in )/.test(note)),
+            // The one note that stops every role from working, said apart from
+            // the optional rest: a company can be started without a model and
+            // then runs none of its work.
+            modelMissing: notes.some((note) => note.startsWith('no model:')),
             version: VERSION,
           };
         },

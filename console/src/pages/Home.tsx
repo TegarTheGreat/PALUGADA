@@ -16,7 +16,7 @@ import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus, IconUpload 
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { go, type CompanyPage } from '../router.ts';
-import type { Company, Digest, InboxItem, Spend, WorkGroup, WorkItem } from '../types.ts';
+import type { Company, Digest, InboxItem, SetupReport, Spend, WorkGroup, WorkItem } from '../types.ts';
 import { money, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import { EmptyState, KindBadge, LiveIndicator, Loading, LoadFailed, Section, StatusBadge, TierBadge } from '../components/ui.tsx';
@@ -42,15 +42,57 @@ function greeting(): string {
   return t('Good night');
 }
 
+/**
+ * What a new deployment needs, in the order it matters. A missing model stops
+ * every role, so it is said first and alone, with the button that fixes it; the
+ * rest of what the deployment reported is mostly optional channels, so it is a
+ * count and a way to the list -- not the same button for every one of them.
+ */
+function SetupNotice({ setup, checklist }: { setup: SetupReport; checklist: () => void }) {
+  if (setup.modelMissing) {
+    return (
+      <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-red-light)">
+        <Group gap="sm" wrap="wrap">
+          <IconAlertTriangle size={20} color="var(--mantine-color-red-8)" style={{ flexShrink: 0 }} />
+          <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
+            {t('No model is set, so no role can do any work yet. Choose one before you start a company.')}
+          </Text>
+          <Button size="compact-sm" color="red" ms="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
+            {t('Set the model')}
+          </Button>
+        </Group>
+      </Paper>
+    );
+  }
+  if (setup.todo.length === 0) return null;
+  return (
+    <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-yellow-light)">
+      {/* Wraps rather than squeezes: in Russian or Hindi the sentence is long
+          enough on a phone to push the button's own label out. */}
+      <Group gap="sm" wrap="wrap">
+        <IconChecklist size={20} color="var(--mantine-color-yellow-8)" style={{ flexShrink: 0 }} />
+        <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
+          {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
+        </Text>
+        <Button size="compact-sm" variant="light" color="yellow" ms="auto" style={{ flexShrink: 0 }} onClick={checklist}>
+          {t('Review the checklist')}
+        </Button>
+      </Group>
+    </Paper>
+  );
+}
+
 export function Home({
-  companies, openCompany, startCompany, restoreCompany, setup,
+  companies, openCompany, startCompany, restoreCompany, setup, checklist,
 }: {
   companies: Company[];
   openCompany: (id: string, page: CompanyPage, item?: string | null) => void;
   /** Null for a staff seat, which neither starts nor restores a company (0110). */
   startCompany: (() => void) | null;
   restoreCompany: (() => void) | null;
-  setup: { notes: string[]; todo: string[] };
+  setup: SetupReport;
+  /** Opens the list of what the deployment reported when it started. */
+  checklist: () => void;
 }) {
   const view = useLoad(async () => Promise.all(companies.map(async (company): Promise<CompanyState> => {
     const [{ items }, digest, work, done, spend]: [
@@ -73,7 +115,9 @@ export function Home({
 
   if (companies.length === 0) {
     return (
-      <Paper withBorder radius="lg" mt="xl">
+      <Stack gap="md" mt="xl">
+      <SetupNotice setup={setup} checklist={checklist} />
+      <Paper withBorder radius="lg">
         <EmptyState
           image="/illustrations/owner-and-agents.webp"
           title={t('Start your first company')}
@@ -86,6 +130,7 @@ export function Home({
           ) : undefined}
         />
       </Paper>
+      </Stack>
     );
   }
 
@@ -126,22 +171,7 @@ export function Home({
 
       {view.error && !view.data ? <LoadFailed message={view.error} retry={view.reload} /> : !view.data ? <Loading rows={4} /> : (
         <>
-          {setup.todo.length > 0 && (
-            <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-yellow-light)">
-              {/* Wraps rather than squeezes: in Russian or Hindi the sentence is
-                  long enough on a phone to push the button's own label out. */}
-              <Group gap="sm" wrap="wrap">
-                <IconChecklist size={20} color="var(--mantine-color-yellow-8)" style={{ flexShrink: 0 }} />
-                <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
-                  {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
-                </Text>
-                <Text size="sm" c="dimmed" visibleFrom="sm">{t('The checklist is at the foot of the sidebar.')}</Text>
-                <Button size="compact-sm" variant="light" color="yellow" ms="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
-                  {t('Set the model')}
-                </Button>
-              </Group>
-            </Paper>
-          )}
+          <SetupNotice setup={setup} checklist={checklist} />
 
           <Grid gap="lg">
             <Grid.Col span={{ base: 12, lg: 7 }}>

@@ -4692,7 +4692,9 @@ export class OwnerApi {
       {
         // Hiring (F2.9: adding a role is tier 3, so it takes the owner's
         // device). The role is complete enough to be given work at once, and
-        // the answer names any tool its division cannot use yet.
+        // the answer names any tool its division cannot use yet. With
+        // `grantTools` the hire also grants the division the tools it lacks,
+        // except what cannot be undone (tier 3): `granted` says which.
         method: 'POST',
         pattern: '/api/companies/:companyId/roles',
         handle: async ({ params, body }) => {
@@ -4705,7 +4707,7 @@ export class OwnerApi {
             doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
             ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
             ...whoFrom(body),
-          }, { ownerApproved: true });
+          }, { ownerApproved: true, grantTools: body.grantTools === true });
         },
       },
 

@@ -9475,6 +9475,39 @@ or refused key as a failed run.
   piece of work, and the model, the one that matters, is now said apart from
   them.
 
+## 2.153 A hire grants the tools it names (the owner's complaint of 6 October: "capability tidak otomatis")
+
+Hiring a role with its tools ended with a notice -- "its division has no grant
+yet for X; open the division to grant them" -- and then one trip a tool, each its
+own structural change, from an owner whose CEO could name the tools and not
+grant them. The owner who approves a hire that names its tools has said what the
+role may use. Installing software that runs code (an agent CLI, an MCP server) is
+a different kind of decision and is deliberately not made by anyone's say-so but
+the owner's device; this is only the grant.
+
+- **`grantTools` on `POST /api/companies/:companyId/roles`** (and `addRole`): the
+  division is granted the tools the role names and it lacks, in the same
+  approval, at the tier the platform gives each (no override). A grant already
+  there is left as the owner made it. The answer says `granted` and `ungranted`.
+- **Never what cannot be undone.** A capability whose tier is 3 stays in
+  `ungranted`: letting a division reach something irreversible is a decision of
+  its own and is not a side effect of a hire. (It still needs the per-action
+  approval at tier 3 every time it is used, so this is about who may ask, not
+  who may do.)
+- **On the record like any grant**: each is a version of the grant a rollback can
+  return to, and a `structure.changed` event, written in the hire's own
+  transaction (`changeGrantWithin`).
+- **Off unless asked** in the API; the console's hire form and the CEO's hire card
+  (`assistant-actions.ts`) ask. The form says so, and says what it granted and what
+  it left.
+- **Tested** in `hiring.test.ts`: tier 1 and 2 granted, tier 3 left, a grant already
+  held kept as it was, versions and events, nothing granted without the word; and
+  through the owner API with a code.
+- **Not done**: tell the owner once, with a way to grant it, when a run is refused
+  a tool its division has no grant for, and a catalogue of installable tools the CEO
+  can propose from. The first is a notice; the second changes what the owner's
+  device must approve and is a decision for the owner to make.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

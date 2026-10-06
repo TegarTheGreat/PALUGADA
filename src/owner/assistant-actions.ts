@@ -480,6 +480,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       tools: 'list of capability names, at most twelve', model: 'fast, standard or deep', doneCriteria: 'list of what done means',
       displayName: 'the name the owner calls it, such as Arka; give every role one', title: 'its title, such as CEO, CTO or Head of Support (GET /api/personas lists them)',
       persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
+      grantTools: 'true to also let its division use the tools it lacks, except those that cannot be undone; say true whenever you name tools',
     },
     factor: 'always',
   },

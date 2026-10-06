@@ -367,8 +367,10 @@ All three are on **Team**, **Divisions & roles**.
   **Name** and **Title**, write **What the role is for** (its charter), list
   its **Tools** (capabilities, separated by commas, at most twelve) and
   **How to know it is done** (one criterion per line). Press **Hire** and
-  confirm with a code. If its division is not granted a tool yet, you are
-  told which; grant it next. A hire is never titled CEO while the company
+  confirm with a code. The hire also grants its division the tools it lacks,
+  at the tier the platform gives them, and says which; the exception is a
+  tool whose use cannot be undone (tier 3), which stays for you to grant on its
+  own, with **Change a grant**. A hire is never titled CEO while the company
   has one; the first role of a company with none becomes its CEO.
 - **New division**: a **Name**, a **Short name**, optionally the division it
   sits **Inside** (two levels deep at most), and **Runs at once, at most**.

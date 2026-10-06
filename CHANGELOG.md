@@ -457,6 +457,10 @@ The first version. What it holds, in the order an owner meets it.
 - A deployment with no model says so first, in red, on Home, with the button
   that sets one; the rest of what it reported at start is a count and a way to
   the checklist, not the same "Set the model" button for each (STATUS 2.152).
+- Hiring a role also grants its division the tools the role names and the
+  division lacks -- you no longer open the division and grant them one at a
+  time -- except tools whose use cannot be undone, which stay a grant of their
+  own. Your CEO does the same when you ask it to hire (STATUS 2.153).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

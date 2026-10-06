@@ -133,8 +133,16 @@ export async function applyGrantChange(
   options: { ownerApproved: boolean },
 ): Promise<void> {
   assertOwnerApproved(options.ownerApproved, change);
+  await withTenant(companyId, (tx) => changeGrantWithin(tx, companyId, change));
+}
 
-  await withTenant(companyId, async (tx) => {
+/** The grant itself, its version and its event, in the caller's transaction. */
+async function changeGrantWithin(
+  tx: TenantClient,
+  companyId: string,
+  change: Extract<StructuralChange, { kind: 'change_grant' | 'revoke_grant' }>,
+): Promise<void> {
+  {
     const before = await readGrant(tx, change.divisionId, change.capabilityName);
 
     if (change.kind === 'revoke_grant') {
@@ -175,7 +183,7 @@ export async function applyGrantChange(
       actor: 'owner',
       payload: { change: change.kind, division: change.divisionId, capability: change.capabilityName },
     });
-  });
+  }
 }
 
 /**
@@ -435,8 +443,8 @@ export interface NewRole {
 export async function addRole(
   companyId: string,
   role: NewRole,
-  options: { ownerApproved: boolean },
-): Promise<{ roleId: string; ungranted: string[] }> {
+  options: { ownerApproved: boolean; grantTools?: boolean },
+): Promise<{ roleId: string; ungranted: string[]; granted: string[] }> {
   assertOwnerApproved(options.ownerApproved, { kind: 'add_role', divisionId: role.divisionId, slug: role.slug });
   const slug = slugOf(role.slug, 'role');
   const systemPrompt = String(role.systemPrompt ?? '').trim();
@@ -466,7 +474,25 @@ export async function addRole(
     }
     const { rows: granted } = await tx.query<{ capability_name: string }>(
       'SELECT capability_name FROM capability_grants WHERE division_id = $1', [role.divisionId]);
-    const ungranted = tools.filter((tool) => !granted.some((row) => row.capability_name === tool));
+    let ungranted = tools.filter((tool) => !granted.some((row) => row.capability_name === tool));
+    // The owner who approves a hire that names its tools has said what it may
+    // use. What can be taken back is granted with it, at the tier the platform
+    // gives it; what cannot (tier 3) stays for a grant of its own, so the
+    // decision to let a division reach something irreversible is never a side
+    // effect of a hire. Each grant is on the record like any other.
+    const grantedNow: string[] = [];
+    if (options.grantTools) {
+      const { rows: tiers } = await tx.query<{ name: string; default_tier: number }>(
+        'SELECT name, default_tier FROM capabilities WHERE name = ANY($1::text[])', [ungranted]);
+      for (const tool of ungranted) {
+        if ((tiers.find((row) => row.name === tool)?.default_tier ?? 3) >= 3) continue;
+        await changeGrantWithin(tx, companyId, {
+          kind: 'change_grant', divisionId: role.divisionId, capabilityName: tool, tierOverride: null,
+        });
+        grantedNow.push(tool);
+      }
+      ungranted = ungranted.filter((tool) => !grantedNow.includes(tool));
+    }
     const title = await titleFor(tx, companyId, { id: null, current: null }, role.title ?? undefined);
 
     // Where the company's roles run; the column's default when it has none.
@@ -499,7 +525,7 @@ export async function addRole(
       actor: 'owner',
       payload: { change: 'add_role', division: role.divisionId, slug, roleId },
     });
-    return { roleId, ungranted };
+    return { roleId, ungranted, granted: grantedNow.sort() };
   });
 }
 

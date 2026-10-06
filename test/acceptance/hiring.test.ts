@@ -21,6 +21,7 @@ import { addDivision, addProject, addRole } from '../../src/governance/structure
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, grantCapability } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { consoleWithSettings } from '../helpers/owner-console.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -70,6 +71,72 @@ test('the owner hires a role that can be given work at once', async () => {
   const { rows: events } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { change: string; slug: string } }>(
     "SELECT payload FROM events WHERE type = 'structure.changed'"));
   assert.deepEqual(events.map((event) => [event.payload.change, event.payload.slug]), [['add_role', 'copywriter']]);
+});
+
+test('a hire can grant the tools its division lacks in the same approval, and never what cannot be undone', async () => {
+  // The owner's complaint of 6 October ("capability tidak otomatis"): hiring a
+  // role with its tools ended with "its division has no grant yet for ...; open
+  // the division to grant them", one trip a tool. The owner who approves a hire
+  // that names its tools has said what it may use; a grant of what can be taken
+  // back is that, and a grant of what cannot is a decision of its own.
+  const fixture = await createCompany('hire-grants');
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'email.draft', { tierOverride: 3 });
+  const recruit = {
+    divisionId: fixture.divisionId,
+    slug: 'copywriter',
+    systemPrompt: 'You write the words customers read.',
+    tools: ['email.draft', 'doc.draft', 'email.send', 'funds.transfer'],
+    doneCriteria: ['every claim is one the product page makes'],
+  };
+
+  const hired = await addRole(fixture.companyId, recruit, { ownerApproved: true, grantTools: true });
+  assert.deepEqual(hired.granted, ['doc.draft', 'email.send'], 'what can be taken back is granted');
+  assert.deepEqual(hired.ungranted, ['funds.transfer'], 'what cannot is left for a decision of its own');
+
+  const { rows: grants } = await withTenant(fixture.companyId, (tx) => tx.query<{ capability_name: string; tier_override: number | null }>(
+    'SELECT capability_name, tier_override FROM capability_grants WHERE division_id = $1 AND capability_name = ANY($2) ORDER BY capability_name',
+    [fixture.divisionId, recruit.tools]));
+  assert.deepEqual(grants.map((row) => [row.capability_name, row.tier_override]), [
+    ['doc.draft', null], ['email.draft', 3], ['email.send', null],
+  ], 'at the tier the platform gives it, and a grant already there is left as the owner made it');
+
+  // Each grant is on the record like any other: a version to roll back and an event.
+  const versions = await history(fixture.companyId, 'grant', fixture.divisionId);
+  assert.deepEqual(versions.map((one) => one.summary).sort(), ['Change the grant for doc.draft', 'Change the grant for email.send']);
+  const { rows: events } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { change: string; capability?: string } }>(
+    "SELECT payload FROM events WHERE type = 'structure.changed'"));
+  assert.deepEqual(events.filter((event) => event.payload.change === 'change_grant').map((event) => event.payload.capability).sort(), ['doc.draft', 'email.send']);
+
+  // Without the word, nothing is granted: what the route did before.
+  const plain = await addRole(fixture.companyId, { ...recruit, slug: 'copywriter-2', tools: ['doc.draft', 'files.read'] }, { ownerApproved: true });
+  assert.deepEqual(plain.granted, []);
+  assert.deepEqual(plain.ungranted, ['files.read'], 'doc.draft was granted by the first hire, so only the other is left');
+});
+
+test('the owner API grants with the hire only when asked, and says what it did', async () => {
+  const fixture = await createCompany('hire-grants-api');
+  await registerStandardCatalogue();
+  const api = await consoleWithSettings({ baseEnv: {} });
+  try {
+    const token = await api.signIn();
+    const hire = (slug: string, grantTools?: boolean) => api.call('POST', `/api/companies/${fixture.companyId}/roles`, token, {
+      divisionId: fixture.divisionId, slug, systemPrompt: 'You write.', doneCriteria: ['it reads well'],
+      tools: ['doc.draft', 'funds.transfer'], proof: { totp: api.code() }, ...(grantTools === undefined ? {} : { grantTools }),
+    });
+    const plain = await hire('writer-a');
+    assert.equal(plain.status, 200, JSON.stringify(plain.body));
+    assert.deepEqual([plain.body.granted, plain.body.ungranted], [[], ['doc.draft', 'funds.transfer']], 'as before when it is not asked');
+
+    const granting = await hire('writer-b', true);
+    assert.equal(granting.status, 200, JSON.stringify(granting.body));
+    assert.deepEqual([granting.body.granted, granting.body.ungranted], [['doc.draft'], ['funds.transfer']]);
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ capability_name: string }>(
+      "SELECT capability_name FROM capability_grants WHERE capability_name IN ('doc.draft', 'funds.transfer')"));
+    assert.deepEqual(rows.map((row) => row.capability_name), ['doc.draft'], 'and never the irreversible one');
+  } finally {
+    await api.close();
+  }
 });
 
 test('a hire is refused for what would make it unusable or unsafe', async () => {

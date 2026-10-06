@@ -19,7 +19,7 @@ import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { noteTalkDrift } from '../domain/language.ts';
 import { settleTicketsOf } from './tickets.ts';
-import { learn, remember } from '../memory/store.ts';
+import { LEARNED_CONFIDENCE, learn, remember } from '../memory/store.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -217,6 +217,13 @@ export interface CreateTaskInput {
   laneKey?: string | undefined;
   /** The schedule that made this task, when one did (0049). */
   scheduleId?: string | undefined;
+  /**
+   * Not claimable before this: a task made now to be done later (`task.follow_up`).
+   * The claim already holds a pending task until its `wait_until`; nothing set
+   * it at creation, which is why the company could not look again at an
+   * outcome (the audit of 3 October, section 3.3).
+   */
+  waitUntil?: Date | undefined;
 }
 
 /**
@@ -621,8 +628,8 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id, lane_key, priority, schedule_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       batchable, goal_id, lane_key, priority, schedule_id, wait_until)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
@@ -638,6 +645,7 @@ async function insertTask(
       input.laneKey ?? null,
       input.priority ?? DEFAULT_PRIORITY,
       input.scheduleId ?? null,
+      input.waitUntil ?? null,
     ],
   );
   const task = toTask(rows[0]!);
@@ -675,7 +683,7 @@ export interface TransitionOptions {
 }
 
 /**
- * Why a task waits in `waiting_window` (N9). One status is eight different
+ * Why a task waits in `waiting_window` (N9). One status is nine different
  * waits, and the console called them all "Scheduled": on the live run of
  * 2 October a CEO whose sub-task was waiting on the owner two levels down
  * read as scheduled, and nothing said what it was waiting for.
@@ -686,10 +694,13 @@ export interface TransitionOptions {
  * - `vendor`: a service that said "not now"
  * - `slot`: its turn at a capability others are calling (F5.7)
  * - `model`: a model that did not answer (F13.6)
+ * - `model_key`: a model whose key was refused; the owner has been told, and
+ *   it carries on once a key that works is in use
  * - `service`: a capability's vendor having a moment, before it starts (H2)
  * - `retry`: the next attempt after one failed
+ * - `follow_up`: a task made to look again at an outcome, at its time (`task.follow_up`)
  */
-export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'service' | 'retry';
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(
@@ -737,8 +748,18 @@ const LESSON_MAX = 500;
 async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, output: unknown): Promise<void> {
   const said = output && typeof output === 'object' ? (output as { learned?: unknown }).learned : undefined;
   if (!Array.isArray(said)) return;
+  // One piece of work saying the same thing five ways is one lesson: counted
+  // as five, it was "corroborated" by itself to the most a lesson can reach.
+  const seen = new Set<string>();
   const lessons = said.filter((one): one is string => typeof one === 'string' && one.trim() !== '')
-    .map((one) => one.trim().slice(0, LESSON_MAX)).slice(0, LESSONS_PER_RUN);
+    .map((one) => one.trim().slice(0, LESSON_MAX))
+    .filter((one) => {
+      const same = one.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      if (seen.has(same)) return false;
+      seen.add(same);
+      return true;
+    })
+    .slice(0, LESSONS_PER_RUN);
   if (lessons.length === 0) return;
   const outside = (await outsideContentIn(tx, task.id)) !== null;
   for (const lesson of lessons) {
@@ -790,6 +811,9 @@ async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, o
     scopeId: task.projectId,
     body: goal && result ? `${goal} — ${result}` : goal || result,
     source: 'agent',
+    // What a run reported of its own work, not something the company knows:
+    // below the line a search draws between known and unverified, as a lesson is.
+    confidence: LEARNED_CONFIDENCE.first,
     outside: (await outsideContentIn(tx, task.id)) !== null,
     sourceTaskId: task.id,
   });
@@ -832,11 +856,26 @@ export async function transitionWithin(
     if (!task) throw new Error(`task ${taskId} not found`);
     assertTransition(task.status, to);
 
+    // A deadline is for the work, not for whoever decides. A task parked for
+    // the owner's yes or for a reviewer and let go again is given back what
+    // it spent parked: otherwise an approved action was halted `deadline_passed`
+    // for the hour the approval took (the audit of 3 October, P0-1).
+    let waitedMs = 0;
+    if (to === 'running' && task.deadlineAt && (task.status === 'waiting_approval' || task.status === 'waiting_review')) {
+      const { rows } = await tx.query<{ waited: string }>(
+        `SELECT (extract(epoch FROM (now() - occurred_at)) * 1000)::bigint AS waited
+           FROM events WHERE task_id = $1 AND type = $2 ORDER BY occurred_at DESC LIMIT 1`,
+        [taskId, `task.${task.status}`],
+      );
+      waitedMs = Math.max(0, Number(rows[0]?.waited ?? 0));
+    }
+
     await tx.query(
       `UPDATE tasks
           SET status = $2,
               halt_reason = COALESCE($3, halt_reason),
               output = COALESCE($4::jsonb, output),
+              deadline_at = deadline_at + ($6::bigint * interval '1 millisecond'),
               wait_until = CASE WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
                                 WHEN $2 = 'running' THEN NULL
                                 ELSE wait_until END,
@@ -859,6 +898,7 @@ export async function transitionWithin(
         options.haltReason ?? null,
         options.output ? JSON.stringify(options.output) : null,
         options.waitUntil ?? null,
+        waitedMs,
       ],
     );
 

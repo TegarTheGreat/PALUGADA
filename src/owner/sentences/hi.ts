@@ -271,6 +271,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'प्रस्तावित: {statement}',
   'Proposed status: {status}': 'प्रस्तावित स्थिति: {status}',
   'Reason given: {reason}': 'बताया गया कारण: {reason}',
+  'Record an entry in the books': 'बहीखातों में प्रविष्टि दर्ज करें',
+  'Record a customer or a deal': 'ग्राहक या सौदा दर्ज करें',
   'Not sent on its own: {reason}': 'खुद नहीं भेजा गया: {reason}',
   'it answers a conversation other than the one this work began with': 'यह जवाब किसी दूसरी बातचीत का है, उसका नहीं जिससे यह काम शुरू हुआ',
   'it named no passage of a document for customers': 'इस जवाब में ग्राहकों के लिए किसी दस्तावेज़ का कोई अंश नहीं बताया गया',
@@ -335,4 +337,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'ब्राउज़र में पेज पढ़ें',
   'Fill in a page in the browser': 'ब्राउज़र में पेज भरें',
   'Ask you to take over the browser': 'आपसे ब्राउज़र अपने हाथ में लेने को कहें',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} ने मॉडल की कुंजी अस्वीकार कर दी ({status}), इसलिए मॉडल पर निर्भर कोई भी काम नहीं चल सकता। सेटिंग्स, यह डिप्लॉयमेंट, मॉडल खोलें, काम करने वाली कुंजी चिपकाएँ, उसे जाँचें और सहेजें।',
+  '{host} refused the model key, and work is waiting': '{host} ने मॉडल की कुंजी अस्वीकार कर दी, और काम प्रतीक्षा में है',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'मॉडल की प्रतीक्षा कर रहा काम, काम करने वाली कुंजी इस्तेमाल होते ही अपने-आप आगे बढ़ जाएगा।',
+  'A task ended before it was done: {task}':
+    'एक काम पूरा होने से पहले ही खत्म हो गया: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'वह इस रूप में खत्म हुआ: {reason}। इसके लिए कोई और कार्ड नहीं बना, इसलिए यह यहाँ है, चुपचाप नहीं।',
+  'Where its measures stand, as the platform reads them:':
+    'प्लेटफ़ॉर्म के पढ़ने के अनुसार इसके मापदंड कहाँ हैं:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: अभी कोई मान दर्ज नहीं, लक्ष्य {target}।',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value}, लक्ष्य {target}, स्रोत से दोबारा पढ़कर जाँचा गया।',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value}, लक्ष्य {target}, केवल बताया गया, जाँचा नहीं गया।',
+  'Look at it again later': 'बाद में फिर देखें',
 };

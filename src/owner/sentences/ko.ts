@@ -269,6 +269,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': '제안: {statement}',
   'Proposed status: {status}': '제안된 상태: {status}',
   'Reason given: {reason}': '제시된 이유: {reason}',
+  'Record an entry in the books': '장부에 분개 기록',
+  'Record a customer or a deal': '고객이나 거래 기록',
   'Not sent on its own: {reason}': '스스로 보내지 않음: {reason}',
   'it answers a conversation other than the one this work began with': '이 작업이 시작된 대화가 아닌 다른 대화에 대한 답이에요',
   'it named no passage of a document for customers': '고객용 문서의 어떤 부분도 밝히지 않았어요',
@@ -333,4 +335,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': '브라우저에서 페이지 읽기',
   'Fill in a page in the browser': '브라우저에서 페이지 작성하기',
   'Ask you to take over the browser': '브라우저를 넘겨받아 달라고 요청하기',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host}이(가) 모델 키를 거부했습니다({status}). 모델이 필요한 작업은 실행할 수 없습니다. 설정, 이 인스턴스, 모델을 열어 사용할 수 있는 키를 붙여넣고 테스트한 뒤 저장하세요.',
+  '{host} refused the model key, and work is waiting': '{host}이(가) 모델 키를 거부해 작업이 대기 중입니다',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    '모델을 기다리던 작업은 사용할 수 있는 키가 적용되면 자동으로 이어집니다.',
+  'A task ended before it was done: {task}':
+    '작업이 끝나지 못한 채 종료되었습니다: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    '종료 사유: {reason}. 이 건에 대해 다른 카드가 만들어지지 않아, 조용히 지나가지 않도록 여기에 올렸습니다.',
+  'Where its measures stand, as the platform reads them:':
+    '플랫폼이 읽은 지표의 현재 상태:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: 아직 기록된 값이 없습니다(목표 {target}).',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value}(목표 {target}), 출처에서 다시 읽어 확인했습니다.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value}(목표 {target}), 보고만 되었고 확인되지 않았습니다.',
+  'Look at it again later': '나중에 다시 확인하기',
 };

@@ -50,6 +50,7 @@
  * template would pre-empt both.
  */
 import { saveTemplate, type CompanyTemplate } from './company.ts';
+import { VERDICT_OUTPUT } from '../review/verdict.ts';
 
 export const STANDARD_TEMPLATE_SLUG = 'standard-company';
 
@@ -221,6 +222,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'ticket.create' },
     // The backlog the CEO hands on: tickets the planner and support file.
     { division: 'ops', capability: 'ticket.list' },
+    // Looking again, later, at what the company's own work did.
+    { division: 'ops', capability: 'task.follow_up' },
     // Work owed again and again, proposed as a schedule the owner says yes
     // to rather than asked for by hand each time.
     { division: 'ops', capability: 'schedule.propose' },
@@ -263,6 +266,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'growth', capability: 'speech.synthesize' },
     { division: 'growth', capability: 'crm.read' },
     { division: 'growth', capability: 'crm.note' },
+    { division: 'growth', capability: 'crm.record' },
     { division: 'growth', capability: 'doc.draft' },
     { division: 'growth', capability: 'email.draft' },
     { division: 'growth', capability: 'email.send', rateLimitPerHour: 20 },
@@ -278,6 +282,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // check the amount and the recipient against is tier 3, and a template
     // should not hand any division a standing grant for one.
     { division: 'finance', capability: 'ledger.read' },
+    { division: 'finance', capability: 'ledger.record' },
     { division: 'finance', capability: 'doc.draft' },
     // A receipt or a supplier's invoice as a picture, read once a vision
     // provider is chosen under Tools; until then the grant waits unbound.
@@ -297,6 +302,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'support', capability: 'image.describe' },
     { division: 'support', capability: 'crm.read' },
     { division: 'support', capability: 'crm.note' },
+    { division: 'support', capability: 'crm.record' },
     { division: 'support', capability: 'ticket.create' },
     { division: 'support', capability: 'email.draft' },
     { division: 'support', capability: 'email.send', rateLimitPerHour: 60 },
@@ -330,7 +336,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'with task.await, and report what came back. The other roles file what is owed and not yet ' +
         'anyone\'s as tickets: read them with ticket.list, and hand one on with task.delegate and its ' +
         'ticketId, so it closes when the work is done. Do the work yourself only when it is ' +
-        'operations: checking that services are up and writing things down. When the same work ' +
+        'operations: checking that services are up and writing things down. When an action\'s ' +
+        'effect lands later -- an invoice sent, a campaign launched, a deploy -- ask to look again ' +
+        'with task.follow_up: name the role, what to check it against (the ledger, the page, the ' +
+        'figure) and what to do about what it finds, and do not wait on it. When the same work ' +
         'is owed again and again, propose a schedule for it with schedule.propose -- which role, ' +
         'when, what each run does, and the evidence -- rather than waiting to be asked each time; ' +
         'the owner\'s yes makes it. When a division escalates something to you, fix the cause ' +
@@ -349,7 +358,11 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         // than those -- the backlog the other roles file first of all. The
         // division still holds them, for a role hired to use them.
         'ticket.list',
-        'doc.draft',
+        // In place of `doc.draft`, which answers nothing until the deployment
+        // has a files root, and which the division still holds: the one role
+        // that routes work is the one that can say "look at this again in two
+        // days", and nothing else in the company is time-keyed to an outcome.
+        'task.follow_up',
         'ticket.create',
       ],
       inputSchema: WORK_INPUT,
@@ -453,13 +466,14 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       model: 'standard',
       maxTokensPerRun: 60_000,
       systemPrompt:
-        'You keep the money straight: read the ledger, issue invoices, and pay invoices the ' +
+        'You keep the money straight: read the ledger, record what came in and went out in ' +
+        'it with ledger.record, issue invoices, and pay invoices the ' +
         'company owes. Every payment must be matched to an invoice you have read. You ' +
         'cannot transfer money that is not settling one, and you should not ask for that ' +
         'capability; that transfer is the owner\'s to make. Work figures out with code.compute ' +
         'rather than in your head, and read a receipt or an invoice that came as a picture with ' +
         'image.describe.',
-      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'image.describe', 'code.compute', 'invoice.issue', 'invoice.pay'],
+      tools: [...PLATFORM_TOOLS, 'ledger.read', 'ledger.record', 'doc.draft', 'image.describe', 'code.compute', 'invoice.issue', 'invoice.pay'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },
@@ -478,13 +492,15 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       systemPrompt:
         'You answer customers who have already written in. Read the mailbox and the ' +
         'customer record before replying, record what you told them, and open a ticket ' +
-        'when the answer needs somebody else. If a reply would commit the company to ' +
+        'when the answer needs somebody else. Keep their details and what they want to buy ' +
+        'on the record with crm.record. If a reply would commit the company to ' +
         'anything -- a refund, a date, a discount -- do not send it: hand it off.',
       tools: [
         ...PLATFORM_TOOLS,
         'mailbox.read',
         'crm.read',
         'crm.note',
+        'crm.record',
         'ticket.create',
         'email.draft',
         'email.send',
@@ -512,7 +528,9 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       // Empty, and F7.3 is why. NO_PLATFORM_TOOLS above has the argument.
       tools: [],
       inputSchema: WORK_INPUT,
-      outputSchema: WORK_OUTPUT,
+      // The verdict `settleCompletedReviews` reads, not a summary: asked for a
+      // summary, a reviewer's review went to the owner as unreadable.
+      outputSchema: VERDICT_OUTPUT,
     },
     {
       slug: 'analyst',
@@ -597,7 +615,15 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   ],
 
   budget: {
-    tokensMax: 2_000_000,
+    // The tokens a month, and they are sized against the money, not the other
+    // way round. At a middling $5 a million tokens the first version's 300,000
+    // for Growth came to a dollar and a half against a ceiling of hundreds, so
+    // the tokens ran out a hundred times before the dollars could and a
+    // company of agents stopped "out of budget" at a cost of US$0.00 (the
+    // owner's complaint of 6 October). Money is what an owner means by a
+    // budget; the token ceilings stay as containment for a loop that costs
+    // nothing a token -- a free model -- and are high enough not to bind first.
+    tokensMax: 100_000_000,
     // A year of the monthly ceiling. See the module comment: this is the
     // company-wide lifetime ceiling, not the monthly one, and it is set out of
     // the way so that the monthly limit in `spend_limits` is what actually
@@ -626,14 +652,14 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // number that could never bind. `assertTemplateIsCoherent` refuses the
     // other way round rather than storing a limit that looks enforced.
     divisions: [
-      { division: 'ops', tokensMax: 400_000, moneyMaxCents: 48_000 },
-      { division: 'delivery', tokensMax: 900_000, moneyMaxCents: 108_000 },
-      { division: 'build', tokensMax: 700_000, moneyMaxCents: 84_000 },
-      { division: 'growth', tokensMax: 300_000, moneyMaxCents: 36_000 },
-      { division: 'finance', tokensMax: 200_000, moneyMaxCents: 24_000 },
-      { division: 'support', tokensMax: 400_000, moneyMaxCents: 48_000 },
-      { division: 'assurance', tokensMax: 300_000, moneyMaxCents: 36_000 },
-      { division: 'lab', tokensMax: 150_000, moneyMaxCents: 18_000 },
+      { division: 'ops', tokensMax: 20_000_000, moneyMaxCents: 48_000 },
+      { division: 'delivery', tokensMax: 45_000_000, moneyMaxCents: 108_000 },
+      { division: 'build', tokensMax: 35_000_000, moneyMaxCents: 84_000 },
+      { division: 'growth', tokensMax: 15_000_000, moneyMaxCents: 36_000 },
+      { division: 'finance', tokensMax: 10_000_000, moneyMaxCents: 24_000 },
+      { division: 'support', tokensMax: 20_000_000, moneyMaxCents: 48_000 },
+      { division: 'assurance', tokensMax: 15_000_000, moneyMaxCents: 36_000 },
+      { division: 'lab', tokensMax: 7_500_000, moneyMaxCents: 18_000 },
     ],
   },
 };

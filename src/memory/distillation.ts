@@ -47,7 +47,7 @@ export const DEFAULT_MIN_OCCURRENCES = 3;
  * division was offered.
  */
 const HOUSEKEEPING_CAPABILITIES = [
-  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await', 'task.follow_up',
   'stage.propose', 'goal.propose', 'ticket.list',
 ];
 
@@ -256,9 +256,11 @@ export async function distillEpisodicToSemantic(
     system:
       'You distil durable facts from a company\'s record of its own work: what tasks were for, what ' +
       'they produced, why some stopped, and what the owner said. Return JSON of the form ' +
-      '{"facts":[{"body":"...","confidence":0.0-1.0}]}. Keep facts about the business -- its ' +
-      'customers, products, prices, suppliers, and what worked or failed and why -- that would help ' +
-      'the next piece of work; not facts about this record or the software keeping it. State only ' +
+      '{"facts":[{"body":"...","confidence":0.0-1.0}]}. Keep facts about the business -- how ' +
+      'a customer or a supplier likes to be dealt with, and what worked or failed and why -- that would ' +
+      'help the next piece of work; not a price, a stock level, who owes what or a customer\'s details, ' +
+      'which the company reads from its records and which go out of date; not facts about this record ' +
+      'or the software keeping it. State only ' +
       'what the record supports, in one sentence each. Prefer few well-supported facts over many ' +
       'speculative ones, and return an empty list when the record establishes nothing durable.',
     messages: [

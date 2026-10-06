@@ -378,6 +378,101 @@ The first version. What it holds, in the order an owner meets it.
   a price of its own, a complaint, the law, personal data, a promise.
   Anything else is your card, saying why it did not go; the conversation
   marks what went on its own and from what (STATUS 2.137).
+- The company keeps its own **customer records**: on **Customers**,
+  **Contacts**, everyone it deals with, what was noted about them and the
+  deals with them, by stage and worth. A customer who writes is filed under
+  the person you keep with that address or number, or kept as someone new;
+  agents read the record of the customer they answer, note what they told
+  them and record details and deals. A CRM you connect takes over
+  (STATUS 2.138).
+- The company keeps its own **books**, by double entry, on a page of their
+  own: a chart of accounts, entries that must balance -- the database
+  refuses one that does not -- and a reversal for a mistake rather than an
+  edit; balances per currency and this month's profit. The bookkeeper reads
+  and records the same books. An accounting service you connect takes over
+  (STATUS 2.139).
+- A model key the provider refuses (a wrong or revoked key, a 401) is said
+  in your language with where to put one that works, and the inbox holds one
+  card for the company instead of every task halting silently. The work
+  waits, longer each time, up to ten hours, and carries on by itself when a
+  key that works is in use, rather than waiting for you to resume each task
+  (STATUS 2.140).
+- The reviewers a company is given (`reviewer`, `qa-reviewer`,
+  `platform-reviewer`) are now asked for a verdict a reading can use, so a
+  review is no longer sent to you as "undecided" for want of one; and a
+  reviewer's long reason can no longer stop every review behind it
+  (STATUS 2.141).
+- Work you approved after the hour it was given is no longer halted for the
+  time you took: a task's deadline is for the work, and the time it spent
+  waiting for your answer, or for a review, is given back (STATUS 2.142).
+- One authenticator code now covers what builds the company -- a division, a
+  role, a grant, a goal, a skill, a bundle -- for ten minutes, instead of a
+  code for each. Money, keys, the model, channels, devices and every approval
+  of something that cannot be undone still ask every time. Set the length, or
+  turn it off, under Settings, Security (STATUS 2.143).
+- A task that ends without being done no longer ends in silence: it is put to
+  the coordinator your division names first, and to you only if the
+  coordinator could not handle it, with what it did. Tickets the company owes
+  -- filed by a role, or by you -- are handed on by the CEO on its own, a batch
+  at a time, and cost nothing while there are none (STATUS 2.144).
+- A company's CEO now does what you ask in the conversation -- gives the team
+  work, files or hands on a ticket, tells a task something, stops it, runs it
+  again -- instead of putting a card in front of you to press, unless in that
+  answer it read what agents or customers wrote, when it is a card as before.
+  When several cards are waiting, **Apply all** presses them in order (STATUS
+  2.145).
+- What you correct in the company's memory stays corrected: a sentence you took
+  back, or replaced with your own words, is not learned again from the next run
+  that writes it, and a lesson no longer becomes a "known fact" by being said
+  five times by the same piece of work. A remembered fact shows the day it was
+  recorded, runs are told memory is a lead and the company's records win, and a
+  procedure nobody answers leaves your inbox after two weeks (STATUS 2.146).
+- An agent can no longer ask you to mark a goal met while its checked measure is
+  short of target, and every proposal to close or give up a goal shows where its
+  measures stand, as the platform reads them. A run that resumes keeps its
+  newest steps when its context is too long (STATUS 2.147).
+- A role can ask to be woken later about what its own work did -- an invoice
+  sent, a campaign launched, a deploy -- with `task.follow_up`: a task made now
+  that starts at its time, carrying the work's goal, budget and what it had read
+  from outside, cancelled if the goal closes. The coordinator holds it (STATUS
+  2.148).
+- What a role writes is shown formatted: the CEO's answers in the chat, a task's
+  answer and what it said, and a draft or deliverable in the gallery -- headings,
+  lists, bold, code and tables, where the console had shown every asterisk and
+  pound sign as typed. It is read into a tree and drawn, never turned into
+  markup: no image is fetched, no HTML runs, and a link opens only if it is
+  http, https or mail (STATUS 2.149).
+- A company can keep office hours (**Settings**, **Company**): the days and hours
+  in which an email, a post, a reply to a customer or any other action that
+  reaches the outside world may go out. Outside them it waits for the opening
+  instead of failing, while reading, drafting and planning go on at any hour;
+  replies to customers can be left open at any hour. Until you say, a company
+  runs round the clock as before (STATUS 2.150).
+- Each page in the sidebar says what it is for under its name, and the two
+  buttons that open a conversation say how they differ: the CEO is for one
+  company and has things done; Ask PALUGADA is for the model, the channels and
+  new companies (STATUS 2.151). The sidebar no longer hides most of its pages
+  below the fold, and before there is a company it shows only Home and This
+  deployment.
+- A deployment with no model says so first, in red, on Home, with the button
+  that sets one; the rest of what it reported at start is a count and a way to
+  the checklist, not the same "Set the model" button for each (STATUS 2.152).
+- Hiring a role also grants its division the tools the role names and the
+  division lacks -- you no longer open the division and grant them one at a
+  time -- except tools whose use cannot be undone, which stay a grant of their
+  own. Your CEO does the same when you ask it to hire (STATUS 2.153).
+- The company keeps its invoices in the books (**Books**, **Invoices**): numbered
+  without gaps, written with the entry that puts what is owed in them, paid in
+  part or in full, voided by a reversal, never edited. The bookkeeper issues
+  them with `invoice.issue`, reads them with `ledger.read`, and records a payment
+  against one with `ledger.record`. What is owed and what is late shows at the
+  top (STATUS 2.154).
+- When an account's tokens run out, one card in the inbox stands for the account
+  and its **Raise it and continue** raises the ceiling and goes on with every task
+  it stopped, instead of a card and a Continue for each. The Work page says the
+  tokens ran out, not a bare "out of budget" beside a cost of nothing, and new
+  companies' token ceilings are sized against their money so tokens do not run
+  out a hundred times first (STATUS 2.155).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

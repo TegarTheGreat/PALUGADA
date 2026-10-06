@@ -32,6 +32,8 @@ import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
 import { browserCapabilities, webExtractByBrowser } from './browser.ts';
 import { mailboxCapabilities } from './mailbox.ts';
+import { crmCapabilities } from './crm.ts';
+import { bookCapabilities } from './books.ts';
 import { codeCompute, type ComputeOptions } from './compute.ts';
 import type { MailOptions } from '../chats/mail.ts';
 import type { Browsers } from '../browser/browsers.ts';
@@ -123,6 +125,10 @@ export function platformCapabilities(
   if (options.browser) built.push(...browserCapabilities(options.browser));
   // A division's own mailbox; a service bound for either name replaces it.
   built.push(...mailboxCapabilities(options.mail ?? {}));
+  // The company's own customer record; a CRM the owner connects replaces it.
+  built.push(...crmCapabilities());
+  // The company's own books; an accounting service the owner connects replaces them.
+  built.push(...bookCapabilities());
 
   // The drafting pair needs both: a model to compose with and a place to put
   // the result. §8.8 calibrates them at tier 1 because a draft is a write, and

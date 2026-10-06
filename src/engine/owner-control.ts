@@ -312,6 +312,63 @@ export async function continueHalted(companyId: string, taskId: string): Promise
 }
 
 /**
+ * Goes on with every task an account's budget stopped, oldest first, for as
+ * many as the account can now fund (STATUS 2.155).
+ *
+ * A division that runs out stops everything charged to it together, and going
+ * on with each by hand -- open the task, press Continue -- was the owner's whole
+ * afternoon. This is that, once: each task through `continueHalted`, which
+ * keeps every rule it has (a paused company, a frozen role, the reservation
+ * the account must fund). The first account with no room ends it: those not
+ * reached are said to be waiting for room, and the card that names the account
+ * stays for them. Nothing here raises a ceiling; that is the owner's, with a
+ * code, in the route.
+ */
+export async function continueAllHalted(companyId: string, accountId: string): Promise<{
+  continued: number;
+  skipped: Array<{ taskId: string; code: string; message: string }>;
+}> {
+  const stopped = await withControlPlane(async (tx) => {
+    const { rows: account } = await tx.query('SELECT 1 FROM budget_accounts WHERE id = $1 AND company_id = $2', [accountId, companyId]);
+    if (account.length === 0) {
+      throw new PalugadaError('contract.violation', 'this company has no budget account with that id', { accountId });
+    }
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT t.id FROM tasks t
+        WHERE t.company_id = $1 AND t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
+          AND $2::uuid = ANY(app.budget_chain(t.budget_account_id))
+        ORDER BY t.finished_at NULLS FIRST, t.created_at, t.id`,
+      [companyId, accountId]);
+    return rows.map((row) => row.id);
+  });
+  let continued = 0;
+  let noRoom = false;
+  const skipped: Array<{ taskId: string; code: string; message: string }> = [];
+  for (const taskId of stopped) {
+    if (noRoom) {
+      skipped.push({ taskId, code: 'budget.reservation_refused', message: 'waiting for room: the account has none left to fund it' });
+      continue;
+    }
+    try {
+      await continueHalted(companyId, taskId);
+      continued += 1;
+    } catch (failure) {
+      if (!(failure instanceof PalugadaError)) throw failure;
+      skipped.push({ taskId, code: failure.code, message: failure.message });
+      // Nothing after it is funded either, whichever ceiling it was that held.
+      if (failure.code === 'budget.reservation_refused' || failure.code === 'spend.paused') noRoom = true;
+    }
+  }
+  // Going on with the task a card names answers that card; the account's card
+  // is for those still stopped, so it is raised again at the first of them.
+  if (skipped.length > 0) {
+    const { raiseBudgetHalt } = await import('../inbox/inbox.ts');
+    await raiseBudgetHalt(companyId, skipped[0]!.taskId);
+  }
+  return { continued, skipped };
+}
+
+/**
  * Tells a task something: "lead with the price change", "the supplier is the
  * one in Bandung". Read by the task's next run -- when it resumes from a wait,
  * or on its next attempt -- and by every run after it.

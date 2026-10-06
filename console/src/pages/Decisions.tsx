@@ -21,7 +21,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, Paper,
+  Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, NumberInput, Paper,
   ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
@@ -34,8 +34,8 @@ import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
-import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.ts';
-import { t, tp } from '../i18n.ts';
+import { capabilitySaid, dateTime, goalKind, money, numberSeparators, relative } from '../format.ts';
+import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
 import { ConversationOfTask } from '../components/ChatThread.tsx';
@@ -436,6 +436,67 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
   );
 }
 
+/**
+ * A budget card's one press (STATUS 2.155): raise the account's token ceiling
+ * and go on with every task it stopped. Raising asks for the owner's code, as
+ * raising a ceiling always does; going on with what room there already is does
+ * not.
+ */
+function BudgetResume({ companyId, halt, done }: {
+  companyId: string; halt: NonNullable<InboxItem['budgetHalt']>; done: () => void;
+}) {
+  const requireFactor = useFactor();
+  const [ceiling, setCeiling] = useState<number | ''>(Math.max(halt.tokensMax * 10, 1_000_000));
+  const [busy, setBusy] = useState(false);
+  const account = halt.account ?? t('The company');
+  const hasRoom = halt.tokensSpent + 1_000 <= halt.tokensMax;
+
+  const go_ = async (raise: boolean) => {
+    setBusy(true);
+    try {
+      const press = (proof?: Proof) => api('POST', `/api/companies/${companyId}/budget-accounts/${halt.accountId}/continue`, {
+        ...(raise && ceiling !== '' ? { tokensMax: ceiling } : {}), ...(proof ? { proof } : {}),
+      });
+      let result: { continued: number; skipped: unknown[] } | undefined;
+      const ok = raise
+        ? await requireFactor(t('Raise the ceilings of {account}', { account }), async (proof) => { result = await press(proof) as typeof result; })
+        : (result = await press() as typeof result, true);
+      if (ok && result) {
+        notifications.show({
+          color: result.skipped.length > 0 ? 'orange' : 'teal',
+          message: result.skipped.length > 0
+            ? t('Continued {continued}; {waiting} still waiting for room.', { continued: result.continued, waiting: result.skipped.length })
+            : t('Continued {continued}.', { continued: result.continued }),
+        });
+        done();
+      }
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper withBorder radius="md" p="md" bg="var(--mantine-color-yellow-light)">
+      <Stack gap="sm">
+        <Text size="sm">
+          {t('{account} has used {spent} of {max} tokens this month. Tokens are not dollars; money has its own ceiling under Money.', {
+            account, spent: halt.tokensSpent.toLocaleString(locale()), max: halt.tokensMax.toLocaleString(locale()),
+          })}
+        </Text>
+        <Group align="flex-end" wrap="wrap">
+          <NumberInput label={t('New token ceiling for the month')} min={halt.tokensMax} step={1_000_000} value={ceiling}
+            onChange={(next) => setCeiling(typeof next === 'number' ? next : '')} allowDecimal={false} {...numberSeparators()} style={{ minWidth: 200 }} />
+          <Button loading={busy} disabled={ceiling === '' || ceiling <= halt.tokensMax} onClick={() => void go_(true)}>{t('Raise it and continue')}</Button>
+          {hasRoom && <Button variant="default" loading={busy} onClick={() => void go_(false)}>{t('Continue without raising')}</Button>}
+        </Group>
+        <Text size="xs" c="dimmed">{t('Stopped by it: {count}', { count: halt.stopped })}</Text>
+      </Stack>
+    </Paper>
+  );
+}
+
 function Detail({
   item, companyId, position, back, decided, openTask, openSkills, seat,
 }: {
@@ -695,6 +756,8 @@ function Detail({
         <Collapse expanded={traceOpen}>
           <Box>{trace ? <TraceView trace={trace} companyId={companyId} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
         </Collapse>
+
+        {item.budgetHalt && seat === null && <BudgetResume companyId={companyId} halt={item.budgetHalt} done={decided} />}
 
         {item.question ? (
           // An agent asked with `owner.ask` and its task is parked on the

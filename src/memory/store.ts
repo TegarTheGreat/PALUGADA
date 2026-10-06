@@ -146,15 +146,37 @@ export const LEARNED_CONFIDENCE = { first: 0.5, step: 0.1, most: 0.8 } as const;
  * content stays marked so, whichever path taught it.
  */
 export async function learn(tx: TenantClient, input: RememberInput): Promise<{ id: string; reinforced: boolean }> {
-  const { rows } = await tx.query<{ id: string }>(
-    `SELECT id FROM memories
+  const where = [input.memoryType, input.scopeType, input.scopeId ?? null, input.body];
+  // A correction the owner made stays made. A sentence they took back (it was
+  // never true), or replaced with their own word, is not learned again by the
+  // next run that writes it: that made a fresh active row beside the
+  // correction, which repetition could raise to "Known". Only the owner's
+  // replacement counts -- one an agent made is one agent's word against another's.
+  const { rows: corrected } = await tx.query<{ id: string }>(
+    `SELECT m.id FROM memories m
+      WHERE m.memory_type = $1 AND m.scope_type = $2 AND m.scope_id IS NOT DISTINCT FROM $3
+        AND btrim(regexp_replace(lower(m.body), '[^[:alnum:]]+', ' ', 'g'))
+          = btrim(regexp_replace(lower($4), '[^[:alnum:]]+', ' ', 'g'))
+        AND (m.approval_state = 'rejected'
+             OR EXISTS (SELECT 1 FROM memories r WHERE r.id = m.superseded_by AND r.source = 'owner'))
+      LIMIT 1`,
+    where);
+  if (corrected[0]) return { id: corrected[0].id, reinforced: false };
+
+  const { rows } = await tx.query<{ id: string; source_task_id: string | null }>(
+    `SELECT id, source_task_id FROM memories
       WHERE memory_type = $1 AND scope_type = $2 AND scope_id IS NOT DISTINCT FROM $3
         AND approval_state = 'active' AND superseded_by IS NULL
         AND btrim(regexp_replace(lower(body), '[^[:alnum:]]+', ' ', 'g'))
           = btrim(regexp_replace(lower($4), '[^[:alnum:]]+', ' ', 'g'))
       ORDER BY valid_from LIMIT 1`,
-    [input.memoryType, input.scopeType, input.scopeId ?? null, input.body]);
+    where);
   const found = rows[0];
+  // A piece of work saying again what it taught is not corroboration: only
+  // other work makes a lesson surer.
+  if (found && input.sourceTaskId && found.source_task_id === input.sourceTaskId) {
+    return { id: found.id, reinforced: false };
+  }
   if (found) {
     await tx.query(
       `UPDATE memories

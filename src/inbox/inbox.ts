@@ -112,6 +112,12 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser (`browser.handover`): its card opens the browser. */
   browser?: boolean;
+  /**
+   * What a budget card is about: the account with no room, what it has used
+   * this month, and how many tasks it has stopped now -- which the card goes
+   * on with in one press (STATUS 2.155).
+   */
+  budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   /** A question answered by giving a division a key (`owner.ask` with `key`): its card opens the division's keys. */
   key?: AskedKey;
   /**
@@ -410,6 +416,13 @@ export interface IncidentInput {
   taskId?: string | undefined;
   title: string;
   detail: string;
+  /**
+   * A name for what the incident is about, for a fault that every task meets
+   * at once -- a refused model key. While an incident with this name is open
+   * in the company, it is that one the owner has to deal with, and another
+   * is not raised beside it.
+   */
+  once?: string | undefined;
 }
 
 export async function raiseIncident(input: IncidentInput): Promise<string> {
@@ -419,13 +432,22 @@ export async function raiseIncident(input: IncidentInput): Promise<string> {
 /** The same, inside a transaction that also changed what the incident is about. */
 export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput): Promise<string> {
   {
+    if (input.once) {
+      const { rows: open } = await tx.query<{ id: string }>(
+        `SELECT id FROM inbox_items
+          WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = $1
+          ORDER BY created_at LIMIT 1`,
+        [input.once],
+      );
+      if (open[0]) return open[0].id;
+    }
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, task_id, kind, title, action_summary, rationale,
-          consequence_if_denied, notify_after)
-       VALUES ($1,$2,'incident',$3,$3,$4,'', now())
+          consequence_if_denied, payload, notify_after)
+       VALUES ($1,$2,'incident',$3,$3,$4,'', $5, now())
        RETURNING id`,
-      [input.companyId, input.taskId ?? null, input.title, input.detail],
+      [input.companyId, input.taskId ?? null, input.title, input.detail, JSON.stringify(input.once ? { once: input.once } : {})],
     );
     const id = rows[0]!.id;
     await appendEvent(tx, {
@@ -610,7 +632,7 @@ export async function handEscalations(companyId: string): Promise<number> {
   }
 
   const { rows: answered } = await withTenant(companyId, (tx) => tx.query<{
-    id: string; payload: { escalationRole: string; handedTaskId: string };
+    id: string; payload: { escalationRole: string; handedTaskId: string; handledCloses?: boolean };
   }>(
     `SELECT i.id, i.payload FROM inbox_items i
        JOIN tasks t ON t.id = (i.payload->>'handedTaskId')::uuid
@@ -697,7 +719,7 @@ async function handOver(companyId: string, item: {
 }
 
 async function noteHandling(companyId: string, item: {
-  id: string; payload: { escalationRole: string; handedTaskId?: string };
+  id: string; payload: { escalationRole: string; handedTaskId?: string; handledCloses?: boolean };
 }): Promise<void> {
   await withTenant(companyId, async (tx) => {
     // Only finished tasks are asked about, and a finished task stays finished.
@@ -718,6 +740,19 @@ async function noteHandling(companyId: string, item: {
         WHERE id = $1 AND NOT payload ? 'handledOutcome'`,
       [item.id, `\n\n${said}`, task.status],
     );
+    // A task that ended badly, handed to the coordinator, which finished what
+    // it was handed: there is nothing left for the owner to decide, and its
+    // account stays on the card they can still read. One it could not finish
+    // stays open, and the owner is told when the grace is up. Never one about
+    // a task the owner has to judge (a stranded one, a review): those do not
+    // say they close.
+    if (item.payload.handledCloses === true && task.status === 'completed') {
+      await tx.query(
+        `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'handled_by_coordinator'
+          WHERE id = $1 AND status = 'open'`,
+        [item.id],
+      );
+    }
   });
 }
 
@@ -900,6 +935,14 @@ export async function companyOfItem(itemId: string): Promise<string | null> {
 }
 
 /**
+ * How long a proposed procedure waits for an answer before it leaves the
+ * inbox. Not answering it changes nothing -- it is not yet procedure -- so it
+ * need not wait for ever, and a queue of what nobody decided is what made the
+ * owner the keeper of a backlog ("sedikit sedikit setujui memori").
+ */
+export const SOP_CANDIDATE_TTL_DAYS = 14;
+
+/**
  * Puts a distilled SOP in front of the owner (F4.5).
  *
  * Waits for the owner's window like any other non-urgent item: a proposed
@@ -920,10 +963,10 @@ export async function proposeSop(input: {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, kind, title, action_summary, rationale, consequence_if_denied,
-          payload, notify_after)
+          payload, notify_after, expires_at)
        VALUES ($1,'sop_candidate',$2,$2,$3,
                'Nothing changes; the pattern stays undocumented and agents keep improvising.',
-               $4,$5)
+               $4,$5, now() + make_interval(days => $6))
        RETURNING id`,
       [
         input.companyId,
@@ -931,6 +974,7 @@ export async function proposeSop(input: {
         `Observed in ${input.occurrences} completed tasks.\n\n${input.body}`,
         JSON.stringify({ memoryId: input.memoryId, occurrences: input.occurrences }),
         notifyAfter,
+        SOP_CANDIDATE_TTL_DAYS,
       ],
     );
     return rows[0]!.id;
@@ -1083,6 +1127,14 @@ export async function raiseBudgetHalt(companyId: string, taskId: string): Promis
     );
     const account = accounts[0];
     if (!account) return null;
+    // One card for an account, however many tasks it stopped: a division that
+    // runs out stops everything charged to it together, and a card each, to be
+    // opened and continued one by one, was the owner's whole afternoon. The
+    // card says how many it stopped, live, and one press goes on with them all.
+    const standing = await tx.query<{ id: string }>(
+      `SELECT id FROM inbox_items WHERE kind = 'budget_alert' AND status = 'open'
+          AND payload->'budgetHalt'->>'budgetAccountId' = $1 LIMIT 1`, [account.id]);
+    if (standing.rows[0]) return standing.rows[0].id;
     const words = budgetHaltWords(language, {
       account: account.name,
       work: workOf(task.input),
@@ -1149,7 +1201,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
-      key: AskedKey | null; for_schedule: string | null;
+      key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1162,6 +1214,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
+              CASE WHEN i.kind = 'budget_alert' THEN i.payload->'budgetHalt'->>'budgetAccountId' END AS budget_account,
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
               CASE WHEN i.kind = 'skill_candidate'
@@ -1179,6 +1232,17 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
     const items: InboxItem[] = [];
     for (const r of rows) {
       const chain = r.task_id ? await ancestryForTask(tx, r.task_id) : [];
+      let budgetHalt: InboxItem['budgetHalt'];
+      if (r.budget_account) {
+        const { rows: [account] } = await tx.query<{ name: string | null; tokens_spent: string; tokens_max: string; stopped: string }>(
+          `SELECT ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max,
+                  (SELECT count(*) FROM tasks t WHERE t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
+                      AND a.id = ANY(app.budget_chain(t.budget_account_id))) AS stopped
+             FROM budget_accounts a WHERE a.id = $1`, [r.budget_account]);
+        if (account) {
+          budgetHalt = { accountId: r.budget_account, account: account.name, tokensSpent: Number(account.tokens_spent), tokensMax: Number(account.tokens_max), stopped: Number(account.stopped) };
+        }
+      }
       items.push({
         id: r.id, kind: r.kind, status: r.status, title: r.title,
         actionSummary: r.action_summary, rationale: r.rationale, tier: r.tier,
@@ -1196,6 +1260,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         allowFor: r.allow_for,
         forSchedule: r.for_schedule ? { slug: r.for_schedule } : null,
         skillCount: r.skill_count,
+        ...(budgetHalt ? { budgetHalt } : {}),
         // What the owner asked and the run answered, and a question still
         // waiting for its answer last (N6).
         asked: [...(r.asked ?? []), ...(r.asking !== null ? [{ question: r.asking, answer: null }] : [])],

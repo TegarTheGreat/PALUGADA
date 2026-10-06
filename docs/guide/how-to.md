@@ -19,10 +19,17 @@ for me?".
 
 The assistant thinks with this deployment's own model, so choose one first
 (**This deployment**, **Model**). It reads what the console can read, and
-puts every change in front of you as a card: what it does, the route it
-calls, and the values it sends. Nothing changes until you press **Apply**;
-a change that takes your authenticator on its own page takes it on the card
-too (**Apply with a code**). A key goes in the sealed field on the card and
+puts a change in front of you as a card: what it does, the route it calls,
+and the values it sends. Nothing changes until you press **Apply** --
+**Apply all** when several are waiting -- and a change that takes your
+authenticator on its own page takes it on the card too (**Apply with a
+code**; inside the window a code just shown opens, it needs none for what
+builds the company). The exception is everyday work you asked for in a
+conversation with a company's CEO: giving the team work, filing and handing
+on a ticket, telling a task something, stopping it or running it again. That
+is done as the CEO proposes it, and the card is already marked applied --
+unless that answer has read what agents or customers wrote, when it is a card
+again, for you. A key goes in the sealed field on the card and
 from there straight to where it is kept: the assistant never sees it, and a
 key typed into the conversation is refused, not kept, and not sent to the
 model. **Dismiss** a card you do not want; **Start again** forgets the
@@ -51,10 +58,11 @@ want done: "sales need to go up next month, what is your plan?".
 The CEO answers in its own name and in the persona you chose for it, from
 what it reads about its own company and nothing else; for models, keys,
 channels or other companies it sends you to **Ask PALUGADA**. Work you want
-done comes back as a card that gives it to the CEO's own role, which hands
-it to the right people when it runs. As everywhere, nothing changes until
-you press **Apply**. **Show what it sends** on a card shows the route and
-every value it sends, ids included. Each company's conversation is its own,
+done is given to the CEO's own role at once, which hands it to the right
+people when it runs, and the CEO tells you it did. Anything else it proposes
+-- hiring, a goal, a limit -- is a card, and nothing changes until you press
+**Apply**. **Show what it sends** on a card shows the route and every value
+it sends, ids included. Each company's conversation is its own,
 and **Start again** forgets only that one.
 
 The CEO thinks with the deployment's model, like **Ask PALUGADA**; it works
@@ -308,7 +316,9 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Cancel this task** cancels it and everything it started.
 - Stopped because its budget ran out, it shows **Continue**: raise the
   account's ceiling on **Money** first, and the same task goes on from where
-  it stopped, without doing again what it already did.
+  it stopped, without doing again what it already did. Many tasks stopped by
+  one account have one card in the inbox, which raises the ceiling and goes
+  on with all of them at once (see "Set budgets and alert thresholds").
 - Once it has ended, **Do it again** starts a new task with the same work
   and your optional note. A halted task is never retried by itself; this is
   how you retry it. The new task is told everything you said to the tasks
@@ -359,8 +369,10 @@ All three are on **Team**, **Divisions & roles**.
   **Name** and **Title**, write **What the role is for** (its charter), list
   its **Tools** (capabilities, separated by commas, at most twelve) and
   **How to know it is done** (one criterion per line). Press **Hire** and
-  confirm with a code. If its division is not granted a tool yet, you are
-  told which; grant it next. A hire is never titled CEO while the company
+  confirm with a code. The hire also grants its division the tools it lacks,
+  at the tier the platform gives them, and says which; the exception is a
+  tool whose use cannot be undone (tier 3), which stays for you to grant on its
+  own, with **Change a grant**. A hire is never titled CEO while the company
   has one; the first role of a company with none becomes its CEO.
 - **New division**: a **Name**, a **Short name**, optionally the division it
   sits **Inside** (two levels deep at most), and **Runs at once, at most**.
@@ -1193,6 +1205,96 @@ down -- **Customers** says why under the channel, and the mail waits on the
 server until it can be. A server with a private certificate is trusted with
 `PALUGADA_MAIL_CA`.
 
+## Keep the customer records
+
+**Customers**, **Contacts** lists everyone the company deals with. A customer
+who writes on a channel is kept there the first time they write: found by
+their address when the owner already keeps it (whatever its case), or by
+their number -- written with its country code, every digit must match;
+written for its own country, `0812 3456 7890` is the same as a WhatsApp from
+`62 812 3456 7890` -- and otherwise kept as a new person, named as they named
+themselves. A Telegram customer is kept anew for each bot, since Telegram
+gives nothing you would have written down.
+
+**Add a person** keeps anyone else: a supplier, a lead. Open someone to
+change their details, **Archive** them (they leave the list and what runs
+find, and their conversations keep them), add a **Note**, or open a **Deal**
+-- what is being sold, its stage (**Lead**, **Qualified**, **Proposal**,
+**Won**, **Lost**), what it is worth in any currency, and when it is expected
+to close; change the stage from the list. Their conversations are listed
+under them, and open where the conversations do.
+
+The agents keep the same records: `crm.read` reads what the company knows of
+the customer a piece of work answers, or finds people by name, organisation,
+address or number; `crm.note` adds what they were told; `crm.record` keeps
+their details, someone new, or a deal. The standard company's responder
+holds all three, and Support and Growth are granted them. A note is kept as
+written: it is added, never rewritten. What is in a record is partly what a
+customer said, so work that reads it asks you before anything at tier 2, as
+work that read their message does.
+
+These are the company's own tables. Connect a CRM of your own under
+**Services** or in a vendor file and it takes `crm.read`, `crm.note` and
+`crm.record` over; the records kept here stay, and travel with an export.
+
+## Keep the books
+
+**Books** holds the company's own books, by double entry. They open the
+first time you look, with seven accounts: Cash and bank (1100), Accounts
+receivable (1200), Accounts payable (2100), Taxes owed (2200), Owner's
+equity (3100), Sales (4100) and Expenses (5100). **Add an account** adds
+your own -- a code of up to eight digits no other account has, a name, and
+whether it is an asset, a liability, equity, income or an expense.
+
+**Record an entry** takes a date, a memo, a currency and two lines or more,
+each a debit or a credit on an account; it is kept only when the debits
+equal the credits, and the database refuses one that does not, whatever
+wrote it. An entry is never changed: **Reverse** undoes a mistake with an
+entry the other way round, dated today, and both stay -- once per entry.
+Each account shows what it holds on its natural side (an asset or an
+expense by its debits, the rest by their credits), per currency, and the
+top of the page this month's income, expenses and profit.
+
+The bookkeeper keeps the same books: `ledger.read` reads the balances, the
+entries or the profit between two days, and `ledger.record` records an
+entry, refused with what is wrong when it does not balance or names an
+account the books do not have. An entry written by work that read
+something from outside -- a customer's mail, a receipt a stranger sent --
+is read back as data. Connect an accounting service under **Services** or
+in a vendor file and it takes both names over; the books kept here stay,
+and travel with an export.
+
+## Invoice a customer
+
+On **Books**, the **Invoices** tab keeps what the company bills. **Issue an
+invoice** takes the customer -- one of your contacts, or a name and an email
+address -- a currency, the days it is due in (fourteen unless you say), a tax
+rate if there is one, one line or more (what was sold, how many, at what
+price) and a note. It is numbered INV-0001 on, without gaps, and written in the
+books at the same moment: what the customer owes goes on Accounts receivable,
+the sale on Sales and any tax on Taxes owed. It is not sent to anyone; **Copy as
+text** gives you what to paste into a message. An invoice is never edited.
+
+Open an invoice to **Record a payment** -- an amount no more than is owed, a date,
+and the account the money came into, Cash and bank unless you choose another --
+as often as it is paid in part. It shows Open, Part paid or Paid, and Overdue
+when it is past its day. What is owed is read from the books, so reversing a
+payment's entry on the **Ledger** tab puts the debt back. **Void the invoice**
+reverses the entry that issued it, once, and only while nothing stands paid on
+it; its number is not used again. The top of the tab shows what is owed to you,
+and how much of it is late.
+
+The bookkeeper uses the same invoices: `invoice.issue` issues one (at tier 2,
+as the catalogue gives it, so the owner is asked when the work read something
+from outside), `ledger.read` with `report: invoices` lists them with what is
+owed, or reads one with its lines and payments, and `ledger.record` with an
+`invoice` number records a payment against it -- an entry that debits cash or a
+bank account and credits Accounts receivable, for no more than is owed, in the
+invoice's currency. What a run wrote for a customer, a line or a note is read
+back as data when the work had read content from outside. Connect an accounting
+service and it takes `invoice.issue` over; the invoices kept here stay, and
+travel with an export.
+
 ## Let a channel answer on its own
 
 A shop answers the same questions all day: what a coffee costs, when it
@@ -1345,6 +1447,19 @@ the reason.
   its bar turns red and work is refused with "raise its ceiling under
   Money" -- press **Ceilings** on its row and raise the **Token ceiling** or
   the **Money ceiling**. Raising takes a code; lowering does not.
+- When tasks stop because an account has no tokens left, one card in the
+  inbox names the account, what it has used this month, and how many tasks it
+  stopped. Its **New token ceiling for the month** is filled in ten times
+  higher; **Raise it and continue** raises the ceiling (with a code, as raising
+  one always takes) and goes on, oldest first, with every task it stopped, for
+  as many as the account can then fund -- the rest stay stopped and the card
+  with them. **Continue without raising** goes on with what room the account
+  already has, which needs no code. The Work page says why a task stopped in
+  tokens ("Out of tokens: Growth has used 300,000 of 300,000 this month"),
+  not as a bare "out of budget" beside a cost of nothing. Tokens are counted
+  apart from money: a model with no price costs nothing and still uses tokens.
+  New companies start with token ceilings sized against their money ceilings,
+  so tokens do not run out first.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
   told something is going wrong: **Daily cost** in US dollars (or the
   currency you read money in), **Failure rate, 0 to 1** and **Policy denials
@@ -1397,9 +1512,9 @@ CEO** in the console. With several companies, send `/ceo` and choose whom
 you talk to; `/palugada` talks to PALUGADA's assistant about the whole
 deployment. A voice note needs a provider under **Tools**, **Listening**;
 the answer shows what was heard, and is also said aloud when one is chosen
-under **Speaking**. What the CEO proposes arrives as cards: giving work,
-filing a ticket, telling or cancelling a task, a fact to remember or a
-measured value is one press in the chat; anything that takes your device,
+under **Speaking**. Giving work, filing a ticket and telling or cancelling a
+task are done as the CEO says so; a fact to remember or a measured value is
+a card with one press in the chat; anything that takes your device,
 such as a spending limit, has a button that opens the conversation in the
 console. Only you, in your own chat with the bot, are heard; what you say
 in a group is not sent to anyone.

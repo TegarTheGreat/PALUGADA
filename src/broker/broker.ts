@@ -46,7 +46,7 @@ import {
 } from '../domain/tier.ts';
 import { evaluate, type PolicyDecision } from '../policy/engine.ts';
 import type { ActionFacts } from '../policy/condition.ts';
-import { capabilityWindow, isWithin, localTimeIn, nextOpening } from '../scheduler/windows.ts';
+import { isWithin, localTimeIn, nextOpening, windowFor } from '../scheduler/windows.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { approvalReasonSaid, batchStoppedCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -484,7 +484,7 @@ export class CapabilityBroker {
         }
       }
 
-      const window = await capabilityWindow(tx, ctx.divisionId, name);
+      const window = await windowFor(tx, { companyId: ctx.companyId, divisionId: ctx.divisionId, capability: name, tier });
       const windowState =
         window && !isWithin(window, now)
           ? ({ closed: true, reopensAt: nextOpening(window, now) } as const)

@@ -48,6 +48,8 @@ import { sweepLeftoverProcesses } from './engine/process-ledger.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
+import { reportEndedBadly } from './engine/ended.ts';
+import { ensureTriage } from './engine/triage.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -227,6 +229,10 @@ export interface TickReport {
   pastDeadline: number;
   /** Live tasks found with nothing left to move them, and put to the owner. */
   stranded: number;
+  /** Root tasks that ended badly with nobody told, put to the coordinator and then the owner. */
+  ended: number;
+  /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
+  triaged: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -300,6 +306,8 @@ function emptyReport(): TickReport {
     screened: 0,
     pastDeadline: 0,
     stranded: 0,
+    ended: 0,
+    triaged: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -544,6 +552,13 @@ export class Worker {
       // claim both ran the same task and both got the same refusal.
       let runtimeDown = false;
 
+      // The tickets the company owes, handed to the CEO to hand on. Before the
+      // claim, so the task it makes can be taken up on this tick. Two queries
+      // when nothing is owed: no task, no model call, no tokens.
+      if (runs) await this.#stage(report, 'triage', async () => {
+        if (await ensureTriage(company, now)) report.triaged += 1;
+      });
+
       if (runs) await this.#stage(report, 'wakes', async () => {
         const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
         const drained = await drainWakes(company, {
@@ -604,6 +619,9 @@ export class Worker {
         // anything still waiting with nothing left to move it is stranded,
         // and the owner is asked once what to do with it.
         report.stranded += await reportStranded(company, now);
+        // And what ended badly with nobody told: the coordinator asked first,
+        // the owner after its grace (src/engine/ended.ts).
+        report.ended += await reportEndedBadly(company, now);
 
         // F6.3: a completed task's output is what starts its successor, and
         // the engine is what starts it -- not the finishing agent naming who

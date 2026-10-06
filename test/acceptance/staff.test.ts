@@ -91,7 +91,7 @@ test('a viewer joins with their own authenticator, reads their company, and chan
 
     const me = await api.call('GET', '/api/me', rina.token);
     assert.deepEqual(me.body, { owner: false, staff: { name: 'Rina', kind: 'viewer', companyId: fixture.companyId } });
-    assert.deepEqual((await api.call('GET', '/api/me', owner)).body, { owner: true, staff: null });
+    assert.deepEqual((await api.call('GET', '/api/me', owner)).body, { owner: true, staff: null, stepUp: { minutes: 0, until: null } });
 
     // Signing in again later with the code their app shows.
     const again = await api.call('POST', '/api/auth/sign-in', '', { totp: rina.code() });

@@ -58,6 +58,11 @@ export const STAFF_READS: readonly string[] = [
   '/api/companies/:companyId/chat-channels',
   '/api/companies/:companyId/chats',
   '/api/companies/:companyId/chats/:chatId',
+  '/api/companies/:companyId/contacts',
+  '/api/companies/:companyId/contacts/:contactId',
+  '/api/companies/:companyId/books',
+  '/api/companies/:companyId/invoices',
+  '/api/companies/:companyId/invoices/:invoiceId',
 ];
 
 /** Reads left off, and why: each is the owner's, or the deployment's. */
@@ -68,6 +73,7 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/control': 'the deployment\'s brakes and settings',
   '/api/erasures': 'companies the owner closed',
   '/api/control/owner-window': 'when the owner is woken',
+  '/api/control/step-up': 'a rule about the owner\'s own second factor',
   '/api/control/settings': 'the deployment\'s settings',
   '/api/control/channels': 'the owner\'s own channels',
   '/api/control/tools': 'the deployment\'s',
@@ -85,6 +91,7 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/first-hour': 'the owner\'s first hour',
   '/api/companies/:companyId/devices': 'the company\'s devices are set up by the owner',
   '/api/companies/:companyId/retention': 'how long the company keeps things is the owner\'s',
+  '/api/companies/:companyId/office-hours': 'the hours the company keeps for what reaches the outside are the owner\'s',
   '/api/companies/:companyId/conversation': 'the owner\'s conversation with the CEO',
   '/api/companies/:companyId/divisions/:divisionId/credentials': 'the company\'s keys',
   '/api/companies/:companyId/bundles/:slug/verify': 'what is installed is the owner\'s',

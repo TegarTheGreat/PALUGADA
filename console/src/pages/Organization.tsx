@@ -161,22 +161,25 @@ function Grow({ companyId, company, structure, changed }: {
             { name: 'systemPrompt', label: t('What the role is for'), type: 'textarea', required: true, wide: true,
               placeholder: t('e.g. You write the words customers read: product pages and newsletters. Draft first; nothing goes out without review.') },
             { name: 'tools', label: t('Tools'), wide: true, placeholder: 'doc.draft',
-              description: t('Capabilities, separated by commas; at most twelve. It can use only those its division is granted.') },
+              description: t('Capabilities, separated by commas; at most twelve. Its division is granted the ones it lacks, except those that cannot be undone.') },
             { name: 'doneCriteria', label: t('How to know it is done'), type: 'textarea', required: true, wide: true,
               description: t('One per line. Work is checked against these before it counts as finished.'),
               placeholder: t('e.g. every claim about the product is one the product page makes') },
           ]}
           factor={t('Hire a role')}
           submit={async (values, proof) => {
-            const hired: { roleId: string; ungranted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
+            const hired: { roleId: string; ungranted: string[]; granted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
               divisionId: values.divisionId, slug: values.slug, systemPrompt: values.systemPrompt,
-              tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/),
+              tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/), grantTools: true,
               ...(values.displayName ? { displayName: values.displayName } : {}), ...(values.title ? { title: values.title } : {}), proof,
             });
+            if (hired.granted.length > 0) {
+              notifications.show({ color: 'teal', message: t('Its division was granted {tools}.', { tools: hired.granted.join(', ') }) });
+            }
             if (hired.ungranted.length > 0) {
               notifications.show({
                 color: 'orange',
-                message: t('Its division has no grant yet for {tools}. Open the division to grant them.', { tools: hired.ungranted.join(', ') }),
+                message: t('Its division has no grant yet for {tools}, which cannot be undone once used. Open the division to grant them if you mean to.', { tools: hired.ungranted.join(', ') }),
               });
             }
             return hired;

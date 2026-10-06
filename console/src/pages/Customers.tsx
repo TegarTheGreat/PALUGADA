@@ -31,6 +31,7 @@ import type { Chat, ChatChannel, ChatMessage, Structure } from '../types.ts';
 import { EmptyState, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ChatThread, attachmentSaid, channelSaid, customerSaid, handleSaid } from '../components/ChatThread.tsx';
 import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
+import { Contacts } from '../components/Contacts.tsx';
 
 /** A transport by its mark, never by a picture drawn from a name. */
 function KindIcon({ kind, size }: { kind: Chat['kind']; size: number }) {
@@ -108,6 +109,8 @@ export function Customers({ ctx, route }: PageProps) {
           </Stack>
         )}
       </Section>
+
+      <Contacts companyId={companyId} owner={owner} openChat={setOpened} />
 
       <Channels companyId={companyId} channels={channels} owner={owner} changed={view.reload} />
 

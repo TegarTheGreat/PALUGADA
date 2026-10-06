@@ -267,6 +267,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': '提案：{statement}',
   'Proposed status: {status}': '提案するステータス：{status}',
   'Reason given: {reason}': '示された理由：{reason}',
+  'Record an entry in the books': '帳簿に仕訳を記録',
+  'Record a customer or a deal': '顧客や商談を記録',
   'Not sent on its own: {reason}': '自動では送信されませんでした: {reason}',
   'it answers a conversation other than the one this work began with': 'この作業が始まった会話とは別の会話への返信です',
   'it named no passage of a document for customers': '顧客向け文書の箇所を一つも示していません',
@@ -331,4 +333,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'ブラウザでページを読む',
   'Fill in a page in the browser': 'ブラウザでページに入力する',
   'Ask you to take over the browser': 'ブラウザの引き継ぎを依頼する',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} がモデルのキーを拒否しました（{status}）。モデルを必要とする作業は実行できません。設定、このインスタンス、モデルを開き、使えるキーを貼り付け、テストして保存してください。',
+  '{host} refused the model key, and work is waiting': '{host} がモデルのキーを拒否したため、作業が待機中です',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'モデルを待っている作業は、使えるキーに切り替わると自動的に再開します。',
+  'A task ended before it was done: {task}':
+    '作業が完了前に終了しました：{task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    '終了の理由：{reason}。ほかにこの件のカードは作られていないため、黙って見過ごされないようここに出しています。',
+  'Where its measures stand, as the platform reads them:':
+    'プラットフォームが読み取った指標の現状：',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}：まだ値がありません（目標 {target}）。',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}：{value}（目標 {target}）、取得元から読み直して確認済み。',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}：{value}（目標 {target}）、報告のみで未確認。',
+  'Look at it again later': '後でもう一度確認する',
 };

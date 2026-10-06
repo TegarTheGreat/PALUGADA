@@ -269,6 +269,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Diusulkeun: {statement}',
   'Proposed status: {status}': 'Status anu diusulkeun: {status}',
   'Reason given: {reason}': 'Alesan anu dipasihkeun: {reason}',
+  'Record an entry in the books': 'Nyatet éntri dina pembukuan',
+  'Record a customer or a deal': 'Nyatet palanggan atanapi kasapukan',
   'Not sent on its own: {reason}': 'Teu dikintun nyalira: {reason}',
   'it answers a conversation other than the one this work began with': 'waleran ieu kanggo obrolan séjén, sanés anu ngamimitian padamelan ieu',
   'it named no passage of a document for customers': 'waleran ieu teu nyebatkeun bagian dokumén pikeun palanggan',
@@ -333,4 +335,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Maca kaca dina browser',
   'Fill in a page in the browser': 'Ngeusian kaca dina browser',
   'Ask you to take over the browser': 'Nyuhunkeun anjeun nyandak alih browser',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} nolak konci modél ({status}), jadi euweuh pagawéan anu butuh modél anu bisa jalan. Buka Setélan, Pamasangan ieu, Modél AI, témpélkeun konci anu tiasa dipaké, uji, tuluy simpen.',
+  '{host} refused the model key, and work is waiting': '{host} nolak konci modél, sarta pagawéan keur ngantosan',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Pagawéan anu ngantosan modél bakal diteruskeun sorangan sanggeus konci anu tiasa dipaké geus dipaké.',
+  'A task ended before it was done: {task}':
+    'Hiji tugas eureun samemeh réngsé: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Ahirna: {reason}. Euweuh kartu séjén anu dijieun pikeun éta, ku kituna aya di dieu sangkan teu jempé.',
+  'Where its measures stand, as the platform reads them:':
+    'Kaayaan ukuranana, sakumaha dibaca platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: can aya nilai, kalayan target {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} kalayan target {target}, dibaca deui tina sumberna.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} kalayan target {target}, dilaporkeun jeung can dipariksa.',
+  'Look at it again later': 'Tingali deui engké',
 };

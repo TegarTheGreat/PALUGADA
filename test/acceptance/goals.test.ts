@@ -28,6 +28,7 @@ import { COMPANY_OS } from '../../src/bundles/builtin.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { defineMetric, recordObservation } from '../../src/domain/metrics.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -317,6 +318,69 @@ test('a proposed strategy change is the owner\'s decision (F3.10)', async () => 
     return rows[0]!.statement;
   });
   assert.equal(after, 'Grow revenue by shipping faster.');
+});
+
+/**
+ * A goal is not met on an agent's say-so (the audit of 3 October, P0-6). The
+ * owner's card for "met" carried only the agent's prose, and nothing compared
+ * it to the goal's own measure: an agent could have a goal closed that its
+ * checked number said was short. A measure read back from its source, or typed
+ * by the owner, that is short of its target now stops the proposal where it is
+ * made, and every proposal to close or give up a goal carries where the
+ * measures stand, as the platform reads them.
+ */
+test('a goal cannot be proposed as met while its checked measure is short of target; the card says where the measures stand', async () => {
+  const fixture = await createCompany('goal-met-evidence');
+  const task = await newTask(fixture);
+  const metricId = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'weekly-orders', name: 'Orders a week', unit: 'count', baseline: 0, target: 100,
+  });
+  await withTenant(fixture.companyId, (tx) => recordObservation(tx, {
+    companyId: fixture.companyId, metric: metricId, value: 40, recordedBy: 'owner', note: 'from the shop',
+  }));
+
+  await assert.rejects(
+    proposeGoalChange({
+      companyId: fixture.companyId, taskId: task.id, goal: fixture.goalId, proposedStatus: 'met',
+      rationale: 'The orders are where we wanted them.',
+    }),
+    (error: unknown) => isPalugadaError(error, 'contract.violation')
+      && /"Orders a week" reads 40, checked at its source, short of its target 100/.test(error.message),
+  );
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 0, 'and nothing reaches the owner');
+
+  // Not met by a number nobody checked either: shown to the owner as what it is.
+  await withTenant(fixture.companyId, (tx) => recordObservation(tx, {
+    companyId: fixture.companyId, metric: metricId, value: 120, recordedBy: 'agent', taskId: task.id,
+  }));
+  const proposed = await proposeGoalChange({
+    companyId: fixture.companyId, taskId: task.id, goal: fixture.goalId, proposedStatus: 'met',
+    rationale: 'Orders passed the target this week.',
+  });
+  assert.equal(proposed.proposed, true);
+  const card = (await inbox.listOpen(fixture.companyId)).find((item) => item.id === proposed.inboxItemId)!;
+  assert.match(card.rationale, /Where its measures stand, as the platform reads them:/);
+  assert.match(card.rationale, /Orders a week: 120 against a target of 100, reported and not checked\./);
+
+  // Giving up shows the same evidence, and is not refused for it.
+  const second = await createCompany('goal-abandon-evidence');
+  const secondTask = await newTask(second);
+  await defineMetric(second.companyId, { goalId: second.goalId, slug: 'signups', name: 'Sign-ups', unit: 'count', baseline: 0, target: 50 });
+  const abandoned = await proposeGoalChange({
+    companyId: second.companyId, taskId: secondTask.id, goal: second.goalId, proposedStatus: 'abandoned', rationale: 'Nobody wants it.',
+  });
+  const abandonCard = (await inbox.listOpen(second.companyId)).find((item) => item.id === abandoned.inboxItemId)!;
+  assert.match(abandonCard.rationale, /Sign-ups: no value recorded yet, against a target of 50\./);
+
+  // A goal with no measure is as it was: the owner's judgement, with the reason given.
+  const bare = await createCompany('goal-met-bare');
+  const bareTask = await newTask(bare);
+  const bareProposal = await proposeGoalChange({
+    companyId: bare.companyId, taskId: bareTask.id, goal: bare.goalId, proposedStatus: 'met', rationale: 'Done.',
+  });
+  assert.equal(bareProposal.proposed, true);
+  const bareCard = (await inbox.listOpen(bare.companyId)).find((item) => item.id === bareProposal.inboxItemId)!;
+  assert.doesNotMatch(bareCard.rationale, /Where its measures stand/);
 });
 
 test('a run proposes a goal change with goal.propose, and the owner\'s yes is the change (F3.10)', async () => {

@@ -39,6 +39,7 @@ export interface ContextSection {
     | 'documents'
     | 'sop'
     | 'confidence_warning'
+    | 'memory_note'
     | 'semantic_memory'
     | 'goal_ancestry'
     | 'goal_measure'
@@ -389,8 +390,10 @@ async function roleSections(
       (roomForDone(schema) ? `\n\n${FAILED_INSTRUCTION}\n\n${NOT_DONE_INSTRUCTION}` : '') +
       (roomToLearn
         ? '\n\nYou may add "learned": up to five short sentences this work taught that the company should ' +
-          'remember next time -- about its customers, products, prices, suppliers, or what worked and what ' +
-          'did not. They are kept for your division as unverified until they are learned again or confirmed.'
+          'remember next time -- what worked and what did not, and why; how a customer or a supplier likes to ' +
+          'be dealt with. Not a price, a stock level, who owes what or a customer\'s details: those are read ' +
+          'from the company\'s records when they are needed, and a remembered one goes out of date. They are ' +
+          'kept for your division as unverified until other work learns them again or the owner confirms them.'
         : ''),
   }];
   return { charter: [charter], contract };
@@ -661,6 +664,21 @@ export async function buildContext(
     });
   }
 
+  // Memory is what the company has come to believe, not what is so now: a
+  // price, a balance, a customer's status are in records it can read again,
+  // and the record wins when the two disagree (the audit of 3 October, P0-5).
+  if (semanticMemories.length > 0) {
+    sections.push({
+      kind: 'memory_note',
+      title: 'Memory is not the record',
+      body:
+        'The facts below are what the company has remembered, each with the day it was recorded. They are leads, ' +
+        'not the record: a customer, a deal, a balance, a stock level, a price or a measure is read again from ' +
+        'where the company keeps it -- its customer records, its books, the measures above -- before you rely on ' +
+        'it, and the record wins when the two disagree.',
+    });
+  }
+
   for (const memory of semanticMemories) {
     // Something learned from content the company did not write is never a
     // known fact, however often it was seen: it is shown as the data it came
@@ -675,7 +693,7 @@ export async function buildContext(
       title:
         `${memory.source === 'owner' ? 'Known fact, from the owner' : unverified ? 'UNVERIFIED fact' : 'Known fact'}`
         + `${memory.outside ? ', learned from outside content' : ''} `
-        + `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source})`,
+        + `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source}, recorded ${memory.validFrom.toISOString().slice(0, 10)})`,
       body: memory.outside ? wrapUntrusted(`memory:${memory.source}`, memory.body) : memory.body,
       ...(memory.outside ? { outside: true as const } : {}),
     });
@@ -904,12 +922,25 @@ function trimToBudget(
 
   const kept = [...sections];
   let dropped = 0;
+  let steps = 0;
 
   for (const kind of DROP_ORDER) {
-    for (let index = kept.length - 1; index >= 0 && estimateContextTokens(kept) > limit; index -= 1) {
-      if (kept[index]!.kind !== kind) continue;
-      kept.splice(index, 1);
-      dropped += 1;
+    if (kind === 'working_memory') {
+      // A task's own steps go oldest first. They are in the order the work
+      // happened, and what the run needs to carry on is where it got to, not
+      // how it began: dropped from the end, the latest state was lost first.
+      for (let index = 0; index < kept.length && estimateContextTokens(kept) > limit;) {
+        if (kept[index]!.kind !== kind) { index += 1; continue; }
+        kept.splice(index, 1);
+        dropped += 1;
+        steps += 1;
+      }
+    } else {
+      for (let index = kept.length - 1; index >= 0 && estimateContextTokens(kept) > limit; index -= 1) {
+        if (kept[index]!.kind !== kind) continue;
+        kept.splice(index, 1);
+        dropped += 1;
+      }
     }
     if (estimateContextTokens(kept) <= limit) break;
   }
@@ -927,6 +958,11 @@ function trimToBudget(
       body:
         `${dropped} item${dropped === 1 ? '' : 's'} did not fit within the ` +
         `${limit}-token context pack and ${dropped === 1 ? 'was' : 'were'} left out. ` +
+        (steps > 0
+          ? 'The oldest completed steps of this task were left out; the newest are kept. ' +
+            'What the earlier steps did is not something memory.search can return, so do not repeat ' +
+            'work the steps you can see take as done. '
+          : '') +
         (canSearch
           ? 'Use memory.search to look for anything you expected to find here and did not. '
           : 'Your division cannot search for what was left out, so say what you were ' +

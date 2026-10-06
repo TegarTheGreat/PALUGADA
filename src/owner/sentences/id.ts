@@ -265,6 +265,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Usulan: {statement}',
   'Proposed status: {status}': 'Status yang diusulkan: {status}',
   'Reason given: {reason}': 'Alasan yang diberikan: {reason}',
+  'Record an entry in the books': 'Mencatat entri di pembukuan',
+  'Record a customer or a deal': 'Mencatat pelanggan atau kesepakatan',
   'Not sent on its own: {reason}': 'Tidak dikirim otomatis: {reason}',
   'it answers a conversation other than the one this work began with': 'balasan ini untuk percakapan lain, bukan yang memulai pekerjaan ini',
   'it named no passage of a document for customers': 'balasan ini tidak menyebut bagian mana pun dari dokumen untuk pelanggan',
@@ -329,4 +331,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Baca halaman di browser',
   'Fill in a page in the browser': 'Isi halaman di browser',
   'Ask you to take over the browser': 'Meminta Anda mengambil alih browser',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} menolak kunci model ({status}), jadi tidak ada pekerjaan yang membutuhkan model yang dapat berjalan. Buka Pengaturan, Deployment ini, Model, tempel kunci yang berfungsi, uji, lalu simpan.',
+  '{host} refused the model key, and work is waiting': '{host} menolak kunci model, dan pekerjaan sedang menunggu',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Pekerjaan yang menunggu model akan lanjut sendiri begitu kunci yang berfungsi dipakai.',
+  'A task ended before it was done: {task}':
+    'Sebuah tugas berakhir sebelum selesai: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Berakhir sebagai: {reason}. Tidak ada kartu lain yang dibuat untuknya, jadi muncul di sini agar tidak diam-diam.',
+  'Where its measures stand, as the platform reads them:':
+    'Posisi ukurannya, seperti yang dibaca platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: belum ada nilai, dengan target {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} dengan target {target}, dibaca ulang dari sumbernya.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} dengan target {target}, dilaporkan dan belum diperiksa.',
+  'Look at it again later': 'Lihat lagi nanti',
 };

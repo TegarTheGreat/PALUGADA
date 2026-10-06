@@ -274,6 +274,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'ที่เสนอ: {statement}',
   'Proposed status: {status}': 'สถานะที่เสนอ: {status}',
   'Reason given: {reason}': 'เหตุผลที่ให้มา: {reason}',
+  'Record an entry in the books': 'บันทึกรายการในสมุดบัญชี',
+  'Record a customer or a deal': 'บันทึกลูกค้าหรือดีล',
   'Not sent on its own: {reason}': 'ไม่ได้ส่งเอง: {reason}',
   'it answers a conversation other than the one this work began with': 'คำตอบนี้ตอบบทสนทนาอื่น ไม่ใช่บทสนทนาที่เริ่มงานนี้',
   'it named no passage of a document for customers': 'คำตอบนี้ไม่ได้ระบุส่วนใดของเอกสารสำหรับลูกค้า',
@@ -338,4 +340,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'อ่านหน้าเว็บในเบราว์เซอร์',
   'Fill in a page in the browser': 'กรอกหน้าเว็บในเบราว์เซอร์',
   'Ask you to take over the browser': 'ขอให้คุณรับช่วงเบราว์เซอร์',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} ปฏิเสธคีย์โมเดล ({status}) งานที่ต้องใช้โมเดลจึงทำงานไม่ได้ เปิด การตั้งค่า, ระบบนี้, โมเดล แล้ววางคีย์ที่ใช้ได้ ทดสอบ แล้วบันทึก',
+  '{host} refused the model key, and work is waiting': '{host} ปฏิเสธคีย์โมเดล และงานกำลังรออยู่',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'งานที่รอโมเดลอยู่จะทำต่อเองทันทีที่ใช้คีย์ที่ใช้ได้',
+  'A task ended before it was done: {task}':
+    'งานหนึ่งจบลงก่อนเสร็จ: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'งานจบลงด้วยเหตุ: {reason} ไม่มีการ์ดอื่นถูกสร้างสำหรับงานนี้ จึงแสดงที่นี่แทนที่จะเงียบไป',
+  'Where its measures stand, as the platform reads them:':
+    'ตัวชี้วัดอยู่ที่ไหน ตามที่แพลตฟอร์มอ่านได้:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: ยังไม่มีค่า เป้าหมาย {target}',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} เทียบกับเป้าหมาย {target} อ่านซ้ำจากแหล่งที่มาแล้ว',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} เทียบกับเป้าหมาย {target} รายงานมาและยังไม่ได้ตรวจสอบ',
+  'Look at it again later': 'กลับมาดูอีกครั้งภายหลัง',
 };

@@ -274,6 +274,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Proposé : {statement}',
   'Proposed status: {status}': 'Statut proposé : {status}',
   'Reason given: {reason}': 'Motif donné : {reason}',
+  'Record an entry in the books': 'Enregistrer une écriture dans les livres',
+  'Record a customer or a deal': 'Enregistrer un client ou une affaire',
   'Not sent on its own: {reason}': 'Non envoyé seul : {reason}',
   'it answers a conversation other than the one this work began with': 'elle répond à une autre conversation que celle par laquelle ce travail a commencé',
   'it named no passage of a document for customers': 'elle ne cite aucun passage d’un document pour les clients',
@@ -338,4 +340,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Lire une page dans le navigateur',
   'Fill in a page in the browser': 'Remplir une page dans le navigateur',
   'Ask you to take over the browser': 'Vous demander de prendre la main sur le navigateur',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} a refusé la clé du modèle ({status}) : aucun travail qui a besoin du modèle ne peut donc s’exécuter. Ouvrez Paramètres, Cette instance, Modèle, collez une clé qui fonctionne, testez-la et enregistrez.',
+  '{host} refused the model key, and work is waiting': '{host} a refusé la clé du modèle, et le travail est en attente',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Le travail qui attend le modèle reprend de lui-même dès qu’une clé qui fonctionne est utilisée.',
+  'A task ended before it was done: {task}':
+    'Une tâche s’est arrêtée avant d’être terminée : {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Elle s’est terminée ainsi : {reason}. Aucune autre carte n’a été créée pour elle ; elle est donc ici plutôt que silencieuse.',
+  'Where its measures stand, as the platform reads them:':
+    'Où en sont ses mesures, telles que la plateforme les lit :',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name} : aucune valeur enregistrée, pour un objectif de {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name} : {value} pour un objectif de {target}, relu à sa source.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name} : {value} pour un objectif de {target}, déclaré et non vérifié.',
+  'Look at it again later': 'Y revenir plus tard',
 };

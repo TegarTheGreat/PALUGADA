@@ -268,6 +268,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Iminumungkahi: {statement}',
   'Proposed status: {status}': 'Iminumungkahing status: {status}',
   'Reason given: {reason}': 'Ibinigay na dahilan: {reason}',
+  'Record an entry in the books': 'Magtala ng entry sa mga libro',
+  'Record a customer or a deal': 'Magtala ng customer o deal',
   'Not sent on its own: {reason}': 'Hindi ipinadala nang mag-isa: {reason}',
   'it answers a conversation other than the one this work began with': 'sumasagot ito sa ibang usapan, hindi sa pinagsimulan ng trabahong ito',
   'it named no passage of a document for customers': 'wala itong binanggit na bahagi ng dokumento para sa mga customer',
@@ -332,4 +334,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Basahin ang isang pahina sa browser',
   'Fill in a page in the browser': 'Punan ang isang pahina sa browser',
   'Ask you to take over the browser': 'Hilingin sa iyong hawakan ang browser',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    'Tinanggihan ng {host} ang key ng modelo ({status}), kaya walang gawaing nangangailangan ng modelo ang maaaring tumakbo. Buksan ang Mga Setting, Deployment na ito, Modelo, i-paste ang key na gumagana, subukan ito at i-save.',
+  '{host} refused the model key, and work is waiting': 'Tinanggihan ng {host} ang key ng modelo, at naghihintay ang trabaho',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Kusang magpapatuloy ang trabahong naghihintay sa modelo kapag gumagamit na ng key na gumagana.',
+  'A task ended before it was done: {task}':
+    'Natigil ang isang gawain bago ito natapos: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Natapos ito bilang: {reason}. Walang ibang card na ginawa para dito, kaya narito ito at hindi tahimik.',
+  'Where its measures stand, as the platform reads them:':
+    'Kung nasaan ang mga sukat nito, ayon sa pagbasa ng platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: wala pang naitalang halaga, na may target na {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} laban sa target na {target}, binasa muli mula sa pinagmulan nito.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} laban sa target na {target}, iniulat at hindi sinuri.',
+  'Look at it again later': 'Tingnan muli mamaya',
 };

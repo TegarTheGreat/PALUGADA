@@ -271,6 +271,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Voorgesteld: {statement}',
   'Proposed status: {status}': 'Voorgestelde status: {status}',
   'Reason given: {reason}': 'Opgegeven reden: {reason}',
+  'Record an entry in the books': 'Een boeking vastleggen',
+  'Record a customer or a deal': 'Een klant of een deal vastleggen',
   'Not sent on its own: {reason}': 'Niet zelf verstuurd: {reason}',
   'it answers a conversation other than the one this work began with': 'het antwoordt in een ander gesprek dan het gesprek waarmee dit werk begon',
   'it named no passage of a document for customers': 'het noemde geen passage van een document voor klanten',
@@ -335,4 +337,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Een pagina in de browser lezen',
   'Fill in a page in the browser': 'Een pagina in de browser invullen',
   'Ask you to take over the browser': 'Je vragen de browser over te nemen',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} heeft de sleutel van het model geweigerd ({status}), dus er kan geen werk draaien dat het model nodig heeft. Open Instellingen, Deze installatie, Model, plak een werkende sleutel, test hem en sla op.',
+  '{host} refused the model key, and work is waiting': '{host} heeft de modelsleutel geweigerd, en het werk wacht',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Werk dat op het model wacht, gaat vanzelf verder zodra een werkende sleutel in gebruik is.',
+  'A task ended before it was done: {task}':
+    'Een taak eindigde voordat ze klaar was: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Ze eindigde als: {reason}. Er is geen andere kaart voor aangemaakt, dus staat ze hier in plaats van stil te blijven.',
+  'Where its measures stand, as the platform reads them:':
+    'Waar de meetwaarden staan, zoals het platform ze leest:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: nog geen waarde vastgelegd, bij een doel van {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} bij een doel van {target}, teruggelezen uit de bron.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} bij een doel van {target}, gemeld en niet gecontroleerd.',
+  'Look at it again later': 'Later nog eens bekijken',
 };

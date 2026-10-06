@@ -275,6 +275,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Đề xuất: {statement}',
   'Proposed status: {status}': 'Trạng thái đề xuất: {status}',
   'Reason given: {reason}': 'Lý do được đưa ra: {reason}',
+  'Record an entry in the books': 'Ghi bút toán vào sổ',
+  'Record a customer or a deal': 'Ghi nhận khách hàng hoặc thương vụ',
   'Not sent on its own: {reason}': 'Không tự gửi: {reason}',
   'it answers a conversation other than the one this work began with': 'câu trả lời dành cho một cuộc trò chuyện khác, không phải cuộc đã bắt đầu công việc này',
   'it named no passage of a document for customers': 'câu trả lời không nêu đoạn nào của tài liệu cho khách hàng',
@@ -339,4 +341,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Đọc một trang trong trình duyệt',
   'Fill in a page in the browser': 'Điền một trang trong trình duyệt',
   'Ask you to take over the browser': 'Nhờ bạn tiếp quản trình duyệt',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} đã từ chối khóa mô hình ({status}), nên không công việc nào cần mô hình có thể chạy. Mở Cài đặt, Hệ thống này, Mô hình, dán khóa hợp lệ, kiểm tra rồi lưu.',
+  '{host} refused the model key, and work is waiting': '{host} đã từ chối khóa mô hình, và công việc đang chờ',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Công việc đang chờ mô hình sẽ tự tiếp tục khi khóa hợp lệ được dùng.',
+  'A task ended before it was done: {task}':
+    'Một tác vụ kết thúc trước khi xong: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Nó kết thúc với lý do: {reason}. Không có thẻ nào khác được tạo cho nó, nên nó xuất hiện ở đây thay vì im lặng.',
+  'Where its measures stand, as the platform reads them:':
+    'Các thước đo đang ở đâu, theo cách nền tảng đọc:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: chưa có giá trị, với mục tiêu {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} so với mục tiêu {target}, đã đọc lại từ nguồn của nó.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} so với mục tiêu {target}, được báo cáo và chưa kiểm tra.',
+  'Look at it again later': 'Xem lại sau',
 };

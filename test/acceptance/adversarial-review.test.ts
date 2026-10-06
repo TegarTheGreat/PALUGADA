@@ -8,6 +8,8 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
@@ -395,4 +397,102 @@ test('no scheduled review exists (F7.6)', async () => {
     return rows;
   });
   assert.equal(schedules.length, 0, 'setting up review must not create a recurring job');
+});
+
+/*
+ * The audit of 3 October (docs/AUDIT-2026-10-03-ONE-MAN-COMPANY.md, 3.4).
+ *
+ * The verdict is also kept as a decision the division can recall, in a memory
+ * whose body carries the criteria and the reviewer's reason. A memory is at
+ * most 4,000 characters and a reason had no limit, so one long reason made the
+ * insert throw, rolled the whole verdict back, and -- the settlement loop
+ * being unguarded -- stopped every review behind it on every tick.
+ */
+test('a very long reason is kept in full on the record and shortened in memory, and does not jam settlement', async () => {
+  const { fixture, registry } = await reviewedCompany('review-long-reason');
+  const long = `Disagree: ${'the figures in the second paragraph do not add up. '.repeat(120)}`;
+  assert.ok(long.length > 6_000);
+  const engine = engineFor(registry, handlers({ decision: 'reject', reason: long }));
+  const task = await proposerTask(fixture);
+
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  const [pending] = await pendingReviews(fixture.companyId);
+  await engine.runTask(fixture.companyId, pending!.reviewTaskId, 'qa-reviewer');
+
+  const settled = await settleCompletedReviews(fixture.companyId);
+  assert.deepEqual(settled.map((one) => one.decision), ['reject']);
+
+  const { rows: [record] } = await withTenant(fixture.companyId, (tx) => tx.query<{ critique: { reason: string } }>(
+    'SELECT critique FROM decision_records'));
+  assert.equal(record!.critique.reason, long, 'the record keeps what the reviewer said, whole');
+  const { rows: facts } = await withTenant(fixture.companyId, (tx) => tx.query<{ body: string }>(
+    "SELECT body FROM memories WHERE fact_kind = 'decision'"));
+  assert.equal(facts.length, 1);
+  assert.ok(facts[0]!.body.length <= 4_000, 'a memory is a fact, not a document');
+  assert.match(facts[0]!.body, /^Review of email\.send: reject\./);
+  assert.match(facts[0]!.body, /Disagree: the figures/, 'the start of the reason is what survives');
+});
+
+test('a decision about a proposal from work that read outside content is remembered as outside', async () => {
+  const { fixture, registry } = await reviewedCompany('review-outside');
+  const engine = engineFor(registry, handlers({ decision: 'approve', reason: 'accurate' }));
+  // Work an outside event began: the reviewer's reasons are about a stranger's words.
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: {}, createdBy: 'webhook', reserveTokens: 50_000,
+  });
+  await planTask(fixture.companyId, task.id, [{ capability: 'email.send' }]);
+
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  const [pending] = await pendingReviews(fixture.companyId);
+  await engine.runTask(fixture.companyId, pending!.reviewTaskId, 'qa-reviewer');
+  await settleCompletedReviews(fixture.companyId);
+
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ outside: boolean }>(
+    "SELECT outside FROM memories WHERE fact_kind = 'decision'"));
+  assert.deepEqual(rows.map((one) => one.outside), [true]);
+});
+
+test('a verdict that cannot be recorded goes to the owner and does not stop the review behind it', async () => {
+  const { fixture, registry, calls } = await reviewedCompany('review-unrecordable');
+  const first = await proposerTask(fixture);
+  const second = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { another: true }, createdBy: 'owner', reserveTokens: 50_000,
+  });
+  await planTask(fixture.companyId, second.id, [{ capability: 'email.send' }]);
+  const engine = engineFor(registry, {
+    // The first task asks to send a different body, so its review is the one that fails.
+    worker: async (ctx) => {
+      await ctx.callCapability('email.send', ctx.task.id === first.id ? { ...PROPOSAL, body: 'first' } : PROPOSAL);
+      return { sent: true };
+    },
+    // The first review's reason is one the database will refuse (below); the
+    // second's is not.
+    'qa-reviewer': async (ctx) => (ctx.task.input.proposal as { input?: { body?: string } }).input?.body === 'first'
+      ? { decision: 'approve', reason: 'fine POISON fine' }
+      : { decision: 'approve', reason: 'accurate' },
+  });
+  await engine.runTask(fixture.companyId, first.id, 'worker');
+  await engine.runTask(fixture.companyId, second.id, 'worker');
+  for (const review of await pendingReviews(fixture.companyId)) {
+    await engine.runTask(fixture.companyId, review.reviewTaskId, 'qa-reviewer');
+  }
+
+  // Whatever makes a verdict unrecordable -- here a constraint the database
+  // holds the decision's memory to -- is not allowed to stop the next review.
+  const owner = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  let settled: Awaited<ReturnType<typeof settleCompletedReviews>>;
+  try {
+    await owner.query("ALTER TABLE memories ADD CONSTRAINT memories_test_poison CHECK (body NOT LIKE '%POISON%')");
+    settled = await settleCompletedReviews(fixture.companyId);
+  } finally {
+    await owner.query('ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_test_poison');
+    await owner.end();
+  }
+  assert.deepEqual(settled.map((one) => one.decision).sort(), ['approve', 'unreadable']);
+  assert.equal(calls.executions, 0, 'nothing went out: the second is approved and not yet carried out');
+  const escalations = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation');
+  assert.equal(escalations.length, 1, 'the owner is told once about the one that could not be recorded');
+  assert.deepEqual(await settleCompletedReviews(fixture.companyId), [], 'and it is not tried again');
 });

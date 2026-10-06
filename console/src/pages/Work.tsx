@@ -23,7 +23,7 @@ import { useLivePulse, useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
-  actorSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
+  actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
 } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -31,6 +31,7 @@ import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../com
 import { rolePicture } from '../images.ts';
 import { Tickets } from '../components/Tickets.tsx';
 import { Gallery } from '../components/Gallery.tsx';
+import { Prose } from '../components/Prose.tsx';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = WorkGroup | 'all';
@@ -174,7 +175,7 @@ export function Work({ ctx, route }: PageProps) {
                       )}
                       <Group gap={6} wrap="wrap">
                         <StatusBadge status={item.status} />
-                        {item.haltReason && <Text size="xs" c="red">{haltReason(item.haltReason)}</Text>}
+                        {item.haltReason && <Text size="xs" c="red">{item.budgetStop ? budgetStopSaid(item.budgetStop) : haltReason(item.haltReason)}</Text>}
                         <Text size="xs" c="dimmed" className="tabular">{money(item.costCents)}</Text>
                       </Group>
                       <TaskProgress item={item} />
@@ -219,7 +220,7 @@ export function Work({ ctx, route }: PageProps) {
                       </Table.Td>
                       <Table.Td miw={130}>
                         <StatusBadge status={item.status} />
-                        {item.haltReason && <Text size="xs" c="red" mt={4}>{haltReason(item.haltReason)}</Text>}
+                        {item.haltReason && <Text size="xs" c="red" mt={4}>{item.budgetStop ? budgetStopSaid(item.budgetStop) : haltReason(item.haltReason)}</Text>}
                       </Table.Td>
                       <Table.Td><TaskProgress item={item} /></Table.Td>
                       <Table.Td maw={240}><Text size="sm" c="dimmed" lineClamp={1}>{item.goal ?? '—'}</Text></Table.Td>
@@ -633,7 +634,7 @@ function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) 
           {notes.data.map((note, index) => (
             <Group key={`${note.attempt}-${note.seq}-${index}`} gap="xs" wrap="nowrap" align="flex-start">
               <Text size="xs" c="dimmed" className="tabular" style={{ flexShrink: 0 }}>{time(note.saidAt)}</Text>
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note.body}</Text>
+              <div style={{ minWidth: 0 }}><Prose text={note.body} /></div>
             </Group>
           ))}
         </Stack>
@@ -788,7 +789,7 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
       <Stack gap="sm">
         {answer && (
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-teal-light)">
-            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{answer}</Text>
+            <Prose text={answer} />
           </Paper>
         )}
         {report && (
@@ -863,7 +864,7 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
           <Stack>
             {reading.to && <Text size="sm" c="dimmed">{t('To: {to}', { to: reading.to })}</Text>}
             <ScrollArea.Autosize mah="60vh">
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{reading.text}</Text>
+              <Prose text={reading.text} />
             </ScrollArea.Autosize>
             <Group justify="flex-end">
               <CopyButton value={reading.text}>

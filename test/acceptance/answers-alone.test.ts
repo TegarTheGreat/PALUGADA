@@ -37,6 +37,8 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { transition } from '../../src/engine/tasks.ts';
 import { putPolicy } from '../../src/governance/store.ts';
+import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
+import { importCompany } from '../../src/audit/import.ts';
 import { chatCapabilities } from '../../src/capabilities/chat.ts';
 import { RecordingLlmClient, type LlmRequest } from '../../src/llm/client.ts';
 import type { SecretManager } from '../../src/secrets/manager.ts';
@@ -211,6 +213,16 @@ test('the owner lets a channel answer on its own, and a reply from a document fo
     const thread = await api.call('GET', `/api/companies/${fixture.companyId}/chats/${chats.body.chats[0].id}`, owner);
     const out = thread.body.messages.find((one: { direction: string }) => one.direction === 'out');
     assert.deepEqual(out.answeredAlone, { from: ['Menu dan harga'] });
+
+    // Restored elsewhere, the reply names the restored document, not the one it left behind.
+    const lines: ArchiveLine[] = [];
+    await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+    const restored = await importCompany(lines, { slug: 'answers-restored' });
+    const { rows: [copy] } = await withTenant(restored.companyId, (tx) => tx.query<{ grounds: Array<{ document: string }>; menu: string }>(
+      `SELECT m.grounds, (SELECT id FROM documents WHERE title = 'Menu dan harga') AS menu
+         FROM chat_messages m WHERE m.direction = 'out' AND m.grounds IS NOT NULL`));
+    assert.deepEqual(copy!.grounds.map((ground) => ground.document), [copy!.menu, copy!.menu]);
+    assert.notEqual(copy!.menu, menu);
 
     // Off again with the session alone: a tightening.
     assert.equal((await api.call('POST', path, owner, { on: false })).status, 200);

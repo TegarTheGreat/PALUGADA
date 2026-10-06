@@ -13,7 +13,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
-  NavLink, Paper, Progress, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
+  NavLink, Paper, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useDirection, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
+  IconBook2, IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -29,7 +29,7 @@ import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
-import type { Company, SearchHit, Staff, Structure } from './types.ts';
+import type { Company, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
@@ -42,6 +42,7 @@ const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
 const Customers = lazy(() => import('./pages/Customers.tsx').then((module) => ({ default: module.Customers })));
+const Books = lazy(() => import('./pages/Books.tsx').then((module) => ({ default: module.Books })));
 const Browser = lazy(() => import('./pages/Browser.tsx').then((module) => ({ default: module.Browser })));
 const Organization = lazy(() => import('./pages/Organization.tsx').then((module) => ({ default: module.Organization })));
 const Memory = lazy(() => import('./pages/Memory.tsx').then((module) => ({ default: module.Memory })));
@@ -57,17 +58,19 @@ import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
  * The pages of one company, as the sidebar offers them. `owner` marks one a
  * staff seat is not shown: the company's browser holds its sign-ins.
  */
-const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
-  { id: 'inbox', label: N('Inbox'), icon: IconInbox, group: 'decide' },
-  { id: 'overview', label: N('Overview'), icon: IconLayoutDashboard, group: 'company' },
-  { id: 'work', label: N('Work'), icon: IconActivity, group: 'company' },
-  { id: 'customers', label: N('Customers'), icon: IconMessages, group: 'company' },
-  { id: 'browser', label: N('Browser'), icon: IconWorldWww, group: 'company', owner: true },
-  { id: 'team', label: N('Team'), icon: IconSitemap, group: 'company' },
-  { id: 'memory', label: N('Memory'), icon: IconBrain, group: 'company' },
-  { id: 'money', label: N('Money'), icon: IconCoin, group: 'company' },
-  { id: 'history', label: N('History'), icon: IconHistory, group: 'company' },
-  { id: 'settings', label: N('Settings'), icon: IconSettings, group: 'setup' },
+/** `about` is said under each page's name, so nobody has to open one to learn what it is for. */
+const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
+  { id: 'inbox', label: N('Inbox'), about: N('What waits for your decision'), icon: IconInbox, group: 'decide' },
+  { id: 'overview', label: N('Overview'), about: N('How the company is doing'), icon: IconLayoutDashboard, group: 'company' },
+  { id: 'work', label: N('Work'), about: N('What the team is doing now'), icon: IconActivity, group: 'company' },
+  { id: 'customers', label: N('Customers'), about: N('Conversations with your customers'), icon: IconMessages, group: 'company' },
+  { id: 'books', label: N('Books'), about: N('Money in, money out, and who owes whom'), icon: IconBook2, group: 'company' },
+  { id: 'browser', label: N('Browser'), about: N('The browser the team works in'), icon: IconWorldWww, group: 'company', owner: true },
+  { id: 'team', label: N('Team'), about: N('Roles, goals, schedules and rules'), icon: IconSitemap, group: 'company' },
+  { id: 'memory', label: N('Memory'), about: N('What the company has learned'), icon: IconBrain, group: 'company' },
+  { id: 'money', label: N('Money'), about: N('Budgets and what was spent'), icon: IconCoin, group: 'company' },
+  { id: 'history', label: N('History'), about: N('Everything that happened'), icon: IconHistory, group: 'company' },
+  { id: 'settings', label: N('Settings'), about: N('Hours, languages and security'), icon: IconSettings, group: 'setup' },
 ];
 
 export function App() {
@@ -183,7 +186,7 @@ function Console({ device, staff, recovered, signOut }: {
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages, money]: [
-      { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[]; version?: string }, Languages,
+      { companies: Company[] }, { stopAll: boolean }, SetupReport, Languages,
       { currency: string | null; rate: number | null },
     ] = await Promise.all([
       api('GET', '/api/companies'),
@@ -370,21 +373,31 @@ function Console({ device, staff, recovered, signOut }: {
     return !text || `${action.label ?? ''} ${action.description ?? ''}`.toLowerCase().includes(text);
   };
 
-  const setup: { notes: string[]; todo: string[]; version?: string } = base.data?.setup ?? { notes: [], todo: [] };
+  const setup: SetupReport = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
-  const navLink = (page: (typeof PAGES)[number]) => (
-    <NavLink
-      key={page.id}
-      label={t(page.label)}
-      leftSection={<page.icon size={18} stroke={1.7} />}
-      rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
-      active={active === page.id}
-      onClick={() => open(page.id)}
-      className={`nav-link${spotted(page.id as TourSpot)}`}
-    />
-  );
+  /**
+   * A page's link. Said under its name where there is room to scroll -- the
+   * phone's menu -- and in a tooltip in the sidebar, where each line costs a
+   * page that would otherwise be out of sight: at 800 pixels high the sidebar
+   * showed four of its eleven pages and hid the rest below the fold.
+   */
+  const navLink = (page: (typeof PAGES)[number], inline = false) => {
+    const link = (
+      <NavLink
+        key={inline ? page.id : undefined}
+        label={t(page.label)}
+        {...(inline ? { description: t(page.about) } : { py: 7 })}
+        leftSection={<page.icon size={18} stroke={1.7} />}
+        rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
+        active={active === page.id}
+        onClick={() => open(page.id)}
+        className={`nav-link${spotted(page.id as TourSpot)}`}
+      />
+    );
+    return inline ? link : <Tooltip key={page.id} label={t(page.about)} position="right" withArrow openDelay={400}>{link}</Tooltip>;
+  };
 
   const languageMenu = (
     <>
@@ -473,7 +486,7 @@ function Console({ device, staff, recovered, signOut }: {
             pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           {owner && <Menu position="bottom-start" width="target" shadow="md">
             <Menu.Target>
-              <Button fullWidth mt="sm" leftSection={<IconPlus size={16} />} justify="flex-start" className={spotted('new')}>{t('New')}</Button>
+              <Button fullWidth mt="sm" size="sm" leftSection={<IconPlus size={16} />} justify="flex-start" className={spotted('new')}>{t('New')}</Button>
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Item leftSection={<IconActivity size={16} />} onClick={() => setGiving(true)} disabled={!company}>{t('Give a role work')}</Menu.Item>
@@ -482,47 +495,56 @@ function Console({ device, staff, recovered, signOut }: {
             </Menu.Dropdown>
           </Menu>}
           {owner && company?.ceo && (
-            <Button fullWidth mt={6} variant="default" justify="flex-start" onClick={() => setTalking(company)}
-              leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
-              <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
-            </Button>
+            <Tooltip label={t('Ask about this company, or have something done. The CEO runs the team.')} multiline w={240} withArrow position="right">
+              <Button fullWidth mt={6} size="sm" variant="default" justify="flex-start" onClick={() => setTalking(company)}
+                leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
+                <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
+              </Button>
+            </Tooltip>
           )}
           {owner && (
-            <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
-              {t('Ask PALUGADA')}
-            </Button>
+            <Tooltip label={t('For everything beyond one company: the model, the channels, and new companies.')} multiline w={240} withArrow position="right">
+              <Button fullWidth mt={6} size="sm" variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
+                {t('Ask PALUGADA')}
+              </Button>
+            </Tooltip>
           )}
         </AppShell.Section>
 
-        <AppShell.Section grow component={ScrollArea} mt="sm">
-          <NavLink label={t('Home')} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
-          {PAGES.filter((page) => page.group === 'decide').map(navLink)}
+        <AppShell.Section grow component={ScrollArea} type="auto" offsetScrollbars="y" mt="sm">
+          <NavLink label={t('Home')} py={7} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
+          {/* Until there is a company there is nothing for these pages to show:
+              the first thing to do is on Home, and the deployment's own page. */}
+          {company && PAGES.filter((page) => page.group === 'decide').map((page) => navLink(page))}
           {company && <div className="nav-section-label">{company.name}</div>}
-          {PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map(navLink)}
-        </AppShell.Section>
-
-        <AppShell.Section>
-          {setup.todo.length > 0 && (
-            <Paper withBorder radius="md" p="sm" mb="sm" className={`clickable-row${spotted('setup')}`} onClick={() => setChecklist(true)}>
-              <Group gap="xs" wrap="nowrap">
-                <IconChecklist size={18} color="var(--mantine-color-yellow-7)" />
-                <Text size="sm" fw={600}>{t('Finish setting up')}</Text>
-                <Text size="xs" c="dimmed" ms="auto" className="tabular">{setup.notes.length - setup.todo.length}/{setup.notes.length}</Text>
-              </Group>
-              <Progress value={((setup.notes.length - setup.todo.length) / Math.max(1, setup.notes.length)) * 100} size="sm" mt={8} color="yellow" radius="xl" />
-            </Paper>
-          )}
-          {owner && PAGES.filter((page) => page.group === 'setup').map(navLink)}
+          {company && PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map((page) => navLink(page))}
+          {owner && company && <Divider my="xs" />}
+          {owner && company && PAGES.filter((page) => page.group === 'setup').map((page) => navLink(page))}
           {owner && <NavLink
             label={t('This deployment')}
+            py={7}
             leftSection={<IconServer2 size={18} stroke={1.7} />}
             active={active === 'deployment'}
             onClick={() => go({ kind: 'deployment', section: 'model' })}
             className="nav-link"
           />}
+        </AppShell.Section>
+
+        <AppShell.Section>
+          {setup.todo.length > 0 && (
+            // One line, not a card with a bar: pinned under the pages, a card
+            // took the room of two of them, and the deployment's optional notes
+            // (a push channel, an email channel) keep it there for good.
+            <Paper withBorder radius="md" px="sm" py={6} mb="xs" className={`clickable-row${spotted('setup')}`} onClick={() => setChecklist(true)}>
+              <Group gap="xs" wrap="nowrap">
+                <IconChecklist size={16} color="var(--mantine-color-yellow-7)" />
+                <Text size="sm" fw={600}>{t('Finish setting up')}</Text>
+                <Text size="xs" c="dimmed" ms="auto" className="tabular">{setup.notes.length - setup.todo.length}/{setup.notes.length}</Text>
+              </Group>
+            </Paper>
+          )}
           {owner && <Button
             fullWidth
-            mt="xs"
             color={stopAll ? 'teal' : 'red'}
             variant={stopAll ? 'filled' : 'light'}
             leftSection={stopAll ? <IconPlayerPlay size={16} /> : <IconPlayerStop size={16} />}
@@ -595,6 +617,7 @@ function Console({ device, staff, recovered, signOut }: {
               startCompany={owner ? () => setStarting(true) : null}
               restoreCompany={owner ? () => setRestoring(true) : null}
               setup={setup}
+              checklist={() => setChecklist(true)}
             />
           ) : (
             <CompanyPageView key={`${context.companyId}:${route.page}:${route.section}`} ctx={context} route={route as Extract<Route, { kind: 'company' }>} />
@@ -619,7 +642,7 @@ function Console({ device, staff, recovered, signOut }: {
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'books', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -628,7 +651,7 @@ function Console({ device, staff, recovered, signOut }: {
 
       <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
         <Stack gap={4} pb="md">
-          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map(navLink)}
+          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
           {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
             onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />}
           <Divider my="xs" />
@@ -661,9 +684,11 @@ function Console({ device, staff, recovered, signOut }: {
         <Text size="sm" c="dimmed" mb="md">
           {t('What the deployment reported when it started. Each one is something switched off until it is configured: the model is set on the This deployment page, and the rest in the environment, which docs/configuration.md lists.')}
         </Text>
-        <Button mb="md" variant="light" leftSection={<IconServer2 size={16} />} onClick={() => { setChecklist(false); go({ kind: 'deployment', section: 'model' }); }}>
-          {t('Set the model')}
-        </Button>
+        {setup.modelMissing && (
+          <Button mb="md" variant="light" color="red" leftSection={<IconServer2 size={16} />} onClick={() => { setChecklist(false); go({ kind: 'deployment', section: 'model' }); }}>
+            {t('Set the model')}
+          </Button>
+        )}
         <Stack gap="xs">
           {setup.notes.map((note) => {
             const done = !setup.todo.includes(note);
@@ -696,6 +721,7 @@ function CompanyPageView({ ctx, route }: PageProps) {
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
     case 'customers': return <Customers ctx={ctx} route={route} />;
+    case 'books': return <Books ctx={ctx} route={route} />;
     case 'browser': return <Browser ctx={ctx} route={route} />;
     case 'team': return <Organization ctx={ctx} route={route} />;
     case 'memory': return <Memory ctx={ctx} route={route} />;

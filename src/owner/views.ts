@@ -275,6 +275,12 @@ export interface WorkItem {
   id: string;
   status: TaskStatus;
   haltReason: string | null;
+  /**
+   * For a task its budget stopped: the account with the least room in its
+   * chain, and what it has used of its tokens this month. A cost of US$0.00
+   * beside "out of budget" read as a mistake; it is the tokens that ran out.
+   */
+  budgetStop?: { account: string | null; tokensSpent: number; tokensMax: number };
   /** What the task is for, in words: the first of its input's describing fields. */
   summary: string;
   /**
@@ -411,7 +417,9 @@ export async function workOf(
                          GROUP BY 1) planned
               ) END AS plan_done,
               (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at,
-              t.wait_until, waited.reason AS wait_reason, below.waiting_on, below.needs_you
+              t.wait_until,
+              CASE WHEN t.status = 'pending' AND t.wait_until > now() THEN 'follow_up' ELSE waited.reason END AS wait_reason,
+              below.waiting_on, below.needs_you
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
          JOIN divisions d ON d.id = t.division_id
@@ -474,6 +482,18 @@ export async function workOf(
       }
     }
 
+    const stoppedByBudget = rows.filter((row) => row.status === 'halted' && row.halt_reason === 'budget_exhausted').map((row) => row.id);
+    const tight = new Map<string, { account: string | null; tokensSpent: number; tokensMax: number }>();
+    if (stoppedByBudget.length > 0) {
+      const { rows: accounts } = await tx.query<{ task_id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
+        `SELECT t.id AS task_id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max
+           FROM tasks t
+           JOIN LATERAL (SELECT a.* FROM budget_accounts a WHERE a.id = ANY(app.budget_chain(t.budget_account_id))
+                          ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id LIMIT 1) a ON true
+          WHERE t.id = ANY($1::uuid[])`, [stoppedByBudget]);
+      for (const one of accounts) tight.set(one.task_id, { account: one.name, tokensSpent: Number(one.tokens_spent), tokensMax: Number(one.tokens_max) });
+    }
+
     return {
       counts,
       next: fetched.length > limit && last ? writeCursor(last.created_micros, last.id) : null,
@@ -481,6 +501,7 @@ export async function workOf(
         id: row.id,
         status: row.status,
         haltReason: row.halt_reason,
+        ...(tight.has(row.id) ? { budgetStop: tight.get(row.id)! } : {}),
         summary: summarise(row.input),
         result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
@@ -508,7 +529,9 @@ export async function workOf(
           heartbeatAt: row.heartbeat_at,
           deadlineAt: row.deadline_at,
         },
-        waiting: row.status === 'waiting_window'
+        // A task made to be done later is queued and not yet due: said as
+        // what it is, with when, rather than as work waiting for a worker.
+        waiting: row.status === 'waiting_window' || (row.status === 'pending' && row.wait_reason === 'follow_up')
           ? { reason: row.wait_reason, until: row.wait_until, on: row.waiting_on, needsYou: row.needs_you }
           : null,
       })),

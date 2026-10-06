@@ -127,6 +127,19 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'company changes; what the sub-task then does is judged at its own tier.',
   },
   {
+    // 3 October audit, P0-7: look again at the real outcome, later.
+    name: 'task.follow_up',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks for a task of its own, later, to look at what the work actually did.',
+    calibration:
+      'Creates a sub-task inside the company that cannot start before its time, ' +
+      'under the hop limit, the fan-out cap and the parent\'s budget, carrying ' +
+      'what the parent read from outside; an hour at least, ninety days at most, ' +
+      'a few open per goal, cancelled when the goal closes. Nothing outside the ' +
+      'company changes; what it does when it wakes is judged at its own tier.',
+  },
+  {
     // The result of a sub-task this task delegated; waiting parks the task.
     name: 'task.await',
     adapter: 'platform',
@@ -332,6 +345,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'ledger.record',
+    adapter: 'accounting',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Records an entry in the books: accounts debited and credited, balancing.',
+    calibration:
+      'Internal: nobody outside the company sees an entry, and a wrong one is ' +
+      'undone by a reversing entry that stays beside it. It moves no money; ' +
+      'recording that money moved is not moving it, which is `invoice.pay`.',
+  },
+  {
     name: 'chat.read',
     adapter: 'platform',
     tier: TIER.READ_ONLY,
@@ -489,6 +512,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     summary: 'Adds a note to a customer record.',
     calibration: 'Internal, and editable afterwards.',
     needsCredential: true,
+  },
+  {
+    name: 'crm.record',
+    adapter: 'crm',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Records a customer\'s details, or someone new, and opens or moves a deal with them.',
+    calibration:
+      'Internal: nobody outside the company sees a record change, and each ' +
+      'change keeps what the fields were on the owner\'s timeline, so it is ' +
+      'undone by hand. A deal marked won moves no money; an invoice does.',
   },
   {
     name: 'code.compute',

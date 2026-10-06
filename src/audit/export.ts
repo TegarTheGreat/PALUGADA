@@ -193,8 +193,59 @@ const SECTIONS: Section[] = [
             FROM chat_channels ORDER BY created_at`,
   },
   {
+    // The books (0119): the accounts, and the entries with their lines, the
+    // reversed before what reverses them.
+    name: 'ledger_accounts',
+    sql: `SELECT id, code, name, kind, system_key, created_at, archived_at FROM ledger_accounts ORDER BY code`,
+  },
+  {
+    name: 'journal_entries',
+    sql: `SELECT id, entry_date, memo, currency, written_by, task_id, outside, reverses, created_at
+            FROM journal_entries ORDER BY created_at, id`,
+  },
+  {
+    name: 'journal_lines',
+    sql: `SELECT id, entry_id, account_id, debit_cents, credit_cents FROM journal_lines ORDER BY entry_id, id`,
+  },
+  {
+    // The company's customer records (0118): the people, what was noted
+    // about them, and the deals with them.
+    name: 'contacts',
+    sql: `SELECT id, name, organisation, email, phone, created_by, created_at, updated_at, archived_at
+            FROM contacts ORDER BY created_at`,
+  },
+  {
+    name: 'contact_notes',
+    sql: `SELECT id, contact_id, body, written_by, task_id, created_at FROM contact_notes ORDER BY created_at`,
+  },
+  {
+    name: 'deals',
+    sql: `SELECT id, contact_id, title, stage, value_cents, currency, expected_on, created_by, created_at, updated_at, closed_at
+            FROM deals ORDER BY created_at`,
+  },
+  {
+    // The company's invoices (0122): the counter, so numbering goes on from
+    // where it was, the invoices with their lines, and what was paid on them.
+    name: 'invoice_numbers',
+    sql: `SELECT last_number FROM invoice_numbers`,
+  },
+  {
+    name: 'invoices',
+    sql: `SELECT id, number, contact_id, customer_name, customer_email, issue_date, due_date, currency, subtotal_cents, tax_rate_bps,
+                 tax_cents, total_cents, note, entry_id, written_by, task_id, outside, created_at
+            FROM invoices ORDER BY created_at, id`,
+  },
+  {
+    name: 'invoice_lines',
+    sql: `SELECT id, invoice_id, position, description, quantity_milli, unit_cents, amount_cents FROM invoice_lines ORDER BY invoice_id, position`,
+  },
+  {
+    name: 'invoice_payments',
+    sql: `SELECT id, invoice_id, paid_on, amount_cents, entry_id, written_by, task_id, outside, created_at FROM invoice_payments ORDER BY created_at, id`,
+  },
+  {
     name: 'chats',
-    sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at
+    sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id
             FROM chats ORDER BY created_at`,
   },
   {
@@ -410,6 +461,11 @@ const SECTIONS: Section[] = [
     name: 'batch_windows',
     sql: `SELECT id, timezone, start_hour, end_hour, days_of_week, created_at
             FROM batch_windows WHERE company_id IS NOT NULL`,
+  },
+  {
+    name: 'office_hours',
+    sql: `SELECT id, timezone, start_hour, end_hour, days_of_week, except_capabilities, updated_at
+            FROM office_hours WHERE company_id IS NOT NULL`,
   },
   {
     name: 'capability_windows',

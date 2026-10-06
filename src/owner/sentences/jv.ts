@@ -269,6 +269,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Dipunusulaken: {statement}',
   'Proposed status: {status}': 'Status ingkang dipunusulaken: {status}',
   'Reason given: {reason}': 'Sabab ingkang dipunaturaken: {reason}',
+  'Record an entry in the books': 'Nyathet entri wonten ing pembukuan',
+  'Record a customer or a deal': 'Nyathet pelanggan utawi kesepakatan',
   'Not sent on its own: {reason}': 'Boten kakintun piyambak: {reason}',
   'it answers a conversation other than the one this work began with': 'wangsulan menika kangge obrolan sanes, sanes ingkang miwiti pakaryan menika',
   'it named no passage of a document for customers': 'wangsulan menika boten nyebataken perangan dokumen kangge pelanggan',
@@ -333,4 +335,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Maca kaca ing browser',
   'Fill in a page in the browser': 'Ngisi kaca ing browser',
   'Ask you to take over the browser': 'Nyuwun panjenengan mundhut alih browser',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} mboten purun nampi kunci model ({status}), dados mboten wonten padamelan ingkang mbetahaken model saged mlampah. Bikak Setelan, Pamasangan punika, Model AI, tempelaken kunci ingkang saged dipunginakaken, ujia lajeng simpen.',
+  '{host} refused the model key, and work is waiting': '{host} mboten purun nampi kunci model, lan padamelan nengga',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Padamelan ingkang nengga model badhé nglajengaken piyambak menawi kunci ingkang saged dipunginakaken sampun dipunginakaken.',
+  'A task ended before it was done: {task}':
+    'Satunggal tugas mandheg sadèrèng rampung: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Pungkasanipun: {reason}. Boten wonten kertu sanès ingkang kadamel, mila kaladosaken ing mriki supados boten sepi.',
+  'Where its measures stand, as the platform reads them:':
+    'Kedadosan ukuranipun, kados ingkang diwaos platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: dereng wonten nilai, kanthi target {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} kanthi target {target}, diwaos malih saking sumberipun.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} kanthi target {target}, dilaporaken lan dereng dipriksa.',
+  'Look at it again later': 'Dipirsani malih mangke',
 };

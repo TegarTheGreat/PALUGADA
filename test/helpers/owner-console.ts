@@ -17,6 +17,8 @@ export async function consoleWithSettings(options: {
   /** The built console to serve beside the API, for a test that opens it in a browser. */
   staticRoot?: string;
   browsers?: ConstructorParameters<typeof OwnerApi>[0]['browsers'];
+  /** What the deployment reported when it started, for the setup checklist. */
+  deploymentNotes?: string[];
 } = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
@@ -37,6 +39,7 @@ export async function consoleWithSettings(options: {
     ...(options.credentialFor ? { credentialFor: options.credentialFor } : {}),
     ...(options.staticRoot ? { staticRoot: options.staticRoot } : {}),
     ...(options.browsers ? { browsers: options.browsers } : {}),
+    ...(options.deploymentNotes ? { deploymentNotes: options.deploymentNotes } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,

@@ -34,7 +34,7 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
-import { Engine, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
+import { Engine, MODEL_KEY_WAITS_MS, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { takePlace } from '../../src/broker/in-flight.ts';
@@ -543,6 +543,103 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
   const detail = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
     "SELECT rationale FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
   assert.match(detail.rows[0]!.rationale, /tried 6 times over about 16 minutes\. This role can take actions that cannot be undone/);
+});
+
+/**
+ * The OpenRouter key refused (401, "User not found.") of 6 October: every
+ * task that met it halted, said "No runtime could take it", and raised
+ * nothing for the owner, who learned of it from a chat answer that was raw
+ * JSON. Now the owner is told once, in words, with where to put a key that
+ * works; the tasks wait, spend nothing, and carry on by themselves.
+ */
+test('a refused model key tells the owner once, parks the work, and the work carries on when the key works', async () => {
+  const fixture = await createCompany('model-key-refused');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  let keyWorks = false;
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run() {
+      if (!keyWorks) {
+        throw new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (401): User not found.', {
+          model: 'test-model', keyRefused: true, status: 401, host: 'openrouter.ai', providerSaid: 'User not found.', keySetting: 'PALUGADA_MODEL_KEY_REF',
+        });
+      }
+      return { output: { done: DONE } };
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const first = await newTask(fixture, {});
+  const second = await newTask(fixture, {});
+  const { workOf } = await import('../../src/owner/views.ts');
+
+  const before = Date.now();
+  const parked = await engine.runTask(fixture.companyId, first.id, 'worker');
+  assert.equal(parked.status, 'waiting_window', parked.reason);
+  assert.ok(Math.abs(parked.waitUntil!.getTime() - before - MODEL_KEY_WAITS_MS[0]!) < 2_000);
+  assert.equal((await engine.runTask(fixture.companyId, second.id, 'worker')).status, 'waiting_window');
+  const waiting = (await workOf(fixture.companyId, { taskId: first.id })).items[0]!.waiting;
+  assert.equal(waiting?.reason, 'model_key', 'it says what it waits for');
+
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ title: string; rationale: string; status: string }>(
+    "SELECT title, rationale, status FROM inbox_items WHERE kind = 'incident'"));
+  assert.equal(cards.rows.length, 1, 'one card for the company, however many tasks met the refusal');
+  assert.equal(cards.rows[0]!.title, 'openrouter.ai refused the model key, and work is waiting');
+  assert.match(cards.rows[0]!.rationale, /Open Settings, This deployment, Model, paste a key that works/);
+  assert.match(cards.rows[0]!.rationale, /User not found\./, 'what the provider said is kept, as it said it');
+  assert.doesNotMatch(cards.rows[0]!.rationale, /PALUGADA_MODEL_KEY_REF|"error"/, 'no variable, no raw JSON');
+
+  // Looking again while the key is still refused waits longer and raises nothing more.
+  const again = await engine.runTask(fixture.companyId, first.id, 'worker');
+  assert.equal(again.status, 'waiting_window');
+  assert.ok(again.waitUntil!.getTime() - Date.now() > MODEL_KEY_WAITS_MS[0]!, 'longer the second time');
+  assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident'"))).rows.length, 1);
+
+  // The key that works is in use: the work finishes, and it was never failed.
+  keyWorks = true;
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'completed');
+  assert.equal((await engine.runTask(fixture.companyId, second.id, 'worker')).status, 'completed');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, first.id)))!.attempt, 0, 'a refused key is not the task failing');
+});
+
+test('a key that stays refused halts the task when the waits are spent, and does not tell the owner twice', async () => {
+  const fixture = await createCompany('model-key-halts');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run() {
+      throw new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (403)', {
+        model: 'test-model', keyRefused: true, status: 403, host: 'openrouter.ai', providerSaid: '', keySetting: 'PALUGADA_MODEL_KEY_REF',
+      });
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const task = await newTask(fixture, {});
+  const outcomes: string[] = [];
+  for (let run = 0; run <= MODEL_KEY_WAITS_MS.length; run += 1) {
+    outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+  }
+  assert.deepEqual(outcomes, [...MODEL_KEY_WAITS_MS.map(() => 'waiting_window'), 'halted']);
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>("SELECT rationale FROM inbox_items WHERE kind = 'incident'"));
+  assert.equal(cards.rows.length, 1);
+  assert.match(cards.rows[0]!.rationale, /refused the model key \(403\)/);
+
+  // Answered by the owner, and refused again: a new card, not a silence.
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE inbox_items SET status = 'decided', decision = 'approve', decided_at = now() WHERE kind = 'incident'"));
+  const next = await newTask(fixture, {});
+  await engine.runTask(fixture.companyId, next.id, 'worker');
+  assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident' AND status = 'open'"))).rows.length, 1);
 });
 
 /* ------------------------------------------------------------------ http --- */

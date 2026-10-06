@@ -33,6 +33,7 @@ import { wrapUntrusted } from '../context/builder.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { languageName, languagesFor } from '../domain/language.ts';
 import { createRootTask } from '../engine/tasks.ts';
+import { contactForMessage } from '../records/contacts.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 
 export const CHAT_KINDS = ['telegram', 'whatsapp', 'email'] as const;
@@ -119,6 +120,10 @@ export interface ChatView {
   lastMessage: { direction: 'in' | 'out'; body: string; attachment: string | null } | null;
   /** The customer spoke last. */
   unanswered: boolean;
+  /** Their record (0118). */
+  contactId: string | null;
+  /** The name on it, which the owner may have changed from the one the customer gave. */
+  contactName: string | null;
 }
 
 export interface MessageView {
@@ -198,16 +203,23 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     // One delivery at a time per channel, so two messages arriving together
     // cannot both start work, or both find room under the limit.
     await tx.query('SELECT 1 FROM chat_channels WHERE id = $1 FOR UPDATE', [channel.id]);
-    const { rows: [chat] } = await tx.query<{ id: string }>(
+    const { rows: [chat] } = await tx.query<{ id: string; contact_id: string | null }>(
       `INSERT INTO chats (company_id, channel_id, external_id, customer_name, customer_handle)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (channel_id, external_id) DO UPDATE
          SET customer_name = coalesce(EXCLUDED.customer_name, chats.customer_name),
              customer_handle = coalesce(EXCLUDED.customer_handle, chats.customer_handle)
-       RETURNING id`,
+       RETURNING id, contact_id`,
       [channel.companyId, channel.id, message.chat, message.customerName, message.customerHandle],
     );
     const chatId = chat!.id;
+    // The customer it is with (0118): the contact the owner keeps with this
+    // address or number, or a new one. Once, so a record the owner renamed
+    // keeps its name.
+    const contactId = chat!.contact_id ?? await contactForMessage(tx, {
+      companyId: channel.companyId, kind: channel.kind, handle: message.customerHandle, name: message.customerName,
+    });
+    if (!chat!.contact_id) await tx.query('UPDATE chats SET contact_id = $2 WHERE id = $1', [chatId, contactId]);
     const seen = await tx.query<{ id: string; outcome: string; task_id: string | null }>(
       "SELECT id, outcome, task_id FROM chat_messages WHERE chat_id = $1 AND direction = 'in' AND external_id = $2",
       [chatId, message.id],
@@ -216,7 +228,7 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     if (before) {
       // Started, but the work was not made: the crash this key is for. The
       // retry makes it, and the key makes it the same work.
-      if (before.outcome === 'started' && before.task_id === null) return { start: before.id, chatId };
+      if (before.outcome === 'started' && before.task_id === null) return { start: before.id, chatId, contactId };
       return { done: { outcome: 'duplicate' as const, chatId, taskId: before.task_id } };
     }
     await tx.query('UPDATE chats SET last_message_at = now() WHERE id = $1', [chatId]);
@@ -255,11 +267,11 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
       return { done: { outcome: 'limited' as const, chatId, taskId: null } };
     }
     const { rows: [made] } = await record('started', null);
-    return { start: made!.id, chatId };
+    return { start: made!.id, chatId, contactId };
   });
   if ('done' in decided) return decided.done!;
 
-  const { chatId } = decided;
+  const { chatId, contactId } = decided;
   const languages = await withTenant(channel.companyId, (tx) => languagesFor(tx, channel.companyId));
   const said = (message.subject ? `Subject: ${message.subject}\n\n` : '') + message.text
     + (message.attachment ? `${message.text ? '\n' : ''}[sent a ${message.attachment}, which cannot be read here]` : '');
@@ -271,7 +283,8 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     goalId: channel.goalId,
     input: {
       goal: channel.instruction,
-      chat: { id: chatId, channel: channel.kind, customer: message.customerName ?? message.customerHandle ?? null },
+      // The customer's record, which crm.read reads when it is asked nothing.
+      chat: { id: chatId, channel: channel.kind, customer: message.customerName ?? message.customerHandle ?? null, contact: contactId },
       event: wrapUntrusted(`${channel.kind}:${channel.account}`, said),
       reply: 'Read the whole conversation with chat.read before you answer: the customer may have written again '
         + 'since this message. Answer with chat.send, in the language the customer writes in -- '
@@ -498,10 +511,12 @@ export async function chatOfTask(tx: TenantClient, taskId: string): Promise<stri
 
 const CHAT_COLUMNS = `
   h.id, h.channel_id, c.kind, c.account, c.enabled, h.customer_name, h.customer_handle, h.last_message_at,
-  last.direction AS last_direction, last.body AS last_body, last.attachment AS last_attachment`;
+  last.direction AS last_direction, last.body AS last_body, last.attachment AS last_attachment,
+  h.contact_id, who.name AS contact_name`;
 
 const CHAT_FROM = `
   FROM chats h JOIN chat_channels c ON c.id = h.channel_id
+  LEFT JOIN contacts who ON who.id = h.contact_id
   LEFT JOIN LATERAL (
     SELECT m.direction, m.body, m.attachment FROM chat_messages m
      WHERE m.chat_id = h.id ORDER BY m.created_at DESC LIMIT 1
@@ -511,6 +526,7 @@ interface ChatRow {
   id: string; channel_id: string; kind: ChatKind; account: string; enabled: boolean;
   customer_name: string | null; customer_handle: string | null; last_message_at: Date;
   last_direction: 'in' | 'out' | null; last_body: string | null; last_attachment: string | null;
+  contact_id: string | null; contact_name: string | null;
 }
 
 function chatView(row: ChatRow): ChatView {
@@ -521,6 +537,8 @@ function chatView(row: ChatRow): ChatView {
       ? { direction: row.last_direction, body: row.last_body ?? '', attachment: row.last_attachment }
       : null,
     unanswered: row.last_direction === 'in',
+    contactId: row.contact_id,
+    contactName: row.contact_name,
   };
 }
 

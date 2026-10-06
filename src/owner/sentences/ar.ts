@@ -268,6 +268,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'المقترح: {statement}',
   'Proposed status: {status}': 'الحالة المقترحة: {status}',
   'Reason given: {reason}': 'السبب المذكور: {reason}',
+  'Record an entry in the books': 'تسجيل قيد في الدفاتر',
+  'Record a customer or a deal': 'تسجيل عميل أو صفقة',
   'Not sent on its own: {reason}': 'لم يُرسل وحده: {reason}',
   'it answers a conversation other than the one this work began with': 'الرد موجَّه إلى محادثة غير التي بدأ بها هذا العمل',
   'it named no passage of a document for customers': 'لم يذكر الرد أي مقطع من مستند للعملاء',
@@ -332,4 +334,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'قراءة صفحة في المتصفح',
   'Fill in a page in the browser': 'تعبئة صفحة في المتصفح',
   'Ask you to take over the browser': 'يطلب منك تولي المتصفح',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    'رفض {host} مفتاح النموذج ({status})، لذا لا يمكن تشغيل أي عمل يحتاج إلى النموذج. افتح الإعدادات، هذه المنصة، النموذج، والصق مفتاحًا صالحًا، ثم اختبره واحفظه.',
+  '{host} refused the model key, and work is waiting': 'رفض {host} مفتاح النموذج، والعمل في انتظار',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح.',
+  'A task ended before it was done: {task}':
+    'انتهت مهمة قبل إتمامها: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'انتهت على النحو التالي: {reason}. لم تُنشأ لها بطاقة أخرى، لذا تظهر هنا بدل أن تمرّ بصمت.',
+  'Where its measures stand, as the platform reads them:':
+    'أين تقف مقاييسه كما تقرؤها المنصة:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: لا توجد قيمة مسجلة بعد، والهدف {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} مقابل هدف {target}، قُرئت من جديد من مصدرها.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} مقابل هدف {target}، أُبلغ عنها ولم تُفحص.',
+  'Look at it again later': 'مراجعته لاحقًا',
 };

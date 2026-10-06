@@ -272,6 +272,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Önerilen: {statement}',
   'Proposed status: {status}': 'Önerilen durum: {status}',
   'Reason given: {reason}': 'Belirtilen neden: {reason}',
+  'Record an entry in the books': 'Defterlere kayıt girmek',
+  'Record a customer or a deal': 'Bir müşteriyi ya da anlaşmayı kaydet',
   'Not sent on its own: {reason}': 'Kendi başına gönderilmedi: {reason}',
   'it answers a conversation other than the one this work began with': 'yanıt, bu işin başladığı konuşmadan başka bir konuşmaya veriliyor',
   'it named no passage of a document for customers': 'yanıt, müşteriler için bir belgenin hiçbir bölümünü belirtmedi',
@@ -336,4 +338,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Tarayıcıda bir sayfa oku',
   'Fill in a page in the browser': 'Tarayıcıda bir sayfayı doldur',
   'Ask you to take over the browser': 'Tarayıcıyı devralmanızı istemek',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} yapay zekâ modelinin anahtarını reddetti ({status}); bu yüzden modele ihtiyaç duyan hiçbir iş çalışamıyor. Ayarlar, Bu kurulum, Yapay zekâ modeli bölümünü açın, çalışan bir anahtar yapıştırın, deneyin ve kaydedin.',
+  '{host} refused the model key, and work is waiting': '{host} modelin anahtarını reddetti ve iş bekliyor',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder.',
+  'A task ended before it was done: {task}':
+    'Bir görev bitmeden sona erdi: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Şöyle sona erdi: {reason}. Bunun için başka kart açılmadı; bu yüzden sessiz kalmasın diye burada.',
+  'Where its measures stand, as the platform reads them:':
+    'Ölçülerinin durumu, platformun okuduğu hâliyle:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: henüz kayıtlı değer yok, hedef {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value}, hedef {target}, kaynağından yeniden okunarak doğrulandı.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value}, hedef {target}, bildirildi ancak doğrulanmadı.',
+  'Look at it again later': 'Sonra yeniden bak',
 };

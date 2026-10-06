@@ -55,6 +55,14 @@ refer to `docs/PRD.md`.
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
    passkey needs a single-use challenge and user verification.
+4b. A code or passkey shown opens a window (`owner_sessions.proved_at`, 0120;
+   `step-up.ts`), ten minutes unless the owner chooses, in which twelve actions
+   that build the company need no new code (`WITHIN_THE_WINDOW`,
+   `src/owner/api.ts`): a stolen tab used inside it can build structure, which
+   is the cost. It reaches nothing else -- not money, keys, the model, channels,
+   devices, what lets outsiders in, or any tier 3 decision, which takes a fresh
+   proof each time (F10.10) -- and it is never extended by what it covers. A
+   recovery code opens none. A route is not covered unless it says so.
 5. Each open route has its own secret. Hooks: a public id from a random UUID,
    then a bearer token stored as its SHA-256 or an HMAC over the raw bytes,
    with a five-minute window for Stripe, Slack and Standard Webhooks
@@ -178,6 +186,29 @@ refer to `docs/PRD.md`.
    in plain words that the model misses goes out; each reply on its own is
    marked in the conversation with what it answered from, and the owner
    turns the channel off with their session.
+5e. A customer's first message files them under a record (0118): the one the
+   owner keeps with that mail address, or with that number -- every digit
+   when it was written with its country code, and otherwise only the
+   national digits with one to three of a country code before them. A
+   mail's From can be forged, so a stranger can be filed under a kept
+   customer and the work answering them reads that customer's record; the
+   forger never sees a reply, which goes to the address forged, and
+   anything else outward asks the owner, since the work read a customer's
+   words. A WhatsApp number is Meta's to vouch for. What `crm.read` returns
+   is outside content, and the application role adds a note and never
+   rewrites one.
+5f. An entry in the books written by work that had read outside content is
+   kept `outside` (0119), and `ledger.read` returns its memo fenced as data
+   and marks the work that reads it, as a lesson is (6). Every entry
+   balances, checked by the database at commit; the application role
+   inserts and never updates one, and adds no line to an entry another
+   transaction kept. The same holds for an invoice (0122): written by such
+   work it is kept `outside`, and `ledger.read` returns its customer, its note
+   and its lines fenced as data; the application role inserts invoices,
+   lines and payments and updates none; `invoice.issue` is tier 2, so that work
+   asks the owner (F8.9); and a payment recorded against an invoice is held to
+   being one -- assets debited, accounts receivable credited, no more than is
+   owed -- so a run cannot move the books with a made-up reference.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
@@ -208,8 +239,22 @@ refer to `docs/PRD.md`.
    done; a dialog is answered no unless the card said yes; a role never
    types a password (`src/browser/browsers.ts`). The page script runs in a
    world of its own, so a page's scripts cannot change what it reads.
-8. The console renders agent text as text. The owner's assistant only proposes
-   cards the owner applies (`src/owner/assistant.ts`).
+8. The console renders agent text as text: Markdown in it is read into a
+   tree by `console/src/markdown.ts` and drawn with the console's own
+   components (`Prose.tsx`), never turned into markup, so there is none to
+   run; an image is its words and nothing is fetched (an address is a way to
+   tell a stranger the page was opened); a link goes out only if it is http,
+   https or mail, in a tab told nothing of this one; and the reader is bounded
+   in length, lines, nesting and reach. The owner's assistant proposes
+   cards the owner applies (`src/owner/assistant.ts`), with one exception: the
+   everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
+   telling, stopping or rerunning a task; no device, no key -- is done as it is
+   proposed, **only in an answer that has read nothing an agent or a stranger
+   wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
+   settings). After a read of a task, an inbox item, a ticket, a message, a
+   memory or a document, the same action is a card, so text from outside cannot
+   have the assistant start work as the owner. A test names the actions, so
+   adding one is a decision.
 
 **Residual risk.**
 
@@ -514,6 +559,8 @@ All under `test/acceptance/` unless named.
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
 | A reply on its own: the owner's device, its own conversation, marked passages, no new figure or address, six an hour, a check that fails closed | `answers-alone.test.ts` |
+| Customer records: filed by address or by a whole number, another company's never found, a note never rewritten | `customer-records.test.ts` |
+| The books: every entry balances at commit, none rewritten or added to, an outside memo read as data | `books.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |

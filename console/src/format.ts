@@ -256,6 +256,19 @@ const EVENT_SENTENCES: Record<string, string> = {
   'document.restored': N('Document restored'),
   'document.for_customers': N('Document marked for customers'),
   'document.not_for_customers': N('Document kept from customers'),
+  'contact.added': N('A person was added to the customer records'),
+  'contact.changed': N('A customer record was changed'),
+  'contact.archived': N('A customer record was archived'),
+  'contact.restored': N('A customer record was put back'),
+  'contact.noted': N('A note was added to a customer record'),
+  'deal.opened': N('A deal was opened'),
+  'deal.changed': N('A deal was moved on'),
+  'books.account_added': N('An account was added to the books'),
+  'books.entry_posted': N('An entry was recorded in the books'),
+  'books.entry_reversed': N('An entry in the books was reversed'),
+  'invoice.issued': N('An invoice was issued'),
+  'invoice.paid': N('A payment was recorded on an invoice'),
+  'invoice.voided': N('An invoice was voided'),
   'eval.negative_candidate': N('A run was kept as an example of what not to do'),
   'goal.work_paused': N('Work for a closed goal was paused'),
   'guardian.judged': N('The guardian checked an action'),
@@ -374,6 +387,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'code.execute': N('Run code'),
   'crm.note': N('Add a note to a customer'),
   'crm.read': N('Read customer records'),
+  'crm.record': N('Record a customer or a deal'),
   'deploy.production': N('Release to the live site'),
   'deploy.staging': N('Release to the test site'),
   'dns.nameservers': N("Change a domain's nameservers"),
@@ -396,6 +410,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'invoice.issue': N('Issue an invoice'),
   'invoice.pay': N('Pay an invoice'),
   'ledger.read': N('Read the books'),
+  'ledger.record': N('Record an entry in the books'),
   'mailbox.read': N('Read the mailbox'),
   'memory.search': N('Search what the company knows'),
   'metric.record': N('Record a measure'),
@@ -413,6 +428,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'stage.propose': N('Propose a new stage'),
   'task.await': N('Wait for work handed on'),
   'task.delegate': N('Hand work to another role'),
+  'task.follow_up': N('Look at it again later'),
   'ticket.create': N('File a ticket'),
   'ticket.list': N('List tickets'),
   'uptime.check': N('Check a service is up'),
@@ -580,8 +596,10 @@ const WAIT_REASONS: Record<string, string> = {
   vendor: N('A service asked it to wait'),
   slot: N('Waiting its turn at a tool'),
   model: N('Waiting for the model to answer'),
+  model_key: N('Waiting for a model key that works'),
   service: N('Waiting for a service to answer again'),
   retry: N('Trying again shortly'),
+  follow_up: N('Coming back to it later'),
 };
 
 /** A role a waiting task is held up by, as the work view sends it. */
@@ -609,7 +627,8 @@ export function waitingFor(
   }
   if (onWork && waiting.on) return { text: t('Waiting for {role}', { role: who(waiting.on) }), onYou: false };
   const sentence = waiting.reason ? WAIT_REASONS[waiting.reason] : undefined;
-  return sentence ? { text: t(sentence), onYou: false } : null;
+  // A refused key is the one wait only the owner can end.
+  return sentence ? { text: t(sentence), onYou: waiting.reason === 'model_key' } : null;
 }
 
 export function statusLabel(status: string): string {
@@ -624,4 +643,16 @@ const GOAL_KINDS: Record<string, string> = {
 export function goalKind(kind: string): string {
   const label = GOAL_KINDS[kind];
   return label ? t(label) : humanize(kind);
+}
+
+/** An amount in its own currency, as the owner's language writes it: the books' and the invoices'. */
+export function inCurrency(cents: number, currency: string): string {
+  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, maximumFractionDigits: 2 });
+}
+
+/** Why a task its budget stopped has no room: the tokens, which are not the dollars beside it. */
+export function budgetStopSaid(stop: { account: string | null; tokensSpent: number; tokensMax: number }): string {
+  return t('Out of tokens: {account} has used {spent} of {max} this month', {
+    account: stop.account ?? t('The company'), spent: stop.tokensSpent.toLocaleString(locale()), max: stop.tokensMax.toLocaleString(locale()),
+  });
 }

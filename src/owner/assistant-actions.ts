@@ -50,6 +50,18 @@ export interface AssistantAction {
    * applied in the app, where the owner's device is.
    */
   chat?: true;
+  /**
+   * Done at once when the owner has asked, with no card to press: a CEO that
+   * answers "give the team this" with a card for the owner to apply is a
+   * chatbot that fills in a form for them. Only a `chat` action -- no device,
+   * no key -- and only everyday work: give it, file it, tell it, stop it, run
+   * it again. And only in an answer that has read nothing an agent or a
+   * stranger wrote (`READS_OF_NO_ONE_ELSES_WORDS`): what the owner said, and
+   * what the company is, are the whole of what moved it. An answer that has
+   * read a task's output, an inbox item, a customer's message or a memory
+   * leaves the same action as a card, which is the owner's to press.
+   */
+  auto?: true;
 }
 
 const COMPANY = 'companyId comes from GET /api/companies.';
@@ -244,17 +256,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/tickets',
     what: 'File a ticket: something that needs doing and is not given to anyone yet. The CEO hands tickets on.',
     fields: { title: 'what needs doing, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)', divisionId: 'optional division it belongs to' },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/tickets/:ticketId',
-    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never', chat: true,
+    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/tickets/:ticketId/assign',
     what: 'Give a ticket to a role: it becomes that role\'s task, and closes when the task finishes.',
     fields: { roleId: 'the role that does it', goalId: 'the goal it serves' },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/assign',
@@ -263,7 +275,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       roleId: 'the role that does it', divisionId: 'the role\'s division', projectId: 'the project it belongs to',
       goalId: 'the goal it serves', goal: 'what is wanted, in the owner\'s words', detail: 'optional detail',
     },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/decide',
@@ -301,10 +313,10 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { itemIds: 'list of item ids', decision: 'approve or deny', note: 'why' },
     factor: 'sometimes',
   },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never', chat: true },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never', chat: true },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never', chat: true },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/continue', what: 'Go on with a task its budget stopped, from where it stopped, once the owner has raised the ceiling of its account.', fields: {}, factor: 'never', chat: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never', chat: true, auto: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never', chat: true, auto: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never', chat: true, auto: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/continue', what: 'Go on with a task its budget stopped, from where it stopped, once the owner has raised the ceiling of its account.', fields: {}, factor: 'never', chat: true, auto: true },
   {
     pattern: '/api/companies/:companyId/tasks/:taskId/feedback',
     what: 'Tell a company what the owner thought of delivered work; it becomes what the division remembers.',
@@ -329,6 +341,21 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/batch-window',
     what: 'When work that can wait is done.',
     fields: { startHour: '0-23', endHour: '0-23', timezone: 'an IANA zone', daysOfWeek: 'list of 0-6, Sunday 0' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/office-hours',
+    what: 'The hours a company keeps for what reaches the outside world; outside them an email, a post or a reply waits for the morning.',
+    fields: {
+      startHour: '0-23', endHour: '1-24, 24 being the end of the day', timezone: 'an IANA zone',
+      daysOfWeek: 'list of 0-6, Sunday 0; Monday to Friday when not given', except: 'capability names kept open at any hour, such as chat.send',
+    },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/office-hours/clear',
+    what: 'Run a company round the clock again: no office hours.',
+    fields: {},
     factor: 'never',
   },
   {
@@ -453,6 +480,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       tools: 'list of capability names, at most twelve', model: 'fast, standard or deep', doneCriteria: 'list of what done means',
       displayName: 'the name the owner calls it, such as Arka; give every role one', title: 'its title, such as CEO, CTO or Head of Support (GET /api/personas lists them)',
       persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
+      grantTools: 'true to also let its division use the tools it lacks, except those that cannot be undone; say true whenever you name tools',
     },
     factor: 'always',
   },
@@ -461,6 +489,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Change a role: its charter, what done means, tools or model, how long one run may take, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
+      grantTools: 'true, with tools, to also let its division use the tools it lacks, except those that cannot be undone',
       doneCriteria: 'optional list, one testable sentence each, at most 12; replaces the role\'s',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
       maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',
@@ -541,6 +570,79 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
   {
+    pattern: '/api/companies/:companyId/books/accounts',
+    what: 'Add an account to the books: a code no other account has, a name, and its kind.',
+    fields: { code: 'up to eight digits, such as 5200', name: 'its name, such as Rent', kind: 'asset, liability, equity, income or expense' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/books/entries',
+    what: 'Record an entry in the books: accounts debited and credited, by code from GET /api/companies/:companyId/books, the debits equal to the credits.',
+    fields: {
+      date: 'YYYY-MM-DD', memo: 'what it was', currency: 'three letters, such as IDR',
+      lines: 'list of { account, debitCents } or { account, creditCents }, in the smallest unit',
+    },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/books/entries/:entryId/reverse',
+    what: 'Undo an entry with a reversing one dated today; both stay in the books. Once per entry, and never a reversal.',
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices',
+    what: 'Issue an invoice in the books: numbered INV-0001 on, with the entry that puts what is owed in them. Nothing is sent to the customer; GET /api/companies/:companyId/invoices lists the invoices and what is owed.',
+    fields: {
+      customerName: 'who is invoiced, or contactId from the contacts', customerEmail: 'optional', contactId: 'optional, instead of customerName', currency: 'three letters, such as IDR',
+      lines: 'list of { description, quantity (up to three decimals), unitCents (whole cents) }, at most 40',
+      taxRatePercent: 'optional, 0 to 100', dueInDays: 'optional, 14 when not given', dueDate: 'optional YYYY-MM-DD', issueDate: 'optional YYYY-MM-DD, today when not given', note: 'optional',
+    },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
+    what: 'Record a payment received on an invoice, by its id or number: money into cash, or the bank account named, and the receivable it settles. Not more than is owed.',
+    fields: { amountCents: 'whole cents above zero', date: 'optional YYYY-MM-DD, today when not given', depositTo: 'optional account code of an asset account, such as 1150; cash when not given' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices/:invoiceId/void',
+    what: 'Void an invoice nothing was paid on: the entry that issued it is reversed and the number is not used again.',
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts',
+    what: 'Keep someone the company deals with: a customer, a supplier, a lead. GET /api/companies/:companyId/contacts?q= finds the ones kept.',
+    fields: { name: 'their name', organisation: 'optional', email: 'optional', phone: 'optional, with + and the country code when it has one' },
+    factor: 'never',
+    chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts/:contactId',
+    what: 'Change a person\'s record, or archive it (archived: true) so it leaves the list and what runs find, or put it back (false).',
+    fields: { name: 'optional', organisation: 'optional, or null', email: 'optional, or null', phone: 'optional, or null', archived: 'optional true or false' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts/:contactId/notes',
+    what: 'Note something about a person, as the next one to serve them needs it.',
+    fields: { body: 'the note' },
+    factor: 'never',
+    chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts/:contactId/deals',
+    what: 'Open a deal with a person, or move one of theirs on (with its id).',
+    fields: {
+      id: 'optional: the deal to change, from GET /api/companies/:companyId/contacts/:contactId',
+      title: 'what is being sold; needed for a new deal',
+      stage: 'optional: lead, qualified, proposal, won or lost',
+      value: 'optional: { amountCents, currency } in the smallest unit, currency as three letters such as IDR',
+      expectedOn: 'optional: YYYY-MM-DD',
+    },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/chat-channels/:channelId/answers-alone',
     what: 'Let a customer channel answer on its own (on: true), or stop it (false). On, a reply that answers from passages of documents marked for customers, says no figure or address they do not, and passes a model\'s check goes without a card, six an hour per conversation at most; refunds, prices of its own, complaints, the law, personal data and promises still come to the owner. Turning it on takes the owner\'s device.',
     fields: { on: 'true or false' },
@@ -555,6 +657,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
     what: 'Change a budget account\'s ceilings; raising one takes the owner\'s device.',
     fields: { tokensMax: 'whole tokens', moneyMaxCents: 'optional, in cents' },
+    factor: 'sometimes',
+  },
+  {
+    pattern: '/api/companies/:companyId/budget-accounts/:accountId/continue',
+    what: 'Go on with every task a budget account stopped, oldest first, for as many as it can now fund. With tokensMax it raises the account\'s token ceiling first.',
+    fields: { tokensMax: 'optional, the new token ceiling for the month; the card for the stopped work names the account' },
     factor: 'sometimes',
   },
   {
@@ -655,6 +763,31 @@ export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
 };
 
 /** POST routes the assistant neither proposes nor calls, and why. */
+/**
+ * The reads whose answer holds nobody else's words: the company's roles and
+ * goals as its owner made them, its money, its settings. An answer that has
+ * read only these may do an `auto` action at once. Anything else -- a task's
+ * output, an inbox item, a ticket, a customer's message, a memory, a document,
+ * a search -- was written by an agent or a stranger, and may be telling the
+ * assistant what to do; after it, an action is a card for the owner.
+ */
+export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
+  '/api/companies',
+  '/api/companies/:companyId/structure',
+  '/api/companies/:companyId/budget-accounts',
+  '/api/companies/:companyId/spend',
+  '/api/companies/:companyId/first-hour',
+  '/api/personas',
+  '/api/runtimes',
+  '/api/me',
+  '/api/control/setup',
+  '/api/control/settings',
+  '/api/control/tools',
+  '/api/control/channels',
+  '/api/control/languages',
+  '/api/control/money-display',
+];
+
 export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/sign-in': 'signing in is the owner\'s',
   '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',
@@ -668,6 +801,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
+  '/api/control/step-up': 'how long a code covers what builds the company is a rule about the owner\'s own second factor, and is changed only by hand',
   '/api/companies/:companyId/first-hour/close': 'the list on the owner\'s own Overview is closed by the owner, who is looking at it',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/channels/whatsapp': 'Meta posts here, not a person',

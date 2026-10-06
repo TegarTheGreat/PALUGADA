@@ -59,7 +59,8 @@ test('the charter comes first, before SOPs and memory (F3.2)', async () => {
     // The language rule is a rule of the same kind as the charters and sits
     // directly under them (src/domain/language.ts), above everything a run
     // might be pulled into another language by.
-    ['platform_charter', 'company_charter', 'language', 'sop', 'semantic_memory'],
+    // And what memory is, said once before the facts it is about.
+    ['platform_charter', 'company_charter', 'language', 'sop', 'memory_note', 'semantic_memory'],
     'charters must precede SOPs, and SOPs must precede recalled facts',
   );
 
@@ -307,6 +308,49 @@ test('working memory carries committed steps, and only committed ones', async ()
   assert.ok(tight.dropped > 0);
   assert.equal(tight.sections.filter((s) => s.kind === 'working_memory').length, 0);
   assert.deepEqual(tight.workingMemory, []);
+});
+
+/**
+ * A resumed run keeps its newest steps (the audit of 3 October, P0-8). The pack
+ * dropped sections from the end within a kind, which suits memory -- recall
+ * returns its best first -- and is exactly wrong for a task's own steps: the
+ * run that overflowed on resume lost the latest state of its work first, and
+ * was pointed at `memory.search`, which returns facts and documents and cannot
+ * give a step back.
+ */
+test('when the steps do not fit, the oldest go and the newest stay, and the run is told which', async () => {
+  const fixture = await createCompany('pack-newest-steps');
+  const taskId = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO tasks (company_id, project_id, division_id, role_id, budget_account_id,
+                          input, idempotency_key, input_hash, created_by)
+       VALUES ($1,$2,$3,$4,$5,'{}'::jsonb,'k-newest','h','owner') RETURNING id`,
+      [fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId, fixture.budgetAccountId],
+    );
+    for (let step = 0; step < 8; step += 1) {
+      await tx.query(
+        `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status,
+                                 input_hash, idempotency_key, output, committed_at)
+         VALUES ($1,$2,$3,$4,'llm','committed','h',$5,$6::jsonb, now())`,
+        [rows[0]!.id, step, fixture.companyId, `step ${step}`, `key-${step}`, JSON.stringify({ said: `result ${step} `.repeat(60) })],
+      );
+    }
+    return rows[0]!.id;
+  });
+  const whole = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId }));
+  assert.equal(whole.workingMemory.length, 8);
+  const room = Math.ceil(whole.text.length / 4) - 600;
+
+  const tight = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId, tokenLimit: room }));
+  const names = tight.workingMemory.map((step) => step.name);
+  assert.ok(names.length > 0 && names.length < 8, `some, not all: ${names.length}`);
+  assert.deepEqual(names, Array.from({ length: names.length }, (_, at) => `step ${8 - names.length + at}`),
+    'what is left is the end of the work, in order');
+  assert.ok(names.includes('step 7'), 'the newest is always there');
+  const notice = tight.sections.find((section) => section.title === 'This context is incomplete')!;
+  assert.match(notice.body, /oldest completed steps of this task were left out; the newest are kept/);
 });
 
 test('external content is marked as data, not instructions (F8.9)', () => {

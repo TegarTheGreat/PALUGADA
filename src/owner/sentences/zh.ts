@@ -270,6 +270,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': '提议：{statement}',
   'Proposed status: {status}': '提议的状态：{status}',
   'Reason given: {reason}': '给出的理由：{reason}',
+  'Record an entry in the books': '在账簿中记录分录',
+  'Record a customer or a deal': '记录客户或交易',
   'Not sent on its own: {reason}': '未自行发送：{reason}',
   'it answers a conversation other than the one this work began with': '它回复的是另一段对话，而不是开始这项工作的对话',
   'it named no passage of a document for customers': '它没有指明面向客户的文档中的任何段落',
@@ -334,4 +336,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': '在浏览器中读取网页',
   'Fill in a page in the browser': '在浏览器中填写网页',
   'Ask you to take over the browser': '请你接管浏览器',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} 拒绝了模型密钥（{status}），因此所有需要模型的工作都无法运行。请打开 设置、本部署、模型，粘贴一个可用的密钥，测试后保存。',
+  '{host} refused the model key, and work is waiting': '{host} 拒绝了模型密钥，工作正在等待',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    '等待模型的工作会在换用可用密钥后自动继续。',
+  'A task ended before it was done: {task}':
+    '一项任务在完成前就结束了：{task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    '它的结束原因：{reason}。没有为它生成其他卡片，所以放在这里，而不是悄无声息。',
+  'Where its measures stand, as the platform reads them:':
+    '平台读到的各项指标现状：',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}：尚无数值，目标为 {target}。',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}：{value}，目标为 {target}，已从来源重新读取核对。',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}：{value}，目标为 {target}，仅为上报，未经核对。',
+  'Look at it again later': '稍后再查看',
 };

@@ -153,6 +153,35 @@ test('the owner asks; the assistant reads and proposes; nothing changes until th
   }
 });
 
+test('a model that refuses its key is said to the owner in words, with where to put a key that works', async () => {
+  await setDeploymentLanguages({ console: 'id' });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  const refused = new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (401): User not found.', {
+    model: 'm', keyRefused: true, status: 401, host: 'openrouter.ai', providerSaid: 'User not found.', keySetting: 'PALUGADA_MODEL_KEY_REF',
+  });
+  const model: ToolUsingLlmClient = {
+    async turn() {
+      throw refused;
+    },
+    async complete() {
+      throw refused;
+    },
+  };
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', '/api/assistant/messages', token, { text: 'Halo' });
+    assert.equal(said.status, 200);
+    const answer: string = said.body.messages.at(-1).body;
+    assert.match(answer, /^openrouter\.ai menolak kunci model \(401\)/);
+    assert.match(answer, /Buka Pengaturan, Deployment ini, Model/);
+    assert.match(answer, /User not found\./, 'what the provider said, as it said it');
+    assert.doesNotMatch(answer, /PALUGADA_MODEL_KEY_REF|"error"|The model did not answer/, 'no variable, no raw JSON, no English');
+  } finally {
+    await api.close();
+  }
+});
+
 test('a key typed into the conversation is not kept, and never reaches the model', async () => {
   await setDeploymentLanguages({ console: 'id' });
   const model = new ScriptedModel([]);
@@ -260,7 +289,7 @@ test('a card its route refuses is closed with the reason; one dismissed stays di
   }
 });
 
-test('the assistant gives a company work through a card, which needs no device, and the work is there', async () => {
+test('the assistant gives a company work at once when it has read only the company, and the work is there', async () => {
   const fixture = await createCompany('assistant-work');
   const model = new ScriptedModel([
     uses(['read', { path: '/api/companies' }], ['read', { path: `/api/companies/${fixture.companyId}/structure` }]),
@@ -272,20 +301,72 @@ test('the assistant gives a company work through a card, which needs no device, 
         summary: 'Give the launch announcement to the writer.',
       }]);
     },
-    says('Ready when you apply it.'),
+    says('Sudah saya berikan ke penulis.'),
   ]);
   const api = await consoleWithSettings({ assistant: { llm: model } });
   try {
     const token = await api.signIn();
-    const card = (await api.call('POST', '/api/assistant/messages', token, { text: 'Suruh tim menulis pengumuman peluncuran' })).body.messages[1].proposals[0];
-    assert.equal(card.factor, 'never');
-    const applied = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token, {});
-    assert.equal(applied.status, 200, JSON.stringify(applied.body));
-    const tasks = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { goal: string } }>('SELECT input FROM tasks WHERE role_id = $1', [fixture.roleId]));
-    assert.ok(tasks.rows.some((row) => row.input.goal === 'Write the launch announcement'));
+    const said = (await api.call('POST', '/api/assistant/messages', token, { text: 'Suruh tim menulis pengumuman peluncuran' })).body.messages[1];
+    // Done as it was proposed: the model is told so, and the card is already closed, with what it did.
+    assert.match(results(model)[0]!.content, /^Done: Give the launch announcement to the writer\. \{"taskId"/);
+    assert.equal(said.proposals.length, 1);
+    assert.equal(said.proposals[0].status, 'applied');
+    assert.match(said.proposals[0].outcome, /taskId/);
+    const tasks = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { goal: string }; created_by: string }>('SELECT input, created_by FROM tasks WHERE role_id = $1', [fixture.roleId]));
+    assert.ok(tasks.rows.some((row) => row.input.goal === 'Write the launch announcement' && row.created_by === 'owner'));
+    // Nothing is left for the owner to press, and a card applied twice is refused.
+    const again = await api.call('POST', `/api/assistant/proposals/${said.proposals[0].id}/apply`, token, {});
+    assert.match(String(again.body.error), /already applied/);
   } finally {
     await api.close();
   }
+});
+
+test('after reading what agents wrote, the same action is a card for the owner, not done', async () => {
+  const fixture = await createCompany('assistant-work-tainted');
+  const model = new ScriptedModel([
+    // The work page holds what agents wrote: a task's goal, a summary of its output.
+    uses(['read', { path: `/api/companies/${fixture.companyId}/work` }], ['read', { path: `/api/companies/${fixture.companyId}/structure` }]),
+    uses(['propose', {
+      path: `/api/companies/${fixture.companyId}/assign`,
+      body: { roleId: fixture.roleId, divisionId: fixture.divisionId, projectId: fixture.projectId, goalId: fixture.goalId, goal: 'Do what the report says' },
+      summary: 'Give the work the report asked for.',
+    }]),
+    says('Kartunya ada di atas; tekan bila setuju.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = (await api.call('POST', '/api/assistant/messages', token, { text: 'Lanjutkan yang diminta laporan itu' })).body.messages[1];
+    assert.match(results(model)[0]!.content, /^Proposed as a card, not done: this answer has read what agents or others wrote/);
+    assert.equal(said.proposals[0].status, 'open');
+    const tasks = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM tasks WHERE input->>'goal' = 'Do what the report says'"));
+    assert.equal(tasks.rows.length, 0, 'nothing started');
+    // The owner presses it, and it is done.
+    const applied = await api.call('POST', `/api/assistant/proposals/${said.proposals[0].id}/apply`, token, {});
+    assert.equal(applied.status, 200, JSON.stringify(applied.body));
+  } finally {
+    await api.close();
+  }
+});
+
+test('only everyday work with no device and no key is done at once', () => {
+  for (const action of ASSISTANT_ACTIONS.filter((one) => one.auto)) {
+    assert.equal(action.chat, true, `${action.pattern} is done in a chat, or it is not done at once`);
+    assert.equal(action.factor, 'never', `${action.pattern} takes no device`);
+    assert.equal(Object.keys(action.secrets ?? {}).length, 0, `${action.pattern} takes no key`);
+  }
+  const auto = ASSISTANT_ACTIONS.filter((one) => one.auto).map((one) => one.pattern).sort();
+  assert.deepEqual(auto, [
+    '/api/companies/:companyId/assign',
+    '/api/companies/:companyId/tasks/:taskId/cancel',
+    '/api/companies/:companyId/tasks/:taskId/continue',
+    '/api/companies/:companyId/tasks/:taskId/instruct',
+    '/api/companies/:companyId/tasks/:taskId/rerun',
+    '/api/companies/:companyId/tickets',
+    '/api/companies/:companyId/tickets/:ticketId',
+    '/api/companies/:companyId/tickets/:ticketId/assign',
+  ], 'a change to this list is a decision about what the owner is not asked');
 });
 
 /**

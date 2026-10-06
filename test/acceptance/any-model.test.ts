@@ -163,7 +163,8 @@ test('a model on the company\'s own machine needs no key, and a refused key is s
   try {
     const client = new OpenAiCompatibleClient({ apiKey: 'wrong-key-0123', baseUrl: refused.url, aliases: {} });
     await assert.rejects(client.complete({ model: 'm', system: 's', messages: [{ role: 'user', content: 'u' }] }),
-      (error: unknown) => isPalugadaError(error, 'model.unavailable') && /PALUGADA_MODEL_KEY_REF/.test((error as Error).message));
+      (error: unknown) => isPalugadaError(error, 'model.unavailable') && error.details.keyRefused === true
+        && error.details.keySetting === 'PALUGADA_MODEL_KEY_REF' && /refused the key \(401\): bad key/.test(error.message));
   } finally {
     await refused.close();
   }

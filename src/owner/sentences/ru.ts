@@ -271,6 +271,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Предлагается: {statement}',
   'Proposed status: {status}': 'Предлагаемый статус: {status}',
   'Reason given: {reason}': 'Указанная причина: {reason}',
+  'Record an entry in the books': 'Внести проводку в книги',
+  'Record a customer or a deal': 'Записать клиента или сделку',
   'Not sent on its own: {reason}': 'Не отправлено само: {reason}',
   'it answers a conversation other than the one this work began with': 'ответ относится к другому разговору, а не к тому, с которого началась эта работа',
   'it named no passage of a document for customers': 'в ответе не указан ни один фрагмент документа для клиентов',
@@ -335,4 +337,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Read a page in the browser': 'Прочитать страницу в браузере',
   'Fill in a page in the browser': 'Заполнить страницу в браузере',
   'Ask you to take over the browser': 'Попросить вас взять браузер под управление',
+  '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
+    '{host} отклонил ключ модели ({status}), поэтому не может выполняться никакая работа, которой нужна модель. Откройте Настройки, Эта установка, Модель, вставьте рабочий ключ, проверьте его и сохраните.',
+  '{host} refused the model key, and work is waiting': '{host} отклонил ключ модели, и работа ждёт',
+  'What is waiting for the model carries on by itself once a key that works is in use.':
+    'Работа, ожидающая модель, продолжится сама, как только начнёт использоваться рабочий ключ.',
+  'A task ended before it was done: {task}':
+    'Задача завершилась, не будучи выполненной: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Она завершилась так: {reason}. Другой карточки по ней не создавалось, поэтому она здесь, а не молчит.',
+  'Where its measures stand, as the platform reads them:':
+    'Как обстоят дела с его показателями, как их читает платформа:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: значения пока нет, цель {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} при цели {target}, перечитано из источника.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} при цели {target}, сообщено и не проверено.',
+  'Look at it again later': 'Проверить ещё раз позже',
 };

@@ -43,12 +43,14 @@
  * cost is that the console has to hold the token itself, which it does.
  */
 import { versionIn } from '../runtime/checked-versions.ts';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
 import { addDocument, archiveDocument, listDocuments, readDocument, setForCustomers } from '../knowledge/documents.ts';
@@ -63,7 +65,7 @@ import {
   unfreezeCompany,
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
-import { cancelTask, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { cancelTask, continueAllHalted, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { VERSION } from '../version.ts';
@@ -77,7 +79,9 @@ import {
 } from '../governance/spend-guard.ts';
 import { readGovernanceLog } from '../governance/store.ts';
 import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
-import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
+import {
+  assertOfficeHours, clearOfficeHours, officeHours, ownerWindow, setBatchWindow, setOfficeHours, setOwnerWindow,
+} from '../scheduler/windows.ts';
 import { healthFor, preflightGrants } from '../broker/preflight.ts';
 import { assistantCost, costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
@@ -109,6 +113,11 @@ import {
 import {
   assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
+import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
+import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
+import {
+  addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
+} from '../records/contacts.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
@@ -119,6 +128,7 @@ import {
   addRole,
   applyGrantChange,
   applyRoleChange,
+  grantRoleTools,
   setEscalationPolicy,
   type RoleFields,
   type StructuralChange,
@@ -185,6 +195,7 @@ import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProf
 import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
+import { checkedStepUp, setStepUpMinutes, STEP_UP_CHOICES, stepUpMinutes, withinWindow } from './step-up.ts';
 import { OwnerClaims } from './claim.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
@@ -459,6 +470,12 @@ interface Route {
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
+  /**
+   * The owner's session behind the request being handled, for the window a
+   * recent code opens (0120): `#requireFactor` is called from seventy places
+   * that were each written without a session in hand.
+   */
+  readonly #acting = new AsyncLocalStorage<OwnerSession | null>();
   readonly #claims: OwnerClaims;
   readonly #staff: StaffSeats;
   readonly #routes: Route[];
@@ -753,7 +770,16 @@ export class OwnerApi {
         // Who is signed in: the owner, or a staff seat and what it may do (0110).
         method: 'GET',
         pattern: '/api/me',
-        handle: async ({ staff }) => ({ owner: staff === null, staff: staff ? staffOf(staff) : null }),
+        handle: async ({ staff, session }) => {
+          if (staff) return { owner: false, staff: staffOf(staff) };
+          const minutes = await stepUpMinutes();
+          const until = session?.provedAt && minutes > 0 ? new Date(session.provedAt.getTime() + minutes * 60_000) : null;
+          return {
+            owner: true, staff: null,
+            // Until when a code just shown covers what builds the company (0120); null when none does. A seat has none.
+            stepUp: { minutes, until: until && until.getTime() > Date.now() ? until.toISOString() : null },
+          };
+        },
       },
 
       {
@@ -844,7 +870,7 @@ export class OwnerApi {
           // left them unset and the deployment's agent language was English.
           const workLanguage = body.workLanguage === undefined ? undefined : languageCode(body.workLanguage, 'workLanguage');
           const talkLanguage = body.talkLanguage === undefined ? undefined : languageCode(body.talkLanguage, 'talkLanguage');
-          await this.#requireFactor(body.proof, 'start a company');
+          await this.#requireFactor(body.proof, 'start a company', null, WITHIN_THE_WINDOW);
           const templateSlug = requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
           // arriving as a plain `Error` the caller reads as a broken console.
@@ -1212,6 +1238,10 @@ export class OwnerApi {
           return {
             notes,
             todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to |charters kept in )/.test(note)),
+            // The one note that stops every role from working, said apart from
+            // the optional rest: a company can be started without a model and
+            // then runs none of its work.
+            modelMissing: notes.some((note) => note.startsWith('no model:')),
             version: VERSION,
           };
         },
@@ -1677,6 +1707,26 @@ export class OwnerApi {
       },
 
       /* ----------------------------------------------------- F9.5, F9.6 --- */
+
+      {
+        // How long a code just shown covers what builds the company (0120).
+        method: 'GET',
+        pattern: '/api/control/step-up',
+        handle: async () => ({ minutes: await stepUpMinutes(), choices: [...STEP_UP_CHOICES] }),
+      },
+
+      {
+        // Raising it loosens, so it takes a code -- which opens the window it
+        // chose; lowering, or turning it off, is the session's to do.
+        method: 'POST',
+        pattern: '/api/control/step-up',
+        handle: async ({ body }) => {
+          const minutes = checkedStepUp(body.minutes);
+          if (minutes > await stepUpMinutes()) await this.#requireFactor(body.proof, 'keep a code valid for longer');
+          await setStepUpMinutes(minutes);
+          return { minutes };
+        },
+      },
 
       {
         method: 'GET',
@@ -3173,6 +3223,52 @@ export class OwnerApi {
         },
       },
 
+      {
+        // The hours the company keeps for what reaches the outside world
+        // (STATUS 2.150). It only ever defers an action, so it takes the
+        // session and not a second factor.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/office-hours',
+        handle: async ({ params }) => ({
+          hours: await withTenant(params.companyId!, (tx) => officeHours(tx, params.companyId!)),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/office-hours',
+        handle: async ({ params, body }) => {
+          const daysOfWeek = Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((day) => Number(day)) : [1, 2, 3, 4, 5];
+          const except = Array.isArray(body.except) ? body.except.map(String) : [];
+          const hours = {
+            timezone: String(body.timezone ?? 'UTC'),
+            startHour: Number(body.startHour), endHour: Number(body.endHour), daysOfWeek,
+          };
+          assertOfficeHours(hours);
+          // A name that is no capability would keep nothing open and look as if
+          // it did.
+          const known = new Set(catalogueNames());
+          for (const row of (await withControlPlane((tx) => tx.query<{ name: string }>(
+            'SELECT name FROM capabilities WHERE name = ANY($1)', [except]))).rows) known.add(row.name);
+          const unknown = except.find((name) => !known.has(name));
+          if (unknown !== undefined) {
+            throw new PalugadaError('contract.violation',
+              `except names ${JSON.stringify(unknown)}, which is not a capability; use a name such as chat.send`, { field: 'except' });
+          }
+          await setOfficeHours({ companyId: params.companyId!, ...hours, except });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/office-hours/clear',
+        handle: async ({ params }) => {
+          await clearOfficeHours(params.companyId!);
+          return { ok: true };
+        },
+      },
+
       /* --------------------------------------------- F8.12, F11.5, F3.11 --- */
 
       {
@@ -3494,6 +3590,171 @@ export class OwnerApi {
         },
       },
 
+      /* ------------------------------------------------------- 0119 --- */
+
+      {
+        // The books (0119): every account with what it holds, and the latest
+        // entries. Opened the first time they are looked at.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/books',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          // This month so far, in the deployment's calendar.
+          const to = new Date().toISOString().slice(0, 10);
+          const from = `${to.slice(0, 7)}-01`;
+          return {
+            accounts: await balancesOf(tx, params.companyId!),
+            entries: (await entriesOf(tx, params.companyId!, { limit: 200 })).entries,
+            month: { from, to, profit: await profitOf(tx, params.companyId!, from, to) },
+          };
+        }),
+      },
+
+      {
+        // The owner's own accounts and entries, with the session: they move
+        // no money, and a wrong entry is undone by a reversing one.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/accounts',
+        handle: async ({ params, body }) => ({
+          accountId: await withTenant(params.companyId!, (tx) => addAccount(tx, params.companyId!, body)),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/entries',
+        handle: async ({ params, body }) => {
+          const entry = entryInput(body);
+          return { entryId: await withTenant(params.companyId!, (tx) => postEntry(tx, params.companyId!, entry, 'owner')) };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/entries/:entryId/reverse',
+        handle: async ({ params }) => ({
+          entryId: await withTenant(params.companyId!, (tx) => reverseEntry(tx, params.companyId!, params.entryId!, 'owner')),
+        }),
+      },
+
+      /* ------------------------------------------------------- 0122 --- */
+
+      {
+        // The company's invoices (0122): the latest first, what is owed on
+        // them all, and with `?status=` only those open, overdue, paid or void.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/invoices',
+        handle: async ({ params, query }) => {
+          const status = query.get('status');
+          if (status !== null && !(INVOICE_FILTERS as readonly string[]).includes(status)) {
+            throw new PalugadaError('contract.violation', `status is ${INVOICE_FILTERS.join(', ')}; got ${JSON.stringify(status)}`, { field: 'status' });
+          }
+          const { invoices, outstanding } = await withTenant(params.companyId!, (tx) => listInvoices(tx, params.companyId!, {
+            ...(status ? { status: status as InvoiceFilter } : {}),
+          }));
+          return { invoices, outstanding };
+        },
+      },
+
+      {
+        // One invoice, by its id or its number, with its lines and payments.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => invoiceWith(tx, params.companyId!, params.invoiceId!));
+          if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+          return found;
+        },
+      },
+
+      {
+        // The owner issues an invoice with the session: it is written in the
+        // books and sent nowhere, and it is voided, not edited.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices',
+        handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => issueInvoice(tx, params.companyId!, body, 'owner')),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
+        handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => payInvoice(tx, params.companyId!, params.invoiceId!, body, 'owner')),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/void',
+        handle: async ({ params }) => withTenant(params.companyId!, (tx) => voidInvoice(tx, params.companyId!, params.invoiceId!, 'owner')),
+      },
+
+      /* ------------------------------------------------------- 0118 --- */
+
+      {
+        // The people the company deals with (0118): the latest touched first,
+        // the archived last; with `?q=`, those whose name, organisation,
+        // address or number has the words.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/contacts',
+        handle: async ({ params, query }) => ({
+          contacts: await listContacts(params.companyId!, (query.get('q') ?? '').slice(0, 200)),
+        }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/contacts/:contactId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => contactWith(tx, params.contactId!));
+          if (!found) throw new PalugadaError('contract.violation', 'no such contact in this company', { contactId: params.contactId });
+          return found;
+        },
+      },
+
+      {
+        // The owner's own records: kept, changed and archived with the
+        // session, as a document is. They grant and spend nothing.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts',
+        handle: async ({ params, body }) => {
+          const fields = contactFields({ name: body.name, ...pick(body, ['organisation', 'email', 'phone']) });
+          return { contactId: await withTenant(params.companyId!, (tx) => addContact(tx, params.companyId!, fields, 'owner')) };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId',
+        handle: async ({ params, body }) => {
+          const fields = contactFields(pick(body, ['name', 'organisation', 'email', 'phone']));
+          if (body.archived !== undefined && typeof body.archived !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'archived is true or false', { field: 'archived' });
+          }
+          await withTenant(params.companyId!, async (tx) => {
+            await changeContact(tx, params.companyId!, params.contactId!, fields, 'owner');
+            if (typeof body.archived === 'boolean') await archiveContact(tx, params.companyId!, params.contactId!, body.archived);
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId/notes',
+        handle: async ({ params, body }) => ({
+          noteId: await withTenant(params.companyId!, (tx) =>
+            noteContact(tx, params.companyId!, params.contactId!, requireText(body.body, 'body'), 'owner')),
+        }),
+      },
+
+      {
+        // A deal opened with a contact, or one of theirs moved on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId/deals',
+        handle: async ({ params, body }) => {
+          const deal = dealInput(pick(body, ['id', 'title', 'stage', 'value', 'expectedOn']));
+          return { dealId: await withTenant(params.companyId!, (tx) => recordDeal(tx, params.companyId!, params.contactId!, deal, 'owner')) };
+        },
+      },
+
       {
         // The company's conversations with customers, the latest first; with
         // `?task=`, the one a piece of work answers, which a card asking for
@@ -3621,7 +3882,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/handoffs',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!);
+          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!, WITHIN_THE_WINDOW);
           return {
             ruleId: await createHandoffRule(params.companyId!, {
               fromRoleId: requireText(body.fromRoleId, 'fromRoleId'),
@@ -3920,6 +4181,29 @@ export class OwnerApi {
         },
       },
 
+      {
+        // Goes on with everything an account's budget stopped, oldest first, for
+        // as many as it can fund (STATUS 2.155). With `tokensMax` it raises the
+        // account's ceiling first -- which asks for the owner's code, as raising
+        // one always does -- and without it the account must already have room.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/budget-accounts/:accountId/continue',
+        handle: async ({ params, body }) => {
+          if (body.tokensMax !== undefined && body.tokensMax !== null) {
+            const tokensMax = wholeNumber(body.tokensMax, 'tokensMax');
+            await setCeilings(params.companyId!, params.accountId!, { tokensMax }, async (before) => {
+              if (tokensMax > before.tokensMax) {
+                await this.#requireFactor(body.proof, 'raise a budget account\'s ceiling', params.companyId!);
+              }
+            });
+          }
+          const done = await continueAllHalted(params.companyId!, params.accountId!);
+          const { rows } = await withControlPlane((tx) => tx.query<{ tokens_max: string }>(
+            'SELECT tokens_max FROM budget_accounts WHERE id = $1', [params.accountId]));
+          return { ...done, tokensMax: Number(rows[0]!.tokens_max) };
+        },
+      },
+
       /* ---------------------------------------------------- measured goals --- */
 
       {
@@ -3965,7 +4249,7 @@ export class OwnerApi {
           }
           if (body.retired !== undefined) change.retired = body.retired === true;
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
-          await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a measure', params.companyId!, WITHIN_THE_WINDOW);
           await changeMetric(params.companyId!, params.metricId!, change);
           return { ok: true };
         },
@@ -4426,7 +4710,7 @@ export class OwnerApi {
           if (body.statement === undefined && body.status === undefined) {
             throw new PalugadaError('contract.violation', 'no goal field was given', {});
           }
-          await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a goal', params.companyId!, WITHIN_THE_WINDOW);
           const changed = await applyGoalChange({
             companyId: params.companyId!,
             goalId: params.goalId!,
@@ -4448,7 +4732,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/structure/grant',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a grant', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a grant', params.companyId!, WITHIN_THE_WINDOW);
           // `revoke` decides, on its own. The first version read it only when
           // no `tierOverride` was sent, so `{ revoke: true, tierOverride: null }`
           // became a *change* to an unlimited grant -- and the database's
@@ -4483,11 +4767,13 @@ export class OwnerApi {
       {
         // Hiring (F2.9: adding a role is tier 3, so it takes the owner's
         // device). The role is complete enough to be given work at once, and
-        // the answer names any tool its division cannot use yet.
+        // the answer names any tool its division cannot use yet. With
+        // `grantTools` the hire also grants the division the tools it lacks,
+        // except what cannot be undone (tier 3): `granted` says which.
         method: 'POST',
         pattern: '/api/companies/:companyId/roles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'hire a role', params.companyId!);
+          await this.#requireFactor(body.proof, 'hire a role', params.companyId!, WITHIN_THE_WINDOW);
           return addRole(params.companyId!, {
             divisionId: requireText(body.divisionId, 'divisionId'),
             slug: requireText(body.slug, 'slug'),
@@ -4496,7 +4782,7 @@ export class OwnerApi {
             doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
             ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
             ...whoFrom(body),
-          }, { ownerApproved: true });
+          }, { ownerApproved: true, grantTools: body.grantTools === true });
         },
       },
 
@@ -4505,7 +4791,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/divisions',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'open a division', params.companyId!);
+          await this.#requireFactor(body.proof, 'open a division', params.companyId!, WITHIN_THE_WINDOW);
           return {
             divisionId: await addDivision(params.companyId!, {
               slug: requireText(body.slug, 'slug'),
@@ -4616,7 +4902,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles/:roleId',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a role', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a role', params.companyId!, WITHIN_THE_WINDOW);
           // `String(null)` is the four letters "null", and a role whose
           // `model_primary` is the string "null" fails every later run. Each
           // field that is present must be a real value, and a field that is
@@ -4681,7 +4967,12 @@ export class OwnerApi {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
           });
-          return { version };
+          // With `grantTools`, a change to the role's tools also grants its
+          // division the ones it lacks -- except what cannot be undone.
+          const granting = body.grantTools === true && fields.tools !== undefined
+            ? await grantRoleTools(params.companyId!, params.roleId!, { ownerApproved: true })
+            : null;
+          return { version, ...(granting ?? {}) };
         },
       },
 
@@ -4692,7 +4983,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/ceo',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!);
+          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!, WITHIN_THE_WINDOW);
           return appointCeo(params.companyId!, requireText(body.roleId, 'roleId'), {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
@@ -4963,7 +5254,7 @@ export class OwnerApi {
         // Activating a skill puts its text in front of every agent it reaches,
         // which is the one thing a skill's review exists to control.
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!);
+          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!, WITHIN_THE_WINDOW);
           return approveSkillVersion(params.companyId!, params.versionId!);
         },
       },
@@ -4975,7 +5266,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/skills/:skillId/scope',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!, WITHIN_THE_WINDOW);
           // Built rather than cast. The first version passed
           // `{ scope, scopeId } as never`, which type-checked and was the
           // wrong shape entirely -- `setSkillScope` reads `scopeType`, so
@@ -5068,7 +5359,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/bundles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!);
+          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!, WITHIN_THE_WINDOW);
           return installBundle({
             companyId: params.companyId!,
             slug: requireText(body.slug, 'slug'),
@@ -5729,7 +6020,7 @@ export class OwnerApi {
     if (!match || match.route.open || match.route.raw) {
       throw new PalugadaError('contract.violation', `${method} ${url.pathname} is not a route of this console`, {});
     }
-    const answer = await match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams });
+    const answer = await this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams }));
     if (answer instanceof WithStatus) {
       if (answer.status >= 400) {
         throw new PalugadaError('contract.violation', String((answer.body as { error?: unknown } | null)?.error ?? `answered ${answer.status}`), {});
@@ -6094,8 +6385,12 @@ export class OwnerApi {
     proof: unknown,
     purpose: string,
     companyId: string | null = null,
+    covered: typeof WITHIN_THE_WINDOW | null = null,
   ): Promise<void> {
     if (proof === undefined || proof === null) {
+      // What builds the company is covered by a code shown a few minutes ago;
+      // what loosens money, reaches outside or changes a key never is.
+      if (covered === WITHIN_THE_WINDOW && await this.#withinStepUp()) return;
       throw new PalugadaError(
         'approval.channel_forbidden',
         `${purpose} needs a second factor; none was presented (PRD F10.10, F12.5)`,
@@ -6113,6 +6408,20 @@ export class OwnerApi {
     // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
     else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
+    // A code or a passkey just shown opens the window; a recovery code proves less and opens none.
+    if (!('recovery' in presented)) {
+      const session = this.#acting.getStore();
+      if (session) await this.#sessions.prove(session.token);
+    }
+  }
+
+  /** Whether the owner's session showed a code recently enough to cover an action in the window. */
+  async #withinStepUp(): Promise<boolean> {
+    const session = this.#acting.getStore();
+    if (!session) return false;
+    // Read again, not from the request's own copy: a code shown a moment ago, in another tab, counts.
+    const live = await this.#sessions.verify(session.token);
+    return withinWindow(live?.provedAt ?? null, await stepUpMinutes(), new Date());
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -6181,7 +6490,7 @@ export class OwnerApi {
     }
 
     try {
-      const answer = await match.route.handle({
+      const answer = await this.#acting.run(session, () => match.route.handle({
         request: req,
         session,
         staff,
@@ -6189,7 +6498,7 @@ export class OwnerApi {
         raw,
         params: match.params,
         query: url.searchParams,
-      });
+      }));
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
       else if (answer instanceof EventStream) await this.#stream(req, res, answer);
       else if (answer instanceof HtmlPage) sendPage(res, answer);
@@ -6561,6 +6870,16 @@ function pictureFrom(body: Record<string, unknown>): Picture {
 }
 
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
+/**
+ * Marks a call to `#requireFactor` as one a recent code covers (0120): the
+ * actions that build the company -- a division, a role, a grant, a goal, a
+ * measure, a skill, a bundle -- which the owner is already doing, one after
+ * another, when they set it up. Left off, as every other is, it asks for a
+ * code each time: money, keys, the model, channels, devices, what lets
+ * outsiders in, and every tier 3 decision.
+ */
+const WITHIN_THE_WINDOW = Symbol('within the window');
+
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';
   return text.length > 300 ? `${text.slice(0, 300)}...` : text;
@@ -6865,6 +7184,11 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: s
 function projectWorkLanguage(value: unknown): string | null | undefined {
   if (value === undefined || value === null) return value;
   return languageCode(value, 'workLanguage');
+}
+
+/** The fields of a body that were given, and none other: a record changes only what the owner sent. */
+function pick(body: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(fields.filter((field) => body[field] !== undefined).map((field) => [field, body[field]]));
 }
 
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */

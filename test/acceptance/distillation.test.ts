@@ -387,6 +387,29 @@ test('the owner approving a candidate is what makes it procedure', async () => {
   assert.equal(context.sections.filter((section) => section.kind === 'sop').length, 1);
 });
 
+test('a procedure nobody answers leaves the inbox after a fortnight, and stays a candidate that is not procedure', async () => {
+  const fixture = await createCompany('distil-expires');
+  await seedRepeatedPattern(fixture, 'deploy.staging', 3);
+  const llm = new RecordingLlmClient(() => 'Staging deploy\n1. Check\n2. Deploy');
+  const [candidate] = await distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
+  });
+  const item = (await inbox.listOpen(fixture.companyId)).find((one) => one.kind === 'sop_candidate')!;
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ days: string }>(
+    "SELECT round(extract(epoch FROM (expires_at - now())) / 86400)::text AS days FROM inbox_items WHERE id = $1", [item.id]));
+  assert.equal(Number(rows[0]!.days), inbox.SOP_CANDIDATE_TTL_DAYS, 'it is asked for a fortnight');
+
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE inbox_items SET expires_at = now() - interval '1 minute' WHERE id = $1", [item.id]));
+  assert.equal(await inbox.expireOverdue(fixture.companyId), 1);
+  assert.equal((await inbox.listOpen(fixture.companyId)).some((one) => one.id === item.id), false, 'no longer in the owner\'s inbox');
+  const state = await withTenant(fixture.companyId, (tx) => tx.query<{ approval_state: string }>('SELECT approval_state FROM memories WHERE id = $1', [candidate!.memoryId]));
+  assert.equal(state.rows[0]!.approval_state, 'candidate', 'unanswered is not approved, and is not asked about again');
+  const again = await distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
+  });
+  assert.equal(again.length, 0);
+});
+
 test('a rejected candidate stays rejected, and is proposed again only on new evidence', async () => {
   const fixture = await createCompany('distil-reject');
   await seedRepeatedPattern(fixture, 'deploy.staging', 3);

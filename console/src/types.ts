@@ -56,6 +56,8 @@ export interface InboxItem {
   browser?: boolean;
   /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
   key?: { alias: string; divisionId: string; capabilities: string[] };
+  /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
+  budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -245,6 +247,8 @@ export interface WorkItem {
   id: string;
   status: string;
   haltReason: string | null;
+  /** For a task its budget stopped: the account with the least room, and its tokens this month. */
+  budgetStop?: { account: string | null; tokensSpent: number; tokensMax: number };
   summary: string;
   /** What it produced, in one line, once it has; null before. */
   result: string | null;
@@ -277,7 +281,7 @@ export interface WorkItem {
   };
   /** What a task in `waiting_window` waits for; null in any other status (N9). */
   waiting: {
-    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'service' | 'retry' | null;
+    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up' | null;
     until: string | null;
     on: WaitingRole | null;
     needsYou: WaitingRole | null;
@@ -630,6 +634,9 @@ export interface Chat {
   lastMessage: { direction: 'in' | 'out'; body: string; attachment: string | null } | null;
   /** The customer spoke last. */
   unanswered: boolean;
+  /** Their record (0118), and the name on it. */
+  contactId: string | null;
+  contactName: string | null;
 }
 
 export interface ChatMessage {
@@ -647,6 +654,74 @@ export interface ChatMessage {
   at: string;
   /** A reply that went without the owner (0117): the documents it answered from, by title. */
   answeredAlone?: { from: string[] };
+}
+
+/** Someone the company deals with (0118). */
+export interface Contact {
+  id: string;
+  name: string;
+  organisation: string | null;
+  email: string | null;
+  phone: string | null;
+  createdBy: 'owner' | 'agent' | 'chat';
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  openDeals: number;
+  chats: number;
+}
+
+export type DealStage = 'lead' | 'qualified' | 'proposal' | 'won' | 'lost';
+
+export interface Deal {
+  id: string;
+  title: string;
+  stage: DealStage;
+  /** In the smallest unit of its own currency. */
+  value: { amountCents: number; currency: string } | null;
+  expectedOn: string | null;
+  createdBy: 'owner' | 'agent';
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface ContactDetail {
+  contact: Contact;
+  notes: Array<{ id: string; body: string; by: 'owner' | 'agent'; taskId: string | null; at: string }>;
+  deals: Deal[];
+  chats: Array<{ id: string; kind: Chat['kind']; account: string; lastMessageAt: string }>;
+}
+
+/** An account in the company's books (0119), with what it holds on its natural side, per currency. */
+export interface BookAccount {
+  id: string;
+  code: string;
+  name: string;
+  kind: 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+  systemKey: string | null;
+  archivedAt: string | null;
+  balances: Array<{ currency: string; cents: number }>;
+}
+
+export interface JournalEntry {
+  id: string;
+  date: string;
+  memo: string;
+  currency: string;
+  writtenBy: 'owner' | 'agent';
+  taskId: string | null;
+  outside: boolean;
+  reverses: string | null;
+  reversedBy: string | null;
+  createdAt: string;
+  lines: Array<{ account: string; name: string; debitCents: number; creditCents: number }>;
+}
+
+export interface Books {
+  accounts: BookAccount[];
+  entries: JournalEntry[];
+  month: { from: string; to: string; profit: Array<{ currency: string; incomeCents: number; expenseCents: number; profitCents: number }> };
 }
 
 /** An inbound trigger (0054): a URL another service posts events to. */
@@ -765,4 +840,46 @@ export interface BrowserScreen {
   title: string;
   width: number;
   height: number;
+}
+
+/** What the deployment reported when it started (`/api/control/setup`). */
+export interface SetupReport {
+  notes: string[];
+  todo: string[];
+  version?: string;
+  /** No model is set: no role on the in-process runtime can work until one is. */
+  modelMissing?: boolean;
+}
+
+/** An invoice the company keeps in its books (0122). */
+export interface InvoiceRow {
+  id: string;
+  number: string;
+  contactId: string | null;
+  customerName: string;
+  customerEmail: string | null;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  subtotalCents: number;
+  taxRateBps: number;
+  taxCents: number;
+  totalCents: number;
+  paidCents: number;
+  outstandingCents: number;
+  status: 'open' | 'partial' | 'paid' | 'void';
+  overdue: boolean;
+  note: string | null;
+  writtenBy: 'owner' | 'agent';
+  outside: boolean;
+}
+
+export interface InvoiceDetail extends InvoiceRow {
+  lines: Array<{ description: string; quantity: number; unitCents: number; amountCents: number }>;
+  payments: Array<{ id: string; paidOn: string; amountCents: number; entryId: string; reversed: boolean; writtenBy: 'owner' | 'agent' }>;
+}
+
+export interface Invoices {
+  invoices: InvoiceRow[];
+  outstanding: Array<{ currency: string; outstandingCents: number; overdueCents: number }>;
 }

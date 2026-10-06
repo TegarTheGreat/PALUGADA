@@ -253,8 +253,12 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   address hold that address back for fifteen minutes. A passkey is not
   locked by them: it cannot be guessed, so somebody else's wrong codes never
   keep you out if you have one.
-- A tier 3 approval, and anything that loosens a control, asks for a fresh
-  code every time, however recently you signed in.
+- A tier 3 approval, and anything that loosens money, a key, the model, a
+  channel or a device, asks for a fresh code every time, however recently you
+  signed in. What builds the company -- a division, a role, a grant, a goal, a
+  skill, a bundle -- is covered for ten minutes after a code (and signing in is
+  one), so setting up is not a code for each step. Change that, or turn it off,
+  under **Settings**, **Security**, **How long a code counts**.
 - To use your fingerprint, face or screen lock instead of a code, add a
   passkey under **Settings**, **Security**. It asks for a code once, to show
   the device is yours; after that the sign-in page and every confirm dialog

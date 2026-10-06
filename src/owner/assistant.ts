@@ -24,9 +24,10 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 import { wholeCents } from '../engine/pricing.ts';
 import { isPalugadaError, PalugadaError } from '../errors.ts';
-import { deploymentLanguages, languageName, languagesFor } from '../domain/language.ts';
+import { languageName } from '../domain/language.ts';
+import { ceoSaysIn, talkLanguageOf } from './ceo-language.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
-import { canSay, say } from './say.ts';
+import { say } from './say.ts';
 import { modelKeyRefusedSaid } from './platform-cards.ts';
 import { firstHourBrief, firstHourOf, firstHourOpener } from './first-hour.ts';
 import {
@@ -386,17 +387,6 @@ async function speakerFor(companyId: string): Promise<Speaker> {
 }
 
 /**
- * The language a company's CEO talks to its owner in: the company's talk
- * language, the one every other agent writes to the owner in, which is the
- * owner's panel language unless the owner said otherwise (src/domain/language.ts).
- * The panel's alone is not it: an owner who has chosen Indonesian for the
- * company was greeted in English because the *panel* had never been told.
- */
-async function talkLanguageOf(companyId: string): Promise<string> {
-  return (await withTenant(companyId, (tx) => languagesFor(tx, companyId))).talk;
-}
-
-/**
  * A new company's CEO speaks first (the first hour, first-hour.ts): what it
  * needs to know, in the language the company talks in, so the conversation
  * the owner opens is already one. Where the platform has no sentences of its
@@ -410,9 +400,7 @@ export async function ceoOpensConversation(companyId: string): Promise<void> {
     if (failure instanceof PalugadaError && /has no CEO yet/.test(failure.message)) return;
     throw failure;
   }
-  const talk = await talkLanguageOf(companyId);
-  const language = canSay(talk) ? talk : (await deploymentLanguages()).console ?? 'en';
-  await record('assistant', firstHourOpener(language, {
+  await record('assistant', firstHourOpener(await ceoSaysIn(companyId), {
     ceo: speaker.displayName ?? speaker.title ?? speaker.slug, company: speaker.company,
   }), 'console', companyId);
 }

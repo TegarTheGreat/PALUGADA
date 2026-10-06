@@ -359,4 +359,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "회사가 약속한 일을 기한에 맞춰, 검증된 상태로 내보낸다.",
   "Keep the company solvent, answerable and running without daily attention.":
     "회사의 지급 능력을 지키고, 책임질 수 있게 하며, 매일 신경 쓰지 않아도 돌아가게 한다.",
+  "Since we last spoke:":
+    "지난 대화 이후:",
+  "More finished: {count}":
+    "그 밖에 완료: {count}",
+  "Waiting for you: {count}":
+    "당신을 기다리는 것: {count}",
 };

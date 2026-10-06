@@ -360,4 +360,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Menyiapkan kerja yang telah dijanjikan syarikat, tepat pada masanya dan telah disahkan.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Memastikan kewangan syarikat kukuh, boleh dipertanggungjawabkan dan berjalan tanpa perhatian harian.",
+  "Since we last spoke:":
+    "Sejak kali terakhir kita berbual:",
+  "More finished: {count}":
+    "Lain-lain selesai: {count}",
+  "Waiting for you: {count}":
+    "Menunggu anda: {count}",
 };

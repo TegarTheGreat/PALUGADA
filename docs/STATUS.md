@@ -9662,6 +9662,38 @@ reading.
   Indonesian, the deployment learning `id` from a console it had only ever seen
   follow the browser -- and not overwriting what the owner had chosen.
 
+## 2.157 The CEO speaks first when the owner comes back (the owner's complaint of 6 October: "the chat with the CEO is just an ordinary chatbot")
+
+A chatbot waits to be spoken to. The owner gave the company work, went away, and came
+back to a chat exactly as they left it: what finished, what stopped and what waited
+for them was something to go and ask about, one question at a time.
+
+- **`POST /api/companies/:companyId/conversation/briefing`**, which the console sends as
+  it opens the conversation, and which says whether the CEO spoke
+  (`ceoBriefsOwner`, `src/owner/ceo-briefing.ts`). When the last word in the
+  conversation is half an hour old or more and something has happened since -- work the
+  owner gave finished, root work stopped (not by the owner), something new in the
+  inbox -- the CEO says it, as one message in its own voice: *Since we last spoke*,
+  *Done: ...* (up to three, then *More finished: n*), *Stopped (n): why* by reason,
+  *Waiting for you: n*. Nothing happened, or the owner has only just left, and it says
+  nothing; a company with no conversation yet is not briefed (its CEO opens it).
+- **It is the platform's arithmetic, not a model's account**: free, exact, and in the
+  company's talk language like everything else the CEO says (2.156). Nothing an agent
+  or a stranger wrote is in it. The CEO's history is read back by the model as its own
+  words, and an agent's summary there is where a stranger's instruction would get in; so
+  only the owner's own work is named (never a webhook's or a schedule's), why work stopped
+  is said by its reason, and a task's result is one question or one click away.
+- **Once**: the message is written only if nobody has spoken in the conversation since the
+  time it was measured from, so two tabs opening at once make one briefing.
+- **Not done**: a briefing for the chats on Telegram and WhatsApp (their done notices and
+  digest already tell the owner there); cards that fix what stopped, which the Money
+  card already offers; and a live snapshot of the company in the CEO's own prompt, so its
+  first answer does not begin with reads (found, and left for the audit of 6 October).
+- **Tested** in `ceo-briefing.test.ts`: what finished, stopped and waits, said once; nothing
+  when nothing happened, when the owner has only just left, or when there is no conversation;
+  only the owner's own work named, never another company's, a webhook's or a schedule's;
+  an agent's words never repeated; the language of the company; a long list cut short.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -833,6 +833,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/assistant/proposals/:proposalId/dismiss': 'only the owner dismisses a proposal',
   '/api/assistant/clear': 'only the owner starts the conversation again',
   '/api/companies/:companyId/conversation/messages': 'the conversation with a company\'s CEO itself',
+  '/api/companies/:companyId/conversation/briefing': 'the CEO speaks first by itself, when the owner opens the conversation',
   '/api/companies/:companyId/conversation/clear': 'only the owner starts a conversation again',
   '/api/assistant/listen': 'the owner\'s own voice, written down',
   '/api/assistant/speak': 'an answer said aloud to the owner',

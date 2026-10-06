@@ -482,6 +482,10 @@ The first version. What it holds, in the order an owner meets it.
   team that greeted in English (STATUS 2.156). An 'English' that was only the
   default is cleared by the upgrade: if you chose English for your team on
   purpose, choose it again there.
+- Your CEO speaks first when you come back. Open the conversation after being away
+  and, if something happened -- work you gave finished, work stopped, something waits
+  for you -- it says so in one message, in your language: what finished, why work stopped,
+  how many things wait. Nothing happened, nothing is said (STATUS 2.157).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

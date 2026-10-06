@@ -365,4 +365,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Hoàn thành công việc công ty đã hứa, đúng hạn và đã được kiểm chứng.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Giữ cho công ty có khả năng thanh toán, minh bạch và vận hành mà không cần chú ý hằng ngày.",
+  "Since we last spoke:":
+    "Từ lần trò chuyện trước:",
+  "More finished: {count}":
+    "Hoàn thành thêm: {count}",
+  "Waiting for you: {count}":
+    "Đang chờ bạn: {count}",
 };

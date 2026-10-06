@@ -358,4 +358,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "إنجاز العمل الذي وعدت به الشركة في موعده وبعد التحقق منه.",
   "Keep the company solvent, answerable and running without daily attention.":
     "الحفاظ على سلامة الشركة المالية وقابليتها للمساءلة واستمرار عملها دون حاجة إلى اهتمام يومي.",
+  "Since we last spoke:":
+    "منذ آخر حديث بيننا:",
+  "More finished: {count}":
+    "اكتمل غير ذلك: {count}",
+  "Waiting for you: {count}":
+    "بانتظارك: {count}",
 };

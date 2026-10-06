@@ -361,4 +361,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Consegnare il lavoro promesso dall’azienda, in tempo e verificato.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Mantenere l’azienda solvibile, responsabile e in funzione senza bisogno di attenzione quotidiana.",
+  "Since we last spoke:":
+    "Dall’ultima volta che ci siamo parlati:",
+  "More finished: {count}":
+    "Completati in più: {count}",
+  "Waiting for you: {count}":
+    "In attesa di te: {count}",
 };

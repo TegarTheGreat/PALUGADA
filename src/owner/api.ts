@@ -183,6 +183,7 @@ import {
   ceoOpensConversation, chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
 } from './assistant.ts';
+import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
@@ -2837,6 +2838,18 @@ export class OwnerApi {
           ceo: await speakerOf(params.companyId!),
           messages: await conversation(60, params.companyId!),
         }),
+      },
+
+      {
+        // The CEO speaks first when the owner comes back and something has
+        // happened since the last word (owner/ceo-briefing.ts). The console
+        // asks as it opens the conversation; most times there is nothing to say.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/conversation/briefing',
+        handle: async ({ params }) => {
+          await speakerOf(params.companyId!);
+          return { spoke: await ceoBriefsOwner(params.companyId!) };
+        },
       },
 
       {

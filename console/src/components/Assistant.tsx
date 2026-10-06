@@ -113,8 +113,16 @@ export function Assistant({ opened, onClose, company = null }: { opened: boolean
   };
 
   useEffect(() => {
-    if (opened) void load();
-    else setConversation(null);
+    if (!opened) {
+      setConversation(null);
+      return;
+    }
+    // A CEO whose owner has been away and who has news says it first; most
+    // times there is nothing to say, and the conversation is as it was.
+    void (async () => {
+      if (companyId) await api('POST', `/api/companies/${companyId}/conversation/briefing`, {}).catch(() => undefined);
+      await load();
+    })();
   }, [opened, companyId]);
 
   useEffect(() => {

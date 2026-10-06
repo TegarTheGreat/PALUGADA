@@ -359,4 +359,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Ngrampungaké gawéan sing wis dijanjèkaké perusahaan, pas wektuné lan wis dipriksa.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Njaga kauangané perusahaan tetep sehat, bisa dipertanggungjawabaké, lan mlaku tanpa kudu dipantau saben dina.",
+  "Since we last spoke:":
+    "Wiwit rembugan pungkasan:",
+  "More finished: {count}":
+    "Liyané wis rampung: {count}",
+  "Waiting for you: {count}":
+    "Ngenteni panjenengan: {count}",
 };

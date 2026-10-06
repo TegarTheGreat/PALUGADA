@@ -362,4 +362,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Şirketin vaat ettiği işi zamanında ve doğrulanmış olarak teslim etmek.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Şirketi ödeme gücü olan, hesap verebilir ve günlük ilgi gerektirmeden işleyen halde tutmak.",
+  "Since we last spoke:":
+    "Son konuşmamızdan beri:",
+  "More finished: {count}":
+    "Ayrıca tamamlanan: {count}",
+  "Waiting for you: {count}":
+    "Sizi bekleyen: {count}",
 };

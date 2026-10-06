@@ -358,4 +358,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Tapusin ang gawaing ipinangako ng kumpanya, nasa oras at napatunayan.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Panatilihing may sapat na pondo ang kumpanya, may pananagutan, at tumatakbo nang hindi kailangan ng araw-araw na atensyon.",
+  "Since we last spoke:":
+    "Mula nang huli tayong mag-usap:",
+  "More finished: {count}":
+    "Iba pang natapos: {count}",
+  "Waiting for you: {count}":
+    "Naghihintay sa iyo: {count}",
 };

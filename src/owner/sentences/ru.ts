@@ -361,4 +361,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Выполнять работу, обещанную компанией, в срок и с проверкой.",
   "Keep the company solvent, answerable and running without daily attention.":
     "Сохранять платёжеспособность компании, подотчётность и работу без ежедневного внимания.",
+  "Since we last spoke:":
+    "С нашего последнего разговора:",
+  "More finished: {count}":
+    "Ещё завершено: {count}",
+  "Waiting for you: {count}":
+    "Ждёт вас: {count}",
 };

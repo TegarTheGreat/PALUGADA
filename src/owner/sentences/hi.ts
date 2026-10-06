@@ -361,4 +361,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "कंपनी ने जो काम करने का वादा किया है, उसे समय पर और जाँच-परख कर पूरा करना।",
   "Keep the company solvent, answerable and running without daily attention.":
     "कंपनी को आर्थिक रूप से सक्षम, जवाबदेह और रोज़ की निगरानी के बिना चलने लायक बनाए रखना।",
+  "Since we last spoke:":
+    "पिछली बातचीत के बाद से:",
+  "More finished: {count}":
+    "और पूरे हुए: {count}",
+  "Waiting for you: {count}":
+    "आपकी प्रतीक्षा में: {count}",
 };

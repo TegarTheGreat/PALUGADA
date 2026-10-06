@@ -266,6 +266,9 @@ const EVENT_SENTENCES: Record<string, string> = {
   'books.account_added': N('An account was added to the books'),
   'books.entry_posted': N('An entry was recorded in the books'),
   'books.entry_reversed': N('An entry in the books was reversed'),
+  'invoice.issued': N('An invoice was issued'),
+  'invoice.paid': N('A payment was recorded on an invoice'),
+  'invoice.voided': N('An invoice was voided'),
   'eval.negative_candidate': N('A run was kept as an example of what not to do'),
   'goal.work_paused': N('Work for a closed goal was paused'),
   'guardian.judged': N('The guardian checked an action'),
@@ -640,4 +643,16 @@ const GOAL_KINDS: Record<string, string> = {
 export function goalKind(kind: string): string {
   const label = GOAL_KINDS[kind];
   return label ? t(label) : humanize(kind);
+}
+
+/** An amount in its own currency, as the owner's language writes it: the books' and the invoices'. */
+export function inCurrency(cents: number, currency: string): string {
+  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, maximumFractionDigits: 2 });
+}
+
+/** Why a task its budget stopped has no room: the tokens, which are not the dollars beside it. */
+export function budgetStopSaid(stop: { account: string | null; tokensSpent: number; tokensMax: number }): string {
+  return t('Out of tokens: {account} has used {spent} of {max} this month', {
+    account: stop.account ?? t('The company'), spent: stop.tokensSpent.toLocaleString(locale()), max: stop.tokensMax.toLocaleString(locale()),
+  });
 }

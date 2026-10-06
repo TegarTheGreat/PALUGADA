@@ -202,7 +202,13 @@ refer to `docs/PRD.md`.
    and marks the work that reads it, as a lesson is (6). Every entry
    balances, checked by the database at commit; the application role
    inserts and never updates one, and adds no line to an entry another
-   transaction kept.
+   transaction kept. The same holds for an invoice (0122): written by such
+   work it is kept `outside`, and `ledger.read` returns its customer, its note
+   and its lines fenced as data; the application role inserts invoices,
+   lines and payments and updates none; `invoice.issue` is tier 2, so that work
+   asks the owner (F8.9); and a payment recorded against an invoice is held to
+   being one -- assets debited, accounts receivable credited, no more than is
+   owed -- so a run cannot move the books with a made-up reference.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,

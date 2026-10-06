@@ -168,6 +168,11 @@ const SECTIONS: ImportSection[] = [
   { name: 'contacts', table: 'contacts', references: [] },
   { name: 'contact_notes', table: 'contact_notes', references: ['contact_id', 'task_id'] },
   { name: 'deals', table: 'deals', references: ['contact_id'] },
+  // The invoices (0122), after the entries and the contacts they name.
+  { name: 'invoice_numbers', table: 'invoice_numbers', references: [] },
+  { name: 'invoices', table: 'invoices', references: ['contact_id', 'entry_id', 'task_id'] },
+  { name: 'invoice_lines', table: 'invoice_lines', references: ['invoice_id'] },
+  { name: 'invoice_payments', table: 'invoice_payments', references: ['invoice_id', 'entry_id', 'task_id'] },
   {
     // A customer channel is not left open by a restore: it arrives closed,
     // at a new address, with no token, and the owner connects the bot again

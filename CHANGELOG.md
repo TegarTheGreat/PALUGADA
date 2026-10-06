@@ -461,6 +461,18 @@ The first version. What it holds, in the order an owner meets it.
   division lacks -- you no longer open the division and grant them one at a
   time -- except tools whose use cannot be undone, which stay a grant of their
   own. Your CEO does the same when you ask it to hire (STATUS 2.153).
+- The company keeps its invoices in the books (**Books**, **Invoices**): numbered
+  without gaps, written with the entry that puts what is owed in them, paid in
+  part or in full, voided by a reversal, never edited. The bookkeeper issues
+  them with `invoice.issue`, reads them with `ledger.read`, and records a payment
+  against one with `ledger.record`. What is owed and what is late shows at the
+  top (STATUS 2.154).
+- When an account's tokens run out, one card in the inbox stands for the account
+  and its **Raise it and continue** raises the ceiling and goes on with every task
+  it stopped, instead of a card and a Continue for each. The Work page says the
+  tokens ran out, not a bare "out of budget" beside a cost of nothing, and new
+  companies' token ceilings are sized against their money so tokens do not run
+  out a hundred times first (STATUS 2.155).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

@@ -9,17 +9,18 @@
  */
 import { useState } from 'react';
 import {
-  ActionIcon, Badge, Button, Group, Modal, NumberInput, Paper, Select, Stack, Table, Text, TextInput,
+  ActionIcon, Badge, Button, Group, Modal, NumberInput, Paper, Select, Stack, Table, Tabs, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconArrowBackUp, IconPlus, IconTrash } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { moneyDisplay, numberSeparators } from '../format.ts';
+import { inCurrency, moneyDisplay, numberSeparators } from '../format.ts';
 import { N, locale, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import type { BookAccount, Books as BooksView, JournalEntry } from '../types.ts';
 import { ActionButton } from '../components/ActionForm.tsx';
+import { Invoices } from '../components/Invoices.tsx';
 import { EmptyState, KpiStrip, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 
 /** The accounts the books open with, by what the platform knows them as, in the owner's language. */
@@ -45,10 +46,7 @@ function accountSaid(account: { systemKey: string | null; name: string }): strin
   return account.systemKey && SYSTEM_NAMES[account.systemKey] ? t(SYSTEM_NAMES[account.systemKey]!) : account.name;
 }
 
-/** An amount in its own currency, as the owner's language writes it. */
-function amount(cents: number, currency: string): string {
-  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, maximumFractionDigits: 2 });
-}
+const amount = inCurrency;
 
 export function Books({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -56,13 +54,19 @@ export function Books({ ctx }: PageProps) {
   const view = useLoad<BooksView>(() => api('GET', `/api/companies/${companyId}/books`), [companyId]);
   const [adding, setAdding] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const [tab, setTab] = useState<string | null>('ledger');
 
   const header = (
     <PageHeader
       crumbs={[ctx.company.name]}
       title={t('Books')}
       description={t('The company\'s own books, by double entry: every entry\'s debits equal its credits, and a mistake is undone by a reversing entry beside it.')}
-      actions={owner ? <Button leftSection={<IconPlus size={16} />} onClick={() => setRecording(true)}>{t('Record an entry')}</Button> : undefined}
+      actions={owner
+        ? (tab === 'invoices'
+          ? <Button leftSection={<IconPlus size={16} />} onClick={() => setIssuing(true)}>{t('Issue an invoice')}</Button>
+          : <Button leftSection={<IconPlus size={16} />} onClick={() => setRecording(true)}>{t('Record an entry')}</Button>)
+        : undefined}
     />
   );
   if (view.error && !view.data) return <>{header}<LoadFailed message={view.error} retry={view.reload} /></>;
@@ -72,6 +76,13 @@ export function Books({ ctx }: PageProps) {
   return (
     <Stack gap="lg">
       {header}
+      <Tabs value={tab} onChange={setTab} keepMounted={false}>
+        <Tabs.List>
+          <Tabs.Tab value="ledger">{t('Ledger')}</Tabs.Tab>
+          <Tabs.Tab value="invoices">{t('Invoices')}</Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="ledger" pt="lg">
+      <Stack gap="lg">
       {month.profit.length > 0 && (
         <KpiStrip items={month.profit.flatMap((one) => [
           { label: t('Income this month'), value: amount(one.incomeCents, one.currency) },
@@ -116,6 +127,17 @@ export function Books({ ctx }: PageProps) {
           </Stack>
         )}
       </Section>
+
+      </Stack>
+        </Tabs.Panel>
+        <Tabs.Panel value="invoices" pt="lg">
+          <Invoices
+            companyId={companyId} owner={owner} issuing={issuing} closeIssue={() => setIssuing(false)} changed={view.reload}
+            depositOptions={accounts.filter((account) => account.kind === 'asset' && !account.archivedAt && account.systemKey !== 'receivable')
+              .map((account) => ({ value: account.code, label: `${account.code} ${accountSaid(account)}` }))}
+          />
+        </Tabs.Panel>
+      </Tabs>
 
       <AddAccount companyId={companyId} opened={adding} close={() => setAdding(false)} done={() => { setAdding(false); view.reload(); }} />
       <RecordEntry companyId={companyId} accounts={accounts} opened={recording} close={() => setRecording(false)}

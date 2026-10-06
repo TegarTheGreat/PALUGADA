@@ -65,7 +65,7 @@ import {
   unfreezeCompany,
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
-import { cancelTask, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { cancelTask, continueAllHalted, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { VERSION } from '../version.ts';
@@ -114,6 +114,7 @@ import {
   assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
 import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
+import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
 import {
   addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
 } from '../records/contacts.ts';
@@ -3635,6 +3636,56 @@ export class OwnerApi {
         }),
       },
 
+      /* ------------------------------------------------------- 0122 --- */
+
+      {
+        // The company's invoices (0122): the latest first, what is owed on
+        // them all, and with `?status=` only those open, overdue, paid or void.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/invoices',
+        handle: async ({ params, query }) => {
+          const status = query.get('status');
+          if (status !== null && !(INVOICE_FILTERS as readonly string[]).includes(status)) {
+            throw new PalugadaError('contract.violation', `status is ${INVOICE_FILTERS.join(', ')}; got ${JSON.stringify(status)}`, { field: 'status' });
+          }
+          const { invoices, outstanding } = await withTenant(params.companyId!, (tx) => listInvoices(tx, params.companyId!, {
+            ...(status ? { status: status as InvoiceFilter } : {}),
+          }));
+          return { invoices, outstanding };
+        },
+      },
+
+      {
+        // One invoice, by its id or its number, with its lines and payments.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => invoiceWith(tx, params.companyId!, params.invoiceId!));
+          if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+          return found;
+        },
+      },
+
+      {
+        // The owner issues an invoice with the session: it is written in the
+        // books and sent nowhere, and it is voided, not edited.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices',
+        handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => issueInvoice(tx, params.companyId!, body, 'owner')),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
+        handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => payInvoice(tx, params.companyId!, params.invoiceId!, body, 'owner')),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/void',
+        handle: async ({ params }) => withTenant(params.companyId!, (tx) => voidInvoice(tx, params.companyId!, params.invoiceId!, 'owner')),
+      },
+
       /* ------------------------------------------------------- 0118 --- */
 
       {
@@ -4127,6 +4178,29 @@ export class OwnerApi {
             },
           );
           return { ok: true };
+        },
+      },
+
+      {
+        // Goes on with everything an account's budget stopped, oldest first, for
+        // as many as it can fund (STATUS 2.155). With `tokensMax` it raises the
+        // account's ceiling first -- which asks for the owner's code, as raising
+        // one always does -- and without it the account must already have room.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/budget-accounts/:accountId/continue',
+        handle: async ({ params, body }) => {
+          if (body.tokensMax !== undefined && body.tokensMax !== null) {
+            const tokensMax = wholeNumber(body.tokensMax, 'tokensMax');
+            await setCeilings(params.companyId!, params.accountId!, { tokensMax }, async (before) => {
+              if (tokensMax > before.tokensMax) {
+                await this.#requireFactor(body.proof, 'raise a budget account\'s ceiling', params.companyId!);
+              }
+            });
+          }
+          const done = await continueAllHalted(params.companyId!, params.accountId!);
+          const { rows } = await withControlPlane((tx) => tx.query<{ tokens_max: string }>(
+            'SELECT tokens_max FROM budget_accounts WHERE id = $1', [params.accountId]));
+          return { ...done, tokensMax: Number(rows[0]!.tokens_max) };
         },
       },
 

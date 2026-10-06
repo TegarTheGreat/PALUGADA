@@ -56,6 +56,8 @@ export interface InboxItem {
   browser?: boolean;
   /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
   key?: { alias: string; divisionId: string; capabilities: string[] };
+  /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
+  budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -245,6 +247,8 @@ export interface WorkItem {
   id: string;
   status: string;
   haltReason: string | null;
+  /** For a task its budget stopped: the account with the least room, and its tokens this month. */
+  budgetStop?: { account: string | null; tokensSpent: number; tokensMax: number };
   summary: string;
   /** What it produced, in one line, once it has; null before. */
   result: string | null;
@@ -845,4 +849,37 @@ export interface SetupReport {
   version?: string;
   /** No model is set: no role on the in-process runtime can work until one is. */
   modelMissing?: boolean;
+}
+
+/** An invoice the company keeps in its books (0122). */
+export interface InvoiceRow {
+  id: string;
+  number: string;
+  contactId: string | null;
+  customerName: string;
+  customerEmail: string | null;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  subtotalCents: number;
+  taxRateBps: number;
+  taxCents: number;
+  totalCents: number;
+  paidCents: number;
+  outstandingCents: number;
+  status: 'open' | 'partial' | 'paid' | 'void';
+  overdue: boolean;
+  note: string | null;
+  writtenBy: 'owner' | 'agent';
+  outside: boolean;
+}
+
+export interface InvoiceDetail extends InvoiceRow {
+  lines: Array<{ description: string; quantity: number; unitCents: number; amountCents: number }>;
+  payments: Array<{ id: string; paidOn: string; amountCents: number; entryId: string; reversed: boolean; writtenBy: 'owner' | 'agent' }>;
+}
+
+export interface Invoices {
+  invoices: InvoiceRow[];
+  outstanding: Array<{ currency: string; outstandingCents: number; overdueCents: number }>;
 }

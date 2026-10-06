@@ -9512,6 +9512,105 @@ the owner's device; this is only the grant.
   can propose from. The first is a notice; the second changes what the owner's
   device must approve and is a decision for the owner to make.
 
+## 2.154 The company keeps its invoices in the books (Office 1b, after 2.139)
+
+`invoice.issue` was catalogued and bound to an accounting service nobody had
+connected, so the bookkeeper was told to issue invoices and had nowhere to issue
+them -- the second half of the owner's "support first, then the business
+records". The books of 0119 now take them.
+
+- **Tables** (migration 0122): `invoices`, `invoice_lines`, `invoice_payments`
+  and `invoice_numbers`, all tenant tables with forced row level security and
+  composite references. The application role cannot update or delete any of
+  them but the counter. Constraints hold the figures together whatever wrote
+  them: a total is the subtotal and the tax, a due day is not before the issue
+  day, a tax rate is 0 to 100 per cent.
+- **Numbered without gaps.** The number is taken in the transaction that writes
+  the invoice, after everything that can refuse has refused, from a counter whose
+  row serialises two issued at once: a refused invoice uses none, a voided one
+  keeps its number, and a restored company's numbering goes on from where it was.
+- **Written with its entry.** Issuing posts what the customer owes on Accounts
+  receivable and the sale and any tax on Sales and Taxes owed, in the invoice's
+  currency, in the same transaction -- so the invoice and the books cannot disagree
+  about what was invoiced. Money is whole cents and a quantity is thousandths, so
+  no figure is a float; a tax is rounded half up, once, on the subtotal.
+- **Never rewritten.** It is paid by entries of its own, in part or in full, and
+  voided by the reversal of the entry that issued it -- which is how it is known
+  to be void, and only while nothing stands paid on it. **What is owed is read
+  from the entries**, not kept: a payment whose entry was reversed in the books no
+  longer counts and the invoice is open again for what it was. A payment is for no
+  more than is owed.
+- **The customer as they were.** A contact is named by its record, and the name and
+  address are copied onto the invoice: a later edit of the contact does not change
+  what was issued.
+- **For the owner**: `GET` and `POST /api/companies/:companyId/invoices`, `GET
+  .../invoices/:invoiceId` (by id or by number), `POST .../payments` and `POST
+  .../void`, with the session -- an invoice is written in the books and sent
+  nowhere. The **Invoices** tab on Books lists them with what is owed and what is
+  late, opens one with its lines and payments, issues one, takes a payment into
+  cash or another asset account, voids one after a confirmation, and copies one as
+  text. A seat reads them; the assistant's versions are cards.
+- **For the bookkeeper**, with no new tool (the role is at F2.4's twelve):
+  `invoice.issue` -- at tier 2, as the catalogue gives it, so work that read content
+  from outside asks the owner; `ledger.read` with `report: invoices`, or `invoice`
+  for one with its lines and payments; and `ledger.record` with an `invoice`
+  number, which holds the entry to being a payment of that invoice (debits to
+  assets, credits to accounts receivable only, no more than is owed, in its
+  currency) and writes it as the invoice's payment. An invoice written by work that
+  read outside content comes back with its customer, note and lines as data
+  (F8.9), and marks the work that reads it.
+- **Carried by the export and the import**, the counter included.
+- **Not done**: sending an invoice to the customer (an email is `email.send`, tier 2,
+  from the bookkeeper's own words), a PDF, credit notes, recurring invoices and
+  reminders for the overdue. Each is a decision about what leaves the company, and
+  none is made here.
+- **Tested** in `invoices.test.ts`: numbering, totals and tax rounding, the entry;
+  every refusal by name; the customer as they were; partial and full payment, more
+  than is owed, a reversed payment, another account; voiding; aging; immutability
+  and the database's own constraint; the run issuing, reading and paying; outside
+  content; the API and a restore.
+
+## 2.155 Work its budget stopped is gone on with in one press (the owner's complaint of 6 October: "bentar-bentar habis anggaran")
+
+The owner's real company, from a screenshot: 31 tasks stopped, most "out of
+budget" at a cost of US$0.00 to US$0.17. Three things, one of which was the
+template.
+
+- **The ceilings were wrong by a hundred.** The standard template gave a division
+  300,000 tokens a month (the company 2,000,000) against a money ceiling of
+  hundreds of dollars. At a middling $5 a million tokens that is a dollar and a
+  half, so the tokens ran out a hundred times before the dollars could, and a free
+  or unpriced model -- cost nothing at all -- stopped just the same. They are now
+  fifty times higher (100,000,000 for the company; 7,500,000 to 45,000,000 for a
+  division), sized against the money. They stay as containment for a loop that
+  costs nothing a token. Existing companies keep what they have; the card below is
+  how they raise it.
+- **One card for an account.** A division that runs out stops everything charged to
+  it together, and every stopped task raised a card, each to be opened and
+  continued by hand after the ceiling was raised under Money. `raiseBudgetHalt` now
+  raises one for an account, which says how many it stopped, live.
+- **One press.** `POST /api/companies/:companyId/budget-accounts/:accountId/continue`
+  with `tokensMax` raises the ceiling -- with the owner's code, as raising one
+  always takes -- and goes on, oldest first, with every task the account stopped
+  (`continueAllHalted`), each through `continueHalted` and so under all its rules
+  (a paused company, a frozen role, the reservation the account must fund), for as
+  many as it can then fund. The first with no room ends it; the rest are said to be
+  waiting for room and the card stays for them. Without `tokensMax` it goes on with
+  what room there is, which needs no code. The card carries the form: the new
+  ceiling filled in ten times the old, **Raise it and continue**, and **Continue
+  without raising** when there is room.
+- **Said as tokens.** A task its budget stopped now says on the Work page that the
+  tokens ran out -- "Out of tokens: Growth has used 300,000 of 300,000 this month"
+  -- where it said "out of budget" beside a cost of nothing.
+- **Not done**: a task a budget stopped is still not continued by itself (PRD 6.3);
+  raising a ceiling on the card raises the named account, so a company account that
+  is also full is said by the task that is then refused for it; and the card's own
+  paragraph still names the Money page, which also works.
+- **Tested** in `budget-resume.test.ts`: the template's tokens against its money;
+  one card for many tasks and another for another account; raise and continue all with
+  the code only for the raise; the room that is there, oldest first, the card staying;
+  only what this account stopped, and only what its budget stopped; the Work page.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

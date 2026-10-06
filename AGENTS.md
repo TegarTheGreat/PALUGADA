@@ -37,7 +37,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
-| `src/records/` | the company's own records: the people it deals with (contacts, notes, deals) and its books |
+| `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |

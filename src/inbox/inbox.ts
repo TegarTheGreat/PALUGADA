@@ -112,6 +112,12 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser (`browser.handover`): its card opens the browser. */
   browser?: boolean;
+  /**
+   * What a budget card is about: the account with no room, what it has used
+   * this month, and how many tasks it has stopped now -- which the card goes
+   * on with in one press (STATUS 2.155).
+   */
+  budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   /** A question answered by giving a division a key (`owner.ask` with `key`): its card opens the division's keys. */
   key?: AskedKey;
   /**
@@ -1121,6 +1127,14 @@ export async function raiseBudgetHalt(companyId: string, taskId: string): Promis
     );
     const account = accounts[0];
     if (!account) return null;
+    // One card for an account, however many tasks it stopped: a division that
+    // runs out stops everything charged to it together, and a card each, to be
+    // opened and continued one by one, was the owner's whole afternoon. The
+    // card says how many it stopped, live, and one press goes on with them all.
+    const standing = await tx.query<{ id: string }>(
+      `SELECT id FROM inbox_items WHERE kind = 'budget_alert' AND status = 'open'
+          AND payload->'budgetHalt'->>'budgetAccountId' = $1 LIMIT 1`, [account.id]);
+    if (standing.rows[0]) return standing.rows[0].id;
     const words = budgetHaltWords(language, {
       account: account.name,
       work: workOf(task.input),
@@ -1187,7 +1201,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
-      key: AskedKey | null; for_schedule: string | null;
+      key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1200,6 +1214,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
+              CASE WHEN i.kind = 'budget_alert' THEN i.payload->'budgetHalt'->>'budgetAccountId' END AS budget_account,
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
               CASE WHEN i.kind = 'skill_candidate'
@@ -1217,6 +1232,17 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
     const items: InboxItem[] = [];
     for (const r of rows) {
       const chain = r.task_id ? await ancestryForTask(tx, r.task_id) : [];
+      let budgetHalt: InboxItem['budgetHalt'];
+      if (r.budget_account) {
+        const { rows: [account] } = await tx.query<{ name: string | null; tokens_spent: string; tokens_max: string; stopped: string }>(
+          `SELECT ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max,
+                  (SELECT count(*) FROM tasks t WHERE t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
+                      AND a.id = ANY(app.budget_chain(t.budget_account_id))) AS stopped
+             FROM budget_accounts a WHERE a.id = $1`, [r.budget_account]);
+        if (account) {
+          budgetHalt = { accountId: r.budget_account, account: account.name, tokensSpent: Number(account.tokens_spent), tokensMax: Number(account.tokens_max), stopped: Number(account.stopped) };
+        }
+      }
       items.push({
         id: r.id, kind: r.kind, status: r.status, title: r.title,
         actionSummary: r.action_summary, rationale: r.rationale, tier: r.tier,
@@ -1234,6 +1260,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         allowFor: r.allow_for,
         forSchedule: r.for_schedule ? { slug: r.for_schedule } : null,
         skillCount: r.skill_count,
+        ...(budgetHalt ? { budgetHalt } : {}),
         // What the owner asked and the run answered, and a question still
         // waiting for its answer last (N6).
         asked: [...(r.asked ?? []), ...(r.asking !== null ? [{ question: r.asking, answer: null }] : [])],

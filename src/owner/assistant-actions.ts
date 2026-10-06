@@ -590,6 +590,27 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/invoices',
+    what: 'Issue an invoice in the books: numbered INV-0001 on, with the entry that puts what is owed in them. Nothing is sent to the customer; GET /api/companies/:companyId/invoices lists the invoices and what is owed.',
+    fields: {
+      customerName: 'who is invoiced, or contactId from the contacts', customerEmail: 'optional', contactId: 'optional, instead of customerName', currency: 'three letters, such as IDR',
+      lines: 'list of { description, quantity (up to three decimals), unitCents (whole cents) }, at most 40',
+      taxRatePercent: 'optional, 0 to 100', dueInDays: 'optional, 14 when not given', dueDate: 'optional YYYY-MM-DD', issueDate: 'optional YYYY-MM-DD, today when not given', note: 'optional',
+    },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
+    what: 'Record a payment received on an invoice, by its id or number: money into cash, or the bank account named, and the receivable it settles. Not more than is owed.',
+    fields: { amountCents: 'whole cents above zero', date: 'optional YYYY-MM-DD, today when not given', depositTo: 'optional account code of an asset account, such as 1150; cash when not given' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices/:invoiceId/void',
+    what: 'Void an invoice nothing was paid on: the entry that issued it is reversed and the number is not used again.',
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/contacts',
     what: 'Keep someone the company deals with: a customer, a supplier, a lead. GET /api/companies/:companyId/contacts?q= finds the ones kept.',
     fields: { name: 'their name', organisation: 'optional', email: 'optional', phone: 'optional, with + and the country code when it has one' },
@@ -636,6 +657,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
     what: 'Change a budget account\'s ceilings; raising one takes the owner\'s device.',
     fields: { tokensMax: 'whole tokens', moneyMaxCents: 'optional, in cents' },
+    factor: 'sometimes',
+  },
+  {
+    pattern: '/api/companies/:companyId/budget-accounts/:accountId/continue',
+    what: 'Go on with every task a budget account stopped, oldest first, for as many as it can now fund. With tokensMax it raises the account\'s token ceiling first.',
+    fields: { tokensMax: 'optional, the new token ceiling for the month; the card for the stopped work names the account' },
     factor: 'sometimes',
   },
   {

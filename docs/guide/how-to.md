@@ -316,7 +316,9 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Cancel this task** cancels it and everything it started.
 - Stopped because its budget ran out, it shows **Continue**: raise the
   account's ceiling on **Money** first, and the same task goes on from where
-  it stopped, without doing again what it already did.
+  it stopped, without doing again what it already did. Many tasks stopped by
+  one account have one card in the inbox, which raises the ceiling and goes
+  on with all of them at once (see "Set budgets and alert thresholds").
 - Once it has ended, **Do it again** starts a new task with the same work
   and your optional note. A halted task is never retried by itself; this is
   how you retry it. The new task is told everything you said to the tasks
@@ -1262,6 +1264,37 @@ is read back as data. Connect an accounting service under **Services** or
 in a vendor file and it takes both names over; the books kept here stay,
 and travel with an export.
 
+## Invoice a customer
+
+On **Books**, the **Invoices** tab keeps what the company bills. **Issue an
+invoice** takes the customer -- one of your contacts, or a name and an email
+address -- a currency, the days it is due in (fourteen unless you say), a tax
+rate if there is one, one line or more (what was sold, how many, at what
+price) and a note. It is numbered INV-0001 on, without gaps, and written in the
+books at the same moment: what the customer owes goes on Accounts receivable,
+the sale on Sales and any tax on Taxes owed. It is not sent to anyone; **Copy as
+text** gives you what to paste into a message. An invoice is never edited.
+
+Open an invoice to **Record a payment** -- an amount no more than is owed, a date,
+and the account the money came into, Cash and bank unless you choose another --
+as often as it is paid in part. It shows Open, Part paid or Paid, and Overdue
+when it is past its day. What is owed is read from the books, so reversing a
+payment's entry on the **Ledger** tab puts the debt back. **Void the invoice**
+reverses the entry that issued it, once, and only while nothing stands paid on
+it; its number is not used again. The top of the tab shows what is owed to you,
+and how much of it is late.
+
+The bookkeeper uses the same invoices: `invoice.issue` issues one (at tier 2,
+as the catalogue gives it, so the owner is asked when the work read something
+from outside), `ledger.read` with `report: invoices` lists them with what is
+owed, or reads one with its lines and payments, and `ledger.record` with an
+`invoice` number records a payment against it -- an entry that debits cash or a
+bank account and credits Accounts receivable, for no more than is owed, in the
+invoice's currency. What a run wrote for a customer, a line or a note is read
+back as data when the work had read content from outside. Connect an accounting
+service and it takes `invoice.issue` over; the invoices kept here stay, and
+travel with an export.
+
 ## Let a channel answer on its own
 
 A shop answers the same questions all day: what a coffee costs, when it
@@ -1414,6 +1447,19 @@ the reason.
   its bar turns red and work is refused with "raise its ceiling under
   Money" -- press **Ceilings** on its row and raise the **Token ceiling** or
   the **Money ceiling**. Raising takes a code; lowering does not.
+- When tasks stop because an account has no tokens left, one card in the
+  inbox names the account, what it has used this month, and how many tasks it
+  stopped. Its **New token ceiling for the month** is filled in ten times
+  higher; **Raise it and continue** raises the ceiling (with a code, as raising
+  one always takes) and goes on, oldest first, with every task it stopped, for
+  as many as the account can then fund -- the rest stay stopped and the card
+  with them. **Continue without raising** goes on with what room the account
+  already has, which needs no code. The Work page says why a task stopped in
+  tokens ("Out of tokens: Growth has used 300,000 of 300,000 this month"),
+  not as a bare "out of budget" beside a cost of nothing. Tokens are counted
+  apart from money: a model with no price costs nothing and still uses tokens.
+  New companies start with token ceilings sized against their money ceilings,
+  so tokens do not run out first.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
   told something is going wrong: **Daily cost** in US dollars (or the
   currency you read money in), **Failure rate, 0 to 1** and **Policy denials

@@ -615,7 +615,15 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   ],
 
   budget: {
-    tokensMax: 2_000_000,
+    // The tokens a month, and they are sized against the money, not the other
+    // way round. At a middling $5 a million tokens the first version's 300,000
+    // for Growth came to a dollar and a half against a ceiling of hundreds, so
+    // the tokens ran out a hundred times before the dollars could and a
+    // company of agents stopped "out of budget" at a cost of US$0.00 (the
+    // owner's complaint of 6 October). Money is what an owner means by a
+    // budget; the token ceilings stay as containment for a loop that costs
+    // nothing a token -- a free model -- and are high enough not to bind first.
+    tokensMax: 100_000_000,
     // A year of the monthly ceiling. See the module comment: this is the
     // company-wide lifetime ceiling, not the monthly one, and it is set out of
     // the way so that the monthly limit in `spend_limits` is what actually
@@ -644,14 +652,14 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // number that could never bind. `assertTemplateIsCoherent` refuses the
     // other way round rather than storing a limit that looks enforced.
     divisions: [
-      { division: 'ops', tokensMax: 400_000, moneyMaxCents: 48_000 },
-      { division: 'delivery', tokensMax: 900_000, moneyMaxCents: 108_000 },
-      { division: 'build', tokensMax: 700_000, moneyMaxCents: 84_000 },
-      { division: 'growth', tokensMax: 300_000, moneyMaxCents: 36_000 },
-      { division: 'finance', tokensMax: 200_000, moneyMaxCents: 24_000 },
-      { division: 'support', tokensMax: 400_000, moneyMaxCents: 48_000 },
-      { division: 'assurance', tokensMax: 300_000, moneyMaxCents: 36_000 },
-      { division: 'lab', tokensMax: 150_000, moneyMaxCents: 18_000 },
+      { division: 'ops', tokensMax: 20_000_000, moneyMaxCents: 48_000 },
+      { division: 'delivery', tokensMax: 45_000_000, moneyMaxCents: 108_000 },
+      { division: 'build', tokensMax: 35_000_000, moneyMaxCents: 84_000 },
+      { division: 'growth', tokensMax: 15_000_000, moneyMaxCents: 36_000 },
+      { division: 'finance', tokensMax: 10_000_000, moneyMaxCents: 24_000 },
+      { division: 'support', tokensMax: 20_000_000, moneyMaxCents: 48_000 },
+      { division: 'assurance', tokensMax: 15_000_000, moneyMaxCents: 36_000 },
+      { division: 'lab', tokensMax: 7_500_000, moneyMaxCents: 18_000 },
     ],
   },
 };

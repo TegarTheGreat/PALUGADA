@@ -224,6 +224,26 @@ const SECTIONS: Section[] = [
             FROM deals ORDER BY created_at`,
   },
   {
+    // The company's invoices (0122): the counter, so numbering goes on from
+    // where it was, the invoices with their lines, and what was paid on them.
+    name: 'invoice_numbers',
+    sql: `SELECT last_number FROM invoice_numbers`,
+  },
+  {
+    name: 'invoices',
+    sql: `SELECT id, number, contact_id, customer_name, customer_email, issue_date, due_date, currency, subtotal_cents, tax_rate_bps,
+                 tax_cents, total_cents, note, entry_id, written_by, task_id, outside, created_at
+            FROM invoices ORDER BY created_at, id`,
+  },
+  {
+    name: 'invoice_lines',
+    sql: `SELECT id, invoice_id, position, description, quantity_milli, unit_cents, amount_cents FROM invoice_lines ORDER BY invoice_id, position`,
+  },
+  {
+    name: 'invoice_payments',
+    sql: `SELECT id, invoice_id, paid_on, amount_cents, entry_id, written_by, task_id, outside, created_at FROM invoice_payments ORDER BY created_at, id`,
+  },
+  {
     name: 'chats',
     sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id
             FROM chats ORDER BY created_at`,

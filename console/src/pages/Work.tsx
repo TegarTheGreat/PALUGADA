@@ -23,7 +23,7 @@ import { useLivePulse, useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
-  actorSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
+  actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
 } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -175,7 +175,7 @@ export function Work({ ctx, route }: PageProps) {
                       )}
                       <Group gap={6} wrap="wrap">
                         <StatusBadge status={item.status} />
-                        {item.haltReason && <Text size="xs" c="red">{haltReason(item.haltReason)}</Text>}
+                        {item.haltReason && <Text size="xs" c="red">{item.budgetStop ? budgetStopSaid(item.budgetStop) : haltReason(item.haltReason)}</Text>}
                         <Text size="xs" c="dimmed" className="tabular">{money(item.costCents)}</Text>
                       </Group>
                       <TaskProgress item={item} />
@@ -220,7 +220,7 @@ export function Work({ ctx, route }: PageProps) {
                       </Table.Td>
                       <Table.Td miw={130}>
                         <StatusBadge status={item.status} />
-                        {item.haltReason && <Text size="xs" c="red" mt={4}>{haltReason(item.haltReason)}</Text>}
+                        {item.haltReason && <Text size="xs" c="red" mt={4}>{item.budgetStop ? budgetStopSaid(item.budgetStop) : haltReason(item.haltReason)}</Text>}
                       </Table.Td>
                       <Table.Td><TaskProgress item={item} /></Table.Td>
                       <Table.Td maw={240}><Text size="sm" c="dimmed" lineClamp={1}>{item.goal ?? '—'}</Text></Table.Td>

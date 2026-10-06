@@ -2053,6 +2053,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "İnceleme bekliyor",
   "Waiting for the model to answer": "Modelin yanıtını bekliyor",
   "Waiting for a model key that works": "Çalışan bir model anahtarı bekliyor",
+  "Look at it again later": "Sonra yeniden bak",
+  "Coming back to it later": "Daha sonra yeniden ele alınacak",
   "Ask every time": "Her seferinde sor",
   "5 minutes": "5 dakika",
   "10 minutes": "10 dakika",

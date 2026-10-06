@@ -9282,6 +9282,50 @@ a card to press, so asking it to start work was asking it to fill in a form.
   (eight steps that do not fit: what is left is the end, in order, with the newest
   there, and the notice).
 
+## 2.148 A role can ask to be woken later about what its own work did (audit of 3 October, P0-7)
+
+Action executed, deliverable verified, outcome observed and goal achieved are
+four different facts, and only the first was ever recorded: an invoice sent, a
+campaign launched, a deploy shipped, and nothing was time-keyed to look at what
+it did. A recurring `schedule.propose` needs the owner's yes each time and is
+blind; the column that would hold a task until a time (`wait_until`, which the
+claim already honours) was never set at creation.
+
+- **`task.follow_up`** (tier 0, platform): `role`, `brief` (what to look at
+  again, what to check it against, and what to do about what it finds:
+  continue, propose a goal change, or ask the owner), `afterHours` (1 to 2160,
+  ninety days) and optionally `context` and `windowMinutes`. It makes a
+  sub-task of the asking task that cannot be claimed before its time
+  (`CreateTaskInput.waitUntil`), so when it arrives it is an ordinary task: the
+  same journal, lease, budget chain, approvals and tiers.
+- **A sub-task and not a new thing**, so it inherits what a sub-task does: the
+  parent's goal and budget chain, the hop limit (a chain of follow-ups ends
+  after three), the fan-out cap, and **what the parent had read from outside**
+  -- an injected instruction cannot be laundered into clean work a day later.
+- **Its window starts when it wakes.** Its deadline is the wake time plus
+  `windowMinutes` (120 unless said), so it is not halted for want of time
+  before it can run; one that is not claimed within its window is halted like
+  any task past its deadline.
+- **Bounded**: five open per goal (the same request again is the task it
+  already made, not a sixth), and **closing a goal cancels the follow-ups
+  waiting under it**, in the same transaction, releasing what they held.
+- **Said on the Work page** as "Coming back to it later", with when, not as
+  work waiting for a worker.
+- **Who holds it.** Every role in the standard company is at F2.4's twelve, so
+  it takes the place of `doc.draft` for the coordinator -- the one role that
+  routes work, and whose `doc.draft` answers nothing until the deployment has a
+  files root -- with a sentence in its charter; the ops division is granted it.
+  Any other role holds it when the owner trades a tool for it on Team.
+- **Not done**: the CEO's first hour asking "what number says this works", a
+  goal whose measure reaches target or whose due date passes escalating to the
+  owner, and a weekly review that is not skipped when a goal's measure is stale
+  (the audit's P1 item 2). This is the primitive they stand on.
+- **Tested** in `follow-up.test.ts`: not claimable before its time and claimed
+  at it; its own window, the parent's goal, the hop depth; not halted while it
+  waits, halted past its window; the parent's outside content; the same request
+  one task; the bounds and a role that exists; closing the goal cancels it and
+  releases its reservation; the Work page.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -9324,7 +9368,7 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-five of the fifty-eight catalogued capabilities are unbound on a bare
+**Thirty-five of the fifty-nine catalogued capabilities are unbound on a bare
 boot -- thirty-one on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and

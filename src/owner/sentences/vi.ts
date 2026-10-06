@@ -358,4 +358,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} so với mục tiêu {target}, đã đọc lại từ nguồn của nó.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} so với mục tiêu {target}, được báo cáo và chưa kiểm tra.',
+  'Look at it again later': 'Xem lại sau',
 };

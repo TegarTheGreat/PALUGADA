@@ -2046,6 +2046,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "รอการตรวจทาน",
   "Waiting for the model to answer": "รอโมเดลตอบ",
   "Waiting for a model key that works": "รอคีย์โมเดลที่ใช้ได้",
+  "Look at it again later": "กลับมาดูอีกครั้งภายหลัง",
+  "Coming back to it later": "จะกลับมาดูภายหลัง",
   "Ask every time": "ถามทุกครั้ง",
   "5 minutes": "5 นาที",
   "10 minutes": "10 นาที",

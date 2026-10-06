@@ -217,6 +217,13 @@ export interface CreateTaskInput {
   laneKey?: string | undefined;
   /** The schedule that made this task, when one did (0049). */
   scheduleId?: string | undefined;
+  /**
+   * Not claimable before this: a task made now to be done later (`task.follow_up`).
+   * The claim already holds a pending task until its `wait_until`; nothing set
+   * it at creation, which is why the company could not look again at an
+   * outcome (the audit of 3 October, section 3.3).
+   */
+  waitUntil?: Date | undefined;
 }
 
 /**
@@ -621,8 +628,8 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id, lane_key, priority, schedule_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       batchable, goal_id, lane_key, priority, schedule_id, wait_until)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
@@ -638,6 +645,7 @@ async function insertTask(
       input.laneKey ?? null,
       input.priority ?? DEFAULT_PRIORITY,
       input.scheduleId ?? null,
+      input.waitUntil ?? null,
     ],
   );
   const task = toTask(rows[0]!);
@@ -690,8 +698,9 @@ export interface TransitionOptions {
  *   it carries on once a key that works is in use
  * - `service`: a capability's vendor having a moment, before it starts (H2)
  * - `retry`: the next attempt after one failed
+ * - `follow_up`: a task made to look again at an outcome, at its time (`task.follow_up`)
  */
-export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry';
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(

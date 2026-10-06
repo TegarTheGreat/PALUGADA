@@ -2024,6 +2024,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "검토 대기 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",
   "Waiting for a model key that works": "사용할 수 있는 모델 키를 기다리는 중",
+  "Look at it again later": "나중에 다시 확인하기",
+  "Coming back to it later": "나중에 다시 살펴볼 예정",
   "Ask every time": "매번 묻기",
   "5 minutes": "5분",
   "10 minutes": "10분",

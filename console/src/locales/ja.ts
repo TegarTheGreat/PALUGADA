@@ -2022,6 +2022,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "レビューを待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",
   "Waiting for a model key that works": "使えるモデルのキーを待っています",
+  "Look at it again later": "後でもう一度確認する",
+  "Coming back to it later": "後で見直します",
   "Ask every time": "毎回確認する",
   "5 minutes": "5 分",
   "10 minutes": "10 分",

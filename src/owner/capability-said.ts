@@ -65,6 +65,7 @@ export function capabilitySaid(language: string | null | undefined, name: string
     'stage.propose': () => say(language, 'Propose a new stage'),
     'task.await': () => say(language, 'Wait for work handed on'),
     'task.delegate': () => say(language, 'Hand work to another role'),
+    'task.follow_up': () => say(language, 'Look at it again later'),
     'ticket.create': () => say(language, 'File a ticket'),
     'ticket.list': () => say(language, 'List tickets'),
     'uptime.check': () => say(language, 'Check a service is up'),

@@ -2013,6 +2013,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "等待审核",
   "Waiting for the model to answer": "正在等待模型回应",
   "Waiting for a model key that works": "正在等待可用的模型密钥",
+  "Look at it again later": "稍后再查看",
+  "Coming back to it later": "稍后回来处理",
   "Ask every time": "每次都询问",
   "5 minutes": "5 分钟",
   "10 minutes": "10 分钟",

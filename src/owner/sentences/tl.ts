@@ -351,4 +351,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} laban sa target na {target}, binasa muli mula sa pinagmulan nito.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} laban sa target na {target}, iniulat at hindi sinuri.',
+  'Look at it again later': 'Tingnan muli mamaya',
 };

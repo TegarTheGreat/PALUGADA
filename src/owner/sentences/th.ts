@@ -357,4 +357,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} เทียบกับเป้าหมาย {target} อ่านซ้ำจากแหล่งที่มาแล้ว',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} เทียบกับเป้าหมาย {target} รายงานมาและยังไม่ได้ตรวจสอบ',
+  'Look at it again later': 'กลับมาดูอีกครั้งภายหลัง',
 };

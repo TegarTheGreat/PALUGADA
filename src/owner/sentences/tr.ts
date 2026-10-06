@@ -355,4 +355,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value}, hedef {target}, kaynağından yeniden okunarak doğrulandı.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}, hedef {target}, bildirildi ancak doğrulanmadı.',
+  'Look at it again later': 'Sonra yeniden bak',
 };

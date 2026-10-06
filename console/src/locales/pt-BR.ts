@@ -2011,6 +2011,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Aguardando revisão",
   "Waiting for the model to answer": "Aguardando a resposta do modelo",
   "Waiting for a model key that works": "Aguardando uma chave do modelo que funcione",
+  "Look at it again later": "Rever mais tarde",
+  "Coming back to it later": "Voltará a isso mais tarde",
   "Ask every time": "Perguntar sempre",
   "5 minutes": "5 minutos",
   "10 minutes": "10 minutos",

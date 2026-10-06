@@ -47,7 +47,7 @@ export const DEFAULT_MIN_OCCURRENCES = 3;
  * division was offered.
  */
 const HOUSEKEEPING_CAPABILITIES = [
-  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await', 'task.follow_up',
   'stage.propose', 'goal.propose', 'ticket.list',
 ];
 

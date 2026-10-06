@@ -353,4 +353,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}：{value}，目标为 {target}，已从来源重新读取核对。',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}：{value}，目标为 {target}，仅为上报，未经核对。',
+  'Look at it again later': '稍后再查看',
 };

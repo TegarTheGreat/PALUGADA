@@ -2007,6 +2007,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Naghihintay ng review",
   "Waiting for the model to answer": "Naghihintay sumagot ang model",
   "Waiting for a model key that works": "Naghihintay ng key ng modelo na gumagana",
+  "Look at it again later": "Tingnan muli mamaya",
+  "Coming back to it later": "Babalikan mamaya",
   "Ask every time": "Laging magtanong",
   "5 minutes": "5 minuto",
   "10 minutes": "10 minuto",

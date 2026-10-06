@@ -127,6 +127,19 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'company changes; what the sub-task then does is judged at its own tier.',
   },
   {
+    // 3 October audit, P0-7: look again at the real outcome, later.
+    name: 'task.follow_up',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks for a task of its own, later, to look at what the work actually did.',
+    calibration:
+      'Creates a sub-task inside the company that cannot start before its time, ' +
+      'under the hop limit, the fan-out cap and the parent\'s budget, carrying ' +
+      'what the parent read from outside; an hour at least, ninety days at most, ' +
+      'a few open per goal, cancelled when the goal closes. Nothing outside the ' +
+      'company changes; what it does when it wakes is judged at its own tier.',
+  },
+  {
     // The result of a sub-task this task delegated; waiting parks the task.
     name: 'task.await',
     adapter: 'platform',

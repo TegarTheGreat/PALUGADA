@@ -440,6 +440,7 @@ export function registerPlatformCapabilities(registry: {
   ) as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
+  registry.register(taskFollowUpCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
   registry.register(goalProposeCapability() as unknown as Capability<never, never>);
   registry.register(scheduleProposeCapability() as unknown as Capability<never, never>);
@@ -974,6 +975,122 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
   };
 }
 
+export interface TaskFollowUpInput {
+  /** The slug of the role that looks again: this one, or another. */
+  role: string;
+  /** What to look at again, what to check it against, and what to do about it. */
+  brief: string;
+  context?: string;
+  /** How many hours from now: 1 to 2160, ninety days. */
+  afterHours: number;
+  /** How long it has once it wakes, in minutes (15 to 1440; 120 unless said). */
+  windowMinutes?: number;
+}
+
+/** Follow-ups waiting for one goal at once: a handful, so a role cannot leave a hundred reminders behind. */
+export const FOLLOW_UP_MAX_OPEN = 5;
+
+/**
+ * `task.follow_up`: a role asks to be woken later about its own work (the audit
+ * of 3 October, section 3.3; P0-7).
+ *
+ * An invoice is sent, a campaign launched, a deploy shipped: the effect lands
+ * later, and nothing in the company looked again -- only a blind recurring
+ * schedule, which the owner must say yes to, or the owner. This makes a
+ * sub-task now that cannot be claimed until its time (`wait_until`, which the
+ * claim already honours and nothing set), so it is an ordinary task when it
+ * arrives: the same journal, lease, budget chain and approvals. A sub-task and
+ * not a new kind of thing, so it carries the parent's goal, its budget and --
+ * what matters -- what the parent had read from outside: an injected
+ * instruction cannot be laundered into clean work an hour later.
+ *
+ * Bounded by what a task already is, and a little more: the hop limit (a chain
+ * of follow-ups ends after three), the parent's fan-out, an hour at the least
+ * and ninety days at the most, a handful open per goal, and cancelled when the
+ * goal closes. The window it has is counted from when it wakes, not from when
+ * it was made, or it would be halted for want of time before it could run.
+ */
+export function taskFollowUpCapability(): Capability<TaskFollowUpInput, { taskId: string; role: string; wakesAt: string }> {
+  return {
+    name: 'task.follow_up',
+    inputSchema: {
+      type: 'object',
+      required: ['role', 'brief', 'afterHours'],
+      properties: {
+        role: { type: 'string', minLength: 1, description: 'The slug of the role that looks again: yourself, or another.' },
+        brief: {
+          type: 'string', minLength: 1,
+          description: 'What to look at again, what to check it against (the figure, the record, the page), and what to do about what it finds: continue, propose a goal change, or ask the owner.',
+        },
+        context: { type: 'string', description: 'What it needs that the brief does not say: the invoice number, the campaign, the figure you expect.' },
+        afterHours: { type: 'integer', minimum: 1, maximum: 2160, description: 'How many hours from now it wakes: 1 to 2160 (ninety days).' },
+        windowMinutes: { type: 'integer', minimum: 15, maximum: 1440, description: 'How long it has once it wakes (default 120).' },
+      },
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const brief = String(input.brief ?? '').trim();
+      if (!brief) throw new PalugadaError('contract.violation', 'task.follow_up needs a brief', { field: 'brief' });
+      if (brief.length > 4_000) throw new PalugadaError('contract.violation', 'a brief is at most 4000 characters', { field: 'brief' });
+      const hours = input.afterHours;
+      if (!Number.isInteger(hours) || hours < 1 || hours > 2_160) {
+        throw new PalugadaError('contract.violation', 'afterHours is a whole number of hours, from 1 to 2160 (ninety days)', { field: 'afterHours' });
+      }
+      const window = input.windowMinutes ?? 120;
+      if (!Number.isInteger(window) || window < 15 || window > 1_440) {
+        throw new PalugadaError('contract.violation', 'windowMinutes is a whole number from 15 to 1440', { field: 'windowMinutes' });
+      }
+      const childInput = {
+        goal: brief,
+        ...(typeof input.context === 'string' && input.context.trim() ? { context: input.context.trim() } : {}),
+        followUpOf: ctx.taskId,
+      };
+      const found = await withTenant(ctx.companyId, async (tx) => {
+        const parent = await getTask(tx, ctx.taskId);
+        const roles = await tx.query<NamedRole>('SELECT id, slug, division_id, display_name, title FROM roles ORDER BY slug');
+        const role = resolveRole(roles.rows, String(input.role ?? ''), parent?.roleId ?? null);
+        // The same request again -- a parent replayed from its journal -- is the
+        // task it already made, and is not counted against the limit twice.
+        const key = `followup:${ctx.taskId}:${hashInput({ role: role.id, ...childInput, hours })}`;
+        const { rows: existing } = await tx.query<{ id: string; wait_until: Date | null }>(
+          'SELECT id, wait_until FROM tasks WHERE idempotency_key = $1', [key]);
+        const open = parent
+          ? Number((await tx.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM tasks
+              WHERE goal_id IS NOT DISTINCT FROM $1 AND idempotency_key LIKE 'followup:%' AND status = 'pending'`,
+            [parent.goalId])).rows[0]!.n)
+          : 0;
+        return { parent, role, key, existing: existing[0] ?? null, open };
+      });
+      if (!found.parent) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
+      if (found.existing) {
+        return { taskId: found.existing.id, role: found.role.slug, wakesAt: (found.existing.wait_until ?? new Date()).toISOString() };
+      }
+      if (found.open >= FOLLOW_UP_MAX_OPEN) {
+        throw new PalugadaError('contract.violation',
+          `at most ${FOLLOW_UP_MAX_OPEN} follow-ups are open for a goal; wait for one to come round, or make this one part of it`,
+          { field: 'afterHours' });
+      }
+      const wakesAt = new Date(Date.now() + hours * 3_600_000);
+      const child = await createSubTask(ctx.taskId, {
+        companyId: ctx.companyId,
+        projectId: found.parent.projectId,
+        divisionId: found.role.division_id,
+        roleId: found.role.id,
+        input: childInput,
+        createdBy: 'agent_run',
+        idempotencyKey: found.key,
+        waitUntil: wakesAt,
+        deadlineAt: new Date(wakesAt.getTime() + window * 60_000),
+      });
+      await withTenant(ctx.companyId, (tx) => noteTalkDrift(tx, { companyId: ctx.companyId, taskId: ctx.taskId, where: 'handoff', text: brief }));
+      return { taskId: child.id, role: found.role.slug, wakesAt: wakesAt.toISOString() };
+    },
+  };
+}
+
 interface NamedRole {
   id: string;
   slug: string;
@@ -1142,6 +1259,6 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
-  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await', 'task.follow_up',
   'stage.propose', 'goal.propose', 'schedule.propose',
 ] as const;

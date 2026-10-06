@@ -431,6 +431,11 @@ The first version. What it holds, in the order an owner meets it.
   short of target, and every proposal to close or give up a goal shows where its
   measures stand, as the platform reads them. A run that resumes keeps its
   newest steps when its context is too long (STATUS 2.147).
+- A role can ask to be woken later about what its own work did -- an invoice
+  sent, a campaign launched, a deploy -- with `task.follow_up`: a task made now
+  that starts at its time, carrying the work's goal, budget and what it had read
+  from outside, cancelled if the goal closes. The coordinator holds it (STATUS
+  2.148).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

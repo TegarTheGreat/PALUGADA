@@ -2024,6 +2024,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "بانتظار المراجعة",
   "Waiting for the model to answer": "ينتظر ردّ النموذج",
   "Waiting for a model key that works": "في انتظار مفتاح نموذج صالح",
+  "Look at it again later": "مراجعته لاحقًا",
+  "Coming back to it later": "ستعود إليه لاحقًا",
   "Ask every time": "اسأل في كل مرة",
   "5 minutes": "5 دقائق",
   "10 minutes": "10 دقائق",

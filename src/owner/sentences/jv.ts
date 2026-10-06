@@ -352,4 +352,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} kanthi target {target}, diwaos malih saking sumberipun.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} kanthi target {target}, dilaporaken lan dereng dipriksa.',
+  'Look at it again later': 'Dipirsani malih mangke',
 };

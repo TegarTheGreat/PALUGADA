@@ -2031,6 +2031,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Ждёт проверки",
   "Waiting for the model to answer": "Ждёт ответа модели",
   "Waiting for a model key that works": "Ждёт рабочий ключ модели",
+  "Look at it again later": "Проверить ещё раз позже",
+  "Coming back to it later": "Вернётся к этому позже",
   "Ask every time": "Спрашивать каждый раз",
   "5 minutes": "5 минут",
   "10 minutes": "10 минут",

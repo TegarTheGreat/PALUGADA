@@ -354,4 +354,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} contro un obiettivo di {target}, riletto dalla sua fonte.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} contro un obiettivo di {target}, riferito e non verificato.',
+  'Look at it again later': 'Ricontrollare più tardi',
 };

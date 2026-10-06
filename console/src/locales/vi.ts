@@ -2051,6 +2051,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Đang chờ rà soát",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",
   "Waiting for a model key that works": "Đang chờ khóa mô hình hợp lệ",
+  "Look at it again later": "Xem lại sau",
+  "Coming back to it later": "Sẽ quay lại sau",
   "Ask every time": "Luôn hỏi",
   "5 minutes": "5 phút",
   "10 minutes": "10 phút",

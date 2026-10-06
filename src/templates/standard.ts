@@ -222,6 +222,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'ticket.create' },
     // The backlog the CEO hands on: tickets the planner and support file.
     { division: 'ops', capability: 'ticket.list' },
+    // Looking again, later, at what the company's own work did.
+    { division: 'ops', capability: 'task.follow_up' },
     // Work owed again and again, proposed as a schedule the owner says yes
     // to rather than asked for by hand each time.
     { division: 'ops', capability: 'schedule.propose' },
@@ -334,7 +336,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'with task.await, and report what came back. The other roles file what is owed and not yet ' +
         'anyone\'s as tickets: read them with ticket.list, and hand one on with task.delegate and its ' +
         'ticketId, so it closes when the work is done. Do the work yourself only when it is ' +
-        'operations: checking that services are up and writing things down. When the same work ' +
+        'operations: checking that services are up and writing things down. When an action\'s ' +
+        'effect lands later -- an invoice sent, a campaign launched, a deploy -- ask to look again ' +
+        'with task.follow_up: name the role, what to check it against (the ledger, the page, the ' +
+        'figure) and what to do about what it finds, and do not wait on it. When the same work ' +
         'is owed again and again, propose a schedule for it with schedule.propose -- which role, ' +
         'when, what each run does, and the evidence -- rather than waiting to be asked each time; ' +
         'the owner\'s yes makes it. When a division escalates something to you, fix the cause ' +
@@ -353,7 +358,11 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         // than those -- the backlog the other roles file first of all. The
         // division still holds them, for a role hired to use them.
         'ticket.list',
-        'doc.draft',
+        // In place of `doc.draft`, which answers nothing until the deployment
+        // has a files root, and which the division still holds: the one role
+        // that routes work is the one that can say "look at this again in two
+        // days", and nothing else in the company is time-keyed to an outcome.
+        'task.follow_up',
         'ticket.create',
       ],
       inputSchema: WORK_INPUT,

@@ -352,4 +352,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} kalayan target {target}, dibaca deui tina sumberna.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} kalayan target {target}, dilaporkeun jeung can dipariksa.',
+  'Look at it again later': 'Tingali deui engké',
 };

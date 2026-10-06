@@ -411,7 +411,9 @@ export async function workOf(
                          GROUP BY 1) planned
               ) END AS plan_done,
               (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at,
-              t.wait_until, waited.reason AS wait_reason, below.waiting_on, below.needs_you
+              t.wait_until,
+              CASE WHEN t.status = 'pending' AND t.wait_until > now() THEN 'follow_up' ELSE waited.reason END AS wait_reason,
+              below.waiting_on, below.needs_you
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
          JOIN divisions d ON d.id = t.division_id
@@ -508,7 +510,9 @@ export async function workOf(
           heartbeatAt: row.heartbeat_at,
           deadlineAt: row.deadline_at,
         },
-        waiting: row.status === 'waiting_window'
+        // A task made to be done later is queued and not yet due: said as
+        // what it is, with when, rather than as work waiting for a worker.
+        waiting: row.status === 'waiting_window' || (row.status === 'pending' && row.wait_reason === 'follow_up')
           ? { reason: row.wait_reason, until: row.wait_until, on: row.waiting_on, needsYou: row.needs_you }
           : null,
       })),

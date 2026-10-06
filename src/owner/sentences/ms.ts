@@ -353,4 +353,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value} dengan sasaran {target}, dibaca semula daripada puncanya.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} dengan sasaran {target}, dilaporkan dan belum disemak.',
+  'Look at it again later': 'Lihat semula kemudian',
 };

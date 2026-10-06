@@ -1997,6 +1997,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "समीक्षा का इंतज़ार",
   "Waiting for the model to answer": "मॉडल के जवाब का इंतज़ार कर रहा है",
   "Waiting for a model key that works": "काम करने वाली मॉडल कुंजी की प्रतीक्षा",
+  "Look at it again later": "बाद में फिर देखें",
+  "Coming back to it later": "बाद में दोबारा देखा जाएगा",
   "Ask every time": "हर बार पूछें",
   "5 minutes": "5 मिनट",
   "10 minutes": "10 मिनट",

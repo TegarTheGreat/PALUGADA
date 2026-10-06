@@ -425,6 +425,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'stage.propose': N('Propose a new stage'),
   'task.await': N('Wait for work handed on'),
   'task.delegate': N('Hand work to another role'),
+  'task.follow_up': N('Look at it again later'),
   'ticket.create': N('File a ticket'),
   'ticket.list': N('List tickets'),
   'uptime.check': N('Check a service is up'),
@@ -595,6 +596,7 @@ const WAIT_REASONS: Record<string, string> = {
   model_key: N('Waiting for a model key that works'),
   service: N('Waiting for a service to answer again'),
   retry: N('Trying again shortly'),
+  follow_up: N('Coming back to it later'),
 };
 
 /** A role a waiting task is held up by, as the work view sends it. */

@@ -24,6 +24,7 @@ import * as inbox from '../inbox/inbox.ts';
 import { goalChangeCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
+import { transitionWithin } from '../engine/tasks.ts';
 import { metricsIn } from './metrics.ts';
 
 export type GoalKind = 'mission' | 'objective' | 'key_result';
@@ -358,6 +359,17 @@ export async function applyGoalChangeWithin(
       [input.goalId, input.companyId]);
     paused.schedules = schedules.rows.length;
     paused.triggers = triggers.rows.length;
+    // Nobody is woken about a goal that is done: the follow-ups waiting under
+    // it (`task.follow_up`) are cancelled, which releases what they held.
+    const waiting = await tx.query<{ id: string }>(
+      `${under} SELECT id FROM tasks
+                 WHERE company_id = $2 AND status = 'pending' AND idempotency_key LIKE 'followup:%'
+                   AND goal_id IN (SELECT id FROM under)
+                 ORDER BY id`,
+      [input.goalId, input.companyId]);
+    for (const task of waiting.rows) {
+      await transitionWithin(tx, input.companyId, task.id, 'cancelled', { haltReason: 'owner_cancel' });
+    }
     if (paused.schedules + paused.triggers > 0) {
       await appendEvent(tx, {
         companyId: input.companyId,

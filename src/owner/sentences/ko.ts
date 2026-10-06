@@ -352,4 +352,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{name}: {value}(목표 {target}), 출처에서 다시 읽어 확인했습니다.',
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}(목표 {target}), 보고만 되었고 확인되지 않았습니다.',
+  'Look at it again later': '나중에 다시 확인하기',
 };

@@ -2028,6 +2028,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Wacht op beoordeling",
   "Waiting for the model to answer": "Wacht op antwoord van het model",
   "Waiting for a model key that works": "Wacht op een werkende modelsleutel",
+  "Look at it again later": "Later nog eens bekijken",
+  "Coming back to it later": "Komt hier later op terug",
   "Ask every time": "Altijd vragen",
   "5 minutes": "5 minuten",
   "10 minutes": "10 minuten",

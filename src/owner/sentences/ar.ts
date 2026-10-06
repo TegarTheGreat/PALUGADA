@@ -343,4 +343,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'انتهت مهمة قبل إتمامها: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'انتهت على النحو التالي: {reason}. لم تُنشأ لها بطاقة أخرى، لذا تظهر هنا بدل أن تمرّ بصمت.',
+  'Where its measures stand, as the platform reads them:':
+    'أين تقف مقاييسه كما تقرؤها المنصة:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: لا توجد قيمة مسجلة بعد، والهدف {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} مقابل هدف {target}، قُرئت من جديد من مصدرها.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} مقابل هدف {target}، أُبلغ عنها ولم تُفحص.',
 };

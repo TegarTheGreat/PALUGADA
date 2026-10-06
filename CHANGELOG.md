@@ -427,6 +427,10 @@ The first version. What it holds, in the order an owner meets it.
   five times by the same piece of work. A remembered fact shows the day it was
   recorded, runs are told memory is a lead and the company's records win, and a
   procedure nobody answers leaves your inbox after two weeks (STATUS 2.146).
+- An agent can no longer ask you to mark a goal met while its checked measure is
+  short of target, and every proposal to close or give up a goal shows where its
+  measures stand, as the platform reads them. A run that resumes keeps its
+  newest steps when its context is too long (STATUS 2.147).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

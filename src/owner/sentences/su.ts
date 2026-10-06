@@ -344,4 +344,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Hiji tugas eureun samemeh réngsé: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Ahirna: {reason}. Euweuh kartu séjén anu dijieun pikeun éta, ku kituna aya di dieu sangkan teu jempé.',
+  'Where its measures stand, as the platform reads them:':
+    'Kaayaan ukuranana, sakumaha dibaca platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: can aya nilai, kalayan target {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} kalayan target {target}, dibaca deui tina sumberna.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} kalayan target {target}, dilaporkeun jeung can dipariksa.',
 };

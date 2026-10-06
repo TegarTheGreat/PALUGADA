@@ -343,4 +343,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Natigil ang isang gawain bago ito natapos: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Natapos ito bilang: {reason}. Walang ibang card na ginawa para dito, kaya narito ito at hindi tahimik.',
+  'Where its measures stand, as the platform reads them:':
+    'Kung nasaan ang mga sukat nito, ayon sa pagbasa ng platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: wala pang naitalang halaga, na may target na {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} laban sa target na {target}, binasa muli mula sa pinagmulan nito.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} laban sa target na {target}, iniulat at hindi sinuri.',
 };

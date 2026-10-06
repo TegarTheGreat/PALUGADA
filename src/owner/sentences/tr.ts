@@ -347,4 +347,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Bir görev bitmeden sona erdi: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Şöyle sona erdi: {reason}. Bunun için başka kart açılmadı; bu yüzden sessiz kalmasın diye burada.',
+  'Where its measures stand, as the platform reads them:':
+    'Ölçülerinin durumu, platformun okuduğu hâliyle:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: henüz kayıtlı değer yok, hedef {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value}, hedef {target}, kaynağından yeniden okunarak doğrulandı.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value}, hedef {target}, bildirildi ancak doğrulanmadı.',
 };

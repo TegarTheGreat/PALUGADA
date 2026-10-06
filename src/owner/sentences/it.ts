@@ -346,4 +346,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Un compito è terminato prima di essere finito: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'È finito così: {reason}. Per esso non è stata creata nessun’altra scheda, quindi compare qui invece di restare in silenzio.',
+  'Where its measures stand, as the platform reads them:':
+    'A che punto sono le sue misure, come le legge la piattaforma:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: ancora nessun valore registrato, con un obiettivo di {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} contro un obiettivo di {target}, riletto dalla sua fonte.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} contro un obiettivo di {target}, riferito e non verificato.',
 };

@@ -24,6 +24,7 @@ import * as inbox from '../inbox/inbox.ts';
 import { goalChangeCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
+import { metricsIn } from './metrics.ts';
 
 export type GoalKind = 'mission' | 'objective' | 'key_result';
 export const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
@@ -230,6 +231,24 @@ export async function proposeGoalChange(input: {
         `that is what the ${current.kind} "${current.slug}" already says`, { goal: current.slug });
     }
 
+    // Not met on an agent's say-so. A measure read back from its source, or
+    // typed by the owner, that is short of its target stops the proposal here:
+    // the owner's card for "met" carried only the agent's prose, and nothing
+    // compared it to the goal's own number (the audit of 3 October, P0-6).
+    const measures = to.status === 'met' || to.status === 'abandoned'
+      ? (await metricsIn(tx)).filter((metric) => metric.goalId === current.id && !metric.retiredAt)
+      : [];
+    if (to.status === 'met') {
+      const short = measures.find((metric) => metric.latest?.verified === true
+        && (metric.direction === 'up' ? metric.latest.value < metric.target : metric.latest.value > metric.target));
+      if (short) {
+        throw new PalugadaError('contract.violation',
+          `the ${current.kind} "${current.slug}" cannot be proposed as met: its measure "${short.name}" reads ${short.latest!.value}, `
+          + `checked at its source, short of its target ${short.target}. Record the value from its source if it has moved, `
+          + 'or propose a different target with the reason', { goal: current.slug, metric: short.slug });
+      }
+    }
+
     // One proposal about a goal at a time: two open ones would let the owner
     // approve both, and the second would change a goal the first had changed.
     const { rows: open } = await tx.query<{ id: string }>(
@@ -258,6 +277,10 @@ export async function proposeGoalChange(input: {
     const change: GoalChange = { goalId: current.id, from: { statement: current.statement, status: current.status }, to };
     const card = goalChangeCard(await ownerReadingWithin(tx), {
       kind: current.kind, statement: current.statement, status: current.status, to, reason: rationale,
+      measures: measures.map((metric) => ({
+        name: metric.name, target: metric.target,
+        now: metric.latest ? { value: metric.latest.value, checked: metric.latest.verified } : null,
+      })),
     });
     const inboxItemId = await inbox.raiseEscalationWithin(tx, {
       companyId: input.companyId,

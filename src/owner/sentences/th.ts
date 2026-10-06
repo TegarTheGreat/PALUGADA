@@ -349,4 +349,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'งานหนึ่งจบลงก่อนเสร็จ: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'งานจบลงด้วยเหตุ: {reason} ไม่มีการ์ดอื่นถูกสร้างสำหรับงานนี้ จึงแสดงที่นี่แทนที่จะเงียบไป',
+  'Where its measures stand, as the platform reads them:':
+    'ตัวชี้วัดอยู่ที่ไหน ตามที่แพลตฟอร์มอ่านได้:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: ยังไม่มีค่า เป้าหมาย {target}',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} เทียบกับเป้าหมาย {target} อ่านซ้ำจากแหล่งที่มาแล้ว',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} เทียบกับเป้าหมาย {target} รายงานมาและยังไม่ได้ตรวจสอบ',
 };

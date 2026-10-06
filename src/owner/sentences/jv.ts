@@ -344,4 +344,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Satunggal tugas mandheg sadèrèng rampung: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Pungkasanipun: {reason}. Boten wonten kertu sanès ingkang kadamel, mila kaladosaken ing mriki supados boten sepi.',
+  'Where its measures stand, as the platform reads them:':
+    'Kedadosan ukuranipun, kados ingkang diwaos platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: dereng wonten nilai, kanthi target {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} kanthi target {target}, diwaos malih saking sumberipun.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} kanthi target {target}, dilaporaken lan dereng dipriksa.',
 };

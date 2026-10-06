@@ -350,4 +350,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Một tác vụ kết thúc trước khi xong: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Nó kết thúc với lý do: {reason}. Không có thẻ nào khác được tạo cho nó, nên nó xuất hiện ở đây thay vì im lặng.',
+  'Where its measures stand, as the platform reads them:':
+    'Các thước đo đang ở đâu, theo cách nền tảng đọc:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: chưa có giá trị, với mục tiêu {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} so với mục tiêu {target}, đã đọc lại từ nguồn của nó.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} so với mục tiêu {target}, được báo cáo và chưa kiểm tra.',
 };

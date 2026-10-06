@@ -344,4 +344,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '작업이 끝나지 못한 채 종료되었습니다: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     '종료 사유: {reason}. 이 건에 대해 다른 카드가 만들어지지 않아, 조용히 지나가지 않도록 여기에 올렸습니다.',
+  'Where its measures stand, as the platform reads them:':
+    '플랫폼이 읽은 지표의 현재 상태:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: 아직 기록된 값이 없습니다(목표 {target}).',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value}(목표 {target}), 출처에서 다시 읽어 확인했습니다.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value}(목표 {target}), 보고만 되었고 확인되지 않았습니다.',
 };

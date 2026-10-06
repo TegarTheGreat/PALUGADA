@@ -446,6 +446,8 @@ export function handledSaid(reading: OwnerReading, facts: { role: string; summar
 
 export function goalChangeCard(reading: OwnerReading, facts: {
   kind: string; statement: string; status: string; to: { statement?: string; status?: string }; reason: string;
+  /** Where the goal's own measures stand, as the platform reads them: the evidence beside the agent's reason. */
+  measures?: ReadonlyArray<{ name: string; target: number; now: { value: number; checked: boolean } | null }>;
 }): Card & { consequence: string } {
   const { language } = reading;
   const kind = goalKindSaid(language, facts.kind);
@@ -459,6 +461,20 @@ export function goalChangeCard(reading: OwnerReading, facts: {
       ...(facts.to.statement ? [say(language, 'Proposed: {statement}', { statement: facts.to.statement })] : []),
       ...(facts.to.status ? [say(language, 'Proposed status: {status}', { status: status(facts.to.status) })] : []),
       say(language, 'Reason given: {reason}', { reason: facts.reason }),
+      ...((facts.measures?.length ?? 0) > 0
+        ? [
+          '',
+          say(language, 'Where its measures stand, as the platform reads them:'),
+          ...facts.measures!.map((measure) => {
+            const target = number(reading, measure.target, 2);
+            if (!measure.now) return say(language, '{name}: no value recorded yet, against a target of {target}.', { name: measure.name, target });
+            const value = number(reading, measure.now.value, 2);
+            return measure.now.checked
+              ? say(language, '{name}: {value} against a target of {target}, read back from its source.', { name: measure.name, value, target })
+              : say(language, '{name}: {value} against a target of {target}, reported and not checked.', { name: measure.name, value, target });
+          }),
+        ]
+        : []),
       '',
       say(language, 'Approving it changes the goal; until then the work carries on under the goal as it is.'),
     ].join('\n'),

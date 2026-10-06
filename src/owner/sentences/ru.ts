@@ -346,4 +346,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Задача завершилась, не будучи выполненной: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Она завершилась так: {reason}. Другой карточки по ней не создавалось, поэтому она здесь, а не молчит.',
+  'Where its measures stand, as the platform reads them:':
+    'Как обстоят дела с его показателями, как их читает платформа:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: значения пока нет, цель {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} при цели {target}, перечитано из источника.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} при цели {target}, сообщено и не проверено.',
 };

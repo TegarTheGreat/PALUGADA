@@ -9255,6 +9255,33 @@ a card to press, so asking it to start work was asking it to fill in a form.
   `recordedOn` and `unverified` from `memory.search`; the prompts), `charter-context`
   (the new section's place) and `distillation.test.ts` (the fortnight).
 
+## 2.147 A goal is not met on an agent's say-so, and a resumed run keeps its newest steps (audit of 3 October, P0-6 and P0-8)
+
+- **A goal is not proposed as met against a measure that says otherwise.** An
+  agent's `goal.propose` for "met" carried a sentence, and the owner's card
+  showed that sentence: nothing compared it to the goal's own number. A measure
+  read back from its source, or typed by the owner, that is short of its target
+  (in the direction the measure says) now refuses the proposal where it is made,
+  with the figures and what to do. A measure nobody checked neither blocks nor
+  supports. Closing a goal stays the owner's: nothing closes it when a number is
+  reached, and the owner's own edit is unchanged.
+- **Every proposal to close or give up a goal carries where the measures stand,
+  as the platform reads them**: each live measure with its latest value, its
+  target, and whether it was read back from its source or only reported. The
+  owner reads evidence beside the agent's reason; a goal with no measure shows
+  no such lines.
+- **A resumed run keeps its newest steps.** The pack dropped sections from the
+  end within a kind, which suits memory (recall returns its best first) and is
+  wrong for a task's own steps: a task that overflowed the pack on resume lost
+  the latest state of its work first, and was pointed at `memory.search`, which
+  cannot return a step. Steps now go oldest first, the newest are always kept,
+  and the notice says so and says that memory search will not bring them back.
+- **Tested** in `goals.test.ts` (refused with the figures while a checked measure
+  is short; an unchecked claim shown as such; "abandoned" shown the same evidence
+  and not refused; a goal with no measure as before) and `charter-context.test.ts`
+  (eight steps that do not fit: what is left is the end, in order, with the newest
+  there, and the notice).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

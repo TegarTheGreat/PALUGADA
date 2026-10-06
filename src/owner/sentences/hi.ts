@@ -346,4 +346,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'एक काम पूरा होने से पहले ही खत्म हो गया: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'वह इस रूप में खत्म हुआ: {reason}। इसके लिए कोई और कार्ड नहीं बना, इसलिए यह यहाँ है, चुपचाप नहीं।',
+  'Where its measures stand, as the platform reads them:':
+    'प्लेटफ़ॉर्म के पढ़ने के अनुसार इसके मापदंड कहाँ हैं:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: अभी कोई मान दर्ज नहीं, लक्ष्य {target}।',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value}, लक्ष्य {target}, स्रोत से दोबारा पढ़कर जाँचा गया।',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value}, लक्ष्य {target}, केवल बताया गया, जाँचा नहीं गया।',
 };

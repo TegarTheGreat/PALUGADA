@@ -922,12 +922,25 @@ function trimToBudget(
 
   const kept = [...sections];
   let dropped = 0;
+  let steps = 0;
 
   for (const kind of DROP_ORDER) {
-    for (let index = kept.length - 1; index >= 0 && estimateContextTokens(kept) > limit; index -= 1) {
-      if (kept[index]!.kind !== kind) continue;
-      kept.splice(index, 1);
-      dropped += 1;
+    if (kind === 'working_memory') {
+      // A task's own steps go oldest first. They are in the order the work
+      // happened, and what the run needs to carry on is where it got to, not
+      // how it began: dropped from the end, the latest state was lost first.
+      for (let index = 0; index < kept.length && estimateContextTokens(kept) > limit;) {
+        if (kept[index]!.kind !== kind) { index += 1; continue; }
+        kept.splice(index, 1);
+        dropped += 1;
+        steps += 1;
+      }
+    } else {
+      for (let index = kept.length - 1; index >= 0 && estimateContextTokens(kept) > limit; index -= 1) {
+        if (kept[index]!.kind !== kind) continue;
+        kept.splice(index, 1);
+        dropped += 1;
+      }
     }
     if (estimateContextTokens(kept) <= limit) break;
   }
@@ -945,6 +958,11 @@ function trimToBudget(
       body:
         `${dropped} item${dropped === 1 ? '' : 's'} did not fit within the ` +
         `${limit}-token context pack and ${dropped === 1 ? 'was' : 'were'} left out. ` +
+        (steps > 0
+          ? 'The oldest completed steps of this task were left out; the newest are kept. ' +
+            'What the earlier steps did is not something memory.search can return, so do not repeat ' +
+            'work the steps you can see take as done. '
+          : '') +
         (canSearch
           ? 'Use memory.search to look for anything you expected to find here and did not. '
           : 'Your division cannot search for what was left out, so say what you were ' +

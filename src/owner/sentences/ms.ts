@@ -345,4 +345,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Satu tugas berakhir sebelum siap: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     'Ia berakhir sebagai: {reason}. Tiada kad lain dibuat untuknya, jadi ia ada di sini dan bukan senyap.',
+  'Where its measures stand, as the platform reads them:':
+    'Kedudukan ukurannya, seperti yang dibaca platform:',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}: belum ada nilai, dengan sasaran {target}.',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}: {value} dengan sasaran {target}, dibaca semula daripada puncanya.',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}: {value} dengan sasaran {target}, dilaporkan dan belum disemak.',
 };

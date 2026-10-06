@@ -345,4 +345,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '一项任务在完成前就结束了：{task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     '它的结束原因：{reason}。没有为它生成其他卡片，所以放在这里，而不是悄无声息。',
+  'Where its measures stand, as the platform reads them:':
+    '平台读到的各项指标现状：',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}：尚无数值，目标为 {target}。',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}：{value}，目标为 {target}，已从来源重新读取核对。',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}：{value}，目标为 {target}，仅为上报，未经核对。',
 };

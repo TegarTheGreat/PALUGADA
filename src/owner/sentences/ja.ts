@@ -342,4 +342,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '作業が完了前に終了しました：{task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
     '終了の理由：{reason}。ほかにこの件のカードは作られていないため、黙って見過ごされないようここに出しています。',
+  'Where its measures stand, as the platform reads them:':
+    'プラットフォームが読み取った指標の現状：',
+  '{name}: no value recorded yet, against a target of {target}.':
+    '{name}：まだ値がありません（目標 {target}）。',
+  '{name}: {value} against a target of {target}, read back from its source.':
+    '{name}：{value}（目標 {target}）、取得元から読み直して確認済み。',
+  '{name}: {value} against a target of {target}, reported and not checked.':
+    '{name}：{value}（目標 {target}）、報告のみで未確認。',
 };

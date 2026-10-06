@@ -2043,6 +2043,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Nengga panliten",
   "Waiting for the model to answer": "Nengga modhèl mangsuli",
   "Waiting for a model key that works": "Nengga kunci modhèl ingkang saged dipunginakaken",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "Retensi wis mbusak apa sing diomongake proses tugas iki, dadi ora bisa dilajengake saka panggonan mandhege. Mlakokna maneh wae.",
   "Follows the panel: {language}": "Ngetutake panel: {language}",
   "Overdue": "Telat",
   "Paid": "Wis dibayar",

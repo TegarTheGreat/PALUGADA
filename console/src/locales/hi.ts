@@ -1996,6 +1996,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "समीक्षा का इंतज़ार",
   "Waiting for the model to answer": "मॉडल के जवाब का इंतज़ार कर रहा है",
   "Waiting for a model key that works": "काम करने वाली मॉडल कुंजी की प्रतीक्षा",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "रिटेंशन ने इस कार्य के रन में कही गई बातें मिटा दी हैं, इसलिए इसे वहीं से जारी नहीं रखा जा सकता जहाँ यह रुका था। इसके बजाय इसे दोबारा चलाएँ।",
   "Follows the panel: {language}": "पैनल के अनुसार: {language}",
   "Overdue": "बकाया अवधि पार",
   "Paid": "चुकाया गया",

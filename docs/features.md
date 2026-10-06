@@ -232,9 +232,11 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - Goals are measured by numbers with targets, and an agent's number counts as
   verified only when it read that number from its source.
 - A measure that reaches its target, passes its due date short of it, or has a
-  source unread for a week wakes the CEO once, who asks the owner where it
-  stands and has the source read again; each target, date or source the owner
-  sets is looked at once, and only checked figures count.
+  source unread for a week wakes the CEO, who asks the owner where it stands and
+  has the source read again. A target and a date are each looked at once for
+  the value the owner set; a source nobody has read is read again about every
+  week while those reads succeed, until the target is reached, the date passes,
+  or the owner retires the measure. Only checked figures count.
 - The built-in `company-os` bundle adds a strategist that proposes at most
   three bets and never applies them, a critic that reads every stage
   proposal before the owner does and whose verdict the owner sees, a weekly

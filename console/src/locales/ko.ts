@@ -2023,6 +2023,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "검토 대기 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",
   "Waiting for a model key that works": "사용할 수 있는 모델 키를 기다리는 중",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "보존 정책으로 이 작업의 실행 내용이 지워져 멈춘 지점에서 이어갈 수 없습니다. 대신 다시 실행하세요.",
   "Follows the panel: {language}": "패널을 따름: {language}",
   "Overdue": "연체",
   "Paid": "결제 완료",

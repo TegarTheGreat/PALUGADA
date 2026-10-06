@@ -2045,6 +2045,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "รอการตรวจทาน",
   "Waiting for the model to answer": "รอโมเดลตอบ",
   "Waiting for a model key that works": "รอคีย์โมเดลที่ใช้ได้",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "การเก็บรักษาข้อมูลได้ลบสิ่งที่การรันงานนี้เคยบอกไปแล้ว จึงไม่สามารถทำต่อจากจุดที่หยุดได้ ให้สั่งรันใหม่แทน",
   "Follows the panel: {language}": "ตามแผงควบคุม: {language}",
   "Overdue": "เกินกำหนด",
   "Paid": "ชำระแล้ว",

@@ -2052,6 +2052,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "İnceleme bekliyor",
   "Waiting for the model to answer": "Modelin yanıtını bekliyor",
   "Waiting for a model key that works": "Çalışan bir model anahtarı bekliyor",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "Saklama süresi, bu görevin çalışmasının söylediklerini sildi; bu yüzden kaldığı yerden devam edemez. Bunun yerine yeniden çalıştırın.",
   "Follows the panel: {language}": "Panele uyar: {language}",
   "Overdue": "Gecikmiş",
   "Paid": "Ödendi",

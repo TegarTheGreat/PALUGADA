@@ -2026,6 +2026,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Wartet auf Prüfung",
   "Waiting for the model to answer": "Wartet auf die Antwort des Modells",
   "Waiting for a model key that works": "Wartet auf einen funktionierenden Modellschlüssel",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "Die Aufbewahrung hat gelöscht, was der Lauf dieser Aufgabe gesagt hat; sie kann daher nicht dort fortgesetzt werden, wo sie stehen geblieben ist. Führen Sie sie stattdessen erneut aus.",
   "Follows the panel: {language}": "Folgt dem Panel: {language}",
   "Overdue": "Überfällig",
   "Paid": "Bezahlt",

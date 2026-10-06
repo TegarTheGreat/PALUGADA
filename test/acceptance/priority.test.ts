@@ -42,6 +42,18 @@ test('work the owner gives with a priority has it, and one that is out of range 
     const refused = await give({ goal: 'x', priority: 7 });
     assert.equal(refused.status, 400);
     assert.match(String(refused.body.error), /priority is 0 \(first\) to 3 \(last\)/);
+    // A blank is not a priority: `Number(null)` and `Number('')` are 0, the most urgent there is. Left out
+    // as the assistant leaves it out, it is the ordinary one; said as something that is not a number, it is refused.
+    for (const blank of [null, '']) {
+      const unsaid = await give({ goal: `Tidy the shelf list (${JSON.stringify(blank)})`, priority: blank });
+      assert.equal(unsaid.status, 200, JSON.stringify(unsaid.body));
+      assert.equal(await priorityOf(fixture, unsaid.body.taskId), 2, `${JSON.stringify(blank)} is left out`);
+    }
+    for (const odd of [false, true, [], {}, ' ']) {
+      const strange = await give({ goal: 'x', priority: odd });
+      assert.equal(strange.status, 400, JSON.stringify(odd));
+    }
+    assert.equal(await priorityOf(fixture, (await give({ goal: 'Late', priority: '3' })).body.taskId), 3, 'a number written as text is read');
 
     // A ticket's priority is the task's when the owner gives it out.
     const filed = await withTenant(fixture.companyId, (tx) => openTicket(tx, {

@@ -165,6 +165,11 @@ export type ErrorCode =
    * it stopped; anything else is done again.
    */
   | 'task.not_continuable'
+  /**
+   * The owner asked to go on with a task whose model turns retention has
+   * blanked: nothing is left to go on from, and it is done again instead.
+   */
+  | 'task.record_cleared'
   | 'role.frozen'
   | 'platform.stopped'
   | 'task.invalid_transition'

@@ -2030,6 +2030,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Ждёт проверки",
   "Waiting for the model to answer": "Ждёт ответа модели",
   "Waiting for a model key that works": "Ждёт рабочий ключ модели",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "Политика хранения стёрла то, что сказал запуск этой задачи, поэтому продолжить с места остановки нельзя. Запустите её заново.",
   "Follows the panel: {language}": "Как в панели: {language}",
   "Overdue": "Просрочен",
   "Paid": "Оплачен",

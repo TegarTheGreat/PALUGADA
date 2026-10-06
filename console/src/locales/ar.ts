@@ -2023,6 +2023,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "بانتظار المراجعة",
   "Waiting for the model to answer": "ينتظر ردّ النموذج",
   "Waiting for a model key that works": "في انتظار مفتاح نموذج صالح",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "مسحت سياسة الاحتفاظ ما قالته جولة هذه المهمة، لذلك لا يمكن متابعتها من حيث توقفت. شغّلها من جديد بدلًا من ذلك.",
   "Follows the panel: {language}": "يتبع لغة اللوحة: {language}",
   "Overdue": "متأخرة",
   "Paid": "مدفوعة",

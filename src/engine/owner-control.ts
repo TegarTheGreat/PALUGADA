@@ -253,7 +253,7 @@ export async function continueHalted(companyId: string, taskId: string): Promise
     `SELECT 1 FROM task_steps WHERE task_id = $1 AND company_id = $2 AND kind = 'llm'
         AND output = '{"redacted":"retention"}'::jsonb LIMIT 1`, [taskId, companyId]));
   if (cleared.rowCount === 1) {
-    throw new PalugadaError('task.not_continuable',
+    throw new PalugadaError('task.record_cleared',
       `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
         + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
   }

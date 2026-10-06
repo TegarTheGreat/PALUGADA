@@ -199,6 +199,7 @@ test('a task whose record retention has cleared is not continued, and says to do
     const owner = await api.signIn();
     const one = await api.call('POST', `/api/companies/${fixture.companyId}/tasks/${old}/continue`, owner, {});
     assert.equal(one.status, 409, JSON.stringify(one.body));
+    assert.equal(one.body.code, 'task.record_cleared', 'its own code, so the console says what it means and not what a budget halt means');
     assert.match(String(one.body.error), /retention/);
     assert.match(String(one.body.error), /do it again|run it again/i);
     assert.equal(await statusOf(fixture, old), 'halted');

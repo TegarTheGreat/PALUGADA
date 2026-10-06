@@ -4005,7 +4005,7 @@ export class OwnerApi {
             ...(body.reserveTokens === undefined
               ? {}
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
-            ...(body.priority === undefined ? {} : { priority: priorityOf(body.priority) }),
+            ...(body.priority === undefined || body.priority === null || body.priority === '' ? {} : { priority: priorityOf(body.priority) }),
           });
           return { taskId: assigned.task.id, wakeId: assigned.wakeId };
         },
@@ -6729,7 +6729,7 @@ function statusFor(code: string): number {
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
   if (code === 'schedule.slug_taken') return 409;
-  if (code === 'task.not_continuable') return 409;
+  if (code === 'task.not_continuable' || code === 'task.record_cleared') return 409;
   if (code === 'company.slug_taken') return 409;
   if (code === 'browser.not_held') return 409;
   if (code === 'mfa.locked_out') return 429;
@@ -6891,6 +6891,11 @@ function pictureFrom(body: Record<string, unknown>): Picture {
 
 /** A priority from a request: 0 (first) to 3 (last), the range F5.10 and a ticket both keep. */
 function priorityOf(value: unknown): number {
+  // `Number(null)`, `Number('')`, `Number(false)` and `Number([])` are all 0, the
+  // most urgent there is: a blank is not a priority, and is refused as one.
+  if (typeof value !== 'number' && !(typeof value === 'string' && value.trim() !== '')) {
+    throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
+  }
   const priority = wholeNumber(value, 'priority');
   if (priority < 0 || priority > 3) {
     throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });

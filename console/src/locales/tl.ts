@@ -2006,6 +2006,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Naghihintay ng review",
   "Waiting for the model to answer": "Naghihintay sumagot ang model",
   "Waiting for a model key that works": "Naghihintay ng key ng modelo na gumagana",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "Binura na ng retention ang sinabi ng takbo ng gawaing ito, kaya hindi na ito maipagpapatuloy mula sa kung saan ito tumigil. Patakbuhin na lang ulit.",
   "Follows the panel: {language}": "Sumusunod sa panel: {language}",
   "Overdue": "Lampas na sa takda",
   "Paid": "Bayad na",

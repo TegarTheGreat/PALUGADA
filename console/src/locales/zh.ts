@@ -2012,6 +2012,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "等待审核",
   "Waiting for the model to answer": "正在等待模型回应",
   "Waiting for a model key that works": "正在等待可用的模型密钥",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "保留策略已清除此任务运行时所说的内容，因此无法从停下的地方继续。请改为重新运行。",
   "Follows the panel: {language}": "跟随面板：{language}",
   "Overdue": "已逾期",
   "Paid": "已付款",

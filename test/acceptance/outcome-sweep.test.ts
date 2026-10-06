@@ -17,7 +17,7 @@
  * `observed_at` and `tasks.created_at` are the database's own clock, so the
  * ten minutes between two tasks is tested at real time (now, and now plus
  * eleven minutes) and staleness with a clock eight days on. Dates are
- * relative, or in 2020 (past) and 2030 (future), never a near calendar day.
+ * relative, or in 2020 (past) and 2090 (future), never a near calendar day.
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -40,6 +40,7 @@ import { changeMetric, defineMetric, recordObservation } from '../../src/domain/
 import { pauseRole, unfreezeRole } from '../../src/governance/role-freeze.ts';
 import { clearSpendPause } from '../../src/governance/spend-guard.ts';
 import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { wellFormed } from '../../src/text.ts';
 import { Worker } from '../../src/worker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
@@ -291,9 +292,9 @@ test("lower is better, the target itself counts, and an agent's claim is not a r
 
 test("overdue is looked at once for each due date, and judged in the owner's day", async () => {
   const fixture = await createCompany('outcome-overdue');
-  const one = await measure(fixture, { name: 'Signed contracts', target: 10, dueOn: '2030-06-15' });
+  const one = await measure(fixture, { name: 'Signed contracts', target: 10, dueOn: '2090-06-15' });
   await ownerReading(fixture, one.id, 3);
-  const evening = new Date('2030-06-15T20:00:00Z');
+  const evening = new Date('2090-06-15T20:00:00Z');
   assert.equal(await ensureOutcomes(fixture.companyId, evening), null, 'due today is not overdue (UTC)');
 
   // Twenty hundred in London is three in the morning of the next day in Jakarta.
@@ -302,16 +303,16 @@ test("overdue is looked at once for each due date, and judged in the owner's day
   assert.ok(taskId, "the owner's calendar day has passed the date");
   const [task] = await outcomeTasks(fixture);
   assert.equal(task!.input.state, 'overdue');
-  assert.equal(task!.idempotency_key, keyOf(one.id, 'overdue', '2030-06-15'));
+  assert.equal(task!.idempotency_key, keyOf(one.id, 'overdue', '2090-06-15'));
   assert.equal(task!.priority, 2);
-  assert.match(task!.input.context, /2030-06-15/);
+  assert.match(task!.input.context, /2090-06-15/);
 
   assert.equal(await ensureOutcomes(fixture.companyId, new Date(evening.getTime() + 11 * 60_000)), null, 'once');
-  assert.equal(await ensureOutcomes(fixture.companyId, new Date('2030-07-20T00:00:00Z')), null, 'a month later it is the same date');
+  assert.equal(await ensureOutcomes(fixture.companyId, new Date('2090-07-20T00:00:00Z')), null, 'a month later it is the same date');
 
-  await changeMetric(fixture.companyId, one.id, { dueOn: '2030-12-31' });
-  assert.equal(await ensureOutcomes(fixture.companyId, new Date('2030-12-30T00:00:00Z')), null, 'the new date has not come');
-  assert.ok(await ensureOutcomes(fixture.companyId, new Date('2031-01-02T00:00:00Z')), 'a new date is a new milestone');
+  await changeMetric(fixture.companyId, one.id, { dueOn: '2090-12-31' });
+  assert.equal(await ensureOutcomes(fixture.companyId, new Date('2090-12-30T00:00:00Z')), null, 'the new date has not come');
+  assert.ok(await ensureOutcomes(fixture.companyId, new Date('2091-01-02T00:00:00Z')), 'a new date is a new milestone');
   assert.equal((await outcomeTasks(fixture)).length, 2);
 
   // A date already past, and nothing read at all: looked at the first time, and told so.
@@ -537,6 +538,20 @@ test("the brief is the platform's numbers and the owner's words, and nothing an 
   assert.match(figures!.input.context, /1200000/);
   assert.match(figures!.input.context, /1300000\.5/);
   assert.doesNotMatch(figures!.input.context, /\de[+-]?\d/);
+});
+
+test("a measure whose name is cut in the middle of an emoji still makes its task, and what is stored is well formed", async () => {
+  // A cut at a hundred characters can fall between the two halves of one character; half of it is refused by the
+  // jsonb column, and a task that cannot be stored is looked for again every tick, ahead of every other measure.
+  const fixture = await createCompany('outcome-emoji');
+  const name = `${'a'.repeat(99)}\u{1F600} sales`;
+  const one = await measure(fixture, { name, target: 10 });
+  await ownerReading(fixture, one.id, 12);
+  const taskId = await ensureOutcomes(fixture.companyId);
+  assert.ok(taskId, 'the task was made');
+  const [task] = await outcomeTasks(fixture);
+  assert.equal(wellFormed(task!.input.goal), task!.input.goal, 'no half of a character');
+  assert.equal(wellFormed(task!.input.context), task!.input.context);
 });
 
 test('the brief names who can read again, says so when nobody can, names the language, and asks only for what the CEO holds', async () => {

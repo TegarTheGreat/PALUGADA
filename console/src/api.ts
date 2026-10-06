@@ -157,6 +157,7 @@ const EXPLAINED: Record<string, string> = {
   'budget.exceeded': N('That would go over the budget.'),
   'budget.reservation_refused': N('The budget account cannot fund this work yet: its tokens are spent or held. Raise its ceiling under Money, then try again.'),
   'task.not_continuable': N('Only work its budget stopped can be continued. Do anything else again.'),
+  'task.record_cleared': N('Retention has cleared what this task\'s run said, so it cannot go on from where it stopped. Run it again instead.'),
   'gateway.key_mismatch': N('That fingerprint is not the key this device holds.'),
   'gateway.not_pairable': N('This device cannot be paired in its current state.'),
   'bundle.bad_signature': N('The bundle signature does not check out.'),

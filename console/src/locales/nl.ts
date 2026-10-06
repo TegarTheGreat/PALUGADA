@@ -2027,6 +2027,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Wacht op beoordeling",
   "Waiting for the model to answer": "Wacht op antwoord van het model",
   "Waiting for a model key that works": "Wacht op een werkende modelsleutel",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "De bewaartermijn heeft gewist wat de run van deze taak zei, dus ze kan niet verdergaan waar ze stopte. Voer ze in plaats daarvan opnieuw uit.",
   "Follows the panel: {language}": "Volgt het paneel: {language}",
   "Overdue": "Te laat",
   "Paid": "Betaald",

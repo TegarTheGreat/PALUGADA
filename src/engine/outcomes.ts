@@ -46,6 +46,7 @@ import { withTenant } from '../db/tenant.ts';
 import { isPalugadaError } from '../errors.ts';
 import { languageName, languagesFor } from '../domain/language.ts';
 import { withoutTemplateTokens } from '../context/builder.ts';
+import { wellFormed } from '../text.ts';
 import { createRootTask } from './tasks.ts';
 
 /** The least time between one outcome task and the next for a company. */
@@ -218,7 +219,10 @@ function sourceIsNamed(source: string): boolean {
 
 /** The owner's name for a measure as one short line that cannot open a quotation or a template. */
 function oneLine(name: string): string {
-  return withoutTemplateTokens(name).replace(/\s+/g, ' ').replaceAll('"', "'").trim().slice(0, NAME_SHOWN).trim();
+  // `wellFormed`: a cut in the middle of an emoji leaves half of it, which a
+  // jsonb column refuses -- and a task that cannot be stored is looked for again
+  // every tick, ahead of every other measure.
+  return wellFormed(withoutTemplateTokens(name).replace(/\s+/g, ' ').replaceAll('"', "'").trim().slice(0, NAME_SHOWN).trim());
 }
 
 /**

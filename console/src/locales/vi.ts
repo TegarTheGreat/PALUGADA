@@ -2050,6 +2050,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Đang chờ rà soát",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",
   "Waiting for a model key that works": "Đang chờ khóa mô hình hợp lệ",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "Chính sách lưu giữ đã xóa những gì lần chạy của tác vụ này đã nói, nên không thể tiếp tục từ chỗ nó dừng. Hãy chạy lại thay vào đó.",
   "Follows the panel: {language}": "Theo bảng điều khiển: {language}",
   "Overdue": "Quá hạn",
   "Paid": "Đã thanh toán",

@@ -2021,6 +2021,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "レビューを待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",
   "Waiting for a model key that works": "使えるモデルのキーを待っています",
+  "Retention has cleared what this task's run said, so it cannot go on from where it stopped. Run it again instead.": "保持期間の経過により、このタスクの実行内容が消去されたため、止まった場所から続けることはできません。代わりにもう一度実行してください。",
   "Follows the panel: {language}": "パネルに合わせる：{language}",
   "Overdue": "期限超過",
   "Paid": "支払済み",

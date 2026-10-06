@@ -132,6 +132,19 @@ test('work the coordinator was handed that ends badly goes to the owner, not bac
   assert.equal(await handEscalations(fixture.companyId), 0, 'and nothing is handed back round');
 });
 
+test('an outcome task that halts goes to the owner, not back to the coordinator that made it', async () => {
+  const fixture = await createCompany('ended-outcome');
+  await addRole(fixture, 'coordinator');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: 'coordinator', afterMinutes: 60 });
+  const looked = await root(fixture, 'Measure "Paying customers" has reached its target', 'outcome:0f0f0f0f0f0f0f0f0f0f0f0f');
+  await halt(fixture, looked.id, 'hop_limit');
+
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+  const [item] = await escalations(fixture);
+  assert.equal(item!.payload.escalationRole, undefined, 'the CEO is the one that failed: the owner hears at once');
+  assert.equal(await handEscalations(fixture.companyId), 0, 'and nothing is handed back round');
+});
+
 test('what the coordinator handled and finished is closed for the owner; what it could not stays open', async () => {
   const fixture = await createCompany('ended-handled');
   const leadId = await addRole(fixture, 'coordinator');

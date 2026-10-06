@@ -543,16 +543,19 @@ refused -- heartbeats only claim existing tasks and should stay that.
 durable reason to look again. The platform computes, in SQL, three states per active
 measure: *reached* (the verified latest crosses the target, direction-aware), *overdue*
 (`due_on` past and not reached) and *stale* (a source set and the latest older than seven
-days or absent). Each *change of state* makes one CEO task through the triage pattern
-(keyed `outcome:<hash>`, none when nothing is owed, no model call when idle). The CEO
+days or absent). Each *milestone* makes one CEO task through the triage pattern
+(keyed `outcome:<hash>`, none when nothing is owed, no model call when idle). *As built
+(STATUS 2.164) the key follows the owner's definition of the milestone -- target, date, source --
+and not the figure's crossings, which would be unbounded for a figure that hovers.* The CEO
 delegates the re-read to the role that holds the source capability, `metric.record`
 verifies against the same-task call, `owner.ask` at *reached* and *overdue*, `follow_up`
 for lagged effects. Only the owner closes a goal; closure already pauses schedules and
-cancels follow-ups. Stop conditions all exist: goal closed, hop three, five open
-follow-ups, budget, `due_on`, owner cancel.
+cancels follow-ups. Stop conditions: goal closed (*for follow-ups only as first written; 2.164
+extends the cancel to outcome tasks*), hop three, five open follow-ups, budget, `due_on`, owner cancel.
 
-*Risk.* Cost: one CEO run per state change, bounded by the key. Injection: the brief is
-platform-written English; readings come through `metric.record`'s verification.
+*Risk.* Cost: one CEO run per milestone, bounded by the key. Injection: the brief is
+platform-written English; *`metric.record`'s verification is not a defence on its own (any number in a
+same-task source result verifies, L6), so the brief carries no text from outside at all.*
 
 *Migration.* None (a function and a worker stage); the stock company's first hour gains a
 sentence.
@@ -637,9 +640,12 @@ uses a primitive that was there.
 | 3 | Every run is told today's date and a search says a fact's age; the pack takes what is recent and an outside lesson only when it is about the task; an owner's fact is never marked outside by an agent restating it; the distiller reads a fenced reply and one division cannot stop the rest; candidate counts follow open cards (M1-M4, M7, M9) | 2.160 |
 | 4 | A files root by default in Compose, made at start, said when it cannot be (W1) | 2.161 |
 | 5 | `features.md`, `AGENTS.md` and two comments say what is true (O5) | 2.161 |
+| 6 | P1: a priority reaches the task and what it hands on; a question ends with its task; a cleared record is not "continued" (S3, S5, W6) | 2.162 |
+| 7 | P1: lessons are rules for the next customer, not notes about one; a pattern is counted in tasks; a fresh install says what a service replaced and what is unbound (M5, M8, O2) | 2.163 |
+| 8 | P1.2: one CEO task when a measure reaches its target, passes its date, or goes a week unread -- once for each target, date or source the owner sets (L1) | 2.164 |
 
-**Considered and left for P1, on purpose.** The outcome sweep (8.1) and the person-as-actor change
-(8.2) are the two largest and need design review with the owner; the file tools on shipped roles
+**Considered and left for P1, on purpose.** The person-as-actor change (8.2), the largest, needs
+design review with the owner (the outcome sweep, 8.1, was built after one: 2.164); the file tools on shipped roles
 need a decision on the twelve-tool limit; memory measurement needs a place to record what a run was
 shown; the priority plumbing and the questions that never expire are bugs of the same class but touch
 the claim path and the inbox's lifecycle, and deserve their own change and their own full run.

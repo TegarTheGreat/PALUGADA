@@ -38,8 +38,13 @@ export const ENDED_AFTER_MS = 60_000;
 export const ENDED_WITHIN_MS = 24 * 60 * 60_000;
 /** The most tasks one card names. */
 const MOST_GROUPED = 50;
-/** Work created to handle another's failing is not handed to the same coordinator again. */
-const HANDLED_KEYS = /^(escalation|triage):/;
+/**
+ * Work created to handle another's failing is not handed to the same
+ * coordinator again, and neither is an errand the platform made for the CEO
+ * itself -- a triage, an outcome look -- which would come back to the CEO
+ * that has just failed it.
+ */
+const HANDLED_KEYS = /^(escalation|triage|outcome):/;
 
 interface Ended {
   taskId: string;

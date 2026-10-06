@@ -512,6 +512,13 @@ The first version. What it holds, in the order an owner meets it.
   is counted in tasks and answered from when you said no. A fresh install also says, at start, when a
   connected service has taken over a name the platform keeps (such as invoicing in the books) and
   that the lab analyst's code tool is not connected to anything (STATUS 2.163).
+- The company looks at its numbers. When a measure you set reaches its target, passes its
+  due date short of it, or has a source nobody has read for a week, the CEO is given one task for
+  it -- once for each target, date or source you set, not every time a figure crosses -- asks you
+  where it stands in your language, and has the source read again by a role that can. Only a figure
+  you entered or a run read from the source counts, and nothing runs while nothing changed. On
+  upgrade, every measure already in one of those states gets one look, at most one every ten
+  minutes, and each reached or overdue one puts a question in your inbox (STATUS 2.164).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

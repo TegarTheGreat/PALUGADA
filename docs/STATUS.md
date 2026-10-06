@@ -9878,6 +9878,82 @@ Six defects in what the company remembers, each checked in the code before it wa
   task are not a pattern; what happened while a proposal waited is not evidence against its
   rejection, what happens after is) and `vendor-replaces-platform.test.ts`.
 
+## 2.164 The company looks at its numbers (the audit of 6 October, P1.2, L1)
+
+A measure the owner set was read back only when the owner looked, or when the Monday review
+happened to run: a figure could pass its target, pass its date, or go a month unread, and no one
+was woken. `src/engine/outcomes.ts` now makes one task for the CEO, from the worker, when a measure
+
+- **reached** its target (the latest *checked* reading is at or past it, in the direction the
+  measure says; the target itself counts),
+- is **overdue** (its due date has passed in the owner's own day -- `platform_control.owner_timezone`
+  -- and the target is short; no reading at all is allowed), or
+- is **stale** (it has a source and nothing checked was read from it for seven days, counted from the
+  day the measure was made when nothing has been read yet, so naming a source does not wake the CEO
+  before the source is bound or a role hired to read it).
+
+One state per measure, most pressing first (reached, overdue, stale), one task per company every
+ten minutes, and only on a company that is not winding down, with an unfrozen CEO, a month with money
+in it, and a goal whose whole chain is open (a key result whose own row says *active* under an
+abandoned objective starts nothing).
+
+- **Each milestone once, by construction.** The key is `outcome:` plus a hash made in the same SQL
+  statement that picks the measure, from the measure, the state and the *owner's own definition of
+  the milestone*: the direction and target for a reached measure, the date for an overdue one, the
+  latest checked reading and the source for a stale one. A figure that hovers round its target is
+  one look, not one per crossing. So the number of tasks a measure can cost is bounded by what the
+  owner edits (target, date, source) and by weeks that pass with a checked reading in them -- no
+  cap, cooldown or open-task limit is needed, and none was added. Measures that already have a task
+  are dropped *before* the limit, so a backlog of looked-at milestones cannot hide a later one. The
+  key outlives its task, so a look that came to nothing is not repeated every ten minutes; it lives
+  as long as the task row, which the retention clean-up removes 400 days after it finished by
+  default, after which a state still standing is looked at once more. Two workers that find the same change make one task between
+  them: the unique index on the key settles it and the loser gives its reservation back.
+- **Only checked readings count.** An agent's typed number is not a reading: it cannot reach a target,
+  hide a missed date, or keep a source looking fresh. Every state is judged from the latest verified
+  observation.
+- **What the CEO is told** is the platform's numbers and dates, the owner's own name for the measure
+  (one line, cut at 100 characters, quotes and chat-template tokens taken out), and words of the
+  platform's own. Never an observation's note, a goal's statement, a role's text, a ticket or a task's
+  words; a source is repeated only if it is shaped like a capability name, and roles only by slug.
+  The brief names the roles that can read the figure again (those that hold the source and
+  `metric.record`, in a division granted both -- a reading is checked only when the same task read
+  it), says plainly when none can, writes the language the company talks in, and names only tools the
+  stock CEO holds. At *reached* the question is informational: the CEO cannot close a goal (the
+  strategist holds `goal.propose`, the CEO's twelve places are full) and closing stays the owner's, on
+  the Goals page.
+- **Wiring.** The stage is not behind `runs`: it makes a task and runs none, and a worker with places
+  above one (the default is four) ticks its housekeeping with `runs` false. An outcome task that ends
+  badly goes to the owner and not back to the CEO that failed it (`HANDLED_KEYS`); closing a goal
+  cancels the outcome tasks under it that have not started, as it does follow-ups.
+- **Deviations from the audit's sketch (8.1), stated.** (1) It re-fires when the owner's definition of
+  the milestone changes, not on every crossing -- the sketch's own claim that the key bounds the cost is
+  false for a key that follows crossings. (2) A measure with a source and no reading is stale a week
+  after it was made, not at once. (3) *Verified* is the rule for all three states, not for reached
+  alone. (4) "Stop when the goal closes" held only for follow-ups; it now holds here too (one
+  predicate in `applyGoalChangeWithin`). (5) "Readings come through `metric.record`'s verification" is
+  not a defence on its own -- any number anywhere in a same-task source result verifies -- so the brief
+  carries no text from outside at all. (6) No sentence was added to the CEO's charter: a charter edit
+  changes every company's role version, and the brief says what is needed.
+- **What it costs.** One CEO run (and a delegated read) per milestone; on an upgrade, every measure
+  already in one of these states gets one look, at most one every ten minutes, and each reached or
+  overdue one puts a question in the inbox. A source-backed measure short of its target with no date
+  is read again about every week for as long as it stands -- platform-clocked, ending at its date, at
+  reached, when the owner retires it or removes its source, when the goal is closed, or when the
+  month's money runs out.
+- **Not done:** look-again rights for roles other than the coordinator (L3); the closure gate rolled up
+  through key results, and dated (L5); validating `sourceCapability`, and refusing a source that reads
+  outside content (L6 -- it can make a stranger's number *verified*, bounded here by the key and the
+  spacing and by the brief carrying only a number); a measures line in the CEO's briefing and the
+  digest (L7); a sentence in the first hour; the platform raising the owner's *goal met* card itself at
+  reached (it needs a sentence in every dictionary). A look whose run ends without reading or asking
+  leaves the measure quiet; its card for a failed task, the Monday review and the *unchecked* label
+  are the backstops.
+- **Tested** in `outcome-sweep.test.ts` (each state once, direction and equality, agent claims, the
+  owner's day, seven days, ordering and spacing, every exclusion and its lift, the race, the brief's
+  content and what it leaves out, the closure cancel, a worker's tick with and without `runs`),
+  `ended-badly.test.ts` and `worker.test.ts`.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

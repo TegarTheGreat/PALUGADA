@@ -50,6 +50,7 @@ import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
 import { reportEndedBadly } from './engine/ended.ts';
 import { ensureTriage } from './engine/triage.ts';
+import { ensureOutcomes } from './engine/outcomes.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -233,6 +234,8 @@ export interface TickReport {
   ended: number;
   /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
   triaged: number;
+  /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
+  outcomes: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -308,6 +311,7 @@ function emptyReport(): TickReport {
     stranded: 0,
     ended: 0,
     triaged: 0,
+    outcomes: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -557,6 +561,15 @@ export class Worker {
       // when nothing is owed: no task, no model call, no tokens.
       if (runs) await this.#stage(report, 'triage', async () => {
         if (await ensureTriage(company, now)) report.triaged += 1;
+      });
+
+      // The measures the owner set, looked at against their numbers: one task
+      // for the CEO when one reached its target, passed its date or went
+      // unread. Not behind `runs`: it makes a task and runs none, and a worker
+      // with places above one (the default is four, main.ts) ticks its
+      // housekeeping with `runs` false.
+      await this.#stage(report, 'outcomes', async () => {
+        if (await ensureOutcomes(company, now)) report.outcomes += 1;
       });
 
       if (runs) await this.#stage(report, 'wakes', async () => {

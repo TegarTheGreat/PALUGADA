@@ -399,6 +399,17 @@ shown as the agent's claim. Until a goal has a measure, progress is counted
 in tasks: the ones finished against the ones meant to be done, so a
 cancelled task, or one you asked for again, is not left owing.
 
+Nobody has to remember to look at a measure. When one reaches its target, passes
+its due date short of it, or has a source nobody has read for a week, the CEO is
+given a task for it: to ask you once where it stands, in your language, and to
+have the source read again by a role that holds it. Each is done once for the
+target, the date or the source you set -- a figure that hovers round its target
+is not a new look each time, and changing the target, the date or the source is
+what asks again. Only a checked figure counts: yours, or one a run read from the
+source; an agent's typed number cannot reach a target or hide a missed date. The
+CEO cannot close a goal: that stays yours, on the **Goals** page. To stop it,
+retire the measure, take its source or date off, or close the goal.
+
 Closing a goal -- **Met** or **Abandoned** -- stops the work under it. Its
 schedules and triggers, and those of every goal beneath it, are paused in
 the same step and you are told how many; no new work can be started under it

@@ -157,6 +157,8 @@ Each of these is a test, and each exists because the mistake was made once.
    push branches and open pull requests, and nothing more.
 3. Give the platform engineer a task: a requirement, a defect, a gap from
    `docs/STATUS.md`.
-4. It works on a branch, runs `npm run check`, and opens a pull request. The
-   platform reviewer reads it against the criteria in its skill before the
-   branch is pushed. Nothing reaches the main branch without you merging it.
+4. It works on a branch and opens a pull request. It cannot run `npm run check`
+   itself -- its runtime has no shell, only the platform's tools -- so CI does,
+   and the pull request is held to it. The platform reviewer reads it against
+   the criteria in its skill before the branch is pushed. Nothing reaches the
+   main branch without you merging it.

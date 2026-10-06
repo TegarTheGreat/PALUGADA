@@ -9794,6 +9794,36 @@ Six defects in what the company remembers, each checked in the code before it wa
   a fenced reply read and consumed; a failing division and the next one reached; the candidate
   counts with a card and after it expired.
 
+## 2.161 A company's files exist by default, and the docs say what is bound (the audit of 6 October, W1, O5)
+
+- **A files root by default.** `PALUGADA_FILES_ROOT` was set in no compose file, Dockerfile,
+  installer or example, so on a stock install `files.list`, `files.read`, `doc.draft`,
+  `email.draft`, pictures, speech, vision and `code.compute` were all unbound: a company
+  produced nothing it could keep, and its work lived in `tasks.output.summary` alone -- which is
+  why an owner saw work that "only appears" to be done. The Compose deployment now sets it to
+  `/home/node/files`, on the `home` volume that survives an upgrade, unless the operator sets
+  another. A root that is set and not there yet is made when the deployment starts (it was an
+  error on the first draft, from a capability that said it was bound), and one that cannot be
+  made is said in the start-up notes and treated as unset, so the tools are unbound rather than
+  broken.
+- **The documents.** `features.md` said code-executing capabilities can never share a division
+  with a credential or tier 2 (false for `code.compute`, whose container has no network, 0115) and
+  that capabilities cannot reach the private network (they can, where the operator allowed it);
+  said every customer reply is a tier 2 card (it omitted the grounded answer that goes by itself,
+  2.137); filed invoices and office hours under Scheduling; and said nothing of the company's
+  records or of what is built but unbound. It now has **The company's own records** and **What a
+  stock install does not bind**, including that a person has no work of their own yet. `AGENTS.md`
+  said the platform engineer "runs `npm run check`", which its shell-less runtime cannot; CI does.
+  Two stale comments (`claude-code.ts`, `reachability.test.ts`) say what is true.
+- **Not done**: no shipped role holds `files.read` or `files.list` (the twelve-tool limit; the
+  audit's P1.3), so a draft is written and not yet read back by anyone but the owner; the owner has
+  no route to download or upload a file; inbound attachments are still "[sent a photo, which cannot
+  be read here]"; the lab analyst's `code.execute` has no adapter; a Midtrans entry named
+  `invoice.issue` replaces ledger invoicing when connected.
+- **Tested** in `files-root.test.ts`: a missing root is made with the directory above it and the
+  capabilities that need it are bound; one that cannot be made is said and unbound; the compose file
+  sets it on the persistent volume.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -499,6 +499,10 @@ The first version. What it holds, in the order an owner meets it.
   you wrote yourself are never changed by an agent repeating them. A fenced reply from the
   learning step is read, one failing division no longer stops the others, and the Memory page no
   longer says something waits for your yes when its card has expired (STATUS 2.160).
+- A company keeps what it makes. The Compose deployment now gives every company a folder for its
+  files, on the volume that survives an upgrade, so drafts, pictures, speech and computed files are
+  stored instead of being switched off; `docs/features.md` now also says what is built but
+  not bound on a fresh install (STATUS 2.161).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

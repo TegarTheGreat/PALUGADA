@@ -1,7 +1,8 @@
 # What PALUGADA does
 
 The [README](../README.md) is the short version. This page is the whole list:
-what PALUGADA guarantees, and everything that is built. `docs/STATUS.md`
+what PALUGADA guarantees, everything that is built, and what is built but
+will not run until something is bound. `docs/STATUS.md`
 grades each requirement of the specification as built, partial or not built.
 
 ## The guarantees
@@ -130,8 +131,12 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - Adversarial review by a different role with its own memory. After two
   revisions, the decision goes to the owner.
 - A role that keeps being denied is frozen until the owner looks.
-- Code-executing capabilities can never also hold a credential or reach
-  tier 2. Capabilities cannot reach the private network.
+- A capability that runs code supplied at call time can share a division with
+  neither a credential nor a tier 2 grant -- unless the code can reach no
+  network at all, as in `code.compute`'s container, which has none and is handed
+  no credential. Capabilities reach a private address only where the operator
+  allowed it (`PALUGADA_ALLOW_PRIVATE_HOSTS`), and a vendor call is checked against
+  the address its name resolves to.
 - A vendor integration is a JSON spec, not code: method, URL, body template,
   read-back, idempotency key.
 
@@ -145,9 +150,6 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   non-urgent escalations until the owner is available, while incidents still
   come through.
 - Cheap hours for batchable, read-only work.
-- Invoices kept in the books: numbered without gaps, written with the entry that
-  puts what is owed in them, paid in part or in full, voided by a reversal; what
-  is owed and what is late read from the books.
 - Office hours for a company that wants a working day: what reaches the
   outside world -- an email, a post, a reply -- waits for the opening, while
   reading, drafting and planning go on at any hour.
@@ -245,8 +247,13 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   number or its own mailbox (read over IMAP, answered over SMTP), which the
   owner connects with their device: each message starts work for the role
   they chose (a second, written before anyone picked the first up, joins
-  it), what the customer wrote is data, and every reply is a tier 2 card
-  the owner -- or an approver -- answers with the conversation beside it.
+  it), what the customer wrote is data, and a reply is a tier 2 card the
+  owner -- or an approver -- answers with the conversation beside it. The one
+  exception is an answer drawn only from passages of documents the owner marked
+  for customers, with no figure or address they do not hold and a model's check
+  passed, which goes by itself, six an hour per conversation at most; refunds,
+  prices of its own, complaints, the law, personal data and promises always come
+  to the owner.
 - Each company has a browser of its own, for sites with no API: a role reads
   pages as a person sees them and fills in a form only after the owner's
   yes, with every field and button on the card; sign-ins are sealed between
@@ -261,6 +268,31 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - The owner hires a role, opens a division or starts a project from the
   console; hiring and opening a division take the owner's device.
 - An agent that needs the owner asks, and its task waits for the answer.
+
+**The company's own records**
+- Customers and deals: contacts, notes and deals in five stages, linked to the
+  chats they came from. Business state is kept in tables like these and read
+  again when it is needed; it is never distilled into memory, where a stale
+  copy could outrank the record.
+- Books: a double-entry ledger with a chart of accounts, entries written whole
+  with their lines, and reversal instead of edit; reports through `ledger.read`.
+- Invoices kept in the books: numbered without gaps, written with the entry that
+  puts what is owed in them, paid in part or in full, voided by a reversal; what
+  is owed and what is late read from the books. An invoice is a row: it is not
+  rendered or sent.
+
+**What a stock install does not bind**
+- Reading and branching a repository, deploying, writing DNS, paying, signing,
+  writing to a calendar, posting to social networks (one example entry, for
+  Mastodon), ads and `code.execute` are catalogued, with their tiers and tests,
+  and have nothing behind them until the operator binds a vendor or connects an
+  MCP server. Seven vendor entries ship as examples; the MCP client reaches any
+  server the owner connects, with presets for several.
+- Every agent CLI runs with the platform's tools alone: no shell, files or web
+  of its own, so a role cannot run a build or a test suite.
+- A person has no work of their own yet. A staff seat is a viewer or an
+  approver: it reads and answers the inbox, and a question to a person goes to
+  the owner and comes back as text.
 
 **PALUGADA develops PALUGADA**
 - [`AGENTS.md`](../AGENTS.md) is the guide for changing this repository, read by

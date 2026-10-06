@@ -102,8 +102,8 @@ const UNREACHABLE: Record<string, string> = {
   // F13, F12.9.
   knownClis: 'helper: all five entries at once, asserted directly; a deployment '
     + 'names the ones it has in PALUGADA_AGENT_CLIS',
-  runSandboxed: 'worker: F12.9 nothing here executes untrusted code; '
-    + '`code.execute` needs somebody\'s account',
+  runSandboxed: 'worker: F12.9 the local sandbox exists, and no capability wraps it: '
+    + '`code.execute` is catalogued and unbound (the audit of 6 October, O2)',
 
   // F9: the scheduler.
   coalescedCount: 'helper: how many wakes merged, asserted directly',

@@ -626,9 +626,26 @@ taint is unchanged by an absent `outside` memory.
 
 ## 9. What was implemented
 
-(Filled in below as each P0 lands; see STATUS 2.158 onward.)
+Only P0 items whose defect was checked in the code, each with its test written first and seen to
+fail, each in its own commit with its own STATUS entry. Nothing here adds an abstraction; every one
+uses a primitive that was there.
 
----
+| P0 | Change | STATUS |
+|---|---|---|
+| 1 | A park for a closed window, a vendor's limit or a replaced key gives the wait back; a parent awaiting a child carries its deadline to the child's, and past a wait for a person; a continued task has its stopped time back (S1) | 2.158 |
+| 2 | A follow-up that ends badly is reported like any root task that does; the weekly review runs in a quiet week when a measure has not reached its target (L1, L2) | 2.159 |
+| 3 | Every run is told today's date and a search says a fact's age; the pack takes what is recent and an outside lesson only when it is about the task; an owner's fact is never marked outside by an agent restating it; the distiller reads a fenced reply and one division cannot stop the rest; candidate counts follow open cards (M1-M4, M7, M9) | 2.160 |
+| 4 | A files root by default in Compose, made at start, said when it cannot be (W1) | 2.161 |
+| 5 | `features.md`, `AGENTS.md` and two comments say what is true (O5) | 2.161 |
+
+**Considered and left for P1, on purpose.** The outcome sweep (8.1) and the person-as-actor change
+(8.2) are the two largest and need design review with the owner; the file tools on shipped roles
+need a decision on the twelve-tool limit; memory measurement needs a place to record what a run was
+shown; the priority plumbing and the questions that never expire are bugs of the same class but touch
+the claim path and the inbox's lifecycle, and deserve their own change and their own full run.
+**Left alone because the evidence says so**: the journal, the state machine, tiers, approvals,
+the taint, the owner-only goal closure, lexical memory, the 90-day horizon being a constant, and
+every "no new abstraction" in section 5.
 
 ## 10. Sources
 

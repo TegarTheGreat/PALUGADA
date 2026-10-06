@@ -62,6 +62,10 @@ services:
     environment:
       <<: *database-urls
       PALUGADA_ALLOWED_HOSTS: ${PALUGADA_ALLOWED_HOSTS:-localhost}
+      # Each company's files -- drafts, pictures, what it computes -- on the
+      # volume that survives an upgrade. Unset, drafting, vision, speech and
+      # code.compute are all unbound and a company keeps nothing it makes.
+      PALUGADA_FILES_ROOT: ${PALUGADA_FILES_ROOT:-/home/node/files}
     ports:
       - "${PALUGADA_PUBLISH:-127.0.0.1:8787}:8787"
     extra_hosts:

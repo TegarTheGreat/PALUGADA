@@ -107,7 +107,7 @@ function metricsToken(raw: string | undefined): string | null {
   return raw.trim();
 }
 import { existsSync, realpathSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -736,7 +736,19 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // to stop happening twice.
   registerPlatformTools(registry);
 
-  const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
+  let filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
+  // A root that is set and not there yet is made: it was an error on the first
+  // draft, from a capability that said it was bound. One that cannot be made is
+  // said now, and the tools that need it are unbound rather than broken (the
+  // audit of 6 October, W1).
+  if (filesRoot) {
+    try {
+      await mkdir(filesRoot, { recursive: true });
+    } catch (failure) {
+      notes.push(`PALUGADA_FILES_ROOT (${filesRoot}) could not be made: ${(failure as Error).message}`);
+      filesRoot = null;
+    }
+  }
   // Searching and reading pages, through the providers the owner chose.
   const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot);
   // Figures worked out in Python, in a container that reaches no network:

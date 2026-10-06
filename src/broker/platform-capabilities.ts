@@ -58,7 +58,11 @@ export interface MemorySearchInput {
 }
 
 export interface MemorySearchResult {
-  facts: Array<{ body: string; confidence: number; source: string; unverified: boolean; outside?: boolean }>;
+  facts: Array<{
+    body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
+    /** The day it was recorded: a price or a status may have changed since, and the record wins. */
+    recordedOn: string;
+  }>;
   /** Passages of the company's documents the query's words point at (0075). */
   documents: Array<{
     title: string; heading: string | null; passage: string;
@@ -168,6 +172,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           // been in the pack -- nor one learned from outside content arrive
           // as anything but data (0071).
           unverified: memory.confidence < 0.6 || memory.outside,
+          recordedOn: memory.validFrom.toISOString().slice(0, 10),
           ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
         })),
         truncated: facts.length > limit,

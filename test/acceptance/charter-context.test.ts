@@ -59,7 +59,8 @@ test('the charter comes first, before SOPs and memory (F3.2)', async () => {
     // The language rule is a rule of the same kind as the charters and sits
     // directly under them (src/domain/language.ts), above everything a run
     // might be pulled into another language by.
-    ['platform_charter', 'company_charter', 'language', 'sop', 'semantic_memory'],
+    // And what memory is, said once before the facts it is about.
+    ['platform_charter', 'company_charter', 'language', 'sop', 'memory_note', 'semantic_memory'],
     'charters must precede SOPs, and SOPs must precede recalled facts',
   );
 

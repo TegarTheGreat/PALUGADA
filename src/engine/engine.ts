@@ -439,7 +439,7 @@ export class Engine {
           // runtime was handed the two as the same kind of line.
           skills: context.sections.filter((s) => s.kind === 'sop').map((s) => `${s.title}\n${s.body}`),
           memories: context.sections
-            .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning')
+            .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning' || s.kind === 'memory_note')
             .map((s) => `${s.title}\n${s.body}`),
           goalAncestry,
           notes: context.sections

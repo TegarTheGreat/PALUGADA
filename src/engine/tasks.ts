@@ -19,7 +19,7 @@ import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { noteTalkDrift } from '../domain/language.ts';
 import { settleTicketsOf } from './tickets.ts';
-import { learn, remember } from '../memory/store.ts';
+import { LEARNED_CONFIDENCE, learn, remember } from '../memory/store.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -739,8 +739,18 @@ const LESSON_MAX = 500;
 async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, output: unknown): Promise<void> {
   const said = output && typeof output === 'object' ? (output as { learned?: unknown }).learned : undefined;
   if (!Array.isArray(said)) return;
+  // One piece of work saying the same thing five ways is one lesson: counted
+  // as five, it was "corroborated" by itself to the most a lesson can reach.
+  const seen = new Set<string>();
   const lessons = said.filter((one): one is string => typeof one === 'string' && one.trim() !== '')
-    .map((one) => one.trim().slice(0, LESSON_MAX)).slice(0, LESSONS_PER_RUN);
+    .map((one) => one.trim().slice(0, LESSON_MAX))
+    .filter((one) => {
+      const same = one.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      if (seen.has(same)) return false;
+      seen.add(same);
+      return true;
+    })
+    .slice(0, LESSONS_PER_RUN);
   if (lessons.length === 0) return;
   const outside = (await outsideContentIn(tx, task.id)) !== null;
   for (const lesson of lessons) {
@@ -792,6 +802,9 @@ async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, o
     scopeId: task.projectId,
     body: goal && result ? `${goal} — ${result}` : goal || result,
     source: 'agent',
+    // What a run reported of its own work, not something the company knows:
+    // below the line a search draws between known and unverified, as a lesson is.
+    confidence: LEARNED_CONFIDENCE.first,
     outside: (await outsideContentIn(tx, task.id)) !== null,
     sourceTaskId: task.id,
   });

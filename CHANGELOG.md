@@ -421,6 +421,12 @@ The first version. What it holds, in the order an owner meets it.
   answer it read what agents or customers wrote, when it is a card as before.
   When several cards are waiting, **Apply all** presses them in order (STATUS
   2.145).
+- What you correct in the company's memory stays corrected: a sentence you took
+  back, or replaced with your own words, is not learned again from the next run
+  that writes it, and a lesson no longer becomes a "known fact" by being said
+  five times by the same piece of work. A remembered fact shows the day it was
+  recorded, runs are told memory is a lead and the company's records win, and a
+  procedure nobody answers leaves your inbox after two weeks (STATUS 2.146).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

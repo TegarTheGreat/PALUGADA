@@ -9209,6 +9209,52 @@ a card to press, so asking it to start work was asking it to fill in a form.
   `telegram-conversation.test.ts` (work given before anything is pressed; the
   chat's one-press card is now a fact to remember).
 
+## 2.146 Memory is a lead, the record is the truth, and a correction stays made (audit of 3 October, P0-4 and P0-5)
+
+- **A correction the owner made stays made.** `learn()` matched only rows that
+  were active and not replaced, so after the owner took a claim back, or replaced
+  it with their own word, the next run to write the same sentence made a fresh
+  active row beside the correction, which repetition could raise to "Known". A
+  sentence a row of the same scope holds as taken back (`rejected`), or replaced
+  by an owner's row, is now not learned again. A replacement an agent made is one
+  agent's word against another's, and does not block it. (A procedure the owner
+  turned down was already respected; a fact was not.)
+- **A lesson cannot echo itself to "Known".** Five near-identical lessons from
+  one task reached 0.8 -- one reinforcement lifts a lesson to 0.6, the line at
+  which the pack stops calling it unverified. A task's near-identical lessons are
+  now one (`keepLessons`), and a task saying again what it taught reinforces
+  nothing (`learn`): only other work corroborates. "Known" now takes two pieces
+  of work.
+- **Facts say when they were recorded, and what memory is.** A fact in the pack
+  and in a `memory.search` answer carries its day (`recorded 2026-03-04`,
+  `recordedOn`), so a price learned in March does not read like one learned today.
+  A line before the facts says memory is a lead and not the record: a customer, a
+  deal, a balance, a stock level, a price or a measure is read again from where the
+  company keeps it, and the record wins when the two disagree (its own section kind,
+  `memory_note`, handed to out-of-process runtimes with the facts).
+- **A past event is a report, not a fact.** An episode was stored at confidence 1
+  and came back from `memory.search` as not unverified; it is now stored at the
+  level of a lesson, so a search marks it as a lead to check.
+- **The prompts stop asking for mutable state.** A run's `learned` and the
+  distiller were told to remember "customers, products, prices, suppliers", which
+  go out of date in the records the company can read; they now ask for what worked
+  and why, and how a customer or a supplier likes to be dealt with, and say that a
+  price, a stock level, who owes what and a customer's details are read from the
+  records.
+- **A procedure nobody answers leaves the inbox after a fortnight.** A proposed
+  SOP changes nothing until approved, so it need not wait for ever (a queue of
+  what nobody decided is a backlog the owner keeps). It stays a candidate and is
+  not asked about again.
+- **Not done:** facts nobody has vouched for leaving the pack after a long silence,
+  corroboration counted by day as well as by task, and linking near-duplicates
+  (the audit's P1 item 6).
+- **Tested** in `memory-learning.test.ts` (a taken-back sentence and an owner's
+  replaced one not learned again, an agent's replacement allowing it; five lessons
+  one, and a second task corroborating once; the date and the note, in that order,
+  and none for a company that remembers nothing; an episode at 0.5 and
+  `recordedOn` and `unverified` from `memory.search`; the prompts), `charter-context`
+  (the new section's place) and `distillation.test.ts` (the fortnight).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

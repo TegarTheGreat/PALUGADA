@@ -929,6 +929,14 @@ export async function companyOfItem(itemId: string): Promise<string | null> {
 }
 
 /**
+ * How long a proposed procedure waits for an answer before it leaves the
+ * inbox. Not answering it changes nothing -- it is not yet procedure -- so it
+ * need not wait for ever, and a queue of what nobody decided is what made the
+ * owner the keeper of a backlog ("sedikit sedikit setujui memori").
+ */
+export const SOP_CANDIDATE_TTL_DAYS = 14;
+
+/**
  * Puts a distilled SOP in front of the owner (F4.5).
  *
  * Waits for the owner's window like any other non-urgent item: a proposed
@@ -949,10 +957,10 @@ export async function proposeSop(input: {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, kind, title, action_summary, rationale, consequence_if_denied,
-          payload, notify_after)
+          payload, notify_after, expires_at)
        VALUES ($1,'sop_candidate',$2,$2,$3,
                'Nothing changes; the pattern stays undocumented and agents keep improvising.',
-               $4,$5)
+               $4,$5, now() + make_interval(days => $6))
        RETURNING id`,
       [
         input.companyId,
@@ -960,6 +968,7 @@ export async function proposeSop(input: {
         `Observed in ${input.occurrences} completed tasks.\n\n${input.body}`,
         JSON.stringify({ memoryId: input.memoryId, occurrences: input.occurrences }),
         notifyAfter,
+        SOP_CANDIDATE_TTL_DAYS,
       ],
     );
     return rows[0]!.id;

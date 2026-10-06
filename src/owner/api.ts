@@ -766,11 +766,12 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/me',
         handle: async ({ staff, session }) => {
+          if (staff) return { owner: false, staff: staffOf(staff) };
           const minutes = await stepUpMinutes();
           const until = session?.provedAt && minutes > 0 ? new Date(session.provedAt.getTime() + minutes * 60_000) : null;
           return {
-            owner: staff === null, staff: staff ? staffOf(staff) : null,
-            // Until when a code just shown covers what builds the company (0120); null when none does.
+            owner: true, staff: null,
+            // Until when a code just shown covers what builds the company (0120); null when none does. A seat has none.
             stepUp: { minutes, until: until && until.getTime() > Date.now() ? until.toISOString() : null },
           };
         },

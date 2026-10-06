@@ -558,8 +558,10 @@ export class Worker {
 
       // The tickets the company owes, handed to the CEO to hand on. Before the
       // claim, so the task it makes can be taken up on this tick. Two queries
-      // when nothing is owed: no task, no model call, no tokens.
-      if (runs) await this.#stage(report, 'triage', async () => {
+      // when nothing is owed: no task, no model call, no tokens. Not behind
+      // `runs`: it makes a task and runs none, and a worker with places above
+      // one ticks its housekeeping with `runs` false, where it never ran.
+      await this.#stage(report, 'triage', async () => {
         if (await ensureTriage(company, now)) report.triaged += 1;
       });
 

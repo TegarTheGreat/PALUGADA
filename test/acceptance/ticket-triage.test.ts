@@ -148,3 +148,19 @@ test('a worker\'s tick makes the triage task and finds what ended badly', async 
   assert.equal((await triageTasks(fixture)).length, 1);
   assert.equal(await reportEndedBadly(fixture.companyId, after_(2 * 60_000)), 0, 'and is not found twice');
 });
+
+test("a worker with several places makes the triage task in its housekeeping tick, which runs no work", async () => {
+  // A worker whose places are above one (the default is four, src/main.ts)
+  // ticks its housekeeping with `runs` false and its places claim the work;
+  // triage sat behind `runs`, so in that deployment nothing ever made it.
+  const { fixture } = await withCeo('triage-housekeeping');
+  await file(fixture, 'Reply to the supplier');
+  const worker = new Worker({
+    engine: new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), llm: new RecordingLlmClient(), handlers: new Map() }),
+    companyId: fixture.companyId,
+  });
+  const report = await worker.tick(after_(2 * 60_000), { runs: false });
+  assert.equal(report.triaged, 1, JSON.stringify(report.errors));
+  assert.deepEqual(report.ran, [], 'made, not claimed');
+  assert.equal((await triageTasks(fixture)).length, 1);
+});

@@ -518,7 +518,9 @@ The first version. What it holds, in the order an owner meets it.
   where it stands in your language, and has the source read again by a role that can. Only a figure
   you entered or a run read from the source counts, and nothing runs while nothing changed. On
   upgrade, every measure already in one of those states gets one look, at most one every ten
-  minutes, and each reached or overdue one puts a question in your inbox (STATUS 2.164).
+  minutes, and each reached or overdue one puts a question in your inbox. Handing on the tickets the
+  company owes, which the CEO does by itself, now also happens in the default deployment, where
+  four places at once had kept it from ever starting (STATUS 2.164).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

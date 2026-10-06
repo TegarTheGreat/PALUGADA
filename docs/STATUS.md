@@ -9923,7 +9923,10 @@ abandoned objective starts nothing).
   strategist holds `goal.propose`, the CEO's twelve places are full) and closing stays the owner's, on
   the Goals page.
 - **Wiring.** The stage is not behind `runs`: it makes a task and runs none, and a worker with places
-  above one (the default is four) ticks its housekeeping with `runs` false. An outcome task that ends
+  above one (the default is four) ticks its housekeeping with `runs` false. Triage had the same
+  defect -- it sat behind `runs`, so in the default deployment no triage task was ever made and
+  tickets waited for the owner as they did before 2.144 -- and is fixed beside it, with its own test
+  (`ticket-triage.test.ts`). An outcome task that ends
   badly goes to the owner and not back to the CEO that failed it (`HANDLED_KEYS`); closing a goal
   cancels the outcome tasks under it that have not started, as it does follow-ups.
 - **Deviations from the audit's sketch (8.1), stated.** (1) It re-fires when the owner's definition of

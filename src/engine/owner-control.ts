@@ -271,7 +271,11 @@ export async function continueHalted(companyId: string, taskId: string): Promise
     await tx.query(
       `UPDATE tasks
           SET status = 'pending', halt_reason = NULL, finished_at = NULL, wait_until = NULL,
-              tokens_reserved = $2
+              tokens_reserved = $2,
+              -- The time it was stopped is not held against it: a delegated
+              -- child's hour is for the work, and the next sweep would have
+              -- halted it for the hours the owner took to raise the ceiling.
+              deadline_at = deadline_at + (now() - finished_at)
         WHERE id = $1`,
       [taskId, DEFAULT_TASK_RESERVE_TOKENS],
     );

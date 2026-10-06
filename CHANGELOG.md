@@ -486,6 +486,9 @@ The first version. What it holds, in the order an owner meets it.
   and, if something happened -- work you gave finished, work stopped, something waits
   for you -- it says so in one message, in your language: what finished, why work stopped,
   how many things wait. Nothing happened, nothing is said (STATUS 2.157).
+- A deadline is for the work, not for the waiting. Work you delegate no longer halts as
+  "missed its deadline" while it waits for office hours to reopen, for a vendor's limit, for
+  your yes, or while you raise a budget and continue it (STATUS 2.158).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

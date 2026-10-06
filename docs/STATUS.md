@@ -9694,6 +9694,35 @@ for them was something to go and ask about, one question at a time.
   only the owner's own work named, never another company's, a webhook's or a schedule's;
   an agent's words never repeated; the language of the company; a long list cut short.
 
+## 2.158 A deadline is for the work, not for the waiting (the audit of 6 October, S1)
+
+The audit of 3 October gave a task back the time an approval or a review took (2.142,
+P0-1). Three other waits were still held against the work, and each halted it
+`deadline_passed` for having been patient. Only delegated children and follow-ups carry a
+deadline (a delegate's is an hour by default), which is why it showed on the work that
+needs it most.
+
+- **A closed window, a vendor's limit, a replaced key.** A task parked in `waiting_window`
+  with a wake time is given the wait when it parks (`transitionWithin`), since it is known
+  then: an hour for the work, and a weekend of office hours (sixty-five) for the wait. It
+  was halted by the sweep long before the window opened, which contradicted "deferred, never
+  refused" (2.150). A parent waiting on a child (`waitReason: 'child'`) is the one wait not
+  given back here.
+- **A parent awaiting a child.** `task.await` carries the waiting parent's deadline to the
+  child's plus five minutes, and while the child waits for a person -- the owner's yes, a
+  reviewer -- to now plus five, on every look. A coordinator whose specialist waited an
+  hour for the owner was halted at its own deadline; the owner's later yes ran the action
+  with nothing left to use the answer. A parent with no deadline keeps none.
+- **Going on after a budget stop.** `continueHalted` gives back the time the task was
+  stopped, so the owner's "Raise it and continue" (2.155) is not undone by the next sweep.
+- **Not done**: the poll every two minutes of a long `task.await` (its backoff is P1); a
+  task that waits for a person *as its work* -- a contractor's -- is the audit's P1.1, and
+  this is its prerequisite.
+- **Tested** in `deadline-waits.test.ts`: a window park gives the wait back and the hour is
+  still the work's, a child wait gives nothing back at the park; a coordinator is carried
+  past its child's wait, and a task with no deadline stays without one; a continued task has
+  its stopped time back and the next sweep leaves it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

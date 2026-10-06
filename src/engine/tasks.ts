@@ -869,6 +869,16 @@ export async function transitionWithin(
       );
       waitedMs = Math.max(0, Number(rows[0]?.waited ?? 0));
     }
+    // Nor is it for the hours, the vendor or the model that are not ready: a
+    // task parked until a closed window reopens, a limit lifts or a key is
+    // replaced is given the wait when it parks, since it is known then. A
+    // delegated child has an hour; a weekend of office hours is sixty-five,
+    // and the sweep halted it long before (the audit of 6 October, S1). A
+    // parent waiting on a child is the one wait not given back here: it is
+    // covered by the child's own deadline, where it asks (`task.await`).
+    if (to === 'waiting_window' && task.deadlineAt && options.waitUntil && options.waitReason && options.waitReason !== 'child') {
+      waitedMs = Math.max(waitedMs, options.waitUntil.getTime() - Date.now());
+    }
 
     await tx.query(
       `UPDATE tasks

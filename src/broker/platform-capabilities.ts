@@ -874,6 +874,8 @@ export interface TaskDelegateInput {
 
 /** How often a parent waiting on a child looks again. */
 export const AWAIT_POLL_MS = 2 * 60_000;
+/** How far past its child's deadline a waiting parent's own reaches: a few looks, and the answer. */
+const AWAIT_COVER_MS = 5 * 60_000;
 
 /**
  * `task.delegate`: hand part of the work to another role, as a sub-task.
@@ -1242,6 +1244,18 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           summary: `${found.role} ${found.status}${found.halt_reason ? ` (${found.halt_reason})` : ''} without a result`,
           abbreviated: null,
         };
+      }
+      // A coordinator waiting for a specialist is not halted before the
+      // specialist is: its deadline reaches the child's, and while the child
+      // waits for a person -- the owner's yes, a reviewer -- it is carried
+      // past now, so a wait that is not the work's is not held against it
+      // (the audit of 6 October, S1). A parent with no deadline keeps none.
+      if (found.status === 'waiting_approval' || found.status === 'waiting_review' || found.deadline_at) {
+        const covers = Math.max(found.deadline_at?.getTime() ?? 0, found.status === 'running' || found.status === 'pending' ? 0 : Date.now())
+          + AWAIT_COVER_MS;
+        await withTenant(ctx.companyId, (tx) => tx.query(
+          'UPDATE tasks SET deadline_at = $2 WHERE id = $1 AND deadline_at IS NOT NULL AND deadline_at < $2',
+          [ctx.taskId, new Date(covers)]));
       }
       const next = Date.now() + AWAIT_POLL_MS;
       // The deadline only while it is ahead: one already passed belongs to a

@@ -540,6 +540,10 @@ export async function createSubTask(
           budgetAccountId: parent.budgetAccountId,
           createdBy: input.createdBy ?? 'agent_run',
           goalId: inherited,
+          // As urgent as what it is part of, unless told otherwise: P0 work was
+          // P2 by its first hop, and the urgent place could never be reached
+          // (the audit of 6 October, S5).
+          priority: input.priority ?? parent.priority,
         },
         { parentTaskId, hopDepth, reserveTokens },
       );

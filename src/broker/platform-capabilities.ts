@@ -957,6 +957,9 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         input: childInput,
         createdBy: 'agent_run',
         deadlineAt,
+        // A ticket handed on is as urgent as it was filed; without one the child
+        // is as urgent as the work it is part of (createSubTask).
+        ...(found.ticket ? { priority: found.ticket.priority } : {}),
       });
       await withTenant(ctx.companyId, async (tx) => {
         await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role.id]);

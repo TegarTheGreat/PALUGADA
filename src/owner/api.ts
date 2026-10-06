@@ -4005,6 +4005,7 @@ export class OwnerApi {
             ...(body.reserveTokens === undefined
               ? {}
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
+            ...(body.priority === undefined ? {} : { priority: priorityOf(body.priority) }),
           });
           return { taskId: assigned.task.id, wakeId: assigned.wakeId };
         },
@@ -4087,6 +4088,8 @@ export class OwnerApi {
             input: { goal: ticket.title, ...(ticket.body ? { context: ticket.body } : {}), ticketId: ticket.id },
             createdBy: 'owner',
             idempotencyKey: `ticket:${ticket.id}:${ticket.updatedAt.toISOString()}`,
+            // The ticket's own urgency (0070): it was dropped here.
+            priority: ticket.priority,
             // A ticket a run filed may hold a customer's words, which is why
             // `ticket.list` reads as outside content (F8.9); handed out by the
             // owner, they are still not the owner's words.
@@ -6884,6 +6887,15 @@ function pictureFrom(body: Record<string, unknown>): Picture {
   const mime = pictureKind(bytes);
   if (!mime) throw new PalugadaError('contract.violation', 'that is not a picture: a PNG, JPEG, WebP or GIF is', { field: 'image' });
   return { bytes, mime };
+}
+
+/** A priority from a request: 0 (first) to 3 (last), the range F5.10 and a ticket both keep. */
+function priorityOf(value: unknown): number {
+  const priority = wholeNumber(value, 'priority');
+  if (priority < 0 || priority > 3) {
+    throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
+  }
+  return priority;
 }
 
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */

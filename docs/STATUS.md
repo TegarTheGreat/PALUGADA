@@ -9824,6 +9824,34 @@ Six defects in what the company remembers, each checked in the code before it wa
   capabilities that need it are bound; one that cannot be made is said and unbound; the compose file
   sets it on the persistent volume.
 
+## 2.162 Three small defects the audit of 6 October found in the claim path and the inbox (S3, S5, W6)
+
+- **An urgent task stays urgent (S5).** Priority has been in the claim path since F5.10 --
+  priority first, then age -- and nothing set it: `/assign` ignored the field, a ticket's
+  priority was dropped when it became a task, and a sub-task did not inherit its parent's,
+  so P0 work was P2 by its first hop and the urgent place could never receive anything.
+  `/assign` takes `priority` (0 to 3, refused by name outside it), a ticket given out keeps
+  its own, `task.delegate` with a ticket hands it on, and `createSubTask` inherits the
+  parent's unless told otherwise. The CEO's assign action knows the field. The console's
+  Give work form does not offer it yet.
+- **A question ends with the task that asked it (S3).** Migration 0124 extends 0036's
+  trigger: an agent's own question (`owner.ask`, `browser.handover`, a request for a key --
+  an escalation with `askedBy = 'agent'`) is withdrawn when its task ends some other way,
+  as an approval already was. It had no expiry, so a cancelled task's question stayed in
+  the inbox for ever. A coordinator's escalation is left where it is -- it is usually why
+  the task ended. The timeline says `approval.withdrawn` for both, so no new sentence in
+  twenty languages.
+- **Going on is refused when retention has cleared the record (W6).** Retention blanks a
+  finished task's model turns at ninety days; `continueHalted` (and so continue-all, 2.155)
+  had no age guard, and a replay read nothing where a reply had been and failed three times.
+  It now refuses by name, "run it again instead", and continue-all names it among the skipped.
+- **Not done**: the Give work form's priority; the questions' own expiry and escalation to
+  another seat (the audit's P1.1); the poll every two minutes of a long `task.await`.
+- **Tested**: `priority.test.ts` (assign, out-of-range, ticket, inheritance and override),
+  `question-ends.test.ts` (a cancelled task's question is withdrawn with its reason and event;
+  an escalation stays) and `budget-resume.test.ts` (a cleared record is refused, the rest
+  continued).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

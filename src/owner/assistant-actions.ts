@@ -274,6 +274,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       roleId: 'the role that does it', divisionId: 'the role\'s division', projectId: 'the project it belongs to',
       goalId: 'the goal it serves', goal: 'what is wanted, in the owner\'s words', detail: 'optional detail',
+      priority: 'optional: 0 (an incident, first) to 3 (whenever); left out, 2, which is what almost everything is',
     },
     factor: 'never', chat: true, auto: true,
   },

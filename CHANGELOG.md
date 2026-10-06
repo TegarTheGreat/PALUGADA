@@ -503,6 +503,10 @@ The first version. What it holds, in the order an owner meets it.
   files, on the volume that survives an upgrade, so drafts, pictures, speech and computed files are
   stored instead of being switched off; `docs/features.md` now also says what is built but
   not bound on a fresh install (STATUS 2.161).
+- Urgent work stays urgent: a priority you give (or a ticket carries) reaches the task and
+  everything it hands on. A question a role asked leaves your inbox when its task is cancelled
+  or ends, instead of waiting for ever; and a task whose record the ninety-day clean-up has
+  cleared is not "continued" into a failure but told to run again (STATUS 2.162).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

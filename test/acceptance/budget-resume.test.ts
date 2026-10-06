@@ -179,3 +179,36 @@ test('only what stopped on this account is continued, and only what its budget s
     await api.close();
   }
 });
+
+/**
+ * The audit of 6 October (W6): retention blanks a finished task's model turns at
+ * ninety days, and continue-all (2.155) makes going on with an old halted task
+ * likelier. A journal with a blanked turn cannot be replayed -- the run read
+ * `undefined` where a reply had been, and failed three times -- so the task is
+ * not continued, and the owner is told to do it again.
+ */
+test('a task whose record retention has cleared is not continued, and says to do it again', async () => {
+  const fixture = await createCompany('budget-scrubbed', { tokensMax: 5_000 });
+  const old = await stopped(fixture);
+  const fresh = await stopped(fixture);
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, output, committed_at)
+     VALUES ($1, 0, $2, 'model:turn', 'llm', 'committed', 'h', 'k', '{"redacted":"retention"}'::jsonb, now())`, [old, fixture.companyId]));
+  const api = await consoleWithSettings({ baseEnv: {} });
+  try {
+    const owner = await api.signIn();
+    const one = await api.call('POST', `/api/companies/${fixture.companyId}/tasks/${old}/continue`, owner, {});
+    assert.equal(one.status, 409, JSON.stringify(one.body));
+    assert.match(String(one.body.error), /retention/);
+    assert.match(String(one.body.error), /do it again|run it again/i);
+    assert.equal(await statusOf(fixture, old), 'halted');
+
+    // Continue-all passes it over by name and goes on with the rest.
+    const all = await api.call('POST', `/api/companies/${fixture.companyId}/budget-accounts/${fixture.budgetAccountId}/continue`, owner, {});
+    assert.equal(all.body.continued, 1, JSON.stringify(all.body));
+    assert.deepEqual(all.body.skipped.map((entry: { taskId: string }) => entry.taskId), [old]);
+    assert.equal(await statusOf(fixture, fresh), 'pending');
+  } finally {
+    await api.close();
+  }
+});

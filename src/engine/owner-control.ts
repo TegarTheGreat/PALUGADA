@@ -246,6 +246,17 @@ export async function continueHalted(companyId: string, taskId: string): Promise
     throw new PalugadaError('spend.paused',
       'the company has reached its monthly spending ceiling; raise it or grant an override before going on', { companyId });
   }
+  // Retention blanks a finished task's model turns after ninety days, and a
+  // journal with a blanked turn cannot be replayed: the run read nothing where
+  // a reply had been and failed three times (the audit of 6 October, W6).
+  const cleared = await withControlPlane((tx) => tx.query(
+    `SELECT 1 FROM task_steps WHERE task_id = $1 AND company_id = $2 AND kind = 'llm'
+        AND output = '{"redacted":"retention"}'::jsonb LIMIT 1`, [taskId, companyId]));
+  if (cleared.rowCount === 1) {
+    throw new PalugadaError('task.not_continuable',
+      `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
+        + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
+  }
   await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ status: TaskStatus; halt_reason: string | null; budget_account_id: string; frozen: boolean }>(
       `SELECT t.status, t.halt_reason, t.budget_account_id, r.frozen_at IS NOT NULL AS frozen

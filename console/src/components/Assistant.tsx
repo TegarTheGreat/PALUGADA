@@ -337,8 +337,65 @@ function Line({ message, reload, speaker }: {
         {message.channel === 'telegram' && <Text size="xs" c="dimmed" mt={2}>{t('via Telegram')}</Text>}
       </Paper>
       {message.proposals.map((proposal) => <Card key={proposal.id} proposal={proposal} reload={reload} />)}
+      <ApplyAll proposals={message.proposals} reload={reload} />
     </Stack>
   );
+}
+
+/**
+ * Several cards open at once, applied in the order they were written, for the
+ * owner who has read them and agrees. A card that wants a key typed is left
+ * for its own field; the first refusal stops the rest. A code shown for one
+ * covers what builds the company for the next few minutes, so a plan of eight
+ * cards is one code, not eight.
+ */
+function ApplyAll({ proposals, reload }: { proposals: Proposal[]; reload: () => Promise<void> }) {
+  const requireFactor = useFactor();
+  const [busy, setBusy] = useState(false);
+  const ready = proposals.filter((one) => one.status === 'open' && Object.keys(one.secrets).length === 0);
+  if (ready.length < 2) return null;
+  const run = async () => {
+    setBusy(true);
+    try {
+      for (const proposal of ready) {
+        if (!(await applyCard(proposal, {}, requireFactor))) break;
+        notifications.show({ color: 'teal', message: t('Done: {what}', { what: proposal.summary }) });
+      }
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+      await reload();
+    }
+  };
+  return (
+    <Button size="compact-sm" variant="light" leftSection={<IconCheck size={14} />} loading={busy} onClick={() => void run()}>
+      {t('Apply all')}
+    </Button>
+  );
+}
+
+type FactorAsker = ReturnType<typeof useFactor>;
+
+/**
+ * One card applied: a change that takes the device asks for it first; one that
+ * may take it is tried, and asked for it when the route says so. True when it
+ * was applied, false when the owner backed out; a refusal is thrown.
+ */
+async function applyCard(proposal: Proposal, secrets: Record<string, string>, requireFactor: FactorAsker): Promise<boolean> {
+  const payload = { secrets };
+  if (proposal.factor === 'always') {
+    return requireFactor(proposal.summary, (proof) =>
+      api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
+  }
+  try {
+    await api('POST', `/api/assistant/proposals/${proposal.id}/apply`, payload);
+  } catch (failure) {
+    if (!(failure instanceof ApiError && failure.code === 'approval.channel_forbidden')) throw failure;
+    return requireFactor(proposal.summary, (proof) =>
+      api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
+  }
+  return true;
 }
 
 function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<void> }) {
@@ -353,24 +410,8 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
 
   const apply = async () => {
     setBusy(true);
-    const payload = { secrets: typed };
     try {
-      // A change that takes the device asks for it first; one that may take it
-      // is tried, and asked for it when the route says so.
-      if (proposal.factor === 'always') {
-        const done = await requireFactor(proposal.summary, (proof) =>
-          api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
-        if (!done) return;
-      } else {
-        try {
-          await api('POST', `/api/assistant/proposals/${proposal.id}/apply`, payload);
-        } catch (failure) {
-          if (!(failure instanceof ApiError && failure.code === 'approval.channel_forbidden')) throw failure;
-          const done = await requireFactor(proposal.summary, (proof) =>
-            api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
-          if (!done) return;
-        }
-      }
+      if (!(await applyCard(proposal, typed, requireFactor))) return;
       notifications.show({ color: 'teal', message: t('Done: {what}', { what: proposal.summary }) });
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });

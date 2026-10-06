@@ -406,6 +406,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Применено: {what}",
   "Applies to": "Действует для",
   "Apply": "Применить",
+  "Apply all": "Применить все",
   "Apply with a code": "Применить с кодом",
   "Approval replaced by a new proposal": "Одобрение заменено новым предложением",
   "Approval requested": "Запрошено одобрение",

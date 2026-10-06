@@ -372,6 +372,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "लागू किया गया: {what}",
   "Applies to": "किस पर लागू",
   "Apply": "लागू करें",
+  "Apply all": "सभी लागू करें",
   "Apply with a code": "कोड के साथ लागू करें",
   "Approval replaced by a new proposal": "स्वीकृति की जगह नया प्रस्ताव आया",
   "Approval requested": "स्वीकृति माँगी गई",

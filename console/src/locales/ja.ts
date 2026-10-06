@@ -397,6 +397,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "適用済み：{what}",
   "Applies to": "適用対象",
   "Apply": "適用",
+  "Apply all": "すべて適用",
   "Apply with a code": "コードを入力して適用",
   "Approval replaced by a new proposal": "承認依頼が新しい提案に置き換えられました",
   "Approval requested": "承認を依頼しました",

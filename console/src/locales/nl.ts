@@ -403,6 +403,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Toegepast: {what}",
   "Applies to": "Geldt voor",
   "Apply": "Toepassen",
+  "Apply all": "Alles toepassen",
   "Apply with a code": "Toepassen met een code",
   "Approval replaced by a new proposal": "Goedkeuring vervangen door een nieuw voorstel",
   "Approval requested": "Goedkeuring gevraagd",

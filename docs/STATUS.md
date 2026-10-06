@@ -9170,6 +9170,45 @@ the audit of 3 October, which found two promises that the code did not keep.
   while one is going; each ticket once until it changes, and ten minutes between;
   not while in progress or winding down; the worker's tick does both).
 
+## 2.145 The CEO does what it was asked, and a plan is one press
+
+The owner's complaint of 6 October: "chat sama CEO gajelas mirip chatbot doang
+tanya jawab", "dikit dikit terapkan padahal CEO bisa lakukan". The CEO's
+conversation read the company and then put every change in front of the owner as
+a card to press, so asking it to start work was asking it to fill in a form.
+
+- **Everyday work is done as it is proposed.** The actions marked `auto` --
+  give the company work, file and update a ticket, give a ticket to a role, tell
+  a task something, cancel it, run it again, go on with it after its budget --
+  run when the model proposes them, are told to the model as `Done: ...`, and
+  are kept as cards already closed, with what they did, so the conversation
+  still shows them. A failure is told to the model as `It failed: ...` and kept
+  as a failed card. Each is a `chat` action with no device and no key (a test
+  holds the list).
+- **Only after reading nothing an agent or a stranger wrote.** This is the Rule
+  of Two applied to the assistant: it reads data that may be someone's
+  injected instruction (a task's output, an inbox item, a ticket, a customer's
+  message, a memory), and it would then act as the owner. The reads that hold
+  only what the owner and the platform made (`READS_OF_NO_ONE_ELSES_WORDS`: the
+  company's structure, budget accounts, spend, the deployment's settings) leave
+  an answer clean. After any other read, in the same answer, the action is a card
+  and the model is told so. The cost is that "cancel that task" -- which needs
+  the work list, which holds agents' words -- is still a card; the gain is that a
+  task's output cannot get work started in the owner's name.
+- **A plan of cards is one press.** **Apply all** applies the open cards of a
+  message in order, stops at the first refusal, and leaves a card that wants a
+  key typed for its own field. With 2.143, a plan that builds the company asks
+  for one code.
+- **Not changed:** hiring, goals, grants, limits, channels, keys and the rest
+  stay cards, and every route keeps its own checks -- `auto` calls the same
+  route the card would.
+- **Tested** in `assistant.test.ts` (work given at once and the model told so,
+  the card already applied and refused a second time; the same action a card
+  after a read of the work list; the list of `auto` actions and that each is a
+  chat action with no device or key), `ceo.test.ts` and
+  `telegram-conversation.test.ts` (work given before anything is pressed; the
+  chat's one-press card is now a fact to remember).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

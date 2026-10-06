@@ -388,6 +388,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "已应用：{what}",
   "Applies to": "适用范围",
   "Apply": "应用",
+  "Apply all": "全部应用",
   "Apply with a code": "输入验证码后应用",
   "Approval replaced by a new proposal": "审批已被新提案取代",
   "Approval requested": "已请求审批",

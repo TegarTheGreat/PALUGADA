@@ -428,6 +428,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Uygulandı: {what}",
   "Applies to": "Kapsam",
   "Apply": "Uygula",
+  "Apply all": "Hepsini uygula",
   "Apply with a code": "Kodla uygula",
   "Approval replaced by a new proposal": "Onayın yerini yeni bir öneri aldı",
   "Approval requested": "Onay istendi",

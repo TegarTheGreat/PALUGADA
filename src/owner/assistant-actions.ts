@@ -50,6 +50,18 @@ export interface AssistantAction {
    * applied in the app, where the owner's device is.
    */
   chat?: true;
+  /**
+   * Done at once when the owner has asked, with no card to press: a CEO that
+   * answers "give the team this" with a card for the owner to apply is a
+   * chatbot that fills in a form for them. Only a `chat` action -- no device,
+   * no key -- and only everyday work: give it, file it, tell it, stop it, run
+   * it again. And only in an answer that has read nothing an agent or a
+   * stranger wrote (`READS_OF_NO_ONE_ELSES_WORDS`): what the owner said, and
+   * what the company is, are the whole of what moved it. An answer that has
+   * read a task's output, an inbox item, a customer's message or a memory
+   * leaves the same action as a card, which is the owner's to press.
+   */
+  auto?: true;
 }
 
 const COMPANY = 'companyId comes from GET /api/companies.';
@@ -244,17 +256,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/tickets',
     what: 'File a ticket: something that needs doing and is not given to anyone yet. The CEO hands tickets on.',
     fields: { title: 'what needs doing, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)', divisionId: 'optional division it belongs to' },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/tickets/:ticketId',
-    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never', chat: true,
+    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/tickets/:ticketId/assign',
     what: 'Give a ticket to a role: it becomes that role\'s task, and closes when the task finishes.',
     fields: { roleId: 'the role that does it', goalId: 'the goal it serves' },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/assign',
@@ -263,7 +275,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       roleId: 'the role that does it', divisionId: 'the role\'s division', projectId: 'the project it belongs to',
       goalId: 'the goal it serves', goal: 'what is wanted, in the owner\'s words', detail: 'optional detail',
     },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/decide',
@@ -301,10 +313,10 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { itemIds: 'list of item ids', decision: 'approve or deny', note: 'why' },
     factor: 'sometimes',
   },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never', chat: true },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never', chat: true },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never', chat: true },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/continue', what: 'Go on with a task its budget stopped, from where it stopped, once the owner has raised the ceiling of its account.', fields: {}, factor: 'never', chat: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never', chat: true, auto: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never', chat: true, auto: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never', chat: true, auto: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/continue', what: 'Go on with a task its budget stopped, from where it stopped, once the owner has raised the ceiling of its account.', fields: {}, factor: 'never', chat: true, auto: true },
   {
     pattern: '/api/companies/:companyId/tasks/:taskId/feedback',
     what: 'Tell a company what the owner thought of delivered work; it becomes what the division remembers.',
@@ -707,6 +719,31 @@ export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
 };
 
 /** POST routes the assistant neither proposes nor calls, and why. */
+/**
+ * The reads whose answer holds nobody else's words: the company's roles and
+ * goals as its owner made them, its money, its settings. An answer that has
+ * read only these may do an `auto` action at once. Anything else -- a task's
+ * output, an inbox item, a ticket, a customer's message, a memory, a document,
+ * a search -- was written by an agent or a stranger, and may be telling the
+ * assistant what to do; after it, an action is a card for the owner.
+ */
+export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
+  '/api/companies',
+  '/api/companies/:companyId/structure',
+  '/api/companies/:companyId/budget-accounts',
+  '/api/companies/:companyId/spend',
+  '/api/companies/:companyId/first-hour',
+  '/api/personas',
+  '/api/runtimes',
+  '/api/me',
+  '/api/control/setup',
+  '/api/control/settings',
+  '/api/control/tools',
+  '/api/control/channels',
+  '/api/control/languages',
+  '/api/control/money-display',
+];
+
 export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/sign-in': 'signing in is the owner\'s',
   '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',

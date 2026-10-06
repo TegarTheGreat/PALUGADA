@@ -399,6 +399,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "적용됨: {what}",
   "Applies to": "적용 대상",
   "Apply": "적용",
+  "Apply all": "모두 적용",
   "Apply with a code": "코드로 적용",
   "Approval replaced by a new proposal": "승인 요청이 새 제안으로 대체됨",
   "Approval requested": "승인 요청됨",

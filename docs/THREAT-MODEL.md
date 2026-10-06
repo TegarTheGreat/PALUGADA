@@ -233,8 +233,16 @@ refer to `docs/PRD.md`.
    done; a dialog is answered no unless the card said yes; a role never
    types a password (`src/browser/browsers.ts`). The page script runs in a
    world of its own, so a page's scripts cannot change what it reads.
-8. The console renders agent text as text. The owner's assistant only proposes
-   cards the owner applies (`src/owner/assistant.ts`).
+8. The console renders agent text as text. The owner's assistant proposes
+   cards the owner applies (`src/owner/assistant.ts`), with one exception: the
+   everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
+   telling, stopping or rerunning a task; no device, no key -- is done as it is
+   proposed, **only in an answer that has read nothing an agent or a stranger
+   wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
+   settings). After a read of a task, an inbox item, a ticket, a message, a
+   memory or a document, the same action is a card, so text from outside cannot
+   have the assistant start work as the owner. A test names the actions, so
+   adding one is a decision.
 
 **Residual risk.**
 

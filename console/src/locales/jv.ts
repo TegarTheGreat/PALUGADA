@@ -419,6 +419,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Dipuntrapaken: {what}",
   "Applies to": "Lumampah kangge",
   "Apply": "Trapaken",
+  "Apply all": "Trapaken sedaya",
   "Apply with a code": "Trapaken mawi kode",
   "Approval replaced by a new proposal": "Persetujuan dipungantos usulan enggal",
   "Approval requested": "Persetujuan dipunsuwun",

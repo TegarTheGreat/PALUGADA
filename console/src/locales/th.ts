@@ -421,6 +421,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "นำไปใช้แล้ว: {what}",
   "Applies to": "ใช้กับ",
   "Apply": "นำไปใช้",
+  "Apply all": "นำไปใช้ทั้งหมด",
   "Apply with a code": "นำไปใช้ด้วยรหัส",
   "Approval replaced by a new proposal": "การอนุมัติถูกแทนที่ด้วยข้อเสนอใหม่",
   "Approval requested": "มีคำขออนุมัติ",

@@ -426,6 +426,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Đã áp dụng: {what}",
   "Applies to": "Áp dụng cho",
   "Apply": "Áp dụng",
+  "Apply all": "Áp dụng tất cả",
   "Apply with a code": "Áp dụng bằng mã",
   "Approval replaced by a new proposal": "Phê duyệt đã được thay bằng đề xuất mới",
   "Approval requested": "Đã yêu cầu phê duyệt",

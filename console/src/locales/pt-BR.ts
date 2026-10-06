@@ -386,6 +386,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Aplicado: {what}",
   "Applies to": "Aplica-se a",
   "Apply": "Aplicar",
+  "Apply all": "Aplicar tudo",
   "Apply with a code": "Aplicar com um código",
   "Approval replaced by a new proposal": "Aprovação substituída por uma nova proposta",
   "Approval requested": "Aprovação solicitada",

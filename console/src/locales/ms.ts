@@ -421,6 +421,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Dilaksanakan: {what}",
   "Applies to": "Terpakai kepada",
   "Apply": "Laksanakan",
+  "Apply all": "Laksanakan semua",
   "Apply with a code": "Laksanakan dengan kod",
   "Approval replaced by a new proposal": "Kelulusan digantikan oleh cadangan baharu",
   "Approval requested": "Kelulusan diminta",

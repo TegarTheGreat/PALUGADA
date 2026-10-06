@@ -415,6 +415,12 @@ The first version. What it holds, in the order an owner meets it.
   coordinator could not handle it, with what it did. Tickets the company owes
   -- filed by a role, or by you -- are handed on by the CEO on its own, a batch
   at a time, and cost nothing while there are none (STATUS 2.144).
+- A company's CEO now does what you ask in the conversation -- gives the team
+  work, files or hands on a ticket, tells a task something, stops it, runs it
+  again -- instead of putting a card in front of you to press, unless in that
+  answer it read what agents or customers wrote, when it is a card as before.
+  When several cards are waiting, **Apply all** presses them in order (STATUS
+  2.145).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

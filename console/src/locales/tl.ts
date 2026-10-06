@@ -382,6 +382,7 @@ export const DICTIONARY: Dictionary = {
   "Applied: {what}": "Nailapat: {what}",
   "Applies to": "Saklaw",
   "Apply": "Ilapat",
+  "Apply all": "Ilapat lahat",
   "Apply with a code": "Ilapat gamit ang code",
   "Approval replaced by a new proposal": "Napalitan ng bagong mungkahi ang pag-apruba",
   "Approval requested": "Humiling ng pag-apruba",

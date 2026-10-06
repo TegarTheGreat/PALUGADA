@@ -18,8 +18,8 @@
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
-import { createSubTask, getTask, transition } from '../engine/tasks.ts';
-import { LEARNED_CONFIDENCE, remember } from '../memory/store.ts';
+import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
+import { LEARNED_CONFIDENCE, MEMORY_BODY_MAX, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, reviewDeadlockedCard, reviewUnreadableCard, stageMoveStoppedCard } from '../owner/platform-cards.ts';
 import { stageOf } from '../domain/stage.ts';
@@ -404,11 +404,13 @@ export async function recordVerdict(
       scopeType: 'division',
       scopeId: review.division_id,
       factKind: 'decision',
-      body:
-        `Review of ${review.capability_name}: ${verdict.decision}. ` +
-        `Criteria: ${review.criteria}. Reviewer: ${verdict.reason}`,
+      body: decisionFactBody(review.capability_name, verdict, review.criteria),
       source: 'adversarial_review',
       sourceEventId: eventId,
+      // The reviewer's reasons are about a proposal that work reading outside
+      // content made: a stranger's words may be in them, and a later run is
+      // shown them as data (0071). The decision record keeps what was said.
+      outside: (await outsideContentIn(tx, review.proposer_task_id)) !== null,
       // The decision is certain; the reviewer's reasons are a run's words,
       // which read the proposal it judged. Below the line of a known fact.
       confidence: LEARNED_CONFIDENCE.first,
@@ -567,11 +569,44 @@ export async function settleCompletedReviews(companyId: string): Promise<
       continue;
     }
 
-    await recordVerdict(companyId, row.id, verdict);
-    settled.push({ reviewRequestId: row.id, decision: verdict.decision });
+    try {
+      await recordVerdict(companyId, row.id, verdict);
+      settled.push({ reviewRequestId: row.id, decision: verdict.decision });
+    } catch (failure) {
+      // One review that cannot be recorded does not stop the ones behind it,
+      // and is not tried again every tick: it is the owner's, as one whose
+      // verdict could not be read is. recordVerdict ran in a transaction, so
+      // nothing of it was kept.
+      await withTenant(companyId, async (tx) => {
+        await tx.query(`UPDATE review_requests SET status = 'escalated', decided_at = now() WHERE id = $1 AND status = 'pending'`, [row.id]);
+      });
+      const card = reviewUnreadableCard(await withTenant(companyId, ownerReadingWithin), {
+        capability: row.capability_name, record: (failure as Error).message.slice(0, 300),
+      });
+      await inbox.raiseEscalation({ companyId, taskId: row.proposer_task_id, title: card.title, detail: card.detail });
+      settled.push({ reviewRequestId: row.id, decision: 'unreadable' });
+    }
   }
 
   return settled;
+}
+
+/** The most of the criteria a decision fact carries: they are the owner's or the policy's, and short. */
+const FACT_CRITERIA_MAX = 600;
+const CLIPPED = '… [shortened; the decision record has the whole]';
+
+/**
+ * What a division recalls of a verdict: the decision, the criteria and the
+ * reviewer's reason, within what a memory may hold. The reason was unbounded,
+ * a memory is not, and the insert that refused a long one rolled the whole
+ * verdict back and stopped every review behind it (the audit of 3 October).
+ * The decision record keeps the reviewer's words whole; this is the line a
+ * later run recalls, and the start of a reason is where the verdict is.
+ */
+function decisionFactBody(capability: string, verdict: ReviewVerdict, criteria: string): string {
+  const clip = (text: string, room: number) => (text.length <= room ? text : `${text.slice(0, Math.max(0, room - CLIPPED.length))}${CLIPPED}`);
+  const head = `Review of ${capability}: ${verdict.decision}. Criteria: ${clip(criteria, FACT_CRITERIA_MAX)}. Reviewer: `;
+  return `${head}${clip(verdict.reason, MEMORY_BODY_MAX - head.length)}`;
 }
 
 function readVerdict(

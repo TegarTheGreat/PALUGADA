@@ -19,6 +19,7 @@
  * on would be a bundle that quietly did nothing.
  */
 import type { Bundle } from './bundle.ts';
+import { VERDICT_OUTPUT } from '../review/verdict.ts';
 
 const WORK_INPUT = {
   type: 'object',
@@ -34,31 +35,6 @@ const WORK_OUTPUT = {
   properties: {
     summary: { type: 'string', minLength: 1 },
     artefacts: { type: 'array', items: { type: 'string' } },
-  },
-};
-
-/**
- * What a reviewer returns: the verdict `settleCompletedReviews` reads.
- *
- * A reviewer's output is shown its schema before it answers (context/builder.ts),
- * so the schema is where it learns that a verdict is `decision` and `reason`.
- * Given the ordinary work output instead, a reviewer answers with a summary, and
- * a review with no readable verdict goes to the owner as undecided.
- */
-const VERDICT_OUTPUT = {
-  type: 'object',
-  additionalProperties: true,
-  required: ['decision', 'reason'],
-  properties: {
-    decision: {
-      enum: ['approve', 'revise', 'reject'],
-      description: 'approve to support it, reject to oppose it, revise when you need more before you can say',
-    },
-    reason: {
-      type: 'string',
-      minLength: 1,
-      description: 'Your verdict line first, then what decided it. The owner reads it with the proposal.',
-    },
   },
 };
 
@@ -302,7 +278,7 @@ the request, not applied it.
 
 export const QA_REVIEW: Bundle = {
   slug: 'qa-review',
-  version: '1.2.0',
+  version: '1.3.0',
   name: 'Adversarial review',
   description: 'The reviewer role F7 needs, holding nothing that writes.',
   body: {
@@ -322,6 +298,7 @@ export const QA_REVIEW: Bundle = {
           'the verdict names the criterion each finding relates to',
           'an approval says what was checked, not that it looked fine',
         ],
+        outputSchema: VERDICT_OUTPUT,
       }),
     ],
     // Read-only, on purpose. F7.3 keeps a reviewer from being the proposer; a
@@ -392,7 +369,7 @@ Approving is a claim that you checked. "It looks fine" is not a review.
  */
 export const PALUGADA_DEV: Bundle = {
   slug: 'palugada-dev',
-  version: '1.3.0',
+  version: '1.4.0',
   name: 'Develop PALUGADA',
   description: 'A platform engineer and a reviewer that change PALUGADA itself, by pull request.',
   body: {
@@ -434,6 +411,7 @@ export const PALUGADA_DEV: Bundle = {
           'the verdict names the rule each finding relates to',
           'an approval says what was checked',
         ],
+        outputSchema: VERDICT_OUTPUT,
       }),
     ],
     grants: [

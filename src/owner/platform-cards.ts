@@ -292,7 +292,8 @@ export function reviewDeadlockedCard(reading: OwnerReading, facts: { capability:
   };
 }
 
-export function reviewUnreadableCard(reading: OwnerReading, facts: { capability: string }): Card {
+/** `record`: what the platform said when the verdict could not be kept, as it said it. */
+export function reviewUnreadableCard(reading: OwnerReading, facts: { capability: string; record?: string }): Card {
   const { language } = reading;
   return {
     title: say(language, 'Review produced no usable verdict: {capability}', { capability: capabilitySaid(language, facts.capability) }),

@@ -50,6 +50,7 @@
  * template would pre-empt both.
  */
 import { saveTemplate, type CompanyTemplate } from './company.ts';
+import { VERDICT_OUTPUT } from '../review/verdict.ts';
 
 export const STANDARD_TEMPLATE_SLUG = 'standard-company';
 
@@ -518,7 +519,9 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       // Empty, and F7.3 is why. NO_PLATFORM_TOOLS above has the argument.
       tools: [],
       inputSchema: WORK_INPUT,
-      outputSchema: WORK_OUTPUT,
+      // The verdict `settleCompletedReviews` reads, not a summary: asked for a
+      // summary, a reviewer's review went to the owner as unreadable.
+      outputSchema: VERDICT_OUTPUT,
     },
     {
       slug: 'analyst',

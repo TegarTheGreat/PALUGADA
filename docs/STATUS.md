@@ -8968,6 +8968,39 @@ deployment it was not.
   not reversed, the balances and the entries in order; an export restored
   balancing. The binding, the tiers and the template.
 
+## 2.141 The shipped reviewers are asked for a verdict, and one that cannot be recorded stops nothing (audit of 3 October, P0-2 and P0-3)
+
+The audit of `docs/AUDIT-2026-10-03-ONE-MAN-COMPANY.md` checked, in code, two
+defects in the adversarial review (F7.1) that cost the owner work.
+
+- **The reviewers a company is given were never asked for the verdict.** Only
+  the `critic` carried the output schema that names `decision` and `reason`;
+  the standard `reviewer`, `qa-reviewer` and `platform-reviewer` answered in
+  whatever shape the model chose, and a review with no readable verdict goes
+  to the owner as undecided. Every review by them was therefore the owner's
+  to settle by hand. They now carry one schema (`src/review/verdict.ts`),
+  with `decision` one of approve, revise, reject and `reason` required;
+  `qa-review` is 1.3.0 and `palugada-dev` 1.4.0 for it, so an installed copy
+  is offered the change.
+- **A long reason jammed the review queue.** The decision fact written to
+  memory carried the reviewer's whole reason; a memory holds 4,000
+  characters; the insert refused a longer one, the transaction rolled the
+  whole verdict back, and `settleCompletedReviews` threw out of its loop --
+  every tick again, behind the same review, for ever. The fact now carries
+  the criteria (to 600 characters) and the reason clipped with a mark that
+  says so, and the decision record keeps the reviewer's words whole. A
+  verdict that cannot be recorded for any reason is escalated once, with the
+  platform's error as the card's record, and the reviews behind it are
+  settled.
+- **A reviewer's reasons about work that read outside content are remembered
+  as outside**, as every other lesson from such work is (F8.9).
+- **Tested** in `review-verdict-schema.test.ts` (every shipped reviewer
+  requires `decision` and `reason`, and the versions moved) and
+  `adversarial-review.test.ts` (a long reason kept whole in the record and
+  clipped in memory; a decision about outside-begun work remembered
+  `outside`; a verdict provoked into being unrecordable escalates once and
+  the next review is still settled -- with the guard removed, it was not).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

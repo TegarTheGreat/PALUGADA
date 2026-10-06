@@ -391,6 +391,11 @@ The first version. What it holds, in the order an owner meets it.
   edit; balances per currency and this month's profit. The bookkeeper reads
   and records the same books. An accounting service you connect takes over
   (STATUS 2.139).
+- The reviewers a company is given (`reviewer`, `qa-reviewer`,
+  `platform-reviewer`) are now asked for a verdict a reading can use, so a
+  review is no longer sent to you as "undecided" for want of one; and a
+  reviewer's long reason can no longer stop every review behind it
+  (STATUS 2.141).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

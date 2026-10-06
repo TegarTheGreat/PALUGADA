@@ -581,10 +581,11 @@ test('an email draft survives a model that ignored the format (F8.2)', () => {
 test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   // The mailbox pair needs nothing of the deployment: the mailbox is each
   // division's key (`mailbox.ts`). Nor do the customer record and the
-  // books, which are the company's own tables until a CRM or an accounting
-  // service is connected (`crm.ts`, 0118; `books.ts`, 0119).
+  // books and their invoices, which are the company's own tables until a CRM
+  // or an accounting service is connected (`crm.ts`, 0118; `books.ts`, 0119,
+  // 0122).
   const always = [
-    'crm.note', 'crm.read', 'crm.record', 'email.send', 'ledger.read', 'ledger.record', 'mailbox.read', 'uptime.check', 'web.fetch',
+    'crm.note', 'crm.read', 'crm.record', 'email.send', 'invoice.issue', 'ledger.read', 'ledger.record', 'mailbox.read', 'uptime.check', 'web.fetch',
   ];
   assert.deepEqual(platformCapabilities().map((capability) => capability.name).sort(), always);
 

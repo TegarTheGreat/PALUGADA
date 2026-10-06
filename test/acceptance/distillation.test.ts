@@ -490,6 +490,46 @@ test('a rejected candidate stays rejected, and is proposed again only on new evi
   assert.equal(third.length, 0, 'a candidate already awaiting the owner is not proposed again');
 });
 
+/**
+ * The audit of 6 October (M8): a pattern was counted in calls, not tasks -- three
+ * calls in one task qualified, against a card that says "observed in 3 completed
+ * tasks" -- and the clock a rejection was answered from was when the candidate
+ * was written, not when the owner said no, so what happened while the card
+ * waited counted as new evidence the moment it was turned down.
+ */
+test('a pattern is counted in tasks, and what happened while a proposal waited is not evidence against its rejection (M8)', async () => {
+  const fixture = await createCompany('distil-counted');
+  const llm = new RecordingLlmClient(() => 'Some SOP text');
+  const distil = () => distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
+  });
+
+  // One task that used the capability five times is one task.
+  const carrier = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'deploy many times' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await withTenant(fixture.companyId, async (tx) => {
+    for (let i = 0; i < 5; i += 1) {
+      await appendEvent(tx, { companyId: fixture.companyId, projectId: fixture.projectId, taskId: carrier.id, type: 'tool.called', actor: 'agent_run', payload: { capability: 'deploy.staging' } });
+    }
+    await tx.query("UPDATE tasks SET status = 'completed', finished_at = now() WHERE id = $1", [carrier.id]);
+  });
+  assert.equal((await distil()).length, 0, 'five calls in one task are not a pattern');
+
+  // Three tasks are. It is proposed; three more happen while it waits; the owner says no.
+  await seedRepeatedPattern(fixture, 'deploy.staging', 3);
+  assert.equal((await distil()).length, 1);
+  await seedRepeatedPattern(fixture, 'deploy.staging', 3, 3);
+  const item = (await inbox.listOpen(fixture.companyId)).find((one) => one.kind === 'sop_candidate')!;
+  await inbox.decide(fixture.companyId, item.id, 'deny', 'not now');
+  assert.equal((await distil()).length, 0, 'what happened before the owner said no was already known to them');
+
+  // What happens after is evidence.
+  await seedRepeatedPattern(fixture, 'deploy.staging', 3, 6);
+  assert.equal((await distil()).length, 1);
+});
+
 test('a pattern below the recurrence floor is not proposed', async () => {
   const fixture = await createCompany('distil-floor');
   await seedRepeatedPattern(fixture, 'deploy.staging', 2);

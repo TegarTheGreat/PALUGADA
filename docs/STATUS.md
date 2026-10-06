@@ -9852,6 +9852,32 @@ Six defects in what the company remembers, each checked in the code before it wa
   an escalation stays) and `budget-resume.test.ts` (a cleared record is refused, the rest
   continued).
 
+## 2.163 What the learning step proposes, and what a fresh install says it cannot do (the audit of 6 October, M5, M8, O2)
+
+- **Lessons are company-wide rules (M5).** Both lesson prompts asked for "how a customer or a
+  supplier likes to be dealt with", and lessons are division-scoped, so what one customer liked
+  was told to every run for every other customer in the division -- noise, and a disclosure
+  risk for a responder. They now ask for how customers or suppliers *in general* like to be dealt
+  with, as a rule for the next one, and nothing about one named person, whose notes belong in
+  their customer record (`crm.note`, 2.138).
+- **A pattern is counted in tasks, and answered from when the owner said no (M8).** The
+  recurrence signal counted `tool.called` events, so three calls in one task proposed a
+  procedure against a card that says "observed in 3 completed tasks"; it now counts distinct
+  tasks. A rejection was answered from when the candidate was *written*, so whatever happened
+  while its card waited counted as new evidence the moment it was turned down; it is answered from
+  the card's `decided_at`. Not done: the candidate is still written without `outside` when the
+  work it came from read outside content, and its card says nothing of that.
+- **A fresh install says what it cannot do (O2).** The shipped Midtrans example is named
+  `invoice.issue`, and the books-backed one is a `fallback` a service may take: connecting it
+  stopped invoices being written to the books with nothing to say so. It is allowed -- a company
+  may want exactly that -- and said at start ("invoice.issue is bound to a service (midtrans), no
+  longer to the platform's own (the company's books): an invoice it issues is not written to the
+  books"), for any platform name a service takes. And the lab's analyst holds `code.execute`, which
+  no capability binds (the local sandbox exists and nothing wraps it): a start-up note says so.
+- **Tested** in `memory-learning.test.ts` (the prompts), `distillation.test.ts` (five calls in one
+  task are not a pattern; what happened while a proposal waited is not evidence against its
+  rejection, what happens after is) and `vendor-replaces-platform.test.ts`.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

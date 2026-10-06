@@ -840,6 +840,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // with nowhere to write is not the capability the catalogue calibrated.
     notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
   }
+  // The lab's analyst is given `code.execute`, and nothing binds it: the local
+  // sandbox exists and no capability wraps it. Said, so that a role holding it
+  // is not a surprise at the first call (the audit of 6 October, O2).
+  if (!registry.get('code.execute')) {
+    notes.push('code.execute is unbound: no capability wraps the sandbox, so the lab\'s analyst cannot run code; code.compute, where its image is built, is the way to compute');
+  }
   // What the platform bound, to compare with what is bound once the services
   // are: a name it binds only until a service does (`fallback`) may be
   // taken from it below.
@@ -864,6 +870,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // file keeps a name both bind; one that no longer passes is a note.
   const consoleVendors = bindVendorSettings(registry, env.PALUGADA_VENDOR_SETTINGS, notes);
   if (consoleVendors.length > 0) notes.push(`services connected in the console: ${consoleVendors.join(', ')}`);
+  // A name the platform keeps only until a service takes it, and a service did:
+  // said, with what it costs. The shipped Midtrans example names `invoice.issue`
+  // for a QRIS charge, and connecting it stopped the company's invoices being
+  // written to its books with nothing to say so (the audit of 6 October, O2).
+  for (const [name, own] of platformBound) {
+    const now = registry.get(name);
+    if (!own || !now || now === own) continue;
+    const books = name === 'ledger.read' || name === 'ledger.record' || name === 'invoice.issue';
+    notes.push(
+      `${name} is bound to a service (${now.adapter}), no longer to the platform's own${books ? " (the company's books)" : ''}`
+      + (name === 'invoice.issue' ? ': an invoice it issues is not written to the books' : '')
+      + (name === 'ledger.record' ? ': what it records is not in the books the platform keeps' : ''),
+    );
+  }
 
   // Tools from MCP servers, only those the file names, each at the tier it
   // states (`src/capabilities/mcp.ts`). Refused at boot like the vendor file

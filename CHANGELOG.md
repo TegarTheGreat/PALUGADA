@@ -507,6 +507,11 @@ The first version. What it holds, in the order an owner meets it.
   everything it hands on. A question a role asked leaves your inbox when its task is cancelled
   or ends, instead of waiting for ever; and a task whose record the ninety-day clean-up has
   cleared is not "continued" into a failure but told to run again (STATUS 2.162).
+- What your company learns is a rule for the next customer, not a note about one: lessons no longer
+  carry what one named customer liked into every other customer's work, and a suggested procedure
+  is counted in tasks and answered from when you said no. A fresh install also says, at start, when a
+  connected service has taken over a name the platform keeps (such as invoicing in the books) and
+  that the lab analyst's code tool is not connected to anything (STATUS 2.163).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

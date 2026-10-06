@@ -396,8 +396,9 @@ async function roleSections(
       (roomForDone(schema) ? `\n\n${FAILED_INSTRUCTION}\n\n${NOT_DONE_INSTRUCTION}` : '') +
       (roomToLearn
         ? '\n\nYou may add "learned": up to five short sentences this work taught that the company should ' +
-          'remember next time -- what worked and what did not, and why; how a customer or a supplier likes to ' +
-          'be dealt with. Not a price, a stock level, who owes what or a customer\'s details: those are read ' +
+          'remember next time -- what worked and what did not, and why; how customers or suppliers in general like to ' +
+          'be dealt with, as a rule for the next one and not about one named person, whose notes belong in their ' +
+          'customer record. Not a price, a stock level, who owes what or a customer\'s details: those are read ' +
           'from the company\'s records when they are needed, and a remembered one goes out of date. They are ' +
           'kept for your division as unverified until other work learns them again or the owner confirms them.'
         : ''),

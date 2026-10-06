@@ -459,12 +459,15 @@ test('the prompts ask for what worked and why, not for prices, customers or stoc
   assert.ok(contract, 'the role has a contract to return');
   assert.match(contract!.body, /Not a price, a stock level, who owes what or a customer's details/);
   assert.doesNotMatch(contract!.body, /customers, products, prices, suppliers/);
+  // What one customer likes is that customer's record, not a lesson every other customer's run is told (the audit of 6 October, M5).
+  assert.match(contract!.body, /in general like to be dealt with.*not about one named person/s);
 
   await finish(fixture, { summary: 'The supplier in Garut sold 20 kg.' });
   const llm = new RecordingLlmClient(() => '{"facts":[]}');
   await distillEpisodicToSemantic({ companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: 'm' });
   assert.match(llm.calls[0]!.system ?? '', /not a price, a stock level, who owes what or a customer's details/);
   assert.doesNotMatch(llm.calls[0]!.system ?? '', /customers, products, prices, suppliers/);
+  assert.match(llm.calls[0]!.system ?? '', /in general like to be dealt with.*nothing about one named person/s);
 });
 
 /**

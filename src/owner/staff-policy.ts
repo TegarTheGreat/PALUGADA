@@ -89,6 +89,7 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/first-hour': 'the owner\'s first hour',
   '/api/companies/:companyId/devices': 'the company\'s devices are set up by the owner',
   '/api/companies/:companyId/retention': 'how long the company keeps things is the owner\'s',
+  '/api/companies/:companyId/office-hours': 'the hours the company keeps for what reaches the outside are the owner\'s',
   '/api/companies/:companyId/conversation': 'the owner\'s conversation with the CEO',
   '/api/companies/:companyId/divisions/:divisionId/credentials': 'the company\'s keys',
   '/api/companies/:companyId/bundles/:slug/verify': 'what is installed is the owner\'s',

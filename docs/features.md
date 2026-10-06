@@ -145,6 +145,9 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   non-urgent escalations until the owner is available, while incidents still
   come through.
 - Cheap hours for batchable, read-only work.
+- Office hours for a company that wants a working day: what reaches the
+  outside world -- an email, a post, a reply -- waits for the opening, while
+  reading, drafting and planning go on at any hour.
 - A wake queue: roles sleep, wake on assignment or events, and nearby wakes
   are merged into one run.
 - A schedule whose last five runs produced the same result asks the owner

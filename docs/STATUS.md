@@ -9361,6 +9361,54 @@ instrument (F8.9), so a renderer is a new way for it to reach the page.
   is not Markdown; every unsafe link, image and tag; the bounds under a hostile
   input; the source of the renderer.
 
+## 2.150 A company can keep office hours (the owner's complaint of 6 October: "susah dijalankan 24 jam atau 8 jam kerja")
+
+F9.6 says agents have no working hours, and that stands: they read, write and
+plan at any hour. What it left the owner without was any way to ask for a
+company that keeps a working day. The broker already held an action to a window
+(F9.2, 2.60) and the engine already parked it until the window opened -- but the
+only way to give one was a row typed into the database, one capability at a time
+(`capability_windows`), so for an owner it did not exist.
+
+- **`office_hours`** (migration 0121), one row a company: zone, start and end
+  hour (the end may be 24), days of the week (Monday to Friday unless said) and
+  the capabilities the owner keeps open round the clock (`except_capabilities`).
+  Constraints refuse an hour out of range, an empty window and a day set that
+  could never open. The application role can read the row and not change it --
+  what holds an agent's action to the hours is not the agent's to change.
+- **What it holds**: an action at tier 2 or above, by its effective tier -- what
+  reaches the outside world or cannot be undone. Tier 0 and 1, which stay inside
+  the company, are never held (F9.6), so the work is drafted and waiting when
+  the office opens. A window set for one capability still wins over the
+  company's (`windowFor`, `src/scheduler/windows.ts`), and a capability the
+  owner excepted is not held; `chat.send` is the usual one.
+- **Deferred, never refused.** A held action parks the task as `waiting_window`
+  with the moment the office next opens, spending no attempt (F9.2, the path
+  that already existed); the Work page says "Waiting for its work hours". The
+  approval of a tier 3 action is not moved by this: the owner decides when they
+  decide, and the action happens when the office opens.
+- **API and console**: `GET` and `POST /api/companies/:companyId/office-hours`
+  and `POST .../clear`, each pressed from **Settings**, **Company**, **Office
+  hours**, with the days as three choices (Monday to Friday, Monday to Saturday,
+  every day), the replies-to-customers choice, and **Run round the clock**. A
+  zone `Intl` does not know, an hour out of range, an empty day set and an
+  `except` that names no capability are each refused by name. A day set the API
+  set that the console would not have made is kept as it is unless the owner
+  picks another. It needs the session and not a second factor: a window only
+  delays, so widening or clearing one allows nothing a policy or an approval
+  does not. Staff do not see it (`STAFF_HIDDEN`), and the assistant's version of
+  both routes is a card, not an automatic action.
+- **Carried by the export and the import** with the rest of the company's
+  configuration.
+- **Not done**: a per-division office, and holding the owner's approvals of what
+  the hours would hold until morning (a night approval is still asked, as the
+  owner's own window decides, F9.3).
+- **Tested** in `office-hours.test.ts`: an outward action waits and an inward one
+  does not; inside the hours it runs; none, or cleared, is round the clock; an
+  excepted capability and a capability's own window; the API, its refusals, and
+  that the application role cannot write the row. Mutated, the first three fail.
+  `audit-export.test.ts` carries the row across a restore.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

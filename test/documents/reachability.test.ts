@@ -60,7 +60,6 @@ const UNREACHABLE: Record<string, string> = {
   NOT_RESTORED: 'helper: what an import deliberately drops, asserted directly',
 
   // F8: the catalogue and preflight.
-  catalogueNames: 'helper: the catalogue as names, asserted directly',
 
   // F16: bundles.
   forgetBundleHooks: 'helper: a cache reset a test needs between installs',

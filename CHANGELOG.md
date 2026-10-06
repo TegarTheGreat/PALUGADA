@@ -442,6 +442,12 @@ The first version. What it holds, in the order an owner meets it.
   pound sign as typed. It is read into a tree and drawn, never turned into
   markup: no image is fetched, no HTML runs, and a link opens only if it is
   http, https or mail (STATUS 2.149).
+- A company can keep office hours (**Settings**, **Company**): the days and hours
+  in which an email, a post, a reply to a customer or any other action that
+  reaches the outside world may go out. Outside them it waits for the opening
+  instead of failing, while reading, drafting and planning go on at any hour;
+  replies to customers can be left open at any hour. Until you say, a company
+  runs round the clock as before (STATUS 2.150).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

@@ -50,6 +50,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
 import { addDocument, archiveDocument, listDocuments, readDocument, setForCustomers } from '../knowledge/documents.ts';
@@ -78,7 +79,9 @@ import {
 } from '../governance/spend-guard.ts';
 import { readGovernanceLog } from '../governance/store.ts';
 import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
-import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
+import {
+  assertOfficeHours, clearOfficeHours, officeHours, ownerWindow, setBatchWindow, setOfficeHours, setOwnerWindow,
+} from '../scheduler/windows.ts';
 import { healthFor, preflightGrants } from '../broker/preflight.ts';
 import { assistantCost, costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
@@ -3210,6 +3213,52 @@ export class OwnerApi {
               ? { daysOfWeek: body.daysOfWeek.map((day) => wholeNumber(day, 'daysOfWeek')) }
               : {}),
           });
+          return { ok: true };
+        },
+      },
+
+      {
+        // The hours the company keeps for what reaches the outside world
+        // (STATUS 2.150). It only ever defers an action, so it takes the
+        // session and not a second factor.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/office-hours',
+        handle: async ({ params }) => ({
+          hours: await withTenant(params.companyId!, (tx) => officeHours(tx, params.companyId!)),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/office-hours',
+        handle: async ({ params, body }) => {
+          const daysOfWeek = Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((day) => Number(day)) : [1, 2, 3, 4, 5];
+          const except = Array.isArray(body.except) ? body.except.map(String) : [];
+          const hours = {
+            timezone: String(body.timezone ?? 'UTC'),
+            startHour: Number(body.startHour), endHour: Number(body.endHour), daysOfWeek,
+          };
+          assertOfficeHours(hours);
+          // A name that is no capability would keep nothing open and look as if
+          // it did.
+          const known = new Set(catalogueNames());
+          for (const row of (await withControlPlane((tx) => tx.query<{ name: string }>(
+            'SELECT name FROM capabilities WHERE name = ANY($1)', [except]))).rows) known.add(row.name);
+          const unknown = except.find((name) => !known.has(name));
+          if (unknown !== undefined) {
+            throw new PalugadaError('contract.violation',
+              `except names ${JSON.stringify(unknown)}, which is not a capability; use a name such as chat.send`, { field: 'except' });
+          }
+          await setOfficeHours({ companyId: params.companyId!, ...hours, except });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/office-hours/clear',
+        handle: async ({ params }) => {
+          await clearOfficeHours(params.companyId!);
           return { ok: true };
         },
       },

@@ -443,6 +443,11 @@ const SECTIONS: Section[] = [
             FROM batch_windows WHERE company_id IS NOT NULL`,
   },
   {
+    name: 'office_hours',
+    sql: `SELECT id, timezone, start_hour, end_hour, days_of_week, except_capabilities, updated_at
+            FROM office_hours WHERE company_id IS NOT NULL`,
+  },
+  {
     name: 'capability_windows',
     sql: `SELECT id, division_id, capability_name, timezone, start_hour,
                  end_hour, days_of_week, created_at

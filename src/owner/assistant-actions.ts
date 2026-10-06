@@ -344,6 +344,21 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/office-hours',
+    what: 'The hours a company keeps for what reaches the outside world; outside them an email, a post or a reply waits for the morning.',
+    fields: {
+      startHour: '0-23', endHour: '1-24, 24 being the end of the day', timezone: 'an IANA zone',
+      daysOfWeek: 'list of 0-6, Sunday 0; Monday to Friday when not given', except: 'capability names kept open at any hour, such as chat.send',
+    },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/office-hours/clear',
+    what: 'Run a company round the clock again: no office hours.',
+    fields: {},
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/spend/limit',
     what: 'The most a company may spend.', fields: { moneyMaxCents: 'in cents' }, factor: 'always',
   },

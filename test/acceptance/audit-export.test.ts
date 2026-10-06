@@ -41,7 +41,7 @@ import {
 } from '../../src/skills/skills.ts';
 import { setSpendLimit } from '../../src/governance/spend-guard.ts';
 import { setRetention } from '../../src/retention/retention.ts';
-import { setBatchWindow, capabilityWindow } from '../../src/scheduler/windows.ts';
+import { setBatchWindow, setOfficeHours, capabilityWindow } from '../../src/scheduler/windows.ts';
 import { evaluate } from '../../src/policy/engine.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -295,6 +295,9 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
     startHour: 1,
     endHour: 5,
   });
+  await setOfficeHours({
+    companyId: fixture.companyId, timezone: 'Asia/Jakarta', startHour: 9, endHour: 17, daysOfWeek: [1, 2, 3, 4, 5], except: ['chat.send'],
+  });
   await withTenant(fixture.companyId, async (tx) => {
     await tx.query(
       `INSERT INTO capability_windows (company_id, division_id, capability_name, timezone,
@@ -354,12 +357,17 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
       'SELECT timezone, start_hour FROM batch_windows WHERE company_id = $1',
       [restored.companyId],
     );
+    const office = await tx.query(
+      'SELECT timezone, start_hour, end_hour, days_of_week, except_capabilities FROM office_hours WHERE company_id = $1',
+      [restored.companyId],
+    );
     const { rows: divisions } = await tx.query<{ id: string }>('SELECT id FROM divisions LIMIT 1');
     const window = await capabilityWindow(tx, divisions[0]!.id, 'deploy.staging');
     return {
       limit: limit.rows[0]?.money_max_cents,
       eventDays: retention.rows[0]?.event_days,
       batch: batch.rows[0],
+      office: office.rows[0],
       window,
     };
   });
@@ -367,6 +375,9 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
   assert.equal(config.limit, '44400', 'the monthly ceiling the owner set');
   assert.equal(config.eventDays, 420);
   assert.deepEqual(config.batch, { timezone: 'Asia/Jakarta', start_hour: 1 });
+  assert.deepEqual(config.office, {
+    timezone: 'Asia/Jakarta', start_hour: 9, end_hour: 17, days_of_week: [1, 2, 3, 4, 5], except_capabilities: ['chat.send'],
+  }, 'and the office hours it kept');
   assert.equal(config.window?.startHour, 9, 'and the hours a deploy may happen in');
 
   // What deliberately does not travel: whether the source instance had this

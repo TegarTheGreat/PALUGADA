@@ -271,6 +271,7 @@ const SECTIONS: ImportSection[] = [
   { name: 'alert_thresholds', table: 'alert_thresholds', references: [] },
   { name: 'retention_policies', table: 'retention_policies', references: [] },
   { name: 'batch_windows', table: 'batch_windows', references: [] },
+  { name: 'office_hours', table: 'office_hours', references: [] },
   { name: 'capability_windows', table: 'capability_windows', references: ['division_id'] },
   // Last, because a version's subject can be anything above: a role, a
   // charter, a policy. Before `policies`, a policy's history had nothing to

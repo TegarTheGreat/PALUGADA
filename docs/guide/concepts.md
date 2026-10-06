@@ -561,6 +561,25 @@ Schedules, handoffs and triggers are tabs on **Team**; a role's heartbeat is
 shown in its drawer there. Cheap hours (under **Settings**, **Company**) hold
 non-urgent work that only reads until a window you choose.
 
+### Round the clock, or office hours
+
+Agents have no working hours of their own: they read, write and plan at any
+hour, and a company runs round the clock until you say otherwise. What you can
+say is **Office hours** (under **Settings**, **Company**): the days and hours in
+which what reaches the outside world may go out -- an email sent, a post
+published, a customer answered, a deploy. Outside them such an action is put
+off, not refused: the task shows **Waiting for its work hours**, with when it
+will go, and carries on at the next opening. Reading, drafting, planning and
+everything else inside the company go on at any hour, so the work is ready
+when the office opens.
+
+**Replies to customers** is the one choice most owners make deliberately: leave
+it as **Go out at any hour** and a customer who writes at night is answered
+then, or choose **Wait for office hours too**. Hours only ever delay; they
+cannot allow what a policy or an approval does not, so they take your session
+and not a code. A window set for one capability on its own, which only the
+database can do, beats the company's hours. **Run round the clock** removes them.
+
 ## Languages
 
 Each company has two languages. The work language is what it produces for

@@ -18,6 +18,7 @@ import { useFactor } from '../factor.tsx';
 import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { OfficeHoursForm, type Hours } from '../components/OfficeHours.tsx';
 import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
@@ -26,14 +27,16 @@ const zoneOptions = ZONES.map((zone) => ({ value: zone, label: zone }));
 export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
-    const [window_, retention]: [
+    const [window_, retention, office]: [
       { timezone: string; startHour: number; endHour: number },
       { policy: { eventDays: number; traceDays: number; promptDays: number }; log: Array<{ action: string; rowsAffected: number; throughAt: string }> },
+      { hours: Hours | null },
     ] = await Promise.all([
       api('GET', '/api/control/owner-window'),
       api('GET', `/api/companies/${companyId}/retention`),
+      api('GET', `/api/companies/${companyId}/office-hours`),
     ]);
-    return { window: window_, retention };
+    return { window: window_, retention, office: office.hours };
   }, [companyId]);
 
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
@@ -67,6 +70,20 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
                 { name: 'endHour', label: t('End hour'), type: 'number', required: true, initial: view.data.window.endHour },
               ]}
               submit={(values) => api('POST', '/api/control/owner-window', values)}
+            />
+          </Section>
+        </Grid.Col>
+        <Grid.Col span={12}>
+          <Section
+            title={t('Office hours')}
+            description={t('When emails, posts and replies may go out. Outside them they wait for the next opening; reading, writing and planning carry on at any hour.')}
+          >
+            <OfficeHoursForm
+              companyId={companyId}
+              hours={view.data.office}
+              zones={ZONES}
+              ownerZone={view.data.window.timezone}
+              reload={view.reload}
             />
           </Section>
         </Grid.Col>

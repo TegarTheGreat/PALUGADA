@@ -9409,6 +9409,33 @@ only way to give one was a row typed into the database, one capability at a time
   that the application role cannot write the row. Mutated, the first three fail.
   `audit-export.test.ts` carries the row across a restore.
 
+## 2.151 The sidebar says what each page is for (the owner's complaint of 6 October: "ui ux sidebar tidak jelas")
+
+Reading the shell, three things made the sidebar a place to guess. Every page
+was a bare noun -- Work, Team, Memory, Money, History, Books -- that names a
+thing and not what is done there. Two buttons above them both opened a chat, with
+nothing to say why there were two. And the pages were not grouped by how often
+they are used. This changes the first two, which cost nothing to be wrong about;
+regrouping and renaming pages is a decision for someone with the owner's
+screens in front of them, and is not made blind here.
+
+- **A line under each page's name** (`about` in `PAGES`, `console/src/App.tsx`):
+  Inbox, "What waits for your decision"; Work, "What the team is doing now";
+  Team, "Roles, goals, schedules and rules"; Memory, "What the company has
+  learned"; Money, "Budgets and what was spent"; and so on for every page. In
+  every language the console offers.
+- **A tooltip on each chat button**: the CEO's is for this company -- ask about
+  it, or have something done, because the CEO runs the team -- and Ask PALUGADA's
+  is for what is beyond one company: the model, the channels and new companies.
+  That is the real boundary (`CEO_ALSO_READS` and the company-scoped actions in
+  `assistant.ts`), not a guess at one.
+- **Tested**: `console-page.test.ts` reads each entry of the navigation and
+  requires its line; `console-i18n.test.ts` requires it in every dictionary; the
+  phone test still draws the work, money and overview at 390 pixels with
+  nothing wider than the screen.
+- **Not done**: reordering, merging or renaming pages, and the first-run flow,
+  which need the owner's screens.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

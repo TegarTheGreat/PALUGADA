@@ -58,18 +58,19 @@ import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
  * The pages of one company, as the sidebar offers them. `owner` marks one a
  * staff seat is not shown: the company's browser holds its sign-ins.
  */
-const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
-  { id: 'inbox', label: N('Inbox'), icon: IconInbox, group: 'decide' },
-  { id: 'overview', label: N('Overview'), icon: IconLayoutDashboard, group: 'company' },
-  { id: 'work', label: N('Work'), icon: IconActivity, group: 'company' },
-  { id: 'customers', label: N('Customers'), icon: IconMessages, group: 'company' },
-  { id: 'books', label: N('Books'), icon: IconBook2, group: 'company' },
-  { id: 'browser', label: N('Browser'), icon: IconWorldWww, group: 'company', owner: true },
-  { id: 'team', label: N('Team'), icon: IconSitemap, group: 'company' },
-  { id: 'memory', label: N('Memory'), icon: IconBrain, group: 'company' },
-  { id: 'money', label: N('Money'), icon: IconCoin, group: 'company' },
-  { id: 'history', label: N('History'), icon: IconHistory, group: 'company' },
-  { id: 'settings', label: N('Settings'), icon: IconSettings, group: 'setup' },
+/** `about` is said under each page's name, so nobody has to open one to learn what it is for. */
+const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
+  { id: 'inbox', label: N('Inbox'), about: N('What waits for your decision'), icon: IconInbox, group: 'decide' },
+  { id: 'overview', label: N('Overview'), about: N('How the company is doing'), icon: IconLayoutDashboard, group: 'company' },
+  { id: 'work', label: N('Work'), about: N('What the team is doing now'), icon: IconActivity, group: 'company' },
+  { id: 'customers', label: N('Customers'), about: N('Conversations with your customers'), icon: IconMessages, group: 'company' },
+  { id: 'books', label: N('Books'), about: N('Money in, money out, and who owes whom'), icon: IconBook2, group: 'company' },
+  { id: 'browser', label: N('Browser'), about: N('The browser the team works in'), icon: IconWorldWww, group: 'company', owner: true },
+  { id: 'team', label: N('Team'), about: N('Roles, goals, schedules and rules'), icon: IconSitemap, group: 'company' },
+  { id: 'memory', label: N('Memory'), about: N('What the company has learned'), icon: IconBrain, group: 'company' },
+  { id: 'money', label: N('Money'), about: N('Budgets and what was spent'), icon: IconCoin, group: 'company' },
+  { id: 'history', label: N('History'), about: N('Everything that happened'), icon: IconHistory, group: 'company' },
+  { id: 'settings', label: N('Settings'), about: N('Hours, languages and security'), icon: IconSettings, group: 'setup' },
 ];
 
 export function App() {
@@ -380,6 +381,7 @@ function Console({ device, staff, recovered, signOut }: {
     <NavLink
       key={page.id}
       label={t(page.label)}
+      description={t(page.about)}
       leftSection={<page.icon size={18} stroke={1.7} />}
       rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
       active={active === page.id}
@@ -484,15 +486,19 @@ function Console({ device, staff, recovered, signOut }: {
             </Menu.Dropdown>
           </Menu>}
           {owner && company?.ceo && (
-            <Button fullWidth mt={6} variant="default" justify="flex-start" onClick={() => setTalking(company)}
-              leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
-              <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
-            </Button>
+            <Tooltip label={t('Ask about this company, or have something done. The CEO runs the team.')} multiline w={240} withArrow position="right">
+              <Button fullWidth mt={6} variant="default" justify="flex-start" onClick={() => setTalking(company)}
+                leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
+                <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
+              </Button>
+            </Tooltip>
           )}
           {owner && (
-            <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
-              {t('Ask PALUGADA')}
-            </Button>
+            <Tooltip label={t('For everything beyond one company: the model, the channels, and new companies.')} multiline w={240} withArrow position="right">
+              <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
+                {t('Ask PALUGADA')}
+              </Button>
+            </Tooltip>
           )}
         </AppShell.Section>
 

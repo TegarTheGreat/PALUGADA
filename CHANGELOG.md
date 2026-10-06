@@ -448,6 +448,10 @@ The first version. What it holds, in the order an owner meets it.
   instead of failing, while reading, drafting and planning go on at any hour;
   replies to customers can be left open at any hour. Until you say, a company
   runs round the clock as before (STATUS 2.150).
+- Each page in the sidebar says what it is for under its name, and the two
+  buttons that open a conversation say how they differ: the CEO is for one
+  company and has things done; Ask PALUGADA is for the model, the channels and
+  new companies (STATUS 2.151).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

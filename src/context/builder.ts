@@ -32,6 +32,7 @@ export interface ContextSection {
     | 'role_charter'
     | 'team'
     | 'language'
+    | 'today'
     | 'contract'
     | 'stage'
     | 'project'
@@ -139,6 +140,9 @@ const DROP_ORDER: ContextSection['kind'][] = [
 // `owner_note` too, for the same reason: it is the owner's latest word.
 // So is `language`: a run that lost it writes in whatever it read last.
 
+/** How long a lesson the company taught itself stays in the pack without being seen again. */
+const PACK_HORIZON_DAYS = 90;
+
 export interface BuildContextOptions {
   companyId: string;
   divisionId: string;
@@ -150,6 +154,8 @@ export interface BuildContextOptions {
   sopLimit?: number;
   /** F4.8. Overridable so a test can show the cap working without 40k of text. */
   tokenLimit?: number;
+  /** The moment the pack is made at, for its date: the clock, unless a test says otherwise. */
+  now?: Date;
 }
 
 export interface AssembledContext {
@@ -548,6 +554,15 @@ export async function buildContext(
   const role = options.taskId ? await roleSections(tx, options.taskId) : { charter: [], contract: [] };
   sections.push(...role.charter);
   sections.push(...await languageSections(tx, options.companyId, options.taskId));
+  // Every run is told the date. A fact says when it was recorded and a task a
+  // deadline, and a run that does not know today cannot tell how old either is
+  // (the audit of 6 October, M1): "recorded 2026-03-04" is only a number.
+  sections.push({
+    kind: 'today',
+    title: 'Today',
+    body: `Today is ${(options.now ?? new Date()).toISOString().slice(0, 10)} (UTC). Every date you are shown -- when a fact was recorded, `
+      + 'a due date, a deadline -- is to be read against it: something recorded long ago may no longer be so.',
+  });
   sections.push(...await stageSections(tx, options.companyId));
   if (options.taskId) sections.push(...await projectSections(tx, options.taskId));
   sections.push(...role.contract);
@@ -637,6 +652,12 @@ export async function buildContext(
     ...(options.queryEmbedding ? {} : { relevantTo: about }),
     source,
     limit,
+    // What the company learned itself is in the pack while it is recent or was
+    // seen again lately, and a lesson from outside content only when it is about
+    // the task: the pack is bounded in tokens and was not in noise, and each of
+    // those lessons taints the run it is told to (the audit of 6 October, M2, M3).
+    // The owner's word has no horizon, and all of it stays one search away.
+    ...(source === 'others' ? { horizonDays: PACK_HORIZON_DAYS, outsideNeedsMatch: true } : {}),
   });
   const semanticMemories = [
     ...await recallFacts('owner', OWNER_SLOTS),

@@ -492,6 +492,13 @@ The first version. What it holds, in the order an owner meets it.
 - A role's "look again later" that fails is reported to you like any work that ends badly,
   and the weekly review runs in a quiet week when a number you set has not been reached,
   instead of passing over the one week that most needed it (STATUS 2.159).
+- What your company remembers is dated and bounded. Every run is told today's date, a
+  memory search says how old each fact is, the context a run starts from takes what the company
+  learned recently (or saw again lately) instead of every lesson ever, and a lesson from an email
+  reaches a run only when it is about the task -- so fewer runs ask you about everything. The words
+  you wrote yourself are never changed by an agent repeating them. A fenced reply from the
+  learning step is read, one failing division no longer stops the others, and the Memory page no
+  longer says something waits for your yes when its card has expired (STATUS 2.160).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

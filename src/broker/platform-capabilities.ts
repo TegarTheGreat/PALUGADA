@@ -62,6 +62,8 @@ export interface MemorySearchResult {
     body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
     /** The day it was recorded: a price or a status may have changed since, and the record wins. */
     recordedOn: string;
+    /** How many days ago that was, so a run need not do the arithmetic against a date it was never told. */
+    ageDays: number;
   }>;
   /** Passages of the company's documents the query's words point at (0075). */
   documents: Array<{
@@ -173,6 +175,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           // as anything but data (0071).
           unverified: memory.confidence < 0.6 || memory.outside,
           recordedOn: memory.validFrom.toISOString().slice(0, 10),
+          ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
           ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
         })),
         truncated: facts.length > limit,

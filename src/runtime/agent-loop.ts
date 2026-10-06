@@ -26,6 +26,7 @@
  * runtime.
  */
 import { PalugadaError } from '../errors.ts';
+import { outputFrom } from '../llm/json.ts';
 import { wrapUntrusted } from '../context/builder.ts';
 import { citeStep } from '../engine/done.ts';
 import { renderSystem, renderTask, toWireRequest } from './wire.ts';
@@ -77,29 +78,7 @@ function bounded(text: string): string {
   return `${text.slice(0, TOOL_RESULT_LIMIT)}\n... [cut short: the result was ${text.length} characters]`;
 }
 
-/**
- * The output in the model's last word: a JSON object, perhaps in a fence.
- *
- * Null when there is none, so the loop can ask once more rather than fail a
- * task over a model that wrote a sentence before its answer.
- */
-export function outputFrom(text: string): Record<string, unknown> | null {
-  const candidates = [text.trim()];
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  if (fenced) candidates.push(fenced[1]!.trim());
-  const first = text.indexOf('{');
-  const last = text.lastIndexOf('}');
-  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
-  for (const candidate of candidates) {
-    try {
-      const value: unknown = JSON.parse(candidate);
-      if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-    } catch {
-      // The next candidate.
-    }
-  }
-  return null;
-}
+export { outputFrom } from '../llm/json.ts';
 
 interface RecordedTurn {
   content: LlmBlock[];

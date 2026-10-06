@@ -1216,7 +1216,13 @@ export async function memoriesOf(
     const last = rows[rows.length - 1];
     const { rows: grouped } = await tx.query<{ memory_type: MemoryKind; n: number; candidates: number }>(
       `SELECT memory_type, count(*)::int AS n,
-              count(*) FILTER (WHERE approval_state = 'candidate')::int AS candidates
+              -- Only a candidate somebody is being asked about: one whose card
+              -- expired (a fortnight, 2.146) is not procedure and is not waiting
+              -- on the owner, and counting it said "waiting for your yes" over an
+              -- empty inbox (the audit of 6 October, M9).
+              count(*) FILTER (WHERE approval_state = 'candidate' AND EXISTS (
+                SELECT 1 FROM inbox_items i
+                 WHERE i.kind = 'sop_candidate' AND i.status = 'open' AND i.payload->>'memoryId' = memories.id::text))::int AS candidates
          FROM memories WHERE superseded_by IS NULL GROUP BY memory_type`,
     );
     const counts = { working: 0, episodic: 0, semantic: 0, procedural: 0 } as Record<MemoryKind, number>;

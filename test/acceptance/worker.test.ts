@@ -1184,6 +1184,54 @@ test('a tick distils what happened into what is known (F4.5)', async () => {
   assert.ok((await later.tick()).distilled > 0, 'the new events were never read');
 });
 
+/**
+ * The audit of 6 October (M7): the learning stage went division by division
+ * with nothing around each, so one that threw -- a model that answered
+ * nonsense for it, a store that refused a row -- ended the stage, and the
+ * divisions after it in slug order were never reached on any tick.
+ */
+test('one division that cannot be distilled does not stop the divisions after it (M7)', async () => {
+  const { appendEvent } = await import('../../src/audit/event-log.ts');
+  const fixture = await createCompany('worker-distil-isolated');
+  const other = await withTenant(fixture.companyId, async (tx) => {
+    const { rows: divisions } = await tx.query<{ id: string }>(
+      "INSERT INTO divisions (company_id, slug, name) VALUES ($1, 'zeta', 'Zeta') RETURNING id", [fixture.companyId]);
+    const { rows: roles } = await tx.query<{ id: string }>(
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, input_schema, output_schema, done_criteria)
+       VALUES ($1, $2, 'marketer', 'You market.', 'test-model', '{}'::jsonb, '{"type":"object"}'::jsonb, ARRAY['it is done'])
+       RETURNING id`, [fixture.companyId, divisions[0]!.id]);
+    return { divisionId: divisions[0]!.id, roleId: roles[0]!.id };
+  });
+  for (const [divisionId, roleId, note] of [
+    [fixture.divisionId, fixture.roleId, 'the first division noticed the provider is Alpha'],
+    [other.divisionId, other.roleId, 'the second division noticed the client prefers email'],
+  ] as const) {
+    const carrier = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId, roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: `work of ${note}` }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+      companyId: fixture.companyId, projectId: fixture.projectId, taskId: carrier.id, type: 'task.completed', actor: 'agent_run', payload: { note },
+    }));
+  }
+
+  // The model fails for the first division and answers for the second.
+  const llm = new RecordingLlmClient((request) => {
+    if (JSON.stringify(request).includes('first division')) throw new Error('the model fell over');
+    return JSON.stringify({ facts: [{ body: 'The client prefers email.' }] });
+  });
+  const worker = new Worker({
+    engine: new Engine({ broker: new CapabilityBroker(baseRegistry()), llm: new RecordingLlmClient(), handlers: new Map() }),
+    companyId: fixture.companyId,
+    learning: { llm, model: 'test-model' },
+  });
+  const report = await worker.tick();
+  const facts = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ body: string }>(
+    "SELECT body FROM memories WHERE memory_type = 'semantic'")).rows.map((row) => row.body));
+  assert.ok(facts.includes('The client prefers email.'), `the second division was reached (${JSON.stringify(report.errors)})`);
+  assert.equal(report.errors.filter((one) => one.stage === 'learn').length, 1, 'and the first one\'s failure is still said');
+});
+
 test('a tick screens a skill candidate before anyone is asked about it (F15.3)', async () => {
   const { proposeSkillVersion, addEvalCase } = await import('../../src/skills/skills.ts');
   const fixture = await createCompany('worker-screen');

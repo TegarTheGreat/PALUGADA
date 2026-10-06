@@ -60,7 +60,7 @@ test('the charter comes first, before SOPs and memory (F3.2)', async () => {
     // directly under them (src/domain/language.ts), above everything a run
     // might be pulled into another language by.
     // And what memory is, said once before the facts it is about.
-    ['platform_charter', 'company_charter', 'language', 'sop', 'memory_note', 'semantic_memory'],
+    ['platform_charter', 'company_charter', 'language', 'today', 'sop', 'memory_note', 'semantic_memory'],
     'charters must precede SOPs, and SOPs must precede recalled facts',
   );
 
@@ -99,7 +99,7 @@ test("another company's charter is never visible", async () => {
   );
 
   assert.ok(!context.text.includes('Secret competitor strategy'));
-  assert.deepEqual(context.sections.map((s) => s.kind), ['platform_charter', 'language']);
+  assert.deepEqual(context.sections.map((s) => s.kind), ['platform_charter', 'language', 'today']);
 });
 
 test('charter versions accumulate and are audited (F3.6)', async () => {

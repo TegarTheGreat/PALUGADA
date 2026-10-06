@@ -22,6 +22,8 @@ import {
 import { recall } from '../../src/memory/store.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { memoriesOf } from '../../src/owner/views.ts';
+import { buildWeeklyRetro } from '../../src/reporting/digest.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -73,6 +75,26 @@ async function seedEvents(fixture: Fixture, payloads: Array<Record<string, unkno
     }
   });
 }
+
+/**
+ * The audit of 6 October (M7): `parseFacts` was a bare `JSON.parse`, so a
+ * model that fenced its answer -- as most do -- left the watermark where it
+ * was, and the same growing window was sent to it every hour for ever.
+ */
+test('a reply in a code fence, or with a sentence before it, is read like any other (M7)', async () => {
+  const fixture = await createCompany('distil-fenced');
+  await seedEvents(fixture, [{ note: 'the hosting provider is Alpha' }]);
+  const fenced = new RecordingLlmClient(() => 'Here are the facts:\n```json\n{"facts":[{"body":"The hosting provider is Alpha."}]}\n```');
+  const pass = await distillEpisodicToSemantic({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm: fenced, model: MODEL,
+  });
+  assert.equal(pass.factsCreated, 1, 'read, not refused for being dressed');
+  const again = await distillEpisodicToSemantic({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm: fenced, model: MODEL,
+  });
+  assert.equal(fenced.calls.length, 1, 'and consumed: the same window is not sent again');
+  assert.equal(again.eventsRead, 0);
+});
 
 test('episodic events become semantic facts (F4.4)', async () => {
   const fixture = await createCompany('distil-facts');
@@ -395,6 +417,9 @@ test('a procedure nobody answers leaves the inbox after a fortnight, and stays a
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
   });
   const item = (await inbox.listOpen(fixture.companyId)).find((one) => one.kind === 'sop_candidate')!;
+  // Waiting for the owner while it has a card.
+  assert.equal((await memoriesOf(fixture.companyId)).candidates, 1);
+  assert.equal((await buildWeeklyRetro(fixture.companyId)).sopCandidatesPending, 1);
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ days: string }>(
     "SELECT round(extract(epoch FROM (expires_at - now())) / 86400)::text AS days FROM inbox_items WHERE id = $1", [item.id]));
   assert.equal(Number(rows[0]!.days), inbox.SOP_CANDIDATE_TTL_DAYS, 'it is asked for a fortnight');
@@ -404,6 +429,9 @@ test('a procedure nobody answers leaves the inbox after a fortnight, and stays a
   assert.equal((await inbox.listOpen(fixture.companyId)).some((one) => one.id === item.id), false, 'no longer in the owner\'s inbox');
   const state = await withTenant(fixture.companyId, (tx) => tx.query<{ approval_state: string }>('SELECT approval_state FROM memories WHERE id = $1', [candidate!.memoryId]));
   assert.equal(state.rows[0]!.approval_state, 'candidate', 'unanswered is not approved, and is not asked about again');
+  // And not "waiting for your yes, open the inbox" on the Memory page and in the retro, when the inbox is empty (the audit of 6 October, M9).
+  assert.equal((await memoriesOf(fixture.companyId)).candidates, 0, 'nothing waits for the owner without a card');
+  assert.equal((await buildWeeklyRetro(fixture.companyId)).sopCandidatesPending, 0);
   const again = await distillSemanticToProcedural({
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
   });

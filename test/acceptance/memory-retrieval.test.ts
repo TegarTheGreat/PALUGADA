@@ -85,8 +85,8 @@ test('a run is told the owner\'s word first, and the facts nearest its task', as
   for (let n = 0; n < 12; n += 1) {
     await fact(fixture, `Distilled procedure ${n}: tag the ticket before closing it.`, { daysAgo: 20 - n, type: 'procedural' });
   }
-  // One fact about the task, older than a dozen that are not.
-  await fact(fixture, 'The Bandung warehouse ships coffee orders on Tuesdays and Fridays.', { daysAgo: 90 });
+  // One fact about the task, older than a dozen that are not (and inside the pack's ninety days).
+  await fact(fixture, 'The Bandung warehouse ships coffee orders on Tuesdays and Fridays.', { daysAgo: 80 });
   for (let n = 0; n < 12; n += 1) {
     await fact(fixture, `The office plant was watered (${n}).`, { daysAgo: 10 - n / 2 });
   }

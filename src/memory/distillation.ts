@@ -35,6 +35,7 @@ import { LEARNED_CONFIDENCE, learn, remember } from './store.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
+import { outputFrom } from '../llm/json.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 
 /** How many times a pattern must recur before it is worth proposing as an SOP. */
@@ -98,12 +99,10 @@ interface ExtractedFact {
  * rather than aborting the nightly job or writing half a fact.
  */
 function parseFacts(content: string): { facts: ExtractedFact[] } | { error: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return { error: 'response was not JSON' };
-  }
+  // Read as the agent loop reads an output: a fence or a sentence before it
+  // is not a reason to throw the reply away.
+  const parsed: unknown = outputFrom(content);
+  if (parsed === null) return { error: 'response was not JSON' };
 
   const raw = (parsed as { facts?: unknown }).facts;
   if (!Array.isArray(raw)) return { error: 'response had no facts array' };

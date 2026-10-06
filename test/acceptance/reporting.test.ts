@@ -348,14 +348,15 @@ test('the weekly retro reports the learning signals (F9.4)', async () => {
 
   // A candidate SOP awaiting the owner, and a recorded decision: section 11's
   // indicators that the company is learning rather than only running.
+  const candidate = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO memories (company_id, memory_type, scope_type, scope_id, body,
+                           approval_state, fact_kind, source)
+     VALUES ($1, 'procedural', 'division', $2, 'A proposed SOP', 'candidate',
+             'sop_candidate', 'pattern:deploy.staging') RETURNING id`,
+    [fixture.companyId, fixture.divisionId])).rows[0]!.id);
+  // Awaiting the owner means a card in front of them (the audit of 6 October, M9).
+  await inbox.proposeSop({ companyId: fixture.companyId, memoryId: candidate, title: 'A proposed SOP', body: 'A proposed SOP', occurrences: 3 });
   await withTenant(fixture.companyId, async (tx) => {
-    await tx.query(
-      `INSERT INTO memories (company_id, memory_type, scope_type, scope_id, body,
-                             approval_state, fact_kind, source)
-       VALUES ($1, 'procedural', 'division', $2, 'A proposed SOP', 'candidate',
-               'sop_candidate', 'pattern:deploy.staging')`,
-      [fixture.companyId, fixture.divisionId],
-    );
     await tx.query(
       `INSERT INTO decision_records (company_id, project_id, proposal, decision, criteria)
        VALUES ($1, $2, '{}'::jsonb, 'approve', 'was it accurate')`,

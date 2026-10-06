@@ -9749,6 +9749,51 @@ Two places where the loop to an outcome could drop out of sight.
   week; one reached long ago is not; raising the target makes it a reason again; retiring
   it ends it).
 
+## 2.160 Memory is dated, bounded, and an owner's word is the owner's (the audit of 6 October, M1-M4, M7, M9)
+
+Six defects in what the company remembers, each checked in the code before it was fixed.
+
+- **Every run is told today's date (M1).** Neither the system prompt nor the task carried
+  one, so "recorded 2026-03-04" could not become an age and the one mitigation 2.146 added
+  did little for the runtime that reads the pack as written. The pack now has a `today`
+  section after the language rule ("Today is 2026-10-06 (UTC). ..."), never dropped to make
+  room, passed to out-of-process runtimes with the other notes, and `memory.search` says
+  `ageDays` beside `recordedOn`. About thirty tokens a run.
+- **The pack takes what is recent, and an outside lesson only when it is about the task
+  (M2, M3).** `recall` gained `horizonDays` and `outsideNeedsMatch`, used by the pack's
+  non-owner facts only. A fact the company taught itself is in the pack for ninety days from
+  when it was recorded or last seen again (`last_reinforced_at`, written for months and read by
+  nobody until now), and one learned from outside content reaches a run only when it shares a
+  word with the task -- each one a run is told taints the run (F8.9) and sends the owner more
+  approvals, which is how a division's runs came to ask about everything. The owner's word has
+  no horizon; procedures (approved) are not touched; everything left out stays one
+  `memory.search` away. No migration, and nothing runs when idle: it is a WHERE clause.
+- **An agent restating an owner's fact no longer turns it into outside content (M4).** `learn`
+  matched the owner's row and set `outside = outside OR $5`, so an agent that had read an
+  email and said the sentence again made the owner's own word "from outside content", wrapped
+  as data, and tainting every run told it. The owner's row is still counted and not moved;
+  its `outside` is left alone.
+- **The distiller reads a reply the way the agent loop does (M7).** A fenced answer, or one with
+  a sentence before it, left the watermark where it was and the same growing window was sent to
+  the model every hour for ever. `outputFrom` moved to `src/llm/json.ts` for both.
+- **One division that cannot be distilled does not stop the rest (M7).** The learning stage
+  went division by division with nothing around each, so one that threw ended it and the
+  divisions after it in slug order were never reached on any tick. Each is its own stage now;
+  its failure is still said on the tick, and nothing of it is consumed.
+- **The Memory page and the retro count only a candidate somebody is asked about (M9).** A
+  procedure candidate whose card expired after a fortnight (2.146) stayed `candidate`, and both
+  counted it: "waiting for your yes, open the inbox", over an empty inbox.
+- **Not done**: customer-specific lessons still enter the division's pack (the prompts should say
+  "company-wide rules only; one customer goes to `crm.note`", the audit's M5); review-decision
+  facts still compete with lessons; procedure candidates count calls, not tasks, and are written
+  without `outside` (M8); no record of which memories a run was shown, so memory cannot yet be
+  judged by what it did to the work (M10); `pg_trgm` near-duplicate linking.
+- **Tested**: the date in the pack and the age in a search; the horizon (a recent fact, an old one,
+  one reinforced lately, the owner's, and what left the pack found by a search) and the outside
+  lesson that is about the task and the one that is not; the owner's row after an agent restates it;
+  a fenced reply read and consumed; a failing division and the next one reached; the candidate
+  counts with a card and after it expired.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

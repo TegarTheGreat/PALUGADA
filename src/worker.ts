@@ -1001,29 +1001,36 @@ export class Worker {
       });
 
       for (const scope of scopes) {
-        const distilled = await distillEpisodicToSemantic({
-          companyId: company,
-          projectId: scope.project_id,
-          divisionId: scope.division_id,
-          llm: learning.llm,
-          model: learning.model,
-          until: now,
-        });
-        report.distilled += distilled.factsCreated;
-
-        // Only when there is something new to generalise from. A procedural
-        // pass over facts that did not change would raise the same SOP
-        // candidate again, and the owner would decline it again.
-        if (distilled.factsCreated > 0) {
-          const candidates = await distillSemanticToProcedural({
+        // One division at a time and each on its own: one whose model answered
+        // nonsense, or whose rows the store refused, ended the stage, so the
+        // divisions after it in slug order were never reached on any tick (the
+        // audit of 6 October, M7). Its failure is still said, and it is read
+        // again at the next pass, for nothing of it was consumed.
+        await this.#stage(report, 'learn', async () => {
+          const distilled = await distillEpisodicToSemantic({
             companyId: company,
             projectId: scope.project_id,
             divisionId: scope.division_id,
             llm: learning.llm,
             model: learning.model,
+            until: now,
           });
-          report.distilled += candidates.length;
-        }
+          report.distilled += distilled.factsCreated;
+
+          // Only when there is something new to generalise from. A procedural
+          // pass over facts that did not change would raise the same SOP
+          // candidate again, and the owner would decline it again.
+          if (distilled.factsCreated > 0) {
+            const candidates = await distillSemanticToProcedural({
+              companyId: company,
+              projectId: scope.project_id,
+              divisionId: scope.division_id,
+              llm: learning.llm,
+              model: learning.model,
+            });
+            report.distilled += candidates.length;
+          }
+        });
       }
 
       // Recorded after the work rather than before it, for the same reason as

@@ -185,7 +185,11 @@ export async function learn(tx: TenantClient, input: RememberInput): Promise<{ i
               -- The owner's word is not raised or lowered by a run agreeing with it.
               confidence = CASE WHEN source = 'owner' THEN confidence
                                 ELSE LEAST($2::float8, GREATEST(confidence, $3::float8) + $4::float8) END,
-              outside = outside OR $5
+              -- Nor is it made "from outside content" by an agent that had read an
+              -- email saying it again: that turned the owner's own sentence into
+              -- data wrapped as someone else's, and tainted every run told it (the
+              -- audit of 6 October, M4). Said again, it is only counted.
+              outside = CASE WHEN source = 'owner' THEN outside ELSE outside OR $5 END
         WHERE id = $1`,
       [found.id, LEARNED_CONFIDENCE.most, input.confidence ?? LEARNED_CONFIDENCE.first, LEARNED_CONFIDENCE.step, input.outside ?? false]);
     return { id: found.id, reinforced: true };
@@ -249,6 +253,20 @@ export interface RecallOptions {
    */
   approvalState?: ApprovalState | undefined;
   factKind?: FactKind | undefined;
+  /**
+   * Leaves out what was recorded, and last reinforced, longer ago than this
+   * many days: for the context pack, whose slots a company's months of
+   * lessons would otherwise fill with what nothing has confirmed since.
+   * Applies to facts that are not the owner's; the owner's word has no horizon.
+   */
+  horizonDays?: number | undefined;
+  /**
+   * A fact learned from outside content is returned only when it shares a word
+   * with `relevantTo` -- and, with nothing to compare it to, not at all. Each
+   * one a run is told taints the run (F8.9), so one about something else is
+   * cost without use.
+   */
+  outsideNeedsMatch?: boolean | undefined;
   /**
    * Only facts sharing a word with this, the most words first (F4.8's
    * `memory.search`). Any word counts, and each as a prefix: "refund"
@@ -372,11 +390,22 @@ export async function recall(
     const terms = searchTerms(options.relevantTo);
     if (terms) {
       params.push(terms);
+      if (options.outsideNeedsMatch) {
+        where.push(`(NOT m.outside OR to_tsvector('simple', m.body) @@ to_tsquery('simple', $${params.length}))`);
+      }
       orderBy = `(m.source = 'owner') DESC, `
         + `ts_rank_cd(to_tsvector('simple', m.body), to_tsquery('simple', $${params.length})) DESC, m.valid_from DESC, m.id`;
     } else {
+      if (options.outsideNeedsMatch) where.push('NOT m.outside');
       orderBy = `(m.source = 'owner') DESC, m.valid_from DESC, m.id`;
     }
+  }
+  if (options.horizonDays !== undefined) {
+    params.push(options.horizonDays);
+    where.push(
+      `(m.source = 'owner' OR greatest(m.valid_from, coalesce(m.last_reinforced_at, m.valid_from))`
+        + ` > now() - make_interval(days => $${params.length}::int))`,
+    );
   }
 
   if (options.embedding) {

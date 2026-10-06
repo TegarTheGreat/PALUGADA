@@ -377,18 +377,27 @@ function Console({ device, staff, recovered, signOut }: {
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
-  const navLink = (page: (typeof PAGES)[number]) => (
-    <NavLink
-      key={page.id}
-      label={t(page.label)}
-      description={t(page.about)}
-      leftSection={<page.icon size={18} stroke={1.7} />}
-      rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
-      active={active === page.id}
-      onClick={() => open(page.id)}
-      className={`nav-link${spotted(page.id as TourSpot)}`}
-    />
-  );
+  /**
+   * A page's link. Said under its name where there is room to scroll -- the
+   * phone's menu -- and in a tooltip in the sidebar, where each line costs a
+   * page that would otherwise be out of sight: at 800 pixels high the sidebar
+   * showed four of its eleven pages and hid the rest below the fold.
+   */
+  const navLink = (page: (typeof PAGES)[number], inline = false) => {
+    const link = (
+      <NavLink
+        key={inline ? page.id : undefined}
+        label={t(page.label)}
+        {...(inline ? { description: t(page.about) } : { py: 7 })}
+        leftSection={<page.icon size={18} stroke={1.7} />}
+        rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
+        active={active === page.id}
+        onClick={() => open(page.id)}
+        className={`nav-link${spotted(page.id as TourSpot)}`}
+      />
+    );
+    return inline ? link : <Tooltip key={page.id} label={t(page.about)} position="right" withArrow openDelay={400}>{link}</Tooltip>;
+  };
 
   const languageMenu = (
     <>
@@ -477,7 +486,7 @@ function Console({ device, staff, recovered, signOut }: {
             pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           {owner && <Menu position="bottom-start" width="target" shadow="md">
             <Menu.Target>
-              <Button fullWidth mt="sm" leftSection={<IconPlus size={16} />} justify="flex-start" className={spotted('new')}>{t('New')}</Button>
+              <Button fullWidth mt="sm" size="sm" leftSection={<IconPlus size={16} />} justify="flex-start" className={spotted('new')}>{t('New')}</Button>
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Item leftSection={<IconActivity size={16} />} onClick={() => setGiving(true)} disabled={!company}>{t('Give a role work')}</Menu.Item>
@@ -487,7 +496,7 @@ function Console({ device, staff, recovered, signOut }: {
           </Menu>}
           {owner && company?.ceo && (
             <Tooltip label={t('Ask about this company, or have something done. The CEO runs the team.')} multiline w={240} withArrow position="right">
-              <Button fullWidth mt={6} variant="default" justify="flex-start" onClick={() => setTalking(company)}
+              <Button fullWidth mt={6} size="sm" variant="default" justify="flex-start" onClick={() => setTalking(company)}
                 leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
                 <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
               </Button>
@@ -495,18 +504,28 @@ function Console({ device, staff, recovered, signOut }: {
           )}
           {owner && (
             <Tooltip label={t('For everything beyond one company: the model, the channels, and new companies.')} multiline w={240} withArrow position="right">
-              <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
+              <Button fullWidth mt={6} size="sm" variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
                 {t('Ask PALUGADA')}
               </Button>
             </Tooltip>
           )}
         </AppShell.Section>
 
-        <AppShell.Section grow component={ScrollArea} mt="sm">
-          <NavLink label={t('Home')} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
-          {PAGES.filter((page) => page.group === 'decide').map(navLink)}
+        <AppShell.Section grow component={ScrollArea} type="auto" offsetScrollbars="y" mt="sm">
+          <NavLink label={t('Home')} py={7} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
+          {PAGES.filter((page) => page.group === 'decide').map((page) => navLink(page))}
           {company && <div className="nav-section-label">{company.name}</div>}
-          {PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map(navLink)}
+          {PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map((page) => navLink(page))}
+          {owner && <Divider my="xs" />}
+          {owner && PAGES.filter((page) => page.group === 'setup').map((page) => navLink(page))}
+          {owner && <NavLink
+            label={t('This deployment')}
+            py={7}
+            leftSection={<IconServer2 size={18} stroke={1.7} />}
+            active={active === 'deployment'}
+            onClick={() => go({ kind: 'deployment', section: 'model' })}
+            className="nav-link"
+          />}
         </AppShell.Section>
 
         <AppShell.Section>
@@ -520,17 +539,8 @@ function Console({ device, staff, recovered, signOut }: {
               <Progress value={((setup.notes.length - setup.todo.length) / Math.max(1, setup.notes.length)) * 100} size="sm" mt={8} color="yellow" radius="xl" />
             </Paper>
           )}
-          {owner && PAGES.filter((page) => page.group === 'setup').map(navLink)}
-          {owner && <NavLink
-            label={t('This deployment')}
-            leftSection={<IconServer2 size={18} stroke={1.7} />}
-            active={active === 'deployment'}
-            onClick={() => go({ kind: 'deployment', section: 'model' })}
-            className="nav-link"
-          />}
           {owner && <Button
             fullWidth
-            mt="xs"
             color={stopAll ? 'teal' : 'red'}
             variant={stopAll ? 'filled' : 'light'}
             leftSection={stopAll ? <IconPlayerPlay size={16} /> : <IconPlayerStop size={16} />}
@@ -636,7 +646,7 @@ function Console({ device, staff, recovered, signOut }: {
 
       <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
         <Stack gap={4} pb="md">
-          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map(navLink)}
+          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
           {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
             onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />}
           <Divider my="xs" />

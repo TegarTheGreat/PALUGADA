@@ -9419,11 +9419,21 @@ they are used. This changes the first two, which cost nothing to be wrong about;
 regrouping and renaming pages is a decision for someone with the owner's
 screens in front of them, and is not made blind here.
 
-- **A line under each page's name** (`about` in `PAGES`, `console/src/App.tsx`):
-  Inbox, "What waits for your decision"; Work, "What the team is doing now";
-  Team, "Roles, goals, schedules and rules"; Memory, "What the company has
-  learned"; Money, "Budgets and what was spent"; and so on for every page. In
-  every language the console offers.
+- **What each page is for** (`about` in `PAGES`, `console/src/App.tsx`): Inbox,
+  "What waits for your decision"; Work, "What the team is doing now"; Team,
+  "Roles, goals, schedules and rules"; Memory, "What the company has learned";
+  Money, "Budgets and what was spent"; and so on for every page, in every
+  language the console offers. Said under the page's name in the phone's menu,
+  where it scrolls, and in a tooltip in the sidebar -- see the next item.
+- **The sidebar showed four of its eleven pages.** Drawn in Chromium at 1280 by
+  800, the pinned top (company, New, the CEO, Ask PALUGADA) and the pinned
+  foot (Settings, This deployment, Stop everything, the owner) left about three
+  hundred pixels for the pages, and the rest sat below the fold with no sign
+  there was more. Settings and This deployment now follow the pages in the same
+  list (the foot keeps what must always be within reach: Stop everything and the
+  owner), the list shows its scrollbar when it has more to show, its links and
+  the top buttons are a size smaller, and nine pages are in view at that height
+  and all of them at the usual one.
 - **A tooltip on each chat button**: the CEO's is for this company -- ask about
   it, or have something done, because the CEO runs the team -- and Ask PALUGADA's
   is for what is beyond one company: the model, the channels and new companies.
@@ -9433,8 +9443,8 @@ screens in front of them, and is not made blind here.
   requires its line; `console-i18n.test.ts` requires it in every dictionary; the
   phone test still draws the work, money and overview at 390 pixels with
   nothing wider than the screen.
-- **Not done**: reordering, merging or renaming pages, and the first-run flow,
-  which need the owner's screens.
+- **Not done**: reordering, merging or renaming pages, and the first-run flow
+  beyond what the tour already says, which need the owner's own screens.
 
 ## 3. Decisions, deviations, and what is unverified
 

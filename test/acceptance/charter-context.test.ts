@@ -16,6 +16,7 @@ import { createCompanyFromTemplate, saveTemplate } from '../../src/templates/com
 import { seed } from '../../src/seed.ts';
 import { LOW_CONFIDENCE, buildContext, wrapUntrusted } from '../../src/context/builder.ts';
 import { remember } from '../../src/memory/store.ts';
+import { wellFormed } from '../../src/text.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -420,6 +421,21 @@ test('a call is shown with what it was asked beside what it answered', async () 
   assert.ok(!('input' in context.workingMemory[2]!), 'a model\'s turn has no input to show');
   const section = context.sections.find((one) => one.kind === 'working_memory')!;
   assert.deepEqual(JSON.parse(section.body), { input: { zone: 'example.test' }, output: { records: ['192.0.2.7'] } }, 'and the section says the same');
+});
+
+test('a step cut short never leaves half an emoji, which the briefing\'s jsonb column would refuse', async () => {
+  const fixture = await createCompany('pack-step-surrogates');
+  const input = { name: 'doc.draft', input: { text: `${'a'.repeat(560)}${'\u{1F600}'.repeat(40)}` } };
+  const output = { page: `${'b'.repeat(3_980)}${'\u{1F600}'.repeat(40)}` };
+  const taskId = await taskWithSteps(fixture, 'k-surrogates', [{ name: 'capability:doc.draft', kind: 'tool', input, output }]);
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId }));
+  const item = context.workingMemory[0]!;
+  const whole = (text: string) => text === wellFormed(text);
+  assert.ok(typeof item.input === 'string' && whole(item.input), 'the input is cut, and whole characters remain');
+  assert.ok(typeof item.output === 'string' && whole(item.output));
+  assert.ok(whole(JSON.stringify(context.workingMemory)));
+  assert.ok(whole(context.text));
 });
 
 test('external content is marked as data, not instructions (F8.9)', () => {

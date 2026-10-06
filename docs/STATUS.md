@@ -9960,7 +9960,7 @@ abandoned objective starts nothing).
 ## 2.165 A task says where it stands, a follow-up is given the work it follows up, and a long run is bounded (the audit of 6 October, W3, W4, W5)
 
 What a run is told of its own task was a copy of its journal, and a task that had finished its
-work told nobody which files it made. Six changes, each its own commit, none a new table,
+work told nobody which files it made. Six changes, in one commit, none a new table,
 migration, capability or model call; every one derived from the journal (`task_steps`), the task
 tables and the catalogue, never from a role's own account of itself.
 
@@ -9974,7 +9974,11 @@ tables and the catalogue, never from a role's own account of itself.
   answer. It is a function of the conversation alone, applied to the copy a fresh turn is sent and
   not to the conversation, the journal or a step's identity, and it moves in steps of four so most
   of what is sent is the same from one turn to the next. `llm_traces` records what was sent. A run
-  that was stopped and went on is sent, turn for turn, what an uninterrupted run was sent.
+  that was stopped and went on is sent the same answers left out and the same turn notices as one that was not
+  (the journal keeps an object's keys in its own order, which may differ from the live call's, so the bytes of
+  a replayed result are not promised). What the model has just been given is never left out, however many calls
+  the turn made, and an answer is paired with the call before it, so a server that numbers calls `call_0` from
+  every reply cannot make a write's answer look like a read's.
 - **An in-process run is not handed its journal twice.** The loop replays every committed step as its
   own conversation, tool results included, and `renderTask` listed the same steps again, each cut at
   4,000 characters and unfenced: so each was paid for twice, and because working memory is the last
@@ -10013,7 +10017,8 @@ tables and the catalogue, never from a role's own account of itself.
   an input that merely says another task's id is not a follow-up of it. A follow-up also carries outside
   content the work it follows up came to read after the follow-up was made (a sibling's read is not in
   its own chain), recorded once as `content.read_outside`, so what it does at tier 2 asks the owner as the
-  work's did. `task.follow_up`'s input, key and replay are unchanged.
+  work's did. `task.follow_up`'s input, key and replay are unchanged. A follow-up the owner runs again is a root task with the
+  same input and no parent of its own; it is given the work its original followed up, found along the `rerun:` keys.
 - **A conversation too long for its model fails once.** A 400 or 413 whose body says so ("prompt is too
   long", "maximum context length", `context_length_exceeded`) is `model.context_too_long`: the task fails
   with the provider's words and is not run three times, each retry replaying the same journal and asking

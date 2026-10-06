@@ -16,6 +16,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { outsideContentIn } from '../../src/engine/tasks.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
+import { rerunTask } from '../../src/engine/owner-control.ts';
 import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
 import { madeFiles } from '../../src/engine/journal.ts';
 import { recordPlan } from '../../src/engine/plan.ts';
@@ -355,4 +356,17 @@ test('a follow-up carries outside content its parent came to read after the foll
     payload: { capability: 'the task that made it', from: 'follow_up', parentTaskId: parent.id },
   }));
   assert.equal((await pack(fixture, followUp)).carriesOutsideFrom, null);
+});
+
+test('a follow-up that the owner runs again is given the work it follows up, as the first was', async () => {
+  const { fixture, parent, followUp } = await followedUp('linkage-follow-rerun');
+  await transition(fixture.companyId, parent.id, 'completed', { output: { summary: 'Sent invoice 41' } });
+  await transition(fixture.companyId, followUp, 'halted', { haltReason: 'deadline_passed', detail: 'its window passed' });
+  const again = await rerunTask(fixture.companyId, followUp, null);
+  const second = await rerunTask(fixture.companyId, again, null).catch(() => null);
+  assert.ok(again && again !== followUp);
+  const section = followedSection(await pack(fixture, again))!;
+  assert.ok(section, 'the rerun is a root task, and still reads the work its original followed up');
+  assert.match(section.body, new RegExp(`follow-up of task ${parent.id}`));
+  assert.ok(second === null || second !== again);
 });

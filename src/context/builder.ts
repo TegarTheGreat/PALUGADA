@@ -110,7 +110,7 @@ const STEP_INPUT_SHOWN = 600;
 function boundedOutput(output: unknown): unknown {
   const text = JSON.stringify(output) ?? 'null';
   if (text.length <= STEP_OUTPUT_LIMIT) return output;
-  return `${text.slice(0, STEP_OUTPUT_LIMIT)} ... [cut short: the result was ${text.length} characters. ` +
+  return `${wellFormed(text.slice(0, STEP_OUTPUT_LIMIT))} ... [cut short: the result was ${text.length} characters. ` +
     'The step is done and its whole result is kept in the journal; if you need a part of it that is ' +
     'not shown here, ask for that part again rather than guessing it.]';
 }
@@ -126,7 +126,7 @@ function shownInput(stored: unknown): unknown {
   const value = callInput(stored);
   const text = JSON.stringify(value);
   if (text === undefined) return undefined;
-  return text.length <= STEP_INPUT_SHOWN ? value : `${text.slice(0, STEP_INPUT_SHOWN)}…`;
+  return text.length <= STEP_INPUT_SHOWN ? value : `${wellFormed(text.slice(0, STEP_INPUT_SHOWN))}…`;
 }
 
 /** How many of the earlier attempts' writes a rerun is shown, the latest kept (N12). */
@@ -693,12 +693,25 @@ async function standingSection(tx: TenantClient, taskId: string): Promise<Contex
  * another task's id is not a follow-up of it.
  */
 async function followUpSection(tx: TenantClient, taskId: string): Promise<{ sections: ContextSection[]; carriesOutsideFrom: string | null }> {
+  // The owner pressing "run again" on a follow-up makes a root task with the
+  // same input and the key `rerun:<the task it reruns>`: it has no parent of
+  // its own, and is given the work its original followed up, found by walking
+  // back along those keys to the first task that has one.
   const { rows } = await tx.query<{
     id: string; role: string; status: string; halt_reason: string | null; finished_at: Date | null; input: unknown; output: unknown;
   }>(
-    `SELECT p.id, r.slug AS role, p.status, p.halt_reason, p.finished_at, p.input, p.output
-       FROM tasks t JOIN tasks p ON p.id = t.parent_task_id JOIN roles r ON r.id = p.role_id
-      WHERE t.id = $1 AND t.input ->> 'followUpOf' = p.id::text`,
+    `WITH RECURSIVE origin AS (
+       SELECT t.id, t.parent_task_id, t.idempotency_key, t.input, 0 AS depth FROM tasks t WHERE t.id = $1
+       UNION ALL
+       SELECT o.id, o.parent_task_id, o.idempotency_key, o.input, origin.depth + 1
+         FROM origin JOIN tasks o ON origin.parent_task_id IS NULL AND origin.idempotency_key = 'rerun:' || o.id::text
+        WHERE origin.depth < 8
+     ), found AS (
+       SELECT parent_task_id FROM origin WHERE parent_task_id IS NOT NULL ORDER BY depth LIMIT 1
+     )
+     SELECT p.id, r.slug AS role, p.status, p.halt_reason, p.finished_at, p.input, p.output
+       FROM found f JOIN tasks p ON p.id = f.parent_task_id JOIN roles r ON r.id = p.role_id
+      WHERE (SELECT input ->> 'followUpOf' FROM tasks WHERE id = $1) = p.id::text`,
     [taskId],
   );
   const parent = rows[0];

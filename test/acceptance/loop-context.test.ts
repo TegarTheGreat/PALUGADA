@@ -137,6 +137,45 @@ test('the structure and the citations survive: every call still has its answer, 
   assert.match(results(sent)[3]!.content, /step:4\b/);
 });
 
+test('what the model has just been given is never left out, however many calls the turn made', () => {
+  // Twelve calls in one turn, answered in one message: the model has not read them yet.
+  const many: Message[] = [{ role: 'user', content: 'the task' }];
+  many.push({ role: 'assistant', content: Array.from({ length: 12 }, (_, i): LlmBlock => ({ type: 'tool_use', id: `c${i}`, name: 'dns__read', input: { i } })) });
+  many.push({ role: 'user', content: Array.from({ length: 12 }, (_, i): LlmBlock => ({ type: 'tool_result', toolUseId: `c${i}`, content: page(2_000, i + 1) })) });
+  assert.deepEqual(stubbed(elideOldResults(many, readers)), Array(12).fill(false), 'all of them are sent whole');
+
+  // And on a later turn, when they are no longer the newest, the oldest of them go as any would.
+  many.push({ role: 'assistant', content: [{ type: 'tool_use', id: 'd0', name: 'dns__read', input: {} }] });
+  many.push({ role: 'user', content: [{ type: 'tool_result', toolUseId: 'd0', content: page(2_000, 13) }] });
+  assert.equal(stubbed(elideOldResults(many, readers)).filter(Boolean).length, 4);
+
+  // Leaving the newest alone never un-hides what an earlier turn hid.
+  let before = 0;
+  const grown: Message[] = [{ role: 'user', content: 'the task' }];
+  for (let turn = 0; turn < 12; turn += 1) {
+    const size = turn % 3 === 0 ? 5 : 1;
+    grown.push({ role: 'assistant', content: Array.from({ length: size }, (_, i): LlmBlock => ({ type: 'tool_use', id: `t${turn}-${i}`, name: 'dns__read', input: {} })) });
+    grown.push({ role: 'user', content: Array.from({ length: size }, (_, i): LlmBlock => ({ type: 'tool_result', toolUseId: `t${turn}-${i}`, content: page(2_000, turn * 10 + i + 1) })) });
+    const now = stubbed(elideOldResults(grown, readers)).filter(Boolean).length;
+    assert.ok(now >= before, `turn ${turn}: ${now} left out after ${before}`);
+    before = now;
+  }
+});
+
+test('a call id used twice is paired with the call before its answer, not the last one that used it', () => {
+  // A server that sends no ids gets `call_0` for the first call of every reply.
+  const messages: Message[] = [{ role: 'user', content: 'the task' }];
+  for (let turn = 0; turn < 14; turn += 1) {
+    const tool = turn === 1 ? 'ledger__record' : 'dns__read';
+    messages.push({ role: 'assistant', content: [{ type: 'tool_use', id: 'call_0', name: tool, input: {} }] });
+    messages.push({ role: 'user', content: [{ type: 'tool_result', toolUseId: 'call_0', content: page(2_000, turn + 1) }] });
+  }
+  const flags = stubbed(elideOldResults(messages, readers));
+  assert.equal(flags[1], false, 'the answer of a write is never left out, whatever a later call was named');
+  assert.equal(flags[0], true);
+  assert.equal(flags[2], true);
+});
+
 test('the turn notice is a copy, comes only in the last turns, and says when it is the last', () => {
   const messages = deepFreeze(conversation(3));
   assert.equal(MAX_TURNS, 40);

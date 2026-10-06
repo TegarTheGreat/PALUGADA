@@ -108,28 +108,37 @@ const STEP_LINE = /This call is step:(\d+) of your task; evidence may cite it as
  *
  * The result depends on the conversation alone -- no clock, no counts of
  * tokens -- and the conversation is rebuilt from the journal on every resume,
- * so a run that was stopped and went on is sent what it would have been. What
- * is left out moves in steps, so a provider that caches a prompt's start
- * finds most of it unchanged from one turn to the next.
+ * so a run that was stopped and went on is sent the same answers left out and
+ * the same turn notices as one that was not (the journal keeps an object's
+ * keys in its own order, which may differ from the live call's). What is left
+ * out moves in steps, so a provider that caches a prompt's start finds most
+ * of it unchanged from one turn to the next.
  */
 export function elideOldResults(messages: readonly Message[], readers: ReadonlySet<string>): Message[] {
-  const called = new Map<string, string>();
   let answers = 0;
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (block.type === 'tool_use') called.set(block.id, block.name);
-      else if (block.type === 'tool_result') answers += 1;
-    }
+    for (const block of message.content) if (block.type === 'tool_result') answers += 1;
   }
-  const hidden = answers <= RESULTS_SHOWN_WHOLE ? 0 : Math.floor((answers - RESULTS_SHOWN_WHOLE) / ELISION_STEP) * ELISION_STEP;
-  if (hidden === 0) return [...messages];
+  // What the model has just been given is whole, however many calls the turn
+  // made: those answers are in the conversation's last message, and it has not
+  // read them yet.
+  const last = messages.at(-1);
+  const latest = last && Array.isArray(last.content) ? last.content.filter((block) => block.type === 'tool_result').length : 0;
+  const hidden = answers <= RESULTS_SHOWN_WHOLE ? 0
+    : Math.min(Math.floor((answers - RESULTS_SHOWN_WHOLE) / ELISION_STEP) * ELISION_STEP, answers - latest);
+  if (hidden <= 0) return [...messages];
 
+  // An answer is paired with the call before it: a server that sends no ids
+  // gets `call_0` for the first call of every reply, and the last call to have
+  // used an id is not the one an old answer belongs to.
+  const called = new Map<string, string>();
   let ordinal = 0;
   return messages.map((message) => {
     if (!Array.isArray(message.content)) return message;
     let changed = false;
     const content = message.content.map((block): LlmBlock => {
+      if (block.type === 'tool_use') called.set(block.id, block.name);
       if (block.type !== 'tool_result') return block;
       const mine = ordinal;
       ordinal += 1;

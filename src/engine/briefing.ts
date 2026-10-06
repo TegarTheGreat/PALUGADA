@@ -12,6 +12,7 @@
 import { withTenant } from '../db/tenant.ts';
 import { toWireRequest } from '../runtime/wire.ts';
 import type { RunRequest } from '../runtime/protocol.ts';
+import { wellFormed } from '../text.ts';
 
 /**
  * The most of a briefing kept, in characters of JSON. The pack is bounded by
@@ -23,6 +24,6 @@ export const BRIEFING_LIMIT = 400_000;
 export async function keepBriefing(companyId: string, agentRunId: string, request: RunRequest): Promise<void> {
   const briefing = toWireRequest(request);
   const text = JSON.stringify(briefing);
-  const kept = text.length <= BRIEFING_LIMIT ? text : JSON.stringify({ cut: true, characters: text.length, start: text.slice(0, BRIEFING_LIMIT) });
+  const kept = text.length <= BRIEFING_LIMIT ? text : JSON.stringify({ cut: true, characters: text.length, start: wellFormed(text.slice(0, BRIEFING_LIMIT)) });
   await withTenant(companyId, (tx) => tx.query('UPDATE agent_runs SET briefing = $2::jsonb WHERE id = $1', [agentRunId, kept]));
 }

@@ -900,7 +900,7 @@ test('old reads are left out of a long run, the journal keeps them, and the trac
     .runTask(fixture.companyId, task.id, 'worker');
   assert.equal(outcome.status, 'completed', outcome.reason);
 
-  // With twelve answers or fewer nothing is left out; with thirteen, the oldest four.
+  // With eleven answers or fewer nothing is left out; from twelve, the oldest four.
   assert.equal(answersIn(model.requests[11]!).filter((block) => /left out to save room/.test(block.content)).length, 0);
   const thirteen = answersIn(model.requests[13]!);
   assert.equal(thirteen.length, 13);

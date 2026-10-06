@@ -87,7 +87,8 @@ function keptInput(kind: StepKind, input: unknown): unknown {
   if (kind === 'llm') return null;
   const text = JSON.stringify(input ?? null) ?? 'null';
   if (text.length <= STEP_INPUT_LIMIT) return input ?? null;
-  return { cut: true, characters: text.length, start: text.slice(0, STEP_INPUT_LIMIT) };
+  // `wellFormed`: a cut between the halves of one character leaves half of it, which jsonb refuses.
+  return { cut: true, characters: text.length, start: wellFormed(text.slice(0, STEP_INPUT_LIMIT)) };
 }
 
 /**

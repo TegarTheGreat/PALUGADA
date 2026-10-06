@@ -489,6 +489,9 @@ The first version. What it holds, in the order an owner meets it.
 - A deadline is for the work, not for the waiting. Work you delegate no longer halts as
   "missed its deadline" while it waits for office hours to reopen, for a vendor's limit, for
   your yes, or while you raise a budget and continue it (STATUS 2.158).
+- A role's "look again later" that fails is reported to you like any work that ends badly,
+  and the weekly review runs in a quiet week when a number you set has not been reached,
+  instead of passing over the one week that most needed it (STATUS 2.159).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

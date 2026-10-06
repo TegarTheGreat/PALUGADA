@@ -9723,6 +9723,32 @@ needs it most.
   past its child's wait, and a task with no deadline stays without one; a continued task has
   its stopped time back and the next sweep leaves it.
 
+## 2.159 A look that fails is not silent, and a quiet week with a number unreached is reviewed (the audit of 6 October, L1, L2)
+
+Two places where the loop to an outcome could drop out of sight.
+
+- **A follow-up that ends badly is reported.** `task.follow_up` (2.148) makes a *child*
+  task, woken later, with the run that made it long finished. `findEnded` took root tasks
+  only, so a look-again that was refused for a budget, a window or a deadline was halted
+  without a word, and the one primitive made to chase an outcome could lose it unseen. It
+  now takes a child whose key says it is a follow-up (`followup:...`) too, with the same
+  grace, once, to the coordinator first. An ordinary delegated child is still its
+  parent's to hear about.
+- **The weekly review runs when a number is unreached.** The one evaluator the company has
+  skipped a week in which nothing happened (N10), which is what a stalled company looks
+  like. `weekHadWork` is now also true when an active, unretired measure on an active goal
+  has not reached its target (direction-aware, from its latest value, verified or not). One
+  that has reached it, one the owner retired and one on a closed goal are not a reason, and
+  a company with no measure keeps the skip that N10 added for the 770 thousand tokens spent
+  on an empty week.
+- **Not done**: a sweep that makes a CEO task when a measure's state changes (reached,
+  overdue, stale) -- the audit's P1.2 -- and the review's verdict, which still reaches
+  nobody; the strategist cannot make a follow-up itself (it is at the twelve-tool limit).
+- **Tested** in `ended-badly.test.ts` (a halted follow-up is told once, an ordinary child
+  is not) and `schedule-quiet-week.test.ts` (an unreached measure is reviewed in a quiet
+  week; one reached long ago is not; raising the target makes it a reason again; retiring
+  it ends it).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

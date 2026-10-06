@@ -73,9 +73,10 @@ export interface WeekFacts {
 /**
  * Whether anything happened in the week a schedule's review would read,
  * besides that schedule's own runs (N10): work started or finished, by any
- * task not under one of them, or a measure recorded. A review of a week with
- * none of it has nothing to read, and on a new company it went looking for
- * something to say and spent 770 thousand tokens.
+ * task not under one of them, or a measure recorded -- or a measure the
+ * company has not reached, which is what to look at in a week of nothing. A
+ * review of a week with none of it has nothing to read, and on a new company
+ * it went looking for something to say and spent 770 thousand tokens.
  */
 export async function weekHadWork(companyId: string, scheduleId: string, to = new Date()): Promise<boolean> {
   const from = new Date(to.getTime() - WEEK_MS);
@@ -95,7 +96,20 @@ export async function weekHadWork(companyId: string, scheduleId: string, to = ne
        SELECT EXISTS (
                 SELECT 1 FROM week w
                  WHERE NOT EXISTS (SELECT 1 FROM above a WHERE a.task = w.id AND a.schedule_id = $3))
-           OR EXISTS (SELECT 1 FROM metric_observations WHERE observed_at >= $1 AND observed_at < $2) AS worked`,
+           OR EXISTS (SELECT 1 FROM metric_observations WHERE observed_at >= $1 AND observed_at < $2)
+           -- A number the owner set and the company has not reached is a reason
+           -- to look whatever the week held: a quiet week is what a stalled
+           -- company looks like (the audit of 6 October, L1). One it has reached,
+           -- or the owner retired, or on a goal that is closed, is not.
+           OR EXISTS (
+                SELECT 1 FROM goal_metrics m
+                  JOIN goals g ON g.company_id = m.company_id AND g.id = m.goal_id AND g.status = 'active'
+                 WHERE m.retired_at IS NULL
+                   AND NOT EXISTS (
+                         SELECT 1 FROM (SELECT o.value FROM metric_observations o
+                                         WHERE o.metric_id = m.id ORDER BY o.observed_at DESC LIMIT 1) latest
+                          WHERE (m.direction = 'up' AND latest.value >= m.target)
+                             OR (m.direction = 'down' AND latest.value <= m.target))) AS worked`,
       [from, to, scheduleId],
     );
     return rows[0]!.worked;

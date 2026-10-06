@@ -57,7 +57,12 @@ async function findEnded(companyId: string, now: Date): Promise<Ended[]> {
       `SELECT t.id, t.division_id, t.goal_id, t.halt_reason, t.idempotency_key
          FROM tasks t
         WHERE t.status IN ('halted', 'failed')
-          AND t.parent_task_id IS NULL
+          -- A root task, and a follow-up (task.follow_up): it is a child by
+          -- its parentage and a root by its work, since the run that made it
+          -- finished long ago and nothing above it is waiting to hear. A look
+          -- that fails -- unfunded, past its window -- was silent, so the one
+          -- primitive made to chase an outcome could lose it unseen.
+          AND (t.parent_task_id IS NULL OR t.idempotency_key LIKE 'followup:%')
           AND coalesce(t.halt_reason, '') NOT IN ('owner_stop', 'owner_cancel')
           AND t.finished_at <= $1::timestamptz - make_interval(secs => $2)
           AND t.finished_at >  $1::timestamptz - make_interval(secs => $3)

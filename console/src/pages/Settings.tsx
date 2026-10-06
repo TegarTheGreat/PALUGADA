@@ -10,10 +10,11 @@ import { Alert, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Selec
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
-import { api, explain } from '../api.ts';
+import { api, explain, type Proof } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
-import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
+import { LANGUAGES, N, isLanguage, language, t } from '../i18n.ts';
+import { useFactor } from '../factor.tsx';
 import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
@@ -250,12 +251,60 @@ export function SecuritySettings() {
           </Table>
         )}
       </Section>
+      <StepUpWindow />
       <AddPasskey party={passkeys} added={view.reload} />
       <RecoveryCodes recovery={recovery} changed={view.reload} />
       <Section title={t('Sessions')} description={t('Every browser signed in to this console, on every device. Signing out everywhere ends all of them, this one included.')}>
         <ActionButton label={t('Sign out everywhere')} color="red" variant="light" run={() => api('POST', '/api/auth/sign-out-everywhere', {})} done={() => window.location.reload()} />
       </Section>
     </Stack>
+  );
+}
+
+const STEP_UP_LABELS: Record<number, string> = {
+  0: N('Ask every time'), 5: N('5 minutes'), 10: N('10 minutes'), 30: N('30 minutes'), 60: N('One hour'),
+};
+
+/**
+ * How long a code just shown keeps covering what builds the company (0120).
+ * Raising it loosens, so it takes a code; lowering does not.
+ */
+function StepUpWindow() {
+  const requireFactor = useFactor();
+  const view = useLoad(async () => {
+    const answer: { minutes: number; choices: number[] } = await api('GET', '/api/control/step-up');
+    return answer;
+  }, []);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={1} />;
+  const { minutes, choices } = view.data;
+  const choose = async (value: string | null) => {
+    if (value === null || Number(value) === minutes) return;
+    const chosen = Number(value);
+    const save = (proof?: Proof) => api('POST', '/api/control/step-up', { minutes: chosen, ...(proof ? { proof } : {}) });
+    try {
+      if (chosen > minutes) {
+        if (!(await requireFactor(t('Keep a code valid for longer'), (proof) => save(proof)))) return;
+      } else {
+        await save();
+      }
+      view.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', title: t('How long a code counts'), message: explain(failure) });
+    }
+  };
+  return (
+    <Section title={t('How long a code counts')}
+      description={t('After you confirm with your authenticator, what builds the company -- a division, a role, a grant, a goal, a skill, a bundle -- needs no new code for this long. Money, keys, the model, channels, devices and every approval of something that cannot be undone always ask.')}>
+      <Select
+        aria-label={t('How long a code counts')}
+        data={choices.map((one) => ({ value: String(one), label: t(STEP_UP_LABELS[one] ?? String(one)) }))}
+        value={String(minutes)}
+        onChange={(value) => void choose(value)}
+        allowDeselect={false}
+        w={{ base: '100%', sm: 260 }}
+      />
+    </Section>
   );
 }
 

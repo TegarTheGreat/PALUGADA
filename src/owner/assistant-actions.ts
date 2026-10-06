@@ -720,6 +720,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
+  '/api/control/step-up': 'how long a code covers what builds the company is a rule about the owner\'s own second factor, and is changed only by hand',
   '/api/companies/:companyId/first-hour/close': 'the list on the owner\'s own Overview is closed by the owner, who is looking at it',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/channels/whatsapp': 'Meta posts here, not a person',

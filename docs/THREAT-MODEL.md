@@ -55,6 +55,14 @@ refer to `docs/PRD.md`.
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
    passkey needs a single-use challenge and user verification.
+4b. A code or passkey shown opens a window (`owner_sessions.proved_at`, 0120;
+   `step-up.ts`), ten minutes unless the owner chooses, in which twelve actions
+   that build the company need no new code (`WITHIN_THE_WINDOW`,
+   `src/owner/api.ts`): a stolen tab used inside it can build structure, which
+   is the cost. It reaches nothing else -- not money, keys, the model, channels,
+   devices, what lets outsiders in, or any tier 3 decision, which takes a fresh
+   proof each time (F10.10) -- and it is never extended by what it covers. A
+   recovery code opens none. A route is not covered unless it says so.
 5. Each open route has its own secret. Hooks: a public id from a random UUID,
    then a bearer token stored as its SHA-256 or an HMAC over the raw bytes,
    with a five-minute window for Stripe, Slack and Standard Webhooks

@@ -405,6 +405,11 @@ The first version. What it holds, in the order an owner meets it.
 - Work you approved after the hour it was given is no longer halted for the
   time you took: a task's deadline is for the work, and the time it spent
   waiting for your answer, or for a review, is given back (STATUS 2.142).
+- One authenticator code now covers what builds the company -- a division, a
+  role, a grant, a goal, a skill, a bundle -- for ten minutes, instead of a
+  code for each. Money, keys, the model, channels, devices and every approval
+  of something that cannot be undone still ask every time. Set the length, or
+  turn it off, under Settings, Security (STATUS 2.143).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

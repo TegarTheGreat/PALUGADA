@@ -43,6 +43,7 @@
  * cost is that the console has to hold the token itself, which it does.
  */
 import { versionIn } from '../runtime/checked-versions.ts';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -189,6 +190,7 @@ import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProf
 import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
+import { checkedStepUp, setStepUpMinutes, STEP_UP_CHOICES, stepUpMinutes, withinWindow } from './step-up.ts';
 import { OwnerClaims } from './claim.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
@@ -463,6 +465,12 @@ interface Route {
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
+  /**
+   * The owner's session behind the request being handled, for the window a
+   * recent code opens (0120): `#requireFactor` is called from seventy places
+   * that were each written without a session in hand.
+   */
+  readonly #acting = new AsyncLocalStorage<OwnerSession | null>();
   readonly #claims: OwnerClaims;
   readonly #staff: StaffSeats;
   readonly #routes: Route[];
@@ -757,7 +765,15 @@ export class OwnerApi {
         // Who is signed in: the owner, or a staff seat and what it may do (0110).
         method: 'GET',
         pattern: '/api/me',
-        handle: async ({ staff }) => ({ owner: staff === null, staff: staff ? staffOf(staff) : null }),
+        handle: async ({ staff, session }) => {
+          const minutes = await stepUpMinutes();
+          const until = session?.provedAt && minutes > 0 ? new Date(session.provedAt.getTime() + minutes * 60_000) : null;
+          return {
+            owner: staff === null, staff: staff ? staffOf(staff) : null,
+            // Until when a code just shown covers what builds the company (0120); null when none does.
+            stepUp: { minutes, until: until && until.getTime() > Date.now() ? until.toISOString() : null },
+          };
+        },
       },
 
       {
@@ -848,7 +864,7 @@ export class OwnerApi {
           // left them unset and the deployment's agent language was English.
           const workLanguage = body.workLanguage === undefined ? undefined : languageCode(body.workLanguage, 'workLanguage');
           const talkLanguage = body.talkLanguage === undefined ? undefined : languageCode(body.talkLanguage, 'talkLanguage');
-          await this.#requireFactor(body.proof, 'start a company');
+          await this.#requireFactor(body.proof, 'start a company', null, WITHIN_THE_WINDOW);
           const templateSlug = requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
           // arriving as a plain `Error` the caller reads as a broken console.
@@ -1681,6 +1697,26 @@ export class OwnerApi {
       },
 
       /* ----------------------------------------------------- F9.5, F9.6 --- */
+
+      {
+        // How long a code just shown covers what builds the company (0120).
+        method: 'GET',
+        pattern: '/api/control/step-up',
+        handle: async () => ({ minutes: await stepUpMinutes(), choices: [...STEP_UP_CHOICES] }),
+      },
+
+      {
+        // Raising it loosens, so it takes a code -- which opens the window it
+        // chose; lowering, or turning it off, is the session's to do.
+        method: 'POST',
+        pattern: '/api/control/step-up',
+        handle: async ({ body }) => {
+          const minutes = checkedStepUp(body.minutes);
+          if (minutes > await stepUpMinutes()) await this.#requireFactor(body.proof, 'keep a code valid for longer');
+          await setStepUpMinutes(minutes);
+          return { minutes };
+        },
+      },
 
       {
         method: 'GET',
@@ -3740,7 +3776,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/handoffs',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!);
+          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!, WITHIN_THE_WINDOW);
           return {
             ruleId: await createHandoffRule(params.companyId!, {
               fromRoleId: requireText(body.fromRoleId, 'fromRoleId'),
@@ -4084,7 +4120,7 @@ export class OwnerApi {
           }
           if (body.retired !== undefined) change.retired = body.retired === true;
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
-          await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a measure', params.companyId!, WITHIN_THE_WINDOW);
           await changeMetric(params.companyId!, params.metricId!, change);
           return { ok: true };
         },
@@ -4545,7 +4581,7 @@ export class OwnerApi {
           if (body.statement === undefined && body.status === undefined) {
             throw new PalugadaError('contract.violation', 'no goal field was given', {});
           }
-          await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a goal', params.companyId!, WITHIN_THE_WINDOW);
           const changed = await applyGoalChange({
             companyId: params.companyId!,
             goalId: params.goalId!,
@@ -4567,7 +4603,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/structure/grant',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a grant', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a grant', params.companyId!, WITHIN_THE_WINDOW);
           // `revoke` decides, on its own. The first version read it only when
           // no `tierOverride` was sent, so `{ revoke: true, tierOverride: null }`
           // became a *change* to an unlimited grant -- and the database's
@@ -4606,7 +4642,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'hire a role', params.companyId!);
+          await this.#requireFactor(body.proof, 'hire a role', params.companyId!, WITHIN_THE_WINDOW);
           return addRole(params.companyId!, {
             divisionId: requireText(body.divisionId, 'divisionId'),
             slug: requireText(body.slug, 'slug'),
@@ -4624,7 +4660,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/divisions',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'open a division', params.companyId!);
+          await this.#requireFactor(body.proof, 'open a division', params.companyId!, WITHIN_THE_WINDOW);
           return {
             divisionId: await addDivision(params.companyId!, {
               slug: requireText(body.slug, 'slug'),
@@ -4735,7 +4771,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles/:roleId',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a role', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a role', params.companyId!, WITHIN_THE_WINDOW);
           // `String(null)` is the four letters "null", and a role whose
           // `model_primary` is the string "null" fails every later run. Each
           // field that is present must be a real value, and a field that is
@@ -4811,7 +4847,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/ceo',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!);
+          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!, WITHIN_THE_WINDOW);
           return appointCeo(params.companyId!, requireText(body.roleId, 'roleId'), {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
@@ -5082,7 +5118,7 @@ export class OwnerApi {
         // Activating a skill puts its text in front of every agent it reaches,
         // which is the one thing a skill's review exists to control.
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!);
+          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!, WITHIN_THE_WINDOW);
           return approveSkillVersion(params.companyId!, params.versionId!);
         },
       },
@@ -5094,7 +5130,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/skills/:skillId/scope',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!);
+          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!, WITHIN_THE_WINDOW);
           // Built rather than cast. The first version passed
           // `{ scope, scopeId } as never`, which type-checked and was the
           // wrong shape entirely -- `setSkillScope` reads `scopeType`, so
@@ -5187,7 +5223,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/bundles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!);
+          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!, WITHIN_THE_WINDOW);
           return installBundle({
             companyId: params.companyId!,
             slug: requireText(body.slug, 'slug'),
@@ -5848,7 +5884,7 @@ export class OwnerApi {
     if (!match || match.route.open || match.route.raw) {
       throw new PalugadaError('contract.violation', `${method} ${url.pathname} is not a route of this console`, {});
     }
-    const answer = await match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams });
+    const answer = await this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams }));
     if (answer instanceof WithStatus) {
       if (answer.status >= 400) {
         throw new PalugadaError('contract.violation', String((answer.body as { error?: unknown } | null)?.error ?? `answered ${answer.status}`), {});
@@ -6213,8 +6249,12 @@ export class OwnerApi {
     proof: unknown,
     purpose: string,
     companyId: string | null = null,
+    covered: typeof WITHIN_THE_WINDOW | null = null,
   ): Promise<void> {
     if (proof === undefined || proof === null) {
+      // What builds the company is covered by a code shown a few minutes ago;
+      // what loosens money, reaches outside or changes a key never is.
+      if (covered === WITHIN_THE_WINDOW && await this.#withinStepUp()) return;
       throw new PalugadaError(
         'approval.channel_forbidden',
         `${purpose} needs a second factor; none was presented (PRD F10.10, F12.5)`,
@@ -6232,6 +6272,20 @@ export class OwnerApi {
     // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
     else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
+    // A code or a passkey just shown opens the window; a recovery code proves less and opens none.
+    if (!('recovery' in presented)) {
+      const session = this.#acting.getStore();
+      if (session) await this.#sessions.prove(session.token);
+    }
+  }
+
+  /** Whether the owner's session showed a code recently enough to cover an action in the window. */
+  async #withinStepUp(): Promise<boolean> {
+    const session = this.#acting.getStore();
+    if (!session) return false;
+    // Read again, not from the request's own copy: a code shown a moment ago, in another tab, counts.
+    const live = await this.#sessions.verify(session.token);
+    return withinWindow(live?.provedAt ?? null, await stepUpMinutes(), new Date());
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -6300,7 +6354,7 @@ export class OwnerApi {
     }
 
     try {
-      const answer = await match.route.handle({
+      const answer = await this.#acting.run(session, () => match.route.handle({
         request: req,
         session,
         staff,
@@ -6308,7 +6362,7 @@ export class OwnerApi {
         raw,
         params: match.params,
         query: url.searchParams,
-      });
+      }));
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
       else if (answer instanceof EventStream) await this.#stream(req, res, answer);
       else if (answer instanceof HtmlPage) sendPage(res, answer);
@@ -6680,6 +6734,16 @@ function pictureFrom(body: Record<string, unknown>): Picture {
 }
 
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
+/**
+ * Marks a call to `#requireFactor` as one a recent code covers (0120): the
+ * actions that build the company -- a division, a role, a grant, a goal, a
+ * measure, a skill, a bundle -- which the owner is already doing, one after
+ * another, when they set it up. Left off, as every other is, it asks for a
+ * code each time: money, keys, the model, channels, devices, what lets
+ * outsiders in, and every tier 3 decision.
+ */
+const WITHIN_THE_WINDOW = Symbol('within the window');
+
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';
   return text.length > 300 ? `${text.slice(0, 300)}...` : text;

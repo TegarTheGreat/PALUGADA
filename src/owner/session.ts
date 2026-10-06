@@ -44,6 +44,12 @@ export interface OwnerSession {
   factor: VerifiedFactor;
   issuedAt: Date;
   expiresAt: Date;
+  /**
+   * When the owner last showed a code or a passkey, for the window it opens
+   * (0120). Null for a session signed in with a recovery code, which proves
+   * less than a device and opens none.
+   */
+  provedAt: Date | null;
 }
 
 export interface SessionOptions {
@@ -97,6 +103,7 @@ export class OwnerSessions {
       factor,
       issuedAt,
       expiresAt: new Date(issuedAt.getTime() + this.#ttlMs),
+      provedAt: 'recovery' in proof ? null : issuedAt,
     };
     await withControlPlane(async (tx) => {
       // Sessions over and done with for a day are litter, and swept by the
@@ -108,9 +115,9 @@ export class OwnerSessions {
         [issuedAt],
       );
       await tx.query(
-        `INSERT INTO owner_sessions (token_hash, authenticator_id, issued_at, expires_at)
-         VALUES ($1, $2, $3, $4)`,
-        [hashToken(session.token), factor.authenticatorId, session.issuedAt, session.expiresAt],
+        `INSERT INTO owner_sessions (token_hash, authenticator_id, issued_at, expires_at, proved_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [hashToken(session.token), factor.authenticatorId, session.issuedAt, session.expiresAt, session.provedAt],
       );
     });
     return session;
@@ -127,9 +134,9 @@ export class OwnerSessions {
     if (!token) return null;
     return withControlPlane(async (tx) => {
       const { rows } = await tx.query<{
-        issued_at: Date; expires_at: Date; authenticator_id: string; kind: FactorKind; label: string;
+        issued_at: Date; expires_at: Date; proved_at: Date | null; authenticator_id: string; kind: FactorKind; label: string;
       }>(
-        `SELECT s.issued_at, s.expires_at, a.id AS authenticator_id, a.kind, a.label
+        `SELECT s.issued_at, s.expires_at, s.proved_at, a.id AS authenticator_id, a.kind, a.label
            FROM owner_sessions s
            JOIN owner_authenticators a ON a.id = s.authenticator_id
           WHERE s.token_hash = $1
@@ -145,8 +152,19 @@ export class OwnerSessions {
         factor: { authenticatorId: row.authenticator_id, kind: row.kind, label: row.label },
         issuedAt: row.issued_at,
         expiresAt: row.expires_at,
+        provedAt: row.proved_at,
       };
     });
+  }
+
+  /**
+   * The owner has just shown a code or a passkey: the window opens from now.
+   * Not for a recovery code, and never extended by what the window covers --
+   * only a fresh proof moves it.
+   */
+  async prove(token: string): Promise<void> {
+    await withControlPlane((tx) => tx.query(
+      'UPDATE owner_sessions SET proved_at = $2 WHERE token_hash = $1 AND ended_at IS NULL', [hashToken(token), this.#now()]));
   }
 
   async signOut(token: string): Promise<void> {

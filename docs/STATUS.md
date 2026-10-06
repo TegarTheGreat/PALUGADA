@@ -9071,6 +9071,55 @@ and the owner answers later than the hour.
   the claim, while a task that never waited, with the same deadline, is
   halted; the review's wait is given back too; no deadline stays none.
 
+## 2.143 One code opens a short window for what builds the company
+
+The owner's complaint of 6 October: "dikit dikit autentikator ... bolak balik
+hp". A second factor is single use, and every change to the structure asked
+for a fresh one, so setting up a company -- a division, its roles, its grants,
+its goals -- was the phone out for each, and up to thirty seconds' wait for the
+next code. The assistant's cards for the same changes asked it too.
+
+- **A session remembers when its owner last proved themselves.** Sign-in is a
+  proof, and so is each code or passkey shown for an action
+  (`owner_sessions.proved_at`, 0120). A recovery code proves less than a device
+  and opens no window.
+- **What builds the company is covered for a few minutes after.** Twelve
+  actions are marked (`WITHIN_THE_WINDOW`, `src/owner/api.ts`): start a company,
+  open a division, hire a role, change a role, appoint a CEO, change a grant,
+  change a goal, change a measure, let one role start work for another,
+  activate a skill, change a skill's scope, install a bundle. They need no new
+  code inside the window; they still need the session. The window is not
+  extended by what it covers -- only a fresh proof moves it.
+- **Everything else always asks.** The model and its key, what a model costs,
+  tools, vendors, MCP servers, agent CLIs and their sign-ins, every channel,
+  money (the spend ceiling, budget accounts, resuming spend), freezing and its
+  undoing, closing and restoring a company, devices and recovery codes, the
+  browser, what lets outsiders in (triggers, customer channels), every
+  credential, policies, rollbacks, publishers, and **every tier 3 decision**
+  (F10.10). Marking is by opting in: a route that says nothing asks.
+- **The owner chooses the length**: ask every time, 5, 10 (the default), 30
+  minutes or an hour, under Settings, Security, "How long a code counts".
+  Raising it loosens, so it takes a code; lowering or turning it off does not.
+  It is not something the assistant may propose. `GET /api/me` says until when
+  the session is covered.
+- **The console tries first.** Inside the window an action is sent without a
+  code, and the dialog opens only when the server refuses for want of one --
+  which it does before doing anything. A failure that is not that refusal is
+  shown in the dialog, where it always was.
+- **Deviation, said plainly.** F2.9 makes structural changes tier 3 and F10.10
+  asks tier 3 approvals "with MFA". Both still hold -- the owner proved with a
+  device, a few minutes ago, in the same session -- but a stolen tab used inside
+  that window can build structure without a code. The window is short, off at
+  one setting, and does not reach money, keys, the model, channels or devices;
+  and a decision about a tier 3 *item* is never covered. The test harness
+  resets the window to none (`test/helpers/setup.ts`), so the tests of what asks
+  for a factor are unchanged.
+- **Tested** in `step-up.test.ts`: a division, then another, with no code after
+  signing in; the model and letting spending resume still refused; the window
+  run out and asked again, and a code reopening it; none, the default of ten,
+  the choices, raising needing a code and lowering not, an unlisted length
+  refused; a session signed in by a recovery code opening none.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

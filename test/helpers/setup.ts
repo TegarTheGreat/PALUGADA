@@ -152,7 +152,11 @@ export async function resetData(): Promise<void> {
               tour_finished_at = NULL,
               -- And the currency the owner reads money in (0106).
               display_currency = NULL,
-              display_rate = NULL`,
+              display_rate = NULL,
+              -- And the window a code opens (0120): none, so that a test of what
+              -- asks for a second factor meets a console that asks every time,
+              -- as these were written to expect. step-up.test.ts sets its own.
+              step_up_minutes = 0`,
     );
   });
 }

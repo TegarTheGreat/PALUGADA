@@ -20,7 +20,7 @@
  * signature is handed to `attempt` the way a code is.
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
-import { api, explain } from './api.ts';
+import { api, ApiError, explain } from './api.ts';
 import { Alert, Anchor, Button, Divider, Group, Modal, PinInput, Stack, Text, TextInput, ThemeIcon, getDefaultZIndex } from '@mantine/core';
 import { IconFingerprint, IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
@@ -54,12 +54,12 @@ export function FactorProvider({ children }: { children: ReactNode }) {
   const [recovery, setRecovery] = useState('');
   const settled = useRef(false);
 
-  const requireFactor = useCallback((what: string, attempt: Attempt) => new Promise<boolean>((resolve) => {
+  const ask = useCallback((what: string, attempt: Attempt, said: string | null) => new Promise<boolean>((resolve) => {
     settled.current = false;
     setCode('');
     setRecovery('');
     setRecovering(false);
-    setError(null);
+    setError(said);
     setPending({ what, attempt, resolve });
     // Asked each time rather than remembered: a passkey added or revoked in
     // another tab is offered, or not, the next time the dialog opens.
@@ -73,6 +73,33 @@ export function FactorProvider({ children }: { children: ReactNode }) {
       );
     }
   }), []);
+
+  /**
+   * A code shown a few minutes ago still covers what builds the company
+   * (0120). While the session says it is inside that window the action is
+   * tried without one: the server decides what the window covers, and refuses
+   * the rest before doing anything, which opens the dialog as it always did.
+   * A failure that is not that refusal -- a name taken, a field wrong -- is
+   * shown in the dialog, where the owner has always read them.
+   */
+  const requireFactor = useCallback(async (what: string, attempt: Attempt): Promise<boolean> => {
+    let said: string | null = null;
+    try {
+      const me: { stepUp?: { until: string | null } } = await api('GET', '/api/me');
+      if (me.stepUp?.until) {
+        try {
+          // `Proof` is what a dialog hands over; here there is none, and the route is told so by leaving it out.
+          await attempt(undefined as unknown as Proof);
+          return true;
+        } catch (failure) {
+          if (!(failure instanceof ApiError && failure.code === 'approval.channel_forbidden')) said = explain(failure);
+        }
+      }
+    } catch {
+      // The window is not known: ask, as before.
+    }
+    return ask(what, attempt, said);
+  }, [ask]);
 
   const close = (done: boolean) => {
     if (pending && !settled.current) {

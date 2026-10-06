@@ -78,7 +78,6 @@ export const WORK_OUTPUT = {
   required: ['summary'],
   properties: {
     summary: { type: 'string', minLength: 1 },
-    artefacts: { type: 'array', items: { type: 'string' } },
     // What the work taught that the company should remember (0071); kept
     // for the role's division as unverified lessons.
     learned: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 500 } },

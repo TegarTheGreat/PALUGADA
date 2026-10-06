@@ -30,7 +30,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/runtime/` | the runtime protocol and the runtimes (in-process, CLI agents, containers, HTTP) |
 | `src/owner/` | the owner API (`api.ts`), its read models (`views.ts`), sign-in, second factor, push, Telegram, the owner's assistant (`assistant.ts`) |
 | `src/settings/` | what the owner sets for the whole deployment in the console, the secrets it seals, and how both are laid over the environment |
-| `src/context/builder.ts` | what every run is told, in order: charters, language, skills, memory, goals, working memory |
+| `src/context/builder.ts` | what every run is told, in order: charters, language, skills, memory, goals, where the task stands, working memory |
 | `src/domain/` | goals, languages, the task state machine |
 | `src/inbox/` | approvals, incidents, escalations |
 | `src/chats/` | customers' conversations: the channels they write on, what arrives, and the Telegram, WhatsApp and mailbox transports |

@@ -828,3 +828,219 @@ test('a run\'s own record says how many tokens it used, as its traces do', async
   assert.equal(Number(rows[0]!.traced), 2 * 1_100, 'two turns');
   assert.equal(Number(rows[0]!.used), Number(rows[0]!.traced));
 });
+
+/**
+ * The loop's conversation, on a long run (the audit of 6 October, W5). The
+ * pure half -- what is left out, and when -- is in loop-context.test.ts;
+ * these run it through the engine and the journal.
+ */
+type ModelLine = Pick<LlmTurn, 'content' | 'stopReason'> | ((request: LlmTurnRequest) => Pick<LlmTurn, 'content' | 'stopReason'>);
+
+function longPagesRegistry(): CapabilityRegistry {
+  const registry = new CapabilityRegistry();
+  registry.register<{ zone: string }, { page: string; zone: string; marker: string }>({
+    name: 'dns.read',
+    adapter: 'test:dns',
+    defaultTier: 0,
+    async execute(input) {
+      // In the order the journal keeps keys (jsonb: shorter first, then alphabetical), so a result replayed from it
+      // is the same text as the one the live call returned.
+      return { page: `${input.zone} `.repeat(300), zone: input.zone, marker: `MARK-${input.zone}` };
+    },
+  });
+  return registry;
+}
+
+async function longTask(fixture: Fixture) {
+  sequence += 1;
+  return createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: `read every zone (${sequence})` }, createdBy: 'owner', reserveTokens: 300_000,
+  });
+}
+
+const flat = (request: LlmTurnRequest) => request.messages.flatMap((message) => (Array.isArray(message.content) ? message.content : []));
+const answersIn = (request: LlmTurnRequest) => flat(request).filter((block): block is Extract<LlmBlock, { type: 'tool_result' }> => block.type === 'tool_result');
+
+test('a model is told it has forty turns, and in its last turns which one it is on', async () => {
+  const fixture = await createCompany('model-turn-budget');
+  const registry = dnsRegistry([]);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await withTools(fixture, ['dns.read']);
+  const script: ModelLine[] = [];
+  for (let i = 0; i < 37; i += 1) script.push(use(`call-${i}`, 'dns__read', { zone: `z${i}.test` }));
+  script.push((request) => say(answering(request.system, { address: '192.0.2.7' })));
+  const model = new ScriptedModel(script);
+  const outcome = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'turns', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, (await longTask(fixture)).id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+
+  assert.match(model.requests[0]!.system, /at most 40 turns/);
+  const lastWords = (request: LlmTurnRequest) => JSON.stringify(request.messages.at(-1));
+  for (let i = 0; i < 35; i += 1) assert.doesNotMatch(lastWords(model.requests[i]!), /This is turn/, `turn ${i + 1} is told nothing of the count`);
+  assert.match(lastWords(model.requests[35]!), /This is turn 36 of 40/);
+  assert.match(lastWords(model.requests[36]!), /This is turn 37 of 40/);
+  assert.match(lastWords(model.requests[37]!), /This is turn 38 of 40/);
+});
+
+test('old reads are left out of a long run, the journal keeps them, and the trace says what was sent', async () => {
+  const fixture = await createCompany('model-elision');
+  const registry = longPagesRegistry();
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await withTools(fixture, ['dns.read']);
+  const script: ModelLine[] = [];
+  for (let i = 0; i < 14; i += 1) script.push(use(`call-${i}`, 'dns__read', { zone: `zone${i}.test` }));
+  script.push((request) => say(answering(request.system, { address: 'none' })));
+  const model = new ScriptedModel(script);
+  const task = await longTask(fixture);
+  const outcome = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'elision', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+
+  // With twelve answers or fewer nothing is left out; with thirteen, the oldest four.
+  assert.equal(answersIn(model.requests[11]!).filter((block) => /left out to save room/.test(block.content)).length, 0);
+  const thirteen = answersIn(model.requests[13]!);
+  assert.equal(thirteen.length, 13);
+  assert.deepEqual(thirteen.map((block) => /left out to save room/.test(block.content)), [...Array(4).fill(true), ...Array(9).fill(false)]);
+  for (const block of thirteen.slice(4)) assert.match(block.content, /UNTRUSTED_CONTENT/, 'the newest are whole');
+
+  // Each line names the step the platform numbered the call, so a citation still holds.
+  const tools = (await withTenant(fixture.companyId, (tx) => tx.query<{ step_index: number; output: { page: string } }>(
+    "SELECT step_index, output FROM task_steps WHERE task_id = $1 AND name = 'capability:dns.read' AND status = 'committed' ORDER BY step_index", [task.id]))).rows;
+  assert.equal(tools.length, 14);
+  thirteen.slice(0, 4).forEach((block, index) => {
+    assert.match(block.content, new RegExp(`^\\[The result of step:${tools[index]!.step_index} \\(dns__read\\) ran to \\d+ characters`));
+  });
+  assert.ok(tools[0]!.output.page.length > 1_000, 'and the journal keeps the whole of it');
+
+  // What the trace holds for that turn is what the model was sent.
+  const traces = await withTenant(fixture.companyId, (tx) => tx.query<{ prompt: { messages: LlmTurnRequest['messages'] } }>(
+    "SELECT prompt FROM llm_traces WHERE task_id = $1 AND prompt IS NOT NULL ORDER BY occurred_at, id", [task.id]));
+  assert.equal(traces.rows.length, 15);
+  assert.match(JSON.stringify(traces.rows[13]!.prompt.messages), /left out to save room/);
+  assert.doesNotMatch(JSON.stringify(traces.rows[11]!.prompt.messages), /left out to save room/);
+});
+
+test('a run that was stopped and went on is sent what it would have been, turn for turn', async () => {
+  const fixture = await createCompany('model-elision-resume');
+  const registry = longPagesRegistry();
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await withTools(fixture, ['dns.read']);
+  const reads = (n: number) => Array.from({ length: n }, (_, i) => use(`call-${i}`, 'dns__read', { zone: `zone${i}.test` }));
+  const finish = (request: LlmTurnRequest) => say(answering(request.system, { address: 'none' }));
+
+  const whole = new ScriptedModel([...reads(14), finish]);
+  const first = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'whole', llm: whole, handlers: new Map() })
+    .runTask(fixture.companyId, (await longTask(fixture)).id, 'worker');
+  assert.equal(first.status, 'completed', first.reason);
+
+  // The same run, killed on its twelfth turn and taken up by another worker.
+  const task = await longTask(fixture);
+  const dying = new ScriptedModel([...reads(11), () => { throw new Error('worker killed'); }]);
+  const stopped = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'dying', llm: dying, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.notEqual(stopped.status, 'completed');
+  const resumed = new ScriptedModel([...reads(14).slice(11), finish]);
+  const second = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'resumed', llm: resumed, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  assert.equal(resumed.requests.length, 4, 'only the turns the journal did not hold were asked of the model');
+
+  // The journal is the conversation: the pack does not list its steps a second time, and
+  // each earlier result is in what the model is sent once.
+  const firstSent = resumed.requests[0]!;
+  assert.match(String(firstSent.messages[0]!.content), /"workingMemory": \[\]/);
+  assert.equal(JSON.stringify(firstSent.messages).split('MARK-zone0.test').length - 1, 1, 'an earlier result is there once');
+  assert.doesNotMatch(firstSent.system, /This context is incomplete/);
+
+  // The first message names the attempt; everything after it is the conversation itself.
+  resumed.requests.forEach((request, index) => {
+    assert.deepEqual(request.messages.slice(1), whole.requests[11 + index]!.messages.slice(1), `turn ${12 + index} is sent what an uninterrupted run was sent`);
+  });
+});
+
+test('what a model is sent changes no step the journal keeps', async () => {
+  const fixture = await createCompany('model-elision-identity');
+  const registry = longPagesRegistry();
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await withTools(fixture, ['dns.read']);
+  const model = new ScriptedModel([
+    ...Array.from({ length: 13 }, (_, i) => use(`call-${i}`, 'dns__read', { zone: `zone${i}.test` })),
+    (request) => say(answering(request.system, { address: 'none' })),
+  ]);
+  const task = await longTask(fixture);
+  assert.equal((await new Engine({ broker: new CapabilityBroker(registry), workerId: 'identity', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ name: string; kind: string; input: unknown }>(
+    "SELECT name, kind, input FROM task_steps WHERE task_id = $1 AND status = 'committed' ORDER BY step_index", [task.id]));
+  const turns = rows.filter((row) => row.kind === 'llm');
+  assert.equal(turns.length, 14);
+  turns.forEach((row, index) => assert.equal(row.name, `model:turn ${index + 1}`));
+  assert.deepEqual(rows.filter((row) => row.kind !== 'llm').map((row) => row.name), Array(13).fill('capability:dns.read'));
+});
+
+/**
+ * A conversation longer than the model reads (the audit of 6 October, W5). It
+ * was refused as any 400 is, a plain error the engine retried: every retry
+ * replays the same journal and asks the same turn, so it failed the same way
+ * three times, with the waits of the retry between.
+ */
+test('a provider that says the conversation is too long is not asked the same again', async () => {
+  const sayings = [
+    { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'prompt is too long: 215000 tokens > 200000 maximum' } } },
+    { status: 400, body: { error: { message: "This model's maximum context length is 128000 tokens. However, your messages resulted in 130500 tokens.", code: 'context_length_exceeded' } } },
+    { status: 413, body: { error: 'Request entity too large: the input is too long for this model.' } },
+  ];
+  for (const saying of sayings) {
+    const api = await provider([saying]);
+    try {
+      const client = new AnthropicClient({ apiKey: 'sk-test-key-0123456789', baseUrl: api.url });
+      await assert.rejects(client.turn({ model: 'standard', system: 's', messages: [{ role: 'user', content: 'u' }], tools: [] }),
+        (error: unknown) => {
+          assert.ok(isPalugadaError(error, 'model.context_too_long'), String(error));
+          assert.match(error.message, /a retry would send the same one/);
+          assert.ok(error.details.providerSaid, 'in the provider\'s own words');
+          return true;
+        });
+      assert.equal(api.received.length, 1, 'and not retried');
+    } finally {
+      await api.close();
+    }
+  }
+
+  // Any other refusal stays what it was.
+  const other = await provider([{ status: 400, body: { error: { message: 'messages: text content blocks must be non-empty' } } }]);
+  try {
+    const client = new AnthropicClient({ apiKey: 'sk-test-key-0123456789', baseUrl: other.url });
+    await assert.rejects(client.turn({ model: 'standard', system: 's', messages: [{ role: 'user', content: 'u' }], tools: [] }),
+      (error: unknown) => !isPalugadaError(error) && /refused the request \(400\)/.test(String(error)));
+  } finally {
+    await other.close();
+  }
+});
+
+test('a task whose conversation is too long for its model fails once, with the reason, and is not run three times', async () => {
+  const fixture = await createCompany('model-too-long');
+  const registry = dnsRegistry([]);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await withTools(fixture, ['dns.read']);
+  const model = new ScriptedModel([
+    use('call-1', 'dns__read', { zone: 'example.test' }),
+    () => { throw new PalugadaError('model.context_too_long', 'the conversation is longer than standard reads (prompt is too long); a retry would send the same one', {}); },
+  ]);
+  const engine = new Engine({ broker: new CapabilityBroker(registry), workerId: 'too-long', llm: model, handlers: new Map() });
+  const task = await newTask(fixture);
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'failed');
+  assert.match(outcome.reason ?? '', /prompt is too long/);
+  const after = (await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!;
+  assert.equal(after.status, 'failed', 'not back on the queue for a second try');
+  assert.equal(after.attempt, 1);
+  assert.equal(model.requests.length, 2, 'the model was asked twice in all: the call, and the turn that was refused');
+});

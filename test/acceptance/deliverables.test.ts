@@ -16,8 +16,9 @@ import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { redactor } from '../../src/secrets/manager.ts';
 import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
-import { taskDetailOf, workOf } from '../../src/owner/views.ts';
+import { galleryOf, taskDetailOf, workOf } from '../../src/owner/views.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -99,6 +100,23 @@ test('a finished task says what it produced, on the list and in full', async () 
   // Redacted like everything else that leaves this process (F12.4).
   assert.doesNotMatch(detail.deliverables[0]!.text, /sk-live-deliverables-0001/);
   assert.match(detail.deliverables[0]!.text, /We launched/);
+});
+
+test('a file the task only read is not something it produced, on its page or in the gallery', async () => {
+  // `files.read`, `image.describe` and `speech.transcribe` answer with the path they opened and its text, which is
+  // what a draft answers with: a file a role read was listed beside the ones it wrote.
+  const fixture = await createCompany('deliver-reads');
+  await registerStandardCatalogue();
+  const run = await task(fixture, 'summarise the quarterly report');
+  await journal(fixture, run.id, 0, 'capability:files.read', 'committed', { path: 'in/report.pdf', kind: 'text', text: 'quarterly figures' });
+  await journal(fixture, run.id, 1, 'capability:image.describe', 'committed', { path: 'in/photo.png', provider: 'p', text: 'a storefront' });
+  await journal(fixture, run.id, 2, 'capability:speech.transcribe', 'committed', { path: 'in/call.mp3', text: 'hello there' });
+  await journal(fixture, run.id, 3, 'capability:doc.draft', 'committed', { path: 'drafts/summary.md', text: '# Summary\n\nIt went well.' });
+
+  const detail = (await taskDetailOf(fixture.companyId, run.id))!;
+  assert.deepEqual(detail.deliverables.map((one) => one.path), ['drafts/summary.md']);
+  const gallery = await galleryOf(fixture.companyId);
+  assert.deepEqual(gallery.items.map((one) => one.path), ['drafts/summary.md']);
 });
 
 test("a task's output is read only in its own company", async () => {

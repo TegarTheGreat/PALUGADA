@@ -64,7 +64,7 @@ export interface WireRequest {
     memories: string[];
     goalAncestry: Array<{ kind: string; statement: string }>;
     notes: Array<{ title: string; body: string }>;
-    workingMemory: Array<{ name: string; output: unknown }>;
+    workingMemory: Array<{ name: string; input?: unknown; output: unknown }>;
   };
   allowedTools: Array<{ name: string; inputSchema: Record<string, unknown>; tier: number }>;
   modelRouting: { primary: string; fallback: string[] };

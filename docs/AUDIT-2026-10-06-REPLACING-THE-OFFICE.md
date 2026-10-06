@@ -642,7 +642,8 @@ uses a primitive that was there.
 | 5 | `features.md`, `AGENTS.md` and two comments say what is true (O5) | 2.161 |
 | 6 | P1: a priority reaches the task and what it hands on; a question ends with its task; a cleared record is not "continued" (S3, S5, W6) | 2.162 |
 | 7 | P1: lessons are rules for the next customer, not notes about one; a pattern is counted in tasks; a fresh install says what a service replaced and what is unbound (M5, M8, O2) | 2.163 |
-| 8 | P1.2: one CEO task when a measure reaches its target, passes its date, or goes a week unread -- once for each target, date or source the owner sets (L1) | 2.164 |
+| 8 | P1.2: one CEO task when a measure reaches its target, passes its date, or goes a week unread -- once for each target or date the owner sets, and weekly for a source while its reads succeed (L1) | 2.164 |
+| 9 | P1.3: the loop is told its turns and leaves out old reads; an in-process run is not handed its journal twice; one derivation of the files a task made, returned by `task.await`; where a task stands, for runtimes that do not replay; a follow-up is given the work it follows up; a conversation too long fails once (W3, W4, W5) | 2.165 |
 
 **Considered and left for P1, on purpose.** The person-as-actor change (8.2), the largest, needs
 design review with the owner (the outcome sweep, 8.1, was built after one: 2.164); the file tools on shipped roles

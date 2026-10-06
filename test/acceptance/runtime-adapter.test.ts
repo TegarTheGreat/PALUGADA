@@ -318,6 +318,80 @@ test('the context pack carries the goal chain and the work already done (F2.7, F
   assert.equal(seen.request!.backend, 'local');
 });
 
+test('a runtime that does not replay is shown what each call was asked beside what it answered', async () => {
+  // A resumed agent CLI starts again from the pack. "The invoice is paid" with
+  // no word of which invoice it had asked about is half a record.
+  const fixture = await createCompany('runtime-step-inputs');
+  await useRuntime(fixture, 'spy');
+  const task = await newTask(fixture);
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO task_steps (company_id, task_id, step_index, name, kind, status,
+                               idempotency_key, input_hash, input, output, committed_at)
+       VALUES ($1, $2, 0, 'capability:ledger.read', 'tool', 'committed', 'k0', 'h0', $3::jsonb, '{"paid":true}'::jsonb, now()),
+              ($1, $2, 1, 'capability:ledger.read', 'tool', 'committed', 'k1', 'h1', $4::jsonb, '{"paid":false}'::jsonb, now())`,
+      [fixture.companyId, task.id,
+        JSON.stringify({ name: 'ledger.read', input: { invoice: 41 } }),
+        JSON.stringify({ name: 'ledger.read', input: { invoice: 42, note: 'n'.repeat(5_000) } })],
+    );
+  });
+
+  const { adapter, seen } = spyAdapter();
+  await engineWith(adapter).runTask(fixture.companyId, task.id, 'worker');
+  const [first, second] = seen.request!.contextPack.workingMemory;
+  assert.deepEqual(first, { name: 'capability:ledger.read', input: { invoice: 41 }, output: { paid: true } });
+  assert.equal(typeof second!.input, 'string', 'a long input is cut');
+  assert.ok((second!.input as string).length < 700);
+  assert.deepEqual(second!.output, { paid: false });
+  // And it is what the runtime is told in its task.
+  assert.match(renderPrompt(toWireRequest(seen.request!)), /"invoice": 41/);
+});
+
+test('a runtime is told where its task stands, as a note, and a follow-up whose work came to read outside content carries it', async () => {
+  const fixture = await createCompany('runtime-standing');
+  await useRuntime(fixture, 'spy');
+  const parent = await newTask(fixture);
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO task_steps (company_id, task_id, step_index, name, kind, status,
+                               idempotency_key, input_hash, output, committed_at)
+       VALUES ($1, $2, 0, 'capability:doc.draft', 'tool', 'committed', 'k0', 'h0', '{"path":"drafts/a.md","text":"x"}'::jsonb, now())`,
+      [fixture.companyId, parent.id]);
+  });
+
+  // A runtime that does not replay is handed where the work stands among its notes.
+  const first = spyAdapter();
+  await engineWith(first.adapter).runTask(fixture.companyId, parent.id, 'worker');
+  const standing = first.seen.request!.contextPack.notes.find((note) => note.title === 'Where this task stands');
+  assert.ok(standing, 'a note, with the rest the run is told before it starts');
+  assert.match(standing!.body, /drafts\/a\.md/);
+
+  // A follow-up of that work, made before a sibling read a customer's mail.
+  const { createSubTask } = await import('../../src/engine/tasks.ts');
+  const followUp = await createSubTask(parent.id, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    input: { goal: 'check it again', followUpOf: parent.id }, reserveTokens: 500,
+  });
+  const sibling = await createSubTask(parent.id, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    input: { goal: 'read the mail' }, reserveTokens: 500,
+  });
+  const { appendEvent } = await import('../../src/audit/event-log.ts');
+  await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, taskId: sibling.id, type: 'content.read_outside', actor: 'engine',
+    payload: { capability: 'mailbox.read' },
+  }));
+
+  const readOutside = () => withTenant(fixture.companyId, (tx) => tx.query<{ payload: { from?: string; parentTaskId?: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'content.read_outside'", [followUp.id])).then((result) => result.rows);
+  assert.deepEqual(await readOutside(), []);
+  const second = spyAdapter();
+  await engineWith(second.adapter).runTask(fixture.companyId, followUp.id, 'worker');
+  assert.deepEqual((await readOutside()).map((row) => [row.payload.from, row.payload.parentTaskId]), [['follow_up', parent.id]],
+    'what the follow-up does at tier 2 now asks the owner, as the work it read from does');
+  assert.ok(second.seen.request!.contextPack.notes.some((note) => note.title === 'The work this follows up'));
+});
+
 test('what the pack was built with reaches the runtime: the language, the owner\'s word, a bounded working memory (F4.7, F4.8)', async () => {
   // The pack is built with the company's language, its stage, how the goal
   // is measured and every word the owner has said to the task. A runtime is

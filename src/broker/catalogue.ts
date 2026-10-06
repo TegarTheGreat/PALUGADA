@@ -144,7 +144,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     name: 'task.await',
     adapter: 'platform',
     tier: TIER.READ_ONLY,
-    summary: 'Reads the result of work this task delegated, waiting if it is not done.',
+    summary: 'Reads the result of work this task delegated, and the paths of the files it made, waiting if it is not done.',
     calibration:
       'Reads one row of the company\'s own tasks. Waiting parks the task until ' +
       'it looks again, and holds no worker in between.',

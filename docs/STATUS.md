@@ -9957,6 +9957,89 @@ abandoned objective starts nothing).
   content and what it leaves out, the closure cancel, a worker's tick with and without `runs`),
   `ended-badly.test.ts` and `worker.test.ts`.
 
+## 2.165 A task says where it stands, a follow-up is given the work it follows up, and a long run is bounded (the audit of 6 October, W3, W4, W5)
+
+What a run is told of its own task was a copy of its journal, and a task that had finished its
+work told nobody which files it made. Six changes, each its own commit, none a new table,
+migration, capability or model call; every one derived from the journal (`task_steps`), the task
+tables and the catalogue, never from a role's own account of itself.
+
+- **A long run is told its turns, and is not sent every page it ever read.** The loop's system
+  prompt says it has at most 40 turns, counting those of earlier runs of the task; in its last five
+  it is told which turn it is on, and on the last that a tool call now ends the task unfinished. And
+  the answers of old *read-only* calls (tier 0) that ran past 600 characters, all but the newest
+  eight to eleven, are sent as a line that names the step and its size and says the journal keeps
+  it and the call may be made again -- so a done-report that cites `step:N` still verifies. Writes,
+  refusals, small answers and everything the model said are never touched, and every call keeps an
+  answer. It is a function of the conversation alone, applied to the copy a fresh turn is sent and
+  not to the conversation, the journal or a step's identity, and it moves in steps of four so most
+  of what is sent is the same from one turn to the next. `llm_traces` records what was sent. A run
+  that was stopped and went on is sent, turn for turn, what an uninterrupted run was sent.
+- **An in-process run is not handed its journal twice.** The loop replays every committed step as its
+  own conversation, tool results included, and `renderTask` listed the same steps again, each cut at
+  4,000 characters and unfenced: so each was paid for twice, and because working memory is the last
+  section the pack gives up, the copy pushed semantic memory, skills and the goal chain out of the 40k
+  pack first and printed *"This context is incomplete"* when nothing was missing. A runtime that
+  replays (`stepsReplayed`, keyed on the runtime being `in-process`, as the journal's own placing is) is
+  handed none. Every other runtime sees each call *with what it was asked*, bounded at 600 characters,
+  beside what it answered: "the invoice is paid" with no word of which invoice was half a record. The
+  owner's *what this run was told* view of an in-process run no longer lists steps; the journal and the
+  traces still do.
+- **One derivation of "the files a task made", and `task.await` returns them.** `taskDetailOf`'s
+  deliverables matched any committed call answering with a `path` and some `text`, which `files.read`,
+  `image.describe` and `speech.transcribe` all do, so a file a role only *read* was listed as produced
+  on the owner's page and in the gallery; and it missed pictures, speech and computed files, which
+  answer with a path and no text, or `files[]`. `madeFiles` (in `engine/journal.ts`) takes the paths of
+  committed calls to a capability the catalogue does not hold at tier 0 (a capability it does not know
+  counts as one that made, the safe direction), controls characters taken out, cut at 200. `task.await`
+  names them (`files`, the last twenty) beside the result, for a finished child and for one that ended
+  without a result after drafting something. They are references: until a role holds `files.read` (the
+  twelve-tool decision of 2.161) a role can name a path or hand it on, not open it. `artefacts`, which
+  the shipped output schemas offered for a model to type by hand, is no longer offered (stored schemas
+  keep it).
+- **Where this task stands.** For a runtime that does not replay: the steps committed, the plan the
+  task recorded and which of it is done (the k-th step naming a capability is done when k calls of it
+  committed, as the owner's page counts), the files its writes made, and the work it handed on with
+  whole ids, as a note before it starts and a section the pack gives up last -- it is the short form of
+  working memory, which goes oldest first. The platform's counts are outside the fence; everything a
+  model or a tool wrote (an intent, a path, a brief) is inside one. A task with nothing to say gets
+  nothing.
+- **A follow-up is given the work it follows up.** `task.follow_up` made its task a child of the one
+  that asked, with its id in `followUpOf`, and nothing read it back: a role woken thirty days later to
+  look again at an invoice had only its brief. It is now told what the work was asked, what it returned
+  (held to the same ceiling and cuts as a parent given a child's result, F6.7), how it ended, and the
+  files it made, as data, with the instruction to check the account against the record. Only for a task
+  that is the child it names: a delegated child still gets its brief and nothing of its parent's work, and
+  an input that merely says another task's id is not a follow-up of it. A follow-up also carries outside
+  content the work it follows up came to read after the follow-up was made (a sibling's read is not in
+  its own chain), recorded once as `content.read_outside`, so what it does at tier 2 asks the owner as the
+  work's did. `task.follow_up`'s input, key and replay are unchanged.
+- **A conversation too long for its model fails once.** A 400 or 413 whose body says so ("prompt is too
+  long", "maximum context length", `context_length_exceeded`) is `model.context_too_long`: the task fails
+  with the provider's words and is not run three times, each retry replaying the same journal and asking
+  the same turn. The bound on the window above makes it the exception, chiefly a small local model.
+- **Found on the way:** the in-process pack duplicated the journal and pushed memory out (above); the
+  deliverables derivation listed reads and missed writes (above); a follow-up's link to its parent was
+  written and read by nothing; a delegating agent's `context` reaches the child raw, in its input, for the
+  child's life.
+- **Not done:** the last lines of a run's narration in the pack (narration is not the journal, nothing
+  replays it, and it is model text written right after the model read whatever it read -- a memory-poisoning
+  channel); a halt reason of its own for a context too long, and a retry within the turn that elides harder;
+  the file tools on the roles that need them (2.161's twelve-tool decision); the owner's verdict on the work
+  in a follow-up's section; fencing the outputs of out-of-process working memory (a page a capability that
+  reads outside fetched was fenced when first shown and is unfenced on resume -- unchanged, and the default
+  runtime no longer has it); a second prompt-cache breakpoint on the first message (probably the largest
+  remaining saving); a context window per model; wrapping `context` at `task.delegate` and `task.follow_up`
+  creation (it would change the call's hash and so its key, so a replayed parent would make a duplicate); a
+  console surface for the standing and the follow-up.
+- **Tested** in `loop-context.test.ts` (pure: elision is a function of the conversation, the window moves in
+  fours, only large reads, stubs are stable and keep their step, the notice), `model-runtime.test.ts` (the
+  budget, a long run, a resumed run sent what an uninterrupted one was, no step's identity moved, a refusal
+  that says too long), `charter-context.test.ts`, `runtime-adapter.test.ts` and `workspace-linkage.test.ts`
+  (what a task made and not what it read, `task.await`'s files, where a task stands and that it is data and
+  goes last, the follow-up and its taint), with `deliverables.test.ts` for the reads
+  that are no longer produced.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

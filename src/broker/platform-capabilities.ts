@@ -41,6 +41,7 @@ import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
+import { madeFiles } from '../engine/journal.ts';
 import { noteTalkDrift } from '../domain/language.ts';
 import { proposeSchedule } from '../scheduler/proposals.ts';
 import type { Capability } from './registry.ts';
@@ -1030,7 +1031,7 @@ export function taskFollowUpCapability(): Capability<TaskFollowUpInput, { taskId
           type: 'string', minLength: 1,
           description: 'What to look at again, what to check it against (the figure, the record, the page), and what to do about what it finds: continue, propose a goal change, or ask the owner.',
         },
-        context: { type: 'string', description: 'What it needs that the brief does not say: the invoice number, the campaign, the figure you expect.' },
+        context: { type: 'string', description: 'What it needs that the brief does not say: the invoice number, the campaign, the figure you expect. Do not paste what you did or the files you made: the follow-up is shown your result and the paths of the files you made.' },
         afterHours: { type: 'integer', minimum: 1, maximum: 2160, description: 'How many hours from now it wakes: 1 to 2160 (ninety days).' },
         windowMinutes: { type: 'integer', minimum: 15, maximum: 1440, description: 'How long it has once it wakes (default 120).' },
       },
@@ -1179,7 +1180,18 @@ export interface TaskAwaitResult {
   summary: string;
   /** Set when the output was cut to fit: the child keeps it whole, for the owner and for anyone pointing to it. */
   abbreviated: { taskId: string; characters: number } | null;
+  /**
+   * The paths of the files the child's own writes made, from its journal and
+   * not from anything it said, the last twenty at most. A child that was
+   * halted after drafting something still has the draft, and its parent is
+   * told. Paths are references: a role that does not hold a tool to open
+   * files names them, or hands them on.
+   */
+  files: string[];
 }
+
+/** The most paths a parent is told of one child's work. */
+const FILES_SHOWN = 20;
 
 /**
  * `task.await`: the result of work this task delegated.
@@ -1222,12 +1234,17 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           { childId: input.childId },
         );
       }
+      const filesOf = () => withTenant(ctx.companyId, async (tx) =>
+        (await madeFiles(tx, String(input.childId))).map((file) => file.path).slice(-FILES_SHOWN));
       if (found.status === 'completed') {
         const costCents = await withTenant(ctx.companyId, (tx) => taskCostCents(tx, String(input.childId)));
         const contained = containChildResult(found.role, found.output ?? {}, {
           status: found.status, steps: found.steps, costCents, taskId: String(input.childId),
         });
-        return { status: found.status, output: contained.output, summary: contained.summary, abbreviated: contained.abbreviated };
+        return {
+          status: found.status, output: contained.output, summary: contained.summary, abbreviated: contained.abbreviated,
+          files: await filesOf(),
+        };
       }
       // Past its deadline and nobody running it: halted here, as the worker's
       // sweep would halt it, and answered. Parking again would reopen at a
@@ -1249,6 +1266,7 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           output: null,
           summary: `${found.role} ${found.status}${found.halt_reason ? ` (${found.halt_reason})` : ''} without a result`,
           abbreviated: null,
+          files: await filesOf(),
         };
       }
       // A coordinator waiting for a specialist is not halted before the

@@ -20,6 +20,7 @@
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { wellFormed } from '../text.ts';
 import { callKey, hashInput, idempotencyKey } from './hash.ts';
 
 export type StepKind = 'llm' | 'tool' | 'internal';
@@ -357,4 +358,61 @@ export async function countCommittedSteps(companyId: string, taskId: string): Pr
     );
     return Number(rows[0]!.count);
   });
+}
+
+/**
+ * A condition on a journal step (alias `s`): it is not a call to a capability
+ * the catalogue holds at tier 0, which only reads. A read echoes the path it
+ * opened -- `files.read`, `image.describe` and `speech.transcribe` all answer
+ * with the file's path and its text -- and a path a task only read is not a
+ * file it made. A capability the catalogue does not know (unbound since, or a
+ * test's) counts as one that made: the direction that shows too much, not too
+ * little.
+ */
+export const NOT_A_READ = `NOT EXISTS (
+  SELECT 1 FROM capabilities c
+   WHERE c.name = substr(s.name, length('capability:') + 1) AND c.default_tier = 0)`;
+
+/** A file a task's own call made: where, by which call, and which step of the journal. */
+export interface MadeFile {
+  step: number;
+  capability: string;
+  path: string;
+}
+
+/** The most that is said of one path: it is data from a capability, shown to a model. */
+const PATH_SHOWN = 200;
+
+/**
+ * The files a task made, in the order it made them: the paths its committed
+ * writes answered with -- `output.path` of a draft, a picture, a recording of
+ * speech, and each of `output.files` of computed work.
+ *
+ * Read from the journal, which holds what the capability said and not what a
+ * role said it did. Tool steps keep their output for as long as the task is
+ * kept: retention scrubs a model's replies and nothing else.
+ */
+export async function madeFiles(tx: TenantClient, taskId: string): Promise<MadeFile[]> {
+  const { rows } = await tx.query<{ step_index: number; name: string; path: unknown; files: unknown }>(
+    `SELECT s.step_index, s.name, s.output -> 'path' AS path, s.output -> 'files' AS files
+       FROM task_steps s
+      WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+        AND (jsonb_typeof(s.output -> 'path') = 'string' OR jsonb_typeof(s.output -> 'files') = 'array')
+        AND ${NOT_A_READ}
+      ORDER BY s.step_index`,
+    [taskId],
+  );
+  const clean = (path: string) => wellFormed(path.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, PATH_SHOWN));
+  const found: MadeFile[] = [];
+  for (const row of rows) {
+    const capability = row.name.replace(/^capability:/, '');
+    if (typeof row.path === 'string') found.push({ step: row.step_index, capability, path: clean(row.path) });
+    if (Array.isArray(row.files)) {
+      for (const file of row.files as unknown[]) {
+        const path = file && typeof file === 'object' ? (file as { path?: unknown }).path : undefined;
+        if (typeof path === 'string') found.push({ step: row.step_index, capability, path: clean(path) });
+      }
+    }
+  }
+  return found;
 }

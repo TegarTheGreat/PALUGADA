@@ -36,6 +36,8 @@ export type ErrorCode =
   | 'policy.denied'
   | 'hook.denied'
   | 'model.unavailable'
+  /** The conversation is longer than the model reads; asking again would send the same one. */
+  | 'model.context_too_long'
   | 'skill.invalid'
   | 'skill.unknown'
   | 'skill.scope_change'

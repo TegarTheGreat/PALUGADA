@@ -96,8 +96,9 @@ defines it:
   nothing in the deployment is bound to yet -- a CRM, a mail provider -- is
   not offered to a run, and the run is told so.
 - **Its output schema:** the shape its answer must have. Every role in the
-  standard template returns a `summary`, and may return `artefacts`. An
-  answer that does not fit is refused and the task tries again, up to its
+  standard template returns a `summary`; the files a task made are listed by
+  the platform itself, from what its calls committed, and not by the role's
+  word. An answer that does not fit is refused and the task tries again, up to its
   number of attempts; an input that does not fit the role's input schema
   stops the task at once.
 - **Its tools:** the capabilities it may call, at most twelve, and only those
@@ -402,10 +403,12 @@ cancelled task, or one you asked for again, is not left owing.
 Nobody has to remember to look at a measure. When one reaches its target, passes
 its due date short of it, or has a source nobody has read for a week, the CEO is
 given a task for it: to ask you once where it stands, in your language, and to
-have the source read again by a role that holds it. Each is done once for the
-target, the date or the source you set -- a figure that hovers round its target
-is not a new look each time, and changing the target, the date or the source is
-what asks again. Only a checked figure counts: yours, or one a run read from the
+have the source read again by a role that holds it. A target and a due date are
+each looked at once for the value you set -- a figure that hovers round its
+target is not a new look each time, and changing the target or the date is what
+asks again. A source nobody has read is read again about every week while those
+reads succeed, until the measure reaches its target, passes its date, or you
+retire it. Only a checked figure counts: yours, or one a run read from the
 source; an agent's typed number cannot reach a target or hide a missed date. The
 CEO cannot close a goal: that stays yours, on the **Goals** page. To stop it,
 retire the measure, take its source or date off, or close the goal.

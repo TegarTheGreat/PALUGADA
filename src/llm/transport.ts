@@ -93,9 +93,23 @@ export async function postModel(post: ModelPost): Promise<unknown> {
         `the model API at ${host} refused the key (${response.status})${providerSaid ? `: ${providerSaid}` : ''}`,
         { model: post.model, keyRefused: true, status: response.status, host, providerSaid, keySetting: post.keySetting });
     }
+    // A conversation longer than the model reads. Every retry replays the same
+    // journal and asks the same turn, so it fails the same way until the
+    // attempts run out; said as what it is, it fails once with its reason.
+    // Anthropic says "prompt is too long", OpenAI and DeepSeek "maximum context
+    // length" and `context_length_exceeded`, a local server one of the rest.
+    if ((response.status === 400 || response.status === 413) && TOO_LONG.test(detail)) {
+      const providerSaid = whatTheProviderSaid(detail);
+      throw new PalugadaError('model.context_too_long',
+        `the conversation is longer than ${post.model} reads (${providerSaid}); a retry would send the same one`,
+        { model: post.model, status: response.status, providerSaid });
+    }
     throw new Error(`the model API refused the request (${response.status}): ${whatTheProviderSaid(detail)}`);
   }
 }
+
+/** What providers say of a request whose conversation is too long. Not "exceeds the limit": that is said of other things. */
+const TOO_LONG = /prompt is too long|maximum context length|context[ _]length|context window|input is too long|too many tokens|reduce the length/i;
 
 /**
  * The words of a provider's error, out of the JSON they usually come in:

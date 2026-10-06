@@ -513,14 +513,22 @@ The first version. What it holds, in the order an owner meets it.
   connected service has taken over a name the platform keeps (such as invoicing in the books) and
   that the lab analyst's code tool is not connected to anything (STATUS 2.163).
 - The company looks at its numbers. When a measure you set reaches its target, passes its
-  due date short of it, or has a source nobody has read for a week, the CEO is given one task for
-  it -- once for each target, date or source you set, not every time a figure crosses -- asks you
-  where it stands in your language, and has the source read again by a role that can. Only a figure
+  due date short of it, or has a source nobody has read for a week, the CEO is given a task for
+  it -- once for each target or date you set, not every time a figure crosses; a source nobody has read
+  is read again about every week while those reads succeed -- asks you where it stands in your
+  language, and has the source read again by a role that can. Only a figure
   you entered or a run read from the source counts, and nothing runs while nothing changed. On
   upgrade, every measure already in one of those states gets one look, at most one every ten
   minutes, and each reached or overdue one puts a question in your inbox. Handing on the tickets the
   company owes, which the CEO does by itself, now also happens in the default deployment, where
   four places at once had kept it from ever starting (STATUS 2.164).
+- A run knows where its task stands. A runtime that starts again from what it is told is given the plan
+  the task recorded and how far it got, the files its writes made, and the work it handed on; a role woken
+  to look again at what it did is given that work (what it was asked, what it returned, how it ended), and a
+  role that awaits a sub-task is told the files it made. A long run is told its forty turns and no longer
+  sent every page it ever read on every turn, and one whose conversation is too long for its model fails
+  once with the reason instead of three times. The gallery and a task's page no longer list as produced a
+  file that was only read (STATUS 2.165).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

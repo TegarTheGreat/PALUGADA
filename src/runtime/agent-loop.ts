@@ -38,6 +38,14 @@ import type { RunRequest, RunServices } from './protocol.ts';
 export const MAX_TURNS = 40;
 /** How much of one tool result the model is shown. */
 export const TOOL_RESULT_LIMIT = 20_000;
+/** The newest answers of read-only calls a model is always sent whole. */
+export const RESULTS_SHOWN_WHOLE = 8;
+/** What is left out moves in steps of this many answers, so most of what is sent is the same from turn to turn. */
+const ELISION_STEP = 4;
+/** An answer this short costs less to keep than the line that would replace it. */
+const STUB_FLOOR = 600;
+/** The model is told which turn it is on in its last this many. */
+const LATE_TURNS = 5;
 
 /**
  * How much one turn may write, and how far that grows.
@@ -80,6 +88,97 @@ function bounded(text: string): string {
 
 export { outputFrom } from '../llm/json.ts';
 
+type Message = { role: 'user' | 'assistant'; content: string | LlmBlock[] };
+
+/** The platform's own line after a call's answer, which names the step: no page can say it, because it follows the fence. */
+const STEP_LINE = /This call is step:(\d+) of your task; evidence may cite it as step:\1\.\s*$/;
+
+/**
+ * The conversation as a model is sent it: the answers of old read-only calls
+ * are a line each.
+ *
+ * Every turn used to be sent the whole conversation, so a run that read a
+ * page on each of thirty turns paid for every page thirty times. The oldest
+ * answers (all but the newest eight to eleven) of calls that only read, and
+ * that ran to more than a few hundred characters, become a line that says
+ * which step they were and how long, so a done-report that cites the step
+ * still verifies against the journal, and that the call can be made again.
+ * What a model wrote, what a write answered, a refusal and a short answer are
+ * never touched, and every call keeps an answer.
+ *
+ * The result depends on the conversation alone -- no clock, no counts of
+ * tokens -- and the conversation is rebuilt from the journal on every resume,
+ * so a run that was stopped and went on is sent what it would have been. What
+ * is left out moves in steps, so a provider that caches a prompt's start
+ * finds most of it unchanged from one turn to the next.
+ */
+export function elideOldResults(messages: readonly Message[], readers: ReadonlySet<string>): Message[] {
+  const called = new Map<string, string>();
+  let answers = 0;
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === 'tool_use') called.set(block.id, block.name);
+      else if (block.type === 'tool_result') answers += 1;
+    }
+  }
+  const hidden = answers <= RESULTS_SHOWN_WHOLE ? 0 : Math.floor((answers - RESULTS_SHOWN_WHOLE) / ELISION_STEP) * ELISION_STEP;
+  if (hidden === 0) return [...messages];
+
+  let ordinal = 0;
+  return messages.map((message) => {
+    if (!Array.isArray(message.content)) return message;
+    let changed = false;
+    const content = message.content.map((block): LlmBlock => {
+      if (block.type !== 'tool_result') return block;
+      const mine = ordinal;
+      ordinal += 1;
+      const tool = called.get(block.toolUseId);
+      if (mine >= hidden || block.isError || tool === undefined || !readers.has(tool) || block.content.length <= STUB_FLOOR) return block;
+      changed = true;
+      const step = STEP_LINE.exec(block.content)?.[1];
+      return {
+        ...block,
+        content: `[The result of ${step ? `step:${step}` : 'an earlier call'} (${tool}) ran to ${block.content.length} characters and is left out to save room. `
+          + `${step ? `The journal keeps it, and step:${step} still cites it. ` : ''}Call ${tool} again if you need it.]`,
+      };
+    });
+    return changed ? { ...message, content } : message;
+  });
+}
+
+/**
+ * In its last few turns the model is told which turn it is on.
+ *
+ * A run that has not returned its output by the last turn fails, and used to
+ * fail without the model having been told there was a last turn. Told only at
+ * the end, so a run that finishes early is sent nothing it did not need and
+ * the message before the new one stays as it was.
+ */
+export function withTurnNotice(messages: readonly Message[], turn: number, max = MAX_TURNS): readonly Message[] {
+  const left = max - turn - 1;
+  const last = messages.at(-1);
+  if (left >= LATE_TURNS || !last || last.role !== 'user') return messages;
+  const note = left > 0
+    ? `This is turn ${turn + 1} of ${max}. ${left} ${left === 1 ? 'turn remains' : 'turns remain'} after it. If the work is not finished, `
+      + `plan to reply by turn ${max} with the task's output as a single JSON object, saying plainly what is done and what is not.`
+    : `This is turn ${max} of ${max}, your last. Reply now with the task's output as a single JSON object, `
+      + 'saying plainly what is done and what is not. A tool call now ends the task unfinished.';
+  const content = typeof last.content === 'string'
+    ? `${last.content}\n\n${note}`
+    : [...last.content, { type: 'text' as const, text: note }];
+  return [...messages.slice(0, -1), { role: 'user', content }];
+}
+
+/** Said once in the system prompt, where it does not change from turn to turn and so does not break a cached start. */
+function turnBudgetNote(max: number): string {
+  return `## Your turns\n\nYou have at most ${max} turns on this task, counting those of earlier runs of it. A turn is one reply `
+    + `of yours, whether or not it calls tools; the tools' answers come back with the next turn. A task that has not returned `
+    + `its output by turn ${max} fails. As the conversation grows, the answers of older read-only tools are replaced by a line `
+    + 'that names their step and size: say in your own words, as you go, what you will need of them, and call the tool again '
+    + 'if you need the text itself.';
+}
+
 interface RecordedTurn {
   content: LlmBlock[];
   stopReason: string;
@@ -91,9 +190,12 @@ export async function runAgentLoop(
   client: ToolUsingLlmClient,
 ): Promise<Record<string, unknown>> {
   const wire = toWireRequest(request);
-  const system = renderSystem(wire);
+  const system = `${renderSystem(wire)}\n\n${turnBudgetNote(MAX_TURNS)}`;
   const { tools, platformName } = toolsForModel(request.allowedTools);
-  const messages: Array<{ role: 'user' | 'assistant'; content: string | LlmBlock[] }> = [
+  // The tools that only read: the ones whose old answers may be left out, because asking again is safe.
+  const tierOf = new Map(request.allowedTools.map((tool) => [tool.name, tool.tier]));
+  const readers = new Set([...platformName].filter(([, platform]) => tierOf.get(platform) === 0).map(([model]) => model));
+  const messages: Message[] = [
     { role: 'user', content: renderTask(wire) },
   ];
   const model = request.modelRouting.primary;
@@ -111,9 +213,13 @@ export async function runAgentLoop(
       // which calls nothing -- is never refused for want of money: a task the
       // owner continued after raising its ceiling replays its turns for free.
       let room = allowance;
+      // What this turn is sent: the conversation with its oldest reads left
+      // out, and the turn's number when few remain. The conversation itself,
+      // the journal and the step a turn is kept under are not changed.
+      const sent = withTurnNotice(elideOldResults(messages, readers), turn);
       if (services.tokensLeft) {
         const left = await services.tokensLeft();
-        const sending = Math.ceil(JSON.stringify({ system, messages, tools }).length / 4);
+        const sending = Math.ceil(JSON.stringify({ system, messages: sent, tools }).length / 4);
         if (left - sending < LEAST_ROOM) {
           throw new PalugadaError('budget.exceeded',
             `the budget has ${left} tokens left, and this turn would send about ${sending} before the model wrote ` +
@@ -124,7 +230,7 @@ export async function runAgentLoop(
       }
       const started = Date.now();
       const reply = await client.turn(
-        { model, system, messages, tools, maxTokens: room },
+        { model, system, messages: [...sent], tools, maxTokens: room },
         services.signal,
       );
       // Charged before the turn is kept: the engine throws when the budget
@@ -136,7 +242,7 @@ export async function runAgentLoop(
         outputTokens: reply.outputTokens,
         costCents: reply.costCents,
         latencyMs: Date.now() - started,
-        prompt: { system, messages },
+        prompt: { system, messages: sent },
         response: { content: reply.content },
       });
       // Thrown inside the step, so the step is not committed: the next

@@ -69,9 +69,11 @@ export interface ContextPack {
   /**
    * F4.7: what this task already did, so a resumed run continues rather than
    * starting again. Each result is bounded (`STEP_OUTPUT_LIMIT`), and only
-   * the steps the context cap kept are here.
+   * the steps the context cap kept are here. A call is shown with what it was
+   * asked, bounded, beside what it answered. Empty for a runtime that replays
+   * its own journal (the model loop), which has all of it already.
    */
-  workingMemory: Array<{ name: string; output: unknown }>;
+  workingMemory: Array<{ name: string; input?: unknown; output: unknown }>;
 }
 
 export interface ModelRouting {

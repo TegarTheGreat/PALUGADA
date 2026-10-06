@@ -205,7 +205,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'today', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
+  'language', 'today', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
 ]);
 
 // A place or a vendor's "not now" parks the task like the rest: handed to an
@@ -381,6 +381,8 @@ export class Engine {
       maxRunSeconds: number | null;
     };
     agentRunId: string;
+    /** The runtime replays the task's journal as its own conversation, so the pack does not list the steps again. */
+    stepsReplayed: boolean;
   }): Promise<RunRequest> {
     const { companyId, task, runtime } = input;
     // The role's tools nothing in this process is bound to: a catalogued
@@ -396,6 +398,7 @@ export class Engine {
         companyId,
         divisionId: task.divisionId,
         taskId: task.id,
+        stepsReplayed: input.stepsReplayed,
       });
       // F8.9: a lesson learned from outside content is data, and a run told
       // it carries that data from its first step, as if it had read the
@@ -405,6 +408,15 @@ export class Engine {
         await appendEvent(tx, {
           companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
           payload: { capability: 'memory', from: 'briefing', memories: outsideMemories },
+        });
+      }
+      // The same for a follow-up and the work it follows up, which may have
+      // read outside content after the follow-up was made.
+      if (context.carriesOutsideFrom) {
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
+          // Named as the Work page lists it: "through the task that made it".
+          payload: { capability: 'the task that made it', from: 'follow_up', parentTaskId: context.carriesOutsideFrom },
         });
       }
       const goalAncestry = await ancestryForTask(tx, task.id);
@@ -1249,7 +1261,7 @@ export class Engine {
       const { output, writtenBy } = await Promise.race([abandoned, this.#runWithFallback(
         adapter,
         {
-          companyId, task, roleSlug, runtime, agentRunId,
+          companyId, task, roleSlug, runtime, agentRunId, stepsReplayed: !byContent,
           startAttempt: () => {
             stepIndex = 0;
             recorded = null;
@@ -1779,7 +1791,10 @@ export class Engine {
     }
 
     const task = await withTenant(companyId, (tx) => getTask(tx, taskId));
-    const exhausted = !task || task.attempt + 1 >= task.attemptMax;
+    // A conversation too long for its model fails the same way every time:
+    // each retry replays the same journal and asks the same turn. Not asked
+    // again; the owner's "run again" starts a conversation of its own.
+    const exhausted = code === 'model.context_too_long' || !task || task.attempt + 1 >= task.attemptMax;
     await withTenant(companyId, async (tx) => {
       await tx.query('UPDATE tasks SET attempt = attempt + 1 WHERE id = $1', [taskId]);
       await appendEvent(tx, {
@@ -1848,6 +1863,7 @@ export class Engine {
         maxRunSeconds: number | null;
       };
       agentRunId: string;
+      stepsReplayed: boolean;
       /**
        * Starts the next model's run from zero, in both of the things counted
        * per run.

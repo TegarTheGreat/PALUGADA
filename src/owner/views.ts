@@ -24,7 +24,7 @@ import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
-import { journalOf } from '../engine/journal.ts';
+import { journalOf, NOT_A_READ } from '../engine/journal.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 import type { WaitReason } from '../engine/tasks.ts';
 import type { OverlapPolicy } from '../scheduler/scheduler.ts';
@@ -666,11 +666,12 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     const { rows: steps } = await tx.query<{
       step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
     }>(
-      `SELECT step_index, name, committed_at, output FROM task_steps
-        WHERE task_id = $1 AND status = 'committed' AND name LIKE 'capability:%'
-          AND jsonb_typeof(output -> 'path') = 'string'
-          AND (jsonb_typeof(output -> 'text') = 'string' OR jsonb_typeof(output -> 'body') = 'string')
-        ORDER BY step_index`,
+      `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
+        WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+          AND jsonb_typeof(s.output -> 'path') = 'string'
+          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          AND ${NOT_A_READ}
+        ORDER BY s.step_index`,
       [taskId],
     );
     const { rows: pieces } = await tx.query<{
@@ -817,6 +818,8 @@ export async function galleryOf(
           AND s.status = 'committed' AND s.name LIKE 'capability:%'
           AND jsonb_typeof(s.output -> 'path') = 'string'
           AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          -- A file the task only read is not something it produced.
+          AND ${NOT_A_READ}
           -- The next page: after the last one shown, in the order shown.
           AND ($3::bigint IS NULL
                OR (s.committed_at, s.task_id, s.step_index)

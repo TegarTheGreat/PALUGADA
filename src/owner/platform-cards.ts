@@ -287,6 +287,20 @@ export function modelKeyRefusedCard(reading: OwnerReading, facts: { host: string
   };
 }
 
+/**
+ * A root task that ended without being done and has no card of its own
+ * (`src/engine/ended.ts`). `record` is what the platform said when it ended.
+ */
+export function endedBadlyCard(reading: OwnerReading, facts: { task: string; reason: string | null; record: string | null }): Card {
+  const { language } = reading;
+  return {
+    title: say(language, 'A task ended before it was done: {task}', { task: facts.task }),
+    detail: withRecord(say(language,
+      'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.',
+      { reason: haltSaid(language, facts.reason) }), facts.record),
+  };
+}
+
 export function writeUnverifiedCard(reading: OwnerReading, facts: { record: string }): Card {
   const { language } = reading;
   return {

@@ -9120,6 +9120,56 @@ next code. The assistant's cards for the same changes asked it too.
   the choices, raising needing a code and lowering not, an unlisted length
   refused; a session signed in by a recovery code opening none.
 
+## 2.144 The CEO hears of failures and tickets before the owner does
+
+The owner's complaint of 6 October: "bentar bentar gagal, bentar bentar tidak
+dikerjakan ... inimah kaya saya sendiri harus kerja dan mantau semuanya" -- and
+the audit of 3 October, which found two promises that the code did not keep.
+
+- **A root task that ends badly is no longer silent.** Only budget, a failed
+  read-back, a crash loop and a model that stayed down raised anything when a
+  task halted; a hop limit, a policy refusal, a deadline, an exhausted retry, a
+  cycle, a run that said "not done" ended with nothing in the inbox. A root task
+  (nothing above it to hear) that halted or failed in the last day, with no
+  card of its own, raises one escalation
+  (`src/engine/ended.ts`, from the worker's settle stage, a minute after it
+  ended so the halt's own card comes first). It goes through
+  `raiseEscalationWithin` with the task's division, which is F2.1: the
+  coordinator the division names is asked first, with its grace, and the owner
+  hears after it with the coordinator's account. **A coordinator that finishes
+  what it was handed closes the card** (`withdrawn`, `handled_by_coordinator`),
+  because nothing is left for the owner to decide; one that fails leaves it
+  open. The audit had found no production caller passed a division, so the
+  hand-over described in the docs and in STATUS F2 never happened; this is the
+  first one that does.
+- **Not noise, not a loop.** Once per task; once per cause under a goal while a
+  card for that cause is open (ten tasks halting on the same hop limit are one
+  card that names them); only the last day, so a deployment that starts running
+  this does not report its history; and work the coordinator was itself handed
+  (`escalation:` and `triage:` keys) goes to the owner and not back round.
+- **Tickets the company owes are triaged by the CEO.** A role files a ticket
+  when something is not its job, and the module said the CEO's run hands it on;
+  nothing started that run, so a backlog sat until the owner opened a chat.
+  Now, when tickets are open and given to nobody, one triage task is made for
+  the CEO (`src/engine/triage.ts`, from the worker before the claim): at most
+  one at a time and one every ten minutes, each ticket once until somebody
+  changes it, **nothing at all -- no task, no model call -- when none is owed**
+  (F9.10), not while the company winds down, and it begins as outside content
+  when an agent filed any of them (F8.9), as a ticket the owner hands out does.
+  It lists ids and titles only; the details are read with `ticket.list`.
+- **Not done:** a goal-level cadence -- the CEO looking at a goal that has no
+  work under it, a metric that has not moved, a due date that passed -- is the
+  rest of the audit's P1 item 1 and 2. The tickets and the failures are the two
+  things that were owed and silent.
+- **Tested** in `ended-badly.test.ts` (a halted root task reported once,
+  coordinator first and handed over; what already had a card, a child, the
+  owner's own stop and one in its first minute not reported; one cause under one
+  goal one card, another cause another; the coordinator's own handed work
+  straight to the owner; handled closes, unhandled stays) and
+  `ticket-triage.test.ts` (one task for the CEO, none when none is owed, none
+  while one is going; each ticket once until it changes, and ten minutes between;
+  not while in progress or winding down; the worker's tick does both).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

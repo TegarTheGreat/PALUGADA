@@ -338,4 +338,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key, and work is waiting': '{host} がモデルのキーを拒否したため、作業が待機中です',
   'What is waiting for the model carries on by itself once a key that works is in use.':
     'モデルを待っている作業は、使えるキーに切り替わると自動的に再開します。',
+  'A task ended before it was done: {task}':
+    '作業が完了前に終了しました：{task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    '終了の理由：{reason}。ほかにこの件のカードは作られていないため、黙って見過ごされないようここに出しています。',
 };

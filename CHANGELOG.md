@@ -410,6 +410,11 @@ The first version. What it holds, in the order an owner meets it.
   code for each. Money, keys, the model, channels, devices and every approval
   of something that cannot be undone still ask every time. Set the length, or
   turn it off, under Settings, Security (STATUS 2.143).
+- A task that ends without being done no longer ends in silence: it is put to
+  the coordinator your division names first, and to you only if the
+  coordinator could not handle it, with what it did. Tickets the company owes
+  -- filed by a role, or by you -- are handed on by the CEO on its own, a batch
+  at a time, and cost nothing while there are none (STATUS 2.144).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

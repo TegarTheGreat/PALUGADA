@@ -341,4 +341,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key, and work is waiting': '{host} 拒绝了模型密钥，工作正在等待',
   'What is waiting for the model carries on by itself once a key that works is in use.':
     '等待模型的工作会在换用可用密钥后自动继续。',
+  'A task ended before it was done: {task}':
+    '一项任务在完成前就结束了：{task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    '它的结束原因：{reason}。没有为它生成其他卡片，所以放在这里，而不是悄无声息。',
 };

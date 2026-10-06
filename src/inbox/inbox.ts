@@ -626,7 +626,7 @@ export async function handEscalations(companyId: string): Promise<number> {
   }
 
   const { rows: answered } = await withTenant(companyId, (tx) => tx.query<{
-    id: string; payload: { escalationRole: string; handedTaskId: string };
+    id: string; payload: { escalationRole: string; handedTaskId: string; handledCloses?: boolean };
   }>(
     `SELECT i.id, i.payload FROM inbox_items i
        JOIN tasks t ON t.id = (i.payload->>'handedTaskId')::uuid
@@ -713,7 +713,7 @@ async function handOver(companyId: string, item: {
 }
 
 async function noteHandling(companyId: string, item: {
-  id: string; payload: { escalationRole: string; handedTaskId?: string };
+  id: string; payload: { escalationRole: string; handedTaskId?: string; handledCloses?: boolean };
 }): Promise<void> {
   await withTenant(companyId, async (tx) => {
     // Only finished tasks are asked about, and a finished task stays finished.
@@ -734,6 +734,19 @@ async function noteHandling(companyId: string, item: {
         WHERE id = $1 AND NOT payload ? 'handledOutcome'`,
       [item.id, `\n\n${said}`, task.status],
     );
+    // A task that ended badly, handed to the coordinator, which finished what
+    // it was handed: there is nothing left for the owner to decide, and its
+    // account stays on the card they can still read. One it could not finish
+    // stays open, and the owner is told when the grace is up. Never one about
+    // a task the owner has to judge (a stranded one, a review): those do not
+    // say they close.
+    if (item.payload.handledCloses === true && task.status === 'completed') {
+      await tx.query(
+        `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'handled_by_coordinator'
+          WHERE id = $1 AND status = 'open'`,
+        [item.id],
+      );
+    }
   });
 }
 

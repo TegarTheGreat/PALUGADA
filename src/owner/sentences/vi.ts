@@ -346,4 +346,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key, and work is waiting': '{host} đã từ chối khóa mô hình, và công việc đang chờ',
   'What is waiting for the model carries on by itself once a key that works is in use.':
     'Công việc đang chờ mô hình sẽ tự tiếp tục khi khóa hợp lệ được dùng.',
+  'A task ended before it was done: {task}':
+    'Một tác vụ kết thúc trước khi xong: {task}',
+  'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
+    'Nó kết thúc với lý do: {reason}. Không có thẻ nào khác được tạo cho nó, nên nó xuất hiện ở đây thay vì im lặng.',
 };

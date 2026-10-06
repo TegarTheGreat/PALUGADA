@@ -9431,7 +9431,10 @@ screens in front of them, and is not made blind here.
   hundred pixels for the pages, and the rest sat below the fold with no sign
   there was more. Settings and This deployment now follow the pages in the same
   list (the foot keeps what must always be within reach: Stop everything and the
-  owner), the list shows its scrollbar when it has more to show, its links and
+  owner, and the "Finish setting up" line, which is one line and not a card with a
+  bar -- on the owner's own deployment, fifteen of its twenty notes were optional
+  channels, and the card that counted them sat under the pages for good), the list
+  shows its scrollbar when it has more to show, its links and
   the top buttons are a size smaller, and nine pages are in view at that height
   and all of them at the usual one.
 - **A tooltip on each chat button**: the CEO's is for this company -- ask about

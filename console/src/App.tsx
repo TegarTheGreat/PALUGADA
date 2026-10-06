@@ -13,7 +13,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
-  NavLink, Paper, Progress, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
+  NavLink, Paper, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useDirection, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -532,13 +532,15 @@ function Console({ device, staff, recovered, signOut }: {
 
         <AppShell.Section>
           {setup.todo.length > 0 && (
-            <Paper withBorder radius="md" p="sm" mb="sm" className={`clickable-row${spotted('setup')}`} onClick={() => setChecklist(true)}>
+            // One line, not a card with a bar: pinned under the pages, a card
+            // took the room of two of them, and the deployment's optional notes
+            // (a push channel, an email channel) keep it there for good.
+            <Paper withBorder radius="md" px="sm" py={6} mb="xs" className={`clickable-row${spotted('setup')}`} onClick={() => setChecklist(true)}>
               <Group gap="xs" wrap="nowrap">
-                <IconChecklist size={18} color="var(--mantine-color-yellow-7)" />
+                <IconChecklist size={16} color="var(--mantine-color-yellow-7)" />
                 <Text size="sm" fw={600}>{t('Finish setting up')}</Text>
                 <Text size="xs" c="dimmed" ms="auto" className="tabular">{setup.notes.length - setup.todo.length}/{setup.notes.length}</Text>
               </Group>
-              <Progress value={((setup.notes.length - setup.todo.length) / Math.max(1, setup.notes.length)) * 100} size="sm" mt={8} color="yellow" radius="xl" />
             </Paper>
           )}
           {owner && <Button

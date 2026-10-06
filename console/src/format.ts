@@ -105,6 +105,13 @@ const UNITS: Array<[number, Intl.RelativeTimeFormatUnit]> = [
 ];
 
 /** "5 min ago", "in 2 hr": how far a moment is from now, at a glance, in the owner's language. */
+/** A size in bytes, as a person reads one: 800 B, 12.4 KB, 3.1 MB. */
+export function fileSize(bytes: number): string {
+  if (bytes < 1_000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
 export function relative(iso: string | null | undefined): string {
   if (!iso) return '—';
   let delta = (new Date(iso).getTime() - Date.now()) / 1000;
@@ -267,6 +274,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'books.entry_posted': N('An entry was recorded in the books'),
   'books.entry_reversed': N('An entry in the books was reversed'),
   'invoice.issued': N('An invoice was issued'),
+  'file.uploaded': N("You put a file in the company's files"),
+  'file.deleted': N("You took a file out of the company's files"),
   'invoice.paid': N('A payment was recorded on an invoice'),
   'invoice.voided': N('An invoice was voided'),
   'eval.negative_candidate': N('A run was kept as an example of what not to do'),

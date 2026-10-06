@@ -529,6 +529,11 @@ The first version. What it holds, in the order an owner meets it.
   sent every page it ever read on every turn, and one whose conversation is too long for its model fails
   once with the reason instead of three times. The gallery and a task's page no longer list as produced a
   file that was only read (STATUS 2.165).
+- You can hand the company a file and take one out. **Memory**, **Files** lists the company's folders,
+  uploads a file of up to 10 MB (a contract, a price list, a photo) under a plain name in `uploads`, saves any
+  file to your device, and removes what you put in. A role that can read files can read what you uploaded,
+  as outside content; what the company's roles made is listed beside it. `files.list` now gives folders
+  first and each in name order (STATUS 2.166).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

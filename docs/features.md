@@ -199,7 +199,15 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
     progress, schedules and policies.
   - **Memory**: what the company knows and will tell its agents, with the
     unverified facts marked. The owner corrects a fact, confirms one, or tells
-    the company something new.
+    the company something new. Its **Files** tab is the company's folder of
+    files: the owner uploads one (a contract, a price list, a photo, up to
+    10 MB; kept as it is under a plain name in `uploads`, never opened or
+    run), takes any file out, and removes what they put in. A role that holds
+    `files.read` can read an uploaded file, and reading it is a read of
+    outside content like any other; one that holds no file tool cannot, so an
+    upload helps only a role given them. The files are the deployment's
+    volume and not part of the export archive: back the volume up with the
+    database. A staff seat is shown none of it.
   - **Money** and **History**, and one **Settings** page for the rest:
     company, languages, safeguards, skills, bundles, devices and security.
 - Everything is picked from the company's own shape, never typed in as ids.

@@ -139,6 +139,10 @@ import { history as configHistory, type ConfigKind } from '../governance/config-
 import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
 import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
+import {
+  DOWNLOAD_MAX_BYTES, UPLOAD_FOLDER, UPLOAD_MAX_BYTES, keepCompanyFile, listCompanyDirectory, mimeOf, plainFileName, readCompanyFile,
+  removeCompanyUpload,
+} from '../capabilities/files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
@@ -310,6 +314,12 @@ export interface OwnerApiOptions {
    * nobody running the company from a phone will ever read.
    */
   deploymentNotes?: readonly string[];
+  /**
+   * Where the companies' files are kept (`PALUGADA_FILES_ROOT`): the folder the
+   * owner hands files into and takes them out of. Absent, the console says this
+   * deployment keeps none.
+   */
+  files?: { root: string };
   /**
    * The runtimes this deployment employs (F13.1), so the owner can see which
    * answer and move a role onto one. Absent means none can be chosen: a role
@@ -4871,6 +4881,79 @@ export class OwnerApi {
       },
 
       {
+        // The company's files, as the owner sees them: a folder at a time.
+        // Without a files root there is nothing to list, said so the page can
+        // draw it plainly.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/files',
+        handle: async ({ params, query }) => {
+          if (!this.#options.files?.root) return { available: false };
+          await this.#knownCompany(params.companyId!);
+          const listed = await listCompanyDirectory(this.#filesRoot(), params.companyId!, query.get('path') ?? '.', 500);
+          return { available: true, ...listed };
+        },
+      },
+
+      {
+        // One file out, as the bytes the company holds, in base64 inside JSON,
+        // like everything the console asks the API for: never a page the
+        // browser could draw from this origin.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/files/download',
+        handle: async ({ params, query }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          const opened = await readCompanyFile(root, params.companyId!, query.get('path'), DOWNLOAD_MAX_BYTES, 'the console downloads files up to 25 MB');
+          const name = opened.path.split('/').at(-1) ?? 'file';
+          return {
+            name, path: opened.path, mime: mimeOf(name), bytes: opened.size,
+            sha256: createHash('sha256').update(opened.bytes).digest('hex'), data: opened.bytes.toString('base64'),
+          };
+        },
+      },
+
+      {
+        // The owner gives the company a file. It is kept under a plain name in
+        // the folder of uploads, never opened, run or unpacked here; what reads
+        // it later is a read of outside content, as for every file. It grants
+        // and spends nothing, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/files',
+        maxBodyBytes: 16 * 1024 * 1024,
+        handle: async ({ params, body }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          const bytes = base64Bytes(body.data);
+          if (bytes.length === 0) throw new PalugadaError('contract.violation', 'an empty file is not kept', { field: 'data' });
+          if (bytes.length > UPLOAD_MAX_BYTES) {
+            throw new PalugadaError('contract.violation',
+              `a file is at most ${UPLOAD_MAX_BYTES / 1_048_576} MB; this one is ${(bytes.length / 1_048_576).toFixed(1)} MB`, { field: 'data' });
+          }
+          const kept = await keepCompanyFile(root, params.companyId!, UPLOAD_FOLDER, plainFileName(body.name), bytes);
+          await withTenant(params.companyId!, (tx) => appendEvent(tx, {
+            companyId: params.companyId!, type: 'file.uploaded', actor: 'owner',
+            payload: { path: kept.path, bytes: kept.bytes, sha256: kept.sha256 },
+          }));
+          return kept;
+        },
+      },
+
+      {
+        // Takes back what the owner handed over, and nothing else.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/files/delete',
+        handle: async ({ params, body }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          await removeCompanyUpload(root, params.companyId!, body.path);
+          await withTenant(params.companyId!, (tx) => appendEvent(tx, {
+            companyId: params.companyId!, type: 'file.deleted', actor: 'owner', payload: { path: String(body.path) },
+          }));
+          return { ok: true };
+        },
+      },
+
+      {
         // Which documents customers may be told (0117): a channel that
         // answers on its own answers only from these. The session is enough:
         // what a marked document lets go alone, the session could already
@@ -5740,6 +5823,28 @@ export class OwnerApi {
    * is also what a scheduled job does, and a job has no phone. The surface
    * that has a human in front of it is the surface that can ask for one.
    */
+  /** The folder the companies' files are in, or the one sentence that says there is none. */
+  #filesRoot(): string {
+    const root = this.#options.files?.root;
+    if (!root) {
+      throw new PalugadaError('capability.unknown',
+        'this deployment keeps no files: PALUGADA_FILES_ROOT is not set (the Compose install sets one)', {});
+    }
+    return root;
+  }
+
+  /**
+   * A company that is there, before its folder is named: `companyRoot` makes
+   * the folder it is given, and a made-up id must not make one.
+   */
+  async #knownCompany(companyId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+      throw new PalugadaError('contract.violation', 'that is not a company id', {});
+    }
+    const found = await withControlPlane((tx) => tx.query('SELECT 1 FROM companies WHERE id = $1', [companyId]));
+    if (found.rowCount !== 1) throw new PalugadaError('contract.violation', 'no such company', {});
+  }
+
   #deploymentSettings(): NonNullable<OwnerApiOptions['deploymentSettings']> {
     const deployment = this.#options.deploymentSettings;
     if (!deployment) {
@@ -6887,6 +6992,22 @@ function pictureFrom(body: Record<string, unknown>): Picture {
   const mime = pictureKind(bytes);
   if (!mime) throw new PalugadaError('contract.violation', 'that is not a picture: a PNG, JPEG, WebP or GIF is', { field: 'image' });
   return { bytes, mime };
+}
+
+/**
+ * The bytes of a file the console sent: base64, or a `data:` URL as a page
+ * reads one. Checked before it is decoded, because `Buffer.from` takes what it
+ * can read of a base64 string and drops the rest without saying so.
+ */
+function base64Bytes(value: unknown): Buffer {
+  const text = typeof value === 'string' ? value.replace(/^data:[^,]*;base64,/, '') : '';
+  if (typeof value !== 'string' || (value.startsWith('data:') && text === value)) {
+    throw new PalugadaError('contract.violation', 'data is the file, in base64', { field: 'data' });
+  }
+  if (text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) {
+    throw new PalugadaError('contract.violation', 'data is the file, in base64', { field: 'data' });
+  }
+  return Buffer.from(text, 'base64');
 }
 
 /** A priority from a request: 0 (first) to 3 (last), the range F5.10 and a ticket both keep. */

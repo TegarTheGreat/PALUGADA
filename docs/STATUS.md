@@ -10045,6 +10045,52 @@ tables and the catalogue, never from a role's own account of itself.
   goes last, the follow-up and its taint), with `deliverables.test.ts` for the reads
   that are no longer produced.
 
+## 2.166 The owner hands the company a file and takes one out (the audit of 6 October, O3, W2; P1.4, part 1)
+
+The company's files folder was something roles wrote into and the owner could not see: a contract, a
+price list or a photo could reach a role only if a person with a shell put it there, and a draft a role
+wrote could be read only as text on a task page. Designed by three lenses and a judge (smallest, security
+and taint, the owner's flow); built in six parts, of which this is the first. No table and no migration: the
+folder is the store, the journal's `madeFiles` (2.165) says which task made what, and a `file.uploaded` or
+`file.deleted` event says what the owner did.
+
+- **In, out, listed, removed.** **Memory > Files** (not Work: `console-phone.test.ts` draws Work at 390
+  pixels) lists the company's folders a level at a time, folders first; uploads a file of at most 10 MB
+  (base64 in JSON through `api()`, as the tool tests already send a recording, so a download is JSON and is
+  never a page drawn from the API's origin); downloads any regular file of at most 25 MB, saved as an octet
+  stream whatever it is; and removes what the owner uploaded and nothing else. Four session-only routes
+  (`GET .../files`, `GET .../files/download`, `POST .../files`, `POST .../files/delete`): nothing is granted
+  or spent, so no second factor. A staff seat reaches none of them.
+- **A name chooses nothing.** `plainFileName`: NFC; everything up to the last slash or backslash dropped;
+  control, invisible and direction-changing characters (`U+202E`, zero-width) taken out; whitespace and the
+  characters `< > : " | ? *` turned to a hyphen; no leading dot; an extension only of one to eight letters and
+  digits; a stem of at most 120 bytes cut between characters; `file` for an empty one; `CON`, `NUL` and the
+  other reserved names given a leading underscore. The file is created and not overwritten (`O_EXCL`), and not
+  through a link that has the name (`O_NOFOLLOW`): a name taken is `name-2`, up to `name-20`. The folder must be
+  where it should be (`realpath`): a link put where `uploads` goes, to somewhere outside the company's files,
+  is refused and nothing is written. At most 500 files and 512 MB in `uploads`. A made-up company id makes no
+  folder (`companyRoot` makes the one it is given, so the company is checked first).
+- **What an upload is, to the platform.** Bytes the owner chose, never opened, run or unpacked here;
+  conversion stays in the sandboxed browser. It is not trusted for being the owner's: `files.read` is a read of
+  outside content for every file whoever put it there, an uploaded counterparty's contract being the classic
+  carrier of an injection, and a role reads it wrapped. Listing is sorted (folders first, then by name without
+  regard to case) before it is cut, so `files.list` too gives the same files in the same order wherever they are
+  read, where it gave the disk's order (W7).
+- **Not done (this part):** an owner download or upload for a person who is not the owner (P1.1: it would add
+  its own folder and a seat-scoped route by row id, so the owner-only path routes never touch a contractor's
+  evidence; `keepCompanyFile` takes the folder); a streaming binary route, multipart, ranges and a limit above
+  25 MB (JSON with base64 costs a third more and several copies in memory: accepted for an owner-only route
+  taken on demand); retention of what is uploaded (it stays until the owner removes it or the company is
+  erased, and the export archive does not hold the files); virus scanning; previews of files in the console (a
+  preview decodes attacker bytes in the owner's browser); Telegram, WhatsApp and mail attachments in and out,
+  invoice PDFs and the files on a task's page (parts 2 to 6 of this change). An upload helps a role only if
+  some role holds `files.read` (2.161's twelve-tool decision: the standard company grants it to operations and
+  delivery); the page says so.
+- **Tested** in `owner-files.test.ts` (byte-for-byte in and out, hostile names, a second file of one name, a
+  planted link, one company and another, the limits and the sentences they say, no root, a made-up company,
+  only uploads removed, a staff seat, sorting), with `staff-routes`, `console-routes`, `console-i18n` and
+  `console-events` holding the surface.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

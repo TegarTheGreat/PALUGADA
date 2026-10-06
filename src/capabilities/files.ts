@@ -32,6 +32,7 @@ import { PalugadaError } from '../errors.ts';
 import type { Capability } from '../broker/registry.ts';
 import type { Browsers, DocumentKind } from '../browser/browsers.ts';
 import { UNPACKED_MAX } from '../browser/documents.ts';
+import type { Dirent } from 'node:fs';
 
 export interface FilesOptions {
   /**
@@ -122,6 +123,84 @@ export async function removeCompanyFiles(root: string, companyId: string): Promi
   await rm(mine, { recursive: true, force: true });
 }
 
+/**
+ * A folder of one company's files, sorted: folders first, then by name without
+ * regard to case, so the same files are listed in the same order wherever they
+ * are read -- the order the disk happens to give them in is not an order. The
+ * cut at `max` is of the sorted list.
+ *
+ * The same containment as every reader here: this company's directory and
+ * nothing beside it, a link followed only to see where it goes.
+ */
+export async function listCompanyDirectory(root: string, companyId: string, path: unknown, max: number): Promise<ListOutput> {
+  const { readdir, realpath, lstat } = await import('node:fs/promises');
+  const { join, resolve, sep, normalize, relative } = await import('node:path');
+
+  // This company's directory, and only this company's. The id comes from the
+  // broker or the session rather than from the input, so there is no argument
+  // that reaches another tenant's files.
+  const base = await companyRoot(root, companyId);
+
+  const wanted = normalize(String(path ?? '.'));
+  const target = resolve(join(base, wanted));
+
+  let real: string;
+  try {
+    real = await realpath(target);
+  } catch {
+    throw new PalugadaError(
+      'capability.unknown',
+      `no such directory: ${wanted}`,
+      { path: wanted },
+    );
+  }
+
+  // See the module comment. This is the check that catches a symlink, and
+  // it is the only one that does.
+  if (real !== base && !real.startsWith(base + sep)) {
+    throw new PalugadaError(
+      'capability.unreachable',
+      `${wanted} is outside the company's files`,
+      { path: wanted },
+    );
+  }
+
+  const found: Dirent[] = await readdir(real, { withFileTypes: true });
+  found.sort((a, b) => {
+    const folders = Number(b.isDirectory()) - Number(a.isDirectory());
+    if (folders !== 0) return folders;
+    const x = a.name.toLowerCase();
+    const y = b.name.toLowerCase();
+    return x < y ? -1 : x > y ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+  const entries: ListEntry[] = [];
+  for (const one of found.slice(0, max)) {
+    // `lstat`, not `stat`. A link inside the listing must be reported as a
+    // link rather than followed -- `stat` would report the *target's* kind,
+    // size and modification time, so a link to `/etc/shadow` would tell an
+    // agent how big it is and when it last changed. That is not reading it,
+    // and it is not nothing either.
+    const info = await lstat(join(real, one.name)).catch(() => null);
+    entries.push({
+      name: one.name,
+      kind: info === null
+        ? 'other'
+        : info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other',
+      bytes: info?.isFile() ? info.size : 0,
+      modifiedAt: (info?.mtime ?? new Date(0)).toISOString(),
+    });
+  }
+
+  return {
+    // Relative to the root, never absolute: an agent has no use for where
+    // the platform keeps things, and a trace carrying host paths is one
+    // more thing to redact.
+    path: relative(base, real) || '.',
+    entries,
+    truncated: found.length > max,
+  };
+}
+
 export function filesList(options: FilesOptions): Capability<ListInput, ListOutput> {
   const maxEntries = options.maxEntries ?? 500;
 
@@ -134,65 +213,7 @@ export function filesList(options: FilesOptions): Capability<ListInput, ListOutp
     adapter: 'platform:files',
     defaultTier: 0,
     async execute(input, ctx) {
-      const { readdir, realpath, lstat } = await import('node:fs/promises');
-      const { join, resolve, sep, normalize, relative } = await import('node:path');
-
-      // This company's directory, and only this company's. The id comes from
-      // the broker rather than from the input, so there is no argument that
-      // reaches another tenant's files.
-      const base = await companyRoot(options.root, ctx.companyId);
-
-      const wanted = normalize(String(input.path ?? '.'));
-      const target = resolve(join(base, wanted));
-
-      let real: string;
-      try {
-        real = await realpath(target);
-      } catch {
-        throw new PalugadaError(
-          'capability.unknown',
-          `no such directory: ${wanted}`,
-          { path: wanted },
-        );
-      }
-
-      // See the module comment. This is the check that catches a symlink, and
-      // it is the only one that does.
-      if (real !== base && !real.startsWith(base + sep)) {
-        throw new PalugadaError(
-          'capability.unreachable',
-          `${wanted} is outside the company's files`,
-          { path: wanted },
-        );
-      }
-
-      const names = await readdir(real);
-      const entries: ListEntry[] = [];
-      for (const name of names.slice(0, maxEntries)) {
-        // `lstat`, not `stat`. A link inside the listing must be reported as a
-        // link rather than followed -- `stat` would report the *target's* kind,
-        // size and modification time, so a link to `/etc/shadow` would tell an
-        // agent how big it is and when it last changed. That is not reading it,
-        // and it is not nothing either.
-        const info = await lstat(join(real, name)).catch(() => null);
-        entries.push({
-          name,
-          kind: info === null
-            ? 'other'
-            : info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other',
-          bytes: info?.isFile() ? info.size : 0,
-          modifiedAt: (info?.mtime ?? new Date(0)).toISOString(),
-        });
-      }
-
-      return {
-        // Relative to the root, never absolute: an agent has no use for where
-        // the platform keeps things, and a trace carrying host paths is one
-        // more thing to redact.
-        path: relative(base, real) || '.',
-        entries,
-        truncated: names.length > maxEntries,
-      };
+      return listCompanyDirectory(options.root, ctx.companyId, input.path, maxEntries);
     },
   };
 }
@@ -378,4 +399,167 @@ export function filesRead(options: FilesOptions, browser?: Browsers): Capability
       };
     },
   };
+}
+
+/* -------------------------------------------------- the owner's uploads --- */
+
+/** The folder of what the owner hands the company: the only one the console removes from. */
+export const UPLOAD_FOLDER = 'uploads';
+/** One uploaded file, in bytes. */
+export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+/** How many files, and how many bytes together, the folder of uploads holds. */
+export const UPLOAD_MAX_FILES = 500;
+export const UPLOAD_MAX_TOTAL = 512 * 1024 * 1024;
+/** The largest file the console takes out in one answer (the size `media.ts` holds a picture to). */
+export const DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024;
+
+const RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+
+/**
+ * A file's name as the company keeps it: what was typed, made plain.
+ *
+ * The name of an upload is chosen by whoever made the file, and ends up in a
+ * path, a listing a model reads and a download. So it is one name and nothing
+ * more: NFC, with no folder (everything up to the last slash or backslash is
+ * dropped), no control, invisible or direction-changing character (a name that
+ * reads `gnp.exe` and is `exe.png`), no character a file system on any machine
+ * the owner will copy it to refuses, no leading dot, a stem of at most 120
+ * bytes, and an extension only if it is a few letters and digits. An empty one
+ * is `file`.
+ */
+export function plainFileName(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 255) {
+    throw new PalugadaError('contract.violation', 'name is the file\'s name, such as price-list.xlsx', { field: 'name' });
+  }
+  let name = raw.normalize('NFC');
+  name = name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1);
+  name = name.replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/gu, '');
+  name = name.replace(/[\s<>:"|?*]+/gu, '-').replace(/^[.\-_]+/, '');
+  const dot = name.lastIndexOf('.');
+  const extension = dot > 0 && /^[A-Za-z0-9]{1,8}$/.test(name.slice(dot + 1)) ? name.slice(dot + 1) : '';
+  let stem = extension ? name.slice(0, dot) : name;
+  // At most 120 bytes of UTF-8, cut between characters.
+  let kept = '';
+  let size = 0;
+  for (const character of stem) {
+    const bytes = Buffer.byteLength(character);
+    if (size + bytes > 120) break;
+    kept += character;
+    size += bytes;
+  }
+  stem = kept.replace(/[.\-_\s]+$/u, '');
+  if (!stem) stem = 'file';
+  if (RESERVED_NAMES.test(stem)) stem = `_${stem}`;
+  return extension ? `${stem}.${extension}` : stem;
+}
+
+/**
+ * Keeps a file in one of the company's folders, under a name nobody else holds.
+ *
+ * The folder is made if it is not there, and must be where it should be: a link
+ * put where it goes, to somewhere outside the company's files, is refused and
+ * nothing is written. The file is created and not overwritten (`O_EXCL`), and
+ * not through a link that has the name (`O_NOFOLLOW`): one that exists is
+ * `name-2`, `name-3` and on, so what was kept is never replaced. At most
+ * `UPLOAD_MAX_FILES` files and `UPLOAD_MAX_TOTAL` bytes in the folder. The
+ * folder is an argument so what strangers send and what the company issues can
+ * be kept the same way, in folders of their own.
+ */
+export async function keepCompanyFile(
+  root: string, companyId: string, folder: string, name: string, bytes: Buffer,
+): Promise<{ path: string; bytes: number; sha256: string }> {
+  const { mkdir, open, readdir, lstat, realpath, unlink } = await import('node:fs/promises');
+  const { constants } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  const { join } = await import('node:path');
+  const base = await companyRoot(root, companyId);
+  const here = join(base, folder);
+  const outside = () => new PalugadaError('capability.unreachable', `${folder} is outside the company's files`, { folder });
+  let real: string;
+  try {
+    await mkdir(here, { recursive: true });
+    real = await realpath(here);
+  } catch {
+    throw outside();
+  }
+  if (real !== here) throw outside();
+
+  let files = 0;
+  let total = 0;
+  for (const one of await readdir(real)) {
+    const info = await lstat(join(real, one)).catch(() => null);
+    if (info?.isFile()) { files += 1; total += info.size; }
+  }
+  if (files >= UPLOAD_MAX_FILES || total + bytes.length > UPLOAD_MAX_TOTAL) {
+    throw new PalugadaError('contract.violation',
+      `${folder} holds at most ${UPLOAD_MAX_FILES} files and ${UPLOAD_MAX_TOTAL / 1_048_576} MB: take some out first`, { folder });
+  }
+
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot) : '';
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const candidate = attempt === 1 ? name : `${stem}-${attempt}${extension}`;
+    let handle;
+    try {
+      handle = await open(join(real, candidate), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
+    try {
+      await handle.writeFile(bytes);
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      await unlink(join(real, candidate)).catch(() => undefined);
+      throw error;
+    }
+    await handle.close();
+    return { path: `${folder}/${candidate}`, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+  }
+  throw new PalugadaError('contract.violation', `${folder} already holds twenty files named like ${name}: give it another name`, { folder });
+}
+
+/**
+ * Removes a file the owner uploaded: one regular file directly in `uploads`,
+ * found the way every reader here finds one. What a role drafted, made or
+ * computed is not removed from here, and neither is a folder or a link.
+ */
+export async function removeCompanyUpload(root: string, companyId: string, path: unknown): Promise<void> {
+  const { realpath, lstat, unlink } = await import('node:fs/promises');
+  const { join, resolve, sep, normalize, relative } = await import('node:path');
+  const base = await companyRoot(root, companyId);
+  const wanted = normalize(String(path ?? '')).replace(/^(\.\/)+/, '');
+  const only = () => new PalugadaError('contract.violation',
+    `only what was uploaded can be removed here: ${wanted || String(path ?? '')} is not in ${UPLOAD_FOLDER}`, { path: wanted });
+  if (!wanted || wanted === '.') throw only();
+  const target = resolve(join(base, wanted));
+  const real = await realpath(target).catch(() => null);
+  if (real === null) throw new PalugadaError('contract.violation', `there is no file ${wanted}`, { path: wanted });
+  if (!target.startsWith(base + sep) || !real.startsWith(base + sep)) {
+    throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+  }
+  const parts = relative(base, real).split(sep);
+  if (parts.length !== 2 || parts[0] !== UPLOAD_FOLDER) throw only();
+  const info = await lstat(target).catch(() => null);
+  if (!info || !info.isFile() || info.isSymbolicLink()) throw only();
+  await unlink(real);
+}
+
+/**
+ * What a file is, for the download: a few kinds a person opens, and anything
+ * else -- a page, a picture that can run script, a name nobody knows -- as
+ * bytes with no kind, so a download is never drawn by the browser it is saved
+ * from.
+ */
+export function mimeOf(name: string): string {
+  const known: Record<string, string> = {
+    pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif',
+    txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', webm: 'video/webm', mp4: 'video/mp4',
+    zip: 'application/zip', eml: 'message/rfc822',
+  };
+  return known[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] ?? 'application/octet-stream';
 }

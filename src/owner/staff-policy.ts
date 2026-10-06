@@ -97,6 +97,8 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/bundles/:slug/verify': 'what is installed is the owner\'s',
   '/api/companies/:companyId/export': 'the whole company, to take away',
   '/api/companies/:companyId/staff': 'who is seated is the owner\'s',
+  '/api/companies/:companyId/files': 'the company\'s files, including what customers sent, are the owner\'s until a seat has its own items',
+  '/api/companies/:companyId/files/download': 'the company\'s files, including what customers sent, are the owner\'s until a seat has its own items',
   '/api/companies/:companyId/browser': 'the company\'s browser holds its sign-ins: the owner\'s alone',
   '/api/companies/:companyId/browser/tabs/:tabId': 'a picture of a signed-in page is the owner\'s alone',
 };

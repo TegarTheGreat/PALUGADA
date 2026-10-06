@@ -489,6 +489,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Change a role: its charter, what done means, tools or model, how long one run may take, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
+      grantTools: 'true, with tools, to also let its division use the tools it lacks, except those that cannot be undone',
       doneCriteria: 'optional list, one testable sentence each, at most 12; replaces the role\'s',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
       maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',

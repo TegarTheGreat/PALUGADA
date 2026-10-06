@@ -136,6 +136,54 @@ export async function applyGrantChange(
   await withTenant(companyId, (tx) => changeGrantWithin(tx, companyId, change));
 }
 
+/**
+ * Grants a division the tools a role names that it lacks, in the caller's
+ * transaction (STATUS 2.153).
+ *
+ * The owner who approves a hire, or a change to a role's tools, that names them
+ * has said what the role may use. What can be taken back is granted with it, at
+ * the tier the platform gives it; what cannot (tier 3) is left for a grant of its
+ * own, so letting a division reach something irreversible is never a side effect
+ * of a hire. Each grant is on the record like any other.
+ */
+async function grantMissingWithin(
+  tx: TenantClient,
+  companyId: string,
+  divisionId: string,
+  missing: string[],
+): Promise<{ granted: string[]; ungranted: string[] }> {
+  const { rows: tiers } = await tx.query<{ name: string; default_tier: number }>(
+    'SELECT name, default_tier FROM capabilities WHERE name = ANY($1::text[])', [missing]);
+  const granted: string[] = [];
+  for (const tool of missing) {
+    if ((tiers.find((row) => row.name === tool)?.default_tier ?? 3) >= 3) continue;
+    await changeGrantWithin(tx, companyId, { kind: 'change_grant', divisionId, capabilityName: tool, tierOverride: null });
+    granted.push(tool);
+  }
+  return { granted: granted.sort(), ungranted: missing.filter((tool) => !granted.includes(tool)) };
+}
+
+/**
+ * The same for a role that already exists, after its tools were changed: the
+ * tools it names that its division lacks. Called with the owner's approval of
+ * that change; returns what it granted and what it left.
+ */
+export async function grantRoleTools(
+  companyId: string,
+  roleId: string,
+  options: { ownerApproved: boolean },
+): Promise<{ granted: string[]; ungranted: string[] }> {
+  assertOwnerApproved(options.ownerApproved, { kind: 'change_grant', divisionId: roleId, capabilityName: '*', tierOverride: null });
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ division_id: string; tools: string[] }>('SELECT division_id, tools FROM roles WHERE id = $1', [roleId]);
+    const role = rows[0];
+    if (!role) throw new PalugadaError('role.incomplete', `no role ${roleId}`, { roleId });
+    const { rows: held } = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [role.division_id]);
+    return grantMissingWithin(tx, companyId, role.division_id, role.tools.filter((tool) => !held.some((row) => row.capability_name === tool)));
+  });
+}
+
 /** The grant itself, its version and its event, in the caller's transaction. */
 async function changeGrantWithin(
   tx: TenantClient,
@@ -474,25 +522,10 @@ export async function addRole(
     }
     const { rows: granted } = await tx.query<{ capability_name: string }>(
       'SELECT capability_name FROM capability_grants WHERE division_id = $1', [role.divisionId]);
-    let ungranted = tools.filter((tool) => !granted.some((row) => row.capability_name === tool));
-    // The owner who approves a hire that names its tools has said what it may
-    // use. What can be taken back is granted with it, at the tier the platform
-    // gives it; what cannot (tier 3) stays for a grant of its own, so the
-    // decision to let a division reach something irreversible is never a side
-    // effect of a hire. Each grant is on the record like any other.
-    const grantedNow: string[] = [];
-    if (options.grantTools) {
-      const { rows: tiers } = await tx.query<{ name: string; default_tier: number }>(
-        'SELECT name, default_tier FROM capabilities WHERE name = ANY($1::text[])', [ungranted]);
-      for (const tool of ungranted) {
-        if ((tiers.find((row) => row.name === tool)?.default_tier ?? 3) >= 3) continue;
-        await changeGrantWithin(tx, companyId, {
-          kind: 'change_grant', divisionId: role.divisionId, capabilityName: tool, tierOverride: null,
-        });
-        grantedNow.push(tool);
-      }
-      ungranted = ungranted.filter((tool) => !grantedNow.includes(tool));
-    }
+    const missing = tools.filter((tool) => !granted.some((row) => row.capability_name === tool));
+    const { granted: grantedNow, ungranted } = options.grantTools
+      ? await grantMissingWithin(tx, companyId, role.divisionId, missing)
+      : { granted: [] as string[], ungranted: missing };
     const title = await titleFor(tx, companyId, { id: null, current: null }, role.title ?? undefined);
 
     // Where the company's roles run; the column's default when it has none.
@@ -525,7 +558,7 @@ export async function addRole(
       actor: 'owner',
       payload: { change: 'add_role', division: role.divisionId, slug, roleId },
     });
-    return { roleId, ungranted, granted: grantedNow.sort() };
+    return { roleId, ungranted, granted: grantedNow };
   });
 }
 

@@ -134,6 +134,16 @@ test('the owner API grants with the hire only when asked, and says what it did',
     const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ capability_name: string }>(
       "SELECT capability_name FROM capability_grants WHERE capability_name IN ('doc.draft', 'funds.transfer')"));
     assert.deepEqual(rows.map((row) => row.capability_name), ['doc.draft'], 'and never the irreversible one');
+
+    // A change to a role's tools is the same decision: the tools it now names.
+    const role = granting.body.roleId as string;
+    const change = (body: Record<string, unknown>) => api.call('POST', `/api/companies/${fixture.companyId}/roles/${role}`, token, { proof: { totp: api.code() }, ...body });
+    const changed = await change({ tools: ['doc.draft', 'files.read'] });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.equal(changed.body.granted, undefined, 'not asked, not granted');
+    const asked = await change({ tools: ['doc.draft', 'files.read', 'funds.transfer'], grantTools: true });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.deepEqual([asked.body.granted, asked.body.ungranted], [['files.read'], ['funds.transfer']]);
   } finally {
     await api.close();
   }

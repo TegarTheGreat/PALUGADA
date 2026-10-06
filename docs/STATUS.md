@@ -9489,6 +9489,10 @@ the owner's device; this is only the grant.
   division is granted the tools the role names and it lacks, in the same
   approval, at the tier the platform gives each (no override). A grant already
   there is left as the owner made it. The answer says `granted` and `ungranted`.
+- **The same on a change to a role's tools**: `POST .../roles/:roleId` with `tools`
+  and `grantTools` grants the tools it now names (`grantRoleTools`) and answers
+  `granted` and `ungranted` beside the version. The console's own change form has
+  no tools field, so this is the CEO's and the API's.
 - **Never what cannot be undone.** A capability whose tier is 3 stays in
   `ungranted`: letting a division reach something irreversible is a decision of
   its own and is not a side effect of a hire. (It still needs the per-action

@@ -127,6 +127,7 @@ import {
   addRole,
   applyGrantChange,
   applyRoleChange,
+  grantRoleTools,
   setEscalationPolicy,
   type RoleFields,
   type StructuralChange,
@@ -4892,7 +4893,12 @@ export class OwnerApi {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
           });
-          return { version };
+          // With `grantTools`, a change to the role's tools also grants its
+          // division the ones it lacks -- except what cannot be undone.
+          const granting = body.grantTools === true && fields.tools !== undefined
+            ? await grantRoleTools(params.companyId!, params.roleId!, { ownerApproved: true })
+            : null;
+          return { version, ...(granting ?? {}) };
         },
       },
 

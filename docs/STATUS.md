@@ -9045,6 +9045,32 @@ defects in the adversarial review (F7.1) that cost the owner work.
   `outside`; a verdict provoked into being unrecordable escalates once and
   the next review is still settled -- with the guard removed, it was not).
 
+## 2.142 An approved task is not halted by the time the owner took (audit of 3 October, P0-1)
+
+`task.delegate` gives a child a deadline, an hour unless the delegator says
+otherwise. A child that asked for an approval parked in `waiting_approval`,
+which the deadline sweep leaves alone -- and when the owner said yes, the task
+went back to `running` with no lease, and the next sweep, or the claim itself,
+took a running task whose deadline had passed. The owner had approved and
+the work was halted `deadline_passed` for the hour the approval took. It is
+the ordinary path whenever a coordinator's specialist reaches a tier 2 action
+and the owner answers later than the hour.
+
+- **A deadline is for the work, not for whoever decides.** When a task is let
+  go from `waiting_approval` or `waiting_review` back to `running`, whichever
+  way -- a yes, a question answered, a review settled, the stranded-task
+  repair -- its deadline moves by the time it spent parked, read from the
+  event that parked it. A task with no deadline has none after. The same
+  statement that changes the status moves the deadline, so no sweep can see
+  the one without the other.
+- **Not changed:** a task parked for its window, a vendor or its model keeps
+  the deadline it had; those waits are the platform's, and a deadline is how
+  a run that waits on them for ever is ended.
+- **Tested** in `approval-deadline.test.ts`: a task approved after waiting is
+  past its original deadline and is neither halted by the sweep nor refused by
+  the claim, while a task that never waited, with the same deadline, is
+  halted; the review's wait is given back too; no deadline stays none.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

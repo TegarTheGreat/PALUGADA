@@ -834,11 +834,26 @@ export async function transitionWithin(
     if (!task) throw new Error(`task ${taskId} not found`);
     assertTransition(task.status, to);
 
+    // A deadline is for the work, not for whoever decides. A task parked for
+    // the owner's yes or for a reviewer and let go again is given back what
+    // it spent parked: otherwise an approved action was halted `deadline_passed`
+    // for the hour the approval took (the audit of 3 October, P0-1).
+    let waitedMs = 0;
+    if (to === 'running' && task.deadlineAt && (task.status === 'waiting_approval' || task.status === 'waiting_review')) {
+      const { rows } = await tx.query<{ waited: string }>(
+        `SELECT (extract(epoch FROM (now() - occurred_at)) * 1000)::bigint AS waited
+           FROM events WHERE task_id = $1 AND type = $2 ORDER BY occurred_at DESC LIMIT 1`,
+        [taskId, `task.${task.status}`],
+      );
+      waitedMs = Math.max(0, Number(rows[0]?.waited ?? 0));
+    }
+
     await tx.query(
       `UPDATE tasks
           SET status = $2,
               halt_reason = COALESCE($3, halt_reason),
               output = COALESCE($4::jsonb, output),
+              deadline_at = deadline_at + ($6::bigint * interval '1 millisecond'),
               wait_until = CASE WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
                                 WHEN $2 = 'running' THEN NULL
                                 ELSE wait_until END,
@@ -861,6 +876,7 @@ export async function transitionWithin(
         options.haltReason ?? null,
         options.output ? JSON.stringify(options.output) : null,
         options.waitUntil ?? null,
+        waitedMs,
       ],
     );
 

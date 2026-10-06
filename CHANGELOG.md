@@ -402,6 +402,9 @@ The first version. What it holds, in the order an owner meets it.
   review is no longer sent to you as "undecided" for want of one; and a
   reviewer's long reason can no longer stop every review behind it
   (STATUS 2.141).
+- Work you approved after the hour it was given is no longer halted for the
+  time you took: a task's deadline is for the work, and the time it spent
+  waiting for your answer, or for a review, is given back (STATUS 2.142).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

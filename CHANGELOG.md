@@ -436,6 +436,12 @@ The first version. What it holds, in the order an owner meets it.
   that starts at its time, carrying the work's goal, budget and what it had read
   from outside, cancelled if the goal closes. The coordinator holds it (STATUS
   2.148).
+- What a role writes is shown formatted: the CEO's answers in the chat, a task's
+  answer and what it said, and a draft or deliverable in the gallery -- headings,
+  lists, bold, code and tables, where the console had shown every asterisk and
+  pound sign as typed. It is read into a tree and drawn, never turned into
+  markup: no image is fetched, no HTML runs, and a link opens only if it is
+  http, https or mail (STATUS 2.149).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

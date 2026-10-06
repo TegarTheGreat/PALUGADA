@@ -9326,6 +9326,41 @@ claim already honours) was never set at creation.
   one task; the bounds and a role that exists; closing the goal cancels it and
   releases its reservation; the Work page.
 
+## 2.149 What a role writes is shown formatted, and no more than that (the owner's complaint of 6 October: "hasil kerja acak acakan format teksnya gajelas")
+
+A model answers in Markdown -- a heading, a list, `**bold**`, a table -- and the
+console drew every character as typed, so the CEO's answer, a task's result and
+a draft read as noise. The fix is a renderer; the care is that agent text is
+the one thing in the console written by someone who may be a stranger's
+instrument (F8.9), so a renderer is a new way for it to reach the page.
+
+- **A reader, not a converter.** `console/src/markdown.ts` reads text into a
+  tree (paragraphs, headings, nested lists, quotes, fenced code, rules, tables;
+  bold, emphasis, code, links, line breaks) and `console/src/components/Prose.tsx`
+  draws the tree with Mantine's components. No markup is built from the text, so
+  there is no HTML in it to run and no `dangerouslySetInnerHTML` anywhere in the
+  renderer -- a test reads the source and refuses it.
+- **No image.** `![x](address)` is its words; nothing is fetched, because an
+  image's address is how a page tells a stranger it was opened.
+- **Links**: only http, https and mailto (`safeAddress`), opened in a new tab
+  with `rel="noopener noreferrer"`; a bare address is linked the same way; any
+  other scheme (`javascript:`, `data:`) is shown as its label and its address
+  as text.
+- **Bounded**: 100,000 characters, 3,000 lines, 4,000 characters of a line
+  looked inside, 2,000 for an emphasis or link to find its end, four levels of
+  nesting, twenty table columns, two hundred rows, five hundred items -- so a
+  hostile string of asterisks costs a moment, not the tab.
+- **Plain text stays plain**: single line breaks kept, underscores inside words,
+  a lone asterisk or pound sign in prose left alone, a long address wrapping
+  rather than widening the screen.
+- **Where**: the CEO's chat bubbles (not the owner's own words), a task's answer
+  and its "What it said", the draft viewer on the Work page and the gallery. The
+  briefing a run was given (Trace) stays exactly as sent -- that is the evidence
+  of what the model saw -- and so does anything the owner typed.
+- **Tested** in `console-markdown.test.ts`: the shapes models write; text that
+  is not Markdown; every unsafe link, image and tag; the bounds under a hostile
+  input; the source of the renderer.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

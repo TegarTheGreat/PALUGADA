@@ -31,6 +31,7 @@ import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../com
 import { rolePicture } from '../images.ts';
 import { Tickets } from '../components/Tickets.tsx';
 import { Gallery } from '../components/Gallery.tsx';
+import { Prose } from '../components/Prose.tsx';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = WorkGroup | 'all';
@@ -633,7 +634,7 @@ function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) 
           {notes.data.map((note, index) => (
             <Group key={`${note.attempt}-${note.seq}-${index}`} gap="xs" wrap="nowrap" align="flex-start">
               <Text size="xs" c="dimmed" className="tabular" style={{ flexShrink: 0 }}>{time(note.saidAt)}</Text>
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note.body}</Text>
+              <div style={{ minWidth: 0 }}><Prose text={note.body} /></div>
             </Group>
           ))}
         </Stack>
@@ -788,7 +789,7 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
       <Stack gap="sm">
         {answer && (
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-teal-light)">
-            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{answer}</Text>
+            <Prose text={answer} />
           </Paper>
         )}
         {report && (
@@ -863,7 +864,7 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
           <Stack>
             {reading.to && <Text size="sm" c="dimmed">{t('To: {to}', { to: reading.to })}</Text>}
             <ScrollArea.Autosize mah="60vh">
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{reading.text}</Text>
+              <Prose text={reading.text} />
             </ScrollArea.Autosize>
             <Group justify="flex-end">
               <CopyButton value={reading.text}>

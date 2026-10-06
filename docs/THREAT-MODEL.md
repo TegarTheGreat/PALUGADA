@@ -233,7 +233,13 @@ refer to `docs/PRD.md`.
    done; a dialog is answered no unless the card said yes; a role never
    types a password (`src/browser/browsers.ts`). The page script runs in a
    world of its own, so a page's scripts cannot change what it reads.
-8. The console renders agent text as text. The owner's assistant proposes
+8. The console renders agent text as text: Markdown in it is read into a
+   tree by `console/src/markdown.ts` and drawn with the console's own
+   components (`Prose.tsx`), never turned into markup, so there is none to
+   run; an image is its words and nothing is fetched (an address is a way to
+   tell a stranger the page was opened); a link goes out only if it is http,
+   https or mail, in a tab told nothing of this one; and the reader is bounded
+   in length, lines, nesting and reach. The owner's assistant proposes
    cards the owner applies (`src/owner/assistant.ts`), with one exception: the
    everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
    telling, stopping or rerunning a task; no device, no key -- is done as it is

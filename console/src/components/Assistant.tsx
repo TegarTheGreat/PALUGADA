@@ -20,6 +20,7 @@ import { N, t } from '../i18n.ts';
 import { go } from '../router.ts';
 import { play, recordingSupported, useRecorder } from '../recorder.ts';
 import { rolePicture } from '../images.ts';
+import { Prose } from './Prose.tsx';
 import type { Company, RolePersona } from '../types.ts';
 
 /** Whether applying a card takes the owner's device: always, only when its route says so, or never. */
@@ -333,7 +334,9 @@ function Line({ message, reload, speaker }: {
         bg={mine ? 'var(--mantine-primary-color-light)' : 'var(--mantine-color-default)'}
         withBorder={!mine}
       >
-        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.body}</Text>
+        {mine
+          ? <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.body}</Text>
+          : <Prose text={message.body} />}
         {message.channel === 'telegram' && <Text size="xs" c="dimmed" mt={2}>{t('via Telegram')}</Text>}
       </Paper>
       {message.proposals.map((proposal) => <Card key={proposal.id} proposal={proposal} reload={reload} />)}

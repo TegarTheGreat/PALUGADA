@@ -15,6 +15,7 @@ import { rolePicture } from '../images.ts';
 import { t } from '../i18n.ts';
 import type { GalleryItem, TaskDetail } from '../types.ts';
 import { EmptyState, LoadFailed, Loading } from './ui.tsx';
+import { Prose } from './Prose.tsx';
 
 export function Gallery({ companyId, openTask }: { companyId: string; openTask: (id: string) => void }) {
   const [older, setOlder] = useState<{ items: GalleryItem[]; next: string | null } | null>(null);
@@ -102,7 +103,7 @@ function Reading({ companyId, item, close, openTask }: {
           {item.to && <Text size="sm" c="dimmed">{t('To: {to}', { to: item.to })}</Text>}
           {detail.error ? <LoadFailed message={detail.error} retry={detail.reload} /> : !whole ? <Loading rows={2} /> : (
             <ScrollArea.Autosize mah="60vh">
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{whole.text}</Text>
+              <Prose text={whole.text} />
             </ScrollArea.Autosize>
           )}
           <Group justify="flex-end" gap="sm">

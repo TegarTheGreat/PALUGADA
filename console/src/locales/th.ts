@@ -2045,6 +2045,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "รอการตรวจทาน",
   "Waiting for the model to answer": "รอโมเดลตอบ",
   "Waiting for a model key that works": "รอคีย์โมเดลที่ใช้ได้",
+  "Follows the panel: {language}": "ตามแผงควบคุม: {language}",
   "Overdue": "เกินกำหนด",
   "Paid": "ชำระแล้ว",
   "Part paid": "ชำระบางส่วน",

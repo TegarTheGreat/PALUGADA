@@ -9614,6 +9614,54 @@ template.
   the code only for the raise; the room that is there, oldest first, the card staying;
   only what this account stopped, and only what its budget stopped; the Work page.
 
+## 2.156 The language the owner reads reaches the CEO and the agents (the owner's complaint of 6 October: "the language was chosen as Indonesian, and the agent still greets in English")
+
+Four places held a language, and only one of them knew what the owner was
+reading.
+
+- **The deployment was never told.** An owner whose browser is in Indonesian is
+  shown an Indonesian console without choosing anything: `console_language` stays
+  empty ("follow the browser"), which only the browser could resolve. So everything
+  the server wrote for the owner -- the CEO's first words, a push, a card, a digest
+  -- was English (`console ?? 'en'`), under a console drawn in Indonesian. Now the
+  console, signed in as the owner and finding none, says once which language it has
+  drawn itself in (`POST /api/control/languages`), and a language the owner chose is
+  never overwritten by the browser's.
+- **The agents' default was English, whatever the panel was.** `agent_language` was
+  `NOT NULL DEFAULT 'en'`, so every company without a language of its own, and
+  every run in it, wrote in English. Migration 0123 lets it be empty, and empty
+  means the panel's language (English where there is none): `languagesFor` reads
+  `COALESCE(agent_language, console_language, 'en')`. One the owner picks is kept
+  as it is, English included, and `{ agents: null }` goes back to following. The
+  Languages page has the select cleared by default, saying "Follows the panel:
+  Bahasa Indonesia"; the API says `agentsChosen` beside `agents`. The migration
+  clears the rows that say `'en'`, which cannot be told from the default they were
+  born with: an owner who had chosen English for the team on purpose, while reading
+  the panel in another language, chooses it again.
+- **The CEO spoke the panel's language, not its company's.** It opened, and was told
+  to answer, in `console_language`. It now opens and answers in the company's *talk*
+  language -- the one every other agent writes to the owner in -- and what the
+  platform itself says in that chat (no model, a key not kept) stays the panel's. A
+  talk language the platform has no sentences of its own in (`canSay`) is opened in
+  the panel's, and answered in its own.
+- **The mission was English in an Indonesian company.** The template seeds a
+  mission and two objectives, the first thing on the Overview. They are now said in
+  the company's talk language at creation (`words` of `createCompanyFromTemplate`,
+  through `say`, with a translation in each of the twenty languages), and so is the
+  mission quoted in the company's charter.
+- **Not done**: the template's division names ("Operations", "Delivery", ...) and its
+  project ("Main") stay English labels; a company already made keeps the mission it
+  was made with, and a CEO that already opened in English keeps what it said; the
+  console, which stores nothing in the browser, still draws in the browser's language
+  until its first sign-in has told the deployment.
+- **Tested**: the agents' default following the panel, going back to it and being
+  chosen over it; the rule a run reads first naming the panel's language; the CEO
+  opening and answering in the talk language, and in the panel's where the platform
+  has no sentences; the platform's own sentences staying the panel's; the mission in
+  Indonesian and in Portuguese (English, as before); and, in a real Chromium set to
+  Indonesian, the deployment learning `id` from a console it had only ever seen
+  follow the browser -- and not overwriting what the owner had chosen.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

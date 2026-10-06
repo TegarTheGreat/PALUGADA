@@ -352,4 +352,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} laban sa target na {target}, iniulat at hindi sinuri.',
   'Look at it again later': 'Tingnan muli mamaya',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Ihatid ang ibinebenta ng kumpanyang ito nang maaasahan at hindi ginugulat ang may-ari nito.",
+  "Ship the work the company has promised, on time and verified.":
+    "Tapusin ang gawaing ipinangako ng kumpanya, nasa oras at napatunayan.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Panatilihing may sapat na pondo ang kumpanya, may pananagutan, at tumatakbo nang hindi kailangan ng araw-araw na atensyon.",
 };

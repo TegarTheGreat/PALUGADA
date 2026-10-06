@@ -353,4 +353,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}(목표 {target}), 보고만 되었고 확인되지 않았습니다.',
   'Look at it again later': '나중에 다시 확인하기',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "이 회사가 파는 것을 믿을 수 있게 전달하고, 소유자를 놀라게 하지 않는다.",
+  "Ship the work the company has promised, on time and verified.":
+    "회사가 약속한 일을 기한에 맞춰, 검증된 상태로 내보낸다.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "회사의 지급 능력을 지키고, 책임질 수 있게 하며, 매일 신경 쓰지 않아도 돌아가게 한다.",
 };

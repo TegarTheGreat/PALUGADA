@@ -356,4 +356,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}, hedef {target}, bildirildi ancak doğrulanmadı.',
   'Look at it again later': 'Sonra yeniden bak',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Bu şirketin sattığını güvenilir biçimde ve sahibini şaşırtmadan teslim etmek.",
+  "Ship the work the company has promised, on time and verified.":
+    "Şirketin vaat ettiği işi zamanında ve doğrulanmış olarak teslim etmek.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Şirketi ödeme gücü olan, hesap verebilir ve günlük ilgi gerektirmeden işleyen halde tutmak.",
 };

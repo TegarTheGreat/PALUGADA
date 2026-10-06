@@ -879,6 +879,10 @@ export class OwnerApi {
               'contract.violation', `no company template named ${templateSlug}`, { templateSlug },
             );
           }
+          const panel = (await deploymentLanguages()).console;
+          const owners = panel && isLanguageCode(panel) ? panel : null;
+          const work = workLanguage ?? owners;
+          const talk = talkLanguage ?? owners;
           const created = await createCompanyFromTemplate({
             templateSlug,
             companySlug: requireText(body.companySlug, 'companySlug'),
@@ -886,11 +890,10 @@ export class OwnerApi {
             ...(body.timezone === undefined
               ? {}
               : { timezone: requireText(body.timezone, 'timezone') }),
+            // Its mission and objectives are what the owner reads first, so
+            // they are said in the language the company talks in.
+            words: (statement) => say(talk, statement),
           });
-          const panel = (await deploymentLanguages()).console;
-          const owners = panel && isLanguageCode(panel) ? panel : null;
-          const work = workLanguage ?? owners;
-          const talk = talkLanguage ?? owners;
           if (work || talk) await setCompanyLanguages(created.companyId, { work, talk });
           // One factor covers the company and what it starts with: installing
           // a bundle is the same structural change F2.9 already approved here.
@@ -3159,11 +3162,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/control/languages',
         handle: async ({ body }) => {
-          const change: { console?: string | null; agents?: string } = {};
+          const change: { console?: string | null; agents?: string | null } = {};
           if (body.console !== undefined) {
             change.console = body.console === null ? null : languageCode(body.console, 'console');
           }
-          if (body.agents !== undefined) change.agents = languageCode(body.agents, 'agents');
+          // Null is an answer: the agents follow the panel's language.
+          if (body.agents !== undefined) change.agents = body.agents === null ? null : languageCode(body.agents, 'agents');
           if (Object.keys(change).length === 0) {
             throw new PalugadaError('contract.violation', 'give console, agents, or both', {});
           }

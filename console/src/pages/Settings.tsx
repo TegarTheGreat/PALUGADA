@@ -459,7 +459,8 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
     const answer: Languages = await api('GET', '/api/control/languages');
     return answer;
   }, []);
-  const [agents, setAgents] = useState<string | null>(null);
+  // Undefined until the owner touches it; null is an answer: follow the panel.
+  const [agents, setAgents] = useState<string | null | undefined>(undefined);
   const [work, setWork] = useState<string | null>(ctx.company.workLanguage);
   const [talk, setTalk] = useState<string | null>(ctx.company.talkLanguage);
   const [busy, setBusy] = useState<string | null>(null);
@@ -468,7 +469,8 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
   if (!view.data) return <Loading rows={3} />;
   const supported = view.data.supported.map((one) => ({ value: one.code, label: one.native === one.name ? one.name : `${one.native} · ${one.name}` }));
   const nameOf = (code: string) => view.data?.supported.find((one) => one.code === code)?.native ?? code;
-  const fallback = agents ?? view.data.agents;
+  const chosenAgents = view.data.agentsChosen ? view.data.agents : null;
+  const fallback = agents === undefined ? chosenAgents : agents;
 
   const save = async (what: string, run: () => Promise<unknown>) => {
     setBusy(what);
@@ -507,8 +509,9 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
 
       <Section title={t('Agents, by default')} description={t('The language every company’s agents use unless the company sets its own below.')}>
         <Group align="flex-end" gap="sm">
-          <Select data={supported} value={fallback} onChange={setAgents} searchable w={320} allowDeselect={false} />
-          <Button loading={busy === 'agents'} disabled={!agents || agents === view.data.agents}
+          <Select data={supported} value={fallback} onChange={setAgents} searchable clearable w={320}
+            placeholder={t('Follows the panel: {language}', { language: nameOf(view.data.console ?? 'en') })} />
+          <Button loading={busy === 'agents'} disabled={agents === undefined || agents === chosenAgents}
             onClick={() => void save('agents', () => api('POST', '/api/control/languages', { agents }))}>
             {t('Save')}
           </Button>

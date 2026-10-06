@@ -1946,6 +1946,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Menunggu tinjauan",
   "Waiting for the model to answer": "Menunggu model menjawab",
   "Waiting for a model key that works": "Menunggu kunci model yang berfungsi",
+  "Follows the panel: {language}": "Mengikuti panel: {language}",
   "Overdue": "Terlambat",
   "Paid": "Lunas",
   "Part paid": "Lunas sebagian",

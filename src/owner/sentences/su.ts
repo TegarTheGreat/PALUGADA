@@ -353,4 +353,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} kalayan target {target}, dilaporkeun jeung can dipariksa.',
   'Look at it again later': 'Tingali deui engké',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Nganteurkeun naon nu dijual ku parusahaan ieu kalayan bisa dipercaya jeung tanpa ngareureuwas nu gaduhna.",
+  "Ship the work the company has promised, on time and verified.":
+    "Ngarengsekeun pagawéan nu geus dijangjikeun ku parusahaan, kana waktuna jeung geus dipariksa.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Ngajaga kauangan parusahaan tetep séhat, bisa dipertanggungjawabkeun, jeung jalan tanpa merlukeun perhatian unggal poé.",
 };

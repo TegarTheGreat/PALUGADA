@@ -2047,6 +2047,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "In attesa di revisione",
   "Waiting for the model to answer": "Aspetta che il modello risponda",
   "Waiting for a model key that works": "In attesa di una chiave del modello valida",
+  "Follows the panel: {language}": "Segue il pannello: {language}",
   "Overdue": "Scaduta",
   "Paid": "Pagata",
   "Part paid": "Pagata in parte",

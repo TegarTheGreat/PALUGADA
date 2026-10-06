@@ -2023,6 +2023,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "검토 대기 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",
   "Waiting for a model key that works": "사용할 수 있는 모델 키를 기다리는 중",
+  "Follows the panel: {language}": "패널을 따름: {language}",
   "Overdue": "연체",
   "Paid": "결제 완료",
   "Part paid": "일부 결제",

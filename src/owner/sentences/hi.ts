@@ -355,4 +355,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}, लक्ष्य {target}, केवल बताया गया, जाँचा नहीं गया।',
   'Look at it again later': 'बाद में फिर देखें',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "इस कंपनी जो बेचती है उसे भरोसेमंद ढंग से पहुँचाना, और मालिक को चौंकाए बिना।",
+  "Ship the work the company has promised, on time and verified.":
+    "कंपनी ने जो काम करने का वादा किया है, उसे समय पर और जाँच-परख कर पूरा करना।",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "कंपनी को आर्थिक रूप से सक्षम, जवाबदेह और रोज़ की निगरानी के बिना चलने लायक बनाए रखना।",
 };

@@ -1389,7 +1389,11 @@ Under **Settings**, **Languages**:
   Korean, Hindi, Arabic (the console turns right to left), Spanish,
   Brazilian Portuguese, French, German, Dutch, Italian, Turkish or Russian.
 - **Agents, by default** is the language every company's agents use unless
-  the company sets its own. Press **Save**.
+  the company sets its own. Left empty it follows the panel language, so
+  choosing Indonesian for the panel is enough for a CEO and a team that
+  speak it. Choose one to keep them in another (English, say, with the
+  panel in Indonesian), and press **Save**; clear it to follow the panel
+  again.
 - Under the company's own section, **Work language** is what it produces for
   customers and **Talk language** is what its agents write to you and to
   each other. Empty means the default. Press **Save**; agents follow it from

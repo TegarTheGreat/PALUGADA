@@ -146,7 +146,7 @@ export async function resetData(): Promise<void> {
               -- the agents' default to Indonesian would otherwise hand it to
               -- every file after it.
               console_language = NULL,
-              agent_language = 'en',
+              agent_language = NULL,
               -- And the owner's tour (0064), so each file meets a console that
               -- has not been toured.
               tour_finished_at = NULL,

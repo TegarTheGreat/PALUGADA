@@ -24,9 +24,9 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 import { wholeCents } from '../engine/pricing.ts';
 import { isPalugadaError, PalugadaError } from '../errors.ts';
-import { deploymentLanguages, languageName } from '../domain/language.ts';
+import { deploymentLanguages, languageName, languagesFor } from '../domain/language.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
-import { say } from './say.ts';
+import { canSay, say } from './say.ts';
 import { modelKeyRefusedSaid } from './platform-cards.ts';
 import { firstHourBrief, firstHourOf, firstHourOpener } from './first-hour.ts';
 import {
@@ -386,9 +386,21 @@ async function speakerFor(companyId: string): Promise<Speaker> {
 }
 
 /**
+ * The language a company's CEO talks to its owner in: the company's talk
+ * language, the one every other agent writes to the owner in, which is the
+ * owner's panel language unless the owner said otherwise (src/domain/language.ts).
+ * The panel's alone is not it: an owner who has chosen Indonesian for the
+ * company was greeted in English because the *panel* had never been told.
+ */
+async function talkLanguageOf(companyId: string): Promise<string> {
+  return (await withTenant(companyId, (tx) => languagesFor(tx, companyId))).talk;
+}
+
+/**
  * A new company's CEO speaks first (the first hour, first-hour.ts): what it
- * needs to know, in the language the owner reads, so the conversation the
- * owner opens is already one. Nothing when the company has no CEO.
+ * needs to know, in the language the company talks in, so the conversation
+ * the owner opens is already one. Where the platform has no sentences of its
+ * own in that language, the panel's. Nothing when the company has no CEO.
  */
 export async function ceoOpensConversation(companyId: string): Promise<void> {
   let speaker: Speaker;
@@ -398,7 +410,8 @@ export async function ceoOpensConversation(companyId: string): Promise<void> {
     if (failure instanceof PalugadaError && /has no CEO yet/.test(failure.message)) return;
     throw failure;
   }
-  const language = (await deploymentLanguages()).console ?? 'en';
+  const talk = await talkLanguageOf(companyId);
+  const language = canSay(talk) ? talk : (await deploymentLanguages()).console ?? 'en';
   await record('assistant', firstHourOpener(language, {
     ceo: speaker.displayName ?? speaker.title ?? speaker.slug, company: speaker.company,
   }), 'console', companyId);
@@ -502,11 +515,14 @@ export async function converse(options: AssistantOptions, text: string, channel:
     if (typeof first.content === 'string') before_.push(first.content);
   }
   const firstHour = scope ? (await firstHourOf(scope)).open : false;
+  // A CEO answers in the language its company talks in; what the platform
+  // itself says here (no model, a key not kept) stays the panel's.
+  const spoken = speaker ? await talkLanguageOf(speaker.companyId) : language;
 
   const readable = options.reach.readable().filter((path) => !UNREADABLE.includes(path));
   const system = [
     speaker
-      ? ceoPrompt(language, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
+      ? ceoPrompt(spoken, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
       : systemPrompt(language, readable),
     ...(speaker && firstHour ? ['', firstHourBrief(speaker.companyId)] : []),
     ...(before_.length > 0 ? ['', 'Before the owner\'s first message here, you said:', before_.join('\n\n')] : []),

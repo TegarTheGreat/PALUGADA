@@ -2050,6 +2050,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Đang chờ rà soát",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",
   "Waiting for a model key that works": "Đang chờ khóa mô hình hợp lệ",
+  "Follows the panel: {language}": "Theo bảng điều khiển: {language}",
   "Overdue": "Quá hạn",
   "Paid": "Đã thanh toán",
   "Part paid": "Thanh toán một phần",

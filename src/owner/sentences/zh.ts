@@ -354,4 +354,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}：{value}，目标为 {target}，仅为上报，未经核对。',
   'Look at it again later': '稍后再查看',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "可靠地交付公司所售之物，不让所有者感到意外。",
+  "Ship the work the company has promised, on time and verified.":
+    "按时交付公司承诺的工作，并经过核实。",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "保持公司有偿付能力、可追责，并且无需每天关注也能运转。",
 };

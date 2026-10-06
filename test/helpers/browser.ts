@@ -30,11 +30,17 @@ export interface Page {
   close(): Promise<void>;
 }
 
-export async function openPage(executable: string, viewport: { width: number; height: number }): Promise<Page> {
+export async function openPage(
+  executable: string,
+  viewport: { width: number; height: number },
+  /** The language the browser is set to, as a person sets it: `id`, `pt-BR`. */
+  language?: string,
+): Promise<Page> {
   const profile = await mkdtemp(join(tmpdir(), 'palugada-browser-'));
   const process_: ChildProcess = spawn(executable, [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--no-first-run',
-    '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
+    '--remote-debugging-port=0', `--user-data-dir=${profile}`,
+    ...(language ? [`--lang=${language}`, `--accept-lang=${language}`] : []), 'about:blank',
   ], { stdio: 'ignore' });
 
   // The port it chose, which it writes into its profile once it listens.

@@ -1458,6 +1458,11 @@ test('every sentence the platform says to the owner has its translation (src/own
       if (match[2]) said.add(literal(match[2]));
     }
   }
+  // The standard template's own statements, which a company's goals say in the
+  // language it talks in (`words` of createCompanyFromTemplate): said by
+  // variable, so the scan above cannot see them.
+  const { STANDARD_COMPANY_TEMPLATE } = await import('../../src/templates/standard.ts');
+  for (const goal of STANDARD_COMPANY_TEMPLATE.goals ?? []) said.add(goal.statement);
   assert.ok(said.size >= 15, `only ${said.size} sentences were found; the scan is broken`);
   // The language that picks these is the panel's, so every language the
   // console is drawn in has them: an owner who reads the panel in Russian

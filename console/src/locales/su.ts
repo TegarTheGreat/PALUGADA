@@ -2051,6 +2051,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Ngantosan tilikan",
   "Waiting for the model to answer": "Ngantosan modél ngawaler",
   "Waiting for a model key that works": "Ngantosan konci modél anu tiasa dipaké",
+  "Follows the panel: {language}": "Nuturkeun panel: {language}",
   "Overdue": "Telat",
   "Paid": "Geus dibayar",
   "Part paid": "Dibayar sabagian",

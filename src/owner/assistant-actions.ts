@@ -211,8 +211,8 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/control/languages',
-    what: 'The console\'s language and the agents\' default language.',
-    fields: { console: 'a language code such as id or en', agents: 'a language code' },
+    what: 'The console\'s language and the agents\' default language. Agents follow the console\'s language until one is chosen for them.',
+    fields: { console: 'a language code such as id or en', agents: 'a language code, or null to follow the console\'s language' },
     factor: 'never',
   },
   {

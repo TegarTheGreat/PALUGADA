@@ -473,6 +473,15 @@ The first version. What it holds, in the order an owner meets it.
   tokens ran out, not a bare "out of budget" beside a cost of nothing, and new
   companies' token ceilings are sized against their money so tokens do not run
   out a hundred times first (STATUS 2.155).
+- The language you read is the language your team writes in. A console drawn in
+  your browser's language tells PALUGADA so at your first sign-in, your CEO opens
+  and answers in the language its company talks in, a new company's mission is
+  written in it, and agents that were never given a language follow the console's
+  instead of English. Choose one for them under **Settings**, **Languages**; clear
+  it to follow the console again. Before, an Indonesian console had a CEO and a
+  team that greeted in English (STATUS 2.156). An 'English' that was only the
+  default is cleared by the upgrade: if you chose English for your team on
+  purpose, choose it again there.
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

@@ -2012,6 +2012,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "等待审核",
   "Waiting for the model to answer": "正在等待模型回应",
   "Waiting for a model key that works": "正在等待可用的模型密钥",
+  "Follows the panel: {language}": "跟随面板：{language}",
   "Overdue": "已逾期",
   "Paid": "已付款",
   "Part paid": "部分付款",

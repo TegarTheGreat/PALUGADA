@@ -3772,15 +3772,20 @@ test('the panel and the agents speak the languages the owner chose', async () =>
     assert.equal(initial.status, 200);
     assert.equal(initial.body.console, null, 'the panel follows the browser until the owner chooses');
     assert.equal(initial.body.agents, 'en');
+    assert.equal(initial.body.agentsChosen, false, 'the agents follow the panel until the owner chooses');
     const supported = initial.body.supported as Array<{ code: string; name: string; native: string }>;
     assert.ok(supported.some((one) => one.code === 'id' && one.native === 'Bahasa Indonesia'));
 
     const chosen = await call(owner.url, 'POST', '/api/control/languages', { token, body: { console: 'id', agents: 'id' } });
     assert.equal(chosen.status, 200, JSON.stringify(chosen.body));
-    assert.deepEqual(chosen.body, { console: 'id', agents: 'id' });
+    assert.deepEqual(chosen.body, { console: 'id', agents: 'id', agentsChosen: true });
     // Partial: naming one leaves the other.
     assert.deepEqual((await call(owner.url, 'POST', '/api/control/languages', { token, body: { console: null } })).body,
-      { console: null, agents: 'id' });
+      { console: null, agents: 'id', agentsChosen: true });
+    // And null for the agents is going back to following the panel.
+    assert.deepEqual((await call(owner.url, 'POST', '/api/control/languages', { token, body: { console: 'ms', agents: null } })).body,
+      { console: 'ms', agents: 'ms', agentsChosen: false });
+    await call(owner.url, 'POST', '/api/control/languages', { token, body: { console: null, agents: 'id' } });
     assert.equal((await call(owner.url, 'POST', '/api/control/languages', { token, body: { agents: 'klingon' } })).status, 400);
     assert.equal((await call(owner.url, 'POST', '/api/control/languages', { token, body: {} })).status, 400);
 

@@ -2021,6 +2021,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "レビューを待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",
   "Waiting for a model key that works": "使えるモデルのキーを待っています",
+  "Follows the panel: {language}": "パネルに合わせる：{language}",
   "Overdue": "期限超過",
   "Paid": "支払済み",
   "Part paid": "一部支払済み",

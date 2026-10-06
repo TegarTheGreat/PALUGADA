@@ -139,6 +139,8 @@ export interface PageProps {
 export interface Languages {
   console: string | null;
   agents: string;
+  /** Whether the owner chose the agents' language, or it follows the panel's. */
+  agentsChosen: boolean;
   supported: Array<{ code: string; name: string; native: string }>;
 }
 
@@ -217,6 +219,15 @@ function Console({ device, staff, recovered, signOut }: {
   useEffect(() => {
     const chosen = base.data?.languages.console;
     if (isLanguage(chosen) && chosen !== language()) setLanguage(chosen);
+    // No choice yet: the console has been drawn in the browser's language, and
+    // the deployment has never been told. Everything the server writes for the
+    // owner -- the CEO's first words, a push, a card -- and every agent that has
+    // not been given a language of its own follows what it is told here, so a
+    // panel in Indonesian beside a team greeting in English was the deployment
+    // not knowing what the owner was reading. Said once, as the browser's.
+    if (owner && base.data && chosen === null) {
+      void chooseLanguage(language()).then(() => base.reload(), () => undefined);
+    }
     // And the currency the owner reads money in (0106), which redraws the
     // console as a language does when it changes.
     const money = base.data?.money;

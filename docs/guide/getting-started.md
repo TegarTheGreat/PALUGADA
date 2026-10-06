@@ -274,8 +274,9 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   skip it and take it later from the menu under **Owner**.
 - The language list on the sign-in page applies to this visit; each of the
   21 languages is named in itself (Bahasa Indonesia, Basa Jawa, 日本語,
-  العربية, ...). Until you choose, the console follows your browser's language.
-  Once you are in, choose the panel language from the menu under **Owner**
+  العربية, ...). Until you choose, the console follows your browser's language,
+  and your first sign-in tells the deployment which that was, so your CEO and
+  your agents speak it too. Once you are in, choose the panel language from the menu under **Owner**
   at the foot of the sidebar; it is kept by the deployment and follows you
   to every device.
 

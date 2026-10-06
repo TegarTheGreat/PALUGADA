@@ -62,6 +62,11 @@ export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, st
   ru: RU,
 };
 
+/** Whether the platform has its own sentences in `language`: English, or one the console is drawn in. */
+export function canSay(language: string): boolean {
+  return language === 'en' || language in OWNER_SENTENCES;
+}
+
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */
 export function say(language: string | null | undefined, text: string, values: Record<string, string> = {}): string {
   const template = (language && OWNER_SENTENCES[language]?.[text]) || text;

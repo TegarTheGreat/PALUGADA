@@ -354,4 +354,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} contra uma meta de {target}, informado e não verificado.',
   'Look at it again later': 'Rever mais tarde',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Entregar o que esta empresa vende, com confiabilidade e sem surpreender o dono.",
+  "Ship the work the company has promised, on time and verified.":
+    "Entregar o trabalho que a empresa prometeu, no prazo e verificado.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Manter a empresa solvente, responsável e funcionando sem exigir atenção diária.",
 };

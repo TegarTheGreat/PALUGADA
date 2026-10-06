@@ -20,6 +20,8 @@ import { transition } from '../../src/engine/tasks.ts';
 import { setDeploymentLanguages } from '../../src/domain/language.ts';
 import { installStandardTemplate, STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
 import { firstHourOpener } from '../../src/owner/first-hour.ts';
+import { say } from '../../src/owner/say.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
 import type { LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -53,9 +55,12 @@ class OneLineModel implements ToolUsingLlmClient {
 
 type Console = Awaited<ReturnType<typeof consoleWithSettings>>;
 
-async function start(api: Console, token: string, slug = 'toko-kopi', name = 'Toko Kopi Senja'): Promise<string> {
+async function start(
+  api: Console, token: string, slug = 'toko-kopi', name = 'Toko Kopi Senja', languages: { work?: string; talk?: string } = {},
+): Promise<string> {
   const created = await api.call('POST', '/api/companies', token, {
-    templateSlug: STANDARD_TEMPLATE_SLUG, companySlug: slug, name, workLanguage: 'id', talkLanguage: 'id', proof: { totp: api.code() },
+    templateSlug: STANDARD_TEMPLATE_SLUG, companySlug: slug, name,
+    workLanguage: languages.work ?? 'id', talkLanguage: languages.talk ?? 'id', proof: { totp: api.code() },
   });
   assert.equal(created.status, 200, JSON.stringify(created.body));
   return String(created.body.companyId);
@@ -83,6 +88,88 @@ test('a new company opens with its CEO asking, in the owner\'s language, the thr
     assert.equal(first.body.open, true);
     assert.deepEqual(first.body.steps.map((one: { step: string }) => one.step), ['talk', 'budget', 'work', 'result']);
     assert.ok(first.body.steps.every((one: { done: boolean }) => !one.done));
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * The owner's complaint of 6 October: the language was chosen as Indonesian
+ * and the CEO still greeted in English. The CEO is who the owner talks to, so
+ * it speaks the company's talk language -- the one every other agent writes
+ * to the owner in -- and the panel's only for what the platform itself says.
+ */
+test("the CEO opens and answers in the language the company talks in, whatever the panel is drawn in", async () => {
+  // The panel's own language is English, or was never told: the company's is Indonesian.
+  await setDeploymentLanguages({ console: null });
+  const model = new OneLineModel();
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const companyId = await start(api, token);
+    const talk = await api.call('GET', `/api/companies/${companyId}/conversation`, token);
+    assert.equal(talk.body.messages[0].body, firstHourOpener('id', { ceo: 'Arka', company: 'Toko Kopi Senja' }), 'opens in Indonesian');
+
+    await api.call('POST', `/api/companies/${companyId}/conversation/messages`, token, { text: 'Kami jual kopi susu di Bandung.' });
+    assert.match(model.requests.at(-1)!.system, /in Indonesian: briefly, as a CEO/, 'and is told to answer in it');
+  } finally {
+    await api.close();
+  }
+});
+
+test('a company that talks in a language the platform has no sentences for is opened in the panel\'s, and answered in its own', async () => {
+  // Portuguese is one agents are told; the platform's own sentences have Brazil's alone.
+  await setDeploymentLanguages({ console: 'id' });
+  const model = new OneLineModel();
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const companyId = await start(api, token, 'cafe-lisboa', 'Café Lisboa', { talk: 'pt' });
+    const talk = await api.call('GET', `/api/companies/${companyId}/conversation`, token);
+    assert.equal(talk.body.messages[0].body, firstHourOpener('id', { ceo: 'Arka', company: 'Café Lisboa' }));
+
+    await api.call('POST', `/api/companies/${companyId}/conversation/messages`, token, { text: 'Vendemos café.' });
+    assert.match(model.requests.at(-1)!.system, /in Portuguese: briefly, as a CEO/);
+  } finally {
+    await api.close();
+  }
+});
+
+test("what the platform itself says stays in the panel's language, whatever the company talks in", async () => {
+  await setDeploymentLanguages({ console: 'id' });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const companyId = await start(api, token, 'cafe-porto', 'Café Porto', { talk: 'pt' });
+    const said = await api.call('POST', `/api/companies/${companyId}/conversation/messages`, token, { text: 'Olá' });
+    assert.match(JSON.stringify(said.body), /Belum ada model/, 'no model is a sentence of the platform\'s, not the CEO\'s');
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * What a new company shows its owner first is its mission and two objectives.
+ * Seeded by the template, they were English in a company whose owner had
+ * asked for Indonesian: the Overview, the Team page and the CEO's own account
+ * of the company all led with a sentence the owner had not chosen the
+ * language of.
+ */
+test("a new company's mission and objectives are said in the language it talks in", async () => {
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const seeded = STANDARD_COMPANY_TEMPLATE.goals!.map((goal) => goal.statement);
+
+    const indonesian = await start(api, token, 'toko-kopi', 'Toko Kopi Senja');
+    const said = (await api.call('GET', `/api/companies/${indonesian}/structure`, token)).body.goals.map((goal: { statement: string }) => goal.statement);
+    assert.deepEqual([...said].sort(), seeded.map((statement) => say('id', statement)).sort());
+    assert.ok(said.every((statement: string) => !seeded.includes(statement)), 'none of them left in English');
+
+    // A language the platform has no sentences of its own in is the template's English, as before.
+    const portuguese = await start(api, token, 'cafe-lisboa', 'Café Lisboa', { talk: 'pt' });
+    const left = (await api.call('GET', `/api/companies/${portuguese}/structure`, token)).body.goals.map((goal: { statement: string }) => goal.statement);
+    assert.deepEqual([...left].sort(), [...seeded].sort());
   } finally {
     await api.close();
   }

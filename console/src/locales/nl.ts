@@ -2035,6 +2035,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Bestanden",
   "This folder is empty.": "Deze map is leeg.",
   "Download": "Downloaden",
+  "Files it made": "Bestanden die het heeft gemaakt",
   "Only the first 500 are shown.": "Alleen de eerste 500 worden getoond.",
   "You put a file in the company's files": "Je hebt een bestand in de bestanden van het bedrijf gezet",
   "You took a file out of the company's files": "Je hebt een bestand uit de bestanden van het bedrijf gehaald",

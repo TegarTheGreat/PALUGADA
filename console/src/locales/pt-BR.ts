@@ -2018,6 +2018,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Arquivos",
   "This folder is empty.": "Esta pasta está vazia.",
   "Download": "Baixar",
+  "Files it made": "Arquivos que ela criou",
   "Only the first 500 are shown.": "Só os primeiros 500 são mostrados.",
   "You put a file in the company's files": "Você colocou um arquivo nos arquivos da empresa",
   "You took a file out of the company's files": "Você tirou um arquivo dos arquivos da empresa",

@@ -2038,6 +2038,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Файлы",
   "This folder is empty.": "Эта папка пуста.",
   "Download": "Скачать",
+  "Files it made": "Созданные файлы",
   "Only the first 500 are shown.": "Показаны только первые 500.",
   "You put a file in the company's files": "Вы положили файл в файлы компании",
   "You took a file out of the company's files": "Вы убрали файл из файлов компании",

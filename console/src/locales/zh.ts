@@ -2020,6 +2020,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "文件",
   "This folder is empty.": "此文件夹为空。",
   "Download": "下载",
+  "Files it made": "它创建的文件",
   "Only the first 500 are shown.": "仅显示前 500 项。",
   "You put a file in the company's files": "您向公司文件中放入了一个文件",
   "You took a file out of the company's files": "您从公司文件中移除了一个文件",

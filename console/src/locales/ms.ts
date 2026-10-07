@@ -2053,6 +2053,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Fail",
   "This folder is empty.": "Folder ini kosong.",
   "Download": "Muat turun",
+  "Files it made": "Fail yang dibuatnya",
   "Only the first 500 are shown.": "Hanya 500 yang pertama dipaparkan.",
   "You put a file in the company's files": "Anda meletakkan fail dalam fail syarikat",
   "You took a file out of the company's files": "Anda memadam fail daripada fail syarikat",

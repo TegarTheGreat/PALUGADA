@@ -24,7 +24,7 @@ import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
-import { journalOf, NOT_A_READ } from '../engine/journal.ts';
+import { journalOf, NOT_A_READ, madeFiles } from '../engine/journal.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 import type { WaitReason } from '../engine/tasks.ts';
 import type { OverlapPolicy } from '../scheduler/scheduler.ts';
@@ -612,6 +612,13 @@ export interface TaskDetail {
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
   /**
+   * The files it made, whatever they hold -- a picture, a computed
+   * spreadsheet, a draft -- read from its journal, in the order they were
+   * made, for the owner to take out (`/files/download`). Paths are text from
+   * a capability: shown, never opened from here.
+   */
+  files: Array<{ capability: string; path: string }>;
+  /**
    * The work this task handed to other roles, oldest first, with what each
    * piece came to: a plan a sub-task wrote is reached from the task the
    * owner asked for, not only by finding the sub-task in the list.
@@ -635,6 +642,8 @@ export interface HandedPiece {
 
 /** More pieces than this are not listed on the parent; the work list has them all. */
 const HANDED_ON_LIMIT = 50;
+/** More files than this are not listed on a task's page: the newest. The Files tab has every one. */
+const FILES_LISTED = 50;
 
 /** A document's first heading, which is what a person would call it. */
 function headingOf(text: string | null): string | null {
@@ -674,6 +683,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
         ORDER BY s.step_index`,
       [taskId],
     );
+    const made = await madeFiles(tx, taskId);
     const { rows: pieces } = await tx.query<{
       id: string; role: string; role_name: string | null; status: TaskStatus; output: unknown;
     }>(
@@ -730,6 +740,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
           ? null : redactor.redact(summarise(piece.output, 200, RESULT_FIELDS)),
       })),
       handedBy: by[0] ? { id: by[0].id, role: by[0].role, roleName: by[0].role_name } : null,
+      files: made.slice(-FILES_LISTED).map((file) => ({ capability: file.capability, path: redactor.redact(file.path) })),
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),

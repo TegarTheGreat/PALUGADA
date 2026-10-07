@@ -2029,6 +2029,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "ファイル",
   "This folder is empty.": "このフォルダは空です。",
   "Download": "ダウンロード",
+  "Files it made": "作成したファイル",
   "Only the first 500 are shown.": "最初の 500 件のみ表示しています。",
   "You put a file in the company's files": "会社のファイルにファイルを入れました",
   "You took a file out of the company's files": "会社のファイルからファイルを削除しました",

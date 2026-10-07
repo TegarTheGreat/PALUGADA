@@ -551,6 +551,8 @@ export interface TaskDetail {
   /** The run's report on its done criteria, weighed against its journal; null when it made none. */
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
+  /** The files it made, whatever they hold, in the order it made them: to take out. */
+  files: Array<{ capability: string; path: string }>;
   /** The work it handed to other roles, oldest first, with what each piece came to. */
   handedOn: HandedPiece[];
   /** The task that handed this one on, or null when the owner, a schedule or a trigger gave it. */

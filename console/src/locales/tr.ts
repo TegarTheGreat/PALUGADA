@@ -2060,6 +2060,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Dosyalar",
   "This folder is empty.": "Bu klasör boş.",
   "Download": "İndir",
+  "Files it made": "Oluşturduğu dosyalar",
   "Only the first 500 are shown.": "Yalnızca ilk 500 gösteriliyor.",
   "You put a file in the company's files": "Şirket dosyalarına bir dosya koydunuz",
   "You took a file out of the company's files": "Şirket dosyalarından bir dosya kaldırdınız",

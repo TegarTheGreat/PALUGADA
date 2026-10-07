@@ -15,7 +15,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
+  IconCopy, IconCornerDownRight, IconDownload, IconFile, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
   IconCircleCheck, IconCircleX, IconListCheck, IconRefresh, IconThumbDown, IconThumbUp, IconTicket,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
@@ -29,6 +29,8 @@ import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
 import { rolePicture } from '../images.ts';
+import { ActionButton } from '../components/ActionForm.tsx';
+import { saveCompanyFile } from '../files.ts';
 import { Tickets } from '../components/Tickets.tsx';
 import { Gallery } from '../components/Gallery.tsx';
 import { Prose } from '../components/Prose.tsx';
@@ -247,6 +249,7 @@ export function Work({ ctx, route }: PageProps) {
         close={() => openTask(null)}
         changed={work.reload}
         openTask={(id) => { work.reload(); openTask(id); }}
+        owner={ctx.staff === null}
       />
     </Stack>
   );
@@ -324,8 +327,10 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
 }
 
 /** One task: where it is, and every event it left, with a dry replay (F11.2, F5.9). */
-export function TaskDrawer({ companyId, task, close, changed, openTask }: {
+export function TaskDrawer({ companyId, task, close, changed, openTask, owner }: {
   companyId: string; task: WorkItem | null; close: () => void; changed: () => void; openTask: (id: string) => void;
+  /** The owner, not a staff seat: only the owner may take a file out. */
+  owner: boolean;
 }) {
   // This task's own events, as they are written.
   const pulse = useLivePulse(companyId, (event) => event.taskId === task?.id);
@@ -409,7 +414,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
-          <TaskOutput companyId={companyId} task={task} openTask={openTask} />
+          <TaskOutput companyId={companyId} task={task} openTask={openTask} owner={owner} />
           {['completed', 'failed', 'halted'].includes(task.status) && <TaskFeedback companyId={companyId} task={task} />}
           <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <Transcript companyId={companyId} task={task} />
@@ -754,7 +759,7 @@ function TaskFeedback({ companyId, task }: { companyId: string; task: WorkItem }
  * every draft it wrote, each readable in full. The thing the work was for,
  * which used to be nowhere the owner could see it.
  */
-function TaskOutput({ companyId, task, openTask }: { companyId: string; task: WorkItem; openTask: (id: string) => void }) {
+function TaskOutput({ companyId, task, openTask, owner }: { companyId: string; task: WorkItem; openTask: (id: string) => void; owner: boolean }) {
   const pulse = useLivePulse(companyId, (event) => event.taskId === task.id);
   const detail = useLoad(async () => {
     const answer: { task: TaskDetail } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
@@ -764,7 +769,7 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
 
   if (detail.error) return <Text c="red" size="sm">{detail.error}</Text>;
   if (!detail.data) return <Loading rows={2} />;
-  const { output, deliverables, done: report, handedOn, handedBy } = detail.data;
+  const { output, deliverables, files, done: report, handedOn, handedBy } = detail.data;
   const answer = resultText(output);
   // Who handed this on, so a piece of work leads back to the task it is for.
   const from = handedBy && (
@@ -773,7 +778,7 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
       <Button size="compact-xs" variant="subtle" onClick={() => openTask(handedBy.id)}>{t('Open the task')}</Button>
     </Group>
   );
-  if (output === null && deliverables.length === 0 && handedOn.length === 0) {
+  if (output === null && deliverables.length === 0 && files.length === 0 && handedOn.length === 0) {
     return (
       <div>
         {from}
@@ -833,6 +838,25 @@ function TaskOutput({ companyId, task, openTask }: { companyId: string; task: Wo
             </Group>
           </Paper>
         ))}
+        {files.length > 0 && (
+          <Paper withBorder radius="md" p="sm">
+            <Text size="sm" fw={600} mb={6}>{t('Files it made')}</Text>
+            <Stack gap={8}>
+              {files.map((file, at) => (
+                <Group key={`${at}-${file.path}`} justify="space-between" wrap="wrap" gap="xs" align="center">
+                  <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                    <IconFile size={16} style={{ flexShrink: 0 }} />
+                    <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{file.path}</Text>
+                  </Group>
+                  {owner && (
+                    <ActionButton size="xs" variant="light" label={t('Download')} leftSection={<IconDownload size={14} />}
+                      run={() => saveCompanyFile(companyId, file.path)} />
+                  )}
+                </Group>
+              ))}
+            </Stack>
+          </Paper>
+        )}
         {handedOn.length > 0 && (
           <Paper withBorder radius="md" p="sm">
             <Text size="sm" fw={600} mb={6}>{t('Work it handed on')}</Text>

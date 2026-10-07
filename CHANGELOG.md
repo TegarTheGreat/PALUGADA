@@ -545,6 +545,8 @@ The first version. What it holds, in the order an owner meets it.
   `PALUGADA_PUBLIC_HOST=console.example.com` puts HTTPS (Caddy) in front of the console, or
   `PALUGADA_PUBLIC_HOST=<address>` opens it on the address over plain HTTP, with a warning; `private`
   shuts it again, and `doctor` says where it is meant to be opened (STATUS 2.168).
+- A task's page lists the files it made -- a picture, a computed spreadsheet, a draft -- and you can download
+  each; the gallery showed only what has text (STATUS 2.169).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

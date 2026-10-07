@@ -10201,6 +10201,26 @@ No code of the platform changed: `install.sh`, `docker-compose.yml`, one new fil
   eighteen values refused before anything is written, a choice kept, replaced and taken back, the shape of the
   Compose service and the Caddyfile, `doctor` with and without the proxy), each behaviour seen to fail when taken out.
 
+## 2.169 A task's page offers the files it made (the audit of 6 October, W2; P1.4, part 3)
+
+The gallery and a task's deliverables show what has text to read. A picture from `image.generate`, a
+spreadsheet `code.compute` computed and any draft that is not text were produced and invisible: reachable only
+by knowing the path to type into the Files tab (2.166). No table, no migration, no new route.
+
+- **What it is.** `TaskDetail.files`, read from the journal by `madeFiles` (2.165): every committed write of the
+  task that answered with a `path` or with `files[]`, in the order it made them, without what it only read
+  (`files.read`, `image.describe`, `speech.transcribe`, as the gallery already leaves them out), without a step that
+  did not commit, at most the newest fifty. A path is a capability's answer: a control character is a space, a key
+  in it is redacted, and it is shown as text and never opened from the page.
+- **On the page.** **Files it made** under the deliverables of a task: each path, and for the owner a **Download**
+  button that is the Files tab's own (`saveCompanyFile`, an octet stream saved, never drawn). A staff seat is shown
+  the names the task's output already shows, and no button (the route refuses it); the drawer is told which it is.
+  One new sentence in all twenty dictionaries.
+- **Not done:** a file that no task journalled (the Files tab lists it), a preview, a download of a task's files as
+  one archive, and the gallery (its SQL needs text and rides index 0107).
+- **Tested** in `deliverables.test.ts` (a picture, a computed sheet and a draft are listed in order; a read, a
+  failed write and another company's task are not; a key and a line break in a path), and by `console-i18n`.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

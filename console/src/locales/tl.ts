@@ -2014,6 +2014,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Mga file",
   "This folder is empty.": "Walang laman ang folder na ito.",
   "Download": "I-download",
+  "Files it made": "Mga file na ginawa nito",
   "Only the first 500 are shown.": "Ang unang 500 lang ang ipinapakita.",
   "You put a file in the company's files": "Naglagay ka ng file sa mga file ng kumpanya",
   "You took a file out of the company's files": "Nag-alis ka ng file sa mga file ng kumpanya",

@@ -119,6 +119,40 @@ test('a file the task only read is not something it produced, on its page or in 
   assert.deepEqual(gallery.items.map((one) => one.path), ['drafts/summary.md']);
 });
 
+test('a file a task made is offered on its page whatever it holds -- a picture, a computed sheet, a draft -- and not one it only read', async () => {
+  // The gallery and the deliverables show what has text to read; a picture or a spreadsheet has none, and was
+  // reachable only by knowing its path. The page names every file the journal says the task made, to take out.
+  const fixture = await createCompany('deliver-files');
+  await registerStandardCatalogue();
+  const run = await task(fixture, 'make the launch pack');
+  redactor.register('sk-live-deliverfiles-0002');
+  await journal(fixture, run.id, 0, 'capability:image.generate', 'committed', { path: 'generated/logo-ab12.png', provider: 'p', sha256: 'x' });
+  await journal(fixture, run.id, 1, 'capability:code.compute', 'committed', {
+    files: [{ path: 'computed/2026-10-06-ab12cd34/rekap.csv', bytes: 24 }, { path: 'computed/2026-10-06-ab12cd34/grafik.png', bytes: 900 }],
+  });
+  await journal(fixture, run.id, 2, 'capability:files.read', 'committed', { path: 'uploads/price-list.xlsx', kind: 'excel', text: 'prices' });
+  await journal(fixture, run.id, 3, 'capability:doc.draft', 'committed', { path: 'drafts/sk-live-deliverfiles-0002.md', text: '# Offer\n\nHello.', words: 2 });
+  await journal(fixture, run.id, 4, 'capability:doc.draft', 'failed', { path: 'drafts/lost.md', text: 'lost' });
+  await journal(fixture, run.id, 5, 'capability:image.generate', 'committed', { path: 'generated/line\nbreak.png' });
+
+  const detail = (await taskDetailOf(fixture.companyId, run.id))!;
+  assert.deepEqual(detail.files.map((one) => [one.capability, one.path]), [
+    ['image.generate', 'generated/logo-ab12.png'],
+    ['code.compute', 'computed/2026-10-06-ab12cd34/rekap.csv'],
+    ['code.compute', 'computed/2026-10-06-ab12cd34/grafik.png'],
+    ['doc.draft', 'drafts/[redacted].md'],
+    ['image.generate', 'generated/line break.png'],
+  ], 'what it read, and what did not commit, is not a file it made; a key in a path is redacted; a control character is a space');
+  // The files are listed beside the deliverables, not instead of them.
+  assert.deepEqual(detail.deliverables.map((one) => one.capability), ['doc.draft']);
+  // A task that made none has none.
+  const bare = await task(fixture, 'say hello');
+  assert.deepEqual((await taskDetailOf(fixture.companyId, bare.id))!.files, []);
+  // And another company's task is not found, with or without files.
+  const other = await createCompany('deliver-files-other');
+  assert.equal(await taskDetailOf(other.companyId, run.id), null);
+});
+
 test("a task's output is read only in its own company", async () => {
   const fixture = await createCompany('deliver-own');
   const other = await createCompany('deliver-other');

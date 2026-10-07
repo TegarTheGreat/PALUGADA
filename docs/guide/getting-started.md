@@ -44,11 +44,48 @@ by hand, without asking anything:
 - it runs `docker compose up -d --build`, which builds the image, starts the
   database, applies the migrations and starts the platform;
 - it waits until `http://127.0.0.1:8787/api/health` answers
-  (`PALUGADA_PORT` publishes another port);
+  (`PALUGADA_PORT` publishes another port), saying every ten seconds how
+  long it has been, what is running and the last line the platform printed,
+  and stopping at once, with the platform's last lines, if the platform
+  stops instead of waiting out the ten minutes;
 - it prints the link the platform prints while it has no owner. Open it
   within a day: it asks you to add PALUGADA to your authenticator app, and
   you are the owner. Then choose the model under **This deployment**,
   **Model**, which the step-by-step setup would have asked.
+
+### On a server (a VPS)
+
+The console is first open to the server itself alone: it holds the owner's
+second factor and can spend money and send mail, so it is not put on the
+internet before you say so. Run over SSH, the installer ends by saying how to
+open it from your own computer, with this server's own public address in it:
+
+- **At once, with nothing to set up.** An SSH tunnel, from your computer:
+  `ssh -N -L 8787:127.0.0.1:8787 user@203.0.113.7`, left running; then open
+  the link the installer printed (`http://localhost:8787/#/claim/...`) in your
+  browser. Nothing is exposed.
+- **From any browser, over HTTPS.** Point a domain name at the server (an `A`
+  record), then run the installer again naming it:
+
+  ```sh
+  curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | PALUGADA_PUBLIC_HOST=console.example.com sh
+  ```
+
+  It writes the public name into `.env` (`PALUGADA_ALLOWED_HOSTS`,
+  `PALUGADA_APP_URL_PUBLIC`, `PALUGADA_BEHIND_PROXY`, `COMPOSE_PROFILES=https`)
+  and starts Caddy beside the console, which gets the name's certificate from
+  Let's Encrypt and renews it. Ports 80 and 443 must be free and open in the
+  server's firewall; the installer says whether the name points at this
+  server yet, and HTTPS is made as soon as it does.
+- **By the server's address alone**, with no domain:
+  `PALUGADA_PUBLIC_HOST=203.0.113.7`. The console is then on
+  `http://203.0.113.7:8787`, **without encryption**: what you type, your
+  authenticator codes included, can be read on the way. The installer says
+  so; use it for a first look, and a domain for anything you keep. Allow the
+  port in the server's firewall if the link does not open.
+- `PALUGADA_PUBLIC_HOST=private` shuts it to the server again. What you chose
+  stays through every later run of the installer, and `doctor` says where the
+  console is meant to be opened.
 
 Run the same command again to update. It keeps `.env` and the data, copies
 the database and the code it is about to replace to `~/palugada/backups/`

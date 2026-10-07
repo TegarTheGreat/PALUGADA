@@ -13,7 +13,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
@@ -34,7 +34,15 @@ import { certificate, imapServer, smtpServer, type Imap, type Smtp } from '../he
 
 before(ensureSchema);
 beforeEach(resetData);
+/** Each test's folder of company files: some hold files of several megabytes, and none is kept. */
+const roots: string[] = [];
+const filesRoot = async (): Promise<string> => {
+  const root = await mkdtemp(join(tmpdir(), 'palugada-mail-files-'));
+  roots.push(root);
+  return root;
+};
 after(async () => {
+  for (const root of roots) await rm(root, { recursive: true, force: true });
   await closePools();
   await closeSetup();
 });
@@ -125,7 +133,7 @@ const recapBytes = Buffer.from('menu,gelas\nkopi susu,30\n', 'utf8');
 test('a letter carries the files the company made: the owner is asked with each of them named, and what leaves is those bytes under those names', { skip: SKIP }, async () => {
   const fixture = await createCompany('mail-files');
   await withControlPlane((tx) => tx.query("UPDATE companies SET name = 'Toko Kopi Senja' WHERE id = $1", [fixture.companyId]));
-  const root = await mkdtemp(join(tmpdir(), 'palugada-mail-files-'));
+  const root = await filesRoot();
   const mail = await servers();
   const { api, broker, token, path } = await setting(fixture, root);
   try {
@@ -229,7 +237,7 @@ test('a letter with no files is the letter it always was, however the files are 
 test('what may not leave does not: another company\'s file, a link out of the company\'s files, what a stranger sent, a folder, a file named twice, more than a letter takes', { skip: SKIP }, async () => {
   const fixture = await createCompany('mail-files-refused');
   const other = await createCompany('mail-files-other');
-  const root = await mkdtemp(join(tmpdir(), 'palugada-mail-files-'));
+  const root = await filesRoot();
   const mail = await servers();
   const { api, broker, token, path } = await setting(fixture, root);
   try {
@@ -299,7 +307,7 @@ test('what may not leave does not: another company\'s file, a link out of the co
 
 test('a name a person typed arrives as one plain name, and two files of one name do not replace each other', { skip: SKIP }, async () => {
   const fixture = await createCompany('mail-files-names');
-  const root = await mkdtemp(join(tmpdir(), 'palugada-mail-files-'));
+  const root = await filesRoot();
   const mail = await servers();
   const { api, broker, token, path } = await setting(fixture, root);
   try {
@@ -359,7 +367,7 @@ test('a deployment that keeps no files cannot send any, and says so; its letters
 
 test('a server that says how much it takes is not sent more: refused before it is asked to receive anything', { skip: SKIP }, async () => {
   const fixture = await createCompany('mail-size');
-  const root = await mkdtemp(join(tmpdir(), 'palugada-mail-files-'));
+  const root = await filesRoot();
   const mail = await servers();
   const { api, broker, token, path } = await setting(fixture, root);
   try {

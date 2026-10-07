@@ -6,7 +6,8 @@
 # then open http://127.0.0.1:8787. The console is published on this machine's
 # loopback only; to reach it from elsewhere, put it behind HTTPS and set
 # PALUGADA_PUBLISH, PALUGADA_ALLOWED_HOSTS and PALUGADA_APP_URL_PUBLIC in .env
-# (docs/guide/operations.md).
+# (docs/guide/operations.md), or run install.sh with PALUGADA_PUBLIC_HOST set
+# to a domain name, which writes them and starts the `caddy` service below.
 
 name: palugada
 
@@ -85,6 +86,34 @@ services:
     # SIGTERM lets the worker hand in-flight work back; give it the time.
     stop_grace_period: 60s
 
+  # HTTPS in front of the console, for a domain name: started only under the
+  # `https` profile, which install.sh turns on (COMPOSE_PROFILES=https in .env)
+  # when it is given PALUGADA_PUBLIC_HOST=console.example.com. Caddy asks Let's
+  # Encrypt for the name's certificate by itself and renews it. The name must
+  # point at this machine, and ports 80 and 443 must be free and open. The
+  # console stays on the loopback: only this service is reached from outside,
+  # and it passes on the name that was opened, which the console answers to
+  # (PALUGADA_ALLOWED_HOSTS) and nothing else.
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    environment:
+      # Not a required value: Compose reads every service, started or not.
+      PALUGADA_DOMAIN: ${PALUGADA_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
 volumes:
   database:
   home:
+  caddy-data:
+  caddy-config:

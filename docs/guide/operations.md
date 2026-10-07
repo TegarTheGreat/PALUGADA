@@ -109,6 +109,15 @@ rather the container never hold it; migrations still need
 
 ## HTTPS in front of it
 
+**With the installer and a domain name** this is done for you: running
+`install.sh` with `PALUGADA_PUBLIC_HOST=console.example.com` (the name must
+already point at the server, and ports 80 and 443 be free and open) writes the
+settings below into `.env` and turns on the `https` profile of
+`docker-compose.yml`, a Caddy beside the console that makes and renews the
+certificate and passes the name opened and the caller's address on
+([getting started](getting-started.md#on-a-server-a-vps)). What follows is
+for a proxy of your own.
+
 The console and the API listen on `PALUGADA_HOST` (default `127.0.0.1`) and
 `PALUGADA_PORT` (default `8787`), in plain HTTP. Keep them on the loopback
 address and put a reverse proxy that terminates TLS in front, on the same

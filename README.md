@@ -73,7 +73,10 @@ its `.env`, starts it with Docker Compose, waits until the console answers,
 and prints a link: whoever opens it first becomes the owner, adds PALUGADA to
 their authenticator app there, and chooses the model in the console. Run the
 same command again to update; the passwords and the data stay, and the
-database is copied to `~/palugada/backups` first.
+database is copied to `~/palugada/backups` first. On a server it also says how
+to open the console from your own computer, and
+`PALUGADA_PUBLIC_HOST=console.example.com` puts HTTPS in front of it
+([getting started](docs/guide/getting-started.md#on-a-server-a-vps)).
 
 **With Docker, step by step** (Docker Compose, and Node 22.18+ for the setup):
 

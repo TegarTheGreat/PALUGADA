@@ -10144,6 +10144,63 @@ letter that was meant to carry them went without. No table and no migration; the
   message over a megabyte to the byte, names, the tool's own description, the read-back), each safeguard seen to
   fail when taken out.
 
+## 2.168 The installer shows it is working, and says where to open the console on a server (the owner's report of 7 October)
+
+The owner installed PALUGADA on a VPS with the one command and reported two things: the wait showed nothing
+("the loading never shows"), and the address it printed was a local one although the machine was a server.
+Both were true. After `docker compose up`, `install.sh` printed one line and then waited, silent, for up to ten
+minutes; and the link it ended with was `http://localhost:8787/...` (and, with no owner link to print,
+`http://127.0.0.1:...`), which on a server is the server's own address, not one the owner's browser can reach.
+No code of the platform changed: `install.sh`, `docker-compose.yml`, one new file `deploy/docker/Caddyfile`.
+
+- **Progress.** Four numbered steps (`[1/4]` fetching, preparing the settings, building and starting, waiting),
+  the third saying that the first time builds the image and takes a few minutes. While the console does not
+  answer, a line every other poll (ten seconds by default; `PALUGADA_POLL_SECONDS`): how long it has been, which
+  services are running, and the last line the platform printed. The archive is downloaded with curl's own
+  progress bar when there is a terminal to draw it on. A platform that has *stopped* (`exited` or `restarting`
+  in `compose ps`) ends the wait at once with its last forty lines and the command for more, where it was waited
+  for to the end of the ten minutes; and a `compose up` that fails shows the last lines of the migration and
+  the platform, where it showed Docker's one line.
+- **The address.** The console stays on the server's loopback by default: it holds the owner's second factor and
+  spends money, and putting it on the internet unasked in plain HTTP is not a default this project takes. Run over
+  SSH (`SSH_CONNECTION` or `SSH_CLIENT` set) the installer says so, and prints the tunnel with the server's own
+  public address in it (`ssh -N -L 8787:127.0.0.1:8787 -p <port> user@203.0.113.7`) and the two ways to open it
+  to others. The address is looked up (`api.ipify.org`, then `ifconfig.me`, then `icanhazip.com`, four seconds
+  each) only when it is needed -- never on a machine the owner sits at, and never when an address was given --
+  and an answer that is a private or shared address is not used; failing that, the address the client connected to
+  if the world can reach it; failing that, `<this server's address>`, not one made up.
+- **Opening it.** `PALUGADA_PUBLIC_HOST`: a **domain name** turns on the `https` profile of Compose (`caddy:2`,
+  ports 80 and 443, certificates made and renewed by Caddy from Let's Encrypt, the name passed on as it came so
+  that the console's host check holds, the caller's address in `X-Forwarded-For`) and writes
+  `COMPOSE_PROFILES=https`, `PALUGADA_DOMAIN`, `PALUGADA_ALLOWED_HOSTS`, `PALUGADA_APP_URL_PUBLIC=https://...` and
+  `PALUGADA_BEHIND_PROXY=1`, leaving the platform itself on the loopback; an **IPv4 address** publishes the
+  console on every interface over plain HTTP and says in a warning that nothing on the way is encrypted and which
+  port to open in the firewall; `private` takes either back. The name is checked before anything is written, to
+  the characters of a name or an address (it goes into `.env`, a URL and Caddy's configuration), refusing a
+  loopback, `0.` or `255.` address, a name with no dot, a last label that is only digits, and everything else.
+  Each choice removes what the one before wrote, and what was chosen stays through an update. The claim link
+  is printed as the platform printed it for the public address, and a domain is compared with this server's
+  public address (it points here, points elsewhere, or points nowhere yet) so that the certificate that cannot
+  be made is said before the owner waits for it. `doctor` expects Caddy when HTTPS was chosen and says where the
+  console is meant to be opened.
+- **Not run live.** The tests drive `install.sh` against stand-ins for `docker`, `curl` and `getent`, as the first
+  installer's did; Compose and Caddy are not started here (no Docker daemon in this environment), so the
+  `caddy` service, its Caddyfile and Let's Encrypt are written from the documentation and read by tests for
+  their shape alone. The first real run on a server is the acceptance test, and its outcome belongs here. Known
+  limits: IPv6 addresses are not accepted as a public host; an address in plain HTTP is a choice the owner makes,
+  warned of and not prevented; a server whose ports 80 and 443 are taken fails at `compose up` with Docker's own
+  message, shown with the logs; the public address comes from a third-party lookup, which is why it is asked
+  for only over SSH and never stored.
+- **Also found.** The install tests left their folder of the checkout's tarball and the tree it was unpacked to
+  behind on every run (tens of megabytes each, 17 a run): together with the other tests' temporary folders they
+  filled the disk of this environment (14,000 folders in `/tmp`), which `doctor` correctly reported as "only 0 GB
+  free" and so failed its own tests. The install and mail-attachment tests now remove what they made.
+- **Tested** in `install.test.ts` (nine new tests: the steps and the wait's words, a stopped and a restarting
+  platform, a failed start, the tunnel with the public address, the port ssh is on, a private answer and the
+  address the client used, an address given, a domain with the name pointing elsewhere, here and nowhere,
+  eighteen values refused before anything is written, a choice kept, replaced and taken back, the shape of the
+  Compose service and the Caddyfile, `doctor` with and without the proxy), each behaviour seen to fail when taken out.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

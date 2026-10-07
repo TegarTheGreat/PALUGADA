@@ -320,6 +320,11 @@ The first version. What it holds, in the order an owner meets it.
   did, instead of putting a card in front of you to press. After it has read
   what agents wrote in the same turn, or in a session signed in with a recovery
   code, the same change is still a card for you (STATUS 2.175).
+- A role that goes round in circles -- the same tool with the same input and the same answer four
+  times, a refusal three times, two calls taking turns -- is told so, and if it goes on it is given no tools and
+  asked to finish saying what is done and what stopped it, instead of spending forty turns and your budget.
+  A conversation that grows past what the model reads is written down by the model and the work carries on, where
+  it used to fail "too long" with the work half done (STATUS 2.176).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

@@ -10516,6 +10516,74 @@ the same reason (2.143 was the first, with a window). The threat model's item 4b
   its own device. What the owner has against it: sign out, freeze the company, short sessions, and the audit
   trail, which names the session behind every decision.
 
+## 2.176 The role loop notices when it goes round in circles, and writes its work down when it outgrows its model (the owner's challenge of 7 October)
+
+The owner's words: how many kinds of agent does the loop have, had it been thought through, and "everything put in
+must be mature, not only look complete". Counting them (below) showed the list was longer than the depth: twelve
+runtimes are registered, but the loop every role runs by default (`src/runtime/agent-loop.ts`, 40 turns, every turn
+journalled) was sound about durability and thin about behaviour. Two of its gaps were checked in the code and are
+closed here, after reading how OpenHands, Codex, OpenCode and Hermes close them.
+
+**What there is to run an agent on (counted, 7 October).** Registered by `assemble.ts`: `in-process` (a model
+through the broker, or a handler written in code), `claude-code`, five known CLIs (`codex`, `gemini-cli`,
+`opencode`, `hermes`, `openclaw`), any other CLI by a spec, including any agent that speaks ACP, `http`,
+`container` (docker, no network), `remote_sandbox`, and `person`. `script` is the transport `container` uses and is
+not registered by itself. Two loops talk to a model and use tools: the role's (`agent-loop.ts`) and the owner's CEO
+chat (`owner/assistant.ts`, ten turns, not journalled). How far each is *verified* is in the comments that say it:
+`codex`, `gemini-cli` and `opencode` were run against a stand-in model, `hermes` and `openclaw` were read from their
+source and never run, ACP was written from its schema, the remote sandbox has never met a vendor.
+
+- **A run going round in circles is told, then asked to finish (done).** `src/runtime/loop-health.ts`, from
+  OpenHands' stuck detector: the same call with the same answer four times running, the same call refused three
+  times (whatever words the refusal used), two calls taking turns for six. It is a function of the conversation
+  alone, so a run rebuilt from the journal is told what an uninterrupted one was. The first rung is a notice on a
+  copy of the last message (which call, how often, what to do instead, including that finishing and saying what is
+  blocked is allowed). When the model goes on for three more, its next turn is sent with **no tools** and asked for
+  the task's output saying what is done and what is not (`notDone` ends the task as work that did not happen, as
+  N9 made it). A model that calls a tool anyway ends the task once, with why (`run.stuck`), and the engine does not
+  run the same journal again (the same rule as `model.context_too_long`).
+- **A conversation that outgrows its model is written down, not failed (done).** `src/runtime/compaction.ts`. The
+  loop already left out old reads (`elideOldResults`) and that was all: a long conversation of another kind -- a
+  model writing long drafts, a local model that reads eight thousand tokens -- was refused by the provider and the
+  task failed, "too long", however much was done. Now, inside the turn that needs it: past an estimated 80,000
+  tokens the work is written down before the provider has to refuse; and when the provider says "too long" anyway,
+  it is written down with a smaller share kept whole and the turn is asked again once. The newest turns are kept
+  whole from an assistant message, never less than the last turn with its answers; the rest becomes a summary the
+  model writes in a fixed shape (goal, done with the step each fact came from, refused or failed, open, next).
+  When the model cannot be asked (the budget could not pay for it, the provider is down, it said nothing, the
+  transcript was itself too long) the turns are listed by what they called and how it came out, so a compaction
+  always happens. The summary is **fenced as data** when the model reads it, because it is written from what tools
+  returned. A second compaction is given the first summary to build on, so there is one account in the task, not
+  a stack. The compaction is kept in the turn's own journal step, so a run rebuilt from the journal is compacted at
+  the same turn and the model is **not asked to write it again**; the writing is a call like any other, charged to
+  the run and in its traces.
+- **Tested.** `loop-health.test.ts` (pure: each pattern and its near misses, the step number not making one call
+  another, the ladder, rebuilt-is-the-same), `loop-compaction.test.ts` (pure: where to cut, a conversation a
+  provider accepts, the summary fenced and replaced not stacked, the transcript bounded, the list of calls),
+  `loop-resilience.test.ts` (through the engine, broker and journal: a run told and recovering; a run asked to
+  finish with no tools and ending `not_done`; a defiant run ending once, shown to fail when the engine's exception
+  is taken away; a resumed run told what an uninterrupted one was; a provider that refuses and a run that goes on
+  after writing; a run killed after writing resumed from the journal with no second writing; no writer, the list
+  of calls; compaction before any refusal, against a provider that really refuses past its window). Each of these
+  was run against the code without the change first and seen to fail for the reason it names.
+- **Not done, and said plainly.**
+  - *Tool calls in one turn still run one after another.* Doing them together is possible -- Restate journals the
+    order of completion -- but the step numbers a run cites as evidence are given in call order, and making that
+    survive a replay is a design of its own, not a flag.
+  - *The CEO's chat loop is the thinner copy.* It has ten turns, no journal, no stuck detection and no compaction;
+    a chat that outgrows its model fails. It and the role loop should be one engine.
+  - *Nothing here reaches the CLI, ACP, `http`, container or sandbox runtimes.* They are black boxes to the engine,
+    one journalled step per round trip, and what their agents do inside a run is theirs.
+  - *The thresholds are constants*, not per role or per model: four, three and six repeats, three more before the
+    wrap-up, 80,000 tokens, 12,000 kept. The turn limit is 40 for every role; a CEO coordinating a team and a
+    researcher get the same.
+  - *A run that ends `run.stuck` says so in English*, like every `failed` task that is not a halt; it has no
+    sentence of its own in the owner's twenty languages. The usual way out -- the model's own `notDone` -- is in the
+    model's language.
+  - *A turn that wrote its work down and then failed* (the provider erred on the retry) is not journalled, so the
+    next attempt writes again: one extra call, not a wrong answer.
+  - *A summary is as good as the model that wrote it*, and nothing scores it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

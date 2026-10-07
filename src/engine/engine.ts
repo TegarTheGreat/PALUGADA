@@ -1793,8 +1793,10 @@ export class Engine {
     const task = await withTenant(companyId, (tx) => getTask(tx, taskId));
     // A conversation too long for its model fails the same way every time:
     // each retry replays the same journal and asks the same turn. Not asked
-    // again; the owner's "run again" starts a conversation of its own.
-    const exhausted = code === 'model.context_too_long' || !task || task.attempt + 1 >= task.attemptMax;
+    // again; the owner's "run again" starts a conversation of its own. The
+    // same for a run that went round in circles and was asked to finish.
+    const exhausted = code === 'model.context_too_long' || code === 'run.stuck'
+      || !task || task.attempt + 1 >= task.attemptMax;
     await withTenant(companyId, async (tx) => {
       await tx.query('UPDATE tasks SET attempt = attempt + 1 WHERE id = $1', [taskId]);
       await appendEvent(tx, {

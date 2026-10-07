@@ -38,6 +38,8 @@ export type ErrorCode =
   | 'model.unavailable'
   /** The conversation is longer than the model reads; asking again would send the same one. */
   | 'model.context_too_long'
+  /** A run went round in circles, was told so and asked to finish, and went on; the same journal would end the same way. */
+  | 'run.stuck'
   | 'skill.invalid'
   | 'skill.unknown'
   | 'skill.scope_change'

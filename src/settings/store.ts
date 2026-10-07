@@ -313,8 +313,16 @@ export async function readSettings(): Promise<Settings> {
   });
 }
 
-/** Replaces one area's settings; null takes the area back to the environment. */
-export async function writeSetting(key: string, value: object | null, options: { renewal?: boolean } = {}): Promise<void> {
+/**
+ * Replaces one area's settings; null takes the area back to the environment.
+ *
+ * `quiet` is for what the platform learns on its own and keeps here -- the
+ * prices it read from the catalogue -- which is not the owner changing a
+ * setting: it leaves `updated_at` as it was (and a first write puts it at the
+ * epoch), so that no replica restarts to take up what every replica reads
+ * for itself.
+ */
+export async function writeSetting(key: string, value: object | null, options: { renewal?: boolean; quiet?: boolean } = {}): Promise<void> {
   await withControlPlane(async (tx) => {
     if (value === null) {
       await tx.query('DELETE FROM deployment_settings WHERE key = $1', [key]);
@@ -323,15 +331,16 @@ export async function writeSetting(key: string, value: object | null, options: {
     // A renewal leaves `updated_at`, as `putSecret` does: what a token
     // refresh records about itself (when it was refreshed, when the new one
     // runs out) is not the owner changing a setting.
-    if (options.renewal) {
+    if (options.renewal || options.quiet) {
       const { rowCount } = await tx.query(
         'UPDATE deployment_settings SET value = $2 WHERE key = $1', [key, JSON.stringify(value)]);
       if (rowCount === 1) return;
     }
     await tx.query(
-      `INSERT INTO deployment_settings (key, value) VALUES ($1, $2)
+      `INSERT INTO deployment_settings (key, value, updated_at)
+       VALUES ($1, $2, CASE WHEN $3::boolean THEN 'epoch'::timestamptz ELSE now() END)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [key, JSON.stringify(value)],
+      [key, JSON.stringify(value), options.quiet === true],
     );
   });
 }
@@ -343,7 +352,9 @@ export async function writeSetting(key: string, value: object | null, options: {
 export async function settingsVersion(): Promise<string> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ at: Date | null }>(
-      `SELECT greatest((SELECT max(updated_at) FROM deployment_settings),
+      // What the platform learned by itself is written at the epoch (`quiet`)
+      // and is no change: nothing in it is something a replica restarts for.
+      `SELECT greatest((SELECT max(updated_at) FROM deployment_settings WHERE updated_at > 'epoch'),
                        (SELECT max(updated_at) FROM deployment_secrets)) AS at`);
     return rows[0]?.at?.toISOString() ?? 'never';
   });

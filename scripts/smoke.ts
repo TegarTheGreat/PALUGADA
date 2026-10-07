@@ -199,9 +199,9 @@ async function main(): Promise<number> {
 
   // The example price list too, for the same reason: it is what an operator
   // copies, and a broken one would refuse the deployment that copied it.
-  const { loadPriceTable, estimateCents } = await import('../src/engine/pricing.ts');
+  const { loadPriceTable, costOf } = await import('../src/engine/pricing.ts');
   const prices = await loadPriceTable('config/prices.example.json');
-  const unknown = estimateCents(prices, 'a-model-nobody-listed', 1_000_000, 0);
+  const unknown = costOf(prices, 'a-model-nobody-listed', { input: 1_000_000, output: 0 });
   log(
     'price list',
     `config/prices.example.json prices ${prices.rates.length} pattern(s); `

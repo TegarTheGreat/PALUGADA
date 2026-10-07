@@ -119,7 +119,8 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_MCP_SETTINGS` | The MCP servers the owner added in the console, as JSON in the file's shape; the console writes it, next to the file rather than in place of it |
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
 | `PALUGADA_MODEL_PRICE_SETTINGS` | Prices laid over that file, as JSON `{ "models": { "<model>": { "input": <cents>, "output": <cents> } } }` per million tokens. `npm run setup` writes it; prices saved in the console are laid over it |
-| `PALUGADA_MODELS_DEV_URL` | Where the console reads models.dev's catalogue for **Fill from models.dev** (default `https://models.dev/api.json`); a mirror for a deployment without the internet |
+| `PALUGADA_MODELS_DEV_URL` | Where the platform reads models.dev's catalogue of prices (default `https://models.dev/api.json`); a mirror for a deployment without the internet |
+| `PALUGADA_PRICE_SYNC` | `off` stops the platform reading that catalogue itself, once a day, for the models the deployment runs on; prices then come only from the owner and the price file, and a model with neither is charged at the high fallback. Unset, it is on |
 | `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
 | `PALUGADA_AGENT_CLIS` | Agent CLIs this platform knows, by name, found on `PATH`: `claude-code`, `codex`, `gemini-cli`, `opencode`, `hermes`, `openclaw`. See **Agent CLIs** below |
 | `PALUGADA_AGENT_SETTINGS` | Per agent CLI, where its binary is, its tiers, and its credential by reference, as JSON; written by the console. See **Agent CLIs** below |
@@ -184,12 +185,17 @@ cannot call them can only answer in words. Small local models often cannot.
 A provider that is overloaded or rate limited is retried twice, honouring
 `Retry-After`, and then the task falls back or waits; a refused key stops
 every task the same way, so it is said once, naming the setting to check.
-A model the price list does not name is charged at a conservative fallback
-rate, so a budget is never understated. Its real price comes from the
-console (**This deployment**, **Model**, **What it costs**, which can fill
-itself from [models.dev](https://models.dev)), from `npm run setup`, or from
-the file `PALUGADA_MODEL_PRICES` names; for a model on your own machine it
-is zero.
+What a call costs is priced to the fraction of a cent, with the provider's
+cached tokens at their own rates, and what is owed below a cent is carried
+to the next call, so the ledger agrees with the bill. A model's price comes,
+first match winning, from what you typed in the console (**This deployment**,
+**Model**, **What it costs**) or `npm run setup` wrote, from the file
+`PALUGADA_MODEL_PRICES` names, and from [models.dev](https://models.dev),
+which the platform reads itself every day for the models the deployment runs
+on and keeps current (`PALUGADA_PRICE_SYNC=off` stops it). A model none of
+them prices is charged at a conservative fallback rate, so a budget is never
+understated, and the console says which models those are; for a model on
+your own machine, name it in the price file at zero.
 
 **Agent CLIs.** A role can be done by an agent CLI instead of the
 platform's own loop. The console installs, signs in and turns on the known

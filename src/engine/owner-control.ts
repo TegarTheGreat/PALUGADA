@@ -233,7 +233,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
  * reach this: `halted` has no way out in the state machine, and this is the
  * one door, opened by the owner.
  */
-export async function continueHalted(companyId: string, taskId: string): Promise<void> {
+export async function continueHalted(companyId: string, taskId: string, by: 'owner' | 'system' = 'owner'): Promise<void> {
   const task = await taskHere(companyId, taskId);
   const refuse = (status: string, reason: string | null) => new PalugadaError(
     'task.not_continuable',
@@ -290,21 +290,24 @@ export async function continueHalted(companyId: string, taskId: string): Promise
         WHERE id = $1`,
       [taskId, DEFAULT_TASK_RESERVE_TOKENS],
     );
+    // By the owner, or -- when the owner's own ceiling has room again -- by
+    // the platform (self-heal.ts), and said so.
     await appendEvent(tx, {
-      companyId, projectId: task.projectId, taskId, type: 'task.continued', actor: 'owner',
-      payload: { reservedTokens: DEFAULT_TASK_RESERVE_TOKENS },
+      companyId, projectId: task.projectId, taskId, type: 'task.continued', actor: by,
+      payload: { reservedTokens: DEFAULT_TASK_RESERVE_TOKENS, ...(by === 'system' ? { by: 'budget_room' } : {}) },
     });
+    const closedBecause = by === 'system' ? 'budget_room' : 'task_continued';
     // The card that said it stopped has been answered by going on.
     const { rows: withdrawn } = await tx.query<{ id: string }>(
-      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_continued'
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
         WHERE task_id = $1 AND company_id = $2 AND kind = 'budget_alert' AND status = 'open'
         RETURNING id`,
-      [taskId, companyId],
+      [taskId, companyId, closedBecause],
     );
     for (const item of withdrawn) {
       await appendEvent(tx, {
         companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
-        payload: { inboxItemId: item.id, closedReason: 'task_continued' },
+        payload: { inboxItemId: item.id, closedReason: closedBecause },
       });
     }
     // A ticket the halt put back on the board, and nobody has taken since,

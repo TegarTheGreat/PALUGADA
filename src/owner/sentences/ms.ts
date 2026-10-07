@@ -114,6 +114,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Kerja terhenti: token akaun {account} sudah habis',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” terhenti kerana akaun {account} telah menggunakan {spent} daripada {max} token. Naikkan silingnya di Wang, kemudian buka tugasan itu dan tekan Teruskan: ia bersambung dari tempat ia terhenti.',
   'Withdrawn: you continued the task it was about.': 'Ditarik: anda telah meneruskan tugasan yang berkaitan.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Ditarik: bajet sudah ada ruang semula, dan kerja diteruskan dengan sendirinya.',
   'Broke its contract': 'Melanggar kontraknya',
   'Refused by a policy': 'Ditolak oleh dasar',
   'Out of budget': 'Kehabisan belanjawan',
@@ -368,4 +369,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Lain-lain selesai: {count}",
   "Waiting for you: {count}":
     "Menunggu anda: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Ini kali ketiga dalam sehari, jadi ia tidak diteruskan sendiri.',
 };

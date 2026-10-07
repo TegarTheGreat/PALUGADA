@@ -325,6 +325,17 @@ The first version. What it holds, in the order an owner meets it.
   asked to finish saying what is done and what stopped it, instead of spending forty turns and your budget.
   A conversation that grows past what the model reads is written down by the model and the work carries on, where
   it used to fail "too long" with the work half done (STATUS 2.176).
+- The money is counted as the provider counts it. A call is priced to the fraction of a cent, no longer rounded up
+  to a whole one (a call worth a tenth of a cent was charged a cent), and what is below a cent is carried to the
+  next call so the total is right. Cached tokens are priced at the cache's own rates. The platform reads models.dev
+  every day for the models you use and keeps their prices current; a price you typed in the console still wins, and
+  the Model page says whose price each one is, when it was last read and what changed (STATUS 2.177).
+- When the budget runs out, the company handles it. Once your own ceiling has room -- a new month, a raised
+  ceiling -- the month's pause lifts and the work the budget stopped goes on by itself, oldest first, as far as the
+  room goes, with its card withdrawn; you no longer raise the ceiling and then press Continue on each account. A
+  role the breaker stopped for a burst of spending goes back to work when the burst has passed, and the work that
+  waited for it is called back; only the third stop in a day is put to you. Work waits for a paused role and does
+  not fail (STATUS 2.177).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

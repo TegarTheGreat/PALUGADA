@@ -116,6 +116,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'İş durdu: {account} hesabının token’ları bitti',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” durdu çünkü {account} hesabı {max} token’ının {spent} tanesini kullandı. Para bölümünde tavanını yükseltin, sonra görevi açıp Devam et’e basın: kaldığı yerden sürer.',
   'Withdrawn: you continued the task it was about.': 'Geri çekildi: ilgili görevi sürdürdünüz.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Geri çekildi: bütçede yeniden pay kaldı ve iş kendiliğinden devam etti.',
   'Broke its contract': 'Sözleşmesini ihlal etti',
   'Refused by a policy': 'Bir ilke tarafından reddedildi',
   'Out of budget': 'Bütçe tükendi',
@@ -370,4 +371,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Ayrıca tamamlanan: {count}",
   "Waiting for you: {count}":
     "Sizi bekleyen: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Bu bir günde üçüncü kez, bu yüzden kendiliğinden devam etmez.',
 };

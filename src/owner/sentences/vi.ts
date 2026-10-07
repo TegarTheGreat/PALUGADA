@@ -119,6 +119,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Công việc dừng lại: tài khoản {account} đã hết token',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” dừng lại vì tài khoản {account} đã dùng {spent} trên {max} token. Hãy nâng trần của nó trong mục Tài chính, rồi mở nhiệm vụ và nhấn Tiếp tục: nhiệm vụ sẽ tiếp tục từ chỗ đã dừng.',
   'Withdrawn: you continued the task it was about.': 'Đã rút lại: bạn đã tiếp tục nhiệm vụ mà nó nói đến.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Đã rút lại: ngân sách lại có chỗ, và công việc đã tự tiếp tục.',
   'Broke its contract': 'Vi phạm hợp đồng',
   'Refused by a policy': 'Bị chính sách từ chối',
   'Out of budget': 'Hết ngân sách',
@@ -373,4 +374,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Hoàn thành thêm: {count}",
   "Waiting for you: {count}":
     "Đang chờ bạn: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Đây là lần thứ ba trong một ngày, nên vai trò không tự tiếp tục.',
 };

@@ -158,6 +158,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.rate_limited': N('Parked: a vendor said not now'),
   'task.waiting_slot': N('Parked: waiting for a call to the same capability to finish'),
   'task.model_waited': N('Parked: the model did not answer; it is tried again shortly'),
+  'task.role_waited': N('Parked: its role is paused; it goes on when the role does'),
   'task.stranded': N('Task stranded, put to you'),
   'task.lease_expired': N('Worker lost the task; reclaimed'),
   'task.handed_back': N('Handed back when the platform stopped; it resumes where it was'),
@@ -190,6 +191,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'review.decided': N('Review decided'),
   'budget.refused': N('Refused: over budget'),
   'budget.circuit_open': N('Spending circuit breaker opened'),
+  'budget.pause_lifted': N('The pause was lifted: your ceiling is above what has been spent'),
   'budget.period_exhausted': N('Monthly ceiling reached'),
   'schedule.fired': N('Schedule fired'),
   'schedule.fire_failed': N('Schedule could not fire'),
@@ -612,6 +614,7 @@ const WAIT_REASONS: Record<string, string> = {
   service: N('Waiting for a service to answer again'),
   retry: N('Trying again shortly'),
   follow_up: N('Coming back to it later'),
+  role_paused: N('Waiting for its role to be resumed'),
 };
 
 /** A role a waiting task is held up by, as the work view sends it. */

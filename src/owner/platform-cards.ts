@@ -130,16 +130,24 @@ export function spendWarnedCard(reading: OwnerReading, facts: { spentCents: numb
   };
 }
 
-export function roleSpendingFastCard(reading: OwnerReading, facts: { role: string; lastHourCents: number; usualCents: number; multiple: number }): Card {
+/**
+ * The breaker's card is raised only when it holds a role for the owner: one
+ * it stopped for a burst goes on by itself and asks for nothing. `held` says
+ * why the owner is being asked, so the card does not read as a first offence.
+ */
+export function roleSpendingFastCard(reading: OwnerReading, facts: { role: string; lastHourCents: number; usualCents: number; multiple: number; held?: boolean }): Card {
   const { language } = reading;
+  const detail = say(language,
+    '{role} spent {spent} in the last hour, {multiple} times its usual {usual} an hour. It is paused before the monthly ceiling is reached, so there is money left to work with once you have found out why. Resume it when you have.',
+    {
+      role: facts.role, spent: moneySaid(language, facts.lastHourCents, reading.display),
+      usual: moneySaid(language, facts.usualCents, reading.display), multiple: number(reading, facts.multiple, 1),
+    });
   return {
     title: say(language, 'Role {role} is paused for spending too fast', { role: facts.role }),
-    detail: say(language,
-      '{role} spent {spent} in the last hour, {multiple} times its usual {usual} an hour. It is paused before the monthly ceiling is reached, so there is money left to work with once you have found out why. Resume it when you have.',
-      {
-        role: facts.role, spent: moneySaid(language, facts.lastHourCents, reading.display),
-        usual: moneySaid(language, facts.usualCents, reading.display), multiple: number(reading, facts.multiple, 1),
-      }),
+    detail: facts.held
+      ? `${detail} ${say(language, 'This is the third time in a day, so it does not go on by itself.')}`
+      : detail,
   };
 }
 

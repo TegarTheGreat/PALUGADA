@@ -55,8 +55,9 @@ import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
-import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused } from './governance/spend-guard.ts';
+import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused, thawCooledRoles } from './governance/spend-guard.ts';
 import { startNewPeriods } from './engine/budget.ts';
+import { resumeBudgetStopped } from './engine/self-heal.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { embedBacklog } from './knowledge/meaning.ts';
@@ -228,6 +229,10 @@ export interface TickReport {
   screened: number;
   /** Tasks halted because their deadline passed while nobody was running them (F5.6). */
   pastDeadline: number;
+  /** Work its budget stopped that went on by itself, its owner's ceiling having room again (src/engine/self-heal.ts). */
+  resumed: number;
+  /** Roles the breaker had stopped for a burst that has passed, and that went back to work by themselves. */
+  thawed: number;
   /** Live tasks found with nothing left to move them, and put to the owner. */
   stranded: number;
   /** Root tasks that ended badly with nobody told, put to the coordinator and then the owner. */
@@ -308,6 +313,8 @@ function emptyReport(): TickReport {
     distilled: 0,
     screened: 0,
     pastDeadline: 0,
+    resumed: 0,
+    thawed: 0,
     stranded: 0,
     ended: 0,
     triaged: 0,
@@ -343,7 +350,7 @@ export interface WorkerCounts {
 
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
-  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0;
+  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0 || report.resumed > 0 || report.thawed > 0;
 }
 
 export class Worker {
@@ -657,6 +664,12 @@ export class Worker {
         // A passed month's counts start again before anything reads them (0101).
         await startNewPeriods(company);
         await evaluateSpendLimit(company, now);
+        // After the pause is read: a month that began, or a ceiling raised, is
+        // what the work it stopped was waiting for, and goes on in the same look.
+        report.resumed += (await resumeBudgetStopped(company, now)).continued;
+        // Before the breaker looks: a role whose burst has passed goes back to
+        // work, and a role still above the line is stopped again if it must be.
+        report.thawed += (await thawCooledRoles(company, now)).length;
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;
       });

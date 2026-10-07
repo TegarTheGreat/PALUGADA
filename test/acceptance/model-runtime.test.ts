@@ -627,8 +627,10 @@ test('the model client speaks the Messages API: the key, the version, the tier r
     assert.equal(sent!.headers['anthropic-version'], '2023-06-01');
     assert.equal(sent!.body.model, 'claude-sonnet-5', 'a role says standard; the client says which model that is');
     assert.deepEqual(sent!.body.tools, [{ name: 'dns__read', description: 'Reads DNS.', input_schema: { type: 'object' } }]);
+    // The newest message ends with the mark that makes the provider keep the conversation, so
+    // the next turn reads it back instead of being billed for it again.
     assert.deepEqual((sent!.body.messages as Array<{ content: unknown }>)[2]!.content,
-      [{ type: 'tool_result', tool_use_id: 'toolu_0', content: 'nothing', is_error: true }]);
+      [{ type: 'tool_result', tool_use_id: 'toolu_0', content: 'nothing', is_error: true, cache_control: { type: 'ephemeral' } }]);
     assert.deepEqual((sent!.body.system as Array<{ cache_control?: unknown }>)[0]!.cache_control, { type: 'ephemeral' },
       'the system prompt is the same every turn, and is cached rather than billed again');
 
@@ -637,10 +639,11 @@ test('the model client speaks the Messages API: the key, the version, the tier r
       { type: 'text', text: 'Checking.' },
       { type: 'tool_use', id: 'toolu_1', name: 'dns__read', input: { zone: 'example.test' } },
     ], 'a kind of block the client did not ask for is not carried into the conversation');
-    assert.equal(turn.inputTokens, 5_000, 'cached input is counted, at the full rate');
+    assert.equal(turn.inputTokens, 5_000, 'cached input is counted against the token ceiling');
     assert.equal(turn.model, 'claude-sonnet-5');
-    // 5,000 x 300 + 200 x 1,500 per million = 1.8 cents, rounded up.
-    assert.equal(turn.costCents, 2);
+    // The list names no cache rate, so the 4,000 read from the cache are priced as input: the high side.
+    // 5,000 x 300 + 200 x 1,500 per million = 1.8 cents, exactly.
+    assert.ok(Math.abs(turn.costCents - 1.8) < 1e-9, String(turn.costCents));
   } finally {
     await api.close();
   }

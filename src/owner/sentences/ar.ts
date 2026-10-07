@@ -112,6 +112,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'توقف العمل: نفدت رموز الحساب {account}',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': 'توقف «{work}» لأن الحساب {account} استهلك {spent} من أصل {max} رمزًا. ارفع سقفه من صفحة «المال»، ثم افتح المهمة واضغط «متابعة»: ستكمل من حيث توقفت.',
   'Withdrawn: you continued the task it was about.': 'سُحب: لقد تابعتَ المهمة التي يخصها.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'سُحب: صار في الميزانية متسع من جديد، وتابع العمل من تلقاء نفسه.',
   'Broke its contract': 'أخلّ بعقده',
   'Refused by a policy': 'رفضته سياسة',
   'Out of budget': 'نفدت الميزانية',
@@ -366,4 +367,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "اكتمل غير ذلك: {count}",
   "Waiting for you: {count}":
     "بانتظارك: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'هذه ثالث مرة في يوم واحد، لذلك لن يستأنف من تلقاء نفسه.',
 };

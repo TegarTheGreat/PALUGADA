@@ -112,6 +112,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Huminto ang trabaho: ubos na ang token ng account na {account}',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': 'Huminto ang “{work}” dahil nagamit na ng account na {account} ang {spent} sa {max} nitong token. Itaas ang limit nito sa Pera, pagkatapos ay buksan ang gawain at pindutin ang Ituloy: magpapatuloy ito mula sa kung saan ito huminto.',
   'Withdrawn: you continued the task it was about.': 'Binawi: itinuloy mo na ang gawaing tinutukoy nito.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Binawi: may espasyo na ulit ang badyet, at kusang nagpatuloy ang gawain.',
   'Broke its contract': 'Lumabag sa kontrata nito',
   'Refused by a policy': 'Tinanggihan ng isang patakaran',
   'Out of budget': 'Ubos na ang badyet',
@@ -366,4 +367,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Iba pang natapos: {count}",
   "Waiting for you: {count}":
     "Naghihintay sa iyo: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Ito na ang ikatlong beses sa isang araw, kaya hindi ito kusang magpapatuloy.',
 };

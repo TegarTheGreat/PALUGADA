@@ -7,6 +7,7 @@
  * cannot do -- reach a credential, act outside their grant, replay an action,
  * or quietly get their work done by a model nobody chose.
  */
+import { carryFor } from '../../src/engine/pricing.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
@@ -2730,16 +2731,18 @@ test('a CLI\'s own total replaces the estimates it was charged (F13.7)', async (
   );
   assert.equal(outcome.status, 'completed', outcome.reason);
 
-  // 120 in and 34 out at the fallback rounds up to one cent, then the bill
-  // of 42 replaces it: 42, not 43.
+  // 120 in and 34 out at the fallback are 0.435 of a cent, which is owed and
+  // not yet charged; then the bill of 42 replaces it -- and the owed part with
+  // it, so it is not charged again with the next call: 42, not 43.
   assert.equal(await spentBy(fixture), 42);
+  assert.equal(carryFor(fixture.companyId).pending, 0);
   const settled = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
       "SELECT payload FROM events WHERE type = 'cost.settled'",
     );
     return rows.map((row) => row.payload);
   });
-  assert.deepEqual(settled, [{ model: 'test-model', chargedCents: 1, actualCents: 42, deltaCents: 41 }]);
+  assert.deepEqual(settled, [{ model: 'test-model', chargedCents: 0, actualCents: 42, deltaCents: 42 }]);
 
   // And every figure that reads the trace record sees the bill, not the
   // estimate: the monthly pause, and the cost report the owner reads. They
@@ -2770,8 +2773,8 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
     ['provider-reported', { cost_status: 'actual', actual_cost_usd: 0.42, estimated_cost_usd: 0.4 }, 42],
     ['Hermes estimated', { cost_status: 'estimated', actual_cost_usd: null, estimated_cost_usd: 0.31 }, 31],
     ['in a subscription', { cost_status: 'included', actual_cost_usd: null, estimated_cost_usd: 0 }, 0],
-    // 120 in and 34 out at the fallback rate rounds up to one cent.
-    ['not known', { cost_status: 'unknown', actual_cost_usd: null, estimated_cost_usd: null }, 1],
+    // 120 in and 34 out at the fallback rate are 0.435 of a cent: owed, and not yet charged.
+    ['not known', { cost_status: 'unknown', actual_cost_usd: null, estimated_cost_usd: null }, 0],
   ];
   for (const [what, row, cents] of cases) {
     const fixture = await createCompany(`hermes-cost-${cents}`);
@@ -2788,6 +2791,8 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
     const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(fixture.companyId, task.id, 'worker');
     assert.equal(outcome.status, 'completed', `${what}: ${outcome.reason}`);
     assert.equal(await spentBy(fixture), cents, what);
+    // A price Hermes does not know is estimated, not free: what the estimate comes to is owed.
+    if (what === 'not known') assert.ok(Math.abs(carryFor(fixture.companyId).pending - 0.435) < 1e-9, String(carryFor(fixture.companyId).pending));
   }
   assert.deepEqual(knownCli('hermes').costArgs, ['sessions', 'export', '-', '--session-id', '{sessionId}']);
   assert.throws(() => runtimeSpecsFrom([{ name: 'hermes', command: 'h', args: ['{mcpConfig}'], costArgs: 'sessions' }]),
@@ -2797,9 +2802,11 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
 /**
  * A runtime may price a call at a fraction of a cent, and everything that
  * records money counts whole cents: the fraction reached `budget_spend` as
- * "0.4" and the run died on a bigint cast.
+ * "0.4" and the run died on a bigint cast. Rounded up, each such call was
+ * charged a cent it did not cost; now the fraction is owed, and charged when
+ * what is owed comes to a whole one.
  */
-test('a call priced at a fraction of a cent is charged a whole one (F13.7)', async () => {
+test('a call priced at a fraction of a cent is owed, and charged when it comes to a whole one (F13.7)', async () => {
   const fixture = await createCompany('fractional-cost');
   const broker = await brokerFor(fixture, []);
   await configureRole(fixture, { runtime: 'script' });
@@ -2816,13 +2823,18 @@ test('a call priced at a fraction of a cent is charged a whole one (F13.7)', asy
       await services.reportUsage({
         model: request.modelRouting.primary, inputTokens: 5, outputTokens: 5, costCents: 0.4,
       });
+      await services.reportUsage({
+        model: request.modelRouting.primary, inputTokens: 5, outputTokens: 5, costCents: 0.7,
+      });
       return { output: { done: DONE } };
     },
   };
   const task = await newTask(fixture, {});
   const outcome = await engineWith(broker, adapter as never).runTask(fixture.companyId, task.id, 'worker');
   assert.equal(outcome.status, 'completed', outcome.reason);
+  // 0.4 and 0.7 are 1.1 cents in all: one charged, the tenth owed.
   assert.equal(await spentBy(fixture), 1);
+  assert.ok(Math.abs(carryFor(fixture.companyId).pending - 0.1) < 1e-9);
 });
 
 /** The wire's own half of it, for every runtime that is not this process. */

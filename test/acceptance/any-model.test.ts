@@ -104,8 +104,8 @@ test('the client speaks Chat Completions: tools as functions, their answers as t
       { type: 'tool_use', id: 'call_2', name: 'dns__read', input: { unparsedArguments: '{not json' } },
     ], 'arguments that do not parse reach the broker as they came, and are refused there with a reason');
     assert.equal(turn.model, 'served-model-1');
-    // 1,200 x 100 + 80 x 400 per million = 0.152 cents, rounded up.
-    assert.equal(turn.costCents, 1);
+    // 1,200 x 100 + 80 x 400 per million: 0.152 of a cent, not a cent.
+    assert.ok(Math.abs(turn.costCents - 0.152) < 1e-9, String(turn.costCents));
   } finally {
     await api.close();
   }

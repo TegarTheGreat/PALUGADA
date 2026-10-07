@@ -113,6 +113,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': '작업이 멈췄습니다: {account} 계정의 토큰이 모두 소진되었습니다',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}”이(가) 멈췄습니다. {account} 계정이 {max} 토큰 중 {spent}을(를) 사용했기 때문입니다. 금액에서 한도를 올린 다음, 작업을 열고 계속을 누르세요. 멈춘 곳부터 이어서 진행합니다.',
   'Withdrawn: you continued the task it was about.': '철회됨: 관련 작업을 계속 진행했습니다.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': '철회됨: 예산에 다시 여유가 생겨 작업이 저절로 이어졌습니다.',
   'Broke its contract': '계약 위반',
   'Refused by a policy': '정책에 의해 거부됨',
   'Out of budget': '예산 소진',
@@ -367,4 +368,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "그 밖에 완료: {count}",
   "Waiting for you: {count}":
     "당신을 기다리는 것: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    '하루에 세 번째라서 저절로 다시 시작되지 않습니다.',
 };

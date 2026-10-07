@@ -11,12 +11,19 @@ import type { LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/
 export type Line = Pick<LlmTurn, 'content' | 'stopReason'>;
 export type ModelLine = Line | ((request: LlmTurnRequest) => Line);
 
+export interface ModelOptions {
+  /** What each turn costs, in cents; a fraction is a provider that bills one. */
+  costCents?: number;
+}
+
 export class ScriptedModel implements ToolUsingLlmClient {
   readonly requests: LlmTurnRequest[] = [];
   readonly #script: Array<(request: LlmTurnRequest) => Line>;
+  readonly #costCents: number;
 
-  constructor(script: ModelLine[]) {
+  constructor(script: ModelLine[], options: ModelOptions = {}) {
     this.#script = script.map((line) => (typeof line === 'function' ? line : () => line));
+    this.#costCents = options.costCents ?? 1;
   }
 
   async turn(request: LlmTurnRequest): Promise<LlmTurn> {
@@ -24,7 +31,7 @@ export class ScriptedModel implements ToolUsingLlmClient {
     this.requests.push(structuredClone(request));
     const line = this.#script[this.requests.length - 1];
     if (!line) throw new Error(`the script has no line ${this.requests.length}`);
-    return { ...line(request), inputTokens: 1_000, outputTokens: 100, costCents: 1, model: 'scripted-1' };
+    return { ...line(request), inputTokens: 1_000, outputTokens: 100, costCents: this.#costCents, model: 'scripted-1' };
   }
 
   async complete(): Promise<never> {

@@ -115,6 +115,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'काम रुक गया: {account} खाते के टोकन खत्म हो गए',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” रुक गया क्योंकि {account} खाता अपने {max} टोकन में से {spent} इस्तेमाल कर चुका है। पैसा पेज पर इसकी सीमा बढ़ाएँ, फिर कार्य खोलकर जारी रखें दबाएँ: यह वहीं से आगे बढ़ेगा जहाँ रुका था।',
   'Withdrawn: you continued the task it was about.': 'वापस लिया गया: आपने इससे जुड़ा कार्य जारी रखा।',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'वापस लिया गया: बजट में फिर गुंजाइश हो गई, और काम अपने आप आगे बढ़ गया।',
   'Broke its contract': 'अपना अनुबंध तोड़ा',
   'Refused by a policy': 'नीति ने अस्वीकार किया',
   'Out of budget': 'बजट खत्म',
@@ -369,4 +370,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "और पूरे हुए: {count}",
   "Waiting for you: {count}":
     "आपकी प्रतीक्षा में: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'यह एक दिन में तीसरी बार है, इसलिए यह अपने आप आगे नहीं बढ़ेगी।',
 };

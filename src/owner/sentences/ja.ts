@@ -111,6 +111,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': '作業が止まりました：{account} アカウントのトークンが尽きました',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '「{work}」は、{account} アカウントが {max} トークンのうち {spent} を使い切ったため止まりました。「お金」で上限を引き上げ、タスクを開いて「続ける」を押してください。止まったところから再開します。',
   'Withdrawn: you continued the task it was about.': '取り下げ済み：対象のタスクはあなたが続行しました。',
+  'Withdrawn: the budget had room again, and the work went on by itself.': '取り下げ済み：予算に再び余裕ができ、作業は自動的に再開しました。',
   'Broke its contract': '契約違反',
   'Refused by a policy': 'ポリシーにより拒否',
   'Out of budget': '予算切れ',
@@ -365,4 +366,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "ほかに完了：{count}",
   "Waiting for you: {count}":
     "あなたの対応待ち：{count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    '1日で3回目のため、自動では再開しません。',
 };

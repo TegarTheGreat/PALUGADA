@@ -25,7 +25,7 @@
 import type { LlmBlock, LlmTool, LlmTurn, ToolUsingLlmClient } from '../llm/client.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
-import { wholeCents } from '../engine/pricing.ts';
+import { carryFor } from '../engine/pricing.ts';
 import { isPalugadaError, PalugadaError } from '../errors.ts';
 import { languageName } from '../domain/language.ts';
 import { ceoSaysIn, talkLanguageOf } from './ceo-language.ts';
@@ -550,12 +550,15 @@ export async function converse(options: AssistantOptions, text: string, channel:
     cost.model = model;
     cost.inputTokens += reply.inputTokens;
     cost.outputTokens += reply.outputTokens;
-    cost.costCents += wholeCents(Math.max(0, reply.costCents));
-    if (scope) {
-      await withTenant(scope, (tx) => recordCallOutsideTask(tx, scope, {
+    // Whole cents, carried: a short turn on a cheap model costs a fraction of
+    // one, and each used to be charged a cent. A company's call is carried
+    // with the rest of its calls; PALUGADA's own, which no company pays for,
+    // with the deployment's.
+    cost.costCents += scope
+      ? await withTenant(scope, (tx) => recordCallOutsideTask(tx, scope, {
         model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens, costCents: reply.costCents, latencyMs,
-      }));
-    }
+      }))
+      : carryFor('platform').charge(reply.costCents);
   };
   // A reasoning model counts its thinking here, and can spend the whole of
   // it saying nothing (defect L4 of the live run of 2026-09-28): that turn is

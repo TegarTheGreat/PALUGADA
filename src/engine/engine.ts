@@ -22,7 +22,7 @@ import { processLedger } from './process-ledger.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
-import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
+import { DEFAULT_PRICE_TABLE, carryFor, costOf, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
 import { journalOf, reopenFinalTurns, runStep, writtenBefore, type StepKind } from './journal.ts';
 import { hashInput } from './hash.ts';
@@ -31,6 +31,7 @@ import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
+import { isRoleFrozen } from '../governance/role-freeze.ts';
 import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import {
@@ -170,6 +171,15 @@ export const MODEL_KEY_WAITS_MS: readonly number[] = [60_000, 120_000, 300_000, 
  * since a passing reading stands for a minute (`TRANSIENT_TTL_MS`).
  */
 export const CAPABILITY_OUTAGE_WAITS_MS: readonly number[] = [60_000, 120_000, 240_000, 480_000, 960_000];
+/**
+ * How long work waits for a role that is stopped, between looks: a minute,
+ * then longer, to an hour, which is as long as it stays. The wait is only a
+ * safety net -- the role going back to work calls its tasks back at once
+ * (`liftFreeze`) -- and a look costs no model call, since it is made before
+ * the run starts. The work is not failed and not halted: it is where the role
+ * left it, and nobody has to start it again.
+ */
+export const ROLE_PAUSED_WAITS_MS: readonly number[] = [60_000, 300_000, 900_000, 3_600_000];
 
 export interface RunOutcome {
   status:
@@ -601,6 +611,15 @@ export class Engine {
         await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt, waitReason: 'cheap_hours' });
         return { status: 'waiting_window', reason: 'waiting for cheap hours', waitUntil: opensAt };
       }
+    }
+
+    // A role that is stopped -- paused by the owner, frozen for its denials,
+    // held by the breaker for spending too fast -- does no work, so its tasks
+    // wait for it and are not started to find that out. A run begun anyway
+    // would assemble its context and call its model before its first tool was
+    // refused, and be paid for.
+    if (await withTenant(companyId, (tx) => isRoleFrozen(tx, task.roleId))) {
+      return this.#waitForRole(companyId, taskId, task.roleId);
     }
 
     // F8.12: everything the role declares has to be usable before the task
@@ -1060,8 +1079,11 @@ export class Engine {
     };
 
     // What this run has put on the company's account so far, estimates and
-    // measurements alike, so a runtime's final total can replace it.
+    // measurements alike, so a runtime's final total can replace it; and what
+    // those calls cost exactly, so that what the carry still owes on them goes
+    // with them when the bill replaces them.
     let chargedCents = 0;
+    let exactRunCents = 0;
     // What this run's model calls have written, against the role's own
     // ceiling (F2.3's max_tokens_per_run). Not reset for a fallback model:
     // the ceiling is on the run, whichever model spent it.
@@ -1107,7 +1129,9 @@ export class Engine {
             payload: { model: usage.model, chargedCents, actualCents: actual, deltaCents: delta },
           });
         });
+        carryFor(companyId).forgive(exactRunCents - chargedCents);
         chargedCents = actual;
+        exactRunCents = actual;
         return;
       }
 
@@ -1115,19 +1139,23 @@ export class Engine {
       // and the estimate is marked as one. Reporting a guess as a measurement
       // is how a cost dashboard stops being worth reading.
       const estimate = usage.costCents === null
-        ? estimateCents(
+        ? costOf(
             this.#options.prices ?? DEFAULT_PRICE_TABLE,
-            usage.model, usage.inputTokens, usage.outputTokens,
+            usage.model, { input: usage.inputTokens, output: usage.outputTokens },
           )
         : null;
       const estimated = estimate !== null;
-      // Whole cents, rounded up. A runtime may price a call at a fraction of
-      // one, and the ledger, the budget functions and the trace all count in
-      // cents: a fraction reached `budget_spend` as "0.4" and the run failed
-      // on a bigint cast. Up rather than to nearest, because the error is a
-      // cent at most per call and a ceiling should be the side that is
-      // reached early, not late.
-      const costCents = usage.costCents === null ? estimate!.cents : wholeCents(usage.costCents);
+      // Whole cents, carried. A runtime prices a call at a fraction of a cent
+      // and the ledger, the budget functions and the trace all count in whole
+      // ones (a fraction reached `budget_spend` as "0.4" and the run failed on
+      // a bigint cast). Each call used to be rounded up, and never below one,
+      // so a task of forty small calls was charged forty cents for two. What
+      // a company owes below a cent is carried to its next call instead and
+      // charged when it adds up to one: the total is right, and the ceiling is
+      // reached under a cent late, never early (pricing.ts, `CostCarry`).
+      const exactCents = usage.costCents === null ? estimate!.cents : usage.costCents;
+      const costCents = carryFor(companyId).charge(exactCents);
+      exactRunCents += exactCents;
 
       // Drawn from this task's own reservation, by what is left of it, in the
       // same transaction as the charge. Every call used to hand in the whole
@@ -1196,6 +1224,7 @@ export class Engine {
               model: usage.model,
               tokens,
               cents: costCents,
+              exactCents,
               // Which row of the price table priced it, or `fallback`: an owner
               // reading an estimate needs to know whether it came from their
               // own price list or from the deliberately high default.
@@ -1595,6 +1624,30 @@ export class Engine {
   }
 
   /**
+   * A task whose role is stopped waits for it: parked, with a look at the
+   * times `ROLE_PAUSED_WAITS_MS` gives, and called back at once when the role
+   * goes back to work. Not an attempt spent and not a halt -- a role the owner
+   * paused is exactly work that is supposed to wait.
+   */
+  async #waitForRole(companyId: string, taskId: string, roleId: string): Promise<RunOutcome> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.role_waited' AND occurred_at > now() - interval '6 hours'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    const waitUntil = new Date(Date.now() + ROLE_PAUSED_WAITS_MS[Math.min(waits, ROLE_PAUSED_WAITS_MS.length - 1)]!);
+    await withTenant(companyId, (tx) => appendEvent(tx, {
+      companyId, taskId, type: 'task.role_waited', actor: 'engine',
+      payload: { roleId, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
+    }));
+    await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'role_paused' });
+    return { status: 'waiting_window', reason: 'role.frozen', waitUntil };
+  }
+
+  /**
    * A model whose key was refused (401, 403). Every task that needs the model
    * meets the same refusal, and only the owner can change a key, so the owner
    * is told once -- one card for the company, saying where to put a key that
@@ -1718,6 +1771,10 @@ export class Engine {
         { event: 'task.waiting_slot', counted: false });
       if (parked) return parked;
     }
+
+    // A role stopped while its task ran: the task waits for the role, as it
+    // would have had the role been stopped a moment sooner.
+    if (code === 'role.frozen') return this.#waitForRole(companyId, taskId, settled.roleId);
 
     if (code === 'platform.stopped' || code === 'company.frozen') {
       const current = await withTenant(companyId, (tx) => getTask(tx, taskId));

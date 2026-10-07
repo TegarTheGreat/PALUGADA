@@ -767,7 +767,6 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
 export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
   '/api/control/settings/model/models': 'Which models the saved provider serves: {}.',
   '/api/control/settings/model/test': 'Whether the model saved answers and can call a tool: {}.',
-  '/api/control/settings/model/prices/lookup': 'What models.dev says each model in use costs, to propose saving: {}.',
   '/api/control/mcp/inspect': 'What a saved MCP server offers now: { name }.',
 };
 
@@ -798,6 +797,7 @@ export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
 ];
 
 export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
+  '/api/control/settings/model/prices/sync': 'the platform reads the price catalogue itself every day; the button on the Model page is for an owner who has just changed a model',
   '/api/auth/sign-in': 'signing in is the owner\'s',
   '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',
   '/api/auth/claim/confirm': 'the same claim, confirmed with the owner\'s new authenticator',

@@ -115,6 +115,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Il lavoro si è fermato: l’account {account} ha finito i token',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '«{work}» si è fermato perché l’account {account} ha usato {spent} dei suoi {max} token. Alza il suo tetto in Denaro, poi apri l’attività e premi Continua: riprende da dove si era fermata.',
   'Withdrawn: you continued the task it was about.': 'Ritirato: hai continuato l’attività a cui si riferiva.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Ritirato: il budget aveva di nuovo margine e il lavoro è proseguito da solo.',
   'Broke its contract': 'Ha violato il suo contratto',
   'Refused by a policy': 'Rifiutata da una policy',
   'Out of budget': 'Budget esaurito',
@@ -369,4 +370,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Completati in più: {count}",
   "Waiting for you: {count}":
     "In attesa di te: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'È la terza volta in un giorno, quindi non riprende da solo.',
 };

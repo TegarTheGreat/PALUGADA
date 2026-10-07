@@ -492,6 +492,17 @@ sends stays until the owner removes it; an export carries no file.
   advisory passes the audit; `pgvector/pgvector:pg16` in the compose files
   and `deploy/container-check`'s base are still by tag; and a pin is only as
   good as the review of the pull request that moves it.
+- **The price catalogue.** The platform reads models.dev daily for the models
+  in use (`src/engine/price-sync.ts`), through the same refusing fetch every
+  outbound call of the platform uses, and what it reads is data: a number per
+  model. What a poisoned or mistaken catalogue could do is make a model look
+  cheap and so stretch every budget. It cannot price anything at nothing (a
+  free or unlisted entry stays unpriced and is charged at the conservative
+  fallback), a price the owner typed or the operator's file gave is laid over
+  it, and the console shows which source set each price and what the last
+  reading changed. Residual: a low but non-zero price is believed, as the
+  owner's own typing would be; the cost recorded for a call is also the
+  provider's own `usage`, which the ceilings do not cross-check against a bill.
 
 ### 2.9 The operator's own mistakes
 

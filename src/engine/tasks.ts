@@ -703,8 +703,10 @@ export interface TransitionOptions {
  * - `service`: a capability's vendor having a moment, before it starts (H2)
  * - `retry`: the next attempt after one failed
  * - `follow_up`: a task made to look again at an outcome, at its time (`task.follow_up`)
+ * - `role_paused`: its role is stopped -- paused, frozen or held by the breaker -- and it
+ *   goes on when the role does
  */
-export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up';
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up' | 'role_paused';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(

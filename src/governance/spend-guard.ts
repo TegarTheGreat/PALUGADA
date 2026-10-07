@@ -30,6 +30,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, roleCalledWithin, roleSpendingFastCard, spendPausedCard, spendWarnedCard } from '../owner/platform-cards.ts';
 import { thresholdsFor } from '../reporting/alerts.ts';
+import { liftFreeze } from './role-freeze.ts';
 
 const HOUR_MS = 3_600_000;
 const BASELINE_DAYS = 7;
@@ -259,6 +260,29 @@ export async function evaluateSpendLimit(
     already = await limitFor(companyId);
   }
 
+  // A ceiling raised past what is spent is the owner's answer to the pause,
+  // and the pause was never anything but "not past the ceiling": it lifts at
+  // the next look, with its override, and its card goes. It took a second
+  // decision -- "let spending resume" -- that said nothing the first had not
+  // (the owner's report of 7 October).
+  if (already.pausedAt && spend.fraction < 1) {
+    await withControlPlane(async (tx) => {
+      await tx.query(
+        `UPDATE spend_limits SET paused_at = NULL, pause_reason = NULL, override_until = NULL
+          WHERE company_id = $1 AND paused_at = $2`,
+        [companyId, already.pausedAt],
+      );
+      await appendEvent(tx, {
+        companyId,
+        type: 'budget.pause_lifted',
+        actor: 'system',
+        payload: { reason: 'ceiling_raised', cents: spend.cents, limitCents: spend.limitCents },
+      });
+      await withdrawPauseCard(tx, companyId, 'spend_resumed');
+    });
+    already = await limitFor(companyId);
+  }
+
   if (spend.fraction >= 1) {
     if (!already.pausedAt) {
       const reason =
@@ -313,8 +337,14 @@ export interface RoleRate {
   multiple: number | null;
 }
 
+/** A role's rate, with what the breaker needs to know of its freeze. */
+interface RoleLook extends RoleRate {
+  frozenBy: string | null;
+  frozen: boolean;
+}
+
 const ROLE_SPEND_IN_WINDOW = `
-  SELECT r.id AS role_id, r.slug,
+  SELECT r.id AS role_id, r.slug, r.frozen_at IS NOT NULL AS frozen, r.frozen_by,
          (coalesce((SELECT sum(tr.cost_cents)
                       FROM llm_traces tr JOIN tasks t ON t.id = tr.task_id
                      WHERE t.role_id = r.id
@@ -326,46 +356,32 @@ const ROLE_SPEND_IN_WINDOW = `
                       FROM events e JOIN tasks t ON t.id = e.task_id
                      WHERE t.role_id = r.id AND e.type = 'tool.cost'
                        AND e.occurred_at >= $1 AND e.occurred_at < $2), 0))::text AS cents
-    FROM roles r
-   WHERE r.frozen_at IS NULL`;
+    FROM roles r`;
 
 async function roleSpend(
   tx: TenantClient,
   from: Date,
   to: Date,
-): Promise<Map<string, { slug: string; cents: number }>> {
-  const { rows } = await tx.query<{ role_id: string; slug: string; cents: string }>(
+): Promise<Map<string, { slug: string; cents: number; frozen: boolean; frozenBy: string | null }>> {
+  const { rows } = await tx.query<{ role_id: string; slug: string; cents: string; frozen: boolean; frozen_by: string | null }>(
     ROLE_SPEND_IN_WINDOW,
     [from, to],
   );
-  return new Map(rows.map((row) => [row.role_id, { slug: row.slug, cents: Number(row.cents) }]));
+  return new Map(rows.map((row) => [row.role_id, { slug: row.slug, cents: Number(row.cents), frozen: row.frozen, frozenBy: row.frozen_by }]));
 }
 
 /**
- * F1.8: a role spending far faster than it usually does is stopped.
- *
- * The comparison is an hour against the trailing seven days, expressed as an
- * hourly average so the two are commensurable. A role with no history has no
- * baseline and cannot trip the ratio -- there is nothing to be three times of.
- * That gap is covered by the period ceiling rather than by inventing a number
- * for a role nobody has watched yet.
- *
- * Already-frozen roles are skipped: a frozen role cannot spend, so re-checking
- * it would only produce a second incident about a role that is already stopped.
+ * Every role's last hour against its trailing week, frozen or not: a role the
+ * breaker stopped is looked at again to see whether it has cooled.
  */
-export async function evaluateCircuitBreakers(
-  companyId: string,
-  now = new Date(),
-): Promise<RoleRate[]> {
-  const thresholds = await thresholdsFor(companyId);
+async function lookAtRoles(companyId: string, now: Date): Promise<RoleLook[]> {
   const hourAgo = new Date(now.getTime() - HOUR_MS);
   const baselineFrom = new Date(now.getTime() - BASELINE_HOURS * HOUR_MS);
-
-  const rates = await withTenant(companyId, async (tx) => {
+  return withTenant(companyId, async (tx) => {
     const recent = await roleSpend(tx, hourAgo, now);
     const baseline = await roleSpend(tx, baselineFrom, now);
 
-    const out: RoleRate[] = [];
+    const out: RoleLook[] = [];
     for (const [roleId, current] of recent) {
       const total = baseline.get(roleId)?.cents ?? 0;
       // The last hour is inside the baseline window, and leaving it there
@@ -378,27 +394,78 @@ export async function evaluateCircuitBreakers(
         lastHourCents: current.cents,
         baselineHourlyCents: baselineHourly,
         multiple: baselineHourly > 0 ? current.cents / baselineHourly : null,
+        frozen: current.frozen,
+        frozenBy: current.frozenBy,
       });
     }
     return out;
   });
+}
+
+/** Whether a role's rate is what F1.8 stops: past the floor, and past the multiple of its week. */
+function isRunaway(rate: RoleRate, thresholds: { spendRateFloorCents: number; spendRateMultiple: number }): boolean {
+  if (rate.lastHourCents < thresholds.spendRateFloorCents) return false;
+  return rate.multiple !== null && rate.multiple > thresholds.spendRateMultiple;
+}
+
+/**
+ * How many times the breaker may stop one role in a day before it stops
+ * going on by itself. A burst is a thing that happens to a role; three in a
+ * day is the role's usual being wrong, and the owner's to look at.
+ */
+const HOLD_AFTER_TRIPS = 3;
+
+/**
+ * F1.8: a role spending far faster than it usually does is stopped.
+ *
+ * The comparison is an hour against the trailing seven days, expressed as an
+ * hourly average so the two are commensurable. A role with no history has no
+ * baseline and cannot trip the ratio -- there is nothing to be three times of.
+ * That gap is covered by the period ceiling rather than by inventing a number
+ * for a role nobody has watched yet.
+ *
+ * Already-frozen roles are skipped: a frozen role cannot spend, so re-checking
+ * it would only produce a second incident about a role that is already stopped.
+ *
+ * The stop is for the length of the burst. The first two times in a day the
+ * platform holds the role and lets it go again when the hour has passed
+ * (`thawCooledRoles`), and the owner is not asked: there is a journalled
+ * event, and the role says why it is stopped. The third time is a role, not a
+ * burst: the owner gets the incident F1.8 asks for, and the role stays
+ * stopped until they resume it.
+ */
+export async function evaluateCircuitBreakers(
+  companyId: string,
+  now = new Date(),
+): Promise<RoleRate[]> {
+  const thresholds = await thresholdsFor(companyId);
+  const rates = (await lookAtRoles(companyId, now)).filter((rate) => !rate.frozen);
 
   const tripped: RoleRate[] = [];
   for (const rate of rates) {
-    if (rate.lastHourCents < thresholds.spendRateFloorCents) continue;
-    if (rate.multiple === null || rate.multiple <= thresholds.spendRateMultiple) continue;
+    if (!isRunaway(rate, thresholds)) continue;
 
     const reason =
       `spent ${rate.lastHourCents} cents in the last hour against a seven-day average of ` +
       `${rate.baselineHourlyCents.toFixed(1)} cents an hour, which is ` +
-      `${rate.multiple.toFixed(1)} times its usual rate`;
+      `${rate.multiple!.toFixed(1)} times its usual rate`;
 
-    await withControlPlane(async (tx) => {
-      await tx.query(
-        `UPDATE roles SET frozen_at = now(), frozen_reason = $2
-          WHERE id = $1 AND company_id = $3 AND frozen_at IS NULL`,
-        [rate.roleId, reason, companyId],
+    const held = await withControlPlane(async (tx) => {
+      const dayAgo = new Date(now.getTime() - 24 * HOUR_MS);
+      const { rows: before } = await tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM events
+          WHERE company_id = $1 AND type = 'budget.circuit_open'
+            AND payload->>'roleId' = $2 AND occurred_at > $3`,
+        [companyId, rate.roleId, dayAgo],
       );
+      const trips = (before[0]?.n ?? 0) + 1;
+      const holds = trips >= HOLD_AFTER_TRIPS;
+      const { rowCount } = await tx.query(
+        `UPDATE roles SET frozen_at = now(), frozen_reason = $2, frozen_by = $4
+          WHERE id = $1 AND company_id = $3 AND frozen_at IS NULL`,
+        [rate.roleId, reason, companyId, holds ? 'spend_held' : 'spend'],
+      );
+      if (!rowCount) return null;
       await appendEvent(tx, {
         companyId,
         type: 'budget.circuit_open',
@@ -409,18 +476,57 @@ export async function evaluateCircuitBreakers(
           lastHourCents: rate.lastHourCents,
           baselineHourlyCents: rate.baselineHourlyCents,
           multiple: rate.multiple,
+          trips,
+          held: holds,
         },
       });
+      return holds;
     });
+    if (held === null) continue;
 
-    const card = await withTenant(companyId, async (tx) => roleSpendingFastCard(await ownerReadingWithin(tx), {
-      role: await roleCalledWithin(tx, { id: rate.roleId }), lastHourCents: rate.lastHourCents,
-      usualCents: rate.baselineHourlyCents, multiple: rate.multiple!,
-    }));
-    await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail });
+    if (held) {
+      const card = await withTenant(companyId, async (tx) => roleSpendingFastCard(await ownerReadingWithin(tx), {
+        role: await roleCalledWithin(tx, { id: rate.roleId }), lastHourCents: rate.lastHourCents,
+        usualCents: rate.baselineHourlyCents, multiple: rate.multiple!, held: true,
+      }));
+      await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail });
+    }
 
     tripped.push(rate);
   }
 
   return tripped;
+}
+
+/**
+ * Lets go of the roles the breaker stopped once the burst that stopped them
+ * is out of the last hour.
+ *
+ * The test is the breaker's own, asked again: would this role trip now? A role
+ * whose spending is still above the line stays stopped, and one that has
+ * cooled goes back to work with the work that waited for it called back. Only
+ * `spend` freezes are looked at. The owner's pause and F3.7's denials are
+ * about something a clock does not change, and `spend_held` is the owner's by
+ * the rule above, so none of them is ever lifted here.
+ */
+export async function thawCooledRoles(companyId: string, now = new Date()): Promise<string[]> {
+  const thresholds = await thresholdsFor(companyId);
+  const cooled = (await lookAtRoles(companyId, now))
+    .filter((rate) => rate.frozen && rate.frozenBy === 'spend' && !isRunaway(rate, thresholds));
+  const thawed: string[] = [];
+  for (const rate of cooled) {
+    const lifted = await withControlPlane(async (tx) => {
+      // Looked at again inside the write: the owner may have paused the role
+      // in the meantime, and that pause is theirs.
+      const { rows } = await tx.query<{ frozen_by: string | null }>(
+        'SELECT frozen_by FROM roles WHERE id = $1 AND company_id = $2 AND frozen_at IS NOT NULL FOR UPDATE',
+        [rate.roleId, companyId],
+      );
+      if (rows[0]?.frozen_by !== 'spend') return false;
+      await liftFreeze(tx, companyId, rate.roleId, 'cooled');
+      return true;
+    });
+    if (lifted) thawed.push(rate.roleId);
+  }
+  return thawed;
 }

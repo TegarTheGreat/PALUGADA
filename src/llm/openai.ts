@@ -13,7 +13,7 @@
  * whichever client it is given, so a role behaves the same on any model --
  * which is the point of naming a tier rather than a model.
  */
-import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from '../engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, costOf, type PriceTable } from '../engine/pricing.ts';
 import { defaultRetryDelay, postModel, type RetryDelay } from './transport.ts';
 import type {
   LlmBlock, LlmRequest, LlmResponse, LlmTurn, LlmTurnRequest, ToolUsingLlmClient,
@@ -45,7 +45,14 @@ interface WireCompletion {
     finish_reason?: string;
     message?: { content?: string | null; tool_calls?: WireToolCall[]; refusal?: string | null };
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    /** OpenAI's, and OpenRouter's: how much of the prompt was read from the cache. */
+    prompt_tokens_details?: { cached_tokens?: number };
+    /** DeepSeek's: the prompt split into what hit its cache and what did not. */
+    prompt_cache_hit_tokens?: number;
+  };
 }
 
 export class OpenAiCompatibleClient implements ToolUsingLlmClient {
@@ -133,6 +140,11 @@ export class OpenAiCompatibleClient implements ToolUsingLlmClient {
     const usedTools = content.some((block) => block.type === 'tool_use');
     const inputTokens = answer.usage?.prompt_tokens ?? 0;
     const outputTokens = answer.usage?.completion_tokens ?? 0;
+    // The prompt count includes what the provider read back from its cache,
+    // which it bills below the input rate: told apart, so that the price is
+    // of each part and agrees with the bill.
+    const cached = Math.min(inputTokens, Math.max(0,
+      answer.usage?.prompt_tokens_details?.cached_tokens ?? answer.usage?.prompt_cache_hit_tokens ?? 0));
     const billed = answer.model ?? model;
     return {
       content,
@@ -142,7 +154,7 @@ export class OpenAiCompatibleClient implements ToolUsingLlmClient {
             : 'end_turn',
       inputTokens,
       outputTokens,
-      costCents: estimateCents(this.#prices, billed, inputTokens, outputTokens).cents,
+      costCents: costOf(this.#prices, billed, { input: inputTokens - cached, output: outputTokens, cacheRead: cached }).cents,
       model: billed,
     };
   }

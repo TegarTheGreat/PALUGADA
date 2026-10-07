@@ -138,14 +138,14 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     const roles = await tx.query<{
       id: string; division_id: string; slug: string; model: string; runtime: string | null;
       tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
-      frozen_at: Date | null; frozen_reason: string | null;
+      frozen_at: Date | null; frozen_reason: string | null; frozen_by: string | null;
       open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
       display_name: string | null; title: string | null; persona: { preset?: string; notes?: string } | null;
       max_run_seconds: number | null;
     }>(
       `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
               r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
-              r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria, r.max_run_seconds,
+              r.frozen_at, r.frozen_reason, r.frozen_by, r.system_prompt, r.done_criteria, r.max_run_seconds,
               r.display_name, r.title, r.persona,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
@@ -238,6 +238,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         dormantUntil: role.dormant_until,
         frozenAt: role.frozen_at,
         frozenReason: role.frozen_reason,
+        // Who stopped it, since only some stops are over by themselves.
+        frozenBy: role.frozen_by,
         openTasks: role.open_tasks,
         doneLastWeek: role.done_last_week,
         charter: role.system_prompt,

@@ -239,6 +239,34 @@ test('a month\'s pause ends with its month, and the card that said so is withdra
   assert.equal(open[0]!.closed_reason, 'spend_resumed');
 });
 
+test('a ceiling raised past what is spent lifts the pause by itself, and the card that said it was paused goes (the owner\'s report of 7 October)', async () => {
+  const fixture = await createCompany('spend-raised');
+  const now = new Date();
+  const task = await newTask(fixture);
+  await seedTrace(fixture, task.id, 20_000, now);
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'paused');
+  assert.equal(await isSpendPaused(fixture.companyId), true);
+  const [card] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.ok(card);
+
+  // Raised, but not past what is spent: still paused.
+  await setSpendLimit(fixture.companyId, 20_000);
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'paused');
+  assert.equal(await isSpendPaused(fixture.companyId), true);
+
+  // Raised past it: the one decision the owner had to make. The next look lifts the pause.
+  await setSpendLimit(fixture.companyId, 50_000);
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'under');
+  assert.equal(await isSpendPaused(fixture.companyId), false);
+  assert.ok((await newTask(fixture)).id, 'work is taken again');
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [card.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'spend_resumed' });
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string; payload: { reason: string } }>(
+    "SELECT actor, payload FROM events WHERE type = 'budget.pause_lifted'"));
+  assert.deepEqual(said.map((row) => [row.actor, row.payload.reason]), [['system', 'ceiling_raised']]);
+});
+
 /**
  * Seeds a role with a steady hourly spend across the baseline window.
  *
@@ -285,11 +313,16 @@ test('a role burning ten times its usual rate is paused, with the month still in
   assert.ok(spend.fraction < 1, `period was ${(spend.fraction * 100).toFixed(1)}% spent`);
   assert.equal(await isSpendPaused(fixture.companyId), false);
 
-  const incidents = (await inbox.listOpen(fixture.companyId)).filter(
-    (item) => item.kind === 'incident',
+  // The first stop in a day is the platform's to hold and let go: there is a
+  // journalled event and the role says why, and nothing is put to the owner
+  // (self-heal-roles.test.ts proves the third is).
+  assert.deepEqual(
+    (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident'),
+    [],
   );
-  assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /paused for spending too fast/);
+  const { rows: [opened] } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { trips: number; held: boolean } }>(
+    "SELECT payload FROM events WHERE type = 'budget.circuit_open'"));
+  assert.deepEqual([opened!.payload.trips, opened!.payload.held], [1, false]);
 });
 
 test('the spike does not get to raise its own baseline', async () => {
@@ -361,8 +394,9 @@ test('a role already stopped is not reported again', async () => {
     'a frozen role cannot spend, so re-reporting it says nothing new',
   );
   assert.equal(
-    (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length,
+    (await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM events WHERE type = 'budget.circuit_open'"))).rowCount,
     1,
+    'and it is not counted as a second stop',
   );
 });
 

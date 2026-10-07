@@ -113,6 +113,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Pakaryan kendel: token akun {account} sampun telas',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” kendel amargi akun {account} sampun ngginakaken {spent} saking {max} token. Inggahaken watesipun ing Arta, lajeng bikak tugas punika lan pencet Lajengaken: tugas nglajengaken saking papan kendelipun.',
   'Withdrawn: you continued the task it was about.': 'Dipunwangsulaken: panjenengan sampun nglajengaken tugas ingkang dipunrembag.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Dipunwangsulaken: anggaran sampun gadhah papan malih, lan pakaryan kalajengaken piyambak.',
   'Broke its contract': 'Nerak kontrakipun',
   'Refused by a policy': 'Dipuntolak kawicaksanan',
   'Out of budget': 'Anggaran telas',
@@ -367,4 +368,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Liyané wis rampung: {count}",
   "Waiting for you: {count}":
     "Ngenteni panjenengan: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Punika kaping tiga ing sedinten, dados boten lajeng piyambak.',
 };

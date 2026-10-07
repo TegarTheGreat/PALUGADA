@@ -27,7 +27,9 @@
 import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
-import { DEFAULT_PRICE_TABLE, loadPriceTable, withConsolePrices } from './engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, loadPriceTable, withConsolePrices, type PriceTable } from './engine/pricing.ts';
+import { PriceBook } from './engine/price-book.ts';
+import { keptInSettings, modelsInUse, syncIfStale } from './engine/price-sync.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
 import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
@@ -692,13 +694,23 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
   const filePrices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
   // And what the owner said a model costs in the console (L12), over the file.
-  const prices = withConsolePrices(filePrices, env.PALUGADA_MODEL_PRICE_SETTINGS);
+  const basePrices = withConsolePrices(filePrices, env.PALUGADA_MODEL_PRICE_SETTINGS);
+  // The prices a call is charged by are a book, not a table read once: the
+  // owner's, the operator's, and what the platform itself reads from the
+  // catalogue every day, under them (price-book.ts). Read now, before
+  // anything prices a call, and again whenever one of them changes.
+  const priceBook = new PriceBook(filePrices, {
+    owner: async () => withSettings(baseEnv, options.ignoreSettings ? {} : await readSettings()).PALUGADA_MODEL_PRICE_SETTINGS,
+    catalogue: keptInSettings.read,
+  });
+  await priceBook.refresh().catch(() => undefined);
+  const prices: PriceTable = priceBook;
   if (env.PALUGADA_MODEL_PRICE_SETTINGS) {
     notes.push(`model prices set in the console: ${Object.keys((JSON.parse(env.PALUGADA_MODEL_PRICE_SETTINGS) as { models: object }).models).join(', ')}`);
   }
   notes.push(
     pricesFile
-      ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
+      ? `model prices from ${pricesFile}: ${basePrices.rates.length} model pattern(s), `
         + `fallback ${prices.fallback.inputCentsPerMTok}/${prices.fallback.outputCentsPerMTok} cents per MTok`
       : 'no model price list: unpriced usage is estimated at the conservative fallback -- '
         + 'set PALUGADA_MODEL_PRICES (F13.7)',
@@ -1134,6 +1146,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
     // The file's prices, which the console's are laid over as the owner saves them.
     prices: filePrices,
+    // And the book the model client and the engine price calls by, so that a price saved or read in the
+    // console is the next call's.
+    priceBook,
     // The same store, for the signing secrets of triggers the sender signs.
     secrets,
     // The same handlers the in-process runtime executes, so F11.4 replays the
@@ -1197,6 +1212,46 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const keepingCharters = setInterval(() => void charterRepository.sync().catch(() => undefined), CHARTER_SYNC_MS);
   keepingCharters.unref();
 
+  // Prices that stay current (price-sync.ts). What the catalogue says is read
+  // daily for the models this deployment runs on, and the book is read again
+  // every few minutes, so a price another replica learned, or the owner saved
+  // there, is this one's too. The first reading is a minute after the start,
+  // so that a start is not held up by a catalogue that is slow, and a test
+  // that starts a deployment and stops it never reaches the internet. An
+  // operator without it says so (`PALUGADA_PRICE_SYNC=off`).
+  const priceSyncOn = !options.ignoreSettings && env.PALUGADA_PRICE_SYNC !== 'off';
+  const keepingPrices = setInterval(() => {
+    void (async () => {
+      if (priceSyncOn) {
+        const live = withSettings(baseEnv, await readSettings());
+        const models = modelsInUse(live);
+        if (models.length > 0) {
+          const where = modelSettingsFrom(live);
+          await syncIfStale({
+            models, where: { url: where?.url ?? null, provider: where?.provider ?? null },
+            ...(baseEnv.PALUGADA_MODELS_DEV_URL ? { source: baseEnv.PALUGADA_MODELS_DEV_URL } : {}), ...keptInSettings,
+          });
+        }
+      }
+      await priceBook.refresh();
+    })().catch(() => undefined);
+  }, PRICE_SYNC_POLL_MS);
+  keepingPrices.unref();
+  const firstPrices = priceSyncOn ? setTimeout(() => {
+    void (async () => {
+      const live = withSettings(baseEnv, await readSettings());
+      const models = modelsInUse(live);
+      if (models.length === 0) return;
+      const where = modelSettingsFrom(live);
+      await syncIfStale({
+        models, where: { url: where?.url ?? null, provider: where?.provider ?? null },
+        ...(baseEnv.PALUGADA_MODELS_DEV_URL ? { source: baseEnv.PALUGADA_MODELS_DEV_URL } : {}), ...keptInSettings,
+      });
+      await priceBook.refresh();
+    })().catch(() => undefined);
+  }, PRICE_SYNC_FIRST_MS) : null;
+  firstPrices?.unref();
+
   return {
     worker,
     api,
@@ -1209,6 +1264,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     async stop() {
       if (watching) clearInterval(watching);
       clearInterval(keepingCharters);
+      clearInterval(keepingPrices);
+      if (firstPrices) clearTimeout(firstPrices);
       const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
       // Readiness first. The listener closed at once, and a load balancer
       // that asked every few seconds went on sending requests into a port
@@ -1259,6 +1316,10 @@ const SETTINGS_POLL_MS = 30_000;
 
 /** How often the charter repository is brought level with the database (F3.11). */
 const CHARTER_SYNC_MS = 60_000;
+/** How often the price book is read again, and whether the catalogue is due; the catalogue itself is read once a day. */
+const PRICE_SYNC_POLL_MS = 5 * 60_000;
+/** How long after a start the first reading waits. */
+const PRICE_SYNC_FIRST_MS = 60_000;
 
 /** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
 const STOP_GRACE_MS = 20_000;

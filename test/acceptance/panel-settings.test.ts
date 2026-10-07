@@ -27,10 +27,10 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi } from '../../src/owner/api.ts';
 import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import {
-  DeploymentSecretManager, masterKeyFrom, putSecret, readSettings, writeSetting, type MasterKey,
+  DeploymentSecretManager, masterKeyFrom, putSecret, readSettings, settingsVersion, writeSetting, type MasterKey,
 } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
-import { DEFAULT_PRICE_TABLE, estimateCents, withConsolePrices } from '../../src/engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, costOf, withConsolePrices } from '../../src/engine/pricing.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -217,11 +217,11 @@ test('the owner says what each model costs, and calls are priced by it (L12, F13
     const after = await api.call('GET', '/api/control/settings', token);
     assert.deepEqual(after.body.prices, [{ model: 'deepseek-chat', input: 28, output: 42, source: 'console' }]);
 
-    // The next start prices a call by it: a million tokens in and out, 70 cents rather than 90 dollars.
+    // A call is priced by it: a million tokens in and out, 70 cents rather than 90 dollars.
     const env = withSettings({}, await readSettings());
     const table = withConsolePrices(DEFAULT_PRICE_TABLE, env.PALUGADA_MODEL_PRICE_SETTINGS);
-    assert.deepEqual(estimateCents(table, 'deepseek-chat', 1_000_000, 1_000_000), { cents: 70, basis: 'deepseek-chat' });
-    assert.equal(estimateCents(table, 'some-other-model', 1_000_000, 0).basis, 'fallback', 'a model not priced still is not free');
+    assert.deepEqual(costOf(table, 'deepseek-chat', { input: 1_000_000, output: 1_000_000 }), { cents: 70, basis: 'deepseek-chat' });
+    assert.equal(costOf(table, 'some-other-model', { input: 1_000_000, output: 0 }).basis, 'fallback', 'a model not priced still is not free');
 
     // Taken back, the model is on the fallback again.
     const cleared = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': null }, proof: { totp: api.code() } });
@@ -233,12 +233,14 @@ test('the owner says what each model costs, and calls are priced by it (L12, F13
 });
 
 /**
- * And the owner need not type them: models.dev keeps what each provider's
- * models cost, and the console offers its prices to save. Its provider is
- * the one this deployment's model is reached at when two list the same
- * model at different prices; nothing is saved until the owner saves it.
+ * And the owner need not type them, or save them, or come back to keep them
+ * so: the platform reads models.dev itself, for the models it runs on, and
+ * prices by it under what the owner and the operator say (price-book.ts). Its
+ * provider is the one this deployment's model is reached at when two list the
+ * same model at different prices. "Check the prices now" is that reading done
+ * when the owner asks; it saves no price of theirs.
  */
-test('the console fills a model\'s price from models.dev, for the owner to save (L12)', async () => {
+test('the platform reads models.dev for the models it runs on, and prices by it under the owner\'s own (L12)', async () => {
   const catalogue = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({
@@ -259,14 +261,33 @@ test('the console fills a model\'s price from models.dev, for the owner to save 
   });
   try {
     const token = await api.signIn();
-    const found = await api.call('POST', '/api/control/settings/model/prices/lookup', token, {});
+    const before = await api.call('GET', '/api/control/settings', token);
+    assert.deepEqual(before.body.prices.map((row: { source: string }) => row.source), ['fallback', 'fallback'], 'nothing read yet: both at the highest rate');
+    assert.equal(before.body.priceSync, null);
+
+    const version = await settingsVersion();
+    const found = await api.call('POST', '/api/control/settings/model/prices/sync', token, {});
     assert.equal(found.status, 200, JSON.stringify(found.body));
-    assert.deepEqual(found.body, {
-      prices: { 'deepseek-chat': { input: 28, output: 42, provider: 'DeepSeek' } },
-      missing: ['deepseek-reasoner-9'],
-      problem: null,
-    });
-    assert.equal((await readSettings()).model_prices, undefined, 'a look saves nothing');
+    assert.equal(found.body.ok, true);
+    assert.equal(found.body.problem, null);
+    assert.deepEqual(found.body.prices, [
+      { model: 'deepseek-chat', input: 28, output: 42, source: 'catalogue', provider: 'DeepSeek' },
+      { model: 'deepseek-reasoner-9', input: 1500, output: 7500, source: 'fallback' },
+    ]);
+    assert.deepEqual(found.body.priceSync.unpriced, ['deepseek-reasoner-9'], 'what it could not price, said');
+    assert.ok(found.body.priceSync.syncedAt);
+    // What the platform read is its own, not something the owner saved.
+    assert.equal((await readSettings()).model_prices, undefined);
+    assert.ok((await readSettings()).model_price_catalogue, 'kept, for every process to read');
+    assert.equal(await settingsVersion(), version, 'and not a change of settings: no replica restarts to take up what every replica reads');
+    const after = await api.call('GET', '/api/control/settings', token);
+    assert.equal(after.body.pending, false, 'so nothing is waiting for a start');
+    assert.deepEqual(after.body.prices[0], { model: 'deepseek-chat', input: 28, output: 42, source: 'catalogue', provider: 'DeepSeek' });
+
+    // The owner's own word wins over it.
+    const typed = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: 30, output: 50 } }, proof: { totp: api.code() } });
+    assert.equal(typed.status, 200, JSON.stringify(typed.body));
+    assert.deepEqual((await api.call('GET', '/api/control/settings', token)).body.prices[0], { model: 'deepseek-chat', input: 30, output: 50, source: 'console' });
   } finally {
     await api.close();
   }

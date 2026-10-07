@@ -24,7 +24,7 @@
  * fallback -- and says which model it actually called, so a trace records the
  * model that was billed rather than the tier that was asked for.
  */
-import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from '../engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, costOf, type PriceTable } from '../engine/pricing.ts';
 import { defaultRetryDelay, postModel, type RetryDelay } from './transport.ts';
 import type {
   LlmBlock, LlmRequest, LlmResponse, LlmTurn, LlmTurnRequest, ToolUsingLlmClient,
@@ -113,10 +113,10 @@ export class AnthropicClient implements ToolUsingLlmClient {
       // is the charter and the pack, identical on every turn of a run, and a
       // run of twenty turns would otherwise be billed for it twenty times.
       system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
-      messages: request.messages.map((message) => ({
+      messages: markedForCache(request.messages.map((message) => ({
         role: message.role,
         content: typeof message.content === 'string' ? message.content : message.content.map(toWire),
-      })),
+      }))),
       ...(request.tools.length > 0
         ? {
           tools: request.tools.map((tool) => ({
@@ -154,11 +154,15 @@ export class AnthropicClient implements ToolUsingLlmClient {
       // as though this client had understood it.
     }
     const usage = message.usage ?? {};
-    // Cached input is billed below the full rate; counted at the full rate
-    // here, because an estimate that errs should err towards the budget.
-    const inputTokens = (usage.input_tokens ?? 0)
-      + (usage.cache_creation_input_tokens ?? 0)
-      + (usage.cache_read_input_tokens ?? 0);
+    // The provider reports the prompt in three parts and bills each at its
+    // own rate: what was read from its cache, what was written to it, and the
+    // rest. The tokens the budget counts are all of them; the price is of
+    // each part, at the cache rates the price list names (and at the input
+    // rate when it names none), so the ledger agrees with the bill.
+    const fresh = usage.input_tokens ?? 0;
+    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    const inputTokens = fresh + cacheWrite + cacheRead;
     const outputTokens = usage.output_tokens ?? 0;
     const billed = message.model ?? model;
     return {
@@ -169,10 +173,35 @@ export class AnthropicClient implements ToolUsingLlmClient {
             : 'end_turn',
       inputTokens,
       outputTokens,
-      costCents: estimateCents(this.#prices, billed, inputTokens, outputTokens).cents,
+      costCents: costOf(this.#prices, billed, { input: fresh, output: outputTokens, cacheRead, cacheWrite }).cents,
       model: billed,
     };
   }
+}
+
+/**
+ * The end of the conversation, marked for the provider's cache.
+ *
+ * A run sends its whole conversation again on every turn, so a run of forty
+ * turns pays for its first turns forty times -- at the full input rate, where
+ * the provider bills a read from its cache at a tenth of it. Marking where the
+ * conversation ends makes the provider keep it, and the next turn, which
+ * begins with the same messages, reads them back: the mark this turn leaves is
+ * the one the next one finds. (The loop moves what it leaves out in steps for
+ * the same reason, so that most of what is sent is the same from turn to
+ * turn.) Only the last message is marked: that is one of the four marks a
+ * request may carry, the system prompt's is another, and an older one would
+ * only be a place for the next turn to miss.
+ */
+function markedForCache(messages: Array<{ role: string; content: string | Array<Record<string, unknown>> }>) {
+  const last = messages.at(-1);
+  if (!last) return messages;
+  const blocks = typeof last.content === 'string'
+    ? [{ type: 'text', text: last.content }]
+    : last.content;
+  if (blocks.length === 0) return messages;
+  const marked = [...blocks.slice(0, -1), { ...blocks.at(-1)!, cache_control: { type: 'ephemeral' } }];
+  return [...messages.slice(0, -1), { ...last, content: marked }];
 }
 
 function toWire(block: LlmBlock): Record<string, unknown> {

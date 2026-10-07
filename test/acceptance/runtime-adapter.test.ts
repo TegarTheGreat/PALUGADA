@@ -23,7 +23,7 @@ import {
 import { Engine } from '../../src/engine/engine.ts';
 import { snapshot as budget_snapshot } from '../../src/engine/budget.ts';
 import {
-  CONSERVATIVE_FALLBACK, DEFAULT_PRICE_TABLE, estimateCents, parsePriceTable, type PriceTable,
+  CONSERVATIVE_FALLBACK, DEFAULT_PRICE_TABLE, costOf, parsePriceTable, type PriceTable,
 } from '../../src/engine/pricing.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
@@ -534,9 +534,9 @@ test('a runtime that cannot say what a call cost is charged an estimate, not not
 
 /**
  * The operator's own list wins over the fallback, the most specific pattern
- * wins over a broader one, and a call too small to round to a cent is still
- * a cent -- a thousand calls that each rounded to nothing is the bill that
- * rounded to nothing.
+ * wins over a broader one, and a call too small to be a cent is owed rather
+ * than rounded up to one: it is charged with the calls after it, when what is
+ * owed comes to a cent (cost-accuracy.test.ts holds the thousand-calls case).
  */
 test('an estimate comes from the operator\'s price list when it names the model (F13.7)', async () => {
   const fixture = await createCompany('runtime-cost-priced');
@@ -561,9 +561,9 @@ test('an estimate comes from the operator\'s price list when it names the model 
 
   assert.deepEqual(await estimates(fixture), [
     { cents: 210, basis: 'some-provider/large-*' },
-    { cents: 1, basis: 'some-provider/*' },
+    { cents: 0, basis: 'some-provider/*' },
   ]);
-  assert.equal(await moneySpent(fixture), 211);
+  assert.equal(await moneySpent(fixture), 210);
 });
 
 /**
@@ -583,7 +583,7 @@ test('a price file that would price the unknown at nothing is refused whole', ()
   refused([]);
   // And the fallback is the conservative one when the file does not name it.
   assert.deepEqual(parsePriceTable({}).fallback, CONSERVATIVE_FALLBACK);
-  assert.equal(estimateCents(DEFAULT_PRICE_TABLE, 'x', 0, 0).cents, 0, 'no tokens, no charge');
+  assert.equal(costOf(DEFAULT_PRICE_TABLE, 'x', { input: 0, output: 0 }).cents, 0, 'no tokens, no charge');
 });
 
 test('a prompt the runtime never shared stays distinguishable from a scrubbed one', async () => {

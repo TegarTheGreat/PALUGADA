@@ -22,7 +22,7 @@ import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { wrapUntrusted } from '../context/builder.ts';
 import * as budget from '../engine/budget.ts';
-import { wholeCents } from '../engine/pricing.ts';
+import { carryFor } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
 
@@ -117,7 +117,7 @@ export class AnswerCheck {
 
   /** Charged, traced and recorded in one transaction, as the guardian's look is. */
   async #record(answer: AnswerToCheck, asked: string, response: LlmResponse | null, verdict: AnswerVerdict): Promise<void> {
-    const costCents = response ? wholeCents(Math.max(0, response.costCents)) : 0;
+    const costCents = response ? carryFor(answer.companyId).charge(response.costCents) : 0;
     const refused = await withTenant(answer.companyId, async (tx) => {
       const { rows } = await tx.query<{ budget_account_id: string; project_id: string }>(
         'SELECT budget_account_id, project_id FROM tasks WHERE id = $1', [answer.taskId]);

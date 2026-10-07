@@ -72,6 +72,7 @@ import { VERSION } from '../version.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
+  evaluateSpendLimit,
   limitFor,
   overrideSpendPause,
   periodSpend,
@@ -180,8 +181,10 @@ import { keysAskedFor } from '../broker/keys.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
-import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type PriceTable } from '../engine/pricing.ts';
-import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
+import { DEFAULT_PRICE_TABLE, parsePriceTable, type PriceTable } from '../engine/pricing.ts';
+import { CATALOGUE_SETTING, PriceBook } from '../engine/price-book.ts';
+import { clearCatalogueCache } from '../engine/models-dev.ts';
+import { keptInSettings, modelsInUse, syncPrices } from '../engine/price-sync.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import { DEFAULT_QUESTION, describePicture, pictureKind, VISION_PROVIDERS, visionProvider, type Picture, type VisionProvider } from '../capabilities/vision.ts';
@@ -289,6 +292,12 @@ export interface OwnerApiOptions {
    * laid over (L12). Absent, the conservative fallback alone.
    */
   prices?: PriceTable;
+  /**
+   * The deployment's live prices: the same book its model client and its
+   * engine price calls by, so that a price saved or read here is the next
+   * call's. Absent, the console keeps a book of its own from `prices`.
+   */
+  priceBook?: PriceBook;
   /**
    * The handlers F11.4's replay re-runs (F5.9).
    *
@@ -480,6 +489,16 @@ interface Route {
   handle: Handler;
 }
 
+/**
+ * The deployment's settings without what the platform learned by itself: the
+ * prices it read from the catalogue are kept there and change every day, and
+ * are not something the owner saved and this process has not yet taken up.
+ */
+function withoutKept(settings: Settings): Settings {
+  const { [CATALOGUE_SETTING]: _kept, ...rest } = settings;
+  return rest;
+}
+
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
@@ -506,9 +525,17 @@ export class OwnerApi {
   #draining = false;
   /** Whether anything has asked `/api/ready`: only then is there a balancer to wait for. */
   #readinessAsked = false;
+  /** What each model costs, by layer: the owner's, the operator's, the catalogue's (price-book.ts). */
+  readonly #book: PriceBook;
 
   constructor(options: OwnerApiOptions) {
     this.#options = options;
+    this.#book = options.priceBook ?? new PriceBook(options.prices ?? DEFAULT_PRICE_TABLE, {
+      owner: async () => (options.deploymentSettings
+        ? withSettings(options.deploymentSettings.baseEnv, await readSettings()).PALUGADA_MODEL_PRICE_SETTINGS
+        : undefined),
+      catalogue: keptInSettings.read,
+    });
     this.#sessions = options.sessions ?? new OwnerSessions({ mfa: options.mfa });
     // The first owner's claim seals their secret with the deployment's master
     // key; built without console settings, there is none, and a claim says so.
@@ -1685,6 +1712,10 @@ export class OwnerApi {
             await this.#requireFactor(body.proof, 'raise the spend ceiling', params.companyId!);
           }
           await setSpendLimit(params.companyId!, ceiling);
+          // A ceiling raised past what is spent lifts the month's pause now,
+          // not at the worker's next look, and the work it stopped goes on
+          // with that (src/engine/self-heal.ts).
+          await evaluateSpendLimit(params.companyId!);
           return { ok: true };
         },
       },
@@ -1839,12 +1870,14 @@ export class OwnerApi {
             // What each model the tiers name costs, and who said so (L12): the
             // owner here, the operator's file, or nobody -- the fallback,
             // high on purpose, which the console says in as many words.
-            prices: this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : [], stored),
+            prices: await this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : []),
+            // When the catalogue was last read, and what it could not price.
+            priceSync: this.#priceSync(),
             secrets: await secretNames(),
             masterKey: deployment.master(false)?.source ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
             // Saved, and not yet what this process runs on.
-            pending: JSON.stringify(stored) !== JSON.stringify(deployment.settings),
+            pending: JSON.stringify(withoutKept(stored)) !== JSON.stringify(withoutKept(deployment.settings)),
           };
         },
       },
@@ -1906,25 +1939,30 @@ export class OwnerApi {
       },
 
       {
-        // What models.dev says each model the tiers name costs, for the owner
-        // to look at and save (L12). Saves nothing, and sends nothing of the
-        // deployment's: the catalogue is read whole and searched here.
+        // Reads the catalogue now, rather than at its next turn: what the
+        // platform does every day on its own, for an owner who has just changed
+        // a model or wants to see it done. Sends nothing of the deployment's:
+        // the catalogue is read whole and searched here.
         method: 'POST',
-        pattern: '/api/control/settings/model/prices/lookup',
+        pattern: '/api/control/settings/model/prices/sync',
         handle: async () => {
           const deployment = this.#deploymentSettings();
-          const effective = modelSettingsFrom(deployment.env);
-          const models = effective
-            ? [...new Set(MODEL_TIERS.map((tier) => effective.aliases[tier]).filter((model): model is string => Boolean(model)))]
-            : [];
-          if (models.length === 0) return { prices: {}, missing: [], problem: 'no model is set yet' };
-          try {
-            const found = await lookupPrices(models, { url: effective?.url ?? null, provider: effective?.provider ?? null },
-              deployment.baseEnv.PALUGADA_MODELS_DEV_URL ?? MODELS_DEV_URL);
-            return { ...found, problem: null };
-          } catch (failure) {
-            return { prices: {}, missing: models, problem: `models.dev could not be read: ${(failure as Error).message}` };
-          }
+          const live = withSettings(deployment.baseEnv, await readSettings());
+          const models = modelsInUse(live);
+          if (models.length === 0) return { ok: false, problem: 'no model is set yet', prices: await this.#pricesFor([]), priceSync: null };
+          const effective = modelSettingsFrom(live);
+          const source = deployment.baseEnv.PALUGADA_MODELS_DEV_URL;
+          clearCatalogueCache();
+          await syncPrices({
+            models, where: { url: effective?.url ?? null, provider: effective?.provider ?? null },
+            ...(source ? { source } : {}), ...keptInSettings,
+          });
+          await this.#book.refresh();
+          return {
+            ok: true, problem: this.#book.catalogue?.problem ?? null,
+            prices: await this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : []),
+            priceSync: this.#priceSync(),
+          };
         },
       },
 
@@ -1954,6 +1992,8 @@ export class OwnerApi {
           parsePriceTable({ models }, 'these prices');
           await this.#requireFactor(body.proof, 'change what a model costs');
           await writeSetting('model_prices', Object.keys(models).length > 0 ? { models } : null);
+          // Priced by it from the next call, not from the next start.
+          await this.#book.refresh();
           return this.#applySettings();
         },
       },
@@ -6333,26 +6373,30 @@ export class OwnerApi {
   }
 
   /**
-   * What each model costs as the next start will price it: the operator's
-   * list with the owner's laid over it, from what is stored now, so a price
-   * just saved shows before the restart that takes it up.
+   * What each model costs now, and whose word it is (price-book.ts): the
+   * owner's own, the operator's file, the catalogue's, or nobody's -- the
+   * fallback, high on purpose, which the console says in as many words. The
+   * book is read again first, so a price just saved or just read shows at once.
    */
-  #pricesFor(models: ReadonlyArray<string | undefined>, stored: Record<string, unknown>) {
-    const own = (stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {};
-    // The file's, then setup's (PALUGADA_MODEL_PRICE_SETTINGS in the
-    // environment), then the owner's: the order the start lays them in.
-    const configured = withConsolePrices(this.#options.prices ?? DEFAULT_PRICE_TABLE,
-      this.#deploymentSettings().baseEnv.PALUGADA_MODEL_PRICE_SETTINGS);
-    const table = withConsolePrices(configured, Object.keys(own).length > 0 ? JSON.stringify({ models: own }) : undefined);
+  async #pricesFor(models: ReadonlyArray<string | undefined>) {
+    await this.#book.refresh();
     return [...new Set(models.filter((model): model is string => Boolean(model)))].map((model) => {
-      const { rate, basis } = rateFor(table, model);
+      const described = this.#book.describe(model);
       return {
         model,
-        input: rate.inputCentsPerMTok,
-        output: rate.outputCentsPerMTok,
-        source: model in own ? 'console' : basis === 'fallback' ? 'fallback' : 'file',
+        input: described.rate.inputCentsPerMTok,
+        output: described.rate.outputCentsPerMTok,
+        source: described.layer,
+        ...(described.provider === undefined ? {} : { provider: described.provider }),
       };
     });
+  }
+
+  /** When the catalogue was last read, why the last try failed if it did, and which models it could not price. */
+  #priceSync() {
+    const kept = this.#book.catalogue;
+    if (!kept) return null;
+    return { syncedAt: kept.syncedAt, problem: kept.problem, unpriced: kept.unpriced, source: kept.source, changes: kept.changes.slice(-5) };
   }
 
   /**

@@ -1022,6 +1022,7 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'task_halted': return say(language, 'Withdrawn: the task it was asking about was stopped.');
     case 'task_cancelled': return say(language, 'Withdrawn: the task it was asking about was cancelled.');
     case 'task_continued': return say(language, 'Withdrawn: you continued the task it was about.');
+    case 'budget_room': return say(language, 'Withdrawn: the budget had room again, and the work went on by itself.');
     case 'superseded': return say(language, 'Withdrawn: the agent changed what it proposes and asked again about the new one.');
     case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
     case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');

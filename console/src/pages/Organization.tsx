@@ -542,7 +542,10 @@ function RoleDrawer({
           </Group>
           {role.frozenAt && (
             <Alert color="red" variant="light" title={t('Frozen')}>
-              <Text size="sm">{role.frozenReason ?? t('Repeatedly denied.')} {t('It stays frozen until you look.')}</Text>
+              <Text size="sm">
+                {role.frozenReason ?? t('Repeatedly denied.')}{' '}
+                {role.frozenBy === 'spend' ? t('It goes on by itself once its spending is back to normal.') : t('It stays frozen until you look.')}
+              </Text>
               <Group mt="sm">
                 <ActionButton
                   label={t('Resume this role')}

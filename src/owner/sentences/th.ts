@@ -118,6 +118,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'งานหยุดแล้ว: บัญชี {account} ใช้โทเคนหมดแล้ว',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” หยุดเพราะบัญชี {account} ใช้ไป {spent} จาก {max} โทเคนแล้ว เพิ่มเพดานที่หน้าการเงิน แล้วเปิดงานและกดทำต่อ: งานจะทำต่อจากจุดที่หยุด',
   'Withdrawn: you continued the task it was about.': 'ถอนออกแล้ว: คุณทำงานที่เกี่ยวข้องต่อแล้ว',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'ถอนออกแล้ว: งบประมาณมีที่ว่างอีกครั้ง และงานก็ดำเนินต่อไปเอง',
   'Broke its contract': 'ทำผิดสัญญาของงาน',
   'Refused by a policy': 'ถูกนโยบายปฏิเสธ',
   'Out of budget': 'งบประมาณหมด',
@@ -372,4 +373,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "เสร็จเพิ่มอีก: {count}",
   "Waiting for you: {count}":
     "รอคุณอยู่: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'นี่เป็นครั้งที่สามในหนึ่งวัน จึงจะไม่กลับมาทำงานเอง',
 };

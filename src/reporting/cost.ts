@@ -20,7 +20,7 @@
  */
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { randomUUID } from 'node:crypto';
-import { wholeCents } from '../engine/pricing.ts';
+import { carryFor } from '../engine/pricing.ts';
 
 export type CostDimension = 'project' | 'division' | 'role' | 'capability';
 
@@ -234,7 +234,7 @@ export interface ModelUse {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  /** What the provider charged, in cents; a fraction is rounded up, as every charge is. */
+  /** What the call cost, in cents, as a fraction when it was one: what is owed below a cent is carried to the next call, not rounded up (pricing.ts, `CostCarry`). */
   costCents: number;
   latencyMs?: number | undefined;
 }
@@ -248,13 +248,16 @@ export interface ModelUse {
  * conversation is kept where the owner reads it, and a fact distilled where
  * it is known.
  */
-export async function recordCallOutsideTask(tx: TenantClient, companyId: string, use: ModelUse): Promise<void> {
+export async function recordCallOutsideTask(tx: TenantClient, companyId: string, use: ModelUse): Promise<number> {
+  const charged = carryFor(companyId).charge(use.costCents);
   await tx.query(
     `INSERT INTO llm_traces (id, company_id, model, input_tokens, output_tokens, cost_cents, latency_ms)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [randomUUID(), companyId, use.model, use.inputTokens, use.outputTokens,
-      wholeCents(Math.max(0, use.costCents)), use.latencyMs ?? null],
+    [randomUUID(), companyId, use.model, use.inputTokens, use.outputTokens, charged, use.latencyMs ?? null],
   );
+  // What was charged now, in whole cents: the caller that keeps a figure of
+  // its own for the answer adds this, not the fraction.
+  return charged;
 }
 
 /**

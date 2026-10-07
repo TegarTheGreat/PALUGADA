@@ -15,6 +15,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { withTenant } from '../../src/db/tenant.ts';
+import { appendEvent } from '../../src/audit/event-log.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { evaluateCircuitBreakers, evaluateSpendLimit } from '../../src/governance/spend-guard.ts';
 import { askAboutStranded } from '../../src/engine/liveness.ts';
@@ -90,10 +91,17 @@ test('a role spending too fast is named as the owner named it, with what it spen
   const task = await newTask(fixture, 'Balas ulasan pelanggan');
   for (let hoursAgo = 2; hoursAgo <= 167; hoursAgo += 1) await seedTrace(fixture, task.id, 10, new Date(now.getTime() - hoursAgo * HOUR));
   await seedTrace(fixture, task.id, 100, new Date(now.getTime() - 10 * 60_000));
+  // The owner is asked only when the breaker holds the role: the third stop in a day.
+  await withTenant(fixture.companyId, async (tx) => {
+    for (let trip = 1; trip <= 2; trip += 1) {
+      await appendEvent(tx, { companyId: fixture.companyId, type: 'budget.circuit_open', actor: 'system', payload: { roleId: fixture.roleId, trips: trip } });
+    }
+  });
 
   assert.equal((await evaluateCircuitBreakers(fixture.companyId, now)).length, 1);
   const [card] = (await open(fixture)).filter((item) => item.kind === 'incident');
   assert.equal(card!.title, indonesian('Role {role} is paused for spending too fast', { role: 'Sari' }));
+  assert.ok(card!.rationale.includes(indonesian('This is the third time in a day, so it does not go on by itself.')), 'and says why it is the owner\'s now');
   assert.match(card!.rationale, /Rp\s?16\.500 \(US\$1,00\)/, 'a dollar an hour, in rupiah');
   const { rows: [role] } = await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>('SELECT slug FROM roles WHERE id = $1', [fixture.roleId]));
   assert.ok(!card!.title.includes(role!.slug) && !card!.rationale.includes(role!.slug), 'the role by its name, not its code');

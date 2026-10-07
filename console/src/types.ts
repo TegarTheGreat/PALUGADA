@@ -203,6 +203,8 @@ export interface Role {
   dormantUntil: string | null;
   frozenAt: string | null;
   frozenReason: string | null;
+  /** `spend` is the platform's to lift when the burst has passed; the others wait for the owner. */
+  frozenBy: 'owner' | 'denials' | 'spend' | 'spend_held' | null;
   openTasks: number;
   doneLastWeek: number;
   /** Who the role is and how it works: first in every run's context. */

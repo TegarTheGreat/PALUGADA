@@ -88,7 +88,7 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
-                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at,
+                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, frozen_by, created_at,
                  display_name, title, persona, max_run_seconds, person_name
             FROM roles ORDER BY slug`,
   },

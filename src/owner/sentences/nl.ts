@@ -115,6 +115,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Werk gestopt: het account {account} heeft geen tokens meer',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '‘{work}’ is gestopt omdat het account {account} {spent} van zijn {max} tokens heeft gebruikt. Verhoog het plafond onder Financiën, open dan de taak en druk op Doorgaan: die gaat verder waar hij stopte.',
   'Withdrawn: you continued the task it was about.': 'Ingetrokken: u hebt de taak waar het over ging voortgezet.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Ingetrokken: het budget had weer ruimte en het werk ging vanzelf verder.',
   'Broke its contract': 'Contract geschonden',
   'Refused by a policy': 'Geweigerd door een beleidsregel',
   'Out of budget': 'Budget op',
@@ -369,4 +370,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Daarnaast klaar: {count}",
   "Waiting for you: {count}":
     "Wacht op jou: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Dit is de derde keer op één dag, dus ze gaat niet vanzelf verder.',
 };

@@ -3877,7 +3877,10 @@ this file had not yet answered. Each was reproduced by a test first.
      loosens every budget.
 
   models.dev is read live and only offered; nothing it says is saved
-  without the owner. `pricing.ts` still compiles in no price list. The
+  without the owner. `pricing.ts` still compiles in no price list.
+  *Superseded by 2.177: the platform now reads models.dev itself every day
+  for the models in use and keeps what it read; a price the owner typed
+  still wins.* The
   console's fill was run against the real catalogue: DeepSeek V4 Flash
   came back at $0.15 and $0.60 per million tokens, where the fallback had
   charged $15 and $75.
@@ -6058,6 +6061,8 @@ comment said a halted task "becomes an owner inbox item instead".
 - **How this reads section 6.3.** "Tidak pernah dilanjutkan otomatis": never
   resumed *automatically*. The platform still never does; the owner may. The
   history stays true, with `task.halted` then `task.continued` on the task.
+  *Superseded in part by 2.177: when the owner's own ceiling has room again the
+  platform continues the work itself, with `task.continued` by the platform.*
 - **The console.** The task drawer of a budget halt says what to do and
   offers **Continue**. Two refusals are explained as sentences:
   `budget.reservation_refused`, which other routes also answer, and
@@ -10583,6 +10588,96 @@ source and never run, ACP was written from its schema, the remote sandbox has ne
   - *A turn that wrote its work down and then failed* (the provider erred on the retry) is not journalled, so the
     next attempt writes again: one extra call, not a wrong answer.
   - *A summary is as good as the model that wrote it*, and nothing scores it.
+
+## 2.177 The budget is counted as the provider counts it, and runs out without the owner pressing anything (the owner's report of 7 October)
+
+The owner's words: the prices do not match the official ones, so the figures are wrong; the budget sometimes runs out
+suddenly and "I have to start the agents again one by one"; the owner ends up doing the heavier work -- checking,
+pressing this and that -- "when a 24/7 company should handle it itself". Three separate causes were found in the
+code, and each is closed here.
+
+**1. The figures were wrong, in four ways.**
+
+- *Every call was rounded up to a whole cent* (`estimateCents`, `Math.ceil`). A call of a tenth of a cent was
+  charged a cent: ten times its price on the cheap models a company runs for hours. A call is now priced to the
+  fraction of a cent (`Cost.cents`), and the **budget is charged in whole cents from a carry**: what is left over
+  below a cent is kept per company (`CostCarry`, in micro-cents, in the process) and added to the next call, so the
+  sum charged is the sum owed to the fraction. A run that settles at its total gives back what the rounding took
+  (`forgive`).
+- *A cached token was priced as a fresh one.* The providers bill the cache apart (Anthropic: a read at a tenth of
+  the input price, a write above it; OpenAI and DeepSeek: a cached share at a fraction). The clients now read the
+  usage the provider reports for the cache (`cache_read_input_tokens`, `cache_creation_input_tokens`,
+  `prompt_tokens_details.cached_tokens`, `prompt_cache_hit_tokens`) and `costOf` prices each at its own rate; a
+  rate the catalogue does not give falls back to the input price, never to zero. The Anthropic client now marks
+  its conversation's last block as a cache breakpoint, so the cache that is billed apart is also used.
+- *The price list was typed once and never moved.* The platform now reads models.dev itself, **every day**, for the
+  models the deployment runs on and no others (`src/engine/price-sync.ts`), and keeps what it read as a deployment
+  setting (written quietly: it does not restart a replica). The prices a call is charged at are layered, in this
+  order: **what the owner typed in the console, the operator's file, the catalogue, and a conservative fallback**
+  ($15 and $75 per million tokens) for a model nobody knows. A model the catalogue does not list, or lists as
+  free, stays unpriced and is charged at the fallback, and the console says so; the platform never prices anything
+  at nothing on a catalogue's word. A catalogue that cannot be read leaves the prices as they were, keeps the
+  failure beside them and tries again in an hour; it never stops a company. `PALUGADA_PRICE_SYNC=off` turns it off.
+- *The owner could not see which price was in force.* **What it costs** (Model page) shows each model's price and
+  who set it (console, file, catalogue, fallback), when models.dev was last read, what changed, and a button that
+  reads it now. A saved price takes effect in the running process (`PriceBook.refresh`), not at the next start.
+
+**2. The budget ran out and waited for a person (`src/engine/self-heal.ts`).** The owner's way back from a halt was
+three decisions: raise a ceiling, lift the month's pause, press Continue on each account's work. What the owner
+decides is the ceiling; the rest is its consequence. Now, every tick, when the owner's own ceiling has room, the work
+it stopped goes on by itself:
+
+- the month's pause is lifted when the ceiling is raised above what is spent (`budget.pause_lifted`, by the
+  platform, its card withdrawn), as a new month already did (M6);
+- work halted for want of tokens or money continues (`task.continued`, by the platform, `by: budget_room`, its
+  card withdrawn "the budget had room again") when the account has room beyond a reservation -- twenty reservations'
+  worth of tokens and a dollar -- so a task is not started again to stop in a minute;
+- oldest first, as many as the room carries, at most twenty-five a look; never while the month is paused, never for
+  a role the owner paused; and a task that has gone on by itself three times in a day and stopped again is left to
+  the owner with its card, because it has told them something.
+- **What stays the owner's is the ceiling, and nothing here moves one.** The platform does not raise a limit, lift a
+  limit's meaning or spend past it.
+
+**3. A role that spent fast was stopped for the owner to restart (`governance/spend-guard.ts`, `role-freeze.ts`,
+migration 0129).** F1.8 freezes a role spending three times its week's rate. Every such freeze waited for the owner,
+one role at a time. A frozen role now says who froze it (`roles.frozen_by`: `owner`, `denials`, `spend`,
+`spend_held`), and:
+
+- a `spend` freeze is lifted by the platform when the burst is out of the last hour and the role would not trip the
+  breaker now (`thawCooledRoles`, run each tick; the event `role.unfrozen` by the platform, `by: cooled`);
+- the **first two stops in a day are silent**: a journalled `budget.circuit_open` and the reason on the role, and no
+  card; the **third** is a role whose usual is wrong, and it is held (`spend_held`) with the incident F1.8 asks for;
+- what the owner paused and what F3.7's denials froze are never lifted by a clock (the condition does not change
+  by waiting), and a freeze from before the column is read from its reason, a breaker stop being held, so nobody is
+  surprised by a role going back to work;
+- **work does not fail for a stopped role, it waits.** A task whose role is stopped parks (`role_paused`, looking
+  again after a minute, growing to an hour) before its run starts, so no model call is made to find out, and a
+  role stopped in the middle of a run parks the run; the task is called back at once when the role goes back to
+  work, by the owner or by the platform. Before this a paused role's tasks ran on and only their tool calls were
+  refused.
+
+- **Tested.** `cost-accuracy.test.ts` (fractions carried and settled, cache rates for each provider, the carry per
+  company), `price-sync.test.ts` (layers, a catalogue that fails, zero and unlisted prices, quiet writes, the book
+  refreshed, the staleness clock), `self-heal-budget.test.ts` (room, thin room, oldest first, the pause, a paused
+  role, three in a day, another company), `self-heal-roles.test.ts` (cooling, still spending, the third stop,
+  owner and denial freezes, the constraint, work parking before and during a run and called back by either end of
+  the freeze, another company), and the worker tick for the resume and the thaw. Each was seen to fail for the reason
+  it names before the change.
+- **Deviations from the PRD, said plainly.** Section 6.3's "never resumed automatically" is now conditional on the
+  owner's ceiling having no room; F1.8's incident is raised on the third stop in a day, not the first; the
+  price list is applied from models.dev without the owner's device where the previous design only offered it (section
+  2.26's note on L12 is superseded) -- a price typed in the console still wins, and a price the platform wrote is
+  shown as the catalogue's.
+- **Not done, and said plainly.**
+  - *No forecast.* Nothing says "at this rate the ceiling runs out on the 23rd"; the owner still finds out when the
+    80% warning fires. A forecast from the week's rate is a card of its own and was left.
+  - *The carry is in the process.* After a restart the sub-cent remainder (under a cent per company) starts again;
+    the journal holds the exact cost of every call, so the books can be redone, but the running counter is not.
+  - *Prices above a context size* (a model priced twice over 200,000 tokens) are not modelled: one rate per model.
+  - *Waiting on a paused role has no end.* A task the owner's pause holds waits, looking an hour apart, until the
+    owner resumes; nothing tells the owner that work has waited a week.
+  - *The breaker's own numbers are unchanged:* three times the week, a hundred-cent floor, the hour. A role whose
+    week was empty cannot trip it (the period ceiling covers that).
 
 ## 3. Decisions, deviations, and what is unverified
 

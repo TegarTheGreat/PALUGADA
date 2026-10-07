@@ -114,6 +114,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': '工作已停止：{account} 账户的令牌已用完',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}”已停止，因为 {account} 账户已用掉 {max} 个令牌中的 {spent} 个。请在“资金”中提高其上限，然后打开该任务并点击“继续”：它会从停止的地方继续。',
   'Withdrawn: you continued the task it was about.': '已撤回：你已继续了它所涉及的任务。',
+  'Withdrawn: the budget had room again, and the work went on by itself.': '已撤回：预算重新有了余地，工作已自动继续。',
   'Broke its contract': '违反了任务约定',
   'Refused by a policy': '被策略拒绝',
   'Out of budget': '预算用尽',
@@ -368,4 +369,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "另有完成：{count}",
   "Waiting for you: {count}":
     "等你处理：{count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    '这是一天内的第三次，所以不会自行继续。',
 };

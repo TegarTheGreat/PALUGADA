@@ -17,7 +17,7 @@
     "@mantine/notifications": "^9.6.3",
     "@mantine/spotlight": "^9.6.3",
     "@tabler/icons-react": "^3.48.0",
-    "pdfjs-dist": "^6.3.289",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^3.10.1"
@@ -28,6 +28,6 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "^5.9.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.2"
   }
 }

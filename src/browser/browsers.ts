@@ -157,6 +157,11 @@ const EXTRACTS_AT_ONCE = 4;
 const CONVERSIONS_AT_ONCE = 2;
 const CONVERT_MS = 60_000;
 
+/** Pages `print` draws at once, how long one may take, and the most a drawn page may come to. */
+const PRINTS_AT_ONCE = 2;
+const PRINT_MS = 30_000;
+export const PRINT_MAX_BYTES = 5 * 1024 * 1024;
+
 /** What `convert` reads: a PDF, a Word document, an Excel workbook. */
 export type DocumentKind = 'pdf' | 'word' | 'excel';
 
@@ -255,6 +260,7 @@ export class Browsers {
   readonly #readers = new Set<string>();
   #extracting = 0;
   #converting = 0;
+  #printing = 0;
   /** pdf.js, read once from `reader`, as the page imports it; null when it is not there. */
   #pdfjs: Promise<{ lib: string; worker: string } | null> | null = null;
   readonly #reaper: NodeJS.Timeout;
@@ -431,6 +437,74 @@ export class Browsers {
       signal?.removeEventListener('abort', stop);
       await dispose();
       this.#converting -= 1;
+      this.#lastUsed = Date.now();
+    }
+  }
+
+  /**
+   * A page of HTML drawn as a PDF, in a page of a context made for it, and
+   * thrown away after: offline, with scripts off, behind the proxy that would
+   * refuse anything it asked for, and with no way to download or open a
+   * window. What is drawn is a document the platform wrote from its own
+   * records (`invoice-document.ts`), but the values in it came from outside,
+   * so it is drawn as if it were not to be trusted. The bytes come back; a
+   * page that took too long or came to more than `PRINT_MAX_BYTES` is said
+   * in a sentence.
+   */
+  async print(html: string, signal?: AbortSignal): Promise<Buffer> {
+    if (this.#closed) throw new PalugadaError('capability.unreachable', 'the browser is shutting down', {});
+    if (this.#printing >= PRINTS_AT_ONCE) {
+      throw new PalugadaError('capability.busy', `the browser is drawing ${PRINTS_AT_ONCE} pages already; this waits for one of them`,
+        { capability: 'invoice.pdf', limit: PRINTS_AT_ONCE, notBefore: new Date(Date.now() + 30_000).toISOString() });
+    }
+    if (signal?.aborted) throw signal.reason ?? new Error('the work was stopped');
+    this.#printing += 1;
+    this.#lastUsed = Date.now();
+    let contextId: string | null = null;
+    const dispose = async () => {
+      if (!contextId) return;
+      const id = contextId;
+      contextId = null;
+      this.#readers.delete(id);
+      await this.#cdp?.send('Target.disposeBrowserContext', { browserContextId: id }).catch(() => undefined);
+    };
+    const stop = () => { void dispose(); };
+    signal?.addEventListener('abort', stop, { once: true });
+    try {
+      const cdp = await this.#ready();
+      ({ browserContextId: contextId } = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {
+        proxyServer: this.#egress!.server, proxyBypassList: '<-loopback>', disposeOnDetach: false,
+      }));
+      this.#readers.add(contextId!);
+      await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny', browserContextId: contextId });
+      const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', browserContextId: contextId });
+      const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
+      await cdp.send('Page.enable', {}, sessionId);
+      await cdp.send('Network.enable', {}, sessionId);
+      await cdp.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }, sessionId);
+      await cdp.send('Emulation.setScriptExecutionDisabled', { value: true }, sessionId);
+      const { frameTree } = await cdp.send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree', {}, sessionId);
+      await cdp.send('Page.setDocumentContent', { frameId: frameTree.frame.id, html }, sessionId);
+      let drawn: { data: string };
+      try {
+        drawn = await cdp.send<{ data: string }>('Page.printToPDF', { printBackground: true, preferCSSPageSize: true }, sessionId, PRINT_MS);
+      } catch (failure) {
+        if (signal?.aborted) throw signal.reason ?? failure;
+        if (/did not answer/.test((failure as Error).message)) {
+          throw new PalugadaError('capability.unreachable', `the browser did not finish drawing the page in ${PRINT_MS / 1000} seconds`, {});
+        }
+        throw failure;
+      }
+      const bytes = Buffer.from(drawn.data, 'base64');
+      if (bytes.length === 0) throw new PalugadaError('capability.unreachable', 'the browser drew an empty page', {});
+      if (bytes.length > PRINT_MAX_BYTES) {
+        throw new PalugadaError('contract.violation', `the page came to ${(bytes.length / 1_048_576).toFixed(1)} MB; at most ${PRINT_MAX_BYTES / 1_048_576} MB is kept`, {});
+      }
+      return bytes;
+    } finally {
+      signal?.removeEventListener('abort', stop);
+      await dispose();
+      this.#printing -= 1;
       this.#lastUsed = Date.now();
     }
   }
@@ -997,7 +1071,7 @@ export class Browsers {
       }
       if (context.busy === 0 && context.tabs.size === 0 && now - context.lastUsed > this.#idleMs) await this.#closeContext(context);
     }
-    if (this.#cdp && this.#contexts.size === 0 && this.#opening.size === 0 && this.#extracting === 0 && this.#converting === 0
+    if (this.#cdp && this.#contexts.size === 0 && this.#opening.size === 0 && this.#extracting === 0 && this.#converting === 0 && this.#printing === 0
       && now - this.#lastUsed > this.#idleMs) {
       const cdp = this.#cdp;
       this.#cdp = null;

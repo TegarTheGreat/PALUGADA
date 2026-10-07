@@ -10221,6 +10221,44 @@ by knowing the path to type into the Files tab (2.166). No table, no migration, 
 - **Tested** in `deliverables.test.ts` (a picture, a computed sheet and a draft are listed in order; a read, a
   failed write and another company's task are not; a key and a line break in a path), and by `console-i18n`.
 
+## 2.170 An invoice as a PDF, drawn by the browser the deployment already runs (the audit of 6 October, P1.4 part 4)
+
+An owner could read an invoice on the Books page and copy it as text, and a customer is sent a document. No
+dependency was added: the page is drawn by the Chromium that `browser.read` and `files.read` already run on.
+
+- **What is made.** `POST /api/companies/:companyId/invoices/:invoiceId/pdf` (the session is enough: it writes a
+  file from what the owner can already read and spends nothing; a staff seat is refused because the route is on no
+  list). The invoice is read as the Books page reads it, drawn by `Browsers.print`, and kept in the company's
+  `invoices` folder as `inv-0001.pdf` (the number, lowercased). Asked again, it answers the page that is there;
+  two presses at once draw one. The page is a function of the invoice as issued (`src/records/invoice-document.ts`):
+  the company's name, the customer, the dates, the lines, the tax and the total in the invoice's own currency, in
+  Indonesian when the company's work language is `id` and in English for every other, with no "paid" mark, so
+  what a customer is sent does not depend on when it was drawn. A voided invoice has no page.
+- **What it takes.** Chromium (`PALUGADA_CHROMIUM`) and a files root, each said in a sentence when it is missing,
+  and nothing is kept then. The console's **Download PDF** (owner only) makes the page if it is not there and saves
+  it as the Files tab does; `email.send` attaches `invoices/inv-0001.pdf` by path, since 2.167 allows the folder.
+- **The page is not trusted.** The customer's name, the lines and the note were typed by someone, often outside
+  the company. Every value is escaped, the characters that reorder or hide text are dropped, and three walls stand
+  behind that: the page's own policy (`default-src 'none'`), scripts switched off in the page, and a context that is
+  offline behind the proxy that refuses what it is asked for, in a window it cannot open, with downloads refused,
+  thrown away after. `Browsers.print` is two at a time, thirty seconds, five megabytes. The tests draw hostile
+  markup raw, with and without the policy, and see nothing run and nothing asked of a local listener; the offline
+  wall cannot be told apart from the proxy's refusal of loopback, so they are seen to hold together and not alone.
+- **Not done, and said.** No letterhead, address, tax number or bank details (they are not kept anywhere yet): it
+  is a usable invoice and not a Faktur Pajak. Labels exist in Indonesian and English only. The image ships
+  `fonts-liberation`, which covers Latin and Cyrillic: a name in Thai, Arabic, Javanese script or CJK prints as
+  boxes until a font package is added to the image. A role cannot ask for the page (an `invoice.render` capability
+  would take a catalogue entry, a grant and a tool slot); the owner presses the button. No event is written: it
+  grants and spends nothing and the file is on the Files tab. Two replicas pressing at the same moment can each
+  draw a page (`inv-0001-2.pdf`): the in-flight guard is per process.
+- **Run for real.** Against the Chromium of this environment, not a stand-in (the sandbox off, as in the other
+  browser tests): the page is drawn, read back through `files.read`'s own PDF reader, and says the number, the
+  customer, every line, the total and the tax. Not run: inside the Compose image with its sandbox on.
+- **Tested** in `invoice-pdf.test.ts` (eleven tests). Ten mutations of the code: eight fail the tests at once
+  (no escaping, bidi characters kept, no policy, a voided invoice printed, the page always redrawn, no guard on two
+  presses, the language ignored, a "paid" mark added); scripts left on failed them only once the page was also drawn
+  without its policy; taking the offline wall out alone is not seen, for the reason above.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

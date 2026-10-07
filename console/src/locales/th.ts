@@ -2053,6 +2053,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "ไฟล์",
   "This folder is empty.": "โฟลเดอร์นี้ว่างเปล่า",
   "Download": "ดาวน์โหลด",
+  "Download PDF": "ดาวน์โหลด PDF",
   "Files it made": "ไฟล์ที่สร้างขึ้น",
   "Only the first 500 are shown.": "แสดงเพียง 500 รายการแรก",
   "You put a file in the company's files": "คุณใส่ไฟล์ลงในไฟล์ของบริษัท",

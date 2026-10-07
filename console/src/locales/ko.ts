@@ -2031,6 +2031,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "파일",
   "This folder is empty.": "이 폴더는 비어 있습니다.",
   "Download": "다운로드",
+  "Download PDF": "PDF 다운로드",
   "Files it made": "만든 파일",
   "Only the first 500 are shown.": "처음 500개만 표시됩니다.",
   "You put a file in the company's files": "회사 파일에 파일을 넣었습니다",

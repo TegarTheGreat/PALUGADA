@@ -296,8 +296,15 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   with their lines, and reversal instead of edit; reports through `ledger.read`.
 - Invoices kept in the books: numbered without gaps, written with the entry that
   puts what is owed in them, paid in part or in full, voided by a reversal; what
-  is owed and what is late read from the books. An invoice is a row: it is not
-  rendered or sent.
+  is owed and what is late read from the books. An invoice is a row that is never
+  sent by the platform itself. **Download PDF** draws it as a page (the company's
+  name, the customer, the lines, the tax and the total, in Indonesian or English
+  by the company's work language) in the deployment's Chromium, offline and with
+  scripts off, and keeps it in the company's `invoices` folder under its number,
+  where `email.send` can attach it and the Files tab lists it. It needs Chromium
+  and a files root; it has no letterhead, address or tax number (those are not
+  kept yet), so it is an invoice and not a Faktur Pajak, and the font in the
+  image covers Latin and Cyrillic, so names in other scripts print as boxes.
 
 **What a stock install does not bind**
 - Reading and branching a repository, deploying, writing DNS, paying, signing,

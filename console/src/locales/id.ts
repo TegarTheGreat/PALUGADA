@@ -1954,6 +1954,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Berkas",
   "This folder is empty.": "Folder ini kosong.",
   "Download": "Unduh",
+  "Download PDF": "Unduh PDF",
   "Files it made": "Berkas yang dibuatnya",
   "Only the first 500 are shown.": "Hanya 500 pertama yang ditampilkan.",
   "You put a file in the company's files": "Anda menaruh berkas di berkas perusahaan",

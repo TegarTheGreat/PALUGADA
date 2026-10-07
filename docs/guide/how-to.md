@@ -1273,7 +1273,14 @@ rate if there is one, one line or more (what was sold, how many, at what
 price) and a note. It is numbered INV-0001 on, without gaps, and written in the
 books at the same moment: what the customer owes goes on Accounts receivable,
 the sale on Sales and any tax on Taxes owed. It is not sent to anyone; **Copy as
-text** gives you what to paste into a message. An invoice is never edited.
+text** gives you what to paste into a message, and **Download PDF** gives you
+the page to send: the company's name, the customer, the lines, the tax and the
+total, in Indonesian when your company works in it and in English otherwise. The
+page is drawn once, when you first ask, and kept in the Files tab under
+`invoices` as `inv-0001.pdf`, so a role can attach it to a letter by that path.
+It needs Chromium on the machine and a files root, and it has no address, tax
+number or bank details yet: it is a usable invoice, not a Faktur Pajak. A
+voided invoice has no page. An invoice is never edited.
 
 Open an invoice to **Record a payment** -- an amount no more than is owed, a date,
 and the account the money came into, Cash and bank unless you choose another --

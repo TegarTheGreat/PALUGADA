@@ -2058,6 +2058,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Tệp",
   "This folder is empty.": "Thư mục này trống.",
   "Download": "Tải xuống",
+  "Download PDF": "Tải PDF",
   "Files it made": "Các tệp đã tạo",
   "Only the first 500 are shown.": "Chỉ hiển thị 500 mục đầu tiên.",
   "You put a file in the company's files": "Bạn đã đưa một tệp vào tệp của công ty",

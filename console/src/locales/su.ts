@@ -2059,6 +2059,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Berkas",
   "This folder is empty.": "Folder ieu kosong.",
   "Download": "Unduh",
+  "Download PDF": "Undeur PDF",
   "Files it made": "Berkas nu dijieun",
   "Only the first 500 are shown.": "Ngan 500 anu munggaran dipidangkeun.",
   "You put a file in the company's files": "Anjeun nempatkeun berkas dina berkas parusahaan",

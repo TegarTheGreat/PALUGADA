@@ -13,8 +13,9 @@ import {
   ActionIcon, Alert, Badge, Button, CopyButton, Group, Modal, NumberInput, Paper, Select, Stack, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconDownload, IconPlus, IconTrash } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
+import { saveCompanyFile } from '../files.ts';
 import { useLoad } from '../hooks.ts';
 import { inCurrency, moneyDisplay, numberSeparators } from '../format.ts';
 import { locale, t } from '../i18n.ts';
@@ -203,9 +204,18 @@ function InvoiceView({ companyId, id, owner, close, depositOptions, changed }: {
           )}
 
           <Group justify="space-between" wrap="wrap">
-            <CopyButton value={invoiceText(invoice)}>
-              {({ copied, copy }) => <Button size="xs" variant="default" onClick={copy}>{copied ? t('Copied') : t('Copy as text')}</Button>}
-            </CopyButton>
+            <Group gap="xs">
+              <CopyButton value={invoiceText(invoice)}>
+                {({ copied, copy }) => <Button size="xs" variant="default" onClick={copy}>{copied ? t('Copied') : t('Copy as text')}</Button>}
+              </CopyButton>
+              {owner && invoice.status !== 'void' && (
+                <ActionButton size="xs" variant="default" label={t('Download PDF')} leftSection={<IconDownload size={14} />}
+                  run={async () => {
+                    const made: { path: string } = await api('POST', `/api/companies/${companyId}/invoices/${invoice.id}/pdf`, {});
+                    await saveCompanyFile(companyId, made.path);
+                  }} />
+              )}
+            </Group>
             {owner && invoice.status !== 'void' && (
               <Group gap="xs">
                 {invoice.paidCents === 0 && <Button size="xs" variant="subtle" color="red" onClick={() => setVoiding(true)}>{t('Void the invoice')}</Button>}

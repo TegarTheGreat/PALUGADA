@@ -547,6 +547,9 @@ The first version. What it holds, in the order an owner meets it.
   shuts it again, and `doctor` says where it is meant to be opened (STATUS 2.168).
 - A task's page lists the files it made -- a picture, a computed spreadsheet, a draft -- and you can download
   each; the gallery showed only what has text (STATUS 2.169).
+- An invoice can be downloaded as a PDF: drawn offline by the deployment's own Chromium from the invoice as
+  it was issued, kept in the Files tab as `invoices/inv-0001.pdf` so a role can attach it to a letter (STATUS
+  2.170).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

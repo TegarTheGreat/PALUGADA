@@ -48,7 +48,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { PalugadaError } from '../errors.ts';
+import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -114,6 +114,7 @@ import {
   assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
 import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
+import { invoiceHtml } from '../records/invoice-document.ts';
 import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
 import {
   addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
@@ -243,7 +244,7 @@ import {
   databaseNow,
   summarise,
 } from './views.ts';
-import type { Browsers, OwnerInput } from '../browser/browsers.ts';
+import { PRINT_MAX_BYTES, type Browsers, type OwnerInput } from '../browser/browsers.ts';
 import { giveBack, holdOf, takeOver, touchHold } from '../browser/holds.ts';
 
 export interface OwnerApiOptions {
@@ -498,6 +499,8 @@ export class OwnerApi {
   #allowedHosts: ReadonlySet<string> | null = null;
   /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
   readonly #answering = new Set<ServerResponse>();
+  /** The invoice pages being drawn, by company and file, so two presses of one button draw one page. */
+  readonly #drawing = new Map<string, Promise<{ path: string }>>();
   /** Set by `drain()`: readiness says 503, and every answer lets its connection go. */
   #draining = false;
   /** Whether anything has asked `/api/ready`: only then is there a balancer to wait for. */
@@ -3705,6 +3708,51 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
         handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => payInvoice(tx, params.companyId!, params.invoiceId!, body, 'owner')),
+      },
+
+      {
+        // The owner prints an invoice. It is drawn from the books by the
+        // deployment's sandboxed browser, offline and with scripts off, and
+        // kept in `invoices` under its number, so a role can attach it by path
+        // (`email.send`) and the owner can take it from the Files tab. Drawn
+        // once: pressing again answers the page that is there. It writes a
+        // file from what the owner can already read and spends nothing, so
+        // the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/pdf',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const root = this.#filesRoot();
+          await this.#knownCompany(companyId);
+          const browsers = this.#browsers();
+          const made = await withTenant(companyId, async (tx) => {
+            const invoice = await invoiceWith(tx, companyId, params.invoiceId!);
+            if (!invoice) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+            if (invoice.status === 'void') {
+              throw new PalugadaError('contract.violation', `${invoice.number} was voided: there is no invoice to print`, { field: 'invoice' });
+            }
+            const { rows } = await tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]);
+            return { invoice, company: rows[0]?.name ?? '', language: (await languagesFor(tx, companyId)).work };
+          });
+          const name = `${made.invoice.number.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}.pdf`;
+          const key = `${companyId}/${name}`;
+          const pending = this.#drawing.get(key) ?? (async () => {
+            const path = `invoices/${name}`;
+            const there = await readCompanyFile(root, companyId, path, PRINT_MAX_BYTES, 'an invoice is at most 5 MB').then(
+              () => true,
+              (error: unknown) => {
+                if (isPalugadaError(error, 'contract.violation') && /^there is no file /.test(error.message)) return false;
+                throw error;
+              },
+            );
+            if (there) return { path };
+            const bytes = await browsers.print(invoiceHtml(made.invoice, made.company, made.language));
+            const kept = await keepCompanyFile(root, companyId, 'invoices', name, bytes);
+            return { path: kept.path };
+          })().finally(() => this.#drawing.delete(key));
+          this.#drawing.set(key, pending);
+          return pending;
+        },
       },
 
       {

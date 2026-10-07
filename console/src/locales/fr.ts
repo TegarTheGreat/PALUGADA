@@ -2041,6 +2041,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "Fichiers",
   "This folder is empty.": "Ce dossier est vide.",
   "Download": "Télécharger",
+  "Download PDF": "Télécharger le PDF",
   "Files it made": "Fichiers qu'elle a créés",
   "Only the first 500 are shown.": "Seuls les 500 premiers sont affichés.",
   "You put a file in the company's files": "Vous avez déposé un fichier dans les fichiers de l’entreprise",

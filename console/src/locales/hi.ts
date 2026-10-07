@@ -2004,6 +2004,7 @@ export const DICTIONARY: Dictionary = {
   "Files": "फ़ाइलें",
   "This folder is empty.": "यह फ़ोल्डर खाली है।",
   "Download": "डाउनलोड करें",
+  "Download PDF": "PDF डाउनलोड करें",
   "Files it made": "इसने जो फ़ाइलें बनाईं",
   "Only the first 500 are shown.": "केवल पहली 500 दिखाई गई हैं।",
   "You put a file in the company's files": "आपने कंपनी की फ़ाइलों में एक फ़ाइल रखी",

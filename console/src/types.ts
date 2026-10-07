@@ -54,6 +54,10 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
   browser?: boolean;
+  /** The person a question was put to; only they and the owner see it. Absent when it was put to no one in particular. */
+  addressee?: { seatId: string; name: string };
+  /** A question put to a person who has not answered in a day: the owner has been told. */
+  escalated?: boolean;
   /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
   key?: { alias: string; divisionId: string; capabilities: string[] };
   /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */

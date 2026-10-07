@@ -10362,6 +10362,24 @@ findings, each tried by two sceptics: 29 stood, 8 were refuted. What stood, by w
   sentence. The upload count and total are not a lock across processes. `valid_host` and the DNS wording are not
   tried against every spelling. The 8 refuted findings are in the workflow's journal, with the sceptics' reasons.
 
+## 2.173 A person is an actor (the audit of 6 October, P1.1, in four steps)
+
+The platform could ask one person, the owner. A staff seat saw the whole inbox and any approver could answer
+anything, so a question for the bookkeeper was answerable by the cashier, and "who is meant to answer this" was
+not a thing the platform knew. It is built in four steps, each one a commit with its test.
+
+- **a. An addressee on a question (done).** `owner.ask` takes `to`, the name of a seat (migration 0126 adds
+  `inbox_items.addressee_seat`). The name is resolved on the control plane to a seat that is joined, not
+  revoked and an approver, in any case; a viewer, a revoked seat, an unknown name and a name two seats share
+  are each refused with the people who can answer, so the run asks again of someone real. The question is
+  then that seat's and the owner's: it is not in another seat's inbox (`GET /inbox`), and `decide` and
+  `answerEscalation` refuse another seat by id with "this question is for Budi". `?mine=1` lists a seat's own.
+  A question that names nobody is exactly as it was. The card says "For Budi" (a seat sees "For you") and a
+  seat's inbox gets a "For me" segment. Tests: `person-addressee.test.ts`; seven mutations, one of which
+  (a revoked seat) survived the first test and made it name one.
+  *Not done here:* the brief does not list the people (a run learns the names from the refusal); a name is
+  matched on the seat's name, which the owner chose and which two seats can share.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

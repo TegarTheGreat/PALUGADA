@@ -120,6 +120,10 @@ export interface InboxItem {
   budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   /** A question answered by giving a division a key (`owner.ask` with `key`): its card opens the division's keys. */
   key?: AskedKey;
+  /** Whom a question is for, when it names a seat (0126); the owner's and any approver's when it does not. */
+  addressee?: { seatId: string; name: string };
+  /** The seat's turn is over, and the question is the owner's too: it went unanswered for the time it was given. */
+  escalated?: boolean;
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -759,6 +763,14 @@ async function noteHandling(companyId: string, item: {
 /** How many questions one task may put to the owner. */
 export const QUESTIONS_PER_TASK = 3;
 
+/**
+ * How long a question put to a seat waits before the owner is told it has not
+ * been answered. A day: a person who works shifts, or is ill, or is asleep in
+ * another timezone, has been given a working day to look, and a run that
+ * waits longer than that is waiting on something the owner can change.
+ */
+export const QUESTION_ESCALATES_AFTER_HOURS = 24;
+
 export type AgentQuestion =
   | { state: 'answered'; inboxItemId: string; answer: string }
   | { state: 'waiting'; inboxItemId: string }
@@ -810,6 +822,14 @@ export async function askOwner(input: {
    * the division's keys, and saving the key answers it.
    */
   key?: AskedKey;
+  /**
+   * Whom the question is for: a staff seat (`approverNamed`). Only that seat
+   * and the owner may answer it, and it is in no other seat's inbox. Left
+   * out, it is the owner's and any approver's, as it always was. When the
+   * seat has not answered by `escalateAfterHours` the owner is told, once
+   * (`escalateQuestions`); the question stays the seat's to answer.
+   */
+  addressee?: { seatId: string; name: string; escalateAfterHours: number };
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
   const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
@@ -881,8 +901,16 @@ export async function askOwner(input: {
       payload: {
         askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}), ...(input.browser ? { browser: true } : {}),
         ...(input.key ? { key: input.key } : {}),
+        ...(input.addressee ? { addressee: { seatId: input.addressee.seatId, name: input.addressee.name } } : {}),
       },
     });
+    if (input.addressee) {
+      // The seat is a column, not only a word in the payload: it is what the seat's inbox and the right to answer are read from.
+      await tx.query(
+        `UPDATE inbox_items SET addressee_seat = $2, escalate_at = now() + make_interval(hours => $3) WHERE id = $1`,
+        [id, input.addressee.seatId, input.addressee.escalateAfterHours],
+      );
+    }
     // Everything on the card is the run's own words to the owner: the
     // question, what depends on it and the answers it offers. Checked here,
     // where the item is opened, and not when the same question is asked
@@ -915,6 +943,63 @@ export async function answersFor(
     [taskId],
   );
   return rows.map((row) => ({ question: row.question, answer: row.answer ?? '' }));
+}
+
+/**
+ * The seats of a company that can answer a question: joined, not revoked, and
+ * approvers -- a viewer reads and answers nothing. Read on the control plane,
+ * where seats are kept (0110), and by name only: nothing of a seat's factor
+ * leaves it.
+ */
+export async function askableSeats(companyId: string): Promise<Array<{ seatId: string; name: string }>> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string; name: string }>(
+      `SELECT id, name FROM staff_seats
+        WHERE company_id = $1 AND kind = 'approver' AND joined_at IS NOT NULL AND revoked_at IS NULL
+        ORDER BY name, id`,
+      [companyId],
+    );
+    return rows.map((row) => ({ seatId: row.id, name: row.name }));
+  });
+}
+
+/**
+ * The seat a run means by a name: the approver called that, in any case. A
+ * name no one has, a name two have, a viewer's and a revoked seat's are each
+ * refused saying who there is, so the run asks again of a person who can answer.
+ */
+export async function approverNamed(companyId: string, name: string): Promise<{ seatId: string; name: string }> {
+  const wanted = name.trim().toLowerCase();
+  const answerers = await askableSeats(companyId);
+  const found = answerers.filter((one) => one.name.toLowerCase() === wanted);
+  if (found.length === 1) return found[0]!;
+  const people = answerers.length > 0 ? `the people who can answer are: ${answerers.map((one) => one.name).join(', ')}` : 'no one is seated beside the owner who can answer: ask the owner';
+  if (found.length > 1) {
+    throw new PalugadaError('contract.violation', `${found.length} people are called ${name}; ${people}`, { field: 'to' });
+  }
+  const viewer = await withControlPlane((tx) => tx.query<{ name: string }>(
+    `SELECT name FROM staff_seats WHERE company_id = $1 AND kind = 'viewer' AND joined_at IS NOT NULL AND revoked_at IS NULL AND lower(name) = $2`,
+    [companyId, wanted]));
+  if (viewer.rows[0]) {
+    throw new PalugadaError('contract.violation',
+      `${viewer.rows[0].name} can only read: a question is for someone who can answer it; ${people}`, { field: 'to' });
+  }
+  throw new PalugadaError('contract.violation', `no one called ${name} is seated; ${people}`, { field: 'to' });
+}
+
+/**
+ * Whether a seat may look at an item it was not listed: refused when the item
+ * is a question put to another seat. The list leaves such a question out, and
+ * this keeps its id from being a way in to what is behind it.
+ */
+export async function assertSeatMayRead(companyId: string, itemId: string, seat: { id: string }): Promise<void> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ addressee_seat: string | null; name: string | null }>(
+    "SELECT addressee_seat, payload->'addressee'->>'name' AS name FROM inbox_items WHERE id = $1", [itemId]));
+  const row = rows[0];
+  if (row?.addressee_seat && row.addressee_seat !== seat.id) {
+    throw new PalugadaError('staff.forbidden',
+      `this question is for ${row.name ?? 'someone else'}: only they and the owner can read it`, { inboxItemId: itemId });
+  }
 }
 
 /**
@@ -1191,7 +1276,15 @@ const ALLOW_FOR_SQL = `i.kind = 'approval' AND i.tier <= 2 AND i.capability_name
 const FOR_SCHEDULE_SQL = `(i.kind = 'approval' AND i.tier <= 2 AND i.capability_name IS NOT NULL
   AND i.action_fingerprint IS NOT NULL AND i.task_id IS NOT NULL AND app.task_schedule(i.task_id) IS NOT NULL)`;
 
-export async function listOpen(companyId: string, options: { snoozed?: boolean } = {}): Promise<InboxItem[]> {
+/**
+ * The open items. `seat` is a staff seat reading: it sees what is nobody's in
+ * particular and what is its own, not what another seat was asked, and `mine`
+ * leaves it only what is its own. The owner reads all of it.
+ */
+export async function listOpen(
+  companyId: string,
+  options: { snoozed?: boolean; seat?: { id: string } | null; mine?: boolean } = {},
+): Promise<InboxItem[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; kind: InboxKind; status: InboxStatus;
@@ -1202,6 +1295,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
       key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
+      addressee: { seatId: string; name: string } | null; escalated: boolean;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1213,6 +1307,8 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
+              CASE WHEN i.addressee_seat IS NOT NULL THEN i.payload->'addressee' END AS addressee,
+              (i.escalated_at IS NOT NULL) AS escalated,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               CASE WHEN i.kind = 'budget_alert' THEN i.payload->'budgetHalt'->>'budgetAccountId' END AS budget_account,
               i.payload->'asked' AS asked,
@@ -1226,8 +1322,11 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         WHERE i.status = 'open'
           AND (CASE WHEN $1 THEN i.snoozed_until > now()
                     ELSE i.snoozed_until IS NULL OR i.snoozed_until <= now() END)
+          -- A seat reads what is nobody's in particular and what is its own (or, once its time is up, the owner's too).
+          AND ($2::uuid IS NULL OR i.addressee_seat IS NULL OR i.addressee_seat = $2::uuid)
+          AND ($3::boolean = false OR i.addressee_seat = $2::uuid)
         ORDER BY i.created_at`,
-      [options.snoozed ?? false],
+      [options.snoozed ?? false, options.seat?.id ?? null, options.mine === true && !!options.seat],
     );
     const items: InboxItem[] = [];
     for (const r of rows) {
@@ -1254,6 +1353,8 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         options: r.options,
         ...(r.browser ? { browser: true } : {}),
         ...(r.key ? { key: r.key } : {}),
+        ...(r.addressee ? { addressee: r.addressee } : {}),
+        ...(r.escalated ? { escalated: true } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
@@ -1581,13 +1682,15 @@ export async function decide(
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule } = await withTenant(companyId, async (tx) => {
+  const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule, addressee } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
       schedule_id: string | null; action_fingerprint: string | null; proposes_schedule: boolean;
+      addressee_seat: string | null; addressee_name: string | null;
     }>(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
+              i.addressee_seat, i.payload->'addressee'->>'name' AS addressee_name,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
               (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id,
@@ -1611,11 +1714,18 @@ export async function decide(
         ? { ...schedule, capabilityName: row.capability_name, fingerprint: row.action_fingerprint }
         : null,
       proposesSchedule: row?.proposes_schedule ?? false,
+      addressee: row?.addressee_seat ? { seatId: row.addressee_seat, name: row.addressee_name ?? 'someone else' } : null,
     };
   });
   // A seat beside the owner (0110): tier 3 is the owner's whichever way it
   // is answered, and a yes for a while loosens a control, which is too.
   if (options.seat) {
+    // A question put to one person is theirs and the owner's: another seat
+    // cannot see it in its inbox, and cannot reach it by its id either.
+    if (addressee && addressee.seatId !== options.seat.id) {
+      throw new PalugadaError('staff.forbidden',
+        `this question is for ${addressee.name}: only they and the owner can answer it`, { inboxItemId: itemId });
+    }
     if ((tier ?? 0) >= 3) {
       throw new PalugadaError('staff.forbidden',
         'tier 3 is the owner\'s to decide, yes or no: it stays in their inbox', { inboxItemId: itemId });

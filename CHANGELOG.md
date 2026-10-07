@@ -285,6 +285,10 @@ The first version. What it holds, in the order an owner meets it.
   app, never yours; tier 3, settings, keys and devices stay yours, the
   record names who decided, and ending a seat signs them out at once
   (STATUS 2.116).
+- A role can put a question to a person by name, not only to you: the
+  bookkeeper asks Budi, and only Budi and you see the question and can
+  answer it. The card says who it is for, and a seat's inbox has a "For me"
+  list (STATUS 2.173).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

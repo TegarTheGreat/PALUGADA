@@ -42,7 +42,7 @@ import { ConversationOfTask } from '../components/ChatThread.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
-type Filter = 'all' | 'approval' | 'incident' | 'escalation';
+type Filter = 'all' | 'approval' | 'incident' | 'escalation' | 'mine';
 
 const KIND_COLOR: Record<string, string> = {
   approval: 'var(--mantine-color-orange-6)',
@@ -115,7 +115,9 @@ export function Decisions({ ctx, route }: PageProps) {
   const select = (id: string | null) => go({ ...route, item: id }, { replace: true });
 
   const items = useMemo(() => (queue.data?.items ?? [])
-    .filter((item) => filter === 'all' || item.kind === filter)
+    // A seat is sent only the questions put to it and those put to no one, so
+    // an item with an addressee is its own.
+    .filter((item) => filter === 'all' || (filter === 'mine' ? item.addressee !== undefined : item.kind === filter))
     .sort((a, b) => urgency(a) - urgency(b) || a.createdAt.localeCompare(b.createdAt)), [queue.data, filter]);
 
   useEffect(() => {
@@ -231,6 +233,7 @@ export function Decisions({ ctx, route }: PageProps) {
                       { value: 'approval', label: t('Approvals') },
                       { value: 'incident', label: t('Incidents') },
                       { value: 'escalation', label: t('Questions') },
+                      ...(ctx.staff && (filter === 'mine' || queue.data.items.some((item) => item.addressee)) ? [{ value: 'mine', label: t('For me') }] : []),
                     ]}
                   />
                   {ctx.staff?.kind !== 'viewer' && (
@@ -667,6 +670,16 @@ function Detail({
         <Group gap="xs" mb="xs">
           <TierBadge tier={item.tier} />
           <KindBadge kind={item.kind} />
+          {item.addressee && (
+            <Badge color="grape" variant="light">
+              {seat ? t('For you') : t('For {name}', { name: item.addressee.name })}
+            </Badge>
+          )}
+          {item.escalated && (
+            <Tooltip label={t('Not answered within a day: the owner has been told, and can answer it too.')}>
+              <Badge color="orange" variant="light" leftSection={<IconClock size={12} />}>{t('Unanswered for a day')}</Badge>
+            </Tooltip>
+          )}
           {expires && (
             <Tooltip label={t('Unanswered, it is cancelled {when}. Silence never executes anything.', { when: dateTime(item.expiresAt) })}>
               <Badge color={soon ? 'red' : 'gray'} variant="light" leftSection={<IconClock size={12} />}>

@@ -931,8 +931,14 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox',
         // `?snoozed=1` lists the items the owner put off instead (0060).
-        handle: async ({ params, query }) => ({
-          items: await inbox.listOpen(params.companyId!, { snoozed: query.get('snoozed') === '1' }),
+        // A seat is not shown a question put to someone else; `?mine=1`
+        // narrows it to the questions put to the seat itself.
+        handle: async ({ params, query, staff }) => ({
+          items: await inbox.listOpen(params.companyId!, {
+            snoozed: query.get('snoozed') === '1',
+            seat: staff ? { id: staff.seat.id } : null,
+            mine: query.get('mine') === '1',
+          }),
         }),
       },
 
@@ -1382,7 +1388,8 @@ export class OwnerApi {
         // list gives an id, this gives the trace behind it.
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox/:itemId/trace',
-        handle: async ({ params, query }) => {
+        handle: async ({ params, query, staff }) => {
+          if (staff) await inbox.assertSeatMayRead(params.companyId!, params.itemId!, { id: staff.seat.id });
           const trace = await traceFromInboxItem(params.companyId!, params.itemId!, {
             includePrompts: query.get('prompts') === '1',
           });

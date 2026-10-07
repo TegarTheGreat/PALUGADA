@@ -25,7 +25,7 @@ import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
-import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { QUESTION_ESCALATES_AFTER_HOURS, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
@@ -676,6 +676,13 @@ export interface OwnerAskInput {
    * is told it is there, never what it is.
    */
   key?: string;
+  /**
+   * The person the question is for, by name, when it is one of the people
+   * seated beside the owner and not the owner: an approver. Only that person
+   * and the owner see and answer it; if it is not answered in a day it is the
+   * owner's to answer too, and they are told.
+   */
+  to?: string;
 }
 
 export interface OwnerAskResult {
@@ -799,6 +806,7 @@ export function ownerAskCapability(
         why: { type: 'string', description: 'What depends on the answer.' },
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
         key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
+        to: { type: 'string', maxLength: 120, description: 'The person this is for, by name, when it is someone the company has seated and not the owner. They are named in your brief; a name no one has is refused saying who there is.' },
       },
     },
     adapter: 'platform',
@@ -826,6 +834,7 @@ export function ownerAskCapability(
         }
         key = { alias, divisionId: ctx.divisionId, capabilities: asked.capabilities };
       }
+      const person = input.to !== undefined && String(input.to).trim() !== '' ? await approverNamed(ctx.companyId, String(input.to)) : null;
       const unbound = bound && !key ? await setupAsked(ctx, question, input.options, bound) : [];
       if (unbound.length > 0) {
         await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
@@ -847,6 +856,7 @@ export function ownerAskCapability(
         why: typeof input.why === 'string' ? input.why : null,
         options: Array.isArray(input.options) ? input.options.map(String) : null,
         ...(key ? { key } : {}),
+        ...(person ? { addressee: { ...person, escalateAfterHours: QUESTION_ESCALATES_AFTER_HOURS } } : {}),
       });
       if (asked.state === 'answered') return { answered: true, answer: asked.answer };
       if (asked.state === 'unanswered') {

@@ -56,6 +56,16 @@ main() {
     *) fail "say install, doctor or rollback, or nothing to install; got $command" ;;
   esac
 
+  # Numbers, checked before anything is written or waited on: a port goes into
+  # .env, and the others are counted in a loop that would never end on a 0.
+  whole_number() {
+    case "$1" in ""|*[!0-9]*) return 1 ;; esac
+    [ "${#1}" -le 6 ]
+  }
+  whole_number "$PORT" && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || fail "PALUGADA_PORT is a port, 1 to 65535; got $PORT"
+  whole_number "$POLL" && [ "$POLL" -ge 1 ] || fail "PALUGADA_POLL_SECONDS is a whole number of seconds, 1 or more; got $POLL"
+  whole_number "$WAIT_SECONDS" && [ "$WAIT_SECONDS" -ge 1 ] || fail "PALUGADA_WAIT_SECONDS is a whole number of seconds, 1 or more; got $WAIT_SECONDS"
+
   # Four dotted numbers, none above 255.
   is_ipv4() {
     case "$1" in ""|*[!0-9.]*) return 1 ;; esac
@@ -150,13 +160,16 @@ main() {
     return 1
   }
   # One line of .env, whether or not it is there; the values are plain, checked by the caller.
+  # The new file is made private as it is made, in a subshell so that the code
+  # unpacked beside it keeps the modes the container needs to read it: .env
+  # holds the database's passwords, and there is no moment it may be read.
   set_env() {
-    { grep -v "^$1=" .env 2>/dev/null || true; echo "$1=$2"; } > .env.new
+    ( umask 077; { grep -v "^$1=" .env 2>/dev/null || true; echo "$1=$2"; } > .env.new )
     chmod 600 .env.new
     mv .env.new .env
   }
   unset_env() {
-    { grep -v "^$1=" .env 2>/dev/null || true; } > .env.new
+    ( umask 077; { grep -v "^$1=" .env 2>/dev/null || true; } > .env.new )
     chmod 600 .env.new
     mv .env.new .env
   }
@@ -268,10 +281,17 @@ main() {
     chmod 600 .env
     say "wrote .env with new database passwords"
   fi
+  # Compose never stops a container whose service is outside the profiles that
+  # are on, so leaving HTTPS has to stop the proxy by name: left running, it
+  # would keep ports 80 and 443 and go on asking for certificates.
+  stop_proxy() {
+    compose --profile https rm -s -f caddy </dev/null >/dev/null 2>&1 || true
+  }
   # Who may open the console, and how: the whole of it is these lines of .env,
   # so a later run keeps them, and each choice removes what the one before made.
   case "$MODE" in
     address)
+      stop_proxy
       unset_env COMPOSE_PROFILES; unset_env PALUGADA_DOMAIN; unset_env PALUGADA_BEHIND_PROXY
       set_env PALUGADA_PUBLISH "0.0.0.0:$PORT"
       set_env PALUGADA_ALLOWED_HOSTS "$HOST,localhost"
@@ -288,6 +308,7 @@ main() {
       say "the console will be open at https://$HOST, with HTTPS made by Caddy"
       ;;
     private)
+      stop_proxy
       for name in COMPOSE_PROFILES PALUGADA_DOMAIN PALUGADA_BEHIND_PROXY PALUGADA_ALLOWED_HOSTS PALUGADA_APP_URL_PUBLIC; do unset_env "$name"; done
       set_env PALUGADA_PUBLISH "127.0.0.1:$PORT"
       say "the console will be open to this machine alone"
@@ -308,7 +329,18 @@ main() {
     | sed "s#^http://localhost:8787/#http://localhost:$PORT/#")
   opened_at=$(sed -n 's/^PALUGADA_APP_URL_PUBLIC=//p' .env 2>/dev/null | tail -n 1)
   tell_how_to_open "$claim" "$opened_at"
-  say "to update later, run this again; to see whether all is well: sh $DIR/install.sh doctor; to stop it: cd $DIR && docker compose down"
+  # `--profile https` so that the proxy, when there is one, goes down with the rest.
+  say "to update later, run this again; to see whether all is well: sh $DIR/install.sh doctor; to stop it: cd $DIR && docker compose --profile https down"
+}
+
+# Whether this looks like a server someone reaches from elsewhere, and not a
+# computer they sit at: over SSH, or with no screen and no macOS. sudo, a
+# provider's web console and cloud-init all drop the SSH variables, and the
+# address on the screen must not be taken for one that others can open.
+on_a_server() {
+  [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}" ] && return 0
+  [ "$(uname -s 2>/dev/null || true)" = Darwin ] && return 1
+  [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]
 }
 
 # What the end of the install says: where to open the console, from where the
@@ -317,9 +349,12 @@ main() {
 tell_how_to_open() {
   claim=$1
   opened_at=$2
+  # Behind this installer's own proxy, which is what makes the https address work.
+  proxied=false
+  case ",$(sed -n 's/^COMPOSE_PROFILES=//p' .env 2>/dev/null | tail -n 1)," in *,https,*) proxied=true ;; esac
   if [ -n "$opened_at" ]; then
     say "PALUGADA is running at $opened_at"
-  elif [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}" ]; then
+  elif on_a_server; then
     say "PALUGADA is running, and for now only this server itself can open it."
   else
     say "PALUGADA is running."
@@ -338,13 +373,17 @@ tell_how_to_open() {
       say "If the link does not open, allow port $PORT in this server's firewall (the provider's panel, or: ufw allow $PORT/tcp)."
       ;;
     https://*)
-      name=${opened_at#https://}
-      say "HTTPS is made the first time $name is opened, and needs $name to point at this server and ports 80 and 443 free and open in its firewall."
-      point_check "$name"
+      # Only where this installer's proxy is: a console behind the owner's own proxy has nothing to be told.
+      if $proxied; then
+        name=${opened_at#https://}
+        name=${name%%[:/]*}
+        say "Caddy makes the HTTPS certificate when it starts, and tries again by itself; it needs $name to point at this server and ports 80 and 443 free and open in its firewall."
+        point_check "$name"
+      fi
       ;;
     *)
-      # Reached over SSH, the address on this machine's own screen is of no use to the one reading it.
-      if [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}" ]; then
+      # On a server, the address on this machine's own screen is of no use to the one reading it.
+      if on_a_server; then
         address=$(public_ip || true)
         if [ -z "$address" ]; then
           # The address the client connected to, when it is one the world can reach.
@@ -359,8 +398,12 @@ tell_how_to_open() {
         say "To open it from your own computer, either:"
         say ""
         say "  A. At once, with nothing to set up (an SSH tunnel). In a terminal on YOUR computer run"
-        say "       ssh -N -L $PORT:127.0.0.1:$PORT$sshport $(id -un)@$shown"
-        say "     leave it running, and open the link above on that computer."
+        say "       ssh -N -L $PORT:127.0.0.1:$PORT$sshport ${SUDO_USER:-$(id -un)}@$shown"
+        if [ -n "$claim" ]; then
+          say "     leave it running, and open the link above on that computer."
+        else
+          say "     leave it running, and open http://localhost:$PORT on that computer."
+        fi
         say ""
         say "  B. From any browser, over HTTPS: point a domain name at $shown, then run on this server"
         say "       PALUGADA_PUBLIC_HOST=console.example.com sh $DIR/install.sh"
@@ -374,13 +417,17 @@ tell_how_to_open() {
 # Whether a name points at this server, said as a thing to do when it does not.
 point_check() {
   # $1 the name.
+  # Every IPv4 address the name has: a name with several, or one that also has
+  # an IPv6 address, is not wrong for pointing at more than one.
   there=""
-  if command -v getent >/dev/null 2>&1; then there=$(getent hosts "$1" 2>/dev/null | awk '{print $1; exit}' || true); fi
+  if command -v getent >/dev/null 2>&1; then
+    there=$(getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' | sed 's/ *$//' || true)
+  fi
   here=$(public_ip || true)
   if [ -z "$there" ]; then
-    say "warning: $1 does not point anywhere yet: make an A record for it with this server's address${here:+ ($here)}; until it does, HTTPS cannot be made, and it is tried again by itself."
-  elif [ -n "$here" ] && [ "$there" != "$here" ]; then
-    say "warning: $1 points to $there, not to this server ($here): change its A record; until then HTTPS cannot be made, and it is tried again by itself."
+    say "warning: $1 has no IPv4 address yet: make an A record for it with this server's address${here:+ ($here)}; until it does, HTTPS cannot be made, and it is tried again by itself."
+  elif [ -n "$here" ] && ! printf ' %s ' "$there" | grep -qF " $here "; then
+    say "warning: $1 points to $there, and this server's address looks like $here. If those are not the same machine, change the A record: until $1 reaches this server, HTTPS cannot be made, and it is tried again by itself. (A reserved or floating address of this server is right too: then ignore this.)"
   elif [ -n "$here" ]; then
     say "$1 points to this server ($here)."
   else

@@ -97,8 +97,12 @@ export function composeMail(input: {
       const encoded = encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
       // A `message/*` part may not be encoded (RFC 2046), and a file is not read as a message here: it is bytes.
       const mime = file.mime.startsWith('message/') ? 'application/octet-stream' : file.mime;
-      return `--${boundary}\r\nContent-Type: ${mime}; name="${fallback}"\r\nContent-Transfer-Encoding: base64\r\n`
-        + `Content-Disposition: attachment; filename="${fallback}"; filename*=UTF-8''${encoded}\r\n\r\n${wrapped(file.bytes)}`;
+      // The real name first, in the form RFC 2231 gives (`filename*=`), and the
+      // ASCII fallback after it, for a reader that takes only the first it finds; a
+      // name in Content-Type, where some clients look for it, is given the same way.
+      const named = fallback === file.name;
+      return `--${boundary}\r\nContent-Type: ${mime}; ${named ? '' : `name*=UTF-8''${encoded}; `}name="${fallback}"\r\nContent-Transfer-Encoding: base64\r\n`
+        + `Content-Disposition: attachment; ${named ? '' : `filename*=UTF-8''${encoded}; `}filename="${fallback}"\r\n\r\n${wrapped(file.bytes)}`;
     }),
     `--${boundary}--\r\n`,
   ];
@@ -126,14 +130,23 @@ export function composeReply(input: {
 class Conversation {
   #socket: Socket | TLSSocket;
   #reader: LineReader;
+  /**
+   * Every socket the conversation runs over: after STARTTLS the TLS one wraps
+   * the plain one, and the plain one keeps the timer it was given at connect
+   * (Node never changes a parent's duration), so a longer patience has to be
+   * given to each or the shorter ends the session first.
+   */
+  readonly #sockets: Array<Socket | TLSSocket>;
 
   constructor(socket: Socket | TLSSocket) {
     this.#socket = socket;
+    this.#sockets = [socket];
     this.#reader = new LineReader(socket);
   }
 
   upgraded(socket: TLSSocket): void {
     this.#socket = socket;
+    this.#sockets.push(socket);
     this.#reader = new LineReader(socket);
   }
 
@@ -162,7 +175,7 @@ class Conversation {
 
   /** How long the line may be silent before the conversation is given up: more while a large message is taken. */
   patience(ms: number): void {
-    this.#socket.setTimeout(ms);
+    for (const socket of this.#sockets) socket.setTimeout(ms);
   }
 
   close(): void {

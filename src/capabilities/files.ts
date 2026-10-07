@@ -90,7 +90,8 @@ export async function companyRoot(root: string, companyId: string): Promise<stri
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
     throw new PalugadaError('capability.unknown', 'that is not a company id', {});
   }
-  const mine = join(platform, companyId);
+  // One spelling: a uuid in capitals is the same company, and on a file system that tells them apart it would otherwise have a second directory that an erasure never removes.
+  const mine = join(platform, companyId.toLowerCase());
   await mkdir(mine, { recursive: true });
   return realpath(mine);
 }
@@ -118,7 +119,7 @@ export async function removeCompanyFiles(root: string, companyId: string): Promi
   };
   const platform = await realpath(resolve(root)).catch(missing);
   if (platform === null) return;
-  const mine = join(platform, companyId);
+  const mine = join(platform, companyId.toLowerCase());
   if (await lstat(mine).catch(missing) === null) return;
   await rm(mine, { recursive: true, force: true });
 }
@@ -266,7 +267,8 @@ export async function readCompanyFile(
     throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
   }
   if (real === null) throw new PalugadaError('contract.violation', `there is no file ${wanted}: files.list says what there is`, { path: wanted });
-  const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+  // Not blocking: opening a named pipe for reading waits for a writer that never comes, and would hold a thread of the pool for ever; opened this way it returns, and is refused below as not a file.
+  const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => {
     throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
   });
   try {
@@ -483,7 +485,23 @@ export function plainFileName(raw: unknown): string {
  * folder is an argument so what strangers send and what the company issues can
  * be kept the same way, in folders of their own.
  */
-export async function keepCompanyFile(
+export function keepCompanyFile(
+  root: string, companyId: string, folder: string, name: string, bytes: Buffer,
+): Promise<{ path: string; bytes: number; sha256: string }> {
+  // One at a time for a company's folder: the count of what is kept and the writing of the next are two steps, and
+  // uploads that arrive together would each see the same count and all pass. (Within this process; a second one
+  // on the same root can still overshoot by what it has in flight.)
+  const key = `${root}\u0000${companyId.toLowerCase()}`;
+  const run = (keeping.get(key) ?? Promise.resolve()).then(() => keepOne(root, companyId, folder, name, bytes));
+  const tail = run.then(() => undefined, () => undefined);
+  keeping.set(key, tail);
+  void tail.then(() => { if (keeping.get(key) === tail) keeping.delete(key); });
+  return run;
+}
+
+const keeping = new Map<string, Promise<void>>();
+
+async function keepOne(
   root: string, companyId: string, folder: string, name: string, bytes: Buffer,
 ): Promise<{ path: string; bytes: number; sha256: string }> {
   const { mkdir, open, readdir, lstat, realpath, unlink } = await import('node:fs/promises');
@@ -543,7 +561,7 @@ export async function keepCompanyFile(
  * found the way every reader here finds one. What a role drafted, made or
  * computed is not removed from here, and neither is a folder or a link.
  */
-export async function removeCompanyUpload(root: string, companyId: string, path: unknown): Promise<void> {
+export async function removeCompanyUpload(root: string, companyId: string, path: unknown): Promise<string> {
   const { realpath, lstat, unlink } = await import('node:fs/promises');
   const { join, resolve, sep, normalize, relative } = await import('node:path');
   const base = await companyRoot(root, companyId);
@@ -562,6 +580,8 @@ export async function removeCompanyUpload(root: string, companyId: string, path:
   const info = await lstat(target).catch(() => null);
   if (!info || !info.isFile() || info.isSymbolicLink()) throw only();
   await unlink(real);
+  // The path as the company keeps it, whatever spelling asked: what the record of it names.
+  return relative(base, real).split(sep).join('/');
 }
 
 /**

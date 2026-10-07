@@ -8,7 +8,7 @@
  * listed and can be taken, never removed from here. Nothing is kept in the
  * browser, and a file is never opened in it: it is saved, or it is not.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Anchor, Breadcrumbs, Button, CopyButton, FileButton, Group, Paper, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCheck, IconCopy, IconDownload, IconFile, IconFolder, IconUpload } from '@tabler/icons-react';
@@ -32,6 +32,8 @@ export function Files({ companyId, owner }: { companyId: string; owner: boolean 
   const [path, setPath] = useState('.');
   const [kept, setKept] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The button keeps the file it was given until it is told to forget it, and a browser says nothing when the same one is chosen again.
+  const forget = useRef<() => void>(null);
   const list = useLoad(async (): Promise<Listing> =>
     await api('GET', `/api/companies/${companyId}/files?path=${encodeURIComponent(path)}`) as Listing, [companyId, path]);
 
@@ -49,6 +51,7 @@ export function Files({ companyId, owner }: { companyId: string; owner: boolean 
   const join = (name: string) => (list.data && list.data.available && list.data.path !== '.' ? `${list.data.path}/${name}` : name);
 
   const upload = async (file: File | null) => {
+    forget.current?.();
     if (!file) return;
     if (file.size > UPLOAD_MAX_MB * 1_048_576) {
       notifications.show({ color: 'red', message: t('That file is {size} MB; at most {max} MB can be uploaded.', { size: (file.size / 1_048_576).toFixed(1), max: UPLOAD_MAX_MB }) });
@@ -80,7 +83,7 @@ export function Files({ companyId, owner }: { companyId: string; owner: boolean 
           {t('What you upload is kept in the folder uploads. A role that may read files can read it; what the company makes is kept in the other folders.')}
         </Text>
         {owner && (
-          <FileButton onChange={(file) => void upload(file)}>
+          <FileButton resetRef={forget} onChange={(file) => void upload(file)}>
             {(props) => <Button {...props} leftSection={<IconUpload size={16} />} loading={busy}>{t('Upload a file')}</Button>}
           </FileButton>
         )}
@@ -88,7 +91,7 @@ export function Files({ companyId, owner }: { companyId: string; owner: boolean 
 
       {kept && (
         <Group gap="xs" wrap="wrap">
-          <Text size="sm">{kept}</Text>
+          <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{kept}</Text>
           <CopyButton value={kept}>
             {({ copied, copy }) => (
               <Button size="compact-xs" variant="light" leftSection={copied ? <IconCheck size={12} /> : <IconCopy size={12} />} onClick={copy}>

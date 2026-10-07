@@ -438,12 +438,25 @@ function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOu
       return { moneyCents: 0, recipientDomain: recipientDomainOf(all), batchSize: all.length };
     },
     // A paperclip and the paths, before the subject: the card is cut at a
-    // length, and what leaves with the letter is what the owner must see.
+    // length, and what leaves with the letter is what the owner must see. So
+    // it is the list of people that gives way when the line is long, never the
+    // files: each is named, and the people who are left out are counted.
     summarize: (input) => {
-      const to = Array.isArray(input.to) ? input.to.join(', ') : '';
-      const cc = Array.isArray(input.cc) && input.cc.length > 0 ? `, cc ${input.cc.join(', ')}` : '';
+      const named = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
       const files = Array.isArray(input.attachments) && input.attachments.length > 0 ? ` \u{1F4CE} ${input.attachments.map(String).join(', ')}` : '';
-      return `${to}${cc}${files} — ${String(input.subject ?? '')}`;
+      const cc = named(input.cc);
+      const people = [...named(input.to), ...cc.map((address, at) => (at === 0 ? `cc ${address}` : address))];
+      const room = Math.max(60, 190 - files.length);
+      let shown = '';
+      let count = 0;
+      for (const person of people) {
+        const next = count === 0 ? person : `${shown}, ${person}`;
+        if (count > 0 && next.length > room) break;
+        shown = next;
+        count += 1;
+      }
+      const more = people.length - count;
+      return `${shown}${more > 0 ? ` (+${more} more)` : ''}${files} — ${String(input.subject ?? '')}`;
     },
     preflight: preflightFor('email.send', options, { imap: false, smtp: true }),
     async execute(input, ctx) {

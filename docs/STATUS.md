@@ -10162,11 +10162,15 @@ No code of the platform changed: `install.sh`, `docker-compose.yml`, one new fil
   for to the end of the ten minutes; and a `compose up` that fails shows the last lines of the migration and
   the platform, where it showed Docker's one line.
 - **The address.** The console stays on the server's loopback by default: it holds the owner's second factor and
-  spends money, and putting it on the internet unasked in plain HTTP is not a default this project takes. Run over
-  SSH (`SSH_CONNECTION` or `SSH_CLIENT` set) the installer says so, and prints the tunnel with the server's own
-  public address in it (`ssh -N -L 8787:127.0.0.1:8787 -p <port> user@203.0.113.7`) and the two ways to open it
-  to others. The address is looked up (`api.ipify.org`, then `ifconfig.me`, then `icanhazip.com`, four seconds
-  each) only when it is needed -- never on a machine the owner sits at, and never when an address was given --
+  spends money, and putting it on the internet unasked in plain HTTP is not a default this project takes. On a
+  server -- over SSH (`SSH_CONNECTION` or `SSH_CLIENT` set), or, when neither is, any machine that is not macOS and
+  has no screen (`DISPLAY`, `WAYLAND_DISPLAY`), since `sudo`, a provider's web console and cloud-init all drop the
+  SSH variables (found in the review of 2.172: the first version said nothing under `sudo`, which is the
+  complaint it was written for) -- the installer says so, and prints the tunnel with the server's own
+  public address in it (`ssh -N -L 8787:127.0.0.1:8787 -p <port> user@203.0.113.7`, the user being `SUDO_USER`
+  when there is one) and the two ways to open it to others. The address is looked up (`api.ipify.org`, then
+  `ifconfig.me`, then `icanhazip.com`, four seconds each) only when it is needed -- on a server, or to compare a
+  domain with it, and never on a machine the owner sits at, nor when an address was given --
   and an answer that is a private or shared address is not used; failing that, the address the client connected to
   if the world can reach it; failing that, `<this server's address>`, not one made up.
 - **Opening it.** `PALUGADA_PUBLIC_HOST`: a **domain name** turns on the `https` profile of Compose (`caddy:2`,
@@ -10190,7 +10194,7 @@ No code of the platform changed: `install.sh`, `docker-compose.yml`, one new fil
   limits: IPv6 addresses are not accepted as a public host; an address in plain HTTP is a choice the owner makes,
   warned of and not prevented; a server whose ports 80 and 443 are taken fails at `compose up` with Docker's own
   message, shown with the logs; the public address comes from a third-party lookup, which is why it is asked
-  for only over SSH and never stored.
+  for only on a server or for a domain, and never stored.
 - **Also found.** The install tests left their folder of the checkout's tarball and the tree it was unpacked to
   behind on every run (tens of megabytes each, 17 a run): together with the other tests' temporary folders they
   filled the disk of this environment (14,000 folders in `/tmp`), which `doctor` correctly reported as "only 0 GB
@@ -10198,7 +10202,7 @@ No code of the platform changed: `install.sh`, `docker-compose.yml`, one new fil
 - **Tested** in `install.test.ts` (nine new tests: the steps and the wait's words, a stopped and a restarting
   platform, a failed start, the tunnel with the public address, the port ssh is on, a private answer and the
   address the client used, an address given, a domain with the name pointing elsewhere, here and nowhere,
-  eighteen values refused before anything is written, a choice kept, replaced and taken back, the shape of the
+  sixteen values refused before anything is written, a choice kept, replaced and taken back, the shape of the
   Compose service and the Caddyfile, `doctor` with and without the proxy), each behaviour seen to fail when taken out.
 
 ## 2.169 A task's page offers the files it made (the audit of 6 October, W2; P1.4, part 3)
@@ -10313,6 +10317,50 @@ folder is the store.
   platform's own; the kind told by the bytes for thirty cases; RFC 2231 and 2047 names; the logo, the five, the maze
   and the forwarded message; a link where `received` goes and where the file goes; `chat.read`'s three documents
   and its cut; the export. Thirteen mutations of the code each seen to fail them.
+
+## 2.172 What the adversarial review of 2.166 to 2.168 found, and what was done (7 October)
+
+Six readers (path containment, MIME and SMTP, the console, the tests, the documents, the installer), 37 candidate
+findings, each tried by two sceptics: 29 stood, 8 were refuted. What stood, by what it was.
+
+- **The installer, and the owner's complaint itself.** *Server detection depended on the SSH variables alone*:
+  under `sudo`, in a provider's web console and in cloud-init they are not set, so the first version printed
+  `localhost` and no tunnel exactly where the complaint came from. A machine is now a server when SSH says so or when
+  it is not macOS and has no screen; the tunnel names `SUDO_USER`, and with no link to open it says what to open.
+  *Leaving HTTPS did not stop Caddy* (Compose leaves a container whose profile is off running, `docker compose down`
+  included): `private` and an address now stop it by name, and the stop command printed is `--profile https down`.
+  *The Caddy text and the DNS check came from any `https://` address*, so an owner behind their own proxy was told
+  false things on every update: now only where `COMPOSE_PROFILES` holds `https`, with the port and path taken off the
+  name. *The DNS check* reads every IPv4 address of the name (a second address, a reserved address or a CDN is
+  not a warning) and says "the certificate is made when Caddy starts". *`.env.new` was made world-readable for a
+  moment* with the database's passwords in it: now made private as it is made. *Numbers were not checked*: a poll of
+  0 never ended, `0.5` killed the script after a good start, and a port with a space was written into `.env`.
+- **Files.** *A named pipe in the company's files held a thread of the pool for ever* when opened for reading
+  (`O_NONBLOCK` now: it is refused as not a file). *A company's id in capitals made a second folder that
+  erasure never removed*: one spelling, in `companyRoot` and `removeCompanyFiles`. *The upload quota was
+  check-then-write*: uploads of one company now go one at a time (in this process; two processes on one root can
+  still overshoot by what each has in flight, which is said, not mended). *`file.deleted` named the spelling the
+  owner typed*: it names the path as kept, like `file.uploaded`. In the console, *choosing the same file again did
+  nothing* and *a long name overflowed a phone's width*.
+- **Mail.** *The minute a large letter is given to be accepted did not apply after STARTTLS*, the plain socket
+  under the TLS one kept its short timer and ended the session first, which invites a second send: each socket of the
+  conversation is given it. *A name beyond ASCII* is now given first, as `filename*=`, then the plain fallback, and
+  in the content type too. *The approval card could push the files off its 240 characters when the letter had many
+  recipients*: the people give way (counted as "+N more"), never the files.
+- **Tests.** The request-ceiling assertion could not fail and could be reset by the server: it sends a body that is
+  small once decoded and accepts the 400 or the reset. The made-up company is tried on all four routes with exact
+  answers; the 500th file, the twenty-name cap, the 512 MB total, the largest upload and download, and the types
+  given no kind are tried at their edges; the alias through a link, `SIZE 0`, an invoice attached, a delayed
+  acceptance after STARTTLS, a normally exited `migrate`, the wait's timeout, `SSH_CLIENT`, and the mode of `.env.new`
+  as it is made. The fake SMTP server can now delay its acceptance. Each of the new behaviours was seen to fail when
+  taken out (seventeen mutations); the named pipe was not, because the test would hang rather than fail.
+- **Documents.** 2.168 said the address was looked up only over SSH (also for a domain, and now on a server by
+  any means) and that eighteen values were refused (sixteen); the troubleshooting entry listed causes the message
+  cannot have. Corrected.
+- **Not done.** A server that answers before it has read a request body past the ceiling makes the client see a
+  reset and not the 400 (`readBody` destroys the request first): the console shows "failed" and not the
+  sentence. The upload count and total are not a lock across processes. `valid_host` and the DNS wording are not
+  tried against every spelling. The 8 refuted findings are in the workflow's journal, with the sceptics' reasons.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -554,6 +554,12 @@ The first version. What it holds, in the order an owner meets it.
   shown in the conversation with a Download button, and read for the role that answers: `chat.read` gives
   its path and what a PDF, Word or Excel document or a text file says. Programs, scripts, archives, SVGs and
   old or macro Office files are not kept, and the conversation says why (STATUS 2.171).
+- The installer says where to open the console on any server, also under `sudo` or in a provider's web
+  console (it printed `localhost` there), stops Caddy when HTTPS is given up, checks its numbers before it
+  writes or waits, and keeps `.env` private as it is made. A letter's approval card names every file even when
+  it has many recipients, a large letter is given its minute after STARTTLS too, a company's id in capitals no
+  longer makes a second folder, a named pipe in the files no longer hangs a read, and concurrent uploads
+  respect the count (STATUS 2.172).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

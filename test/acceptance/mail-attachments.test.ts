@@ -77,9 +77,9 @@ async function servers() {
 }
 
 /** The deployment's folder of company files, and the mailbox capabilities that find files in it (or, given none, in nothing). */
-async function setting(fixture: Fixture, filesRoot: string | null) {
+async function setting(fixture: Fixture, filesRoot: string | null, extra: { timeoutMs?: number } = {}) {
   const registry = new CapabilityRegistry();
-  for (const capability of mailboxCapabilities({ ca: cert!.cert, ...(filesRoot ? { filesRoot } : {}) })) registry.register(capability);
+  for (const capability of mailboxCapabilities({ ca: cert!.cert, ...(filesRoot ? { filesRoot } : {}), ...extra })) registry.register(capability);
   await registry.sync();
   let broker: CapabilityBroker | null = null;
   const api = await consoleWithSettings({ registry, credentialFor: (companyId, divisionId) => broker!.credentialFor(companyId, divisionId) });
@@ -200,10 +200,12 @@ test('a letter carries the files the company made: the owner is asked with each 
     const files = message.parts.slice(1);
     assert.deepEqual(files.map((part) => part.body.equals(Buffer.alloc(0))), [false, false, false, false]);
     assert.ok(files[0]!.body.equals(offerBytes) && files[1]!.body.equals(logoBytes) && files[2]!.body.equals(priceBytes) && files[3]!.body.equals(recapBytes));
-    assert.match(files[0]!.headers, /^Content-Type: text\/markdown; name="offer\.md"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename="offer\.md"; filename\*=UTF-8''offer\.md$/);
+    assert.match(files[0]!.headers, /^Content-Type: text\/markdown; name="offer\.md"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename="offer\.md"$/);
     assert.match(files[1]!.headers, /^Content-Type: image\/png; name="logo\.png"/);
-    // A name with a letter beyond ASCII is given twice, as clients expect: a plain one and the real one.
-    assert.match(files[2]!.headers, /^Content-Type: application\/pdf; name="Penawaran-Caf_\.pdf"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename="Penawaran-Caf_\.pdf"; filename\*=UTF-8''Penawaran-Caf%C3%A9\.pdf$/);
+    // A name with a letter beyond ASCII is given twice, as clients expect: the real one first, in the form
+    // RFC 2231 gives, for a reader that takes the first it finds, and a plain one after it; in the content
+    // type as well as the disposition, since some clients read the name from one and some from the other.
+    assert.match(files[2]!.headers, /^Content-Type: application\/pdf; name\*=UTF-8''Penawaran-Caf%C3%A9\.pdf; name="Penawaran-Caf_\.pdf"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename\*=UTF-8''Penawaran-Caf%C3%A9\.pdf; filename="Penawaran-Caf_\.pdf"$/);
     assert.match(files[3]!.headers, /^Content-Type: text\/csv; name="rekap\.csv"/);
   } finally {
     await api.close();
@@ -268,12 +270,14 @@ test('what may not leave does not: another company\'s file, a link out of the co
 
     const no = (key: string, attachments: unknown, said: RegExp) => assert.rejects(attempt(key, attachments), refusedWith('contract.violation', said), key);
     await no('other', [`../${other.companyId}/drafts/secret.md`], /outside the company's files/);
-    await no('absolute', ['/etc/hostname'], /outside the company's files|no file/);
+    // An absolute path is read as under the company's own files, where there is no such file: it cannot reach /etc.
+    await no('absolute', ['/etc/hostname'], /there is no file \/etc\/hostname/);
     await no('link-out', ['drafts/to-outside.md'], /outside the company's files/);
     await no('link-other', ['drafts/to-other.md'], /outside the company's files/);
     await no('link-received', ['drafts/to-received.pdf'], /not a file a letter may carry/);
     await no('received', ['received/budi/ktp.pdf'], /not a file a letter may carry/);
-    await no('received-case', ['RECEIVED/budi/ktp.pdf'], /not a file a letter may carry|no file/);
+    // Another spelling of the folder is another folder, with nothing in it, on a file system that tells them apart.
+    await no('received-case', ['RECEIVED/budi/ktp.pdf'], /there is no file RECEIVED\/budi\/ktp\.pdf/);
     await put(root, mine, 'generated', 'a file in the company\'s files named like a folder a letter takes from');
     await no('top', ['notes.txt'], /not a file a letter may carry/);
     await no('named-like', ['generated'], /not a file a letter may carry/);
@@ -422,4 +426,92 @@ test('the tool says what it takes: files in the company\'s files, five at most, 
   };
   assert.equal(await send!.verify!(asked as never, result as never, {} as never), true);
   assert.equal(await send!.verify!(asked as never, { ...result, attachments: [] } as never, {} as never), false);
+});
+
+test('the card names every file even when the letter has many people to send it to: it is the list of people that gives way', { skip: SKIP }, async () => {
+  const fixture = await createCompany('mail-card-long');
+  const root = await filesRoot();
+  const mail = await servers();
+  const { api, broker, token, path } = await setting(fixture, root);
+  try {
+    assert.equal((await api.call('POST', path, token, { alias: 'mailbox', value: mailboxKey(mail.imap, mail.smtp), proof: { totp: api.code() } })).status, 200);
+    const attachments = ['drafts/offer.md', 'generated/logo.png', 'uploads/Penawaran Café.pdf', 'invoices/inv-0001.pdf'];
+    for (const file of attachments) await put(root, fixture.companyId, file, offerBytes);
+    mail.imap.deliver(ORDER);
+    const taskId = await runningTask(fixture);
+    await planTask(fixture.companyId, taskId, [{ capability: 'mailbox.read' }, { capability: 'email.send', batchSize: 10 }]);
+    const at = (key: string) => ({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId, taskId, idempotencyKey: key,
+    });
+    // A stranger's mail is read, so the work carries what they wrote and the letter asks the owner first.
+    const listed = (await broker.invoke(at('read'), 'mailbox.read', { from: 'budi' })).output as { messages: Array<{ uid: number }> };
+    await broker.invoke(at('order'), 'mailbox.read', { uid: listed.messages[0]!.uid });
+    const to = Array.from({ length: 6 }, (_x, n) => `pelanggan-dengan-nama-yang-panjang-${n}@perusahaan-besar.example`);
+    const cc = Array.from({ length: 4 }, (_x, n) => `tembusan-${n}@perusahaan-besar.example`);
+    await assert.rejects(broker.invoke(at('long'), 'email.send', { to, cc, subject: 'Penawaran', text: 'Terlampir.', attachments }), refused('approval.required'));
+    const { rows: [card] } = await withTenant(fixture.companyId, (tx) => tx.query<{ action_summary: string }>(
+      "SELECT action_summary FROM inbox_items WHERE task_id = $1 AND kind = 'approval' AND decision IS NULL", [taskId]));
+    for (const file of attachments) assert.ok(card!.action_summary.includes(file), `${file} is on the card: ${card!.action_summary}`);
+    assert.match(card!.action_summary, /\(\+\d+ more\)/, 'and the people left out are counted');
+    assert.ok(card!.action_summary.length <= 240);
+    assert.ok(card!.action_summary.includes('invoices/inv-0001.pdf'), 'a PDF drawn from an invoice is a file a letter may carry');
+  } finally {
+    await api.close();
+    await mail.close();
+  }
+});
+
+test('a file named twice through a link is named twice, and a server that fixes no size takes the letter, one that fixes too small a size does not', { skip: SKIP }, async () => {
+  const fixture = await createCompany('mail-twice');
+  const root = await filesRoot();
+  const mail = await servers();
+  const { api, broker, token, path } = await setting(fixture, root);
+  try {
+    assert.equal((await api.call('POST', path, token, { alias: 'mailbox', value: mailboxKey(mail.imap, mail.smtp), proof: { totp: api.code() } })).status, 200);
+    await put(root, fixture.companyId, 'drafts/offer.md', offerBytes);
+    await symlink(join(root, fixture.companyId, 'drafts', 'offer.md'), join(root, fixture.companyId, 'drafts', 'alias.md'));
+    const taskId = await runningTask(fixture);
+    await planTask(fixture.companyId, taskId, [{ capability: 'email.send', batchSize: 1 }]);
+    const at = (key: string) => ({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId, taskId, idempotencyKey: key,
+    });
+    const letter = { to: ['budi@kantor.example'], subject: 'Penawaran', text: 'Terlampir.' };
+    await assert.rejects(broker.invoke(at('alias'), 'email.send', { ...letter, attachments: ['drafts/offer.md', 'drafts/alias.md'] }),
+      refusedWith('contract.violation', /named twice/));
+
+    // SIZE 0 is RFC 1870's "no fixed maximum".
+    mail.smtp.size = 0;
+    assert.equal((await broker.invoke(at('size-zero'), 'email.send', { ...letter, attachments: ['drafts/offer.md'] })).verified, true);
+    // And one that fixes a size the letter cannot meet is told no before anything is sent.
+    mail.smtp.size = 200;
+    await assert.rejects(broker.invoke(at('too-small'), 'email.send', { ...letter, subject: 'Penawaran lagi', attachments: ['drafts/offer.md'] }),
+      refusedWith('contract.violation', /the mail server takes messages up to/));
+  } finally {
+    await api.close();
+    await mail.close();
+  }
+});
+
+test('a large letter is given a minute to be accepted on a port that upgrades with STARTTLS too, not only on the one that is TLS from the start', { skip: SKIP }, async () => {
+  const fixture = await createCompany('mail-patience');
+  const root = await filesRoot();
+  const mail = await servers();
+  // The ordinary patience is a third of a second: what a busy server needs after the last dot is longer than that.
+  const { api, broker, token, path } = await setting(fixture, root, { timeoutMs: 300 });
+  try {
+    assert.equal((await api.call('POST', path, token, { alias: 'mailbox', value: mailboxKey(mail.imap, mail.smtp), proof: { totp: api.code() } })).status, 200);
+    await put(root, fixture.companyId, 'uploads/katalog.pdf', Buffer.from(Array.from({ length: 1_500_000 }, (_x, i) => (i * 31 + 3) % 251)));
+    const taskId = await runningTask(fixture);
+    await planTask(fixture.companyId, taskId, [{ capability: 'email.send', batchSize: 1 }]);
+    const at = (key: string) => ({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId, taskId, idempotencyKey: key,
+    });
+    mail.smtp.acceptsAfter = 1_200;
+    const sent = await broker.invoke(at('slow'), 'email.send', { to: ['budi@kantor.example'], subject: 'Katalog', text: 'Terlampir.', attachments: ['uploads/katalog.pdf'] });
+    assert.equal(sent.verified, true);
+    assert.equal(mail.smtp.sent.length, 1, 'accepted once: it was waited for, not given up and sent again');
+  } finally {
+    await api.close();
+    await mail.close();
+  }
 });

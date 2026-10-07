@@ -16,7 +16,8 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { lstat, mkdir, mkdtemp, readdir, readFile, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withTenant } from '../../src/db/tenant.ts';
@@ -224,9 +225,14 @@ test('the limits are held, and said', async () => {
     assert.equal(over.status, 400);
     assert.match(String(over.body.error), /uploads holds at most 500 files and 512 MB: take some out first/);
 
-    // A body past the request ceiling is refused before it is read.
-    const huge = await api.call('POST', `${base}/files`, owner, { name: 'huge.bin', data: 'A'.repeat(17 * 1024 * 1024) });
-    assert.ok([400, 413].includes(huge.status), `a body past the ceiling is refused: ${huge.status}`);
+    // A body past the request ceiling is refused whatever is in it: this one is small once decoded, so
+    // only the ceiling can refuse it. The server may close the connection as it answers, which a client
+    // sees as a reset instead of the 400; either way nothing is kept.
+    const padded = await api.call('POST', `${base}/files`, owner, { name: 'pad.txt', data: 'QQ==', pad: 'x'.repeat(17 * 1024 * 1024) })
+      .catch((failure: { cause?: { code?: string } }) => ({ status: 0, body: { error: `reset: ${failure.cause?.code ?? 'closed'}` } }));
+    assert.ok((padded.status === 400 && /too large/.test(String(padded.body.error))) || /^reset: /.test(String(padded.body.error)),
+      `a body past the ceiling is refused: ${padded.status} ${JSON.stringify(padded.body).slice(0, 200)}`);
+    assert.equal((await readdir(join(mine, 'uploads'))).includes('pad.txt'), false, 'and nothing was kept');
   } finally {
     await api.close();
   }
@@ -251,11 +257,17 @@ test('a company that does not exist makes no folder', async () => {
   const { api, owner, root } = await owned();
   try {
     const stranger = randomUUID();
-    for (const [method, path] of [['GET', `/api/companies/${stranger}/files`], ['GET', `/api/companies/${stranger}/files/download?path=x`]] as const) {
-      const answer = await api.call(method, path, owner);
-      assert.notEqual(answer.status, 200, path);
+    for (const [method, path, body] of [
+      ['GET', `/api/companies/${stranger}/files`, undefined],
+      ['GET', `/api/companies/${stranger}/files/download?path=x`, undefined],
+      ['POST', `/api/companies/${stranger}/files`, { name: 'x.txt', data: 'QQ==' }],
+      // The fourth route makes the folder before it looks for the file: only the company check stands before it.
+      ['POST', `/api/companies/${stranger}/files/delete`, { path: 'uploads/x.txt' }],
+    ] as const) {
+      const answer = await api.call(method, path, owner, body);
+      assert.equal(answer.status, 400, `${method} ${path}: ${JSON.stringify(answer.body)}`);
+      assert.match(String(answer.body.error), /no such company/, 'said as that, and not as a failure');
     }
-    assert.equal((await api.call('POST', `/api/companies/${stranger}/files`, owner, { name: 'x.txt', data: 'QQ==' })).status === 200, false);
     assert.equal((await readdir(root)).includes(stranger), false, 'a made-up id has no folder');
   } finally {
     await api.close();
@@ -309,6 +321,99 @@ test('a staff seat is given no files', async () => {
       const refused = await api.call(method, path, seat, body);
       assert.equal(refused.status, 403, `${method} ${path}: ${JSON.stringify(refused.body)}`);
     }
+  } finally {
+    await api.close();
+  }
+});
+
+test('a named pipe is refused, not waited on: opening one for reading would hold a thread for ever', async () => {
+  const { api, take, mine } = await owned();
+  try {
+    await mkdir(join(mine, 'uploads'), { recursive: true });
+    execFileSync('mkfifo', [join(mine, 'uploads', 'pipe.txt')]);
+    const answer = await Promise.race([
+      take('uploads/pipe.txt'),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+    ]);
+    assert.ok(answer, 'it answered at once, and did not wait for a writer');
+    assert.equal(answer.status, 400);
+    assert.match(String(answer.body.error), /is not a file/);
+  } finally {
+    await api.close();
+  }
+});
+
+test('a company\'s id in capitals is the same company: one folder, kept where erasure removes it', async () => {
+  const { api, owner, fixture, root, mine } = await owned();
+  try {
+    const loud = fixture.companyId.toUpperCase();
+    const made = await api.call('POST', `/api/companies/${loud}/files`, owner, { name: 'price.txt', data: Buffer.from('hi').toString('base64') });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    assert.deepEqual(await readdir(root), [fixture.companyId], 'one folder, spelled the way the company is');
+    assert.deepEqual(await readdir(join(mine, 'uploads')), ['price.txt']);
+    await api.call('GET', `/api/companies/${loud}/files?path=uploads`, owner);
+    assert.deepEqual(await readdir(root), [fixture.companyId]);
+  } finally {
+    await api.close();
+  }
+});
+
+test('uploads that arrive together do not pass the count between them: the last places are filled once', async () => {
+  const { api, put, mine } = await owned();
+  try {
+    await mkdir(join(mine, 'uploads'), { recursive: true });
+    for (let i = 0; i < UPLOAD_MAX_FILES - 5; i += 1) await writeFile(join(mine, 'uploads', `f${i}.txt`), 'x');
+    const answers = await Promise.all(Array.from({ length: 12 }, (_x, n) => put(`late-${n}.txt`, 'x')));
+    assert.equal(answers.filter((one) => one.status === 200).length, 5, JSON.stringify(answers.map((one) => one.status)));
+    assert.equal(answers.filter((one) => one.status === 400).length, 7);
+    assert.equal((await readdir(join(mine, 'uploads'))).length, UPLOAD_MAX_FILES, 'as many as are allowed, and not one more');
+  } finally {
+    await api.close();
+  }
+});
+
+test('the limits at their edges: the largest upload, the 500th file, twenty of one name, the total, the largest download, and what is never given a kind', async () => {
+  const { api, put, take, mine } = await owned();
+  try {
+    assert.equal((await put('exactly-ten.bin', Buffer.alloc(UPLOAD_MAX_BYTES, 3))).status, 200, 'ten megabytes to the byte is kept');
+    // Twenty files that are the name and its nineteen neighbours: the next has no name to be given.
+    await put('notes.txt', 'x');
+    for (let n = 2; n <= 20; n += 1) await writeFile(join(mine, 'uploads', `notes-${n}.txt`), 'x');
+    const twenty = await put('notes.txt', 'x');
+    assert.equal(twenty.status, 400);
+    assert.match(String(twenty.body.error), /twenty files named like notes\.txt/);
+    // The total is of what the folder holds, as `lstat` says: a sparse file counts its whole size.
+    for (const [name, megabytes] of [['big-a.bin', 255], ['big-b.bin', 250]] as const) {
+      await writeFile(join(mine, 'uploads', name), '');
+      await truncate(join(mine, 'uploads', name), megabytes * 1_048_576);
+    }
+    const over = await put('over.bin', Buffer.alloc(3 * 1_048_576, 9));
+    assert.equal(over.status, 400);
+    assert.match(String(over.body.error), /512 MB/);
+    // The largest a download can be, and what is given no kind (a page, a picture that can run script, a name nobody knows).
+    await mkdir(join(mine, 'drafts'), { recursive: true });
+    await writeFile(join(mine, 'drafts', 'huge.bin'), '');
+    await truncate(join(mine, 'drafts', 'huge.bin'), 26 * 1_048_576);
+    const big = await take('drafts/huge.bin');
+    assert.equal(big.status, 400);
+    assert.match(String(big.body.error), /up to 25 MB/);
+    for (const name of ['page.html', 'logo.svg', 'thing.unknownext']) {
+      await writeFile(join(mine, 'drafts', name), '<script>alert(1)</script>');
+      assert.equal((await take(`drafts/${name}`)).body.mime, 'application/octet-stream', `${name} is bytes, never a page`);
+    }
+  } finally {
+    await api.close();
+  }
+});
+
+test('what the owner removed is on the record as the company kept it, however it was spelled', async () => {
+  const { api, put, remove, fixture } = await owned();
+  try {
+    await put('old.txt', 'x');
+    assert.equal((await remove('./uploads/../uploads/old.txt')).status, 200);
+    await put('older.txt', 'x');
+    assert.equal((await remove('uploads//older.txt')).status, 200);
+    assert.deepEqual((await uploadedEvents(fixture)).filter((event) => event.type === 'file.deleted').map((event) => event.payload.path), ['uploads/old.txt', 'uploads/older.txt']);
   } finally {
     await api.close();
   }

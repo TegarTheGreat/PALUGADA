@@ -53,6 +53,7 @@ case "$*" in
   "compose exec -T db pg_dump -U postgres -d palugada") cat > /dev/null; echo "-- PostgreSQL database dump" ;;
   # What the platform prints while it has no owner: the address it is published at, as it is told it.
   "compose logs --no-color app")
+    [ -f "${home}/no-claim" ] && exit 0
     origin=$(sed -n 's/^PALUGADA_APP_URL_PUBLIC=//p' .env 2>/dev/null | tail -n 1)
     echo "app-1  | palugada: no owner yet: open \${origin:-http://localhost:8787}/#/claim/k3y within a day to add your authenticator app" ;;
   "compose logs --no-color --tail 1 app") [ -f "${home}/app-says" ] && echo "app-1  | $(cat "${home}/app-says")" ;;
@@ -87,15 +88,24 @@ exit 0
   // What a name resolves to, as the test says.
   writeFileSync(join(bin, 'getent'), `#!/bin/sh
 echo "getent $*" >> "${log}"
-if [ "$1" = hosts ] && [ -f "${home}/dns-ip" ]; then echo "$(cat "${home}/dns-ip")  $2"; exit 0; fi
+# One or more addresses, a line each, as the real one gives them.
+if [ "$1" = ahostsv4 ] && [ -f "${home}/dns-ip" ]; then for ip in $(cat "${home}/dns-ip"); do echo "$ip      STREAM $2"; done; exit 0; fi
 exit 2
 `);
+  // What mode a file has at the moment it is made private: .env.new holds the database's passwords.
+  writeFileSync(join(bin, 'chmod'), `#!/bin/sh
+for last in "$@"; do :; done
+echo "$(stat -c %a "$last" 2>/dev/null) $last" >> "${home}/chmod.log"
+exec /bin/chmod "$@"
+`);
+  chmodSync(join(bin, 'chmod'), 0o755);
   chmodSync(join(bin, 'getent'), 0o755);
   chmodSync(join(bin, 'docker'), 0o755);
   chmodSync(join(bin, 'curl'), 0o755);
   const dir = join(home, 'palugada');
   const env: Record<string, string> = {
-    PATH: `${bin}:/usr/bin:/bin`, HOME: home, PALUGADA_DIR: dir,
+    // A machine somebody sits at, with a screen; a server is the same without it, or with SSH_CONNECTION.
+    PATH: `${bin}:/usr/bin:/bin`, HOME: home, PALUGADA_DIR: dir, DISPLAY: ':0',
     ...(options.version === undefined ? { PALUGADA_SOURCE: tarball } : { PALUGADA_VERSION: options.version }),
     PALUGADA_PORT: '8788', PALUGADA_WAIT_SECONDS: '10', PALUGADA_POLL_SECONDS: '1',
   };
@@ -394,8 +404,15 @@ test('PALUGADA_PUBLIC_HOST as a domain name puts HTTPS in front, and says whethe
   assert.match(env, /^PALUGADA_BEHIND_PROXY=1$/m);
   assert.match(env, /^PALUGADA_PUBLISH=127\.0\.0\.1:8788$/m, 'the platform itself stays on the loopback: only the proxy is reached');
   assert.match(started.stdout, /^palugada:\s+https:\/\/console\.example\.com\/#\/claim\/k3y$/m);
-  assert.match(started.stdout, /warning: console\.example\.com points to 198\.51\.100\.9, not to this server \(203\.0\.113\.7\)/);
+  assert.match(started.stdout, /warning: console\.example\.com points to 198\.51\.100\.9, and this server's address looks like 203\.0\.113\.7/);
+  assert.match(started.stdout, /Caddy makes the HTTPS certificate when it starts/);
   assert.match(started.stdout, /ports 80 and 443/);
+  // A name with several addresses, one of them this server's, is not wrong for having more.
+  const several = bench();
+  several.env.PALUGADA_PUBLIC_HOST = 'console.example.com';
+  writeFileSync(join(several.home, 'public-ip'), '203.0.113.7');
+  writeFileSync(join(several.home, 'dns-ip'), '198.51.100.9 203.0.113.7');
+  assert.match(several.run().stdout, /console\.example\.com points to this server \(203\.0\.113\.7\)/);
 
   // Pointed here, nothing is warned of; not found at all, it is said so.
   const right = bench();
@@ -408,7 +425,7 @@ test('PALUGADA_PUBLIC_HOST as a domain name puts HTTPS in front, and says whethe
   const unknown = bench();
   unknown.env.PALUGADA_PUBLIC_HOST = 'console.example.com';
   writeFileSync(join(unknown.home, 'public-ip'), '203.0.113.7');
-  assert.match(unknown.run().stdout, /warning: console\.example\.com does not point anywhere yet/);
+  assert.match(unknown.run().stdout, /warning: console\.example\.com has no IPv4 address yet/);
 });
 
 test('a public host that is not a domain name or an address is refused before anything is written', () => {
@@ -492,4 +509,140 @@ test('doctor knows about the proxy and says where the console is meant to be ope
   assert.equal(alone.status, 0, alone.stdout + alone.stderr);
   assert.doesNotMatch(alone.stdout, /caddy/);
   assert.match(alone.stdout, /ok: the console is open on this machine alone/);
+});
+
+test('a server is a server without SSH too: under sudo, in a provider\'s console, in cloud-init -- the original "localhost on a VPS" does not come back', () => {
+  // No SSH_CONNECTION, as sudo's env_reset leaves it, and no screen.
+  const sudo = bench();
+  delete sudo.env.DISPLAY;
+  sudo.env.SUDO_USER = 'deploy';
+  writeFileSync(join(sudo.home, 'public-ip'), '203.0.113.7');
+  const out = sudo.run().stdout;
+  assert.match(out, /for now only this server itself can open it/);
+  assert.match(out, /ssh -N -L 8788:127\.0\.0\.1:8788 deploy@203\.0\.113\.7/, 'the account that signs in, not the one sudo runs as');
+  assert.match(out, /PALUGADA_PUBLIC_HOST=console\.example\.com/);
+
+  // The older variable alone is enough too.
+  const client = bench();
+  delete client.env.DISPLAY;
+  client.env.SSH_CLIENT = '198.51.100.4 51234 22';
+  assert.match(client.run().stdout, /for now only this server itself can open it/);
+
+  // At a desktop, with a screen, nothing is said of another computer and nothing is looked up.
+  const desktop = bench();
+  writeFileSync(join(desktop.home, 'public-ip'), '203.0.113.7');
+  const here = desktop.run();
+  assert.doesNotMatch(here.stdout, /ssh -N|only this server itself/);
+  assert.doesNotMatch(desktop.calls(), /ipify|ifconfig|icanhazip/);
+
+  // With no link to open (the owner exists already), the tunnel says what to open instead of "the link above".
+  const update = bench();
+  delete update.env.DISPLAY;
+  update.env.SSH_CONNECTION = '198.51.100.4 51234 203.0.113.7 22';
+  assert.equal(update.run().status, 0);
+  writeFileSync(join(update.home, 'db-running'), '');
+  // The stand-in docker prints a link only while this file is absent: the platform has an owner now.
+  writeFileSync(join(update.home, 'no-claim'), '');
+  const again = update.run();
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /leave it running, and open http:\/\/localhost:8788 on that computer/);
+  assert.doesNotMatch(again.stdout, /the link above/);
+});
+
+test('leaving HTTPS stops the proxy by name, since Compose leaves a container whose profile is off running', () => {
+  const place = bench();
+  place.env.PALUGADA_PUBLIC_HOST = 'console.example.com';
+  assert.equal(place.run().status, 0);
+  assert.doesNotMatch(place.calls(), /rm -s -f caddy/, 'not stopped on the way in');
+  writeFileSync(join(place.home, 'db-running'), '');
+
+  delete place.env.PALUGADA_PUBLIC_HOST;
+  assert.equal(place.run().status, 0);
+  assert.doesNotMatch(place.calls(), /rm -s -f caddy/, 'an update that chose nothing leaves it as it was');
+
+  place.env.PALUGADA_PUBLIC_HOST = 'private';
+  const closed = place.run();
+  assert.equal(closed.status, 0, closed.stderr);
+  assert.match(place.calls(), /docker compose --profile https rm -s -f caddy/, 'private takes it down');
+  assert.ok(place.calls().indexOf('rm -s -f caddy') < place.calls().lastIndexOf('compose up'), 'before the platform is started again');
+
+  const second = bench();
+  second.env.PALUGADA_PUBLIC_HOST = 'console.example.com';
+  assert.equal(second.run().status, 0);
+  writeFileSync(join(second.home, 'db-running'), '');
+  second.env.PALUGADA_PUBLIC_HOST = '203.0.113.7';
+  assert.equal(second.run().status, 0);
+  assert.match(second.calls(), /rm -s -f caddy/, 'and so does an address');
+  // The command it prints to stop everything reaches the proxy as well.
+  assert.match(closed.stdout, /docker compose --profile https down/);
+});
+
+test('an https address of the owner\'s own proxy is not told about Caddy, and a name with a port is not looked up whole', () => {
+  const place = bench();
+  assert.equal(place.run().status, 0);
+  writeFileSync(join(place.dir, '.env'), `${readFileSync(join(place.dir, '.env'), 'utf8')}PALUGADA_APP_URL_PUBLIC=https://palugada.example.com:8443\n`);
+  writeFileSync(join(place.home, 'db-running'), '');
+  writeFileSync(join(place.home, 'public-ip'), '203.0.113.7');
+  writeFileSync(join(place.home, 'dns-ip'), '198.51.100.9');
+  const update = place.run();
+  assert.equal(update.status, 0, update.stderr);
+  assert.match(update.stdout, /PALUGADA is running at https:\/\/palugada\.example\.com:8443/);
+  assert.doesNotMatch(update.stdout, /Caddy|warning:/);
+  assert.doesNotMatch(place.calls(), /getent ahostsv4 palugada/, 'nothing is checked that is not this installer\'s to check');
+
+  // Its own proxy and port, and a name that does carry one: the port and path are not part of the name.
+  const mine = bench();
+  mine.env.PALUGADA_PUBLIC_HOST = 'console.example.com';
+  writeFileSync(join(mine.home, 'dns-ip'), '203.0.113.7');
+  assert.equal(mine.run().status, 0);
+  assert.match(mine.calls(), /getent ahostsv4 console\.example\.com\b/);
+});
+
+test('numbers are checked before anything is written or waited on: a poll of 0 would never end, a port goes into .env', () => {
+  for (const [name, value, said] of [
+    ['PALUGADA_POLL_SECONDS', '0', /PALUGADA_POLL_SECONDS is a whole number of seconds, 1 or more; got 0/],
+    ['PALUGADA_POLL_SECONDS', '0.5', /PALUGADA_POLL_SECONDS is a whole number/],
+    ['PALUGADA_POLL_SECONDS', '2s', /PALUGADA_POLL_SECONDS is a whole number/],
+    ['PALUGADA_WAIT_SECONDS', '-3', /PALUGADA_WAIT_SECONDS is a whole number/],
+    ['PALUGADA_PORT', '80 80', /PALUGADA_PORT is a port, 1 to 65535; got 80 80/],
+    ['PALUGADA_PORT', '70000', /PALUGADA_PORT is a port/],
+    ['PALUGADA_PORT', '0', /PALUGADA_PORT is a port/],
+  ] as const) {
+    const place = bench();
+    place.env[name] = value;
+    const refused = place.run();
+    assert.notEqual(refused.status, 0, `${name}=${value}`);
+    assert.match(refused.stderr, said, `${name}=${value}`);
+    assert.equal(existsSync(join(place.dir, '.env')), false, `${name}=${value} wrote nothing`);
+    assert.doesNotMatch(place.calls(), /compose up/, `${name}=${value} started nothing`);
+  }
+});
+
+test('the file that holds the passwords is private from the moment it is made, and a console that never answers ends the wait', () => {
+  const place = bench();
+  assert.equal(place.run().status, 0);
+  place.env.PALUGADA_PUBLIC_HOST = 'console.example.com';
+  writeFileSync(join(place.home, 'db-running'), '');
+  assert.equal(place.run().status, 0);
+  const modes = readFileSync(join(place.home, 'chmod.log'), 'utf8').split('\n').filter((line) => line.endsWith('.env.new'));
+  assert.ok(modes.length >= 5, 'every setting made a new file');
+  assert.ok(modes.every((line) => line.startsWith('600 ')), `private as it was made, not after: ${modes.join(' | ')}`);
+
+  // A console that does not answer within the time given ends the wait, saying so, with the platform's last lines.
+  const slow = bench();
+  writeFileSync(join(slow.home, 'misses'), '1000');
+  slow.env.PALUGADA_WAIT_SECONDS = '2';
+  const timed = slow.run();
+  assert.notEqual(timed.status, 0);
+  assert.match(timed.stderr, /the console did not answer within 2 seconds; the lines above are the platform's last/);
+});
+
+test('a service that exited by design is not a platform that stopped', () => {
+  // `migrate` runs once and exits: it is in the list of exited services on every healthy start.
+  const place = bench();
+  writeFileSync(join(place.home, 'exited'), 'migrate\n');
+  writeFileSync(join(place.home, 'misses'), '3');
+  const started = place.run();
+  assert.equal(started.status, 0, started.stderr);
+  assert.doesNotMatch(started.stderr, /stopped while starting/);
 });

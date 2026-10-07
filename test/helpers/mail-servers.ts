@@ -243,12 +243,14 @@ export interface Smtp {
   commands: string[];
   /** The largest message the server says it takes (`250-SIZE`, RFC 1870), or none. */
   size: number | null;
+  /** How long, in milliseconds, it takes to say it has accepted a message after the last dot: a busy server's. */
+  acceptsAfter: number;
   close(): Promise<void>;
 }
 
 /** An SMTP server on a plain port that a client must upgrade with STARTTLS before it may sign in. */
 export async function smtpServer(certificate: Certificate, account: { user: string; password: string }): Promise<Smtp> {
-  const state: Smtp = { port: 0, sent: [], commands: [], size: null, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  const state: Smtp = { port: 0, sent: [], commands: [], size: null, acceptsAfter: 0, close:() => new Promise<void>((resolve) => server.close(() => resolve())) };
   const server: Server = createPlainServer((plain) => {
     let socket: Socket = plain;
     let secure = false;
@@ -270,7 +272,8 @@ export async function smtpServer(certificate: Certificate, account: { user: stri
             if (line === '.') {
               state.sent.push({ from, to, data: Buffer.from(data, 'latin1').toString('utf8'), user });
               data = null;
-              say('250 2.0.0 OK queued as T1');
+              if (state.acceptsAfter > 0) setTimeout(() => say('250 2.0.0 OK queued as T1'), state.acceptsAfter);
+              else say('250 2.0.0 OK queued as T1');
             } else {
               data += `${line.startsWith('..') ? line.slice(1) : line}\r\n`;
             }

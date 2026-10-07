@@ -4993,9 +4993,10 @@ export class OwnerApi {
         handle: async ({ params, body }) => {
           const root = this.#filesRoot();
           await this.#knownCompany(params.companyId!);
-          await removeCompanyUpload(root, params.companyId!, body.path);
+          // The path as the company keeps it, as `file.uploaded` has it, and not the spelling the owner typed.
+          const removed = await removeCompanyUpload(root, params.companyId!, body.path);
           await withTenant(params.companyId!, (tx) => appendEvent(tx, {
-            companyId: params.companyId!, type: 'file.deleted', actor: 'owner', payload: { path: String(body.path) },
+            companyId: params.companyId!, type: 'file.deleted', actor: 'owner', payload: { path: removed },
           }));
           return { ok: true };
         },

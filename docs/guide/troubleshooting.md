@@ -32,10 +32,12 @@ server) or `PALUGADA_PUBLIC_HOST=<the server's address>` (plain HTTP). See
 
 ### The installer says `the platform stopped while starting`
 
-**Cause.** The platform's container exited while the installer was waiting
-for it, so it stopped waiting and printed its last lines. They name the
-cause: a database that would not start, a migration that failed, a setting
-that is not valid.
+**Cause.** The platform's container exited, or kept restarting, while the
+installer was waiting for it, so it stopped waiting and printed its last
+lines. They name the cause: a setting that is not valid, or the platform
+failing once it ran. (A database that would not start, or a migration that
+failed, is another message, `PALUGADA did not start`, with the last lines of
+the migration and of the platform.)
 
 **Fix.** Read the lines above the message, then `cd ~/palugada && docker
 compose logs --tail 100 app`; mend what they say and run the installer

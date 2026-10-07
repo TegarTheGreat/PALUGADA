@@ -729,7 +729,7 @@ test('an answer to a run\'s own question closes it, and the run that resumes rea
 
   // The run resumes and asks again, replaying its own step: it is told.
   const again = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question });
-  assert.deepEqual(again, { state: 'answered', inboxItemId: asked.inboxItemId, answer: 'Sari, Budi and the Wijaya shop.' });
+  assert.deepEqual(again, { state: 'answered', inboxItemId: asked.inboxItemId, answer: 'Sari, Budi and the Wijaya shop.', files: [] });
   assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running', 'and does not park again');
 
   // Said once, as the owner's decision, and not again as an instruction the

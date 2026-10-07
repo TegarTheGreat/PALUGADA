@@ -1571,7 +1571,7 @@ test("a run's question is answered from the chat, in the owner's words (owner.as
     assert.deepEqual(rows[0], { decision: 'approve', owner_note: 'Arabica, from Gayo.', status: 'decided' });
     assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running');
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, task.id)),
-      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.' }]);
+      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.', files: [], by: null }]);
   } finally {
     await vendor.close();
   }

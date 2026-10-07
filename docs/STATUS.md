@@ -10378,7 +10378,20 @@ not a thing the platform knew. It is built in four steps, each one a commit with
   seat's inbox gets a "For me" segment. Tests: `person-addressee.test.ts`; seven mutations, one of which
   (a revoked seat) survived the first test and made it name one.
   *Not done here:* the brief does not list the people (a run learns the names from the refusal); a name is
-  matched on the seat's name, which the owner chose and which two seats can share.
+  matched on the seat's name, which the owner chose and which two seats can share. A seat also cannot read the
+  trace behind another seat's question by its id (`assertSeatMayRead`); that was found while writing the test.
+- **c. A question nobody answers is brought to the owner, once (done).** The owner's channels do not carry a
+  question that is for someone else (`undelivered` leaves out an addressed question that has not been
+  escalated): their phone is not for it. A day after it was put (`QUESTION_ESCALATES_AFTER_HOURS`, 24) the
+  worker marks it (`escalateQuestions`, in the `settle` stage, before `notify`), an event
+  `inbox.question_escalated` says so in words, and the next dispatch carries it to the owner's channels; the
+  card says "Unanswered for a day" to the owner and to the seat. It stays the seat's to answer, and the
+  owner could always answer it too. Nothing is decided by the silence: the question's own expiry is what it
+  was. Tests: `person-escalation.test.ts` (once, not before the day, not answered ones, not unaddressed ones,
+  and by the worker's own tick); six mutations, all seen to fail.
+  *Not done:* the day is a constant, not a setting; a seat that is revoked while a question waits is not
+  looked for (the day passes and the owner is told, which is the same outcome a day later); the message the
+  owner receives is the question's own, without saying it was first put to someone else.
 
 ## 3. Decisions, deviations, and what is unverified
 

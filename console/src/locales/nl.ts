@@ -2027,6 +2027,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Wacht op beoordeling",
   "Waiting for the model to answer": "Wacht op antwoord van het model",
   "Waiting for a model key that works": "Wacht op een werkende modelsleutel",
+  "A question put to a person went unanswered for a day, and was brought to you": "Een vraag aan een persoon bleef een dag onbeantwoord en is aan jou voorgelegd",
   "For me": "Voor mij",
   "For you": "Voor jou",
   "For {name}": "Voor {name}",

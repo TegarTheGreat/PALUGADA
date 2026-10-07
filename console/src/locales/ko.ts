@@ -2023,6 +2023,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "검토 대기 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",
   "Waiting for a model key that works": "사용할 수 있는 모델 키를 기다리는 중",
+  "A question put to a person went unanswered for a day, and was brought to you": "특정인에게 한 질문이 하루 동안 답이 없어 회원님께 전달되었습니다",
   "For me": "내게 온 것",
   "For you": "회원님께 온 것",
   "For {name}": "{name}님께",

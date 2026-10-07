@@ -2023,6 +2023,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "بانتظار المراجعة",
   "Waiting for the model to answer": "ينتظر ردّ النموذج",
   "Waiting for a model key that works": "في انتظار مفتاح نموذج صالح",
+  "A question put to a person went unanswered for a day, and was brought to you": "سؤال وُجِّه إلى شخص لم يُجَب خلال يوم، فنُقل إليك",
   "For me": "لي",
   "For you": "لك",
   "For {name}": "إلى {name}",

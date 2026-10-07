@@ -182,6 +182,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.rerun': N('Done again as a new task'),
   'task.question_answered_by_platform': N('Asked how to set up a tool; told it is not connected'),
   'owner.notified': N('You were notified'),
+  'inbox.question_escalated': N('A question put to a person went unanswered for a day, and was brought to you'),
   'incident.raised': N('Incident raised'),
   'escalation.raised': N('Escalation raised'),
   'policy.denied': N('Refused by a policy'),

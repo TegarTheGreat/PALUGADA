@@ -2030,6 +2030,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Ждёт проверки",
   "Waiting for the model to answer": "Ждёт ответа модели",
   "Waiting for a model key that works": "Ждёт рабочий ключ модели",
+  "A question put to a person went unanswered for a day, and was brought to you": "Вопрос, заданный человеку, сутки остался без ответа и был передан вам",
   "For me": "Для меня",
   "For you": "Для вас",
   "For {name}": "Для {name}",

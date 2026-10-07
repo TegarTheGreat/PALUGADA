@@ -2050,6 +2050,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Đang chờ rà soát",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",
   "Waiting for a model key that works": "Đang chờ khóa mô hình hợp lệ",
+  "A question put to a person went unanswered for a day, and was brought to you": "Một câu hỏi gửi cho một người không được trả lời trong một ngày và đã được chuyển đến bạn",
   "For me": "Dành cho tôi",
   "For you": "Dành cho bạn",
   "For {name}": "Dành cho {name}",

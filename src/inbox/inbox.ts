@@ -2476,6 +2476,37 @@ export async function openQuestionsFor(
 }
 
 /**
+ * A question put to a person that has gone unanswered past its day: the owner
+ * is told, once.
+ *
+ * Until now the owner is not told of it -- it is for someone else, and asking
+ * the owner at once would defeat asking that person (`undelivered` leaves it
+ * out) -- but a person can be away, and a run parked for ever on one is the
+ * one outcome nobody wants. So it is marked, an event says so, and the owner's
+ * channels carry it from the next dispatch. It stays the person's to answer;
+ * the owner could always answer it too. Nothing is decided by the silence.
+ * Returns how many were brought to the owner.
+ */
+export async function escalateQuestions(companyId: string, now = new Date()): Promise<number> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; task_id: string | null; name: string | null }>(
+      `UPDATE inbox_items
+          SET escalated_at = $1
+        WHERE status = 'open' AND addressee_seat IS NOT NULL AND escalated_at IS NULL AND escalate_at <= $1
+        RETURNING id, task_id, payload->'addressee'->>'name' AS name`,
+      [now],
+    );
+    for (const row of rows) {
+      await appendEvent(tx, {
+        companyId, taskId: row.task_id ?? undefined, type: 'inbox.question_escalated', actor: 'system',
+        payload: { inboxItemId: row.id, addressee: row.name },
+      });
+    }
+    return rows.length;
+  });
+}
+
+/**
  * F10.4: expires overdue approvals.
  *
  * The task is cancelled rather than executed. An owner who never looked at the

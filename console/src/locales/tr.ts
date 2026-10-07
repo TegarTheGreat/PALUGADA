@@ -2052,6 +2052,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "İnceleme bekliyor",
   "Waiting for the model to answer": "Modelin yanıtını bekliyor",
   "Waiting for a model key that works": "Çalışan bir model anahtarı bekliyor",
+  "A question put to a person went unanswered for a day, and was brought to you": "Bir kişiye sorulan soru bir gün yanıtsız kaldı ve size getirildi",
   "For me": "Benim için",
   "For you": "Sizin için",
   "For {name}": "{name} için",

@@ -2021,6 +2021,7 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "レビューを待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",
   "Waiting for a model key that works": "使えるモデルのキーを待っています",
+  "A question put to a person went unanswered for a day, and was brought to you": "ある人への質問が 1 日間答えられず、あなたに回されました",
   "For me": "自分宛て",
   "For you": "あなた宛て",
   "For {name}": "{name} 宛て",

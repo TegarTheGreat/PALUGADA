@@ -264,6 +264,9 @@ export async function undelivered(
           AND i.notify_after <= $3
           -- Put off by the owner (0060): not sent until then.
           AND (i.snoozed_until IS NULL OR i.snoozed_until <= $3)
+          -- A question for a person is theirs until it has gone unanswered a
+          -- day (escalateQuestions): the owner's phone is not for it before.
+          AND (i.addressee_seat IS NULL OR i.escalated_at IS NOT NULL)
           AND n.id IS NULL
         ORDER BY i.created_at`,
       [companyId, channel, now],

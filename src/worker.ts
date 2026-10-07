@@ -638,6 +638,10 @@ export class Worker {
         // the owner after its grace (src/engine/ended.ts).
         report.ended += await reportEndedBadly(company, now);
 
+        // A question for a person who has not answered in a day is brought to
+        // the owner; before the notify stage, which then carries it.
+        await inbox.escalateQuestions(company, now);
+
         // F6.3: a completed task's output is what starts its successor, and
         // the engine is what starts it -- not the finishing agent naming who
         // to call. Driven from state, so a worker that was down when the task

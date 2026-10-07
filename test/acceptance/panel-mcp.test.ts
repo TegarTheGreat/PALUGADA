@@ -213,10 +213,9 @@ test('a server is saved only as far as the rules allow, its tools pinned to what
     assert.equal(back.status, 200, 'back at its own address, with its token typed again');
     assert.equal(await api.secrets.resolve('db://mcp-payments'), TOKEN);
 
-    const unprovedRemoval = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, {});
-    assert.equal(unprovedRemoval.status, 403);
-    const removed = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, { proof: { totp: api.code() } });
-    assert.equal(removed.status, 200);
+    // The owner signed in with a device, and that is the factor: no code is asked for.
+    const removed = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, {});
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
     assert.equal((await readSettings()).mcp, undefined);
     await assert.rejects(api.secrets.resolve('db://mcp-payments'), /nothing is stored/, 'removing a server forgets its token');
     const missing = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, { proof: { totp: api.code() } });

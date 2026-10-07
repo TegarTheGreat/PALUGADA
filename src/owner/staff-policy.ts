@@ -73,7 +73,6 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/control': 'the deployment\'s brakes and settings',
   '/api/erasures': 'companies the owner closed',
   '/api/control/owner-window': 'when the owner is woken',
-  '/api/control/step-up': 'a rule about the owner\'s own second factor',
   '/api/control/settings': 'the deployment\'s settings',
   '/api/control/channels': 'the owner\'s own channels',
   '/api/control/tools': 'the deployment\'s',

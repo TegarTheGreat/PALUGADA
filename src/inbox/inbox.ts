@@ -41,6 +41,7 @@ interface StageChange {
 }
 import type { Tier } from '../domain/tier.ts';
 import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.ts';
+import type { OwnerSessions } from '../owner/session.ts';
 
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
 export const DEFAULT_APPROVAL_TTL_HOURS = 72;
@@ -1564,11 +1565,17 @@ const TIER_3_CHANNELS = new Set<DecisionChannel>(['app', 'api']);
  * supplies is the proof -- a TOTP code, or a WebAuthn assertion signed by the
  * owner's phone -- and the platform does the arithmetic.
  *
+ * `login` is the other thing `decide` derives: the owner's session was opened
+ * with a device (a code or a passkey), which `OwnerSessions` has just been
+ * asked about and answered for. The owner's report of 7 October -- the
+ * authenticator is for signing in, not for each approval -- made that enough
+ * for tier 3 as well, which relaxes F10.10 and F12.5 (STATUS 2.175).
+ *
  * `session` and `none` remain, for the tiers where a second factor is not
  * required. They are the caller's word, and at those tiers the caller's word
  * is what the requirement asks for.
  */
-export type OwnerAssurance = 'mfa' | 'session' | 'none';
+export type OwnerAssurance = 'mfa' | 'login' | 'session' | 'none';
 
 /**
  * What the owner presents to prove a tier 3 approval (F10.10, F12.5).
@@ -1645,7 +1652,11 @@ export interface DecideOptions {
    * Ignored at tier 3: there, `assurance` is what the verifier concluded.
    */
   assurance?: OwnerAssurance;
-  /** The second factor itself. Required to approve a tier 3 action. */
+  /**
+   * The second factor itself: what a tier 3 approval takes when the owner is
+   * not in a session opened with a device, such as one signed in with a
+   * recovery code.
+   */
   proof?: MfaProof;
   /**
    * Who checks it.
@@ -1655,6 +1666,15 @@ export interface DecideOptions {
    * of a verifier is a refusal, not a bypass.
    */
   mfa?: OwnerMfa;
+  /**
+   * The owner's session, by its token, and who answers for it. A session
+   * opened with a device is the second factor for a tier 3 approval and for
+   * a yes given for a while: asked here, at the moment of deciding, so that a
+   * session ended a moment ago -- a revoked device's -- does not count, and so
+   * that a caller cannot say it is one. Absent for a chat, which has none.
+   */
+  sessions?: OwnerSessions;
+  sessionToken?: string;
   /** The batch this decision was one of, written on its record (`decideMany`). */
   batch?: string;
   /**
@@ -1697,6 +1717,17 @@ export interface StandingApproval {
   lastUsedAt: Date | null;
 }
 
+/**
+ * The device that opened the owner's session, when `options` names a session
+ * that is still live and was opened with one; nothing for a chat, a staff
+ * seat, a session signed in with a recovery code, or no session at all.
+ */
+async function signedInWithDevice(options: DecideOptions): Promise<VerifiedFactor | null> {
+  if (!options.sessions || !options.sessionToken || options.seat) return null;
+  const session = await options.sessions.verify(options.sessionToken);
+  return session?.provedAt ? session.factor : null;
+}
+
 export async function decide(
   companyId: string,
   itemId: string,
@@ -1708,6 +1739,9 @@ export async function decide(
   // Defaulted to the weakest, so a caller that says nothing cannot approve a
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
+  // Whether the owner's session was opened with a device: asked of the
+  // sessions, which answer for it, and not taken from the caller.
+  const login = await signedInWithDevice(options);
   // F10.10: read the tier before the update, so a refusal changes nothing.
   const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule, addressee } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -1814,7 +1848,7 @@ export async function decide(
       throw new PalugadaError('approval.channel_forbidden',
         `allowing ${standing.capabilityName} for a while happens in the app, not over ${channel}`, { inboxItemId: itemId, channel });
     }
-    if (!options.mfa || !options.proof) {
+    if (!login && (!options.mfa || !options.proof)) {
       throw new PalugadaError('approval.channel_forbidden',
         `allowing ${standing.capabilityName} for a while needs a second factor; none was presented (PRD F12.5)`,
         { inboxItemId: itemId, reason: options.mfa ? 'no_proof' : 'no_verifier' });
@@ -1841,7 +1875,7 @@ export async function decide(
       throw new PalugadaError('approval.channel_forbidden',
         `allowing this every time ${scheduled.slug} does it happens in the app, not over ${channel}`, { inboxItemId: itemId, channel });
     }
-    if (!options.mfa || !options.proof) {
+    if (!login && (!options.mfa || !options.proof)) {
       throw new PalugadaError('approval.channel_forbidden',
         `allowing this every time ${scheduled.slug} does it needs a second factor; none was presented (PRD F12.5)`,
         { inboxItemId: itemId, reason: options.mfa ? 'no_proof' : 'no_verifier' });
@@ -1887,45 +1921,57 @@ export async function decide(
         `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`,
       );
     }
-    // No verifier is a refusal rather than a bypass. A deployment that has not
-    // set up MFA has not met F12.5, and the consequence of not meeting it
-    // should be that irreversible actions wait -- not that they proceed.
-    if (!options.mfa) {
-      await refuse(
-        'no_verifier',
-        'a tier 3 approval needs a second factor and this deployment has no MFA '
-          + 'verifier configured (PRD F10.10, F12.5)',
-      );
-    }
-    if (!options.proof) {
-      await refuse(
-        'no_proof',
-        'a tier 3 approval needs a second factor; none was presented (PRD F10.10, F12.5)',
-      );
-    }
+    if (login) {
+      // The owner signed in with a device and is deciding in the app: that
+      // sign-in is the second factor, and the record names the device.
+      factor = login;
+      assurance = 'login';
+    } else {
+      // No verifier is a refusal rather than a bypass. A deployment that has
+      // not set up MFA has not met F12.5, and the consequence of not meeting
+      // it should be that irreversible actions wait -- not that they proceed.
+      if (!options.mfa) {
+        await refuse(
+          'no_verifier',
+          'a tier 3 approval needs a second factor and this deployment has no MFA '
+            + 'verifier configured (PRD F10.10, F12.5)',
+        );
+      }
+      if (!options.proof) {
+        await refuse(
+          'no_proof',
+          'a tier 3 approval needs a second factor; none was presented (PRD F10.10, F12.5)',
+        );
+      }
 
-    // The verification itself throws its own `mfa.*` error, which says which
-    // of the eleven ways it failed. Not flattened into this one: "that code
-    // has been used before" and "wrong code" are different stories, and only
-    // one of them is somebody trying.
-    // The company travels with the proof. A factor enrolled against one
-    // company must not approve a tier 3 action in another, which is the same
-    // isolation every other table in this schema enforces -- and the owner's
-    // own platform-scoped device answers for all of them.
-    const asking = { purpose: 'approval.tier3', subjectId: itemId, companyId };
-    factor =
-      'totp' in options.proof!
-        ? await options.mfa!.verifyTotp(options.proof.totp, asking)
-        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
-    // Derived, never taken from the caller. This is the whole fix.
-    assurance = 'mfa';
+      // The verification itself throws its own `mfa.*` error, which says which
+      // of the eleven ways it failed. Not flattened into this one: "that code
+      // has been used before" and "wrong code" are different stories, and only
+      // one of them is somebody trying.
+      // The company travels with the proof. A factor enrolled against one
+      // company must not approve a tier 3 action in another, which is the same
+      // isolation every other table in this schema enforces -- and the owner's
+      // own platform-scoped device answers for all of them.
+      const asking = { purpose: 'approval.tier3', subjectId: itemId, companyId };
+      factor =
+        'totp' in options.proof!
+          ? await options.mfa!.verifyTotp(options.proof.totp, asking)
+          : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
+      // Derived, never taken from the caller. This is the whole fix.
+      assurance = 'mfa';
+    }
   }
   if (granting || forSchedule) {
-    const asking = { purpose: granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId };
-    factor = 'totp' in options.proof!
-      ? await options.mfa!.verifyTotp(options.proof.totp, asking)
-      : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
-    assurance = 'mfa';
+    if (login) {
+      factor = login;
+      assurance = 'login';
+    } else {
+      const asking = { purpose: granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId };
+      factor = 'totp' in options.proof!
+        ? await options.mfa!.verifyTotp(options.proof.totp, asking)
+        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
+      assurance = 'mfa';
+    }
   }
 
   // One transaction for the decision and the task it releases. As two, a

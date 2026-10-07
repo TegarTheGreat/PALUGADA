@@ -37,29 +37,37 @@ export interface AssistantAction {
   /** Fields the owner types into a sealed field on the card, never the model. */
   secrets?: Readonly<Record<string, string>>;
   /**
-   * Whether the route takes the owner's device: always, or only for some
-   * requests (a tier 3 decision), when the card asks for it after a refusal.
+   * What the route asks of the owner. `never` is nothing, so a chat may do it.
+   * `always` and `sometimes` are the owner signed in to the app: their sign-in
+   * with a device is the second factor (STATUS 2.175), so the card is applied
+   * with a press and no code, in the app and not in a chat, which has no
+   * session. (The names are from before: `always` took a code every time and
+   * `sometimes` only for a tier 3 decision. A route still asks for a code of a
+   * session signed in with a recovery code, and the card then asks for it.)
    */
   factor: 'always' | 'sometimes' | 'never';
   /**
    * Whether a card for it may be applied with one press in a chat (F10.9):
    * the everyday things an owner says to their CEO from a phone -- give this
    * work, file this, tell that task, cancel it, remember this, this is the
-   * number. Only an action that takes no device and no key; anything that
+   * number. Only an action that needs no session and no key; anything that
    * decides an inbox item, loosens money or changes the deployment is
-   * applied in the app, where the owner's device is.
+   * applied in the app, where the owner is signed in.
    */
   chat?: true;
   /**
    * Done at once when the owner has asked, with no card to press: a CEO that
    * answers "give the team this" with a card for the owner to apply is a
-   * chatbot that fills in a form for them. Only a `chat` action -- no device,
-   * no key -- and only everyday work: give it, file it, tell it, stop it, run
-   * it again. And only in an answer that has read nothing an agent or a
-   * stranger wrote (`READS_OF_NO_ONE_ELSES_WORDS`): what the owner said, and
-   * what the company is, are the whole of what moved it. An answer that has
-   * read a task's output, an inbox item, a customer's message or a memory
-   * leaves the same action as a card, which is the owner's to press.
+   * chatbot that fills in a form for them. Everyday work, anywhere (a `chat`
+   * action: give it, file it, tell it, stop it, run it again), and building
+   * the team in the owner's conversation in the app, where they are signed in
+   * (open a division, hire a role, change one, let a division use a tool, set a
+   * goal): never an action that takes a key, and never one that loosens money
+   * or decides an inbox item. And only in an answer that has read nothing an
+   * agent or a stranger wrote (`READS_OF_NO_ONE_ELSES_WORDS`): what the owner
+   * said, and what the company is, are the whole of what moved it. An answer
+   * that has read a task's output, an inbox item, a customer's message or a
+   * memory leaves the same action as a card, which is the owner's to press.
    */
   auto?: true;
 }
@@ -386,12 +394,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/goals',
     what: 'Add a goal.',
     fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it' },
-    factor: 'never',
+    factor: 'never', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/goals/:goalId',
     what: 'Reword a goal, or close it. Closing one pauses the schedules and triggers under it.',
-    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always',
+    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/metrics/:metricId',
@@ -434,7 +442,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/divisions',
     what: 'Open a division.',
     fields: { name: 'its name', slug: 'short id', parentDivisionId: 'optional', maxConcurrency: 'optional number' },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/projects',
@@ -444,7 +452,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       slug: 'short id',
       workLanguage: 'optional: a language code from GET /api/control/languages (supported[].code) for a project that sells in another market than the company; left out, the company\'s work language',
     },
-    factor: 'never',
+    factor: 'never', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/documents',
@@ -483,7 +491,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
       grantTools: 'true to also let its division use the tools it lacks, except those that cannot be undone; say true whenever you name tools',
     },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
@@ -496,7 +504,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',
       displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',
     },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/ceo',
@@ -512,7 +520,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/structure/grant',
     what: 'Let a division use a capability, at a tier, or take it away.',
     fields: { divisionId: 'the division', capabilityName: 'such as web.search', tierOverride: 'optional 0-3', revoke: 'true to take it away' },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/divisions/:divisionId/escalation',
@@ -802,7 +810,6 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
-  '/api/control/step-up': 'how long a code covers what builds the company is a rule about the owner\'s own second factor, and is changed only by hand',
   '/api/companies/:companyId/first-hour/close': 'the list on the owner\'s own Overview is closed by the owner, who is looking at it',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/channels/whatsapp': 'Meta posts here, not a person',

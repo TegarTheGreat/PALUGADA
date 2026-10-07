@@ -280,7 +280,6 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
         <NumberInput label={t('Monthly ceiling')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} {...numberSeparators()} style={{ flex: 1 }} />
         <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>
       </Group>
-      <Text size="xs" c="dimmed">{t('Raising it asks for your authenticator; lowering it does not.')}</Text>
       {error && <Alert color="red" variant="light">{error}</Alert>}
     </Stack>
   );
@@ -325,7 +324,6 @@ function AccountCeilings({ companyId, account, changed }: { companyId: string; a
       </Text>
       <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} {...numberSeparators()} />
       <NumberInput label={t('Money ceiling')} {...currencyAffix()} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} {...numberSeparators()} />
-      <Text size="xs" c="dimmed">{t('Raising either asks for your authenticator; lowering does not.')}</Text>
       {error && <Alert color="red" variant="light">{error}</Alert>}
       <Group justify="flex-end">
         <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>

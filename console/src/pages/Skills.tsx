@@ -364,7 +364,7 @@ function SkillDrawer({ companyId, skillId, divisions, onClose, changed, openWork
 
             <Tabs.Panel value="scope" pt="md">
               <Stack gap="sm">
-                <Text size="sm" c="dimmed">{t('Widening vouches for a skill somewhere it has not been used, so it takes your authenticator.')}</Text>
+                <Text size="sm" c="dimmed">{t('Widening vouches for a skill somewhere it has not been used.')}</Text>
                 <ActionForm
                   columns={2}
                   fields={[

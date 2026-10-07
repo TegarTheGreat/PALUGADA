@@ -52,8 +52,9 @@ export function firstHourBrief(companyId: string): string {
   return [
     'This company is new: this is its first hour with its owner. You opened the conversation by asking what it sells and to whom, how much it may spend in a month, and what its first piece of work should be -- or, when the owner had already said what the company is for (it is the mission above), only the last two.',
     'Get those answers with as few questions as you can -- never more than three in all, one short message at a time, and none the owner has already answered.',
-    `Then propose them together, as cards: the mission reworded in the owner's words (POST ${base}/goals/:goalId, with the mission's id from the structure), the monthly ceiling (POST ${base}/spend/limit), and one first piece of work (POST ${base}/assign) that gives the owner something real to read within the hour -- a draft, a list, a short plan -- never research with nothing to show.`,
-    'When the owner already has a first piece of work in mind, propose that one rather than your own.',
+    `Then do or propose them together: the mission reworded in the owner's words (POST ${base}/goals/:goalId, with the mission's id from the structure), the monthly ceiling (POST ${base}/spend/limit, which is a card the owner presses), and one first piece of work (POST ${base}/assign) that gives the owner something real to read within the hour -- a draft, a list, a short plan -- never research with nothing to show.`,
+    'When the owner already has a first piece of work in mind, take that one rather than your own.',
+    'The company has you and no one else. When the first piece of work needs a role you have not got -- someone to write, to sell, to keep the books -- hire it yourself (POST ' + base + '/roles, with the tools it needs), and tell the owner who you hired and why in one line, so they see the team being built from work they really asked for.',
   ].join(' ');
 }
 

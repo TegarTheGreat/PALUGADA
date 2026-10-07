@@ -165,7 +165,7 @@ test('image.describe is catalogued as a read from outside, and bound only when t
   assert.deepEqual(bound.notes.filter((note) => note.startsWith('image.describe')), []);
 });
 
-test('the owner chooses a vision provider in the console, tries it on a picture, and saves it with the device', async () => {
+test('the owner chooses a vision provider in the console, tries it on a picture, and saves it', async () => {
   // A server of the owner's own, OpenAI-compatible, as Ollama is.
   const asked: Array<Record<string, unknown>> = [];
   const own = createServer((req, res) => {
@@ -199,8 +199,7 @@ test('the owner chooses a vision provider in the console, tries it on a picture,
     });
     assert.match(String(notPicture.body.problem ?? notPicture.body.error), /a PNG, JPEG, WebP or GIF/);
 
-    assert.equal((await api.call('POST', '/api/control/tools/vision', token, { provider: 'openai-compatible', url: base, model: 'qwen2.5vl' })).status, 403);
-    const saved = await api.call('POST', '/api/control/tools/vision', token, { provider: 'openai-compatible', url: base, model: 'qwen2.5vl', proof: { totp: api.code() } });
+    const saved = await api.call('POST', '/api/control/tools/vision', token, { provider: 'openai-compatible', url: base, model: 'qwen2.5vl' });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const env = withSettings({}, await readSettings());
     assert.deepEqual([env.PALUGADA_VISION_PROVIDER, env.PALUGADA_VISION_URL, env.PALUGADA_VISION_MODEL], ['openai-compatible', base, 'qwen2.5vl']);

@@ -304,42 +304,28 @@ test('the inbox is one queue, grouped per company (F10.1, F10.2)', async () => {
 /* --------------------------------------------------------- F10.10, F12.5 --- */
 
 /**
- * The distinction the whole console turns on.
+ * What the console turns on.
  *
- * A session is possession of a browser tab. F10.10 asks a tier 3 approval to
- * be given "through the app **with MFA**", and a token minted this morning is
- * not that. So a signed-in owner still has to present a fresh factor for tier
- * 3, and the console does not get to decide otherwise -- the gate is in
- * `decide`, where every surface meets it.
+ * F10.10 asks a tier 3 approval to be given "through the app **with MFA**".
+ * It was read as a fresh code for every approval; on the owner's report of 7
+ * October ("buat agar autentikator saat login saja") the code the owner
+ * signed in with is the factor, so a session opened with a device approves
+ * tier 3 in the app and a code sent along is not read. The gate is still in
+ * `decide`, where every surface meets it, and what it refuses is a chat, a
+ * seat, and a session that was not opened with a device
+ * (`login-only-factor.test.ts`).
  */
-test('a session is not a second factor (F10.10, F12.5)', async () => {
+test('a session opened with a device approves tier 3 in the app, with no code of its own (F10.10, F12.5; STATUS 2.175)', async () => {
   const fixture = await createCompany('api-tier3');
   const owner = await console_();
   try {
     const itemId = await tier3(fixture);
     const token = await signIn(owner.url, owner.code());
 
-    // Signed in, and refused: the session says which pipe, not who.
-    const withoutProof = await call(
-      owner.url, 'POST', `/api/companies/${fixture.companyId}/inbox/${itemId}/decide`,
-      { token, body: { decision: 'approve', note: 'go' } },
-    );
-    assert.equal(withoutProof.status, 403);
-    assert.equal(withoutProof.body.code, 'approval.channel_forbidden');
-
-    // A wrong code is refused with the reason it failed, not flattened into
-    // "forbidden" -- an owner who mistyped needs to know that is what happened.
-    const wrongCode = await call(
-      owner.url, 'POST', `/api/companies/${fixture.companyId}/inbox/${itemId}/decide`,
-      { token, body: { decision: 'approve', proof: { totp: '000000' } } },
-    );
-    assert.equal(wrongCode.status, 401);
-    assert.equal(wrongCode.body.code, 'mfa.code_invalid');
-
-    // With the factor: through.
+    // A stale code sent along is not read, so it cannot refuse an owner who is signed in.
     const approved = await call(
       owner.url, 'POST', `/api/companies/${fixture.companyId}/inbox/${itemId}/decide`,
-      { token, body: { decision: 'approve', note: 'go', proof: { totp: owner.code() } } },
+      { token, body: { decision: 'approve', note: 'go', proof: { totp: '000000' } } },
     );
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     assert.equal((await inbox.listOpen(fixture.companyId)).length, 0);
@@ -485,21 +471,15 @@ test('stop-all is reachable and reversible from the console (F10.7)', async () =
     const state = await call(owner.url, 'GET', '/api/control', { token });
     assert.equal(state.body.stopAll, true);
 
-    // Pressing it takes the session; lifting it takes the authenticator, so
-    // whoever stole a session cannot undo the stop pressed because of them.
-    const unproven = await call(owner.url, 'POST', '/api/control/stop-all', {
-      token, body: { on: false },
-    });
-    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
-    assert.equal(await isStopAllRequested(), true, 'still stopped');
+    // Pressing it and lifting it are both the session's: the owner signed in
+    // with their device, and that is the factor.
     const lifted = await call(owner.url, 'POST', '/api/control/stop-all', {
-      token, body: { on: false, proof: { totp: owner.code() } },
+      token, body: { on: false },
     });
     assert.equal(lifted.body.stopAll, false);
     assert.equal(await isStopAllRequested(), false);
 
-    // And the narrower ones answer the same way: stopping on the session,
-    // starting again on the factor.
+    // And the narrower ones answer the same way, both directions.
     for (const path of [
       `/api/control/company/${fixture.companyId}/freeze`,
       '/api/control/capability/dns.read/kill',
@@ -511,13 +491,6 @@ test('stop-all is reachable and reversible from the console (F10.7)', async () =
       );
       assert.equal(
         (await call(owner.url, 'POST', path, { token, body: { on: false } })).status,
-        403,
-        `${path} is not undone by a session alone`,
-      );
-      assert.equal(
-        (await call(owner.url, 'POST', path, {
-          token, body: { on: false, proof: { totp: owner.code() } },
-        })).status,
         200,
         path,
       );
@@ -529,17 +502,17 @@ test('stop-all is reachable and reversible from the console (F10.7)', async () =
 });
 
 /**
- * Every control that loosens asks for the authenticator; every one that
- * tightens does not.
+ * Every control that used to ask for the authenticator when it loosened is
+ * now the session's, as the ones that tighten always were.
  *
- * A session is a bearer token in a browser. The owner presses stop, freezes,
- * kills and lowers with one -- the moment something looks wrong is not the
- * moment to go looking for a phone -- but a session that could also lift the
- * stop, unfreeze, revive a capability, raise a ceiling, rewrite a policy or
- * activate a skill could undo every one of those, and would be the most
- * valuable thing on the machine to steal.
+ * The owner's report of 7 October: the authenticator is for signing in. The
+ * cost, written in `docs/THREAT-MODEL.md`, is that a session that is stolen
+ * can lift the stop, unfreeze, revive a capability, raise a ceiling, rewrite a
+ * policy or activate a skill. This holds that none of them is refused for want
+ * of a code: some may be refused for another reason (a version that is not
+ * there), and that is not what is looked for.
  */
-test('a session alone can tighten any control and loosen none (F12.5, F10.7)', async () => {
+test('a session opened with a device loosens a control with no code (F12.5, F10.7; STATUS 2.175)', async () => {
   const fixture = await createCompany('api-loosening');
   const owner = await console_();
   try {
@@ -562,8 +535,8 @@ test('a session alone can tighten any control and loosen none (F12.5, F10.7)', a
     ];
     for (const [path, body] of loosening) {
       const answer = await call(owner.url, 'POST', path, { token, body });
-      assert.equal(answer.status, 403, `${path}: ${JSON.stringify(answer.body)}`);
-      assert.equal(answer.body.code, 'approval.channel_forbidden', path);
+      assert.notEqual(answer.body.code, 'approval.channel_forbidden', `${path}: ${JSON.stringify(answer.body)}`);
+      assert.notEqual(answer.status, 403, `${path}: ${JSON.stringify(answer.body)}`);
     }
 
     const tightening: Array<[string, Record<string, unknown>]> = [
@@ -1919,15 +1892,10 @@ test('the owner can set the ceiling and lift the pause (F1.7, F1.9)', async () =
     const token = await signIn(owner.url, owner.code());
     const base = `/api/companies/${fixture.companyId}/spend`;
 
-    // Raising the ceiling loosens a control, so a session alone is not
-    // enough: a stolen one could otherwise undo every limit the owner set.
-    const unproven = await call(owner.url, 'POST', `${base}/limit`, {
-      token, body: { moneyMaxCents: 250_00 },
-    });
-    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
-    assert.equal(unproven.body.code, 'approval.channel_forbidden');
+    // Raising the ceiling and lowering it are both the session's: the owner
+    // signed in with their device, and that is the factor.
     const set = await call(owner.url, 'POST', `${base}/limit`, {
-      token, body: { moneyMaxCents: 250_00, proof: { totp: owner.code() } },
+      token, body: { moneyMaxCents: 250_00 },
     });
     assert.equal(set.status, 200, JSON.stringify(set.body));
 
@@ -1935,14 +1903,12 @@ test('the owner can set the ceiling and lift the pause (F1.7, F1.9)', async () =
     assert.equal(read.status, 200);
     assert.equal(read.body.limitCents, 250_00);
 
-    // Lowering it tightens, and the session is enough: the moment something
-    // looks wrong is not the moment to go looking for a phone.
     const lowered = await call(owner.url, 'POST', `${base}/limit`, {
       token, body: { moneyMaxCents: 200_00 },
     });
     assert.equal(lowered.status, 200, JSON.stringify(lowered.body));
     await call(owner.url, 'POST', `${base}/limit`, {
-      token, body: { moneyMaxCents: 250_00, proof: { totp: owner.code() } },
+      token, body: { moneyMaxCents: 250_00 },
     });
     assert.equal(typeof read.body.spentCents, 'number');
 
@@ -1975,11 +1941,7 @@ test('the owner can set the ceiling and lift the pause (F1.7, F1.9)', async () =
       'the guard did not pause, so there is nothing to lift',
     );
 
-    const refused = await call(owner.url, 'POST', `${base}/resume`, { token, body: {} });
-    assert.equal(refused.status, 403, 'lifting a pause takes the second factor');
-    const resumed = await call(owner.url, 'POST', `${base}/resume`, {
-      token, body: { proof: { totp: owner.code() } },
-    });
+    const resumed = await call(owner.url, 'POST', `${base}/resume`, { token, body: {} });
     assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
     assert.equal((await call(owner.url, 'GET', base, { token })).body.pausedAt, null);
 
@@ -2088,7 +2050,7 @@ test('the owner can set their own hours, and a company\'s batch window (F9.5, F9
  * than inside `rotateCredential` because rotation is also what a scheduled job
  * does, and a job has no phone.
  */
-test('rotating a credential needs a second factor (F12.3, F10.10)', async () => {
+test('rotating a credential takes the owner\'s session, not a code of its own (F12.3, F10.10; STATUS 2.175)', async () => {
   const fixture = await createCompany('console-rotate');
   const { withTenant } = await import('../../src/db/tenant.ts');
   await withTenant(fixture.companyId, async (tx) => {
@@ -2105,13 +2067,9 @@ test('rotating a credential needs a second factor (F12.3, F10.10)', async () => 
     const path =
       `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/credentials/dns/rotate`;
 
-    const without = await call(owner.url, 'POST', path, { token, body: {} });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-    assert.equal(without.body.code, 'approval.channel_forbidden');
-
     const withFactor = await call(owner.url, 'POST', path, {
       token,
-      body: { proof: { totp: owner.code() }, newSecretRef: 'vault://acme/dns-token-v2' },
+      body: { newSecretRef: 'vault://acme/dns-token-v2' },
     });
     assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
     assert.equal(withFactor.body.version, 2);
@@ -2287,13 +2245,8 @@ test('the owner can build and redirect the goal ladder (F2.7, F3.10)', async () 
     assert.match(String(nonsense.body.error), /kind must be one of/);
 
     const goalId = String(objective.body.id);
-    const without = await call(owner.url, 'POST', `${base}/${goalId}`, {
-      token, body: { status: 'met' },
-    });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-
     const withFactor = await call(owner.url, 'POST', `${base}/${goalId}`, {
-      token, body: { status: 'met', proof: { totp: owner.code() } },
+      token, body: { status: 'met' },
     });
     assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
     assert.equal(
@@ -2309,11 +2262,11 @@ test('the owner can build and redirect the goal ladder (F2.7, F3.10)', async () 
  * F2.9's structural changes, which are the owner's by definition.
  *
  * `applyGrantChange` and `applyRoleChange` both refuse without
- * `ownerApproved`, and this surface is the only caller that may pass `true` --
- * which makes the second factor the whole of the check. A route that passed
- * `true` off a session would have made the flag decorative.
+ * `ownerApproved`, and this surface is the only caller that may pass `true`,
+ * for a signed-in owner: a session opened with a device is the second factor
+ * (STATUS 2.175), and no agent reaches this surface.
  */
-test('the owner can change a grant and a role, with their device (F2.9, F3.9)', async () => {
+test('the owner can change a grant and a role (F2.9, F3.9)', async () => {
   const fixture = await createCompany('console-structure');
   // A grant is a foreign key into `capabilities`, so the capability has to be
   // registered before there is anything to change.
@@ -2338,12 +2291,6 @@ test('the owner can change a grant and a role, with their device (F2.9, F3.9)', 
     const token = await signIn(owner.url, owner.code());
 
     const grantPath = `/api/companies/${fixture.companyId}/structure/grant`;
-    const without = await call(owner.url, 'POST', grantPath, {
-      token,
-      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2 },
-    });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-
     const tightened = await call(owner.url, 'POST', grantPath, {
       token,
       body: {
@@ -2529,11 +2476,10 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
  * first, so a session alone could otherwise rewrite what every agent obeys.
  */
 /**
- * The guardian (row 7 of the competitive analysis of 2026-09-30): on with the
- * session, since it only ever asks the owner more, and off only with their
- * device, since that loosens.
+ * The guardian (row 7 of the competitive analysis of 2026-09-30): on and off
+ * with the session, which the owner's sign-in answers for.
  */
-test('the owner turns the guardian on with a session, and off only with a factor (row 7)', async () => {
+test('the owner turns the guardian on and off (row 7)', async () => {
   const fixture = await createCompany('console-guardian');
   const owner = await console_();
   try {
@@ -2547,13 +2493,11 @@ test('the owner turns the guardian on with a session, and off only with a factor
     assert.equal(on.status, 200, JSON.stringify(on.body));
     assert.equal(await guarded(), true);
 
-    const unproven = await call(owner.url, 'POST', path, { token, body: { on: false } });
-    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
-    assert.equal(await guarded(), true);
     const vague = await call(owner.url, 'POST', path, { token, body: { on: 'no' } });
     assert.equal(vague.status, 400, JSON.stringify(vague.body));
+    assert.equal(await guarded(), true);
 
-    const off = await call(owner.url, 'POST', path, { token, body: { on: false, proof: { totp: owner.code() } } });
+    const off = await call(owner.url, 'POST', path, { token, body: { on: false } });
     assert.equal(off.status, 200, JSON.stringify(off.body));
     assert.equal(await guarded(), false);
   } finally {
@@ -2561,7 +2505,7 @@ test('the owner turns the guardian on with a session, and off only with a factor
   }
 });
 
-test('the owner reads both charters and rewrites either with a factor (F3.1, F3.6)', async () => {
+test('the owner reads both charters and rewrites either (F3.1, F3.6)', async () => {
   const fixture = await createCompany('console-charter');
   // F3.11: the deployment's repository of charters, which a save writes at once.
   const tree = join(await mkdtemp(join(tmpdir(), 'palugada-console-tree-')), 'charters');
@@ -2574,10 +2518,6 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
     assert.equal(none.status, 200, JSON.stringify(none.body));
     assert.deepEqual(none.body, { company: null, platform: null });
 
-    const unproven = await call(owner.url, 'POST', company, { token, body: { body: 'Answer within a day.' } });
-    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
-    // Checked before the factor, so a blank or runaway charter costs a
-    // correction rather than a code.
     const blank = await call(owner.url, 'POST', company, { token, body: { body: '  \n ' } });
     assert.equal(blank.status, 400, JSON.stringify(blank.body));
     const long = await call(owner.url, 'POST', company, { token, body: { body: 'x'.repeat(20_001) } });
@@ -2638,7 +2578,7 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
   }
 });
 
-test('the owner can see and scope a skill, and lifting quarantine takes a factor (F15)', async () => {
+test('the owner can see and scope a skill, and lift its quarantine (F15)', async () => {
   const fixture = await createCompany('console-skills');
   const owner = await console_();
   try {
@@ -2666,13 +2606,8 @@ test('the owner can see and scope a skill, and lifting quarantine takes a factor
     assert.equal(imported.status, 200, JSON.stringify(imported.body));
     const skillId = String(imported.body.skillId ?? imported.body.id);
 
-    const without = await call(owner.url, 'POST', `${base}/${skillId}/quarantine/lift`, {
-      token, body: {},
-    });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-
     const lifted = await call(owner.url, 'POST', `${base}/${skillId}/quarantine/lift`, {
-      token, body: { proof: { totp: owner.code() } },
+      token, body: {},
     });
     assert.equal(lifted.status, 200, JSON.stringify(lifted.body));
 
@@ -2698,13 +2633,8 @@ test('the owner can trust and revoke a bundle publisher (F16.2)', async () => {
   try {
     const token = await signIn(owner.url, owner.code());
 
-    const without = await call(owner.url, 'POST', '/api/publishers', {
-      token, body: { publicKeyPem: pem, label: 'a partner' },
-    });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-
     const trusted = await call(owner.url, 'POST', '/api/publishers', {
-      token, body: { publicKeyPem: pem, label: 'a partner', proof: { totp: owner.code() } },
+      token, body: { publicKeyPem: pem, label: 'a partner' },
     });
     assert.equal(trusted.status, 200, JSON.stringify(trusted.body));
     const fingerprint = String(trusted.body.fingerprint);
@@ -2715,8 +2645,7 @@ test('the owner can trust and revoke a bundle publisher (F16.2)', async () => {
         .some((publisher) => publisher.fingerprint === fingerprint),
     );
 
-    // Revoking needs no factor. It only ever narrows what this installation
-    // accepts, and a revocation somebody hesitates over happens too late.
+    // Revoking narrows what this installation accepts.
     const revoked = await call(
       owner.url, 'POST', `/api/publishers/${fingerprint}/revoke`, { token, body: {} },
     );
@@ -3091,7 +3020,7 @@ test('a role field cannot be set to the word "null" (F3.9)', async () => {
  * held to a criterion its deployment cannot meet otherwise fails every task,
  * and hiring it again was the only way out.
  */
-test('the owner changes what done means for a role, with the device (F2.8)', async () => {
+test('the owner changes what done means for a role (F2.8)', async () => {
   const fixture = await createCompany('console-role-done');
   const owner = await console_();
   try {
@@ -3099,8 +3028,6 @@ test('the owner changes what done means for a role, with the device (F2.8)', asy
     const path = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
     const criteria = ['the output names every draft it made', 'nothing was sent that was not drafted first'];
 
-    const unproven = await call(owner.url, 'POST', path, { token, body: { doneCriteria: criteria } });
-    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
     const one = await call(owner.url, 'POST', path, {
       token, body: { doneCriteria: 'the output names every draft it made', proof: { totp: owner.code() } },
     });
@@ -3123,9 +3050,9 @@ test('the owner changes what done means for a role, with the device (F2.8)', asy
   }
 });
 
-test('installing a bundle takes a factor, like every other structural change (F16, F2.9)', async () => {
+test('installing a bundle asks no code of a signed-in owner, and is refused for the bundle that is not there (F16, F2.9)', async () => {
   // An install writes divisions, roles and capability grants, including tier 3
-  // ones. A session is a browser tab.
+  // ones; the owner's sign-in answers for it (STATUS 2.175).
   const fixture = await createCompany('console-bundle-factor');
   const owner = await console_();
   try {
@@ -3134,8 +3061,8 @@ test('installing a bundle takes a factor, like every other structural change (F1
       owner.url, 'POST', `/api/companies/${fixture.companyId}/bundles`,
       { token, body: { slug: 'content-ops', version: '1.0.0' } },
     );
-    assert.equal(answer.status, 403, JSON.stringify(answer.body));
-    assert.equal(answer.body.code, 'approval.channel_forbidden');
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.equal(answer.body.code, 'bundle.unknown');
   } finally {
     await owner.close();
   }
@@ -3506,14 +3433,6 @@ test('the owner can see what funds a role, and open an account (F1.2, F1.6)', as
     assert.equal(orphan.status, 400, JSON.stringify(orphan.body));
     assert.match(String(orphan.body.error), /parentAccountId is required/);
 
-    // Opening an account sets a ceiling, which is money -- the same decision
-    // as the spend limit, and a session is a browser tab.
-    const noFactor = await call(
-      owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
-      { token, body: { label: 'ads', tokensMax: 1_000 } },
-    );
-    assert.equal(noFactor.status, 403, JSON.stringify(noFactor.body));
-
     const opened = await call(
       owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
       {
@@ -3539,7 +3458,7 @@ test('the owner can see what funds a role, and open an account (F1.2, F1.6)', as
  * did not help, because a task draws on the chain it belongs to. A company
  * that spent its two million tokens stopped for good.
  */
-test('an exhausted account is raised from the console with a factor, and work is funded again (F1.5, F1.6)', async () => {
+test('an exhausted account is raised from the console, and work is funded again (F1.5, F1.6)', async () => {
   const { createRootTask } = await import('../../src/engine/tasks.ts');
   const { withControlPlane } = await import('../../src/db/tenant.ts');
   const fixture = await createCompany('console-exhausted', { tokensMax: 10_000 });
@@ -3561,10 +3480,7 @@ test('an exhausted account is raised from the console with a factor, and work is
 
     const limit = `/api/companies/${fixture.companyId}/budget-accounts/${fixture.budgetAccountId}/limit`;
     const raised = { tokensMax: 20_000 };
-    const withoutFactor = await call(owner.url, 'POST', limit, { token, body: raised });
-    assert.equal(withoutFactor.status, 403, 'raising a ceiling loosens a control');
-
-    const withFactor = await call(owner.url, 'POST', limit, { token, body: { ...raised, proof: { totp: owner.code() } } });
+    const withFactor = await call(owner.url, 'POST', limit, { token, body: raised });
     assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
     await fund();
 
@@ -3573,11 +3489,10 @@ test('an exhausted account is raised from the console with a factor, and work is
       .find((one) => one.id === fixture.budgetAccountId)!;
     assert.equal(account.tokensMax, 20_000);
 
-    // Lowering takes only the session, as the spend ceiling does.
     const lowered = await call(owner.url, 'POST', limit, { token, body: { tokensMax: 15_000 } });
     assert.equal(lowered.status, 200, JSON.stringify(lowered.body));
     const moreMoney = await call(owner.url, 'POST', limit, { token, body: { tokensMax: 15_000, moneyMaxCents: 999_999_99 } });
-    assert.equal(moreMoney.status, 403, 'more money is a raise too');
+    assert.equal(moreMoney.status, 200, JSON.stringify(moreMoney.body));
 
     // An account is the company's own: another's cannot be raised through it.
     const theirs = await call(
@@ -3871,12 +3786,6 @@ test('the owner can start a company from a template (section 5, F2)', async () =
   try {
     const token = await signIn(owner.url, owner.code());
 
-    const without = await call(owner.url, 'POST', '/api/companies', {
-      token,
-      body: { templateSlug: 'starter', companySlug: 'acme', name: 'Acme' },
-    });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-
     // A template that does not exist is named rather than arriving as a plain
     // error the owner reads as a broken console.
     const missing = await call(owner.url, 'POST', '/api/companies', {
@@ -4156,12 +4065,6 @@ test('a company is restored from the archive the console downloads (F16.4)', asy
     assert.ok(seen.skipped.includes('padding'), 'an unknown section is named, not silently dropped');
     assert.deepEqual(await companies(), before, 'a preview writes nothing');
 
-    const unproven = await call(owner.url, 'POST', '/api/companies/import', {
-      token, body: { archive, slug: 'restored' },
-    });
-    assert.notEqual(unproven.status, 200);
-    assert.deepEqual(await companies(), before, 'nothing is restored without the owner\'s device');
-
     const restored = await call(owner.url, 'POST', '/api/companies/import', {
       token, body: { archive, slug: 'restored', name: 'Restored Co', proof: { totp: owner.code() } },
     });
@@ -4188,10 +4091,10 @@ test('a company is restored from the archive the console downloads (F16.4)', asy
 
 /**
  * Batch verdicts over HTTP: the owner approves what they have read in one
- * press, with their session, and a tier 3 item in the selection stays for
- * their device.
+ * press, with their session, and a tier 3 item in the selection stays to be
+ * decided alone.
  */
-test('the owner approves several items in one press, and tier 3 waits for the device', async () => {
+test('the owner approves several items in one press, and tier 3 is decided alone', async () => {
   const owner = await console_();
   try {
     const fixture = await createCompany('batch-http');
@@ -4220,22 +4123,20 @@ test('the owner approves several items in one press, and tier 3 waits for the de
 });
 
 /**
- * The stage over HTTP (0057): forward with the device, back with the session,
- * and the company list says where each company is.
+ * The stage over HTTP (0057): forward and back with the session, and the
+ * company list says where each company is.
  */
-test('the owner moves a company forward with the device and back with the session (0057)', async () => {
+test('the owner moves a company forward and back (0057)', async () => {
   const owner = await console_();
   try {
     const fixture = await createCompany('stage-http');
     const token = await signIn(owner.url, owner.code());
     const path = `/api/companies/${fixture.companyId}/stage`;
 
-    const unproven = await call(owner.url, 'POST', path, { token, body: { stage: 'launch' } });
-    assert.notEqual(unproven.status, 200, 'forward loosens, so it takes the device');
     const wrong = await call(owner.url, 'POST', path, { token, body: { stage: 'scale' } });
     assert.equal(wrong.status, 400);
     const moved = await call(owner.url, 'POST', path, {
-      token, body: { stage: 'launch', note: 'ready', proof: { totp: owner.code() } },
+      token, body: { stage: 'launch', note: 'ready' },
     });
     assert.equal(moved.status, 200, JSON.stringify(moved.body));
     assert.deepEqual(moved.body, { from: null, to: 'launch' });
@@ -4253,10 +4154,10 @@ test('the owner moves a company forward with the device and back with the sessio
 });
 
 /**
- * Growing the company from the console (F2.9): hiring a role and opening a
- * division take the device; starting a project takes the session.
+ * Growing the company from the console (F2.9): hiring a role, opening a
+ * division and starting a project all take the session, and no code.
  */
-test('the owner hires a role and opens a division with the device, and starts a project with the session', async () => {
+test('the owner hires a role, opens a division and starts a project', async () => {
   const owner = await console_();
   try {
     const fixture = await createCompany('grow-http');
@@ -4266,15 +4167,12 @@ test('the owner hires a role and opens a division with the device, and starts a 
       divisionId: fixture.divisionId, slug: 'copywriter', systemPrompt: 'You write product pages.',
       tools: [], doneCriteria: ['every claim is on the product page'],
     };
-    const unproven = await call(owner.url, 'POST', `${base}/roles`, { token, body: hire });
-    assert.notEqual(unproven.status, 200, 'hiring takes the device');
-    const hired = await call(owner.url, 'POST', `${base}/roles`, { token, body: { ...hire, proof: { totp: owner.code() } } });
+    const hired = await call(owner.url, 'POST', `${base}/roles`, { token, body: hire });
     assert.equal(hired.status, 200, JSON.stringify(hired.body));
     assert.deepEqual(hired.body.ungranted, []);
 
-    assert.notEqual((await call(owner.url, 'POST', `${base}/divisions`, { token, body: { slug: 'sales', name: 'Sales' } })).status, 200);
     const opened = await call(owner.url, 'POST', `${base}/divisions`, {
-      token, body: { slug: 'sales', name: 'Sales', proof: { totp: owner.code() } },
+      token, body: { slug: 'sales', name: 'Sales' },
     });
     assert.equal(opened.status, 200, JSON.stringify(opened.body));
     const started = await call(owner.url, 'POST', `${base}/projects`, { token, body: { slug: 'wholesale', name: 'Wholesale' } });
@@ -4363,8 +4261,8 @@ test('the owner says what finished work needed, and the task shows it', async ()
   }
 });
 
-/** Handoffs over HTTP (0058): made and switched on with the device, off with the session. */
-test('the owner chains two roles with the device and switches the chain off with the session (0058)', async () => {
+/** Handoffs over HTTP (0058): made and switched on and off with the session. */
+test('the owner chains two roles and switches the chain off and on (0058)', async () => {
   const owner = await console_();
   try {
     const fixture = await createCompany('handoff-http');
@@ -4373,22 +4271,21 @@ test('the owner chains two roles with the device and switches the chain off with
     const writerId = await addRole(fixture, 'writer');
     const base = `/api/companies/${fixture.companyId}/handoffs`;
     const rule = { fromRoleId: fixture.roleId, toRoleId: writerId, brief: 'Write it up.' };
-    assert.notEqual((await call(owner.url, 'POST', base, { token, body: rule })).status, 200);
-    const made = await call(owner.url, 'POST', base, { token, body: { ...rule, proof: { totp: owner.code() } } });
+    const made = await call(owner.url, 'POST', base, { token, body: rule });
     assert.equal(made.status, 200, JSON.stringify(made.body));
     const path = `${base}/${String(made.body.ruleId)}`;
     assert.equal((await call(owner.url, 'POST', path, { token, body: { enabled: false } })).status, 200);
-    assert.notEqual((await call(owner.url, 'POST', path, { token, body: { enabled: true } })).status, 200);
     const listed = await call(owner.url, 'GET', base, { token });
     assert.deepEqual((listed.body.handoffs as Array<{ toRoleSlug: string; enabled: boolean }>)
       .map((one) => [one.toRoleSlug, one.enabled]), [['writer', false]]);
+    assert.equal((await call(owner.url, 'POST', path, { token, body: { enabled: true } })).status, 200);
   } finally {
     await owner.close();
   }
 });
 
 /**
- * Inbound triggers over HTTP (0054): the owner opens one with their device,
+ * Inbound triggers over HTTP (0054): the owner opens one,
  * another service posts to its URL with its token, and a wrong token, an
  * unknown URL or a closed door answer as HTTP says they should.
  */
@@ -4402,9 +4299,7 @@ test('an outside service starts work through a trigger the owner opened (0054)',
       slug: 'orders', roleId: fixture.roleId, goalId: fixture.goalId, instruction: 'Confirm the order.', maxPerHour: 5,
     };
 
-    const unproven = await call(owner.url, 'POST', base, { token, body: definition });
-    assert.notEqual(unproven.status, 200, 'opening a door takes the owner\'s device');
-    const opened = await call(owner.url, 'POST', base, { token, body: { ...definition, proof: { totp: owner.code() } } });
+    const opened = await call(owner.url, 'POST', base, { token, body: definition });
     assert.equal(opened.status, 200, JSON.stringify(opened.body));
     const { id, publicId, token: secret } = opened.body as { id: string; publicId: string; token: string };
 
@@ -4436,7 +4331,7 @@ test('an outside service starts work through a trigger the owner opened (0054)',
     assert.equal((await call(owner.url, 'POST', `${base}/${id}`, { token, body: { enabled: false } })).status, 200);
     assert.equal((await post(`/api/hooks/${publicId}`, String(rotated.body.token), { order: 3 })).status, 404);
     const reopen = await call(owner.url, 'POST', `${base}/${id}`, { token, body: { enabled: true } });
-    assert.notEqual(reopen.status, 200, 'opening it again takes the device too');
+    assert.equal(reopen.status, 200, JSON.stringify(reopen.body));
   } finally {
     await owner.close();
   }
@@ -4505,7 +4400,7 @@ test('a signed delivery, a form and a handshake reach a trigger as they were sen
 
 /**
  * F3.9 from the console: the owner sees the company's policies, reads a
- * role's versions, and puts one back with their device.
+ * role's versions, and puts one back.
  */
 test('the owner reads the policies and a role\'s history, and puts a version back (F3.5, F3.9)', async () => {
   const owner = await console_();
@@ -4530,10 +4425,8 @@ test('the owner reads the policies and a role\'s history, and puts a version bac
     assert.equal((history.body.versions as unknown[]).length, 1);
     assert.equal((await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/config/nonsense/history`, { token })).status, 400);
 
-    const unproven = await call(owner.url, 'POST', `${base}/rollback`, { token, body: { subjectId: fixture.roleId, version: 1 } });
-    assert.notEqual(unproven.status, 200, 'putting a version back takes the owner\'s device');
     const done = await call(owner.url, 'POST', `${base}/rollback`, {
-      token, body: { subjectId: fixture.roleId, version: 1, proof: { totp: owner.code() } },
+      token, body: { subjectId: fixture.roleId, version: 1 },
     });
     assert.equal(done.status, 200, JSON.stringify(done.body));
     const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ system_prompt: string }>(
@@ -4546,10 +4439,9 @@ test('the owner reads the policies and a role\'s history, and puts a version bac
 
 /**
  * 0083 through the console: a yes for a while is asked for with the decision,
- * refused without the owner's device, listed once given, and taken back with
- * the session alone, since taking it back tightens.
+ * given on the owner's sign-in, listed once given, and taken back.
  */
-test('the console approves for a while with a factor, lists it, and takes it back', async () => {
+test('the console approves for a while, lists it, and takes it back', async () => {
   const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
   const fixture = await createCompany('console-standing');
   const task = await createRootTask({
@@ -4570,14 +4462,8 @@ test('the console approves for a while with a factor, lists it, and takes it bac
     const listed = await call(owner.url, 'GET', `${company}/inbox`, { token });
     assert.equal((listed.body.items as Array<{ allowFor: boolean }>)[0]!.allowFor, true);
 
-    const bare = await call(owner.url, 'POST', `${company}/inbox/${itemId}/decide`, {
-      token, body: { decision: 'approve', allowForHours: 8 },
-    });
-    assert.equal(bare.status, 403, JSON.stringify(bare.body));
-    assert.equal(bare.body.code, 'approval.channel_forbidden');
-
     const given = await call(owner.url, 'POST', `${company}/inbox/${itemId}/decide`, {
-      token, body: { decision: 'approve', allowForHours: 8, proof: { totp: owner.code() } },
+      token, body: { decision: 'approve', allowForHours: 8 },
     });
     assert.equal(given.status, 200, JSON.stringify(given.body));
     const standing = await call(owner.url, 'GET', `${company}/standing-approvals`, { token });

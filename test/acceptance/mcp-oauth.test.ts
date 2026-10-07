@@ -181,24 +181,31 @@ test('a token that has run out is refreshed when the server says so, and the cal
  * did. Anyone holding the owner's session could sign a saved server in as an
  * account of their own, and every role using its tools would then read and
  * write there.
+ *
+ * The owner's report of 7 October made the sign-in the second factor for what
+ * the owner does in the session (STATUS 2.175), so the start asks for no code
+ * of its own from a session opened with a device; one signed in with a
+ * recovery code still has none to give, and cannot start it.
  */
-test('signing in to an MCP server takes the owner\'s device, as a division\'s sign-in does: a session alone cannot change whose account a server uses', async () => {
+test('signing in to an MCP server takes the owner\'s session, which a recovery code does not open', async () => {
   const provider = await oauthProvider();
   const api = await consoleWithSettings();
   try {
     const token = await api.signIn();
-    const start = (proof?: unknown) => api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url: provider.mcpUrl, proof });
-    const owners = await start({ totp: api.code() });
+    const start = (as: string) => api.call('POST', '/api/control/mcp/oauth/start', as, { name: 'tracker', url: provider.mcpUrl });
+    const owners = await start(token);
     assert.equal(owners.status, 200, JSON.stringify(owners.body));
     await followSignIn(owners.body.authorizeUrl as string);
     const before = (await readSettings()).mcp_oauth;
 
-    const bare = await start();
+    const made = await api.call('POST', '/api/mfa/recovery-codes', token, { proof: { totp: api.code() } });
+    const response = await fetch(`${api.url}/api/auth/sign-in`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recovery: made.body.codes[0] }),
+    });
+    const recovered = String(((await response.json()) as { token: string }).token);
+    const bare = await start(recovered);
     assert.equal(bare.body.code, 'approval.channel_forbidden', JSON.stringify(bare.body));
     assert.equal(bare.body.authorizeUrl, undefined, 'no page to sign in on');
-    const wrong = await start({ totp: '000000' });
-    assert.equal(wrong.body.code, 'mfa.code_invalid', JSON.stringify(wrong.body));
-    assert.equal(wrong.body.authorizeUrl, undefined);
     assert.deepEqual((await readSettings()).mcp_oauth, before, 'the server still signs in as the owner did');
     assert.equal(provider.tokenRequests.length, 1, 'and nothing else was redeemed');
   } finally {

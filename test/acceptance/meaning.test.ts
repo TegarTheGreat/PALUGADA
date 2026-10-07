@@ -147,7 +147,7 @@ test('the worker gives new passages their vectors as it ticks', async () => {
   }
 });
 
-test('the owner chooses Meaning under Tools: tried with a sentence, saved with a factor, and bound at the next start', async () => {
+test('the owner chooses Meaning under Tools: tried with a sentence, saved, and bound at the next start', async () => {
   const { consoleWithSettings } = await import('../helpers/owner-console.ts');
   const { toolBindingsFrom } = await import('../../src/capabilities/tools.ts');
   const { withSettings } = await import('../../src/settings/overlay.ts');
@@ -167,9 +167,8 @@ test('the owner chooses Meaning under Tools: tried with a sentence, saved with a
     assert.deepEqual(server.asked.at(-1)!.input, ['What is our refund policy?']);
     assert.equal(server.asked.at(-1)!.authorization, undefined, 'Ollama is sent no key');
 
-    assert.equal((await api.call('POST', '/api/control/tools/embed', token, { provider: 'ollama', url: server.url, model: 'nomic-embed-text' })).status, 403);
     const saved = await api.call('POST', '/api/control/tools/embed', token,
-      { provider: 'ollama', url: server.url, model: 'nomic-embed-text', proof: { totp: api.code() } });
+      { provider: 'ollama', url: server.url, model: 'nomic-embed-text' });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
 
     const bound = toolBindingsFrom(withSettings({}, await readSettings()), async () => '');

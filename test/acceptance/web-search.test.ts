@@ -188,7 +188,7 @@ test('a tool with no provider, or one it cannot use, is a note at boot, not a si
   assert.equal(bound.extract?.provider.id, 'jina');
 });
 
-test('the owner chooses a search provider and a page reader in the console, tries them, and saves them with their device', async () => {
+test('the owner chooses a search provider and a page reader in the console, tries them, and saves them', async () => {
   const search = await searxngServer();
   const api = await consoleWithSettings();
   try {
@@ -206,8 +206,6 @@ test('the owner chooses a search provider and a page reader in the console, trie
     const keyless = await api.call('POST', '/api/control/tools/search', token, { provider: 'brave', proof: { totp: api.code() } });
     assert.equal(keyless.status, 400);
     assert.match(String(keyless.body.error), /Brave Search needs a key/);
-    const unproved = await api.call('POST', '/api/control/tools/search', token, { provider: 'searxng', url: search.url });
-    assert.equal(unproved.status, 403);
     const keyed = await api.call('POST', '/api/control/tools/search', token, { provider: 'brave', key: 'brave-key-0123', proof: { totp: api.code() } });
     assert.equal(keyed.status, 200, JSON.stringify(keyed.body));
     assert.equal(await api.secrets.resolve('db://tool-search'), 'brave-key-0123');

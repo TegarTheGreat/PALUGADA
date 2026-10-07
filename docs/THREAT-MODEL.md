@@ -55,14 +55,23 @@ refer to `docs/PRD.md`.
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
    passkey needs a single-use challenge and user verification.
-4b. A code or passkey shown opens a window (`owner_sessions.proved_at`, 0120;
-   `step-up.ts`), ten minutes unless the owner chooses, in which twelve actions
-   that build the company need no new code (`WITHIN_THE_WINDOW`,
-   `src/owner/api.ts`): a stolen tab used inside it can build structure, which
-   is the cost. It reaches nothing else -- not money, keys, the model, channels,
-   devices, what lets outsiders in, or any tier 3 decision, which takes a fresh
-   proof each time (F10.10) -- and it is never extended by what it covers. A
-   recovery code opens none. A route is not covered unless it says so.
+4b. **The sign-in is the second factor for the session, and a stolen session
+   can do what the owner can.** A session opened with a code or a passkey
+   (`owner_sessions.proved_at`) passes every check that used to ask for a code
+   of its own (`OwnerApi.#requireFactor`, and `decide` for tier 3, a yes for a
+   while and a yes for a schedule), on the owner's report of 7 October: the
+   authenticator is for signing in. This deliberately relaxes F10.10 and F12.5,
+   which wanted a fresh proof for each tier 3 approval (STATUS 2.175). The cost
+   is that a phone left unlocked with the console open, a tab on a shared
+   machine, or a leaked bearer token can approve money and irreversible actions
+   within the session's eight hours, until it is signed out ("sign out
+   everywhere" ends every one) or the device that opened it is revoked (checked
+   on every request). What still takes a code at the moment it is done: revoking
+   an authenticator, making recovery codes, adding a passkey and vouching for a
+   device -- the acts a thief would use to lock the owner out or to keep access
+   -- and everything in a session signed in with a recovery code, which proves
+   less than a device, until a device's code is shown in it. A chat has no
+   session and still cannot approve tier 3, and a staff seat still cannot.
 5. Each open route has its own secret. Hooks: a public id from a random UUID,
    then a bearer token stored as its SHA-256 or an HMAC over the raw bytes,
    with a five-minute window for Stripe, Slack and Standard Webhooks

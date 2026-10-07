@@ -270,9 +270,7 @@ test('the console offers it on the card, lists it beside the yeses for a while, 
     const card = (listed.body.items as Array<{ id: string; kind: string; forSchedule: unknown }>).find((one) => one.kind === 'approval')!;
     assert.deepEqual(card.forSchedule, { slug: 'konfirmasi-pemasok' });
     const path = `/api/companies/${fixture.companyId}/inbox/${card.id}/decide`;
-    const without = await api.call('POST', path, token, { decision: 'approve', forSchedule: true });
-    assert.equal(without.status, 403, JSON.stringify(without.body));
-    const given = await api.call('POST', path, token, { decision: 'approve', forSchedule: true, proof: { totp: api.code() } });
+    const given = await api.call('POST', path, token, { decision: 'approve', forSchedule: true });
     assert.equal(given.status, 200, JSON.stringify(given.body));
 
     const standing = await api.call('GET', `/api/companies/${fixture.companyId}/standing-approvals`, token);
@@ -310,10 +308,9 @@ test('on a phone, the card\'s menu gives the yes to the schedule with the device
     await page.evaluate(`document.querySelector('button[aria-label="Approve every time its schedule does it"]').click()`);
     await page.waitFor(`[...document.querySelectorAll('[role="menuitem"]')].some((one) => one.innerText.includes('Every time konfirmasi-pemasok does it'))`, 'the menu');
     await page.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find((one) => one.innerText.includes('Every time konfirmasi-pemasok does it')).click()`);
-    await page.waitFor(`document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]')`, 'the device asked for');
-    await page.evaluate(`document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]').focus()`);
-    await page.type(api.code());
+    // The owner signed in with their device, and that is the factor: the yes is kept with no code asked for.
     await page.waitFor(`document.body.innerText.includes('Allowed for a schedule')`, 'the list of yeses for a schedule', 20_000);
+    assert.ok(!(await page.evaluate<boolean>(`!!document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]')`)), 'no code was asked for');
     assert.equal((await inbox.scheduleApprovals(fixture.companyId)).length, 1);
 
     await page.evaluate(`[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Take back').click()`);

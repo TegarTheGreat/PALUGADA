@@ -86,7 +86,7 @@ test('an account that stops many tasks has one card, which says how many', async
   assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert').length, 2);
 });
 
-test('the owner raises the ceiling and continues everything it stopped, with a code only for the raise', async () => {
+test('the owner raises the ceiling and continues everything it stopped, with no code', async () => {
   const fixture = await createCompany('budget-continue-all', { tokensMax: 5_000 });
   const tasks = [await stopped(fixture), await stopped(fixture), await stopped(fixture)];
   await spendAll(fixture.budgetAccountId);
@@ -109,12 +109,8 @@ test('the owner raises the ceiling and continues everything it stopped, with a c
     assert.match(none.body.skipped[0].code, /budget\.reservation_refused/);
     assert.deepEqual(await Promise.all(tasks.map((id) => statusOf(fixture, id))), ['halted', 'halted', 'halted']);
 
-    // Raising is the owner's decision with their code.
-    const without = await api.call('POST', path, owner, { tokensMax: 5_000_000 });
-    assert.equal(without.status, 403, 'raising a ceiling asks for the code');
-    assert.deepEqual(await Promise.all(tasks.map((id) => statusOf(fixture, id))), ['halted', 'halted', 'halted']);
-
-    const done = await api.call('POST', path, owner, { tokensMax: 5_000_000, proof: { totp: api.code() } });
+    // Raising is the owner's decision, which their sign-in answers for.
+    const done = await api.call('POST', path, owner, { tokensMax: 5_000_000 });
     assert.equal(done.status, 200, JSON.stringify(done.body));
     assert.deepEqual([done.body.continued, done.body.skipped, done.body.tokensMax], [3, [], 5_000_000]);
     assert.deepEqual(await Promise.all(tasks.map((id) => statusOf(fixture, id))), ['pending', 'pending', 'pending']);

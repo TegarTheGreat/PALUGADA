@@ -27,7 +27,7 @@ it:
 | 0 | Read only | DNS lookup, uptime check, listing files | Runs it |
 | 1 | Cheap to undo | A draft, a staging deploy | Runs it, then reads back to verify |
 | 2 | Costly or spends money | An external email, a purchase | Needs a recorded plan and a budget check first, verified after |
-| 3 | Irreversible | Nameservers, deletions, transfers, signatures | Waits for the owner, in the app, with a second factor |
+| 3 | Irreversible | Nameservers, deletions, transfers, signatures | Waits for the owner, in the app, signed in with a second factor |
 
 No policy, template or agent can move a tier 3 action out of the owner's
 hands. An approval nobody answers expires into a cancellation, so silence

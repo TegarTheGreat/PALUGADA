@@ -39,7 +39,7 @@ after(async () => {
   await closeSetup();
 });
 
-test('the owner connects a service from a preset: checked as the file is, saved with the device, bound at the next start, removed the same way', async () => {
+test('the owner connects a service from a preset: checked as the file is, saved, bound at the next start, removed the same way', async () => {
   // What the deployment binds already, as the platform binds it.
   const registry = new CapabilityRegistry();
   registry.register({ name: 'memory.search', adapter: 'platform', defaultTier: 0, async execute() { return []; } });
@@ -62,8 +62,7 @@ test('the owner connects a service from a preset: checked as the file is, saved 
     assert.equal(taken.status, 400, JSON.stringify(taken.body));
     assert.match(String(taken.body.error), /memory\.search is bound already, by platform/);
 
-    assert.equal((await api.call('POST', '/api/control/vendors', token, { entry: resend })).status, 403, 'a new service takes the device');
-    const saved = await api.call('POST', '/api/control/vendors', token, { entry: resend, proof: { totp: api.code() } });
+    const saved = await api.call('POST', '/api/control/vendors', token, { entry: resend });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const after = (await api.call('GET', '/api/control/vendors', token)).body;
     assert.deepEqual((after.saved as VendorSpec[]).map((one) => [one.name, one.adapter]), [['email.send', 'resend']]);
@@ -85,9 +84,7 @@ test('the owner connects a service from a preset: checked as the file is, saved 
     assert.deepEqual(bound, ['dns.read']);
     assert.match(said.join('\n'), /the service email\.send set in the console is left out: .*cannot be tier 0/);
 
-    // Removed with the device.
-    assert.equal((await api.call('POST', '/api/control/vendors/email.send/remove', token, {})).status, 403);
-    const removed = await api.call('POST', '/api/control/vendors/email.send/remove', token, { proof: { totp: api.code() } });
+    const removed = await api.call('POST', '/api/control/vendors/email.send/remove', token, {});
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
     assert.deepEqual((await api.call('GET', '/api/control/vendors', token)).body.saved, []);
     assert.equal(withSettings({}, await readSettings()).PALUGADA_VENDOR_SETTINGS, undefined);
@@ -126,7 +123,7 @@ test('a division\'s key for a service is pasted in the console, sealed, and is w
     assert.equal(before.status, 200, JSON.stringify(before.body));
     assert.deepEqual(before.body, { credentials: [], needs: [{ alias: 'crm', capabilities: ['crm.note'], scopes: ['notes:write'] }], callback: `${api.url}/api/oauth/callback` });
 
-    // Checked before the device: a blank key, a name that is not an alias, a
+    // Refused as it is read: a blank key, a name that is not an alias, a
     // division of another company.
     const blank = await api.call('POST', path, token, { alias: 'crm', value: '   ' });
     assert.equal(blank.status, 400);
@@ -139,8 +136,7 @@ test('a division\'s key for a service is pasted in the console, sealed, and is w
     assert.equal(elsewhere.status, 400);
     assert.match(String(elsewhere.body.error), /no division .* in that company/);
 
-    assert.equal((await api.call('POST', path, token, { alias: 'crm', value: KEY_ONE })).status, 403, 'a key takes the device');
-    const pasted = await api.call('POST', path, token, { alias: 'crm', value: ` ${KEY_ONE}\n`, proof: { totp: api.code() } });
+    const pasted = await api.call('POST', path, token, { alias: 'crm', value: ` ${KEY_ONE}\n` });
     assert.equal(pasted.status, 200, JSON.stringify(pasted.body));
     assert.equal(pasted.body.version, 1);
     const listed = await api.call('GET', path, token);

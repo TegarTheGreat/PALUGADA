@@ -91,10 +91,9 @@ test('a division is given its mailbox in a form, checked by the mail servers bef
     assert.ok(Number(wide) <= 0, `the form is ${String(wide)} pixels wider than a phone`);
 
     await page.evaluate(`[...document.querySelectorAll('.mantine-Drawer-content button')].find((one) => one.innerText.trim() === 'Save' && !one.disabled).click()`);
-    await page.waitFor(`document.body.innerText.includes('Confirm with your authenticator')`, 'the device asked for');
-    await page.evaluate(`document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]').focus()`);
-    await page.type(api.code());
+    // The owner signed in with their device, and that is the factor: the mailbox is kept with no code asked for.
     await page.waitFor(`document.body.innerText.includes('Change the mailbox')`, 'the mailbox held', 20_000);
+    assert.ok(!String(await page.evaluate('document.body.innerText')).includes('Confirm with your authenticator'), 'no code was asked for');
 
     const { rows } = await withControlPlane((tx) => tx.query<{ alias: string; scopes: string[] }>(
       'SELECT alias, scopes FROM credentials WHERE division_id = $1', [fixture.divisionId]));

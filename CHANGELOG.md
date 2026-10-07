@@ -305,6 +305,21 @@ The first version. What it holds, in the order an owner meets it.
   an operator who stores a template of their own can still start a company
   from it by name. Six boxes of the authenticator's code no longer spill out
   of their dialog on a phone (STATUS 2.174).
+- **The authenticator is for signing in, and nothing else.** Once you have signed in
+  with its code or a passkey, a division, a role, a grant, a goal, the spend
+  ceiling, the model and its key, a channel and every approval of something
+  that cannot be undone need no new code. What still asks, each time: revoking
+  an authenticator, making new recovery codes, adding a passkey, pairing a
+  device, and anything in a session you signed in to with a recovery code until
+  you show a device's code in it. A chat and a staff seat still cannot approve
+  what cannot be undone. The "how long a code counts" setting is gone. A
+  stolen, signed-in tab is now worth more, for the eight hours a session lives;
+  signing out and freezing the company are what you have against it (STATUS 2.175).
+- Your CEO now builds the company when you tell it to: it opens a division, a
+  project and a goal, hires a role with its tools, and grants it, and says what it
+  did, instead of putting a card in front of you to press. After it has read
+  what agents wrote in the same turn, or in a session signed in with a recovery
+  code, the same change is still a card for you (STATUS 2.175).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,
@@ -425,11 +440,9 @@ The first version. What it holds, in the order an owner meets it.
 - Work you approved after the hour it was given is no longer halted for the
   time you took: a task's deadline is for the work, and the time it spent
   waiting for your answer, or for a review, is given back (STATUS 2.142).
-- One authenticator code now covers what builds the company -- a division, a
-  role, a grant, a goal, a skill, a bundle -- for ten minutes, instead of a
-  code for each. Money, keys, the model, channels, devices and every approval
-  of something that cannot be undone still ask every time. Set the length, or
-  turn it off, under Settings, Security (STATUS 2.143).
+- One authenticator code covered what builds the company for ten minutes,
+  instead of a code for each (STATUS 2.143); the authenticator is now asked
+  for at sign-in only, so there is no window to set (STATUS 2.175).
 - A task that ends without being done no longer ends in silence: it is put to
   the coordinator your division names first, and to you only if the
   coordinator could not handle it, with what it did. Tickets the company owes

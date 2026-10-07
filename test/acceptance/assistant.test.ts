@@ -101,7 +101,7 @@ test('the assistant is told the kinds of key an agent CLI takes, as the route ta
   assert.doesNotMatch(told, /api_key/);
 });
 
-test('the owner asks; the assistant reads and proposes; nothing changes until the owner applies the card with their device', async () => {
+test('the owner asks; the assistant reads and proposes; nothing changes until the owner applies the card', async () => {
   const model = new ScriptedModel([
     uses(['read', { path: '/api/control/tools' }]),
     uses(['propose', { path: '/api/control/tools/search', body: { provider: 'brave' }, summary: 'Search the web with Brave Search.' }]),
@@ -128,14 +128,12 @@ test('the owner asks; the assistant reads and proposes; nothing changes until th
     assert.match(model.requests[0]!.system, /POST \/api\/control\/tools\/:kind -- Choose the provider/);
     assert.equal((await readSettings()).tools, undefined, 'proposing changed nothing');
 
-    const unproved = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token, { secrets: { key: 'brave-key-0123456789' } });
-    assert.equal(unproved.status, 403, 'the route takes the owner\'s device, from a card as from the page');
-    assert.equal((await api.call('GET', '/api/assistant', token)).body.messages[1].proposals[0].status, 'open', 'and the card stays open for it');
-    const stranger = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token, { secrets: { model: 'x' }, proof: { totp: api.code() } });
+    const stranger = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token, { secrets: { model: 'x' } });
     assert.equal(stranger.status, 400, 'a card takes only the fields it asks for');
 
+    // The owner's sign-in answers for the route, from a card as from the page: no code.
     const applied = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token,
-      { secrets: { key: 'brave-key-0123456789' }, proof: { totp: api.code() } });
+      { secrets: { key: 'brave-key-0123456789' } });
     assert.equal(applied.status, 200, JSON.stringify(applied.body));
     assert.equal(((await readSettings()).tools as { search: { provider: string } }).search.provider, 'brave');
     assert.equal(await api.secrets.resolve('db://tool-search'), 'brave-key-0123456789');
@@ -145,7 +143,7 @@ test('the owner asks; the assistant reads and proposes; nothing changes until th
     assert.equal(after.available, true);
     assert.equal(after.messages[1].proposals[0].status, 'applied');
     assert.match(after.messages.at(-1).body, /^The owner applied: Search the web with Brave Search\./, 'the next turn knows what the owner did');
-    const twice = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token, { proof: { totp: api.code() } });
+    const twice = await api.call('POST', `/api/assistant/proposals/${card.id}/apply`, token, {});
     assert.equal(twice.status, 400);
     assert.match(String(twice.body.error), /already applied/);
   } finally {
@@ -350,15 +348,33 @@ test('after reading what agents wrote, the same action is a card for the owner, 
   }
 });
 
-test('only everyday work with no device and no key is done at once', () => {
+test('only everyday work, and building the team in the app, is done at once; never a key, money or an inbox decision', () => {
+  const buildsTheTeam = [
+    '/api/companies/:companyId/divisions', '/api/companies/:companyId/goals', '/api/companies/:companyId/goals/:goalId',
+    '/api/companies/:companyId/projects', '/api/companies/:companyId/roles', '/api/companies/:companyId/roles/:roleId',
+    '/api/companies/:companyId/structure/grant',
+  ];
   for (const action of ASSISTANT_ACTIONS.filter((one) => one.auto)) {
-    assert.equal(action.chat, true, `${action.pattern} is done in a chat, or it is not done at once`);
-    assert.equal(action.factor, 'never', `${action.pattern} takes no device`);
     assert.equal(Object.keys(action.secrets ?? {}).length, 0, `${action.pattern} takes no key`);
+    if (buildsTheTeam.includes(action.pattern)) {
+      // Done where the owner is signed in, and never applied from a chat, which has no session.
+      assert.equal(action.chat, undefined, `${action.pattern} is the app's, not a chat's`);
+    } else {
+      assert.equal(action.chat, true, `${action.pattern} is everyday work, done in a chat too`);
+      assert.equal(action.factor, 'never', `${action.pattern} needs no session`);
+    }
+    assert.doesNotMatch(action.pattern, /spend|budget|inbox|standing|approval|credentials|charter|policies/, `${action.pattern} loosens money or decides for the owner`);
   }
   const auto = ASSISTANT_ACTIONS.filter((one) => one.auto).map((one) => one.pattern).sort();
   assert.deepEqual(auto, [
     '/api/companies/:companyId/assign',
+    '/api/companies/:companyId/divisions',
+    '/api/companies/:companyId/goals',
+    '/api/companies/:companyId/goals/:goalId',
+    '/api/companies/:companyId/projects',
+    '/api/companies/:companyId/roles',
+    '/api/companies/:companyId/roles/:roleId',
+    '/api/companies/:companyId/structure/grant',
     '/api/companies/:companyId/tasks/:taskId/cancel',
     '/api/companies/:companyId/tasks/:taskId/continue',
     '/api/companies/:companyId/tasks/:taskId/instruct',

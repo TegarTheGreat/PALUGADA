@@ -203,7 +203,6 @@ import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProf
 import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
-import { checkedStepUp, setStepUpMinutes, STEP_UP_CHOICES, stepUpMinutes, withinWindow } from './step-up.ts';
 import { OwnerClaims } from './claim.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
@@ -485,9 +484,9 @@ export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
   /**
-   * The owner's session behind the request being handled, for the window a
-   * recent code opens (0120): `#requireFactor` is called from seventy places
-   * that were each written without a session in hand.
+   * The owner's session behind the request being handled, so `#requireFactor`
+   * can ask whether it was opened with a device: it is called from seventy
+   * places that were each written without a session in hand.
    */
   readonly #acting = new AsyncLocalStorage<OwnerSession | null>();
   readonly #claims: OwnerClaims;
@@ -786,16 +785,7 @@ export class OwnerApi {
         // Who is signed in: the owner, or a staff seat and what it may do (0110).
         method: 'GET',
         pattern: '/api/me',
-        handle: async ({ staff, session }) => {
-          if (staff) return { owner: false, staff: staffOf(staff) };
-          const minutes = await stepUpMinutes();
-          const until = session?.provedAt && minutes > 0 ? new Date(session.provedAt.getTime() + minutes * 60_000) : null;
-          return {
-            owner: true, staff: null,
-            // Until when a code just shown covers what builds the company (0120); null when none does. A seat has none.
-            stepUp: { minutes, until: until && until.getTime() > Date.now() ? until.toISOString() : null },
-          };
-        },
+        handle: async ({ staff }) => (staff ? { owner: false, staff: staffOf(staff) } : { owner: true, staff: null }),
       },
 
       {
@@ -896,7 +886,7 @@ export class OwnerApi {
           if (mission.length > MISSION_MAX) {
             throw new PalugadaError('contract.violation', `the mission is at most ${MISSION_MAX} characters`, { field: 'mission' });
           }
-          await this.#requireFactor(body.proof, 'start a company', null, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'start a company', null);
           // A company starts with its CEO and builds the team as it needs it
           // (founding.ts); a template is named only by an operator who has stored one.
           const templateSlug = body.templateSlug === undefined ? FOUNDING_TEMPLATE_SLUG : requireText(body.templateSlug, 'templateSlug');
@@ -1326,9 +1316,12 @@ export class OwnerApi {
             String(body.note ?? ''),
             {
               channel: 'app',
-              // The session is possession of a tab, not of the owner's phone.
-              // Sent for the record; it is never what unlocks tier 3.
+              // Sent for the record; it is never what unlocks tier 3. What
+              // does is a session opened with a device, which `decide` asks
+              // the sessions about, or a proof for a session that was not
+              // (one signed in with a recovery code).
               assurance: 'session',
+              ...(session ? { sessions: this.#sessions, sessionToken: session.token } : {}),
               ...(proof ? { proof } : {}),
               mfa: this.#options.mfa,
               // 0083: `decide` checks it, and asks for the factor it needs.
@@ -1340,7 +1333,6 @@ export class OwnerApi {
               seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
           );
-          void session;
           return { ok: true };
         },
       },
@@ -1754,26 +1746,6 @@ export class OwnerApi {
       },
 
       /* ----------------------------------------------------- F9.5, F9.6 --- */
-
-      {
-        // How long a code just shown covers what builds the company (0120).
-        method: 'GET',
-        pattern: '/api/control/step-up',
-        handle: async () => ({ minutes: await stepUpMinutes(), choices: [...STEP_UP_CHOICES] }),
-      },
-
-      {
-        // Raising it loosens, so it takes a code -- which opens the window it
-        // chose; lowering, or turning it off, is the session's to do.
-        method: 'POST',
-        pattern: '/api/control/step-up',
-        handle: async ({ body }) => {
-          const minutes = checkedStepUp(body.minutes);
-          if (minutes > await stepUpMinutes()) await this.#requireFactor(body.proof, 'keep a code valid for longer');
-          await setStepUpMinutes(minutes);
-          return { minutes };
-        },
-      },
 
       {
         method: 'GET',
@@ -3987,7 +3959,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/handoffs',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!);
           return {
             ruleId: await createHandoffRule(params.companyId!, {
               fromRoleId: requireText(body.fromRoleId, 'fromRoleId'),
@@ -4357,7 +4329,7 @@ export class OwnerApi {
           }
           if (body.retired !== undefined) change.retired = body.retired === true;
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
-          await this.#requireFactor(body.proof, 'change a measure', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
           await changeMetric(params.companyId!, params.metricId!, change);
           return { ok: true };
         },
@@ -4828,7 +4800,7 @@ export class OwnerApi {
           if (body.statement === undefined && body.status === undefined) {
             throw new PalugadaError('contract.violation', 'no goal field was given', {});
           }
-          await this.#requireFactor(body.proof, 'change a goal', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
           const changed = await applyGoalChange({
             companyId: params.companyId!,
             goalId: params.goalId!,
@@ -4850,7 +4822,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/structure/grant',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a grant', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a grant', params.companyId!);
           // `revoke` decides, on its own. The first version read it only when
           // no `tierOverride` was sent, so `{ revoke: true, tierOverride: null }`
           // became a *change* to an unlimited grant -- and the database's
@@ -4896,7 +4868,7 @@ export class OwnerApi {
           const person = typeof body.person === 'string' && body.person.trim() !== ''
             ? await inbox.approverNamed(params.companyId!, body.person)
             : null;
-          await this.#requireFactor(body.proof, 'hire a role', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'hire a role', params.companyId!);
           return addRole(params.companyId!, {
             ...(person ? { person } : {}),
             divisionId: requireText(body.divisionId, 'divisionId'),
@@ -4915,7 +4887,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/divisions',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'open a division', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'open a division', params.companyId!);
           return {
             divisionId: await addDivision(params.companyId!, {
               slug: requireText(body.slug, 'slug'),
@@ -5100,7 +5072,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles/:roleId',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a role', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a role', params.companyId!);
           // `String(null)` is the four letters "null", and a role whose
           // `model_primary` is the string "null" fails every later run. Each
           // field that is present must be a real value, and a field that is
@@ -5181,7 +5153,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/ceo',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!);
           return appointCeo(params.companyId!, requireText(body.roleId, 'roleId'), {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
@@ -5452,7 +5424,7 @@ export class OwnerApi {
         // Activating a skill puts its text in front of every agent it reaches,
         // which is the one thing a skill's review exists to control.
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!);
           return approveSkillVersion(params.companyId!, params.versionId!);
         },
       },
@@ -5464,7 +5436,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/skills/:skillId/scope',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!);
           // Built rather than cast. The first version passed
           // `{ scope, scopeId } as never`, which type-checked and was the
           // wrong shape entirely -- `setSkillScope` reads `scopeType`, so
@@ -5557,7 +5529,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/bundles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!);
           return installBundle({
             companyId: params.companyId!,
             slug: requireText(body.slug, 'slug'),
@@ -5602,7 +5574,7 @@ export class OwnerApi {
           // Read before the factor is spent, so a pairing missing its key
           // does not cost the owner a code.
           const keyFingerprint = requireText(body.keyFingerprint, 'keyFingerprint');
-          await this.#requireFactor(body.proof, 'pair a device', params.companyId!);
+          await this.#requireFactor(body.proof, 'pair a device', params.companyId!, true);
           await pairDevice(params.companyId!, params.deviceId!, {
             keyFingerprint,
             liftQuarantine: body.liftQuarantine === true,
@@ -5825,7 +5797,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/authenticators/:authenticatorId/revoke',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'revoke an authenticator');
+          await this.#requireFactor(body.proof, 'revoke an authenticator', null, true);
           await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
           return { signedOut: await this.#sessions.signOutFactor(params.authenticatorId!) };
         },
@@ -5865,7 +5837,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/recovery-codes',
         handle: async ({ body }) => {
-          await this.#requireFactor(body.proof, 'make new recovery codes');
+          await this.#requireFactor(body.proof, 'make new recovery codes', null, true);
           return { codes: await this.#options.mfa.issueRecoveryCodes() };
         },
       },
@@ -5896,7 +5868,7 @@ export class OwnerApi {
             clientDataJSON: requireText(credential.clientDataJSON, 'credential.clientDataJSON'),
             attestationObject: requireText(credential.attestationObject, 'credential.attestationObject'),
           };
-          await this.#requireFactor(body.proof, 'add a passkey');
+          await this.#requireFactor(body.proof, 'add a passkey', null, true);
           return this.#options.mfa.enrolPasskey(made);
         },
       },
@@ -5905,19 +5877,6 @@ export class OwnerApi {
 
   /* --------------------------------------------------------------- plumbing --- */
 
-  /**
-   * Refuses an action that needs the owner's device rather than their tab.
-   *
-   * `decide` owns F10.10's gate for inbox items and this module never
-   * second-guesses it. This is the same *rule* applied to the handful of
-   * console actions that are not inbox items and are just as irreversible: a
-   * rotation is the answer to "that token leaked", and a session minted eight
-   * hours ago is possession of a browser tab.
-   *
-   * Kept here rather than pushed down into `rotateCredential` because rotation
-   * is also what a scheduled job does, and a job has no phone. The surface
-   * that has a human in front of it is the surface that can ask for one.
-   */
   /** The folder the companies' files are in, or the one sentence that says there is none. */
   #filesRoot(): string {
     const root = this.#options.files?.root;
@@ -6601,16 +6560,39 @@ export class OwnerApi {
     return this.#options.browsers;
   }
 
+  /**
+   * Refuses an action the owner's device must stand behind.
+   *
+   * The owner signed in with a code or a passkey, and that sign-in is the
+   * second factor for what they do in the session (the owner's report of 7
+   * October: the authenticator is for signing in, not for each division). So
+   * a session that was opened with a device passes. What it does not pass:
+   *
+   * - a session opened with a recovery code, which proves less than a device
+   *   and is asked for a code each time, until a device's code is shown in it
+   *   (`prove`), when it is the same as one opened with a device;
+   * - `fresh`, for what changes who the owner is -- an authenticator revoked,
+   *   new recovery codes, a passkey added, a device vouched for -- which takes
+   *   a code at the moment, because a stolen session must not be able to lock
+   *   the owner out or enrol its own device;
+   * - a request with no session at all, which is what a chat is (a card from
+   *   Telegram reaches only what needs no device, `chatMayApply`).
+   *
+   * `decide` owns the same rule for inbox items, and this module never
+   * second-guesses it. This is that rule for the console actions that are not
+   * inbox items, kept here rather than pushed down into `rotateCredential`
+   * because rotation is also what a scheduled job does, and a job has no
+   * phone: the surface with a human in front of it is the one that can ask.
+   * A code presented when none is needed is not read, so it is not spent.
+   */
   async #requireFactor(
     proof: unknown,
     purpose: string,
     companyId: string | null = null,
-    covered: typeof WITHIN_THE_WINDOW | null = null,
+    fresh = false,
   ): Promise<void> {
+    if (!fresh && this.#acting.getStore()?.provedAt) return;
     if (proof === undefined || proof === null) {
-      // What builds the company is covered by a code shown a few minutes ago;
-      // what loosens money, reaches outside or changes a key never is.
-      if (covered === WITHIN_THE_WINDOW && await this.#withinStepUp()) return;
       throw new PalugadaError(
         'approval.channel_forbidden',
         `${purpose} needs a second factor; none was presented (PRD F10.10, F12.5)`,
@@ -6628,20 +6610,13 @@ export class OwnerApi {
     // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
     else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
-    // A code or a passkey just shown opens the window; a recovery code proves less and opens none.
+    // A device's code or passkey shown in a session opened with a recovery
+    // code makes it one opened with a device; a recovery code proves less and
+    // does not.
     if (!('recovery' in presented)) {
       const session = this.#acting.getStore();
       if (session) await this.#sessions.prove(session.token);
     }
-  }
-
-  /** Whether the owner's session showed a code recently enough to cover an action in the window. */
-  async #withinStepUp(): Promise<boolean> {
-    const session = this.#acting.getStore();
-    if (!session) return false;
-    // Read again, not from the request's own copy: a code shown a moment ago, in another tab, counts.
-    const live = await this.#sessions.verify(session.token);
-    return withinWindow(live?.provedAt ?? null, await stepUpMinutes(), new Date());
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -7103,20 +7078,10 @@ function priorityOf(value: unknown): number {
   return priority;
 }
 
-/** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
-/**
- * Marks a call to `#requireFactor` as one a recent code covers (0120): the
- * actions that build the company -- a division, a role, a grant, a goal, a
- * measure, a skill, a bundle -- which the owner is already doing, one after
- * another, when they set it up. Left off, as every other is, it asks for a
- * code each time: money, keys, the model, channels, devices, what lets
- * outsiders in, and every tier 3 decision.
- */
-const WITHIN_THE_WINDOW = Symbol('within the window');
-
 /** The longest mission: the sentence or two the owner reads first, and the CEO is told first. */
 const MISSION_MAX = 2_000;
 
+/** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';
   return text.length > 300 ? `${text.slice(0, 300)}...` : text;

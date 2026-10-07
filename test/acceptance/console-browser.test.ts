@@ -101,12 +101,11 @@ test('a card asking to be signed in opens the browser on the work\'s page, which
     const shown = await page.evaluate(`document.querySelector('img[src^="data:image/jpeg"]').getBoundingClientRect().width`);
     assert.ok(Number(shown) <= 390, `the picture is drawn ${String(shown)} pixels wide on a 390 pixel screen`);
 
-    // Taken over with the device, the page can be typed into; given back, it cannot.
+    // Taken over, the page can be typed into; given back, it cannot. The owner signed in with their
+    // device, and that is the factor: no code is asked for on the way.
     await page.evaluate(`[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Take it over').click()`);
-    await page.waitFor(`document.body.innerText.includes('Confirm with your authenticator')`, 'the device asked for');
-    await page.evaluate(`document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]').focus()`);
-    await page.type(api.code());
     await page.waitFor(`[...document.querySelectorAll('button')].some((one) => one.innerText.trim() === 'Give it back')`, 'the browser held', 20_000);
+    assert.ok(!String(await page.evaluate('document.body.innerText')).includes('Confirm with your authenticator'), 'no code was asked for');
     assert.ok(String(await page.evaluate('document.body.innerText')).includes('Open an address'));
     const { rows: held } = await withControlPlane((tx) => tx.query('SELECT 1 FROM browser_holds WHERE company_id = $1', [fixture.companyId]));
     assert.equal(held.length, 1);

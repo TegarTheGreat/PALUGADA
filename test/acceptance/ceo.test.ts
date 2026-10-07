@@ -151,7 +151,7 @@ test('a company with no roles gets its CEO from its first hire, or from the bund
   }
 });
 
-test('the owner appoints a CEO with their device; a title never makes or unmakes one; a restored version leaves it', async () => {
+test('the owner appoints a CEO; a title never makes or unmakes one; a restored version leaves it', async () => {
   const fixture = await createCompany('ceo-api');
   const api = await consoleWithSettings();
   try {
@@ -178,9 +178,7 @@ test('the owner appoints a CEO with their device; a title never makes or unmakes
       { title: 'CEO', proof: { totp: api.code() } });
     assert.equal(promoted.status, 400, 'nor is anyone made CEO by a title');
 
-    const unproved = await api.call('POST', `/api/companies/${fixture.companyId}/ceo`, token, { roleId: chiefId });
-    assert.equal(unproved.status, 403, 'appointing takes the owner\'s device');
-    const appointed = await api.call('POST', `/api/companies/${fixture.companyId}/ceo`, token, { roleId: chiefId, proof: { totp: api.code() } });
+    const appointed = await api.call('POST', `/api/companies/${fixture.companyId}/ceo`, token, { roleId: chiefId });
     assert.equal(appointed.status, 200, JSON.stringify(appointed.body));
     assert.deepEqual(appointed.body, { roleId: chiefId, previous: fixture.roleId });
     assert.deepEqual(await titles(fixture.companyId), { chief: 'CEO', worker: null });

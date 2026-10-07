@@ -160,10 +160,9 @@ test('the card asking for a key opens the division\'s keys on Team, where giving
     await page.evaluate(`document.querySelector('input[aria-label="The crm key"]').focus()`);
     await page.type(KEY);
     await page.evaluate(`[...document.querySelectorAll('.mantine-Drawer-content button')].find((one) => one.innerText.trim() === 'Save' && !one.disabled).click()`);
-    await page.waitFor(`document.body.innerText.includes('Confirm with your authenticator')`, 'the device asked for');
-    await page.evaluate(`document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]').focus()`);
-    await page.type(api.code());
+    // The owner signed in with their device, and that is the factor: the key is sealed with no code asked for.
     await page.waitFor(`document.body.innerText.includes('The crm key is sealed')`, 'the key sealed', 20_000);
+    assert.ok(!String(await page.evaluate('document.body.innerText')).includes('Confirm with your authenticator'), 'no code was asked for');
     const { rows: [item] } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
       "SELECT status FROM inbox_items WHERE task_id = $1 AND kind = 'escalation'", [taskId]));
     assert.equal(item!.status, 'decided', 'giving the key answered the role');

@@ -101,7 +101,7 @@ test('the master key is the one named, or a file made once beside the deployment
     (error: unknown) => isPalugadaError(error, 'config.invalid'));
 });
 
-test('the owner chooses a model in the console: checked before it is saved, saved with their device, taken up at the next start', async () => {
+test('the owner chooses a model in the console: checked before it is saved, saved, taken up at the next start', async () => {
   const api = await consoleWithSettings();
   const model = await modelServer();
   try {
@@ -132,10 +132,6 @@ test('the owner chooses a model in the console: checked before it is saved, save
       { provider: 'openai', url: model.url, key: 'k-0123456789', proof: { totp: api.code() } });
     assert.equal(half.status, 400);
     assert.match(String(half.body.error), /say which one each tier means/);
-
-    const unproved = await api.call('POST', '/api/control/settings/model', token,
-      { provider: 'openai', url: model.url, model: 'local-model', key: 'sk-typed-0123456789' });
-    assert.equal(unproved.status, 403, 'the model every role runs on is changed with the owner\'s device');
 
     const unknown = await api.call('POST', '/api/control/settings/model', token,
       { preset: 'nobody', provider: 'openai', url: model.url, model: 'local-model', proof: { totp: api.code() } });
@@ -201,7 +197,7 @@ test('the owner chooses a model in the console: checked before it is saved, save
  * console -- offered to say what a model costs. The owner now says it where
  * they chose the model, with their device, and each call is priced by it.
  */
-test('the owner says what each model costs, with their device, and calls are priced by it (L12, F13.7)', async () => {
+test('the owner says what each model costs, and calls are priced by it (L12, F13.7)', async () => {
   const api = await consoleWithSettings({
     PALUGADA_MODEL_PROVIDER: 'openai', PALUGADA_MODEL_URL: 'https://api.deepseek.com/v1', PALUGADA_MODEL: 'deepseek-chat',
   });
@@ -212,8 +208,6 @@ test('the owner says what each model costs, with their device, and calls are pri
       { model: 'deepseek-chat', input: 1500, output: 7500, source: 'fallback' },
     ], 'the model the tiers name, priced at the fallback, and said to be');
 
-    const refused = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: 28, output: 42 } } });
-    assert.notEqual(refused.status, 200, 'a lower price loosens every budget, so it takes the device');
     const wrong = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: -1, output: 42 } }, proof: { totp: api.code() } });
     assert.equal(wrong.status, 400);
     assert.match(String(wrong.body.error), /non-negative number of cents per million tokens/);
@@ -427,9 +421,7 @@ test('the owner installs an agent CLI and signs it in from the console; roles ru
     assert.equal(early.status, 400);
     assert.match(String(early.body.error), /not installed where PALUGADA runs: install it first/);
 
-    const unproved = await api.call('POST', '/api/control/agents/codex/install', token, {});
-    assert.equal(unproved.status, 403, 'installing runs code on this machine, so it takes the owner\'s device');
-    const started = await api.call('POST', '/api/control/agents/codex/install', token, { proof: { totp: api.code() } });
+    const started = await api.call('POST', '/api/control/agents/codex/install', token, {});
     assert.equal(started.status, 200, JSON.stringify(started.body));
     let job = started.body.job;
     for (let waited = 0; job.state === 'running' && waited < 20_000; waited += 100) {
@@ -563,10 +555,9 @@ test('the owner signs Claude Code in with their Claude plan from the console: a 
       .find((one: { id: string }) => one.id === 'subscription').login, 'claude-setup-token');
     assert.equal((await api.call('POST', '/api/control/agents/codex/login', token, { proof: { totp: api.code() } })).status, 400,
       'a CLI with no sign-in the console can drive is signed in with a key');
-    assert.equal((await api.call('POST', '/api/control/agents/claude-code/login', token, {})).status, 403);
 
     // A code that is not the one the page showed is refused, and says so.
-    await api.call('POST', '/api/control/agents/claude-code/login', token, { proof: { totp: api.code() } });
+    await api.call('POST', '/api/control/agents/claude-code/login', token, {});
     await until(token, (job) => job.waitingForCode);
     await api.call('POST', '/api/control/agents/claude-code/login/code', token, { code: 'wrong#xyz' });
     const refused = await until(token, (job) => job.state !== 'running');

@@ -14,7 +14,7 @@ import {
   IconArrowUp, IconCheck, IconKey, IconMicrophone, IconPlayerStopFilled, IconRefresh, IconSparkles, IconVolume, IconVolumeOff, IconX,
 } from '@tabler/icons-react';
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, api, explain } from '../api.ts';
+import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { N, t } from '../i18n.ts';
 import { go } from '../router.ts';
@@ -356,9 +356,7 @@ function Line({ message, reload, speaker }: {
 /**
  * Several cards open at once, applied in the order they were written, for the
  * owner who has read them and agrees. A card that wants a key typed is left
- * for its own field; the first refusal stops the rest. A code shown for one
- * covers what builds the company for the next few minutes, so a plan of eight
- * cards is one code, not eight.
+ * for its own field; the first refusal stops the rest.
  */
 function ApplyAll({ proposals, reload }: { proposals: Proposal[]; reload: () => Promise<void> }) {
   const requireFactor = useFactor();
@@ -389,24 +387,15 @@ function ApplyAll({ proposals, reload }: { proposals: Proposal[]; reload: () => 
 type FactorAsker = ReturnType<typeof useFactor>;
 
 /**
- * One card applied: a change that takes the device asks for it first; one that
- * may take it is tried, and asked for it when the route says so. True when it
- * was applied, false when the owner backed out; a refusal is thrown.
+ * One card applied, with no code: the owner's sign-in is the second factor
+ * (STATUS 2.175). The device is asked for only when the route says it needs it
+ * of this session -- one signed in with a recovery code, or a change to the
+ * owner's own authenticators. True when it was applied, false when the owner
+ * backed out or the route refused, which `requireFactor` has said.
  */
-async function applyCard(proposal: Proposal, secrets: Record<string, string>, requireFactor: FactorAsker): Promise<boolean> {
-  const payload = { secrets };
-  if (proposal.factor === 'always') {
-    return requireFactor(proposal.summary, (proof) =>
-      api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
-  }
-  try {
-    await api('POST', `/api/assistant/proposals/${proposal.id}/apply`, payload);
-  } catch (failure) {
-    if (!(failure instanceof ApiError && failure.code === 'approval.channel_forbidden')) throw failure;
-    return requireFactor(proposal.summary, (proof) =>
-      api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
-  }
-  return true;
+function applyCard(proposal: Proposal, secrets: Record<string, string>, requireFactor: FactorAsker): Promise<boolean> {
+  return requireFactor(proposal.summary, (proof) =>
+    api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { secrets, ...(proof ? { proof } : {}) }));
 }
 
 function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<void> }) {
@@ -484,7 +473,7 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
           <Group justify="flex-end" gap="xs">
             <Button size="compact-sm" variant="subtle" color="gray" leftSection={<IconX size={14} />} onClick={() => void dismiss()} disabled={busy}>{t('Dismiss')}</Button>
             <Button size="compact-sm" leftSection={<IconCheck size={14} />} loading={busy} onClick={() => void apply()}>
-              {proposal.factor === 'always' ? t('Apply with a code') : t('Apply')}
+              {t('Apply')}
             </Button>
           </Group>
         )}

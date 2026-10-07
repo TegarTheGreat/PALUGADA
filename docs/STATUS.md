@@ -9073,6 +9073,8 @@ and the owner answers later than the hour.
 
 ## 2.143 One code opens a short window for what builds the company
 
+*Superseded by 2.175: the window and its setting are gone, because the authenticator is now asked for at sign-in only.*
+
 The owner's complaint of 6 October: "dikit dikit autentikator ... bolak balik
 hp". A second factor is single use, and every change to the structure asked
 for a fresh one, so setting up a company -- a division, its roles, its grants,
@@ -10465,12 +10467,54 @@ report are answered here; the fourth, and the one the CEO's helplessness depends
   a narrow screen. Tests: `console-onboarding.test.ts` (Chromium at 390 pixels: nothing over the first screen,
   nothing sideways, no start without a name, the CEO speaks the owner's sentence back, one company with one role,
   and the code's boxes inside their dialog; the last was seen to fail first).
-- **Not done, and why: the authenticator at sign-in only, and a CEO that acts.** Both need the same change, and it
-  is not made here because it loosens what F10.10, F12.5 and the threat model require, and that is the owner's
-  decision, not a refactor. The owner's company-building actions -- a division, a role, its tools, the structure --
-  are `factor: 'always'` cards in the assistant, and starting a company, installing a bundle, and approving a
-  tier 3 action each ask for a code inside a session (`#requireFactor` in `src/owner/api.ts`, the tier 3 proof in
-  `decide()`). Until it is decided, the CEO proposes what it would build and the owner applies it with their code.
+- **The authenticator at sign-in only, and a CEO that acts, are 2.175.** They loosen what F10.10, F12.5 and the
+  threat model required, so they were the owner's decision to make and were made there.
+
+## 2.175 The authenticator is for signing in, and the CEO builds the company (the owner's decision of 7 October)
+
+The owner's words: "buat agar autentikator saat login saja". Asked what that was to mean for a tier 3 approval, the
+owner chose the whole of it: **sign-in only, approvals of what cannot be undone included.** This is a deliberate
+deviation from F10.10 ("tier 3 approvals with MFA") and F12.5, and it is the second time the rule is loosened for
+the same reason (2.143 was the first, with a window). The threat model's item 4b says what it costs.
+
+- **A session opened with a device is the second factor for what the owner does in it (done).** Sign-in asks for the
+  authenticator's code or a passkey, as it always did. `OwnerApi.#requireFactor` now passes at once for a session
+  whose `provedAt` is set -- every one opened with a device -- so a division, a role, a grant, a goal, the spend
+  ceiling, the model and its key, a channel, a browser takeover, a company's closing, and every approval of a tier 3
+  item no longer ask for a code. The console tries the action first and shows the code dialog only when the server
+  refuses (`approval.channel_forbidden`), as it did in the window; it now refuses only in the cases below.
+- **What still takes a code, at the moment it is done (done).** Only what changes *who the owner is*, because a
+  stolen session must not be able to lock the owner out or enrol its own device: revoking an authenticator, making
+  new recovery codes, adding a passkey, and vouching for a device (`fresh` in `#requireFactor`). And a session
+  opened with a **recovery code**, which proves less than a device (`provedAt` is null): it asks for a code each
+  time until a device's code is shown in it, which then makes it a device session (`OwnerSessions.prove`).
+- **A tier 3 decision takes the signed-in session (done).** `inbox.decide()` accepts the owner's session as the
+  assurance (`OwnerAssurance` 'login') where it took a fresh code. A chat, a staff seat and a recovery-code session
+  still cannot approve one: a chat has no session, a seat is on a strict allowlist that never held tier 3, and a
+  recovery-code session is the one case above. The decision's journal says which assurance stood behind it.
+- **The window is gone (done).** `step_up_minutes`, its setting under Settings, Security, `src/owner/step-up.ts`
+  and `/api/me`'s `step_up` are removed (0128). `owner_sessions.proved_at` stays with the plainer meaning above.
+  Staff are told apart in `/api/me` as before.
+- **The CEO does what it is told, and builds (done).** The assistant's cards for building the company were
+  `factor: 'always'`, so the CEO could only ever put a card in front of the owner and wait for their device.
+  They are now `auto`: a division, a project, a goal, a role and its tools, and a grant are done in the
+  conversation and the CEO says what it did. Two cases remain a card, and the console's Apply button still works
+  for it: when the CEO has read what agents wrote in the same turn (`heard.readOthersWords`: an instruction hidden
+  in a page must not hire someone), and when the owner's session was opened with a recovery code. The CEO's prompt no
+  longer says a card takes the owner's device; in the first hour it is told to hire the role the first piece of
+  work needs, and to say so in one line.
+- **Tested.** `login-only-factor.test.ts`: a division, a role, a goal, the ceiling and a tier 3 approval with no
+  code after signing in; revoking an authenticator, new recovery codes and a passkey still refused without a code;
+  a recovery-code session asking until a device's code, and then not; a chat and a seat not approving tier 3; no
+  setting left to lengthen. `ceo-builds-team.test.ts`: the CEO opens a division and hires a role from one
+  sentence, with no card and no code; after reading agents' words the same hire is a card; in a recovery-code
+  session it is a card; and its prompt. Every earlier test that asked for a code for something that no longer
+  asks was changed to say what it now guards, and the Chromium tests at 390 pixels of the factor's dialog and
+  the sign-in page still hold.
+- **The trade-off, said plainly.** A stolen, signed-in tab can now spend, change the model, open channels and
+  approve what cannot be undone, for as long as the session lives (eight hours). It cannot lock the owner out or add
+  its own device. What the owner has against it: sign out, freeze the company, short sessions, and the audit
+  trail, which names the session behind every decision.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -164,13 +164,10 @@ test('the owner watches the work\'s page, takes the browser over with their devi
   assert.deepEqual([...jpeg.subarray(0, 3)], [0xff, 0xd8, 0xff], 'a picture of the page');
   assert.deepEqual([screen.body.width, screen.body.height], [1280, 800]);
 
-  // Nothing is typed into a browser nobody took over, and nobody takes it
-  // over without the owner's device.
+  // Nothing is typed into a browser nobody took over.
   const early = await api.call('POST', `${base}/tabs/${tab.id}/input`, owner, { kind: 'text', text: 'x' });
   assert.equal(early.status, 409, JSON.stringify(early.body));
-  const bare = await api.call('POST', `${base}/take-over`, owner, {});
-  assert.equal(bare.status, 403, JSON.stringify(bare.body));
-  const taken = await api.call('POST', `${base}/take-over`, owner, { proof: { totp: api.code() } });
+  const taken = await api.call('POST', `${base}/take-over`, owner, {});
   assert.equal(taken.status, 200, JSON.stringify(taken.body));
   assert.ok(taken.body.held.since);
 

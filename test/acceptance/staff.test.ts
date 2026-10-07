@@ -59,9 +59,6 @@ test('a viewer joins with their own authenticator, reads their company, and chan
   const api = await consoleWithSettings();
   try {
     const owner = await api.signIn();
-    const refused = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name: 'Rina', kind: 'viewer' });
-    assert.equal(refused.status, 403, 'seating someone takes the owner\'s device');
-
     const rina = await seat(api, owner, fixture, 'Rina', 'viewer');
     assert.deepEqual(rina.staff, { name: 'Rina', kind: 'viewer', companyId: fixture.companyId });
     const spent = await api.call('POST', '/api/auth/join', '', { code: rina.invite });
@@ -91,7 +88,7 @@ test('a viewer joins with their own authenticator, reads their company, and chan
 
     const me = await api.call('GET', '/api/me', rina.token);
     assert.deepEqual(me.body, { owner: false, staff: { name: 'Rina', kind: 'viewer', companyId: fixture.companyId } });
-    assert.deepEqual((await api.call('GET', '/api/me', owner)).body, { owner: true, staff: null, stepUp: { minutes: 0, until: null } });
+    assert.deepEqual((await api.call('GET', '/api/me', owner)).body, { owner: true, staff: null });
 
     // Signing in again later with the code their app shows.
     const again = await api.call('POST', '/api/auth/sign-in', '', { totp: rina.code() });
@@ -150,26 +147,28 @@ test('an approver decides tier 2 and below, never tier 3, and the record names t
   }
 });
 
-test('a staff member\'s code is never the owner\'s second factor', async () => {
+test('a staff member never approves tier 3, whatever code they hold, and the owner who signed in does', async () => {
   const fixture = await createCompany('staff-factor');
   const api = await consoleWithSettings();
   try {
     const owner = await api.signIn();
     const budi = await seat(api, owner, fixture, 'Budi', 'approver');
-    // The owner's session, with the staff member's code offered as the owner's device.
-    const posed = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner,
-      { name: 'Mallory', kind: 'approver', proof: { totp: budi.code() } });
-    assert.deepEqual([posed.status, posed.body.code], [401, 'mfa.code_invalid'], 'the owner\'s factor does not know it');
     const tier3 = await inbox.requestApproval({
       companyId: fixture.companyId, capabilityName: 'record.delete', tier: 3, title: 'record.delete: recordId cust-042',
       actionSummary: 'record.delete: recordId cust-042', rationale: 'A duplicate.', consequenceIfDenied: 'It stays.',
     });
+    const statusOf = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
+      'SELECT status FROM inbox_items WHERE id = $1', [tier3]))).rows[0]!.status;
+    // The seat's own session, with its own code: the factor is the owner's, and a seat has none to lend.
+    const byBudi = await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${tier3}/decide`, budi.token,
+      { decision: 'approve', proof: { totp: budi.code() } });
+    assert.deepEqual([byBudi.status, byBudi.body.code], [403, 'staff.forbidden']);
+    assert.equal(await statusOf(), 'open');
+    // A seat's code offered inside the owner's session is not read, and what approves is the owner's sign-in.
     const approved = await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${tier3}/decide`, owner,
       { decision: 'approve', proof: { totp: budi.code() } });
-    assert.deepEqual([approved.status, approved.body.code], [401, 'mfa.code_invalid'], 'nor does it approve tier 3 inside the owner\'s session');
-    const { rows: [still] } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
-      'SELECT status FROM inbox_items WHERE id = $1', [tier3]));
-    assert.equal(still!.status, 'open');
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    assert.equal(await statusOf(), 'decided');
   } finally {
     await api.close();
   }

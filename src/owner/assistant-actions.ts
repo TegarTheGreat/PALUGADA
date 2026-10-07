@@ -827,6 +827,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/publishers': 'trusting a publisher is a key the owner checks with the publisher',
   '/api/companies/:companyId/files': 'a file is handed over from the owner\'s own device, on Memory > Files: the model neither holds the bytes nor puts a file into the company\'s files in the owner\'s name',
   '/api/companies/:companyId/files/delete': 'what the owner uploaded is theirs to take out, on Memory > Files, where they see what it is',
+  '/api/companies/:companyId/invoices/:invoiceId/pdf': 'the page is drawn when the owner presses Download PDF on the invoice and saved on their own device: it is made for that moment, not for the model',
   '/api/companies/:companyId/devices': 'a device registers itself',
   '/api/companies/:companyId/devices/:deviceId/pair': 'pairing compares a fingerprint on the device itself, in Devices',
   '/api/companies/:companyId/devices/:deviceId/challenge': 'a device asks for its own challenge',

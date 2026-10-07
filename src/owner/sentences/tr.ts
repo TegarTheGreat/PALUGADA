@@ -332,6 +332,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Şunları geri çevirdi; bunlar kapalı kalır:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Hepsini etkinleştirmek için “Onayla”, hepsini geri çevirmek için “Reddet” seçeneğini kullanın. Tek tek karar vermek için Beceriler sayfasını açın.',
   'Nothing changes; none of these skills is switched on.': 'Hiçbir şey değişmez; bu becerilerin hiçbiri etkinleştirilmez.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Ben {ceo}; {company} şirketini sizin için yönetiyorum. Ne için olduğunu biliyorum: “{mission}” Başlamadan önce iki şey: Ayda ne kadar harcayabilir? Peki ilk işi ne olsun — yoksa gereken ekiple birlikte ben mi bir iş önereyim?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Ben {ceo}; {company} şirketini sizin için yönetiyorum. Başlamadan önce üç şey: {company} şirketi ne satıyor, kime satıyor? Ayda ne kadar harcayabilir? Peki ilk işi ne olsun — yoksa ben mi bir iş önereyim?',
   'Read a customer conversation': 'Bir müşteri konuşmasını oku',
   'Reply to a customer': 'Bir müşteriye yanıt ver',

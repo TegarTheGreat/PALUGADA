@@ -21,6 +21,7 @@
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, explain } from './api.ts';
+import { useMediaQuery } from '@mantine/hooks';
 import { Alert, Anchor, Button, Divider, Group, Modal, PinInput, Stack, Text, TextInput, ThemeIcon, getDefaultZIndex } from '@mantine/core';
 import { IconFingerprint, IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
@@ -44,6 +45,8 @@ export function useFactor(): (what: string, attempt: Attempt) => Promise<boolean
 }
 
 export function FactorProvider({ children }: { children: ReactNode }) {
+  // Six boxes of the larger size are wider than this dialog on a phone.
+  const narrow = useMediaQuery('(max-width: 26em)') ?? false;
   const [pending, setPending] = useState<Pending | null>(null);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -183,7 +186,7 @@ export function FactorProvider({ children }: { children: ReactNode }) {
             type="number"
             oneTimeCode
             autoFocus
-            size="lg"
+            size={narrow ? 'sm' : 'lg'}
             value={code}
             onChange={setCode}
             onComplete={(value) => void submit(value)}

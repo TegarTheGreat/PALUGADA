@@ -891,3 +891,12 @@ export interface Invoices {
   invoices: InvoiceRow[];
   outstanding: Array<{ currency: string; outstandingCents: number; overdueCents: number }>;
 }
+
+/** The languages of the deployment: the panel's, the agents', and the ones it can be set to. */
+export interface Languages {
+  console: string | null;
+  agents: string;
+  /** Whether the owner chose the agents' language, or it follows the panel's. */
+  agentsChosen: boolean;
+  supported: Array<{ code: string; name: string; native: string }>;
+}

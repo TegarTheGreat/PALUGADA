@@ -20,7 +20,7 @@ import { ProviderFailure } from '../../src/runtime/wire.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
+import { STANDARD_TEMPLATE_SLUG } from '../helpers/standard-team.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { answering } from '../helpers/done.ts';
 

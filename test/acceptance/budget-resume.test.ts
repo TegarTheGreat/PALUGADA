@@ -22,7 +22,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import * as budget from '../../src/engine/budget.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';

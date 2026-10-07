@@ -15,7 +15,7 @@ import { buildContext } from '../../src/context/builder.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { rollBack } from '../../src/governance/rollback.ts';
 import { PERSONAS, TITLES, personaById, renderPersona } from '../../src/domain/personas.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';

@@ -31,7 +31,7 @@ import { TIER } from '../domain/tier.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { recordVersion } from './config-versions.ts';
 import { CEO, titleFor } from './ceo.ts';
-import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/standard.ts';
+import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/work.ts';
 
 export type StructuralChange =
   | { kind: 'add_division'; slug: string; name: string; parentDivisionId?: string | null }

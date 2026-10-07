@@ -1279,7 +1279,7 @@ test('a fresh deployment starts the standard company, and can let it run itself'
 
   const deployment = await start({ secrets, port: 0, env: {}, worker: { idleMs: 50 } });
   try {
-    assert.ok(deployment.notes.some((note) => /seeded the standard company template and \d+ built-in bundles/.test(note)),
+    assert.ok(deployment.notes.some((note) => /seeded the founding company template and \d+ built-in bundles/.test(note)),
       deployment.notes.join(' | '));
     const token = await signInTo(deployment, secret);
     const code = totpCode(decodeBase32(secret), stepFor(new Date()) + 1);
@@ -3830,7 +3830,7 @@ test('the panel and the agents speak the languages the owner chose', async () =>
  * tree in one transaction -- so it takes the owner's device.
  */
 test('the owner can start a company from a template (section 5, F2)', async () => {
-  const { installStandardTemplate } = await import('../../src/templates/standard.ts');
+  const { installStandardTemplate } = await import('../helpers/standard-team.ts');
   const { saveTemplate } = await import('../../src/templates/company.ts');
   const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
   const { registerPlatformCapabilities: registerTools } =

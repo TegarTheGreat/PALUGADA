@@ -329,6 +329,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': '다음 스킬은 반려되어 꺼진 상태로 남아요:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '승인하면 모두 켜고, 거절하면 모두 반려해요. 하나씩 결정하려면 \'스킬\' 페이지를 여세요.',
   'Nothing changes; none of these skills is switched on.': '아무것도 바뀌지 않아요. 이 스킬은 하나도 켜지지 않아요.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "저는 {ceo}(이)에요. 제가 {company}을(를) 맡아 운영할게요. 무엇을 위한 곳인지는 알고 있어요: “{mission}” 시작하기 전에 두 가지만 여쭤볼게요. 한 달에 얼마까지 쓸 수 있나요? 그리고 첫 번째 일은 무엇으로 할까요? 아니면 필요한 팀까지 포함해서 제가 하나 제안할까요?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '저는 {ceo}(이)에요. 제가 {company}을(를) 맡아 운영할게요. 시작하기 전에 세 가지만 여쭤볼게요. {company}은(는) 무엇을 누구에게 파나요? 한 달에 얼마까지 쓸 수 있나요? 그리고 첫 번째 일은 무엇으로 할까요? 아니면 제가 하나 제안할까요?',
   'Read a customer conversation': '고객 대화 읽기',
   'Reply to a customer': '고객에게 답장하기',

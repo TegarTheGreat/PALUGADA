@@ -1,5 +1,9 @@
 /**
- * The standard company (PRD F1.1, F2.5, F16.3, goal G7, open question 14.2).
+ * The standard company, kept as a test fixture (the product no longer ships it:
+ * a company starts with its CEO, `src/templates/founding.ts`). It is a rich team
+ * to try the platform's machinery against.
+ *
+ * (PRD F1.1, F2.5, F16.3, goal G7, open question 14.2).
  *
  * Section 14.2 asked which line of business the first company would be in,
  * because that would fix the initial capabilities, the tier calibration and
@@ -49,65 +53,13 @@
  * outage cannot stop the platform, so binding a vendor name into a stored
  * template would pre-empt both.
  */
-import { saveTemplate, type CompanyTemplate } from './company.ts';
-import { VERDICT_OUTPUT } from '../review/verdict.ts';
+import { saveTemplate, type CompanyTemplate } from '../../src/templates/company.ts';
+import { VERDICT_OUTPUT } from '../../src/review/verdict.ts';
+import { WORK_INPUT, WORK_OUTPUT, PLATFORM_TOOLS } from '../../src/templates/work.ts';
+
+export { WORK_INPUT, WORK_OUTPUT, PLATFORM_TOOLS };
 
 export const STANDARD_TEMPLATE_SLUG = 'standard-company';
-
-/** The shape of a task handed to any role in this template. */
-export const WORK_INPUT = {
-  type: 'object',
-  additionalProperties: true,
-  required: ['goal'],
-  properties: {
-    goal: { type: 'string', minLength: 1 },
-    context: { type: 'string' },
-  },
-} as const;
-
-/**
- * The shape every role returns.
- *
- * `summary` is required because a run that produces no account of itself
- * cannot be reviewed, digested or distilled -- and those three are most of
- * what makes the company improve.
- */
-export const WORK_OUTPUT = {
-  type: 'object',
-  additionalProperties: true,
-  required: ['summary'],
-  properties: {
-    summary: { type: 'string', minLength: 1 },
-    // What the work taught that the company should remember (0071); kept
-    // for the role's division as unverified lessons.
-    learned: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 500 } },
-  },
-} as const;
-
-/**
- * The two capabilities almost every role holds.
- *
- * They are not a convenience. F4.8 caps the context pack and tells the run to
- * use `memory.search` for whatever did not fit; F15.7 puts a skill's summary in
- * the pack and tells it to use `skill.read` for the document. A company whose
- * roles are not granted them is one where every run is instructed to call
- * something it will be refused for — which is what the first real boot of this
- * platform found, and which no test had caught because no test followed the
- * instruction.
- *
- * Both are tier 0 reads of the company's own store, scoped to the asking
- * division by the same rules the pack uses, so granting them widens nothing.
- *
- * `plan.record` and `metric.record` join them. The first was missing, and
- * with it every tier 2 grant in this template was one its holder could never
- * use: F8.11 refuses a tier 2 action on a task with no plan, and the only way
- * a run records one is this capability. The second is how a run says where a
- * key result stands (0053). Both write only to the company's own records,
- * which is why they are tier 0. The third, `owner.ask`, is how a run that
- * needs the owner asks rather than guesses; it opens an item and parks the
- * task, and nothing leaves the company.
- */
-export const PLATFORM_TOOLS = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask'] as const;
 
 /**
  * The two divisions that do not get them, and why.

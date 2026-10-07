@@ -95,6 +95,7 @@ import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
+import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
@@ -885,8 +886,20 @@ export class OwnerApi {
           // left them unset and the deployment's agent language was English.
           const workLanguage = body.workLanguage === undefined ? undefined : languageCode(body.workLanguage, 'workLanguage');
           const talkLanguage = body.talkLanguage === undefined ? undefined : languageCode(body.talkLanguage, 'talkLanguage');
+          // What the company is for, in the owner's own words: checked here,
+          // before the factor is spent, like the rest. Blank is no mission and
+          // leaves the default.
+          if (body.mission !== undefined && body.mission !== null && typeof body.mission !== 'string') {
+            throw new PalugadaError('contract.violation', 'mission is what the company is for, in a sentence or two', { field: 'mission' });
+          }
+          const mission = typeof body.mission === 'string' ? body.mission.trim() : '';
+          if (mission.length > MISSION_MAX) {
+            throw new PalugadaError('contract.violation', `the mission is at most ${MISSION_MAX} characters`, { field: 'mission' });
+          }
           await this.#requireFactor(body.proof, 'start a company', null, WITHIN_THE_WINDOW);
-          const templateSlug = requireText(body.templateSlug, 'templateSlug');
+          // A company starts with its CEO and builds the team as it needs it
+          // (founding.ts); a template is named only by an operator who has stored one.
+          const templateSlug = body.templateSlug === undefined ? FOUNDING_TEMPLATE_SLUG : requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
           // arriving as a plain `Error` the caller reads as a broken console.
           if (!(await readTemplate(templateSlug))) {
@@ -898,6 +911,10 @@ export class OwnerApi {
           const owners = panel && isLanguageCode(panel) ? panel : null;
           const work = workLanguage ?? owners;
           const talk = talkLanguage ?? owners;
+          // Whether the owner's sentence became the mission: a template that
+          // states its own mission has no place for it, and the CEO must not
+          // then say it knows what the company is for.
+          const taken: { mission: string | null } = { mission: null };
           const created = await createCompanyFromTemplate({
             templateSlug,
             companySlug: requireText(body.companySlug, 'companySlug'),
@@ -906,8 +923,13 @@ export class OwnerApi {
               ? {}
               : { timezone: requireText(body.timezone, 'timezone') }),
             // Its mission and objectives are what the owner reads first, so
-            // they are said in the language the company talks in.
-            words: (statement) => say(talk, statement),
+            // they are said in the language the company talks in -- or are the
+            // owner's own words, when they gave them for the mission.
+            words: (statement) => {
+              if (!mission || statement !== DEFAULT_MISSION) return say(talk, statement);
+              taken.mission = mission;
+              return mission;
+            },
           });
           if (work || talk) await setCompanyLanguages(created.companyId, { work, talk });
           // One factor covers the company and what it starts with: installing
@@ -916,8 +938,8 @@ export class OwnerApi {
             await installBundle({ companyId: created.companyId, slug: bundle.slug, version: bundle.version });
           }
           // Its first hour (first-hour.ts): the CEO asks what it needs to
-          // know before the owner has said anything.
-          await ceoOpensConversation(created.companyId);
+          // know before the owner has said anything more than what it is for.
+          await ceoOpensConversation(created.companyId, taken.mission);
           return {
             companyId: created.companyId,
             divisions: Object.keys(created.divisionIds),
@@ -7091,6 +7113,9 @@ function priorityOf(value: unknown): number {
  * outsiders in, and every tier 3 decision.
  */
 const WITHIN_THE_WINDOW = Symbol('within the window');
+
+/** The longest mission: the sentence or two the owner reads first, and the CEO is told first. */
+const MISSION_MAX = 2_000;
 
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';

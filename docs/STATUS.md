@@ -10429,6 +10429,49 @@ not a thing the platform knew. It is built in four steps, each one a commit with
   halt for a person who has gone says `policy_denied` in the owner's language, not that someone has left (the
   sentence is in the detail, in English).
 
+## 2.174 A company starts with its CEO, and starting one is a name and a sentence (the owner's report of 7 October)
+
+The owner's words: the onboarding was still ugly, "not like Paperclip"; why is there a built-in team template when
+the CEO can arrange everything; and the CEO is still an ornament who can do nothing. Three of the four parts of that
+report are answered here; the fourth, and the one the CEO's helplessness depends on, is not, and is said below.
+
+- **A company starts with one division, one role and one goal (done).** `src/templates/founding.ts` is the template a
+  company starts from now: a `management` division, the CEO (`coordinator`, with the twelve tools a role may hold:
+  the platform's own, `task.delegate`, `task.await`, `task.follow_up`, `ticket.create`, `ticket.list`,
+  `schedule.propose` and `doc.draft`), a mission, one project and a budget, and nothing the owner did not ask for.
+  `src/templates/standard.ts`, seven divisions and eight roles, is deleted; what every role of every team is built
+  from (the input and output schemas, the platform's tools) moved to `src/templates/work.ts`, and the old team is
+  kept as a test fixture (`test/helpers/standard-team.ts`) so the tests of the machinery that need a full company
+  still have one. `POST /api/companies` names no template unless an operator stored one (`templateSlug` is
+  optional and defaults to the founding company); `seed` stores the founding template and no other.
+  The CEO's prompt says what to do when there is no role for the work: do it as far as its own tools reach, and
+  file a ticket that begins "Hire:" so the owner sees what is missing from work that was really asked for.
+  *Not done:* a CEO that cannot yet *hire* that role without the owner's device (below); the old template's
+  comments in `src/main.ts`, `src/capabilities/` and `scripts/smoke.ts` still say "the standard template" where
+  they describe what a capability is granted to in the fixture.
+- **What the company is for is the owner's own sentence (done).** `POST /api/companies` takes `mission` (a sentence
+  or two, at most 2000 characters; blank is none). It replaces the default mission, in the owner's words and not
+  translated, in the goal and in the company's charter, and the CEO's first message (`firstHourOpener`) says it
+  back and asks the two things it cannot know -- the monthly ceiling and the first piece of work -- and offers to
+  suggest one with the team it would take; without a mission it asks the three questions it asked before. A
+  template that states its own mission leaves no place for the sentence, and the CEO does not then claim to have
+  read it. The sentence is twenty languages' worth (`src/owner/sentences/`). Tests: `founding-company.test.ts`.
+- **The first screen is one short form, not a tour over an empty page (done).** `console/src/pages/Onboarding.tsx`:
+  a name, what it is for, "More options" (short name, work and talk language), and a button. When the deployment
+  has no model yet, a second step is the model's own form, so the CEO is not started mute. Starting it opens the
+  CEO's chat. The eight-step tour no longer opens by itself; the menu carries a "new" badge and the tour is one
+  press away. The Overview's empty state and the tour's last stop now describe a company that starts with its CEO.
+  The six boxes of the authenticator dialog, which on a phone ran past their dialog on both sides, are smaller on
+  a narrow screen. Tests: `console-onboarding.test.ts` (Chromium at 390 pixels: nothing over the first screen,
+  nothing sideways, no start without a name, the CEO speaks the owner's sentence back, one company with one role,
+  and the code's boxes inside their dialog; the last was seen to fail first).
+- **Not done, and why: the authenticator at sign-in only, and a CEO that acts.** Both need the same change, and it
+  is not made here because it loosens what F10.10, F12.5 and the threat model require, and that is the owner's
+  decision, not a refactor. The owner's company-building actions -- a division, a role, its tools, the structure --
+  are `factor: 'always'` cards in the assistant, and starting a company, installing a bundle, and approving a
+  tier 3 action each ask for a code inside a session (`#requireFactor` in `src/owner/api.ts`, the tier 3 proof in
+  `decide()`). Until it is decided, the CEO proposes what it would build and the owner applies it with their code.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

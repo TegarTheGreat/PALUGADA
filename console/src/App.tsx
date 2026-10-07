@@ -13,7 +13,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
-  NavLink, Paper, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
+  NavLink, Paper, ScrollArea, SimpleGrid, Stack, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useDirection, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -29,10 +29,11 @@ import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
-import type { Company, SearchHit, SetupReport, Staff, Structure } from './types.ts';
+import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
+import { Onboarding } from './pages/Onboarding.tsx';
 // A company's pages and the deployment's settings, each fetched when it is
 // first opened. The sign-in page and Home are the only ones every visit
 // needs; the charts alone -- drawn on Overview and Money -- were 130 KB
@@ -136,14 +137,6 @@ export interface PageProps {
   route: Extract<Route, { kind: 'company' }>;
 }
 
-export interface Languages {
-  console: string | null;
-  agents: string;
-  /** Whether the owner chose the agents' language, or it follows the panel's. */
-  agentsChosen: boolean;
-  supported: Array<{ code: string; name: string; native: string }>;
-}
-
 /**
  * The panel's language is the deployment's, kept by the owner API. Chosen
  * here, it is saved there first and drawn second, so the next sign-in -- on
@@ -183,6 +176,8 @@ function Console({ device, staff, recovered, signOut }: {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [checklist, setChecklist] = useState(false);
   const [touring, setTouring] = useState(false);
+  // Whether the tour has never been taken or skipped, which the menu says.
+  const [tourNew, setTourNew] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
   const spotted = (name: TourSpot) => (spot === name ? ' tour-spot' : '');
 
@@ -200,18 +195,20 @@ function Console({ device, staff, recovered, signOut }: {
     return { companies, stopAll: control.stopAll, setup, languages, money };
   }, [], { every: 30_000 });
 
-  // The tour, once: asked for at sign-in rather than every thirty seconds,
-  // and opened by itself only while the deployment says it was never
-  // finished or skipped.
+  // The tour is the owner's to take, not laid over the first thing they see:
+  // it used to open by itself, eight steps over an empty page, before there was
+  // a company for any of them to point at. Asked for once at sign-in, so the
+  // menu can say it has never been taken.
   useEffect(() => {
     if (!owner) return;
     void api('GET', '/api/control/tour').then(
-      (tour: { finishedAt: string | null }) => { if (tour.finishedAt === null) setTouring(true); },
+      (tour: { finishedAt: string | null }) => setTourNew(tour.finishedAt === null),
       () => undefined,
     );
   }, []);
   const finishTour = useCallback(() => {
     setTouring(false);
+    setTourNew(false);
     void api('POST', '/api/control/tour', { finished: true }).catch(() => undefined);
   }, []);
 
@@ -343,7 +340,7 @@ function Console({ device, staff, recovered, signOut }: {
       onClick: () => open('inbox', { companyId: one.id }),
     })),
     { id: 'give-work', label: t('Give a role something to do'), description: t('Wakes the role now'), leftSection: <IconPlus size={18} />, onClick: () => setGiving(true) },
-    { id: 'start-company', label: t('Start a company'), description: t('From the standard template'), leftSection: <IconBuildingStore size={18} />, onClick: () => setStarting(true) },
+    { id: 'start-company', label: t('Start a company'), description: t('Starts with a CEO, who builds the team'), leftSection: <IconBuildingStore size={18} />, onClick: () => setStarting(true) },
     { id: 'deployment', label: t('Model'), description: t('This deployment'), leftSection: <IconServer2 size={18} />, onClick: () => go({ kind: 'deployment', section: 'model' }) },
     { id: 'languages', label: t('Languages'), description: t('The panel, and what your agents write in'), leftSection: <IconLanguage size={18} />, onClick: () => open('settings', { section: 'language' }) },
     { id: 'stop', label: stopAll ? t('Resume everything') : t('Stop everything'), description: t('Every company'), leftSection: <IconPlayerStop size={18} />, onClick: () => void toggleStop() },
@@ -430,6 +427,48 @@ function Console({ device, staff, recovered, signOut }: {
       </ScrollArea.Autosize>
     </>
   );
+
+  // A deployment with no company: not a shell of pages with nothing in them,
+  // but the one thing to do (Onboarding.tsx). The deployment's own page is
+  // still one press away, for an owner who came to set the model or a channel.
+  if (owner && base.data && companies.length === 0 && route.kind !== 'deployment') {
+    return (
+      <Box mih="100vh">
+        <Group justify="space-between" px="lg" py="md" wrap="nowrap">
+          <img
+            className="brand-lockup"
+            src={colorScheme === 'dark' ? '/brand/palugada-lockup-on-dark.svg' : '/brand/palugada-lockup.svg'}
+            alt="PALUGADA"
+            height={26}
+          />
+          <Menu position="bottom-end" width={240} shadow="md">
+            <Menu.Target>
+              <ActionIcon variant="subtle" color="gray" size="lg" aria-label={t('Menu')}><IconDots size={18} /></ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {languageMenu}
+              <Menu.Divider />
+              <Menu.Item leftSection={<IconServer2 size={16} />} onClick={() => go({ kind: 'deployment', section: 'model' })}>{t('This deployment')}</Menu.Item>
+              <Menu.Item leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />} onClick={toggleColorScheme}>
+                {colorScheme === 'dark' ? t('Light theme') : t('Dark theme')}
+              </Menu.Item>
+              <Menu.Item leftSection={<IconLogout size={16} />} onClick={() => void signOut()}>{t('Sign out')}</Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        </Group>
+        <Box px="md" py={{ base: 'md', sm: 48 }}>
+          <Onboarding
+            languages={base.data.languages}
+            setup={base.data.setup}
+            reloadSetup={base.reload}
+            restore={() => setRestoring(true)}
+            started={(id) => { base.reload(); open('overview', { companyId: id }); setGreeting(id); }}
+          />
+        </Box>
+        <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+      </Box>
+    );
+  }
 
   return (
     <AppShell
@@ -584,7 +623,12 @@ function Console({ device, staff, recovered, signOut }: {
               <Menu.Item leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />} onClick={toggleColorScheme}>
                 {colorScheme === 'dark' ? t('Light theme') : t('Dark theme')}
               </Menu.Item>
-              {owner && <Menu.Item leftSection={<IconMap size={16} />} onClick={() => setTouring(true)}>{t('Take the tour')}</Menu.Item>}
+              {owner && (
+                <Menu.Item leftSection={<IconMap size={16} />} onClick={() => setTouring(true)}
+                  rightSection={tourNew ? <Badge size="xs" variant="light">{t('New')}</Badge> : null}>
+                  {t('Take the tour')}
+                </Menu.Item>
+              )}
               {owner && <Menu.Item color="red" leftSection={<IconAlertOctagon size={16} />} onClick={() => setCancelling(true)}>{t('Cancel every task…')}</Menu.Item>}
               <Menu.Divider />
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={() => void signOut()}>{t('Sign out')}</Menu.Item>
@@ -674,7 +718,7 @@ function Console({ device, staff, recovered, signOut }: {
         </Stack>
       </Drawer>
 
-      <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null}
+      <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null} setup={setup} reloadSetup={base.reload}
         started={(id) => { base.reload(); open('overview', { companyId: id }); setGreeting(id); }} />
       <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
@@ -899,114 +943,19 @@ function RestoreCompany({ opened, close, restored }: { opened: boolean; close: (
 }
 
 /**
- * A company is asked its languages as it starts (N7). Left alone, it took the
- * deployment's default, which is English until the owner finds Settings: an
- * owner who wrote to the panel in Indonesian got a company whose agents
- * answered in English. Both start in the language the panel is in now.
+ * One more company: the same screen the first one starts from
+ * (pages/Onboarding.tsx), in a dialog. A company is asked its languages as it
+ * starts (N7); left alone, it took the deployment's default, which is English
+ * until the owner finds Settings.
  */
-/** The time zone the owner's browser is in, or null where it does not say. */
-function ownTimeZone(): string | null {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
-  } catch {
-    return null;
-  }
-}
-
-function StartCompany({ opened, close, started, languages }: {
+function StartCompany({ opened, close, started, languages, setup, reloadSetup }: {
   opened: boolean; close: () => void; started: (id: string) => void; languages: Languages | null;
+  setup: SetupReport; reloadSetup: () => void;
 }) {
-  const requireFactor = useFactor();
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [runsItself, setRunsItself] = useState(true);
-  // Null until chosen: the panel's language, which the owner may change while
-  // the form is open.
-  const [work, setWork] = useState<string | null>(null);
-  const [talk, setTalk] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const supported = (languages?.supported ?? []).map((one) => ({
-    value: one.code, label: one.native === one.name ? one.name : `${one.native} · ${one.name}`,
-  }));
-  const panel = supported.some((one) => one.value === language()) ? language() : null;
-  const workLanguage = work ?? panel;
-  const talkLanguage = talk ?? panel;
-
-  const submit = async () => {
-    setError(null);
-    let created: { companyId?: string } = {};
-    try {
-      const done = await requireFactor(t('Start {company}', { company: name }), async (proof) => {
-        created = await api('POST', '/api/companies', {
-          templateSlug: 'standard-company', companySlug: slug, name, proof,
-          // Its schedules run on the owner's clock, not UTC (the weekly
-          // review at 07:45 on Monday is the owner's Monday morning).
-          ...(ownTimeZone() ? { timezone: ownTimeZone() } : {}),
-          ...(workLanguage ? { workLanguage } : {}),
-          ...(talkLanguage ? { talkLanguage } : {}),
-          // company-os: a strategist, a weekly review and the operating skills.
-          ...(runsItself ? { bundles: ['company-os'] } : {}),
-        });
-      });
-      if (!done) return;
-      notifications.show({ color: 'teal', message: t('{company} is running.', { company: name }) });
-      close();
-      setName('');
-      setSlug('');
-      setWork(null);
-      setTalk(null);
-      if (created.companyId) started(created.companyId);
-    } catch (failure) {
-      setError(explain(failure));
-    }
-  };
-
   return (
-    <Modal opened={opened} onClose={close} title={t('Start a company')} centered>
-      <Stack>
-        <Text size="sm" c="dimmed">
-          {t('Built from the standard template: operations, delivery, growth, finance, support, assurance and a lab, with a role in each. The coordinator routes work you give without naming a role. A capability that needs an outside account waits until you bind one.')}
-        </Text>
-        <TextInput label={t('Name')} placeholder={t('e.g. Kopi Nusantara')} value={name} onChange={(e) => {
-          const value = e.currentTarget.value;
-          setName(value);
-          setSlug(value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
-        }} required />
-        <TextInput label={t('Short name')} description={t('Used in links and exports')} value={slug} onChange={(e) => setSlug(e.currentTarget.value)} required />
-        {supported.length > 0 && (
-          <>
-            <Select
-              label={t('Work language')}
-              description={t('What it produces: documents, emails, content for customers, code comments.')}
-              data={supported}
-              value={workLanguage}
-              onChange={setWork}
-              searchable
-              allowDeselect={false}
-            />
-            <Select
-              label={t('Talk language')}
-              description={t('What its agents write to you and to each other: approvals, questions, reports, handoffs.')}
-              data={supported}
-              value={talkLanguage}
-              onChange={setTalk}
-              searchable
-              allowDeselect={false}
-            />
-          </>
-        )}
-        <Switch
-          checked={runsItself}
-          onChange={(e) => setRunsItself(e.currentTarget.checked)}
-          label={t('Let it run itself')}
-          description={t('Adds a strategist who reviews the week every Monday and proposes what to do next. Nothing it proposes happens without you.')}
-        />
-        {error && <Text c="red" size="sm">{error}</Text>}
-        <Group justify="flex-end">
-          <Button variant="default" onClick={close}>{t('Cancel')}</Button>
-          <Button disabled={!name || !slug} onClick={() => void submit()}>{t('Start it')}</Button>
-        </Group>
-      </Stack>
+    <Modal opened={opened} onClose={close} title={t('Start a company')} centered size="lg">
+      <Onboarding languages={languages} setup={setup} reloadSetup={reloadSetup} cancel={close}
+        started={(id) => { close(); started(id); }} />
     </Modal>
   );
 }

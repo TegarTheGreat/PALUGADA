@@ -25,9 +25,8 @@ import { BUILT_IN_BUNDLES } from './bundles/builtin.ts';
 import { publishBundle, type Bundle, type SignedBundle } from './bundles/bundle.ts';
 import { importFromDisk } from './governance/charter-files.ts';
 import { ensureDefaultCharters } from './governance/default-charters.ts';
-import { saveTemplate } from './templates/company.ts';
 import { withControlPlane } from './db/tenant.ts';
-import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from './templates/standard.ts';
+import { FOUNDING_TEMPLATE_SLUG, installFoundingTemplate } from './templates/founding.ts';
 
 export interface SeedOptions {
   /**
@@ -110,12 +109,7 @@ export async function seed(options: SeedOptions = {}): Promise<SeedReport> {
     });
   }
 
-  await saveTemplate({
-    slug: STANDARD_TEMPLATE_SLUG,
-    name: 'Standard company',
-    description: 'Function-based divisions that fit any line of business (PRD section 14.2).',
-    body: STANDARD_COMPANY_TEMPLATE,
-  });
+  await installFoundingTemplate();
 
   const charters = options.charterRoot
     ? await importFromDisk({ root: options.charterRoot })
@@ -124,5 +118,5 @@ export async function seed(options: SeedOptions = {}): Promise<SeedReport> {
   // gets the default one, and a scope with one keeps it.
   charters.push(...await ensureDefaultCharters());
 
-  return { bundles, charters, template: STANDARD_TEMPLATE_SLUG };
+  return { bundles, charters, template: FOUNDING_TEMPLATE_SLUG };
 }

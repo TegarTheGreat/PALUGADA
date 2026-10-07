@@ -32,7 +32,7 @@ import { isPalugadaError } from '../../src/errors.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { codeCompute, computeFrom } from '../../src/capabilities/compute.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';

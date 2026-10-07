@@ -23,7 +23,7 @@ import {
   STANDARD_COMPANY_TEMPLATE,
   STANDARD_TEMPLATE_SLUG,
   installStandardTemplate,
-} from '../../src/templates/standard.ts';
+} from '../helpers/standard-team.ts';
 import { registerStandardCatalogue, stubCapability } from '../helpers/catalogue-stubs.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';

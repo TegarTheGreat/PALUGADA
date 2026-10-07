@@ -20,7 +20,7 @@ import { handEscalations } from '../../src/inbox/inbox.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { installStandardTemplate, STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
+import { installStandardTemplate, STANDARD_TEMPLATE_SLUG } from '../helpers/standard-team.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { Engine } from '../../src/engine/engine.ts';

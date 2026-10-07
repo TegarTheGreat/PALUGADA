@@ -334,6 +334,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'ทักษะเหล่านี้ถูกตีกลับ และจะยังปิดอยู่:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'อนุมัติเพื่อเปิดใช้ทั้งหมด หรือปฏิเสธเพื่อตีกลับทั้งหมด หากต้องการตัดสินใจทีละรายการ ให้เปิดหน้าทักษะ',
   'Nothing changes; none of these skills is switched on.': 'ไม่มีอะไรเปลี่ยน ไม่มีทักษะใดในนี้ถูกเปิดใช้',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "ฉันคือ {ceo} ผู้ดูแล {company} ให้คุณ ฉันรู้แล้วว่า {company} มีไว้เพื่ออะไร “{mission}” ก่อนเริ่มงาน มี 2 เรื่องที่อยากถาม ใช้จ่ายได้เดือนละเท่าไร และงานชิ้นแรกควรเป็นอะไร หรือจะให้ฉันเสนอสักงานพร้อมทีมที่ต้องใช้ไหม",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'ฉันคือ {ceo} ผู้ดูแล {company} ให้คุณ ก่อนเริ่มงาน มี 3 เรื่องที่อยากถาม {company} ขายอะไร และขายให้ใคร ใช้จ่ายได้เดือนละเท่าไร และงานชิ้นแรกควรเป็นอะไร หรือจะให้ฉันเสนอสักงานไหม',
   'Read a customer conversation': 'อ่านบทสนทนากับลูกค้า',
   'Reply to a customer': 'ตอบกลับลูกค้า',

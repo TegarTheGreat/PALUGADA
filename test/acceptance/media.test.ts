@@ -24,7 +24,7 @@ import {
 } from '../../src/capabilities/media.ts';
 import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { STANDARD_CATALOGUE } from '../../src/broker/catalogue.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 

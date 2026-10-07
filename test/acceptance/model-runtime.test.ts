@@ -27,7 +27,7 @@ import { cancelTask, rerunTask } from '../../src/engine/owner-control.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from '../helpers/standard-team.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { answering, reportOn } from '../helpers/done.ts';

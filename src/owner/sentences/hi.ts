@@ -331,6 +331,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'इन्हें उसने ठुकरा दिया, और ये बंद रहेंगी:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'सभी को चालू करने के लिए स्वीकृत करें, या सभी को ठुकराने के लिए अस्वीकार करें। एक-एक करके तय करने के लिए स्किल पेज खोलें।',
   'Nothing changes; none of these skills is switched on.': 'कुछ नहीं बदलेगा; इनमें से कोई भी स्किल चालू नहीं होगी।',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "मैं {ceo} हूँ, और आपके लिए {company} को चलाने का ज़िम्मा मेरा है। मुझे पता है कि यह किसलिए है: “{mission}” शुरू करने से पहले दो बातें: एक महीने में यह कितना खर्च कर सकती है? और इसका पहला काम क्या हो — या मैं ही कोई काम सुझाऊँ, उसके लिए ज़रूरी टीम के साथ?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'मैं {ceo} हूँ, और आपके लिए {company} को चलाने का ज़िम्मा मेरा है। शुरू करने से पहले तीन बातें: {company} क्या बेचती है, और किसे? एक महीने में यह कितना खर्च कर सकती है? और इसका पहला काम क्या हो — या मैं ही कोई काम सुझाऊँ?',
   'Read a customer conversation': 'ग्राहक की बातचीत पढ़ें',
   'Reply to a customer': 'ग्राहक को जवाब दें',

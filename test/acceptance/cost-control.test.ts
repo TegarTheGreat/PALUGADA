@@ -22,7 +22,7 @@ import * as budget from '../../src/engine/budget.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
 import { limitFor } from '../../src/governance/spend-guard.ts';
-import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../../src/templates/standard.ts';
+import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../helpers/standard-team.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';

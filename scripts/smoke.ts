@@ -33,7 +33,7 @@ import {
   saveTemplate,
   type CompanyTemplate,
 } from '../src/templates/company.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../src/templates/standard.ts';
+import { FOUNDING_TEMPLATE } from '../src/templates/founding.ts';
 import { createRootTask, getTask } from '../src/engine/tasks.ts';
 import { withTenant } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
@@ -126,7 +126,7 @@ const SMOKE_TEMPLATE_SLUG = 'smoke-company';
  */
 function unboundStandardGrants(registry: CapabilityRegistry): string[] {
   const wanted = [...new Set(
-    (STANDARD_COMPANY_TEMPLATE.grants ?? []).map((grant) => grant.capability),
+    (FOUNDING_TEMPLATE.grants ?? []).map((grant) => grant.capability),
   )];
   return wanted.filter((name) => registry.get(name) === undefined);
 }

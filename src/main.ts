@@ -946,14 +946,14 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   }
 
   // What a fresh database needs before the owner can start a company: the
-  // standard template and the built-in bundles. `src/seed.ts` said it ran on
+  // founding template and the built-in bundles. `src/seed.ts` said it ran on
   // every deploy and only the smoke script called it, so on a fresh install
   // the console's "Start a company" answered "no company template named
   // standard-company". Idempotent, and it leaves a bundle an operator already
   // published -- perhaps signed -- as it is.
   const seeded = await seed({ keepPublished: true });
   notes.push(
-    `seeded the standard company template and ${seeded.bundles.length} built-in bundles`
+    `seeded the founding company template and ${seeded.bundles.length} built-in bundles`
     + (seeded.bundles.length === 0 ? ' (all were already published)' : ''),
   );
   // Said once, on the boot that did it: the operator should know the

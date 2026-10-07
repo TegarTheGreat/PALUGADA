@@ -39,7 +39,7 @@ import { languageName } from '../../src/domain/language.ts';
 import { changeMetric, defineMetric, recordObservation } from '../../src/domain/metrics.ts';
 import { pauseRole, unfreezeRole } from '../../src/governance/role-freeze.ts';
 import { clearSpendPause } from '../../src/governance/spend-guard.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { wellFormed } from '../../src/text.ts';
 import { Worker } from '../../src/worker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';

@@ -104,6 +104,8 @@ const UNREACHABLE: Record<string, string> = {
     + 'names the ones it has in PALUGADA_AGENT_CLIS',
   runSandboxed: 'worker: F12.9 the local sandbox exists, and no capability wraps it: '
     + '`code.execute` is catalogued and unbound (the audit of 6 October, O2)',
+  SANDBOX_GUARANTEES: 'helper: what the sandbox does and does not isolate, asserted directly; '
+    + 'a comment in the standard template named it, and a company no longer starts from that template',
 
   // F9: the scheduler.
   coalescedCount: 'helper: how many wakes merged, asserted directly',
@@ -114,8 +116,7 @@ const UNREACHABLE: Record<string, string> = {
   // F15: skills.
   renderSkillDocument: 'helper: the document form, asserted directly',
 
-  // Entry points and templates.
-  installStandardTemplate: 'entry: a deployment builds its first company with it',
+  // Entry points.
   runWorker: 'entry: the worker as a process, for a deployment that wants one',
 };
 

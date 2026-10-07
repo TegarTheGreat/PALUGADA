@@ -39,6 +39,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
+| `src/templates/` | what a company starts from: `founding.ts`, the CEO and nothing else; `work.ts`, what every role is built from. A team is the CEO's to build, and `test/helpers/standard-team.ts` is the full company the tests that need one use |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem and a role's picture |

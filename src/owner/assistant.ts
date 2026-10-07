@@ -392,7 +392,7 @@ async function speakerFor(companyId: string): Promise<Speaker> {
  * the owner opens is already one. Where the platform has no sentences of its
  * own in that language, the panel's. Nothing when the company has no CEO.
  */
-export async function ceoOpensConversation(companyId: string): Promise<void> {
+export async function ceoOpensConversation(companyId: string, mission: string | null = null): Promise<void> {
   let speaker: Speaker;
   try {
     speaker = await speakerFor(companyId);
@@ -401,7 +401,7 @@ export async function ceoOpensConversation(companyId: string): Promise<void> {
     throw failure;
   }
   await record('assistant', firstHourOpener(await ceoSaysIn(companyId), {
-    ceo: speaker.displayName ?? speaker.title ?? speaker.slug, company: speaker.company,
+    ceo: speaker.displayName ?? speaker.title ?? speaker.slug, company: speaker.company, mission,
   }), 'console', companyId);
 }
 

@@ -91,10 +91,11 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 ## Everything that is built
 
 **Companies and structure**
-- Start a company from a template, with no deploy. The standard template is
-  organised by function (Operations, Delivery and Build, Growth, Finance,
-  Support, Assurance, Lab) and has eight roles, so it fits any line of
-  business.
+- Start a company with no deploy: a name, and what it is for in your own
+  words. It begins with its CEO and nothing else (one division, one role,
+  one goal); the CEO builds the team as the work needs it, so the structure
+  fits the line of business rather than a guess at it. An operator can store
+  a template of their own and start companies from it by name.
 - The organisation moves on its own. The coordinator is where work arrives
   when the owner names no role, and it hands the work to the role whose job
   it is; the planner hands a finished plan to the builder. Both delegate as

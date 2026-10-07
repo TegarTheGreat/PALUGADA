@@ -328,6 +328,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Tinanggihan nito ang mga ito, at mananatili silang naka-off:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'I-approve para i-on silang lahat, o Tanggihan para tanggihan silang lahat. Para magpasya nang isa-isa, buksan ang pahina ng Mga kasanayan.',
   'Nothing changes; none of these skills is switched on.': 'Walang magbabago; walang i-o-on sa alinman sa mga kasanayang ito.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Ako si {ceo}, at ako ang nagpapatakbo ng {company} para sa iyo. Alam ko na kung para saan ito: “{mission}” Dalawang bagay bago tayo magsimula: magkano ang puwede nitong gastusin sa isang buwan? At ano ang dapat na una nitong trabaho — o ako na ang magmumungkahi, kasama ang team na kakailanganin?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Ako si {ceo}, at ako ang nagpapatakbo ng {company} para sa iyo. Tatlong bagay bago tayo magsimula: ano ang ibinebenta ng {company}, at kanino? Magkano ang puwede nitong gastusin sa isang buwan? At ano ang dapat na una nitong trabaho — o ako na ang magmumungkahi?',
   'Read a customer conversation': 'Basahin ang usapan ng customer',
   'Reply to a customer': 'Sumagot sa customer',

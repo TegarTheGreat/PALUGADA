@@ -297,6 +297,14 @@ The first version. What it holds, in the order an owner meets it.
   have seated and its work is put to them as a question, and their answer
   is what it produced. If they leave, the work stops and you are told; it is
   never given to an agent unasked (STATUS 2.173).
+- A company starts with its CEO and nothing else: no division, role or goal
+  you did not ask for. The first screen is a name and what the company is
+  for, in your own words, and the CEO's first message says that sentence
+  back, asks only what it cannot know, and offers to suggest the first piece
+  of work and the team it would take. The built-in team template is gone;
+  an operator who stores a template of their own can still start a company
+  from it by name. Six boxes of the authenticator's code no longer spill out
+  of their dialog on a phone (STATUS 2.174).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

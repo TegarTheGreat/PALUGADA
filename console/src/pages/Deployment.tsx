@@ -198,7 +198,8 @@ function ErasureList() {
   );
 }
 
-function ModelSettings() {
+/** The model every role runs on: chosen here, and by the first run (Onboarding.tsx) when there is none. */
+export function ModelSettings() {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;

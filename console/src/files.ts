@@ -9,6 +9,17 @@
  */
 import { api } from './api.ts';
 
+/** A file the person chose, as the API takes it: its name and its bytes in base64, read here and kept nowhere. */
+export async function readForUpload(file: File): Promise<{ name: string; data: string }> {
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('the file could not be read'));
+    reader.readAsDataURL(file);
+  });
+  return { name: file.name, data };
+}
+
 export async function saveCompanyFile(companyId: string, path: string): Promise<void> {
   const file = await api('GET', `/api/companies/${companyId}/files/download?path=${encodeURIComponent(path)}`) as { name: string; data: string };
   const raw = atob(file.data);

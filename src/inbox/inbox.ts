@@ -32,6 +32,7 @@ import {
   askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard, skillCard, skillsCard,
 } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
+import type { AnswerFile } from '../chats/attachments.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
 interface StageChange {
@@ -772,7 +773,7 @@ export const QUESTIONS_PER_TASK = 3;
 export const QUESTION_ESCALATES_AFTER_HOURS = 24;
 
 export type AgentQuestion =
-  | { state: 'answered'; inboxItemId: string; answer: string }
+  | { state: 'answered'; inboxItemId: string; answer: string; files: AnswerFile[] }
   | { state: 'waiting'; inboxItemId: string }
   | { state: 'unanswered'; inboxItemId: string };
 
@@ -853,9 +854,9 @@ export async function askOwner(input: {
       throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: input.taskId });
     }
     const { rows: asked } = await tx.query<{
-      id: string; status: string; decision: string | null; owner_note: string | null; question: string;
+      id: string; status: string; decision: string | null; owner_note: string | null; question: string; answer_files: AnswerFile[];
     }>(
-      `SELECT id, status, decision, owner_note, payload->>'question' AS question FROM inbox_items
+      `SELECT id, status, decision, owner_note, payload->>'question' AS question, answer_files FROM inbox_items
         WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
         ORDER BY created_at`,
       [input.taskId],
@@ -873,7 +874,7 @@ export async function askOwner(input: {
         return { state: 'waiting', inboxItemId: same.id };
       }
       if (same.status === 'decided' && same.decision === 'approve') {
-        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '' };
+        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '', files: same.answer_files };
       }
       return { state: 'unanswered', inboxItemId: same.id };
     }
@@ -934,15 +935,39 @@ export async function askOwner(input: {
 export async function answersFor(
   tx: TenantClient,
   taskId: string,
-): Promise<Array<{ question: string; answer: string }>> {
-  const { rows } = await tx.query<{ question: string; answer: string | null }>(
-    `SELECT payload->>'question' AS question, owner_note AS answer FROM inbox_items
+): Promise<Array<{ question: string; answer: string; files: AnswerFile[]; by: string | null }>> {
+  const { rows } = await tx.query<{ question: string; answer: string | null; files: AnswerFile[]; by: string | null }>(
+    `SELECT payload->>'question' AS question, owner_note AS answer, answer_files AS files,
+            -- Who answered, when it was not the owner: the person it was put to (only they can answer it), or staff ('').
+            CASE WHEN decided_by_seat IS NULL THEN NULL ELSE coalesce(payload->'addressee'->>'name', '') END AS by
+       FROM inbox_items
       WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
         AND status = 'decided' AND decision = 'approve'
       ORDER BY created_at`,
     [taskId],
   );
-  return rows.map((row) => ({ question: row.question, answer: row.answer ?? '' }));
+  return rows.map((row) => ({ question: row.question, answer: row.answer ?? '', files: row.files, by: row.by }));
+}
+
+/**
+ * Who answered, as a run is told: the owner, the person the question was put
+ * to, or staff when it was put to no one in particular. `start` capitalises
+ * the owner and staff for the head of a sentence; a name is never changed.
+ */
+export function answererSaid(by: string | null, start = true): string {
+  if (by === null) return start ? 'The owner' : 'the owner';
+  if (by === '') return start ? 'A member of staff' : 'a member of staff';
+  return by;
+}
+
+/**
+ * What a run is told of the files an answer carried: where each is, by the
+ * path this platform made, and that `files.read` shows what it says. The name
+ * the person gave it is theirs, so it is not in the sentence; the console shows it.
+ */
+export function answerFilesSaid(files: readonly AnswerFile[]): string {
+  if (files.length === 0) return '';
+  return `\n\nFiles that came with the answer, kept in the company's files (files.read shows what each says): ${files.map((one) => one.path).join(', ')}`;
 }
 
 /**
@@ -1650,6 +1675,8 @@ export interface DecideOptions {
    * written on the item and its record.
    */
   seat?: { id: string; name: string } | null;
+  /** The files an answer to a run's question carried, already kept (`keepAnswerFiles`): recorded with the answer in the same step. */
+  answerFiles?: AnswerFile[];
 }
 
 /** The longest the owner may allow a capability for without being asked: a week. */
@@ -1931,10 +1958,11 @@ export async function decide(
               owner_note = $3,
               decided_via = $4,
               decided_by_seat = $5,
+              answer_files = $6::jsonb,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
         WHERE id = $1 AND status = 'open' AND (expires_at IS NULL OR expires_at > now())
         RETURNING task_id, kind, payload`,
-      [itemId, decision, note, channel, options.seat?.id ?? null],
+      [itemId, decision, note, channel, options.seat?.id ?? null, JSON.stringify(options.answerFiles ?? [])],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -2409,18 +2437,34 @@ export async function answerEscalation(
   companyId: string,
   itemId: string,
   answer: string,
-  options: { channel?: DecisionChannel; seat?: { id: string; name: string } | null } = {},
+  options: {
+    channel?: DecisionChannel;
+    seat?: { id: string; name: string } | null;
+    /**
+     * Keeps the files that come with the answer, and says where they are. Called
+     * once the answerer's right to answer is settled and the question is open,
+     * so a refused or late answer writes nothing; it throws to refuse the answer.
+     * Only the answer to a question a run asked can carry files.
+     */
+    keepFiles?: () => Promise<AnswerFile[]>;
+  } = {},
 ): Promise<void> {
   const text = String(answer ?? '').trim();
   if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
-  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null }>(
-    "SELECT payload->>'askedBy' = 'agent' AS question, tier FROM inbox_items WHERE id = $1", [itemId]));
+  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null; open: boolean }>(
+    "SELECT payload->>'askedBy' = 'agent' AS question, tier, status = 'open' AS open FROM inbox_items WHERE id = $1", [itemId]));
   // A seat answers nothing at tier 3 (0110), as it decides nothing there.
   if (options.seat && (asked[0]?.tier ?? 0) >= 3) {
     throw new PalugadaError('staff.forbidden', 'tier 3 is the owner\'s to answer: it stays in their inbox', { inboxItemId: itemId });
   }
+  if (options.keepFiles && !asked[0]?.question) {
+    throw new PalugadaError('contract.violation', 'files can come with the answer to a question a run asked, not with this', { field: 'files' });
+  }
   if (asked[0]?.question) {
-    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null });
+    // Before anything is written: another person's question is not this seat's to answer with files either.
+    if (options.seat) await assertSeatMayRead(companyId, itemId, options.seat);
+    const files = options.keepFiles && asked[0].open ? await options.keepFiles() : [];
+    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null, answerFiles: files });
     return;
   }
   await withTenant(companyId, async (tx) => {

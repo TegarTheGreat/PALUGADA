@@ -25,7 +25,7 @@ import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
-import { QUESTION_ESCALATES_AFTER_HOURS, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { QUESTION_ESCALATES_AFTER_HOURS, answerFilesSaid, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
@@ -688,6 +688,8 @@ export interface OwnerAskInput {
 export interface OwnerAskResult {
   answered: boolean;
   answer?: string;
+  /** What came with the answer, kept in the company's files: read it with files.read. */
+  files?: Array<{ kind: string; name: string | null; path: string }>;
   /** Said when there is no answer to give. */
   note?: string;
 }
@@ -858,7 +860,14 @@ export function ownerAskCapability(
         ...(key ? { key } : {}),
         ...(person ? { addressee: { ...person, escalateAfterHours: QUESTION_ESCALATES_AFTER_HOURS } } : {}),
       });
-      if (asked.state === 'answered') return { answered: true, answer: asked.answer };
+      if (asked.state === 'answered') {
+        if (asked.files.length === 0) return { answered: true, answer: asked.answer };
+        return {
+          answered: true,
+          answer: asked.answer + answerFilesSaid(asked.files),
+          files: asked.files.map((one) => ({ kind: one.kind, name: one.name, path: one.path })),
+        };
+      }
       if (asked.state === 'unanswered') {
         return {
           answered: false,

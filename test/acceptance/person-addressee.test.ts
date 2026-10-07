@@ -150,7 +150,7 @@ test('a question for a seat is that seat\'s and the owner\'s: another seat neith
     const { rows: [event] } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string }>(
       "SELECT actor FROM events WHERE type = 'owner.decided' AND payload->>'inboxItemId' = $1 LIMIT 1", [itemId]));
     assert.equal(event?.actor, 'staff');
-    assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, taskId)), [{ question: 'Berapa harga gula?', answer: '14.000 per kilo' }]);
+    assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, taskId)), [{ question: 'Berapa harga gula?', answer: '14.000 per kilo', files: [], by: 'Budi' }]);
 
     // The owner can answer one that is another seat's.
     const second = await runningTask(fixture, 'Cek harga susu');

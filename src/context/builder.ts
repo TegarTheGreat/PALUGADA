@@ -15,7 +15,7 @@ import type { TenantClient } from '../db/tenant.ts';
 import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
-import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
+import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
@@ -974,7 +974,8 @@ export async function buildContext(
       sections.push({
         kind: 'owner_note',
         title: 'The owner answered your question',
-        body: `You asked: ${answered.question}\nThe owner answered: ${answered.answer || '(no words, only a yes: go ahead)'}\n\nWork from this answer.`,
+        body: `You asked: ${answered.question}\n${answererSaid(answered.by)} answered: ${answered.answer || '(no words, only a yes: go ahead)'}`
+          + `${answerFilesSaid(answered.files)}\n\nWork from this answer.`,
       });
     }
 
@@ -987,7 +988,7 @@ export async function buildContext(
     const heard: string[] = [];
     for (const attempt of [...earlier].reverse()) {
       for (const answered of await answersFor(tx, attempt)) {
-        heard.push(`- Asked "${answered.question}", the owner answered: ${answered.answer || '(no words, only a yes: go ahead)'}`);
+        heard.push(`- Asked "${answered.question}", ${answererSaid(answered.by, false)} answered: ${answered.answer || '(no words, only a yes: go ahead)'}${answerFilesSaid(answered.files)}`);
       }
       for (const instruction of await instructionsFor(tx, attempt)) {
         if (instruction.text) heard.push(`- The owner said: ${instruction.text}`);

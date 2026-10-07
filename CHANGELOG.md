@@ -290,7 +290,10 @@ The first version. What it holds, in the order an owner meets it.
   answer it. The card says who it is for, and a seat's inbox has a "For me"
   list. You are not pinged about a question that is for someone else until
   it has gone a day unanswered; then you are told once, and it can be
-  answered by them or by you (STATUS 2.173).
+  answered by them or by you. An answer can carry up to five files (an
+  invoice, a price list, a photo): they are kept in the company's files, a
+  program is not, and the role that asked is told where each one is and who
+  answered (STATUS 2.173).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

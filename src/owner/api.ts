@@ -120,6 +120,7 @@ import {
   addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
 } from '../records/contacts.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
+import { base64Bytes, keepAnswerFiles } from '../chats/attachments.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
@@ -4745,9 +4746,19 @@ export class OwnerApi {
         // A run's own question is decided by its answer (B6).
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
+        // An answer may carry up to five files ({ name, data }, the file in
+        // base64): kept under received/answers, and the run is told where.
+        maxBodyBytes: 24 * 1024 * 1024,
         handle: async ({ params, body, staff }) => {
-          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''),
-            { channel: 'app', seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null });
+          // Kept once the answerer's right to answer is settled (answerEscalation
+          // calls it), and every file looked at before any is written: a file
+          // that is refused refuses the answer and leaves nothing behind.
+          const carried = Array.isArray(body.files) && body.files.length > 0;
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''), {
+            channel: 'app',
+            seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
+            ...(carried ? { keepFiles: () => keepAnswerFiles(this.#filesRoot(), params.companyId!, params.itemId!, body.files) } : {}),
+          });
           return { ok: true };
         },
       },
@@ -7048,22 +7059,6 @@ function pictureFrom(body: Record<string, unknown>): Picture {
   const mime = pictureKind(bytes);
   if (!mime) throw new PalugadaError('contract.violation', 'that is not a picture: a PNG, JPEG, WebP or GIF is', { field: 'image' });
   return { bytes, mime };
-}
-
-/**
- * The bytes of a file the console sent: base64, or a `data:` URL as a page
- * reads one. Checked before it is decoded, because `Buffer.from` takes what it
- * can read of a base64 string and drops the rest without saying so.
- */
-function base64Bytes(value: unknown): Buffer {
-  const text = typeof value === 'string' ? value.replace(/^data:[^,]*;base64,/, '') : '';
-  if (typeof value !== 'string' || (value.startsWith('data:') && text === value)) {
-    throw new PalugadaError('contract.violation', 'data is the file, in base64', { field: 'data' });
-  }
-  if (text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) {
-    throw new PalugadaError('contract.violation', 'data is the file, in base64', { field: 'data' });
-  }
-  return Buffer.from(text, 'base64');
 }
 
 /** A priority from a request: 0 (first) to 3 (last), the range F5.10 and a ticket both keep. */

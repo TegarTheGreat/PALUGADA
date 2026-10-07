@@ -212,3 +212,78 @@ export async function keepReceivedFile(input: {
   await handle.close();
   return { kept: { kind: sniffed.kind, path, bytes: input.bytes.length, sha256 } };
 }
+
+/**
+ * The bytes of a file the console sent: base64, or a `data:` URL as a page
+ * reads one. Checked before it is decoded, because `Buffer.from` takes what it
+ * can read of a base64 string and drops the rest without saying so.
+ */
+export function base64Bytes(value: unknown): Buffer {
+  const text = typeof value === 'string' ? value.replace(/^data:[^,]*;base64,/, '') : '';
+  if (typeof value !== 'string' || (value.startsWith('data:') && text === value)) {
+    throw new PalugadaError('contract.violation', 'data is the file, in base64', { field: 'data' });
+  }
+  if (text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) {
+    throw new PalugadaError('contract.violation', 'data is the file, in base64', { field: 'data' });
+  }
+  return Buffer.from(text, 'base64');
+}
+
+/** One file an answer carried, as the item records it and the run that asked is told. */
+export interface AnswerFile {
+  kind: string;
+  /** What the person called it, made plain and short: theirs, so data. */
+  name: string | null;
+  path: string;
+  bytes: number;
+}
+
+/** The folder a person's answers are kept under, beside what customers sent. */
+export const ANSWER_CHANNEL = 'answers';
+
+/**
+ * The files an answer carries, kept where the run that asked can read them.
+ *
+ * A person is not a stranger, but what they attach is read later like any
+ * outside content, so it is kept the way a customer's attachment is: named
+ * here and not by them, its kind told by its bytes, and a program or an
+ * archive not kept at all. All of them are looked at before any is written,
+ * so a file that is refused refuses the answer and leaves nothing behind: the
+ * person is told which one and why, and answers again.
+ */
+export async function keepAnswerFiles(root: string, companyId: string, itemId: string, files: unknown): Promise<AnswerFile[]> {
+  if (files === undefined || files === null) return [];
+  if (!Array.isArray(files)) {
+    throw new PalugadaError('contract.violation', 'files is a list of { name, data }, the file in base64', { field: 'files' });
+  }
+  if (files.length > RECEIVED_PER_MESSAGE) {
+    throw new PalugadaError('contract.violation', `an answer carries at most ${RECEIVED_PER_MESSAGE} files; this one has ${files.length}`, { field: 'files' });
+  }
+  const looked = files.map((one: unknown) => {
+    const given = one as { name?: unknown; data?: unknown } | null;
+    const claimed = typeof given?.name === 'string' && given.name.trim() ? given.name : null;
+    if (!claimed) throw new PalugadaError('contract.violation', 'each file needs a name, as { name, data }', { field: 'files' });
+    const shown = displayName(claimed) ?? 'a file';
+    const bytes = base64Bytes(given?.data);
+    if (bytes.length === 0) throw new PalugadaError('contract.violation', `${shown} is empty`, { field: 'files' });
+    if (bytes.length > RECEIVED_FILE_MAX) {
+      throw new PalugadaError('contract.violation', `${shown} is over ${RECEIVED_FILE_MAX / 1_048_576} MB, which is as much as one file may be`, { field: 'files' });
+    }
+    const sniffed = sniffReceived(bytes, claimed);
+    if ('refused' in sniffed) throw new PalugadaError('contract.violation', `${shown} was not kept: ${sniffed.refused}`, { field: 'files' });
+    return { claimed, shown, bytes };
+  });
+  if (looked.reduce((sum, one) => sum + one.bytes.length, 0) > RECEIVED_MESSAGE_MAX) {
+    throw new PalugadaError('contract.violation', `the files of an answer are at most ${RECEIVED_MESSAGE_MAX / 1_048_576} MB together`, { field: 'files' });
+  }
+  const at = new Date();
+  const kept: AnswerFile[] = [];
+  for (const [index, one] of looked.entries()) {
+    const result = await keepReceivedFile({
+      root, companyId, channel: ANSWER_CHANNEL, at, messageId: itemId, position: index + 1, bytes: one.bytes, claimedName: one.claimed,
+    });
+    if ('note' in result) throw new PalugadaError('contract.violation', `${one.shown} was not kept: ${result.note}`, { field: 'files' });
+    kept.push({ kind: result.kept.kind, name: displayName(one.claimed), path: result.kept.path, bytes: result.kept.bytes });
+  }
+  return kept;
+}

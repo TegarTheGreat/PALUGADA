@@ -10392,6 +10392,23 @@ not a thing the platform knew. It is built in four steps, each one a commit with
   *Not done:* the day is a constant, not a setting; a seat that is revoked while a question waits is not
   looked for (the day passes and the owner is told, which is the same outcome a day later); the message the
   owner receives is the question's own, without saying it was first put to someone else.
+- **b. An answer carries files (done).** `POST .../inbox/:id/answer` takes `files: [{ name, data }]` (the file
+  in base64, at most five, 10 MB each and 15 MB together; migration 0126's `answer_files`). They are kept under
+  `received/answers/<month>/<item>-<n>.<ext>` by `keepAnswerFiles`, which is `keepReceivedFile` as a customer's
+  attachment is kept: the path and the extension are made here from what the bytes are, a program, an archive,
+  a macro document or an unrecognised kind is not kept, and the name the person gave is shown plain and short.
+  Every file is looked at before any is written, so a refused file refuses the answer and leaves nothing
+  behind; the files are kept only once the answerer's right to answer is settled (an approver answering
+  another seat's question writes nothing), only for the answer to a question a run asked (an escalation about
+  live work refuses them), and the file and the decision are recorded in one step. The run that asked is
+  given the answer and the paths (`owner.ask` returns `files` and says them in the answer; the context says
+  them in "The owner answered your question", and says *who* answered -- "Budi answered:" when a seat did --
+  because a person's word is not the owner's). The console's question card has "Attach a file". Tests:
+  `person-answer-file.test.ts`; eight mutations, one of which (files on a non-question) survived the first test
+  and made it name one.
+  *Not done:* what a seat attaches is not counted against the received-files quota that customers' files are
+  held to (a seat is staff, and an answer carries at most 15 MB); the card of a decided question does not yet
+  list the files it carried; the owner's assistant cannot attach one.
 
 ## 3. Decisions, deviations, and what is unverified
 

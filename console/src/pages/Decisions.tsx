@@ -21,15 +21,17 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, NumberInput, Paper,
-  ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
+  ActionIcon, Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, FileButton, Grid, Group, Kbd, Menu, Modal, NumberInput,
+  Paper, ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconRepeat, IconRoute, IconTarget, IconWorldWww, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconPaperclip, IconRepeat, IconRoute,
+  IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
+import { readForUpload } from '../files.ts';
 import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
@@ -43,6 +45,10 @@ import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = 'all' | 'approval' | 'incident' | 'escalation' | 'mine';
+
+/** What an answer may carry: the server holds the same limits and has the last word. */
+const ANSWER_FILES_MAX = 5;
+const ANSWER_FILE_MAX_MB = 10;
 
 const KIND_COLOR: Record<string, string> = {
   approval: 'var(--mantine-color-orange-6)',
@@ -522,6 +528,27 @@ function Detail({
   const [trace, setTrace] = useState<Trace | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [answer, setAnswer] = useState('');
+  // Files that go with the answer to a run's question: read when chosen, sent with the answer, kept nowhere here.
+  const [attached, setAttached] = useState<Array<{ name: string; data: string }>>([]);
+  const attach = async (chosen: File[]) => {
+    const room = ANSWER_FILES_MAX - attached.length;
+    if (chosen.length > room) {
+      setError(t('At most five files can come with an answer.'));
+      return;
+    }
+    const tooBig = chosen.find((file) => file.size > ANSWER_FILE_MAX_MB * 1_048_576);
+    if (tooBig) {
+      setError(t('That file is {size} MB; at most {max} MB can be uploaded.', { size: (tooBig.size / 1_048_576).toFixed(1), max: ANSWER_FILE_MAX_MB }));
+      return;
+    }
+    setError(null);
+    try {
+      const read = await Promise.all(chosen.map((file) => readForUpload(file)));
+      setAttached((current) => [...current, ...read]);
+    } catch (failure) {
+      setError(explain(failure));
+    }
+  };
 
   const send = (decision: string, proof?: Proof, allowForHours?: number, forSchedule?: boolean) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
@@ -580,7 +607,13 @@ function Detail({
       // tier to decide whether one is needed -- `decide` decides, and asking it
       // is how the console stays out of the business of implementing F10.10.
       try {
-        await send(decision);
+        // An answer with files goes by the answer route, which keeps them; a
+        // question answered in words is decided as it always was.
+        if (decision === 'approve' && item.question && attached.length > 0) {
+          await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer: note, files: attached });
+        } else {
+          await send(decision);
+        }
       } catch (failure) {
         if (failure instanceof ApiError && failure.code === 'approval.channel_forbidden') {
           const done = await requireFactor(item.title, (proof) => send(decision, proof));
@@ -817,6 +850,26 @@ function Detail({
               value={note}
               onChange={(event) => setNote(event.currentTarget.value)}
             />
+            {decides && (
+              <Stack gap={6} mt="sm" align="flex-start">
+                {attached.map((file, index) => (
+                  <Group key={`${file.name}:${index}`} gap={6} wrap="nowrap">
+                    <IconPaperclip size={14} />
+                    <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{file.name}</Text>
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('Remove {name}', { name: file.name })}
+                      onClick={() => setAttached((current) => current.filter((_, at) => at !== index))}>
+                      <IconX size={14} />
+                    </ActionIcon>
+                  </Group>
+                ))}
+                {attached.length < ANSWER_FILES_MAX && (
+                  <FileButton multiple onChange={(chosen) => void attach(chosen)}>
+                    {(props) => <Button {...props} size="xs" variant="light" leftSection={<IconPaperclip size={14} />}>{t('Attach a file')}</Button>}
+                  </FileButton>
+                )}
+                <Text size="xs" c="dimmed">{t("Kept in the company's files; the role that asked is told where each one is.")}</Text>
+              </Stack>
+            )}
           </Paper>
         ) : (
           <Textarea

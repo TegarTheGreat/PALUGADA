@@ -195,6 +195,22 @@ refer to `docs/PRD.md`.
    in plain words that the model misses goes out; each reply on its own is
    marked in the conversation with what it answered from, and the owner
    turns the channel off with their session.
+5d2. A reminder about an overdue invoice may go without the owner in work that
+   read content from outside (0130, `invoice.remind`'s `clearsOutside`),
+   because nothing in it is from outside. The capability takes the invoice and
+   no other field (a closed schema); the address is the invoice's, the figures
+   are the books', the words are the platform's in two languages, and the
+   customer's name, the one thing a stranger could have typed, is cut to one
+   line with every control and direction character dropped. It goes only when
+   the books say it is due -- overdue, still owed, not set aside by the owner,
+   its next step reached, a week since the last -- and each step is written
+   once under a lock on the invoice. What an injection can still do is make a
+   reminder go that was due anyway, to the address an invoice already named;
+   it cannot change who, what or when. An invoice issued to an address a
+   stranger chose is the invoice's problem (`invoice.issue` is tier 2), not
+   this letter's. A duty (src/duties) runs under a role's grants and the
+   broker's rules, with no model; only the platform can make its task (a key
+   no agent can derive).
 5e. A customer's first message files them under a record (0118): the one the
    owner keeps with that mail address, or with that number -- every digit
    when it was written with its country code, and otherwise only the

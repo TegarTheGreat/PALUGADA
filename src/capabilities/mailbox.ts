@@ -50,7 +50,7 @@ import { mimeOf, plainFileName, readCompanyFile } from './files.ts';
 import { recipientDomainOf } from './vendors.ts';
 
 /** The division's key both capabilities sign in with. */
-const MAILBOX_ALIAS = 'mailbox';
+export const MAILBOX_ALIAS = 'mailbox';
 
 /** The most messages one listing returns, and how many when none is asked for. */
 const LIST_MAX = 20;
@@ -72,7 +72,7 @@ const ATTACHMENTS_BYTES = 10 * 1024 * 1024;
 const SENDABLE = new Set(['uploads', 'drafts', 'generated', 'computed', 'invoices']);
 
 /** An address as SMTP takes one: no name, no list, no space, ASCII. */
-const ADDRESS = "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$";
+export const ADDRESS = "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$";
 /** Text with no control character, so none can end a line of the protocol early. */
 const ONE_LINE = '^[^\\u0000-\\u001f\\u007f]+$';
 
@@ -151,7 +151,7 @@ async function checkAccount(account: MailboxAccount, options: MailOptions, sides
 }
 
 /** A preflight (F8.12): a mailbox not given yet is not a failure, one that will not open is. */
-function preflightFor(name: string, options: MailOptions, sides: { imap: boolean; smtp: boolean }): NonNullable<Capability['preflight']> {
+export function preflightFor(name: string, options: MailOptions, sides: { imap: boolean; smtp: boolean }): NonNullable<Capability['preflight']> {
   return async (ctx) => {
     if (!ctx.credential) return { ok: false, detail: 'no secret manager to read the mailbox key with' };
     let value: string;
@@ -173,7 +173,7 @@ function preflightFor(name: string, options: MailOptions, sides: { imap: boolean
   };
 }
 
-function credentialForm(options: MailOptions): NonNullable<Capability['credentialForm']> {
+export function credentialForm(options: MailOptions): NonNullable<Capability['credentialForm']> {
   return {
     kind: 'mailbox',
     parse: (value) => sealedFrom(accountFrom(value)),
@@ -405,6 +405,40 @@ function letterOf(input: EmailSendInput): { to: string[]; cc: string[]; subject:
   return { to, cc, subject, text, inReplyTo, attachments: attachmentPaths(input.attachments) };
 }
 
+/**
+ * Puts one letter into the division's mailbox's outgoing server: the sending
+ * half of `email.send`, for a capability that writes its own letters
+ * (`invoice.remind`). From the mailbox's address, named for the company, in plain
+ * text; its Message-ID is made from the call's idempotency key, so a call made
+ * again after a crash is the same message to a mail client.
+ */
+export async function deliver(
+  options: MailOptions,
+  ctx: CapabilityContext,
+  letter: { to: string[]; cc: string[]; subject: string; text: string; inReplyTo: string | null; files: Attachment[] },
+): Promise<{ messageId: string; queued: string }> {
+  const account = await accountOf(ctx);
+  const { rows: [company] } = await withTenant(ctx.companyId, (tx) => tx.query<{ name: string }>(
+    'SELECT name FROM companies WHERE id = $1', [ctx.companyId]));
+  const domain = account.address.split('@')[1]!;
+  const key = createHash('sha256').update(`${ctx.companyId}/${ctx.taskId}/${ctx.idempotencyKey}`).digest('hex').slice(0, 32);
+  const composed = composeMail({
+    from: account.address, fromName: company?.name ?? null, to: letter.to, cc: letter.cc,
+    subject: letter.subject, text: letter.text, inReplyTo: letter.inReplyTo, messageId: `<${key}@${domain}>`, attachments: letter.files,
+  });
+  let queued: string | null;
+  try {
+    queued = await smtpSession(
+      { host: account.smtpHost, port: account.smtpPort, username: account.username, password: account.password, ...options },
+      { from: account.address, to: [...letter.to, ...letter.cc], raw: composed.raw },
+    );
+  } catch (failure) {
+    if (failure instanceof MailRefused) throw wrong(`the mail server refused the letter: ${failure.message}`, 'to');
+    throw failureSaid(failure, account, 'SMTP', false);
+  }
+  return { messageId: composed.messageId, queued: queued ?? '' };
+}
+
 function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOutput> {
   const address = { type: 'string', maxLength: 254, pattern: ADDRESS };
   return {
@@ -461,27 +495,9 @@ function emailSend(options: MailOptions): Capability<EmailSendInput, EmailSendOu
     preflight: preflightFor('email.send', options, { imap: false, smtp: true }),
     async execute(input, ctx) {
       const letter = letterOf(input);
-      const account = await accountOf(ctx);
       const carried = await filesOf(letter.attachments, ctx, options);
-      const { rows: [company] } = await withTenant(ctx.companyId, (tx) => tx.query<{ name: string }>(
-        'SELECT name FROM companies WHERE id = $1', [ctx.companyId]));
-      const domain = account.address.split('@')[1]!;
-      const key = createHash('sha256').update(`${ctx.companyId}/${ctx.taskId}/${ctx.idempotencyKey}`).digest('hex').slice(0, 32);
-      const composed = composeMail({
-        from: account.address, fromName: company?.name ?? null, to: letter.to, cc: letter.cc,
-        subject: letter.subject, text: letter.text, inReplyTo: letter.inReplyTo, messageId: `<${key}@${domain}>`, attachments: carried.files,
-      });
-      let queued: string | null;
-      try {
-        queued = await smtpSession(
-          { host: account.smtpHost, port: account.smtpPort, username: account.username, password: account.password, ...options },
-          { from: account.address, to: [...letter.to, ...letter.cc], raw: composed.raw },
-        );
-      } catch (failure) {
-        if (failure instanceof MailRefused) throw wrong(`the mail server refused the letter: ${failure.message}`, 'to');
-        throw failureSaid(failure, account, 'SMTP', false);
-      }
-      return { messageId: composed.messageId, to: letter.to, cc: letter.cc, subject: letter.subject, queued: queued ?? '', attachments: carried.kept };
+      const sent = await deliver(options, ctx, { ...letter, files: carried.files });
+      return { messageId: sent.messageId, to: letter.to, cc: letter.cc, subject: letter.subject, queued: sent.queued, attachments: carried.kept };
     },
     // SMTP's one read-back: the server took this letter, for these people.
     async verify(input, result) {

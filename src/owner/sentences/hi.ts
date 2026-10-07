@@ -372,4 +372,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "आपकी प्रतीक्षा में: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'यह एक दिन में तीसरी बार है, इसलिए यह अपने आप आगे नहीं बढ़ेगी।',
+  'Invoice {number} needs you: {customer} has not paid':
+    'चालान {number} को आपकी ज़रूरत है: {customer} ने भुगतान नहीं किया',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'आख़िरी अनुस्मारक के बाद भी {customer} पर चालान {number} का {amount} बाकी है, देय तिथि {due}। प्लेटफ़ॉर्म ने उन्हें लिखना बंद कर दिया है। आगे का फ़ैसला आपका है: फ़ोन करना, अंतिम सूचना, या छोड़ देना।',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'चालान {number} ({amount}, {customer}) {due} से बकाया है, और कोई अनुस्मारक कभी नहीं भेजा गया, इसलिए प्लेटफ़ॉर्म ने इतनी देर से तैयार पत्र नहीं भेजा। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'चालान {number} ({amount}, {customer}) {due} से बकाया है, और अनुस्मारक भेजने के लिए कोई ईमेल पता नहीं है। ग्राहक में जोड़ें, या खुद पीछा करें।',
+  'Nobody is set to remind customers about overdue invoices':
+    'बकाया चालानों के बारे में ग्राहकों को याद दिलाने के लिए कोई तय नहीं है',
+  'Reminded the customers of: {invoices}.':
+    'ग्राहकों को याद दिलाया गया: {invoices}।',
+  'No reminder was due.':
+    'कोई अनुस्मारक देय नहीं था।',
+  'Remind a customer about an invoice':
+    'चालान के बारे में ग्राहक को याद दिलाएँ',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'कुछ चालान देय तिथि पार कर चुके हैं, और कोई भूमिका अनुस्मारक नहीं भेज सकती। बहीखाते, चालान में स्वचालित अनुस्मारक चालू करें: कंपनी उन्हें आपके तय दिनों पर भेजेगी।',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'बकाया चालानों के अनुस्मारक भेजने के लिए एक मेलबॉक्स चाहिए। इस विभाग का मेलबॉक्स दें।',
+  'Remind the customers whose invoices are overdue':
+    'जिन ग्राहकों के चालान बकाया हैं उन्हें याद दिलाना',
+  'each customer whose next reminder is due has been written to once':
+    'जिन ग्राहकों का अगला अनुस्मारक देय है, सभी को एक-एक बार पत्र लिखा गया है',
 };

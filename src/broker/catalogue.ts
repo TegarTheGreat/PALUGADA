@@ -634,6 +634,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'invoice.remind',
+    adapter: 'accounting',
+    tier: TIER.COSTLY,
+    summary: 'Reminds a customer, by a letter the books write, that an invoice is overdue.',
+    calibration:
+      'A letter cannot be called back, which is what makes it tier 2 like any ' +
+      'other. But nothing in it is the caller\'s: the customer, the figures, ' +
+      'the days and the words are the books\' and the platform\'s, so a caller ' +
+      'persuaded by content from outside cannot make it say anything.',
+    needsCredential: true,
+  },
+  {
     name: 'ads.campaign.start',
     adapter: 'ads',
     tier: TIER.COSTLY,

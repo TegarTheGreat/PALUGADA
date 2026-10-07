@@ -372,4 +372,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Wacht op jou: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Dit is de derde keer op één dag, dus ze gaat niet vanzelf verder.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Factuur {number} heeft u nodig: {customer} heeft niet betaald',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} is na de laatste herinnering nog {amount} verschuldigd op factuur {number}, vervallen op {due}. Het platform schrijft hen niet meer. Wat nu komt, is aan u: een telefoontje, een laatste aanmaning of het laten gaan.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en er is nooit een herinnering gestuurd, dus het platform stuurde zo laat geen standaardbrief. Volg haar zelf op, of zeg de CEO wat u wilt.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en er is geen e-mailadres om een herinnering naartoe te sturen. Voeg er een toe bij de klant, of volg haar zelf op.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Niemand is aangewezen om klanten aan verlopen facturen te herinneren',
+  'Reminded the customers of: {invoices}.':
+    'Klanten herinnerd aan: {invoices}.',
+  'No reminder was due.':
+    'Er was geen herinnering verschuldigd.',
+  'Remind a customer about an invoice':
+    'Een klant aan een factuur herinneren',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Enkele facturen zijn over hun vervaldatum, en geen rol kan de herinneringen sturen. Zet de automatische herinneringen aan onder Boekhouding, Facturen: het bedrijf stuurt ze dan op de dagen die u instelt.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Herinneringen voor verlopen facturen hebben een mailbox nodig om vanuit te verzenden. Geef deze afdeling haar mailbox.',
+  'Remind the customers whose invoices are overdue':
+    'Klanten met verlopen facturen herinneren',
+  'each customer whose next reminder is due has been written to once':
+    'elke klant wiens volgende herinnering is verschuldigd, is één keer aangeschreven',
 };

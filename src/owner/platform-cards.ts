@@ -151,6 +151,73 @@ export function roleSpendingFastCard(reading: OwnerReading, facts: { role: strin
   };
 }
 
+/* ----------------------------------------------------------- collections --- */
+
+/** An invoice's figure in the language the owner reads, in the invoice's own currency (which is not the owner's display currency). */
+function invoiceMoney(reading: OwnerReading, cents: number, currency: string): string {
+  const amount = cents / 100;
+  try {
+    return amount.toLocaleString(reading.language ?? 'en', { style: 'currency', currency, maximumFractionDigits: 2 });
+  } catch {
+    return `${amount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+}
+
+/**
+ * An invoice the platform's letters will not mend: it stays unpaid after the
+ * last one, it was overdue for months before anything was switched on, or there
+ * is no address to write to. What happens next is a person's.
+ */
+export function invoiceUnpaidCard(reading: OwnerReading, facts: {
+  why: 'unpaid_after_last' | 'stale' | 'no_email'; number: string; customer: string; cents: number; currency: string; dueDate: string;
+}): Card {
+  const { language } = reading;
+  const values = {
+    number: facts.number, customer: facts.customer, amount: invoiceMoney(reading, facts.cents, facts.currency),
+    due: day({ ...reading, timezone: 'UTC' }, new Date(`${facts.dueDate}T00:00:00Z`)),
+  };
+  return {
+    title: say(language, 'Invoice {number} needs you: {customer} has not paid', values),
+    detail: facts.why === 'unpaid_after_last'
+      ? say(language, '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.', values)
+      : facts.why === 'stale'
+        ? say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.', values)
+        : say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.', values),
+  };
+}
+
+/** Invoices are overdue and no role can write the reminders: where to switch that on. */
+export function nobodyRemindsCard(reading: OwnerReading): Card {
+  const { language } = reading;
+  return {
+    title: say(language, 'Nobody is set to remind customers about overdue invoices'),
+    detail: say(language, 'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.'),
+  };
+}
+
+/**
+ * What the collections duty (src/duties/collections.ts) says in words: its
+ * summary in the language the owner talks in, its plan in the one the company
+ * works in, and its question when there is no mailbox. Composed here with the
+ * platform's other sentences, so each has its translation checked.
+ */
+export function remindedSaid(language: string | null, invoices: string[]): string {
+  return invoices.length > 0
+    ? say(language, 'Reminded the customers of: {invoices}.', { invoices: invoices.join(', ') })
+    : say(language, 'No reminder was due.');
+}
+
+export function reminderPlanSaid(language: string | null): { intent: string; expectedEffect: string } {
+  return {
+    intent: say(language, 'Remind the customers whose invoices are overdue'),
+    expectedEffect: say(language, 'each customer whose next reminder is due has been written to once'),
+  };
+}
+
+export function reminderMailboxAsked(language: string | null): string {
+  return say(language, 'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.');
+}
+
 /* -------------------------------------------------------------- alerts --- */
 
 export type AlertFacts =

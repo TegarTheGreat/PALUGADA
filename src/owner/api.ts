@@ -117,6 +117,8 @@ import {
 } from '../chats/chats.ts';
 import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
 import { invoiceHtml } from '../records/invoice-document.ts';
+import { holdInvoice, isHeld, policyOf, remindersOf, remindingOf, sendersOf, setPolicy } from '../records/collections.ts';
+import { giveReminders } from '../governance/collections.ts';
 import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
 import {
   addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
@@ -3720,10 +3722,54 @@ export class OwnerApi {
           if (status !== null && !(INVOICE_FILTERS as readonly string[]).includes(status)) {
             throw new PalugadaError('contract.violation', `status is ${INVOICE_FILTERS.join(', ')}; got ${JSON.stringify(status)}`, { field: 'status' });
           }
-          const { invoices, outstanding } = await withTenant(params.companyId!, (tx) => listInvoices(tx, params.companyId!, {
-            ...(status ? { status: status as InvoiceFilter } : {}),
-          }));
-          return { invoices, outstanding };
+          const companyId = params.companyId!;
+          return withTenant(companyId, async (tx) => {
+            const { invoices, outstanding } = await listInvoices(tx, companyId, { ...(status ? { status: status as InvoiceFilter } : {}) });
+            // What has been done about each, and who does it (STATUS 2.178).
+            return {
+              invoices, outstanding,
+              reminding: await remindingOf(tx, companyId, invoices.map((invoice) => invoice.id)),
+              collections: { ...(await policyOf(tx, companyId)), senders: await sendersOf(tx, companyId) },
+            };
+          });
+        },
+      },
+
+      {
+        // Reminding customers about overdue invoices (STATUS 2.178): whether
+        // the company does, on which days after the due date, and the owner's
+        // words on how to pay, which the letters carry. Switching it on is
+        // the owner's decision to let the roles that bill customers write
+        // the reminders too (or the CEO, when none does): the tool is theirs
+        // from then on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/collections',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          await this.#knownCompany(companyId);
+          const change: { enabled?: boolean; stepsDays?: unknown; paymentNote?: string | null } = {};
+          if (body.enabled !== undefined) {
+            if (typeof body.enabled !== 'boolean') throw new PalugadaError('contract.violation', 'enabled is true or false', { field: 'enabled' });
+            change.enabled = body.enabled;
+          }
+          if (body.stepsDays !== undefined) change.stepsDays = body.stepsDays;
+          if (body.paymentNote !== undefined) change.paymentNote = body.paymentNote === null ? null : String(body.paymentNote);
+          if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'nothing to change: give enabled, stepsDays or paymentNote', {});
+          const policy = await withTenant(companyId, (tx) => setPolicy(tx, companyId, change));
+          const given = change.enabled === true ? await giveReminders(companyId) : { given: [], full: [], ungranted: [] };
+          return { ...policy, ...given, senders: await withTenant(companyId, (tx) => sendersOf(tx, companyId)) };
+        },
+      },
+
+      {
+        // The owner asks that one invoice be left out of the reminders, or
+        // put back: a customer who is slow for a reason the books do not know.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/reminders',
+        handle: async ({ params, body }) => {
+          if (typeof body.held !== 'boolean') throw new PalugadaError('contract.violation', 'held is true to leave the invoice alone, false to remind about it again', { field: 'held' });
+          await withTenant(params.companyId!, (tx) => holdInvoice(tx, params.companyId!, params.invoiceId!, body.held as boolean));
+          return { held: body.held };
         },
       },
 
@@ -3732,9 +3778,16 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/invoices/:invoiceId',
         handle: async ({ params }) => {
-          const found = await withTenant(params.companyId!, (tx) => invoiceWith(tx, params.companyId!, params.invoiceId!));
-          if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
-          return found;
+          const companyId = params.companyId!;
+          return withTenant(companyId, async (tx) => {
+            const found = await invoiceWith(tx, companyId, params.invoiceId!);
+            if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+            return {
+              ...found,
+              reminders: (await remindersOf(tx, companyId, found.id)).map((one) => ({ step: one.step, sentOn: one.sentOn, to: one.to })),
+              held: await isHeld(tx, companyId, found.id),
+            };
+          });
         },
       },
 

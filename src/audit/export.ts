@@ -244,6 +244,22 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, invoice_id, paid_on, amount_cents, entry_id, written_by, task_id, outside, created_at FROM invoice_payments ORDER BY created_at, id`,
   },
   {
+    // Reminding customers (0130, STATUS 2.178): the policy, each letter that
+    // went, and the invoices left alone. A restore without the letters would
+    // write to customers from the first one again.
+    name: 'collections_policy',
+    sql: `SELECT enabled, steps_days, payment_note, updated_at FROM collections_policy`,
+  },
+  {
+    name: 'invoice_reminders',
+    sql: `SELECT id, invoice_id, step, sent_on, sent_at, to_address, message_id, outstanding_cents, days_overdue, task_id
+            FROM invoice_reminders ORDER BY invoice_id, step`,
+  },
+  {
+    name: 'invoice_collections',
+    sql: `SELECT invoice_id, held_at, escalated_at FROM invoice_collections ORDER BY invoice_id`,
+  },
+  {
     name: 'chats',
     sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id
             FROM chats ORDER BY created_at`,

@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import {
-  ActionIcon, Alert, Badge, Button, CopyButton, Group, Modal, NumberInput, Paper, Select, Stack, Table, Text, Textarea, TextInput,
+  ActionIcon, Alert, Badge, Button, CopyButton, Group, Modal, NumberInput, Paper, Select, Stack, Switch, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconDownload, IconPlus, IconTrash } from '@tabler/icons-react';
@@ -19,8 +19,8 @@ import { saveCompanyFile } from '../files.ts';
 import { useLoad } from '../hooks.ts';
 import { inCurrency, moneyDisplay, numberSeparators } from '../format.ts';
 import { locale, t } from '../i18n.ts';
-import type { Contact, InvoiceDetail, InvoiceRow, Invoices as InvoicesView } from '../types.ts';
-import { ActionButton } from './ActionForm.tsx';
+import type { Collections, Contact, InvoiceDetail, InvoiceRow, Invoices as InvoicesView } from '../types.ts';
+import { ActionButton, ActionForm } from './ActionForm.tsx';
 import { EmptyState, KpiStrip, LoadFailed, Loading } from './ui.tsx';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -52,7 +52,7 @@ export function Invoices({ companyId, owner, issuing, closeIssue, depositOptions
 
   if (view.error && !view.data) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={3} />;
-  const { invoices, outstanding } = view.data;
+  const { invoices, outstanding, reminding, collections } = view.data;
 
   return (
     <Stack gap="lg">
@@ -62,6 +62,7 @@ export function Invoices({ companyId, owner, issuing, closeIssue, depositOptions
           { label: t('Overdue'), value: inCurrency(one.overdueCents, one.currency), alert: one.overdueCents > 0 },
         ])} />
       )}
+      <RemindersPanel companyId={companyId} owner={owner} collections={collections} changed={view.reload} />
       {invoices.length === 0 ? (
         <Paper withBorder radius="lg">
           <EmptyState
@@ -87,7 +88,14 @@ export function Invoices({ companyId, owner, issuing, closeIssue, depositOptions
                     <Table.Td><Text size="sm" c="dimmed">{dayShown(invoice.dueDate)}</Text></Table.Td>
                     <Table.Td ta="right"><Text size="sm" className="tabular">{inCurrency(invoice.totalCents, invoice.currency)}</Text></Table.Td>
                     <Table.Td ta="right"><Text size="sm" className="tabular">{inCurrency(invoice.outstandingCents, invoice.currency)}</Text></Table.Td>
-                    <Table.Td><StatusBadge invoice={invoice} /></Table.Td>
+                    <Table.Td>
+                      <StatusBadge invoice={invoice} />
+                      {reminding[invoice.id]?.held && invoice.outstandingCents > 0
+                        ? <Badge size="xs" variant="outline" color="gray" ml={6}>{t('Left alone')}</Badge>
+                        : reminding[invoice.id]?.lastOn && invoice.outstandingCents > 0
+                          ? <Text size="xs" c="dimmed">{t('Last reminder {date}', { date: dayShown(reminding[invoice.id]!.lastOn!) })}</Text>
+                          : null}
+                    </Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
@@ -98,6 +106,80 @@ export function Invoices({ companyId, owner, issuing, closeIssue, depositOptions
       <IssueInvoice companyId={companyId} opened={issuing} close={closeIssue} done={() => { closeIssue(); reload(); }} />
       <InvoiceView companyId={companyId} id={open} owner={owner} close={() => setOpen(null)} depositOptions={depositOptions} changed={reload} />
     </Stack>
+  );
+}
+
+/**
+ * Reminding customers about overdue invoices (STATUS 2.178): a letter written
+ * from the books, on the days the owner sets, by the roles that bill customers
+ * or the CEO. The switch is the owner's decision to let them; what is sent and
+ * to whom is never a model's.
+ */
+function RemindersPanel({ companyId, owner, collections, changed }: {
+  companyId: string; owner: boolean; collections: Collections; changed: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const path = `/api/companies/${companyId}/collections`;
+  const flip = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      await api('POST', `/api/companies/${companyId}/collections`, { enabled });
+      notifications.show({ color: 'teal', message: t('Saved.') });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const nobody = collections.enabled && collections.senders.names.length === 0;
+  return (
+    <Paper withBorder radius="lg" p="md">
+      <Group justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+        <div style={{ minWidth: 0 }}>
+          <Text fw={600}>{t('Reminders for overdue invoices')}</Text>
+          <Text size="sm" c="dimmed">{t('A letter written from the books goes to the customer on the days below. You are told only about an invoice a letter did not mend.')}</Text>
+        </div>
+        <Switch checked={collections.enabled} disabled={!owner || busy} aria-label={t('Remind customers about overdue invoices')}
+          onChange={(event) => void flip(event.currentTarget.checked)} />
+      </Group>
+      {collections.enabled && (
+        <Stack gap="sm" mt="md">
+          {collections.senders.names.length > 0 && (
+            <Text size="sm" c="dimmed">{t('Sent by {roles}.', { roles: collections.senders.names.join(', ') })}</Text>
+          )}
+          {nobody && (
+            <Alert color="yellow" variant="light">
+              <Text size="sm">{t('No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.')}</Text>
+              {owner && (
+                <Group mt="xs">
+                  <ActionButton size="xs" variant="default" label={t('Let them send reminders')} run={() => api('POST', path, { enabled: true })} done={changed} />
+                </Group>
+              )}
+            </Alert>
+          )}
+          {owner && (
+            <ActionForm
+              columns={1}
+              fields={[
+                { name: 'days', label: t('Days after the due date'), initial: collections.stepsDays.join(', '), placeholder: '3, 10, 24' },
+                {
+                  name: 'note', label: t('How customers pay'), type: 'textarea', initial: collections.paymentNote ?? '',
+                  description: t('Added to every reminder. Left out when empty.'),
+                },
+              ]}
+              action={t('Save')}
+              success={t('Saved.')}
+              submit={(values) => api('POST', path, {
+                stepsDays: String(values.days).split(/[\s,;]+/).filter(Boolean).map(Number),
+                paymentNote: String(values.note).trim() === '' ? null : String(values.note),
+              })}
+              done={changed}
+            />
+          )}
+        </Stack>
+      )}
+    </Paper>
   );
 }
 
@@ -191,6 +273,20 @@ function InvoiceView({ companyId, id, owner, close, depositOptions, changed }: {
             </Stack>
           )}
 
+          {(invoice.reminders.length > 0 || invoice.held) && (
+            <Stack gap={4}>
+              <Group gap={6}>
+                <Text size="sm" fw={600}>{t('Reminders')}</Text>
+                {invoice.held && <Badge size="xs" variant="outline" color="gray">{t('Left alone')}</Badge>}
+              </Group>
+              {invoice.reminders.map((one) => (
+                <Text key={one.step} size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
+                  {t('Reminder {step} · {date} · {address}', { step: one.step, date: dayShown(one.sentOn), address: one.to })}
+                </Text>
+              ))}
+            </Stack>
+          )}
+
           {voiding && (
             <Alert color="red" variant="light" title={t('Void {number}?', { number: invoice.number })}>
               <Text size="sm" mb="sm">{t('What was owed on it comes out of the books, and its number is not used again.')}</Text>
@@ -218,6 +314,12 @@ function InvoiceView({ companyId, id, owner, close, depositOptions, changed }: {
             </Group>
             {owner && invoice.status !== 'void' && (
               <Group gap="xs">
+                {invoice.outstandingCents > 0 && (
+                  <ActionButton size="xs" variant="subtle"
+                    label={invoice.held ? t('Remind about this invoice again') : t('Stop reminding about this invoice')}
+                    run={() => api('POST', `/api/companies/${companyId}/invoices/${invoice.id}/reminders`, { held: !invoice.held })}
+                    done={reload} />
+                )}
                 {invoice.paidCents === 0 && <Button size="xs" variant="subtle" color="red" onClick={() => setVoiding(true)}>{t('Void the invoice')}</Button>}
                 {invoice.outstandingCents > 0 && <Button size="xs" onClick={() => setPaying(true)}>{t('Record a payment')}</Button>}
               </Group>

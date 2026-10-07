@@ -61,22 +61,33 @@ export function invoiceLanguage(workLanguage: string): 'en' | 'id' {
   return workLanguage === 'id' ? 'id' : 'en';
 }
 
-export function invoiceHtml(invoice: InvoiceDetail, company: string, workLanguage: string): string {
+/**
+ * How a figure and a day are written for the customer who reads them: the
+ * invoice's page and the reminder letters say them the same way.
+ */
+export function invoiceFormats(workLanguage: string, currency: string): {
+  language: 'en' | 'id'; locale: string; money: (cents: number) => string; day: (iso: string) => string;
+} {
   const language = invoiceLanguage(workLanguage);
-  const words = WORDS[language];
   const locale = language === 'id' ? 'id-ID' : 'en-US';
   const money = (cents: number): string => {
     try {
-      return (cents / 100).toLocaleString(locale, { style: 'currency', currency: invoice.currency, maximumFractionDigits: 2 });
+      return (cents / 100).toLocaleString(locale, { style: 'currency', currency, maximumFractionDigits: 2 });
     } catch {
       // A code the runtime does not know is written as it is, beside the figure.
-      return `${(cents / 100).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${invoice.currency}`;
+      return `${(cents / 100).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
     }
   };
   const day = (iso: string): string => {
     const at = Date.parse(`${iso}T00:00:00Z`);
     return Number.isNaN(at) ? iso : new Date(at).toLocaleDateString(locale, { dateStyle: 'long', timeZone: 'UTC' });
   };
+  return { language, locale, money, day };
+}
+
+export function invoiceHtml(invoice: InvoiceDetail, company: string, workLanguage: string): string {
+  const { language, locale, money, day } = invoiceFormats(workLanguage, invoice.currency);
+  const words = WORDS[language];
   const quantity = (value: number): string => value.toLocaleString(locale, { maximumFractionDigits: 3 });
 
   const lines = invoice.lines.map((line) => `

@@ -368,4 +368,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "あなたの対応待ち：{count}",
   'This is the third time in a day, so it does not go on by itself.':
     '1日で3回目のため、自動では再開しません。',
+  'Invoice {number} needs you: {customer} has not paid':
+    '請求書 {number} はあなたの対応が必要です: {customer} が未払いです',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '最後のリマインドの後も、{customer} は請求書 {number} の {amount}（期限 {due}）を支払っていません。プラットフォームは書くのをやめました。次はあなたの番です: 電話、最終通知、または見送り。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドは一度も送られていないため、これほど遅れてから定型文は送りませんでした。ご自身で対応するか、CEO にご希望を伝えてください。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドを送るメールアドレスがありません。お客様に追加するか、ご自身で対応してください。',
+  'Nobody is set to remind customers about overdue invoices':
+    '期限超過の請求書についてお客様にリマインドする担当がいません',
+  'Reminded the customers of: {invoices}.':
+    'お客様にリマインドしました: {invoices}。',
+  'No reminder was due.':
+    '期限の来たリマインドはありません。',
+  'Remind a customer about an invoice':
+    '請求書についてお客様にリマインド',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    '期限を過ぎた請求書がありますが、リマインドを送れるロールがありません。帳簿の請求書で自動リマインドをオンにしてください。設定した日数に会社が送ります。',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    '期限超過の請求書のリマインドには、送信元のメールボックスが必要です。この部門のメールボックスを設定してください。',
+  'Remind the customers whose invoices are overdue':
+    '請求書が期限超過のお客様にリマインドする',
+  'each customer whose next reminder is due has been written to once':
+    '次のリマインドの時期が来たお客様全員に、一度ずつ手紙が送られている',
 };

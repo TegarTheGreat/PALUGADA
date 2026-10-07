@@ -376,4 +376,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Đang chờ bạn: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Đây là lần thứ ba trong một ngày, nên vai trò không tự tiếp tục.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Hóa đơn {number} cần bạn: {customer} chưa thanh toán',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} vẫn còn nợ {amount} của hóa đơn {number}, hạn {due}, sau lần nhắc cuối. Nền tảng đã ngừng viết cho họ. Bước tiếp theo là của bạn: một cuộc gọi, thông báo cuối cùng, hoặc bỏ qua.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và chưa từng có lời nhắc nào được gửi, nên nền tảng không gửi thư mẫu muộn như vậy. Hãy tự theo dõi, hoặc cho CEO biết bạn muốn làm gì.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và không có địa chỉ email để gửi nhắc nhở. Hãy thêm địa chỉ vào khách hàng, hoặc tự theo dõi.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Chưa ai được giao nhắc khách hàng về hóa đơn quá hạn',
+  'Reminded the customers of: {invoices}.':
+    'Đã nhắc khách hàng về: {invoices}.',
+  'No reminder was due.':
+    'Không có nhắc nhở nào đến hạn.',
+  'Remind a customer about an invoice':
+    'Nhắc khách hàng về một hóa đơn',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Một số hóa đơn đã quá hạn, và không có vai trò nào gửi được nhắc nhở. Bật nhắc nhở tự động ở Sổ sách, Hóa đơn: công ty sẽ gửi chúng vào những ngày bạn đặt.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Nhắc nhở cho hóa đơn quá hạn cần một hộp thư để gửi đi. Hãy cung cấp hộp thư của bộ phận này.',
+  'Remind the customers whose invoices are overdue':
+    'Nhắc các khách hàng có hóa đơn quá hạn',
+  'each customer whose next reminder is due has been written to once':
+    'mỗi khách hàng đến hạn nhắc tiếp theo đã được viết thư một lần',
 };

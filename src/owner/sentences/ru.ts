@@ -372,4 +372,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Ждёт вас: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Это уже третий раз за сутки, поэтому она не продолжит сама.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Счёт {number} требует вас: {customer} не заплатил',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'После последнего напоминания {customer} всё ещё должен {amount} по счёту {number}, срок {due}. Платформа перестала ему писать. Дальше решаете вы: звонок, последнее уведомление или оставить как есть.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Счёт {number} ({amount}, {customer}) просрочен с {due}, а напоминание ни разу не отправлялось, поэтому платформа не стала слать типовое письмо так поздно. Займитесь им сами или скажите CEO, что нужно сделать.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Счёт {number} ({amount}, {customer}) просрочен с {due}, а адреса электронной почты для напоминания нет. Добавьте его клиенту или займитесь счётом сами.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Никто не назначен напоминать клиентам о просроченных счетах',
+  'Reminded the customers of: {invoices}.':
+    'Клиентам напомнили о: {invoices}.',
+  'No reminder was due.':
+    'Напоминаний к отправке не было.',
+  'Remind a customer about an invoice':
+    'Напомнить клиенту о счёте',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Некоторые счета просрочены, и ни одна роль не может отправлять напоминания. Включите автоматические напоминания в Бухгалтерии, Счета: компания будет отправлять их в заданные вами дни.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Для напоминаний о просроченных счетах нужен почтовый ящик, с которого их отправлять. Подключите почтовый ящик этого подразделения.',
+  'Remind the customers whose invoices are overdue':
+    'Напомнить клиентам, чьи счета просрочены',
+  'each customer whose next reminder is due has been written to once':
+    'каждому клиенту, у которого подошёл срок следующего напоминания, письмо отправлено один раз',
 };

@@ -372,4 +372,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "In attesa di te: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'È la terza volta in un giorno, quindi non riprende da solo.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'La fattura {number} ha bisogno di te: {customer} non ha pagato',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} deve ancora {amount} sulla fattura {number}, scaduta il {due}, dopo l’ultimo promemoria. La piattaforma ha smesso di scrivergli. Quel che segue è tuo: una telefonata, un ultimo avviso, o lasciar perdere.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'La fattura {number} ({amount}, {customer}) è scaduta dal {due}, e non è mai stato inviato alcun promemoria, quindi la piattaforma non ha mandato una lettera tipo così in ritardo. Seguila tu, oppure di’ al CEO cosa vuoi che si faccia.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'La fattura {number} ({amount}, {customer}) è scaduta dal {due}, e non c’è un indirizzo e-mail a cui inviare un promemoria. Aggiungine uno al cliente, oppure seguila tu.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Nessuno è incaricato di ricordare ai clienti le fatture scadute',
+  'Reminded the customers of: {invoices}.':
+    'Clienti sollecitati per: {invoices}.',
+  'No reminder was due.':
+    'Nessun promemoria era dovuto.',
+  'Remind a customer about an invoice':
+    'Ricorda una fattura a un cliente',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Alcune fatture hanno superato la scadenza, e nessun ruolo può inviare i promemoria. Attiva i promemoria automatici in Contabilità, Fatture: l’azienda li invierà nei giorni che stabilisci.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'I promemoria per le fatture scadute hanno bisogno di una casella di posta da cui partire. Dai a questa divisione la sua casella.',
+  'Remind the customers whose invoices are overdue':
+    'Ricordare ai clienti le cui fatture sono scadute',
+  'each customer whose next reminder is due has been written to once':
+    'a ogni cliente il cui prossimo promemoria è dovuto è stato scritto una volta',
 };

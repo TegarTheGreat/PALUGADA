@@ -10679,6 +10679,89 @@ one role at a time. A frozen role now says who froze it (`roles.frozen_by`: `own
   - *The breaker's own numbers are unchanged:* three times the week, a hundred-cent floor, the hour. A role whose
     week was empty cannot trip it (the period ceiling covers that).
 
+## 2.178 The company collects what it is owed, without being asked (the owner's request of 7 October: white-collar work handled, and automatically)
+
+The owner's words: "just think how white-collar jobs can be handled, and automatically." The audit of 6 October
+(`docs/AUDIT-2026-10-06-REPLACING-THE-OFFICE.md`) had already said where the office is thin; its P1 list still had
+**deterministic clearance beyond chat** (item 8: "ledger-grounded sends -- reminders, statements -- with exact
+figures, cleared the way a grounded chat reply is") and the data-driven wake-ups the company lacked ("nothing
+chases an outcome": an unpaid invoice was read for display and by nothing that wakes up). This is the first office
+job built end to end that way, and the pattern for the next.
+
+**What makes a white-collar job automatic, found in the code, not assumed.** Five things have to be true, and for
+most routine office work only the first two were missing: (1) *something wakes the work* from the company's own
+records, not from the owner; (2) *the letter or the entry is not a model's to write*, so no owner's yes is needed
+and no injection can ride in; (3) the tool for the effect exists; (4) the result is checked; (5) what a machine
+cannot settle goes to a person, once. Tools (3), checks (4) and the person (5) were there (mailbox, books, invoices,
+`inbox`, person roles). The two missing pieces are below.
+
+- **A duty: office work the platform does itself (`src/duties/duties.ts`).** A task whose key starts `duty:` is run
+  by a procedure the platform wrote, with no model, **under a role's grants** -- so the credential, the tier, the
+  plan (F8.11), the journal, the budget and the audit apply exactly as they do to any role. The in-process runtime
+  looks the key up before it looks for a role's handler or a model. An agent cannot make such a task (the keys a
+  delegate derives are hashes), and one that writes `duty` into its input only writes a field.
+- **`invoice.remind` (`src/capabilities/collections.ts`), tier 2.** It takes the invoice and **nothing else**
+  (`additionalProperties: false`): who it goes to (the invoice's address), what it says (`reminderLetter`, from the
+  books: the customer's name cut to a line, the outstanding amount, the due date, the company's name, the owner's
+  own words on how to pay), in which language (Indonesian, or English for every other, as the invoice's page is)
+  and whether it may go (`whatIsNext`) are the books'. Because nothing in the letter is from outside, the capability
+  declares `clearsOutside`: **work that read content from outside sends it without the owner's yes**, where
+  `email.send` in the same work still asks (tested both ways, and shown to depend on the clearance). It goes from the
+  division's own mailbox key (no new credential) through the same delivery as `email.send` (`deliver`, now shared).
+- **When (`whatIsNext`, pure).** Three days past the due date, then ten, then twenty-four (the company may set one
+  to five days of its own); never two letters within a week; **an invoice more than sixty days overdue that was never
+  reminded is not sent a form letter by a platform just switched on** -- it is a person's; a week after the last
+  letter, still unpaid, it is a person's too.
+- **A step is written once.** The invoice is locked (`pg_advisory_xact_lock`) from reading what was sent to writing
+  what is, so two callers at once send one letter; a letter the mail server did not accept writes nothing, so the
+  next try is a first. `invoice_reminders` is insert-only for the application role.
+- **The look (`ensureCollections`, in the worker's tick, at most every half hour for a company).** It reads the books
+  and makes **one task** for the role that holds `invoice.remind` (key `duty:collections:<hash of the day and the
+  invoices>`, so two workers make one), whose handler calls the capability once for each invoice named. The
+  capability decides again from the books at that moment: an invoice paid between the look and the work is not
+  written to (tested). The handler's summary is in the owner's language.
+- **What a letter will not mend goes to the owner, once for each invoice, in their language.** Unpaid after the last
+  letter, overdue for months and never reminded, or no address to write to: one escalation card (`invoiceUnpaidCard`),
+  noted in `invoice_collections` in the same transaction that raises it.
+- **A mailbox that is missing is asked for like any role asks for a key.** The procedure calls `owner.ask` with the
+  key `mailbox` (the question in the owner's language) and the task waits for the owner, then tries again; nothing
+  fails quietly. Its plan is written in the company's work language (`say`), because the platform's own wording in
+  the wrong language would be noted as a slip by the check that watches agents' words.
+- **Nobody to give it to is said, not guessed.** With no role holding the tool, the owner is told once, while the
+  card is open, where to switch it on (`nobodyRemindsCard`). Giving a role a tool is the owner's (F2.9).
+- **The owner's switch (Books, Invoices; `POST /api/companies/:companyId/collections`).** On by default as policy; the
+  switch is the owner's decision to *let* the company do it: it gives `invoice.remind`, with its division's grant, to
+  the roles that already bill customers with `invoice.issue` (the authority to remind is a part of the authority to
+  issue), keeps a role that already holds it, and **hires a bookkeeper when no role does** (the CEO holds the twelve
+  tools a role may and cannot carry a thirteenth). The bookkeeper reads the books and holds the tool; it does not issue
+  invoices or record entries unless the owner gives it those. A role that cannot take another tool is named and left.
+  The days, the owner's words on how to pay, and an invoice left alone (`POST .../invoices/:invoiceId/reminders`) are
+  kept; the list says what was done about each invoice. The assistant may propose the switch (a card for the app) and
+  may leave an invoice alone at the owner's word (a tightening).
+- **It travels with the company.** The policy, each letter sent and the invoices left alone are exported and
+  imported (`audit/export.ts`, `import.ts`); a restore without them would write to every customer from the first
+  letter again.
+- **Tested.** `collections-logic.test.ts` (pure: every step, gap, stale and escalation rule; the letters in both
+  languages, the fallback, and a hostile name), `collections.test.ts` (against real SMTP and IMAP servers: the letter
+  exactly, the reasons it is not sent, the closed input, the clearance and its control, a server that is down, two
+  callers at once), `collections-duty.test.ts` (the look, the task run by the engine with a model that is never
+  asked, the paid-between case, the week after the last letter, the stale invoice, nobody, one company's books not
+  another's, and the worker's tick), `collections-api.test.ts` (the switch and who it gives to, the hire, a full role,
+  the policy and its refusals, the hold, the travel). The new tests were seen to fail first.
+- **Deviations from the PRD.** F8.9's rule that an action at tier 2 is never taken on content from outside
+  alone is kept for every capability but this one, whose letter has no content from outside; a first-party
+  capability may declare that (`clearsOutside`, 2.137), and the clearance is recorded on the event.
+- **Not done, and said plainly.**
+  - *Only collections is a duty so far.* Stale deals, unanswered customers, bills to pay, a quote to chase and a
+    payment received are the next ones, and the pattern (a look that makes a task, a procedure, a capability that
+    writes from the records) is the same for each. Payables and the bank statement are not started.
+  - *Letters are in Indonesian or English.* Every other language is written in English, as the invoice's own page
+    is. The cards to the owner are in their language.
+  - *No invoice PDF is attached.* The invoice page can be drawn (2.170), but a reminder carries the figures in its text.
+  - *The look is every half hour per process*, kept in memory; a restart looks at once. The letters themselves are
+    never repeated (the unique step).
+  - *Whether it works on a real mailbox* is as verified as `email.send`: against a mail server written for the test.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -10721,7 +10804,7 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-five of the fifty-nine catalogued capabilities are unbound on a bare
+**Thirty-five of the sixty catalogued capabilities are unbound on a bare
 boot -- thirty-one on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and

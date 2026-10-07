@@ -371,4 +371,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "等你处理：{count}",
   'This is the third time in a day, so it does not go on by itself.':
     '这是一天内的第三次，所以不会自行继续。',
+  'Invoice {number} needs you: {customer} has not paid':
+    '发票 {number} 需要您：{customer} 尚未付款',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '最后一次提醒之后，{customer} 仍欠发票 {number} 的 {amount}，到期日 {due}。平台已不再给他们写信。接下来由您决定：打电话、发最后通知，或不再追究。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且从未发送过提醒，所以平台没有在这么晚的时候发模板信。请自行跟进，或告诉 CEO 您想怎么处理。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且没有可发送提醒的电子邮件地址。请为客户补上，或自行跟进。',
+  'Nobody is set to remind customers about overdue invoices':
+    '还没有人负责就逾期发票提醒客户',
+  'Reminded the customers of: {invoices}.':
+    '已就以下发票提醒客户：{invoices}。',
+  'No reminder was due.':
+    '没有到期需要发送的提醒。',
+  'Remind a customer about an invoice':
+    '就发票提醒客户',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    '有些发票已过到期日，且没有角色能发送提醒。请在账簿的发票中打开自动提醒：公司将按您设定的日子发送。',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    '逾期发票提醒需要一个邮箱来发送。请提供此部门的邮箱。',
+  'Remind the customers whose invoices are overdue':
+    '提醒发票已逾期的客户',
+  'each customer whose next reminder is due has been written to once':
+    '每位到了下一次提醒时间的客户都已收到一封信',
 };

@@ -336,6 +336,12 @@ The first version. What it holds, in the order an owner meets it.
   role the breaker stopped for a burst of spending goes back to work when the burst has passed, and the work that
   waited for it is called back; only the third stop in a day is put to you. Work waits for a paused role and does
   not fail (STATUS 2.177).
+- The company collects what it is owed, without being asked. An invoice past its due date is reminded three days
+  late, then ten, then twenty-four, by a letter written from the books -- the customer, the amount, the date, in
+  Indonesian or English, and your own words on how to pay -- so there is no card for you to press and no model to
+  get it wrong. It stops when the invoice is paid, never writes twice in a week, and tells you once, in your
+  language, about an invoice a letter did not mend. Switch it on under Books, Invoices (it gives the job to the
+  roles that bill customers, or hires a bookkeeper); leave one invoice alone with a press (STATUS 2.178).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

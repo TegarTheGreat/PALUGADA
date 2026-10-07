@@ -585,7 +585,7 @@ test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   // or an accounting service is connected (`crm.ts`, 0118; `books.ts`, 0119,
   // 0122).
   const always = [
-    'crm.note', 'crm.read', 'crm.record', 'email.send', 'invoice.issue', 'ledger.read', 'ledger.record', 'mailbox.read', 'uptime.check', 'web.fetch',
+    'crm.note', 'crm.read', 'crm.record', 'email.send', 'invoice.issue', 'invoice.remind', 'ledger.read', 'ledger.record', 'mailbox.read', 'uptime.check', 'web.fetch',
   ];
   assert.deepEqual(platformCapabilities().map((capability) => capability.name).sort(), always);
 

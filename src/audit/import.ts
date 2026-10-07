@@ -173,6 +173,10 @@ const SECTIONS: ImportSection[] = [
   { name: 'invoices', table: 'invoices', references: ['contact_id', 'entry_id', 'task_id'] },
   { name: 'invoice_lines', table: 'invoice_lines', references: ['invoice_id'] },
   { name: 'invoice_payments', table: 'invoice_payments', references: ['invoice_id', 'entry_id', 'task_id'] },
+  // Reminding customers (0130), after the invoices and the tasks that wrote to them.
+  { name: 'collections_policy', table: 'collections_policy', references: [] },
+  { name: 'invoice_reminders', table: 'invoice_reminders', references: ['invoice_id', 'task_id'] },
+  { name: 'invoice_collections', table: 'invoice_collections', references: ['invoice_id'] },
   {
     // A customer channel is not left open by a restore: it arrives closed,
     // at a new address, with no token, and the owner connects the bot again

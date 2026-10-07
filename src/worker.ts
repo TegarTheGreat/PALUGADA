@@ -50,6 +50,7 @@ import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
 import { reportEndedBadly } from './engine/ended.ts';
 import { ensureTriage } from './engine/triage.ts';
+import { ensureCollections } from './duties/collections.ts';
 import { ensureOutcomes } from './engine/outcomes.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
@@ -239,6 +240,8 @@ export interface TickReport {
   ended: number;
   /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
   triaged: number;
+  /** Customers' overdue invoices looked at: reminders made into a task, or a card put to the owner (src/duties/collections.ts). */
+  collections: number;
   /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
   outcomes: number;
   /** Escalations handed to the role their division names (F2.1). */
@@ -318,6 +321,7 @@ function emptyReport(): TickReport {
     stranded: 0,
     ended: 0,
     triaged: 0,
+    collections: 0,
     outcomes: 0,
     escalated: 0,
     leftovers: 0,
@@ -350,7 +354,7 @@ export interface WorkerCounts {
 
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
-  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0 || report.resumed > 0 || report.thawed > 0;
+  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0 || report.resumed > 0 || report.thawed > 0 || report.collections > 0;
 }
 
 export class Worker {
@@ -570,6 +574,16 @@ export class Worker {
       // one ticks its housekeeping with `runs` false, where it never ran.
       await this.#stage(report, 'triage', async () => {
         if (await ensureTriage(company, now)) report.triaged += 1;
+      });
+
+      // What customers owe, looked at against the books: the reminders that
+      // are due made into one task for the role that sends them, and the
+      // invoices a letter will not mend put to the owner. A look is cheap and
+      // is made at most every half hour for a company; nothing owed, nothing
+      // made.
+      await this.#stage(report, 'collections', async () => {
+        const look = await ensureCollections(company, now);
+        if (look.task !== null || look.escalated > 0 || look.nobody) report.collections += 1;
       });
 
       // The measures the owner set, looked at against their numbers: one task

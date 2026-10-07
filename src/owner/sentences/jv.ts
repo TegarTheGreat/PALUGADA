@@ -370,4 +370,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Ngenteni panjenengan: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Punika kaping tiga ing sedinten, dados boten lajeng piyambak.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Faktur {number} butuh sampeyan: {customer} durung mbayar',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} isih nanggung {amount} ing faktur {number}, tenggat {due}, sawise pangeling pungkasan. Platform wis mandheg nulis marang dheweke. Sabanjure iku urusan sampeyan: telpon, surat pungkasan, utawa dilereni.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Faktur {number} ({amount}, {customer}) wis telat wiwit {due}, lan durung tau ana pangeling sing dikirim, dadi platform ora ngirim layang baku ing wektu semene telate. Tindak lanjuti dhewe, utawa kandhani CEO apa sing dikarepake.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Faktur {number} ({amount}, {customer}) wis telat wiwit {due}, lan ora ana alamat email kanggo ngirim pangeling. Tambahna ing data pelanggan, utawa tindak lanjuti dhewe.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Durung ana sing ditugasi ngelingake pelanggan bab faktur sing telat',
+  'Reminded the customers of: {invoices}.':
+    'Pelanggan diélingaké bab: {invoices}.',
+  'No reminder was due.':
+    'Ora ana pangeling sing kudu dikirim.',
+  'Remind a customer about an invoice':
+    'Ngelingake pelanggan bab faktur',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Sawetara faktur wis liwat tenggat, lan ora ana peran sing bisa ngirim pangeling. Urupna pangeling otomatis ing Pembukuan, Faktur: perusahaan banjur ngirim ing dina sing sampeyan netepake.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Pangeling kanggo faktur sing telat mbutuhake kothak layang kanggo ngirim. Wenehana kothak layang divisi iki.',
+  'Remind the customers whose invoices are overdue':
+    'Ngelingake pelanggan sing fakture telat',
+  'each customer whose next reminder is due has been written to once':
+    'saben pelanggan sing pangeling sabanjure wis wayahe wis dikirimi sapisan',
 };

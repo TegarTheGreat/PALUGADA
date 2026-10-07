@@ -372,4 +372,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Wartet auf Sie: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Das ist das dritte Mal an einem Tag, deshalb macht sie nicht von selbst weiter.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Rechnung {number} braucht Sie: {customer} hat nicht gezahlt',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} schuldet nach der letzten Erinnerung noch {amount} auf Rechnung {number}, fällig {due}. Die Plattform schreibt nicht mehr an sie. Was jetzt kommt, ist Ihre Sache: ein Anruf, eine letzte Mahnung oder es gut sein lassen.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Rechnung {number} ({amount}, {customer}) ist seit {due} überfällig, und es wurde nie eine Erinnerung gesendet; deshalb hat die Plattform so spät keinen Formbrief geschickt. Verfolgen Sie sie selbst, oder sagen Sie dem CEO, was geschehen soll.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Rechnung {number} ({amount}, {customer}) ist seit {due} überfällig, und es gibt keine E-Mail-Adresse für eine Erinnerung. Tragen Sie eine beim Kunden ein, oder verfolgen Sie sie selbst.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Niemand ist dafür eingeteilt, Kunden an überfällige Rechnungen zu erinnern',
+  'Reminded the customers of: {invoices}.':
+    'Kunden erinnert an: {invoices}.',
+  'No reminder was due.':
+    'Keine Erinnerung war fällig.',
+  'Remind a customer about an invoice':
+    'Einen Kunden an eine Rechnung erinnern',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Einige Rechnungen sind überfällig, und keine Rolle kann die Erinnerungen senden. Schalten Sie die automatischen Erinnerungen unter Bücher, Rechnungen ein: Das Unternehmen sendet sie dann an den Tagen, die Sie festlegen.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Erinnerungen an überfällige Rechnungen brauchen ein Postfach, von dem sie gesendet werden. Geben Sie dieser Abteilung ihr Postfach.',
+  'Remind the customers whose invoices are overdue':
+    'Kunden mit überfälligen Rechnungen erinnern',
+  'each customer whose next reminder is due has been written to once':
+    'jeder Kunde, dessen nächste Erinnerung fällig ist, wurde einmal angeschrieben',
 };

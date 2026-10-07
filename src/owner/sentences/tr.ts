@@ -373,4 +373,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Sizi bekleyen: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Bu bir günde üçüncü kez, bu yüzden kendiliğinden devam etmez.',
+  'Invoice {number} needs you: {customer} has not paid':
+    '{number} numaralı fatura size ihtiyaç duyuyor: {customer} ödemedi',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'Son hatırlatmadan sonra {customer}, {number} numaralı faturadan hâlâ {amount} borçlu; vade {due}. Platform onlara yazmayı bıraktı. Bundan sonrası sizin: bir telefon, son bir ihtar ya da vazgeçmek.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hiç hatırlatma gönderilmemiş; bu yüzden platform bu kadar geç bir kalıp mektup göndermedi. Kendiniz takip edin ya da CEO\'ya ne istediğinizi söyleyin.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hatırlatma gönderecek bir e-posta adresi yok. Müşteriye bir adres ekleyin ya da kendiniz takip edin.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Müşterilere gecikmiş faturaları hatırlatmakla görevli kimse yok',
+  'Reminded the customers of: {invoices}.':
+    'Müşterilere hatırlatıldı: {invoices}.',
+  'No reminder was due.':
+    'Vadesi gelen bir hatırlatma yoktu.',
+  'Remind a customer about an invoice':
+    'Müşteriye bir faturayı hatırlat',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Bazı faturaların vadesi geçti ve hatırlatmaları gönderebilecek bir rol yok. Defterler, Faturalar bölümünde otomatik hatırlatmaları açın: şirket bunları belirlediğiniz günlerde gönderir.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Gecikmiş fatura hatırlatmalarının gönderileceği bir posta kutusu gerekir. Bu bölümün posta kutusunu verin.',
+  'Remind the customers whose invoices are overdue':
+    'Faturası gecikmiş müşterilere hatırlat',
+  'each customer whose next reminder is due has been written to once':
+    'bir sonraki hatırlatması vadesi gelen her müşteriye bir kez yazıldı',
 };

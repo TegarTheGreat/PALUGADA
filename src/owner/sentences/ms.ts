@@ -371,4 +371,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Menunggu anda: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Ini kali ketiga dalam sehari, jadi ia tidak diteruskan sendiri.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Invois {number} memerlukan anda: {customer} belum membayar',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} masih berhutang {amount} pada invois {number}, tarikh akhir {due}, selepas peringatan terakhir. Platform telah berhenti menulis kepada mereka. Langkah seterusnya milik anda: panggilan, notis akhir, atau melepaskannya.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Invois {number} ({amount}, {customer}) lewat tempoh sejak {due}, dan tiada peringatan pernah dihantar, jadi platform tidak menghantar surat templat sebegini lewat. Susuli sendiri, atau beritahu CEO apa yang anda mahu dilakukan.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Invois {number} ({amount}, {customer}) lewat tempoh sejak {due}, dan tiada alamat e-mel untuk menghantar peringatan. Tambahkan pada pelanggan, atau susuli sendiri.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Tiada sesiapa ditetapkan untuk mengingatkan pelanggan tentang invois lewat tempoh',
+  'Reminded the customers of: {invoices}.':
+    'Pelanggan diingatkan tentang: {invoices}.',
+  'No reminder was due.':
+    'Tiada peringatan yang perlu dihantar.',
+  'Remind a customer about an invoice':
+    'Mengingatkan pelanggan tentang sebuah invois',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Beberapa invois sudah melepasi tarikh akhir, dan tiada peranan yang boleh menghantar peringatan. Hidupkan peringatan automatik di Buku akaun, Invois: syarikat kemudian menghantarnya pada hari yang anda tetapkan.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Peringatan untuk invois lewat tempoh memerlukan peti mel untuk menghantarnya. Berikan peti mel bahagian ini.',
+  'Remind the customers whose invoices are overdue':
+    'Mengingatkan pelanggan yang invoisnya lewat tempoh',
+  'each customer whose next reminder is due has been written to once':
+    'setiap pelanggan yang peringatan seterusnya sudah tiba masa telah dihantar sekali',
 };

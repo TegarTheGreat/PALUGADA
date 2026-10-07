@@ -375,4 +375,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "รอคุณอยู่: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'นี่เป็นครั้งที่สามในหนึ่งวัน จึงจะไม่กลับมาทำงานเอง',
+  'Invoice {number} needs you: {customer} has not paid':
+    'ใบแจ้งหนี้ {number} ต้องการคุณ: {customer} ยังไม่ชำระ',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} ยังค้างชำระ {amount} ในใบแจ้งหนี้ {number} ครบกำหนด {due} หลังการเตือนครั้งสุดท้าย แพลตฟอร์มหยุดเขียนถึงพวกเขาแล้ว ขั้นต่อไปเป็นของคุณ: โทรหา ส่งหนังสือแจ้งครั้งสุดท้าย หรือปล่อยไป',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และไม่เคยส่งการเตือนเลย แพลตฟอร์มจึงไม่ส่งจดหมายแบบฟอร์มที่ช้าขนาดนี้ โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดเพิ่มให้ลูกค้า หรือติดตามเอง',
+  'Nobody is set to remind customers about overdue invoices':
+    'ยังไม่มีใครได้รับมอบหมายให้เตือนลูกค้าเรื่องใบแจ้งหนี้ที่เกินกำหนด',
+  'Reminded the customers of: {invoices}.':
+    'เตือนลูกค้าเรื่อง: {invoices}',
+  'No reminder was due.':
+    'ไม่มีการเตือนที่ถึงกำหนด',
+  'Remind a customer about an invoice':
+    'เตือนลูกค้าเรื่องใบแจ้งหนี้',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'มีใบแจ้งหนี้ที่เลยกำหนดแล้ว และไม่มีบทบาทใดส่งการเตือนได้ เปิดการเตือนอัตโนมัติที่สมุดบัญชี, ใบแจ้งหนี้: บริษัทจะส่งตามวันที่คุณตั้ง',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'การเตือนใบแจ้งหนี้ที่เกินกำหนดต้องมีกล่องจดหมายสำหรับส่ง โปรดให้กล่องจดหมายของแผนกนี้',
+  'Remind the customers whose invoices are overdue':
+    'เตือนลูกค้าที่ใบแจ้งหนี้เกินกำหนด',
+  'each customer whose next reminder is due has been written to once':
+    'ลูกค้าทุกรายที่ถึงกำหนดเตือนครั้งถัดไปได้รับจดหมายหนึ่งครั้ง',
 };

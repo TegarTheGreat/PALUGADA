@@ -38,6 +38,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
+| `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
 | `src/templates/` | what a company starts from: `founding.ts`, the CEO and nothing else; `work.ts`, what every role is built from. A team is the CEO's to build, and `test/helpers/standard-team.ts` is the full company the tests that need one use |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |

@@ -370,4 +370,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "당신을 기다리는 것: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     '하루에 세 번째라서 저절로 다시 시작되지 않습니다.',
+  'Invoice {number} needs you: {customer} has not paid':
+    '청구서 {number}에 조치가 필요합니다: {customer}이(가) 아직 결제하지 않았습니다',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '마지막 알림 이후에도 {customer}은(는) 청구서 {number}의 {amount}(기한 {due})을 아직 내지 않았습니다. 플랫폼은 더 이상 편지를 쓰지 않습니다. 다음은 당신의 몫입니다: 전화, 최종 통지, 또는 포기.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '청구서 {number}({amount}, {customer})은 {due}부터 연체되었는데 알림이 한 번도 나가지 않았으므로, 플랫폼은 이렇게 늦은 시점에 양식 편지를 보내지 않았습니다. 직접 처리하거나 CEO에게 원하는 바를 알려 주세요.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '청구서 {number}({amount}, {customer})은 {due}부터 연체되었고 알림을 보낼 이메일 주소가 없습니다. 고객에게 주소를 추가하거나 직접 처리하세요.',
+  'Nobody is set to remind customers about overdue invoices':
+    '연체된 청구서를 고객에게 알리도록 지정된 사람이 없습니다',
+  'Reminded the customers of: {invoices}.':
+    '고객에게 알렸습니다: {invoices}.',
+  'No reminder was due.':
+    '기한이 된 알림이 없습니다.',
+  'Remind a customer about an invoice':
+    '청구서에 대해 고객에게 알림',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    '기한이 지난 청구서가 있지만 알림을 보낼 수 있는 역할이 없습니다. 장부의 청구서에서 자동 알림을 켜세요. 정해 둔 날짜에 회사가 보냅니다.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    '연체된 청구서 알림을 보내려면 메일함이 필요합니다. 이 부서의 메일함을 등록해 주세요.',
+  'Remind the customers whose invoices are overdue':
+    '청구서가 연체된 고객에게 알림',
+  'each customer whose next reminder is due has been written to once':
+    '다음 알림 시기가 된 고객 모두에게 한 번씩 편지가 갔다',
 };

@@ -36,6 +36,7 @@
  */
 import { usesTools, type LlmClient, type LlmRequest } from '../llm/client.ts';
 import { runAgentLoop } from './agent-loop.ts';
+import { dutyFor } from '../duties/duties.ts';
 import type { StepKind } from '../engine/journal.ts';
 import type { TaskRow } from '../engine/tasks.ts';
 import type { ChildResult } from '../engine/containment.ts';
@@ -89,7 +90,9 @@ export class InProcessAdapter implements Adapter {
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
-    const handler = this.#handlers.get(request.roleSlug);
+    // A task the platform made to do a duty (src/duties) runs that duty, with no
+    // model; every other task is the role's handler's, or the model's.
+    const handler = dutyFor(request.task) ?? this.#handlers.get(request.roleSlug);
     if (!handler) {
       if (usesTools(this.#llm)) return { output: await runAgentLoop(request, services, this.#llm) };
       throw new Error(

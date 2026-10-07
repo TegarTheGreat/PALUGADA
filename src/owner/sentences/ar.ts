@@ -369,4 +369,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "بانتظارك: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'هذه ثالث مرة في يوم واحد، لذلك لن يستأنف من تلقاء نفسه.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'الفاتورة {number} تحتاج إليك: {customer} لم يدفع',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'لا يزال {customer} مدينًا بمبلغ {amount} من الفاتورة {number}، استحقاقها {due}، بعد آخر تذكير. توقفت المنصة عن مراسلته. ما يلي هو من شأنك: اتصال، أو إشعار أخير، أو التغاضي.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، ولم يُرسل أي تذكير قط، لذا لم ترسل المنصة رسالة جاهزة في وقت متأخر كهذا. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، ولا يوجد عنوان بريد إلكتروني لإرسال تذكير. أضف واحدًا للعميل، أو تابعها بنفسك.',
+  'Nobody is set to remind customers about overdue invoices':
+    'لم يُكلَّف أحد بتذكير العملاء بالفواتير المتأخرة',
+  'Reminded the customers of: {invoices}.':
+    'جرى تذكير العملاء بـ: {invoices}.',
+  'No reminder was due.':
+    'لم يحن موعد أي تذكير.',
+  'Remind a customer about an invoice':
+    'تذكير عميل بفاتورة',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'بعض الفواتير تجاوزت تاريخ استحقاقها، ولا يوجد دور يستطيع إرسال التذكيرات. فعّل التذكيرات التلقائية في الدفاتر، الفواتير: ستُرسلها الشركة في الأيام التي تحددها.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'تحتاج تذكيرات الفواتير المتأخرة إلى صندوق بريد لإرسالها. زوّد هذا القسم بصندوق بريده.',
+  'Remind the customers whose invoices are overdue':
+    'تذكير العملاء الذين تأخرت فواتيرهم',
+  'each customer whose next reminder is due has been written to once':
+    'كل عميل حان موعد تذكيره التالي كُتب إليه مرة واحدة',
 };

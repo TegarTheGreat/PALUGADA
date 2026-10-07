@@ -1812,6 +1812,7 @@ const SERVICE_TEXT: Record<string, string> = {
   'dns.read': N('Read a domain\'s DNS records.'),
   'dns.update': N('Change a DNS record.'),
   'invoice.issue': N('Issue an invoice a customer pays.'),
+  'invoice.remind': N('Remind a customer, in a letter written from the books, that an invoice is overdue.'),
   'social.publish': N('Publish a post.'),
   'metrics.read': N('Read your site\'s visits and goals.'),
   'calendar.read': N('Read the events on a Google calendar, signed in with Google.'),

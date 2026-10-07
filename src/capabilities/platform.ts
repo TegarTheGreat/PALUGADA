@@ -32,6 +32,7 @@ import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
 import { browserCapabilities, webExtractByBrowser } from './browser.ts';
 import { mailboxCapabilities } from './mailbox.ts';
+import { invoiceRemind } from './collections.ts';
 import { crmCapabilities } from './crm.ts';
 import { bookCapabilities } from './books.ts';
 import { codeCompute, type ComputeOptions } from './compute.ts';
@@ -127,6 +128,8 @@ export function platformCapabilities(
   if (options.browser) built.push(...browserCapabilities(options.browser));
   // A division's own mailbox; a service bound for either name replaces it.
   built.push(...mailboxCapabilities({ ...(options.mail ?? {}), ...(options.files ? { filesRoot: options.files.root } : {}) }));
+  // The reminder for an overdue invoice, written from the books and sent from that mailbox.
+  built.push(invoiceRemind({ ...(options.mail ?? {}) }) as unknown as Capability<never, never>);
   // The company's own customer record; a CRM the owner connects replaces it.
   built.push(...crmCapabilities());
   // The company's own books; an accounting service the owner connects replaces them.

@@ -369,4 +369,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Naghihintay sa iyo: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'Ito na ang ikatlong beses sa isang araw, kaya hindi ito kusang magpapatuloy.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Kailangan ka ng invoice {number}: hindi pa nagbabayad si {customer}',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'May utang pa si {customer} na {amount} sa invoice {number}, na takda sa {due}, pagkatapos ng huling paalala. Huminto na ang platform sa pagsulat sa kanila. Sa iyo na ang susunod: isang tawag, isang huling abiso, o pagpapaubaya.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at wala pang naipadalang paalala, kaya hindi nagpadala ang platform ng karaniwang liham nang ganito kahuli. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at walang email address na mapagpapadalhan ng paalala. Magdagdag ng isa sa kliyente, o ikaw na ang humabol.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Walang itinakdang magpaalala sa mga kliyente tungkol sa mga invoice na lampas na sa takda',
+  'Reminded the customers of: {invoices}.':
+    'Pinaalalahanan ang mga kliyente tungkol sa: {invoices}.',
+  'No reminder was due.':
+    'Walang paalalang kailangang ipadala.',
+  'Remind a customer about an invoice':
+    'Paalalahanan ang kliyente tungkol sa isang invoice',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'May mga invoice na lampas na sa takda, at walang role na makapagpapadala ng mga paalala. I-on ang awtomatikong paalala sa Mga libro, Mga invoice: ipapadala na ito ng kumpanya sa mga araw na itatakda mo.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Kailangan ng mailbox ang mga paalala para sa mga invoice na lampas na sa takda para maipadala ang mga ito. Ibigay ang mailbox ng division na ito.',
+  'Remind the customers whose invoices are overdue':
+    'Paalalahanan ang mga kliyenteng lampas na sa takda ang invoice',
+  'each customer whose next reminder is due has been written to once':
+    'ang bawat kliyenteng dapat nang bigyan ng susunod na paalala ay nasulatan nang isang beses',
 };

@@ -375,4 +375,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "En attente de vous : {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'C’est la troisième fois en un jour : il ne reprend donc pas de lui-même.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'La facture {number} a besoin de vous : {customer} n’a pas payé',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} doit encore {amount} sur la facture {number}, échue le {due}, après le dernier rappel. La plateforme a cessé de lui écrire. La suite est à vous : un appel, un dernier avis, ou laisser tomber.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et aucun rappel n’a jamais été envoyé ; la plateforme n’a donc pas envoyé de lettre type aussi tard. Relancez-la vous-même, ou dites au CEO ce que vous voulez.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et il n’y a pas d’adresse e-mail pour envoyer un rappel. Ajoutez-en une au client, ou relancez-la vous-même.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Personne n’est chargé de rappeler aux clients leurs factures en retard',
+  'Reminded the customers of: {invoices}.':
+    'Clients relancés au sujet de : {invoices}.',
+  'No reminder was due.':
+    'Aucun rappel n’était dû.',
+  'Remind a customer about an invoice':
+    'Rappeler une facture à un client',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Des factures ont dépassé leur échéance, et aucun rôle ne peut envoyer les rappels. Activez les rappels automatiques sous Comptabilité, Factures : l’entreprise les enverra alors aux jours que vous fixez.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Les rappels des factures en retard ont besoin d’une boîte mail pour partir. Donnez à cette division sa boîte mail.',
+  'Remind the customers whose invoices are overdue':
+    'Rappeler leurs factures en retard aux clients concernés',
+  'each customer whose next reminder is due has been written to once':
+    'chaque client dont le prochain rappel est dû a reçu une lettre, une seule fois',
 };

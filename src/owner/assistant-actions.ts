@@ -88,6 +88,24 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     secrets: { key: 'API key' },
     factor: 'always',
   },
+  {
+    pattern: '/api/companies/:companyId/collections',
+    what: 'Turn reminders for overdue invoices on or off, set the days after the due date they go, and the owner\'s own words on how customers pay. Turning them on lets the roles that issue invoices (or the CEO) send them; the letters are written from the books, not by a model.',
+    fields: {
+      enabled: 'true or false',
+      stepsDays: 'one to five days after the due date, each later than the one before, such as [3, 10, 24]',
+      paymentNote: 'where and how customers pay, in the owner\'s words, added to every reminder; null to remove',
+    },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices/:invoiceId/reminders',
+    what: 'Leave one invoice out of the automatic reminders, or put it back.',
+    fields: { held: 'true to leave it alone, false to remind about it again' },
+    factor: 'never',
+    chat: true,
+    auto: true,
+  },
   { pattern: '/api/control/settings/model/clear', what: 'Go back to the model the environment names.', factor: 'always' },
   {
     pattern: '/api/control/settings/model/prices',

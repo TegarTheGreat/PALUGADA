@@ -371,4 +371,28 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     "Aguardando você: {count}",
   'This is the third time in a day, so it does not go on by itself.':
     'É a terceira vez no dia, então ele não segue sozinho.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'A fatura {number} precisa de você: {customer} não pagou',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} ainda deve {amount} da fatura {number}, vencida em {due}, depois do último lembrete. A plataforma parou de escrever para ele. O que vem agora é seu: uma ligação, um aviso final ou deixar para lá.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'A fatura {number} ({amount}, {customer}) está vencida desde {due}, e nunca foi enviado um lembrete, então a plataforma não mandou uma carta-padrão tão tarde. Acompanhe você mesmo, ou diga ao CEO o que quer que seja feito.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'A fatura {number} ({amount}, {customer}) está vencida desde {due}, e não há endereço de e-mail para enviar um lembrete. Acrescente um ao cliente, ou acompanhe você mesmo.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Ninguém está encarregado de lembrar os clientes das faturas vencidas',
+  'Reminded the customers of: {invoices}.':
+    'Clientes lembrados de: {invoices}.',
+  'No reminder was due.':
+    'Nenhum lembrete era devido.',
+  'Remind a customer about an invoice':
+    'Lembrar um cliente de uma fatura',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Algumas faturas passaram do vencimento, e nenhum cargo pode enviar os lembretes. Ative os lembretes automáticos em Livros, Faturas: a empresa os enviará nos dias que você definir.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Os lembretes de faturas vencidas precisam de uma caixa de e-mail para serem enviados. Dê a esta divisão a sua caixa de e-mail.',
+  'Remind the customers whose invoices are overdue':
+    'Lembrar os clientes cujas faturas estão vencidas',
+  'each customer whose next reminder is due has been written to once':
+    'cada cliente cujo próximo lembrete é devido recebeu uma carta, uma única vez',
 };

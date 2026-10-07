@@ -887,11 +887,32 @@ export interface InvoiceRow {
 export interface InvoiceDetail extends InvoiceRow {
   lines: Array<{ description: string; quantity: number; unitCents: number; amountCents: number }>;
   payments: Array<{ id: string; paidOn: string; amountCents: number; entryId: string; reversed: boolean; writtenBy: 'owner' | 'agent' }>;
+  /** The reminders sent, in order, and whether the owner asked that it be left alone. */
+  reminders: Array<{ step: number; sentOn: string; to: string }>;
+  held: boolean;
+}
+
+/** What has been done about reminding a customer of one invoice. */
+export interface InvoiceReminding {
+  sent: number;
+  lastOn: string | null;
+  held: boolean;
+  told: boolean;
+}
+
+/** Reminders for overdue invoices: the company's policy, and who writes them. */
+export interface Collections {
+  enabled: boolean;
+  stepsDays: number[];
+  paymentNote: string | null;
+  senders: { names: string[]; waiting: string[] };
 }
 
 export interface Invoices {
   invoices: InvoiceRow[];
   outstanding: Array<{ currency: string; outstandingCents: number; overdueCents: number }>;
+  reminding: Record<string, InvoiceReminding>;
+  collections: Collections;
 }
 
 /** The languages of the deployment: the panel's, the agents', and the ones it can be set to. */

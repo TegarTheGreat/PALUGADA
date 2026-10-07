@@ -443,6 +443,23 @@ redelivery after a restart or at another replica is taken in once.
 **Residual risk.** Whoever holds the owner's chat account has session-level
 authority below tier 3.
 
+#### 2.7.1 A stranger's file
+
+A customer's mail can carry files, and keeping one writes a stranger's bytes into the company's files
+(`src/chats/attachments.ts`, STATUS 2.171). **Defences.** The sender names nothing: the path is
+`received/mail/<yyyy-mm>/<first eight characters of the message's id>-<n>.<ext>`, made by the platform, and the
+extension is the kind the bytes turned out to be; the name they gave is kept apart, made plain and short, and
+is shown as data. The bytes decide (`sniffReceived`): a PDF, Word or Excel document, a picture, a recording or
+text is kept; a program, script, archive, SVG, pre-2007 or macro Office file and anything unrecognised is not.
+The file is created and never replaced, and not through a link; a link where the folder goes is found before
+anything is written beyond it. Five files a message, ten megabytes a file, fifteen a message, 2 GB a company
+and 500 MB a day. Nothing is opened or run: a document is read, if at all, in the sandboxed browser, and
+downloaded as an octet stream; `chat.read` is a read of outside content like any other, so the work it taints
+asks the owner at tier 2. The customer-facing role gets a customer's own files through `chat.read` and needs no
+`files.read` over the rest. **Residual risk.** A document is parsed by Chromium (no files, network or secrets in
+its context), now reachable by strangers; there is no virus scan and no retention, so personal data a stranger
+sends stays until the owner removes it; an export carries no file.
+
 ### 2.8 Supply chain
 
 - **Bundles and skills.** A signature that does not verify is refused; one from
@@ -572,3 +589,4 @@ All under `test/acceptance/` unless named.
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |
 | The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
+| A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |

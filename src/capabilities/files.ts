@@ -323,8 +323,7 @@ function documentKind(bytes: Buffer, name: string): DocumentKind | null {
  * untrusted binaries, and the browser reads each in a sandboxed page with no
  * network. Without a browser they are said to need one.
  */
-export function filesRead(options: FilesOptions, browser?: Browsers): Capability<ReadInput, ReadOutput> {
-  const converted = new Map<string, { kind: DocumentKind; text: string; at: number }>();
+export function filesRead(options: FilesOptions, browser?: Browsers, reader: FileTextReader = fileTextReader(options, browser)): Capability<ReadInput, ReadOutput> {
   return {
     name: 'files.read',
     inputSchema: {
@@ -340,49 +339,7 @@ export function filesRead(options: FilesOptions, browser?: Browsers): Capability
     defaultTier: 0,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
-      const opened = await readCompanyFile(options.root, ctx.companyId, input.path, READ_MAX_BYTES, 'files.read reads files up to 10 MB');
-      const { path: wanted, real, bytes } = opened;
-      async function convertedText(document: DocumentKind): Promise<string> {
-        const said = DOCUMENT_SAID[document];
-        if (!browser) {
-          throw new PalugadaError('capability.unreachable',
-            `${wanted} is ${said}: this deployment reads them in its browser, and has none (install Chromium, or set PALUGADA_CHROMIUM)`, { path: wanted });
-        }
-        const key = `${real}:${opened.size}:${opened.mtimeMs}`;
-        const kept = converted.get(key);
-        if (kept && Date.now() - kept.at < CONVERTED_MS) return kept.text;
-        const answer = await browser.convert(document, bytes, ctx.signal);
-        if ('failure' in answer) {
-          const why = {
-            'no-reader': `${wanted} is a PDF, and this deployment's console was built without its PDF reader: build it again (npm run console:build)`,
-            'too-large': `${wanted} is too large once unpacked: files.read unpacks up to ${UNPACKED_MAX / 1_048_576} MB of a document, and reads up to 5 million characters`,
-            unreadable: `${wanted} is not ${said} that can be read`,
-            encrypted: `${wanted} is locked with a password`,
-            'no-text': `${wanted} has no text in it -- it may be a scan`,
-            'too-slow': `${wanted} took over a minute to read, and was left`,
-          }[answer.failure];
-          throw new PalugadaError(answer.failure === 'no-reader' ? 'capability.unreachable' : 'contract.violation', why, { path: wanted });
-        }
-        for (const [old, entry] of converted) if (Date.now() - entry.at >= CONVERTED_MS) converted.delete(old);
-        while (converted.size >= CONVERTED_KEPT) converted.delete(converted.keys().next().value!);
-        converted.set(key, { kind: document, text: answer.text, at: Date.now() });
-        return answer.text;
-      }
-
-      let whole: string;
-      let kind: ReadOutput['kind'] = 'text';
-      const document = documentKind(bytes, wanted);
-      if (document) {
-        kind = document;
-        whole = await convertedText(document);
-      } else {
-        try {
-          whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
-          if (whole.includes('\u0000')) throw new Error('a NUL');
-        } catch {
-          throw new PalugadaError('contract.violation', `${wanted} is not text, nor a PDF, Word or Excel file: files.read reads those`, { path: wanted });
-        }
-      }
+      const { path: wanted, kind, bytes, text: whole } = await reader(ctx.companyId, input.path, ctx.signal);
       const from = Math.floor(Number(input.from ?? 0));
       if (!Number.isFinite(from) || from < 0 || (from > 0 && from >= whole.length)) {
         throw new PalugadaError('contract.violation', `from is past the end: ${wanted} is ${whole.length} characters`, { field: 'from' });
@@ -392,12 +349,73 @@ export function filesRead(options: FilesOptions, browser?: Browsers): Capability
       return {
         path: wanted,
         kind,
-        bytes: opened.size,
+        bytes,
         text: whole.slice(from, end),
         from,
         next: end < whole.length ? end : null,
       };
     },
+  };
+}
+
+/** A company's file read as text: what `files.read` pages through and what `chat.read` offers of a customer's own files. */
+export type FileTextReader = (companyId: string, path: unknown, signal?: AbortSignal) => Promise<{
+  path: string; kind: ReadOutput['kind']; bytes: number; text: string;
+}>;
+
+/**
+ * Reads a file of the company as text, by the rules every reader of files
+ * keeps (`readCompanyFile`): text as it is, and a PDF, a Word document or a
+ * workbook converted in the deployment's browser, kept a few minutes so that
+ * the next page of a long document is not another conversion.
+ */
+export function fileTextReader(options: FilesOptions, browser?: Browsers): FileTextReader {
+  const converted = new Map<string, { kind: DocumentKind; text: string; at: number }>();
+  return async (companyId, path, signal) => {
+    const opened = await readCompanyFile(options.root, companyId, path, READ_MAX_BYTES, 'files.read reads files up to 10 MB');
+    const { path: wanted, real, bytes } = opened;
+    async function convertedText(document: DocumentKind): Promise<string> {
+      const said = DOCUMENT_SAID[document];
+      if (!browser) {
+        throw new PalugadaError('capability.unreachable',
+          `${wanted} is ${said}: this deployment reads them in its browser, and has none (install Chromium, or set PALUGADA_CHROMIUM)`, { path: wanted });
+      }
+      const key = `${real}:${opened.size}:${opened.mtimeMs}`;
+      const kept = converted.get(key);
+      if (kept && Date.now() - kept.at < CONVERTED_MS) return kept.text;
+      const answer = await browser.convert(document, bytes, signal);
+      if ('failure' in answer) {
+        const why = {
+          'no-reader': `${wanted} is a PDF, and this deployment's console was built without its PDF reader: build it again (npm run console:build)`,
+          'too-large': `${wanted} is too large once unpacked: files.read unpacks up to ${UNPACKED_MAX / 1_048_576} MB of a document, and reads up to 5 million characters`,
+          unreadable: `${wanted} is not ${said} that can be read`,
+          encrypted: `${wanted} is locked with a password`,
+          'no-text': `${wanted} has no text in it -- it may be a scan`,
+          'too-slow': `${wanted} took over a minute to read, and was left`,
+        }[answer.failure];
+        throw new PalugadaError(answer.failure === 'no-reader' ? 'capability.unreachable' : 'contract.violation', why, { path: wanted });
+      }
+      for (const [old, entry] of converted) if (Date.now() - entry.at >= CONVERTED_MS) converted.delete(old);
+      while (converted.size >= CONVERTED_KEPT) converted.delete(converted.keys().next().value!);
+      converted.set(key, { kind: document, text: answer.text, at: Date.now() });
+      return answer.text;
+    }
+
+    let whole: string;
+    let kind: ReadOutput['kind'] = 'text';
+    const document = documentKind(bytes, wanted);
+    if (document) {
+      kind = document;
+      whole = await convertedText(document);
+    } else {
+      try {
+        whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+        if (whole.includes('\u0000')) throw new Error('a NUL');
+      } catch {
+        throw new PalugadaError('contract.violation', `${wanted} is not text, nor a PDF, Word or Excel file: files.read reads those`, { path: wanted });
+      }
+    }
+    return { path: wanted, kind, bytes: opened.size, text: whole };
   };
 }
 

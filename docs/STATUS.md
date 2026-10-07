@@ -10259,6 +10259,61 @@ dependency was added: the page is drawn by the Chromium that `browser.read` and 
   presses, the language ignored, a "paid" mark added); scripts left on failed them only once the page was also drawn
   without its policy; taking the offline wall out alone is not seen, for the reason above.
 
+## 2.171 A mailed attachment is kept, and the role that answers can read it (the audit of 6 October, P1.4 part 5)
+
+A purchase order or a price list that arrived by email was thrown away with "which cannot be read here". Migration
+0125 adds `chat_messages.files` (a jsonb array of at most five, 8 KB); no other table: the company's files
+folder is the store.
+
+- **What is kept.** A mail's attachments are read from the message (`readMail(raw, { keep: true })`: RFC 2231 and
+  2047 file names, a quoted name with a `;`, at most 200 parts walked, five files, a signature logo or tracking
+  pixel under 30 KB skipped, a forwarded message, a calendar invitation and a delivery report not counted as files),
+  and once the message is claimed, before its work is made, each is written to
+  `received/mail/<yyyy-mm>/<first eight of the message's id>-<n>.<ext>`. The IMAP fetch asks for `RFC822.SIZE`; a
+  message whose first 256 KB window shows files is fetched whole when it is no more than 15 MiB (the socket's chunks
+  are now joined once, not on every arrival), and over that its text is read and its files are said not to be
+  fetched. A message that joins work already waiting keeps its files too; one held by the hour's limit keeps
+  none. A retry after a crash finds the files it wrote: the same bytes under the same name are the same file.
+- **The sender chooses nothing.** The path is the platform's; the extension is the kind the bytes are, never the
+  claimed one; the name they gave is kept apart as a display name, NFC, no folder, no control, invisible or
+  direction-changing character, at most 100 characters, and shown as text. What is kept is told by how the bytes
+  begin (`sniffReceived`): PDF, Word and Excel (a ZIP that holds `word/document.xml` or `xl/workbook.xml` and was
+  called `.docx` or `.xlsx`), a picture, a recording, text (strict UTF-8 without a NUL, up to 5 MB; markup is kept
+  only as the text it is). A program or script, an archive, an SVG, an Office file from before 2007 or with macros,
+  a video and anything unrecognised is not, and the reason is a sentence. Written once, never over another file, never
+  through a link; a link where `received` goes is found before anything is made beyond it.
+- **Bounded.** Five files a message, ten megabytes a file, fifteen a message, 2 GB a company and 500 MB a day
+  (counted from the messages' own records, not the disk): a stranger cannot fill it. Past any of these the
+  file is a note and the message still starts its work.
+- **What the role reads.** `chat.read` returns each customer message's `files` (kind, name, path, bytes, why
+  not) and, for the documents of the latest five customer messages, at most three at once, what they say (12,000
+  characters each): PDF, Word and Excel in the sandboxed browser through the same reader `files.read` uses (one cache),
+  text as it is; without a browser or when it is busy the file has a `textNote`, never a failure of `chat.read`.
+  The conversion happens outside the database transaction. The customer-facing role holds `chat.read`, `chat.send`
+  and `memory.search` and needs no `files.read`, which would read every file of the company. The task text names
+  the kept path and never the sender's name; everything is a read of outside content, so work that read it asks
+  the owner at tier 2, as before.
+- **The owner sees it.** The thread shows each file under its message -- its name as text, its kind, its size, a
+  **Download** button for the owner (the Files tab's own route; a seat has none), and for a file that was not
+  kept the reason in the owner's language -- with the line that it came from outside. Two event kinds
+  (`chat.attachment_kept`, `chat.attachment_not_kept`: kind and size, never the name), in the twenty dictionaries.
+  An export lists each file without its path and says "not in the archive": a restored company lists no file it does not have.
+- **Not done, and said.** Telegram and WhatsApp files (part 6: the transports' own downloads and their limits
+  are not verified here). No retention of received files: they stay until the owner removes them (the Files tab
+  removes uploads only; a received file is removed with the company), which is personal data a stranger chose to
+  send. No virus scan. A message of over 15 MiB shows only the files visible in its first window as not kept, and
+  the rest not at all. The sandboxed converter now reaches strangers' documents: a bug in Chromium's PDF or XML
+  reading inside its sandbox (no files, network or secrets there) is the residual risk, called out in the threat
+  model (2.7.1). A role that is not the channel's still needs `files.read` to read `received/` by path.
+- **Tested** in `customer-attachments.test.ts` (fifteen tests against the fake IMAP and SMTP servers, with real
+  Chromium for the documents): the whole way from a mailed PDF to `chat.read`'s text, the owner's download, the
+  events by kind and never by name; polled twice and delivered twice; what cannot be kept (over 10 MB, a program,
+  a sixth file, over 15 MB, no files root, a company at its limit) said on the message and in the task text; hostile
+  names (`../../etc/passwd`, a reversing character, `CON`, a NUL, 300 characters, NFC and NFD) leaving a path of the
+  platform's own; the kind told by the bytes for thirty cases; RFC 2231 and 2047 names; the logo, the five, the maze
+  and the forwarded message; a link where `received` goes and where the file goes; `chat.read`'s three documents
+  and its cut; the export. Thirteen mutations of the code each seen to fail them.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

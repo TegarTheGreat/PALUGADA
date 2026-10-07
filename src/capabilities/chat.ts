@@ -29,6 +29,8 @@ import { AnswerCheck } from '../chats/answer-check.ts';
 import { passagesNamed, type PassageRef } from '../knowledge/documents.ts';
 import type { LlmClient } from '../llm/client.ts';
 import type { Clearance } from '../broker/registry.ts';
+import { isPalugadaError } from '../errors.ts';
+import type { FileTextReader } from './files.ts';
 
 export interface ChatOptions {
   /** Where each channel's token is sealed (`db://chat-…`). */
@@ -103,16 +105,42 @@ async function chatFor(tx: TenantClient, ctx: CapabilityContext, named: string |
   return chatId;
 }
 
+/** One file a customer sent, as a run reads it: where it is kept, or why it is not, and what a document says. */
+export interface ChatReadFile {
+  kind: string;
+  /** What the sender called it: theirs, so data. */
+  name: string | null;
+  /** Where it is kept in the company's files; null when it was not kept. */
+  path: string | null;
+  bytes: number;
+  note?: string;
+  /** What a PDF, a Word document, a workbook or a text file says, when it was read. */
+  text?: string;
+  textNote?: string;
+}
+
 export interface ChatReadResult {
   chatId: string;
   channel: string;
   account: string;
   customer: string | null;
   handle: string | null;
-  messages: Array<{ from: 'customer' | 'company'; text: string; attachment?: string; subject?: string; at: string }>;
+  messages: Array<{ from: 'customer' | 'company'; text: string; attachment?: string; files?: ChatReadFile[]; subject?: string; at: string }>;
 }
 
-export function chatRead(): Capability<{ chatId?: string; limit?: number }, ChatReadResult> {
+/**
+ * What of a customer's files `chat.read` reads for the run: the documents of
+ * their latest messages, a few, and a few thousand characters of each. The rest
+ * is offered by path. Reading is the platform's, in the sandboxed browser, so
+ * the role that answers customers needs no `files.read` -- which would let it
+ * read every file the company has, to answer one customer.
+ */
+const READ_MESSAGES = 5;
+const READ_FILES = 3;
+const READ_CHARS = 12_000;
+const READABLE = new Set(['pdf', 'word', 'excel', 'text']);
+
+export function chatRead(reader?: FileTextReader): Capability<{ chatId?: string; limit?: number }, ChatReadResult> {
   return {
     name: 'chat.read',
     inputSchema: {
@@ -125,29 +153,67 @@ export function chatRead(): Capability<{ chatId?: string; limit?: number }, Chat
     },
     adapter: 'platform',
     defaultTier: 0,
-    // What a customer wrote, in their words.
+    // What a customer wrote, in their words, and what they attached.
     readsOutside: true,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
-      return withTenant(ctx.companyId, async (tx) => {
+      const { chatId, found } = await withTenant(ctx.companyId, async (tx) => {
         const chatId = await chatFor(tx, ctx, input.chatId);
         const found = await chatWith(tx, chatId, input.limit ?? 50);
         if (!found) throw new PalugadaError('contract.violation', 'no such conversation in this company', { field: 'chatId' });
-        return {
-          chatId,
-          channel: found.chat.kind,
-          account: found.chat.account,
-          customer: found.chat.customerName,
-          handle: found.chat.customerHandle,
-          messages: found.messages.filter((message) => message.sent).map((message) => ({
-            from: message.direction === 'in' ? 'customer' as const : 'company' as const,
-            text: message.body,
-            ...(message.attachment ? { attachment: `${message.attachment}, which cannot be read here` } : {}),
-            ...(message.subject ? { subject: message.subject } : {}),
-            at: message.at.toISOString(),
-          })),
-        };
+        return { chatId, found };
       });
+      // Outside the transaction: a document is converted in a browser, which takes seconds.
+      const said = found.messages.filter((message) => message.sent);
+      const recent = said.filter((message) => message.direction === 'in' && message.files.length > 0).slice(-READ_MESSAGES);
+      const texts = new Map<string, Pick<ChatReadFile, 'text' | 'textNote'>>();
+      let reading = 0;
+      for (const message of [...recent].reverse()) {
+        for (const file of message.files) {
+          if (!file.path || !READABLE.has(file.kind)) continue;
+          if (reading >= READ_FILES) {
+            texts.set(file.path, { textNote: `only the ${READ_FILES} newest documents are read at once: read this one with files.read, or ask again` });
+            continue;
+          }
+          reading += 1;
+          if (!reader) {
+            texts.set(file.path, { textNote: 'this deployment cannot read files' });
+            continue;
+          }
+          try {
+            const read = await reader(ctx.companyId, file.path, ctx.signal);
+            texts.set(file.path, read.text.length > READ_CHARS
+              ? { text: read.text.slice(0, READ_CHARS), textNote: `only the first ${READ_CHARS.toLocaleString('en-US')} of ${read.text.length.toLocaleString('en-US')} characters are shown` }
+              : { text: read.text });
+          } catch (failure) {
+            texts.set(file.path, {
+              textNote: isPalugadaError(failure, 'capability.busy') ? 'the browser that reads documents is busy: ask again in a minute' : (failure as Error).message.slice(0, 300),
+            });
+          }
+        }
+      }
+      return {
+        chatId,
+        channel: found.chat.kind,
+        account: found.chat.account,
+        customer: found.chat.customerName,
+        handle: found.chat.customerHandle,
+        messages: said.map((message) => ({
+          from: message.direction === 'in' ? 'customer' as const : 'company' as const,
+          text: message.body,
+          // A file that was kept is a path below; what this platform could not keep is said below too.
+          ...(message.attachment && message.files.length === 0 ? { attachment: `${message.attachment}, which cannot be read here` } : {}),
+          ...(message.files.length > 0 ? {
+            files: message.files.map((file): ChatReadFile => ({
+              kind: file.kind, name: file.name, path: file.path, bytes: file.bytes,
+              ...(file.note ? { note: file.note } : {}),
+              ...(file.path ? texts.get(file.path) ?? {} : {}),
+            })),
+          } : {}),
+          ...(message.subject ? { subject: message.subject } : {}),
+          at: message.at.toISOString(),
+        })),
+      };
     },
   };
 }
@@ -330,6 +396,6 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
 }
 
 /** Both, bound to where the channels' tokens are sealed. */
-export function chatCapabilities(options: ChatOptions): Array<Capability<never, never>> {
-  return [chatRead() as unknown as Capability<never, never>, chatSend(options) as unknown as Capability<never, never>];
+export function chatCapabilities(options: ChatOptions, reader?: FileTextReader): Array<Capability<never, never>> {
+  return [chatRead(reader) as unknown as Capability<never, never>, chatSend(options) as unknown as Capability<never, never>];
 }

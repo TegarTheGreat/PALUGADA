@@ -212,8 +212,10 @@ export async function imapServer(certificate: Certificate, account: { user: stri
             // BODY[] without PEEK marks the message read, as a server does.
             if (!/BODY\.PEEK\[/i.test(line)) message.flags.add('\\Seen');
             const flags = /\bFLAGS\b/i.test(line) ? ` FLAGS (${[...message.flags].join(' ')})` : '';
-            const body = Buffer.from(message.raw, 'utf8').subarray(0, partial ? Number(partial[2]) : undefined);
-            socket.write(`* ${index + 1} FETCH (UID ${uid}${flags} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
+            const whole = Buffer.from(message.raw, 'utf8');
+            const size = /\bRFC822\.SIZE\b/i.test(line) ? ` RFC822.SIZE ${whole.length}` : '';
+            const body = whole.subarray(0, partial ? Number(partial[2]) : undefined);
+            socket.write(`* ${index + 1} FETCH (UID ${uid}${flags}${size} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
             socket.write(body);
             socket.write(')\r\n');
           }

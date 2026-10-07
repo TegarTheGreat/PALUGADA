@@ -1079,7 +1079,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // too (0096): its directory in the files root, its charter's folder.
     erasure: { filesRoot, charters: charterRepository },
     // Customers' mailboxes, read in the tick by whichever worker takes each.
-    mail: { secrets, ...(mailCa ? { ca: mailCa } : {}) },
+    mail: { secrets, ...(mailCa ? { ca: mailCa } : {}), ...(filesRoot ? { filesRoot } : {}) },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {

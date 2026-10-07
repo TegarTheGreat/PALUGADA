@@ -1199,7 +1199,13 @@ STARTTLS (587), and a server that offers neither is refused. The mailbox is
 read from the moment it is connected: the mail it already holds is never
 taken for work. An auto-reply, a bounce, a mailing list and the mailbox's
 own mail start nothing, and a reply's quoted history is left out of what
-the role reads. Reading a message does not mark it read in your own mail
+the role reads. What the customer attaches is kept (up to five files, ten
+megabytes each, fifteen a letter) in the company's files under `received/mail`,
+shown in the conversation with a **Download** button, and offered to the role by
+`chat.read` with what a PDF, a Word or Excel document or a text file says; a
+program, a script, an archive, an SVG and a file from an old Office version are
+not kept, and the conversation says so. Open a customer's file only if you trust
+the sender: it came from outside. Reading a message does not mark it read in your own mail
 app. When the mailbox cannot be read -- the password changed, the server is
 down -- **Customers** says why under the channel, and the mail waits on the
 server until it can be. A server with a private certificate is trusted with

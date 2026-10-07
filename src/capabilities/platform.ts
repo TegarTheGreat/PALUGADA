@@ -27,7 +27,7 @@ import { webExtract, webSearch, type ExtractProvider, type SearchProvider, type 
 import { imageGenerate, speechSynthesize, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { speechTranscribe, type ListenBinding } from './listen.ts';
 import { imageDescribe, type VisionBinding } from './vision.ts';
-import { filesList, filesRead, type FilesOptions } from './files.ts';
+import { fileTextReader, filesList, filesRead, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
 import { browserCapabilities, webExtractByBrowser } from './browser.ts';
@@ -106,10 +106,12 @@ export function platformCapabilities(
     uptimeCheck(options.web ?? {}) as unknown as Capability<never, never>,
   ];
 
+  // One reader of files, so that a document `files.read` converted is not converted again for `chat.read`.
+  const reader = options.files ? fileTextReader(options.files, options.browser) : undefined;
   if (options.files) {
     built.push(filesList(options.files) as unknown as Capability<never, never>);
     // A PDF, a Word document or a workbook is read in the browser, when there is one.
-    built.push(filesRead(options.files, options.browser) as unknown as Capability<never, never>);
+    built.push(filesRead(options.files, options.browser, reader) as unknown as Capability<never, never>);
   }
   if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
   // A page is read by the provider the owner chose; with none, by this
@@ -121,7 +123,7 @@ export function platformCapabilities(
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);
   if (options.vision) built.push(imageDescribe(options.vision) as unknown as Capability<never, never>);
   if (options.compute) built.push(codeCompute(options.compute) as unknown as Capability<never, never>);
-  if (options.chat) built.push(...chatCapabilities(options.chat));
+  if (options.chat) built.push(...chatCapabilities(options.chat, reader));
   if (options.browser) built.push(...browserCapabilities(options.browser));
   // A division's own mailbox; a service bound for either name replaces it.
   built.push(...mailboxCapabilities({ ...(options.mail ?? {}), ...(options.files ? { filesRoot: options.files.root } : {}) }));

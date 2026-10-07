@@ -35,6 +35,10 @@ import { languageName, languagesFor } from '../domain/language.ts';
 import { createRootTask } from '../engine/tasks.ts';
 import { contactForMessage } from '../records/contacts.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
+import {
+  RECEIVED_COMPANY_MAX, RECEIVED_DAY_MAX, RECEIVED_FILE_MAX, RECEIVED_MESSAGE_MAX, RECEIVED_PER_MESSAGE,
+  displayName, keepReceivedFile, type NotKeptWhy, type ReceivedFile,
+} from './attachments.ts';
 
 export const CHAT_KINDS = ['telegram', 'whatsapp', 'email'] as const;
 export type ChatKind = (typeof CHAT_KINDS)[number];
@@ -53,6 +57,28 @@ export interface InboundMessage {
   attachment: string | null;
   /** A mail's subject. */
   subject?: string | null;
+  /**
+   * What arrived as files, for the platform to keep (`attachments.ts`): the
+   * transport hands over each file's bytes lazily, so nothing is fetched or
+   * decoded for a message that is a duplicate or past the hour's limit.
+   */
+  media?: InboundMedia[];
+  /** How many more files than `media` holds were sent, which were left out. */
+  mediaOmitted?: number;
+}
+
+export interface InboundMedia {
+  /** The transport's word for it: photo, voice, video, document. */
+  kind: string;
+  /** What the sender called it: theirs, so data. */
+  name: string | null;
+  mime: string;
+  size: number | null;
+  /** The bytes; null when the transport knows it cannot hand them over (and `refused` says why). */
+  get: (() => Promise<Buffer>) | null;
+  /** Why it will not be kept, when the transport knew before fetching, and the word the console says it with. */
+  refused?: string;
+  refusedWhy?: NotKeptWhy;
 }
 
 /** An open channel, as a delivery to it is checked and recorded. */
@@ -135,6 +161,8 @@ export interface MessageView {
   subject: string | null;
   /** In: what the message did -- started work, joined it, or was held by the hour's limit. */
   outcome: 'started' | 'joined' | 'limited' | null;
+  /** In: the files it carried, kept or not, and why (0125). */
+  files: ReceivedFile[];
   taskId: string | null;
   /** Out: whether the transport took it. A reply whose send failed stays unsent. */
   sent: boolean;
@@ -198,7 +226,7 @@ export async function recordRefusal(channel: OpenChannel, reason: string): Promi
  * known only from the channel the address named -- and everything written is
  * written with that company and no other.
  */
-export async function receiveMessage(channel: OpenChannel, message: InboundMessage): Promise<Received> {
+export async function receiveMessage(channel: OpenChannel, message: InboundMessage, files?: { root: string }): Promise<Received> {
   const decided = await withControlPlane(async (tx) => {
     // One delivery at a time per channel, so two messages arriving together
     // cannot both start work, or both find room under the limit.
@@ -246,12 +274,12 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
       [chatId],
     );
     if (waiting.rows[0]) {
-      await record('joined', waiting.rows[0].task_id);
+      const { rows: [joined] } = await record('joined', waiting.rows[0].task_id);
       await appendEvent(tx, {
         companyId: channel.companyId, taskId: waiting.rows[0].task_id, type: 'chat.received', actor: 'system',
         payload: { channelId: channel.id, chatId, outcome: 'joined' },
       });
-      return { done: { outcome: 'joined' as const, chatId, taskId: waiting.rows[0].task_id } };
+      return { done: { outcome: 'joined' as const, chatId, taskId: waiting.rows[0].task_id }, joinedMessage: joined!.id };
     }
     const { rows: [hour] } = await tx.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM chat_messages m JOIN chats c ON c.id = m.chat_id
@@ -269,12 +297,19 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     const { rows: [made] } = await record('started', null);
     return { start: made!.id, chatId, contactId };
   });
-  if ('done' in decided) return decided.done!;
+  if ('done' in decided) {
+    // A message that joined work already waiting keeps its files, though it starts none.
+    if ('joinedMessage' in decided && decided.joinedMessage) await keepMedia(channel, message, decided.joinedMessage, files);
+    return decided.done!;
+  }
 
   const { chatId, contactId } = decided;
+  const kept = await keepMedia(channel, message, decided.start, files);
   const languages = await withTenant(channel.companyId, (tx) => languagesFor(tx, channel.companyId));
   const said = (message.subject ? `Subject: ${message.subject}\n\n` : '') + message.text
-    + (message.attachment ? `${message.text ? '\n' : ''}[sent a ${message.attachment}, which cannot be read here]` : '');
+    + (kept.length > 0 || (message.mediaOmitted ?? 0) > 0
+      ? `${message.text ? '\n' : ''}${filesSaid(kept, message.mediaOmitted ?? 0)}`
+      : message.attachment ? `${message.text ? '\n' : ''}[sent a ${message.attachment}, which cannot be read here]` : '');
   const task = await createRootTask({
     companyId: channel.companyId,
     projectId: channel.projectId,
@@ -317,6 +352,90 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     detail: `a customer wrote on ${channel.kind}; task ${task.id}`,
   });
   return { outcome: 'started', chatId, taskId: task.id };
+}
+
+/** What a kept file is called in a sentence. */
+const KIND_SAID: Record<string, string> = {
+  pdf: 'a PDF', word: 'a Word document', excel: 'an Excel workbook', photo: 'a photo', voice: 'a recording', text: 'a text file',
+  video: 'a video', document: 'a document',
+};
+
+/**
+ * What a message's files came to, said to the run that reads it: where each
+ * kept one is, and why each one that is not kept was left. The path is made
+ * by this platform; the name the sender gave is not in the sentence.
+ */
+function filesSaid(kept: ReceivedFile[], omitted: number): string {
+  const lines = kept.map((one) => (one.path
+    ? `[sent ${KIND_SAID[one.kind] ?? 'a file'}, kept as ${one.path}: chat.read shows what it says]`
+    : `[sent ${KIND_SAID[one.kind] ?? 'a file'}, not kept: ${one.note ?? 'it could not be kept'}]`));
+  if (omitted > 0) lines.push(`[${omitted} more file${omitted === 1 ? ' was' : 's were'} sent and not kept: a message keeps at most ${RECEIVED_PER_MESSAGE}]`);
+  return lines.join('\n');
+}
+
+/**
+ * Keeps the files a message carried, once it is claimed, and records what
+ * became of each on the message. Every file that cannot be kept is a note and
+ * not a failure: the message still starts its work, and the run is told why a
+ * file is not there. Run again for the same message (a delivery retried after a
+ * crash) it finds each file it wrote and writes nothing twice.
+ */
+async function keepMedia(channel: OpenChannel, message: InboundMessage, messageId: string, files: { root: string } | undefined): Promise<ReceivedFile[]> {
+  const media = (message.media ?? []).slice(0, RECEIVED_PER_MESSAGE);
+  if (media.length === 0) return [];
+  const at = new Date();
+  const entries: ReceivedFile[] = [];
+  // What strangers have already sent this company, altogether and today: the disk is the owner's.
+  const { rows: [held] } = files
+    ? await withControlPlane((tx) => tx.query<{ everything: string; today: string }>(
+      `SELECT coalesce(sum((f ->> 'bytes')::bigint) FILTER (WHERE f ->> 'path' IS NOT NULL AND m.id <> $2), 0)::text AS everything,
+              coalesce(sum((f ->> 'bytes')::bigint) FILTER (WHERE f ->> 'path' IS NOT NULL AND m.id <> $2 AND m.created_at > now() - interval '1 day'), 0)::text AS today
+         FROM chat_messages m, jsonb_array_elements(m.files) f WHERE m.company_id = $1`,
+      [channel.companyId, messageId]))
+    : { rows: [{ everything: '0', today: '0' }] };
+  let everything = Number(held!.everything);
+  let today = Number(held!.today);
+  let together = 0;
+  for (const [index, one] of media.entries()) {
+    const name = displayName(one.name);
+    const left = (note: string, why: NotKeptWhy, bytes = one.size ?? 0) => { entries.push({ kind: one.kind, name, path: null, bytes, note, why }); };
+    if (!files) { left('this deployment keeps no files, so nothing is kept', 'no_files'); continue; }
+    if (one.refused) { left(one.refused, one.refusedWhy ?? 'failed'); continue; }
+    if (!one.get) { left('it could not be fetched', 'failed'); continue; }
+    if (one.size !== null && one.size > RECEIVED_FILE_MAX) { left(`it is over ${RECEIVED_FILE_MAX / 1_048_576} MB`, 'too_big'); continue; }
+    if (together + (one.size ?? 0) > RECEIVED_MESSAGE_MAX) { left(`the files of this message are over ${RECEIVED_MESSAGE_MAX / 1_048_576} MB together`, 'too_big'); continue; }
+    if (everything + (one.size ?? 0) > RECEIVED_COMPANY_MAX) { left('the company already keeps as much of what strangers sent as it will: remove some from Files', 'room'); continue; }
+    if (today + (one.size ?? 0) > RECEIVED_DAY_MAX) { left('too many files have come in today: this one was not kept', 'room'); continue; }
+    let bytes: Buffer;
+    try {
+      bytes = await one.get();
+    } catch (failure) {
+      left(`it could not be fetched: ${(failure as Error).message.slice(0, 150)}`, 'failed');
+      continue;
+    }
+    if (bytes.length === 0) { left('it is empty', 'kind', 0); continue; }
+    // A disk that cannot be written is a note on the file, not a mailbox that stops answering customers.
+    const result = await keepReceivedFile({
+      root: files.root, companyId: channel.companyId, channel: channel.kind, at, messageId, position: index + 1, bytes, claimedName: one.name,
+    }).catch((failure: NodeJS.ErrnoException) => ({ note: `it could not be written (${failure.code ?? 'an error'})`, why: 'failed' as const }));
+    if ('note' in result) { left(result.note, result.why, bytes.length); continue; }
+    together += bytes.length;
+    everything += bytes.length;
+    today += bytes.length;
+    entries.push({ kind: result.kept.kind, name, path: result.kept.path, bytes: result.kept.bytes, note: null, why: null });
+  }
+  await withControlPlane(async (tx) => {
+    await tx.query('UPDATE chat_messages SET files = $2::jsonb WHERE id = $1', [messageId, JSON.stringify(entries)]);
+    for (const one of entries) {
+      await appendEvent(tx, {
+        companyId: channel.companyId, type: one.path ? 'chat.attachment_kept' : 'chat.attachment_not_kept', actor: 'system',
+        payload: one.path
+          ? { channelId: channel.id, kind: one.kind, bytes: one.bytes }
+          : { channelId: channel.id, kind: one.kind, bytes: one.bytes, why: one.why },
+      });
+    }
+  });
+  return entries;
 }
 
 /**
@@ -566,10 +685,10 @@ export async function chatWith(tx: TenantClient, chatId: string, limit = MESSAGE
   const { rows: messages } = await tx.query<{
     id: string; direction: 'in' | 'out'; body: string; attachment: string | null; outcome: MessageView['outcome'];
     task_id: string | null; external_id: string | null; created_at: Date; subject: string | null;
-    grounds: Array<{ title: string }> | null;
+    grounds: Array<{ title: string }> | null; files: ReceivedFile[];
   }>(
     `SELECT * FROM (
-       SELECT id, direction, body, attachment, outcome, task_id, external_id, created_at, subject, grounds
+       SELECT id, direction, body, attachment, outcome, task_id, external_id, created_at, subject, grounds, files
          FROM chat_messages WHERE chat_id = $1 ORDER BY created_at DESC LIMIT $2
      ) recent ORDER BY created_at`,
     [chatId, limit],
@@ -578,7 +697,7 @@ export async function chatWith(tx: TenantClient, chatId: string, limit = MESSAGE
     chat: chatView(rows[0]),
     messages: messages.map((row) => ({
       id: row.id, direction: row.direction, body: row.body, attachment: row.attachment, subject: row.subject, outcome: row.outcome,
-      taskId: row.task_id, sent: row.direction === 'in' || row.external_id !== null, at: row.created_at,
+      files: row.files, taskId: row.task_id, sent: row.direction === 'in' || row.external_id !== null, at: row.created_at,
       ...(row.grounds ? { answeredAlone: { from: [...new Set(row.grounds.map((ground) => ground.title))] } } : {}),
     })),
   };

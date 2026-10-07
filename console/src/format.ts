@@ -229,6 +229,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'chat.channel_closed': N('A customer channel was closed'),
   'chat.received': N('A customer wrote'),
   'chat.rate_limited': N("A customer wrote past the channel's hourly limit, and no work was started"),
+  'chat.attachment_kept': N("A customer's file was kept"),
+  'chat.attachment_not_kept': N("A customer's file was not kept"),
   'security.chat_refused': N('A customer channel refused a delivery without its secret'),
   'chat.mailbox_failed': N('A customer mailbox could not be read'),
   'chat.answer_checked': N('A reply to a customer was checked against documents for customers'),

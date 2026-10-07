@@ -42,20 +42,36 @@ export class MailRefused extends Error {}
  */
 export class LineReader {
   #buffer = Buffer.alloc(0);
+  /**
+   * What arrived since the buffer was last read, a chunk at a time and joined
+   * only when somebody needs it: a message of several megabytes is hundreds
+   * of chunks, and joining the whole after each one is quadratic.
+   */
+  #chunks: Buffer[] = [];
+  #queued = 0;
   #waiting: (() => void) | null = null;
   #failure: Error | null = null;
 
   constructor(socket: TLSSocket | import('node:net').Socket) {
     socket.on('data', (chunk: Buffer) => {
-      this.#buffer = Buffer.concat([this.#buffer, chunk]);
+      this.#chunks.push(chunk);
+      this.#queued += chunk.length;
       this.#wake();
     });
     socket.on('error', (error: Error) => { this.#failure = error; this.#wake(); });
     socket.on('close', () => { this.#failure ??= new Error('the server closed the connection'); this.#wake(); });
   }
 
+  #settle(): void {
+    if (this.#chunks.length === 0) return;
+    this.#buffer = Buffer.concat([this.#buffer, ...this.#chunks]);
+    this.#chunks = [];
+    this.#queued = 0;
+  }
+
   /** Data that arrived after a point the caller handed the socket over, such as STARTTLS. */
   take(): Buffer {
+    this.#settle();
     const left = this.#buffer;
     this.#buffer = Buffer.alloc(0);
     return left;
@@ -70,11 +86,12 @@ export class LineReader {
   async #more(): Promise<void> {
     if (this.#failure) throw this.#failure;
     await new Promise<void>((resolve) => { this.#waiting = resolve; });
-    if (this.#failure && this.#buffer.length === 0) throw this.#failure;
+    if (this.#failure && this.#buffer.length + this.#queued === 0) throw this.#failure;
   }
 
   async line(): Promise<string> {
     for (;;) {
+      this.#settle();
       const at = this.#buffer.indexOf('\r\n');
       if (at >= 0) {
         const line = this.#buffer.subarray(0, at).toString('latin1');
@@ -87,7 +104,8 @@ export class LineReader {
   }
 
   async bytes(count: number): Promise<Buffer> {
-    while (this.#buffer.length < count) await this.#more();
+    while (this.#buffer.length + this.#queued < count) await this.#more();
+    this.#settle();
     const taken = this.#buffer.subarray(0, count);
     this.#buffer = this.#buffer.subarray(count);
     return Buffer.from(taken);
@@ -290,6 +308,23 @@ export class ImapSession {
     try {
       const lines = await this.#command(`UID FETCH ${uid} (UID BODY.PEEK[]<0.${maxBytes}>)`);
       return lines.find((one) => one.literal !== null && /\bFETCH\b/i.test(one.line))?.literal ?? null;
+    } catch (failure) {
+      throw this.#said(failure);
+    }
+  }
+
+  /**
+   * The start of one message, without marking it read, and how long it is
+   * whole (RFC822.SIZE): a reader that finds an attachment in the first
+   * window asks for the rest knowing what it will cost. Null when it is gone.
+   */
+  async fetchSized(uid: number, maxBytes = FETCH_MAX_BYTES): Promise<{ raw: Buffer; size: number | null } | null> {
+    try {
+      const lines = await this.#command(`UID FETCH ${uid} (UID RFC822.SIZE BODY.PEEK[]<0.${maxBytes}>)`);
+      const found = lines.find((one) => one.literal !== null && /\bFETCH\b/i.test(one.line));
+      if (!found?.literal) return null;
+      const size = Number(/\bRFC822\.SIZE (\d+)/i.exec(found.line)?.[1] ?? NaN);
+      return { raw: found.literal, size: Number.isFinite(size) ? size : null };
     } catch (failure) {
       throw this.#said(failure);
     }

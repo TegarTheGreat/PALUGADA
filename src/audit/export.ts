@@ -251,8 +251,12 @@ const SECTIONS: Section[] = [
   {
     name: 'chat_messages',
     // With what a reply that went on its own answered from (0117).
+    // The files a message carried are listed without their paths: the archive carries no file, so a restored
+    // company must not list what it does not have (0125).
     sql: `SELECT id, chat_id, direction, external_id, body, attachment, subject, outcome, task_id, idempotency_key, created_at,
-                 grounds
+                 grounds,
+                 (SELECT coalesce(jsonb_agg(one || '{"path": null, "note": "not in the archive"}'::jsonb), '[]'::jsonb)
+                    FROM jsonb_array_elements(files) one) AS files
             FROM chat_messages ORDER BY created_at`,
   },
   {

@@ -268,6 +268,17 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   passed, which goes by itself, six an hour per conversation at most; refunds,
   prices of its own, complaints, the law, personal data and promises always come
   to the owner.
+- What a customer attaches to a mail is kept: up to five files of up to ten megabytes (fifteen
+  together), under `received/mail/<year-month>/` in the company's files, at a path this platform makes
+  and never the sender's name. The bytes decide what a file is -- a PDF, a Word or Excel document, a
+  picture, a recording or text are kept; a program, a script, an archive, an SVG, an Office file from
+  before 2007 or with macros, and anything unrecognised are not, and the owner and the role are told why.
+  The thread shows each file with **Download** for the owner; `chat.read` gives the role the path and what
+  up to three documents say (twelve thousand characters each, read in the sandboxed browser), so the role that
+  answers customers needs no `files.read` over everything else. Everything in it is data from outside. Kept
+  until the owner removes it or the company is erased (there is no retention yet, no virus scan, and the
+  archive of an export carries no file); at most 2 GB of them for a company and 500 MB in a day. Telegram
+  and WhatsApp files are not kept yet.
 - A letter can carry files. A role names up to five files of the company's own -- what it drafted, made
   or was given, ten megabytes together -- and the owner's card names every one before they say yes;
   what a stranger sent is never sent on, nor another company's file. The mail server's own size limit is

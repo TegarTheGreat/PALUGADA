@@ -1779,7 +1779,8 @@ test('a deployment with no runtime says so at boot (F13.1)', async () => {
   const { start } = await import('../../src/main.ts');
   const deployment = await start({ port: 0, env: {}, worker: { idleMs: 50 } });
   try {
-    assert.deepEqual(deployment.engine.adapters.names(), []);
+    // Only a person, who does no work of its own: a role that is one is always employable.
+    assert.deepEqual(deployment.engine.adapters.names(), ['person']);
     assert.ok(
       deployment.notes.some((note) => /every task will halt with runtime_unavailable/.test(note)),
       deployment.notes.join(' | '),
@@ -1858,7 +1859,7 @@ test('an agent CLI this platform knows is turned on by its name, and corrected i
       PALUGADA_RUNTIME_SPECS: JSON.stringify([{ name: 'codex', command: '/opt/codex/bin/codex' }]),
     },
   });
-  assert.deepEqual(adapters.names().filter((name) => name !== 'in-process').sort(), ['claude-code', 'codex', 'gemini-cli']);
+  assert.deepEqual(adapters.names().filter((name) => name !== 'in-process' && name !== 'person').sort(), ['claude-code', 'codex', 'gemini-cli']);
   const codex = adapters.get('codex') as unknown as { layout: (values: Record<string, string>) => { argv: string[] } };
   const values = { model: 'gpt-x', maxTurns: '40', wallClockSeconds: '900', mcpConfig: '', mcpConfigFile: '', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', allowedTools: '', prompt: '', runDir: '/run/x' };
   assert.deepEqual(codex.layout(values).argv, knownCli('codex').args.map((arg) => arg.replace('{runDir}', '/run/x').replace('{model}', 'gpt-x')),

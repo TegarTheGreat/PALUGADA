@@ -1996,6 +1996,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "समीक्षा का इंतज़ार",
   "Waiting for the model to answer": "मॉडल के जवाब का इंतज़ार कर रहा है",
   "Waiting for a model key that works": "काम करने वाली मॉडल कुंजी की प्रतीक्षा",
+  "A person, not an agent": "एक इंसान, एजेंट नहीं",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "आपने जिस व्यक्ति को सीट दी है उसका नाम, ताकि यह भूमिका किसी इंसान को दी जा सके। इसका काम उन्हें सवाल की तरह दिया जाता है, और उनका जवाब ही इस भूमिका का नतीजा होता है। इसके पास कोई टूल नहीं होता।",
   "At most five files can come with an answer.": "एक जवाब के साथ अधिकतम पाँच फ़ाइलें आ सकती हैं।",
   "Remove {name}": "{name} हटाएँ",
   "Attach a file": "फ़ाइल जोड़ें",

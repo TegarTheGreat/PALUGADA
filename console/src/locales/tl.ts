@@ -2006,6 +2006,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Naghihintay ng review",
   "Waiting for the model to answer": "Naghihintay sumagot ang model",
   "Waiting for a model key that works": "Naghihintay ng key ng modelo na gumagana",
+  "A person, not an agent": "Isang tao, hindi isang agent",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Ang pangalan ng taong inilagay mo sa upuan, para ibigay ang role na ito sa isang tao. Ang trabaho nito ay inihaharap sa kanila bilang tanong, at ang sagot nila ang ginawa ng role. Walang tools ito.",
   "At most five files can come with an answer.": "Hanggang limang file lang ang maisasama sa isang sagot.",
   "Remove {name}": "Alisin ang {name}",
   "Attach a file": "Maglakip ng file",

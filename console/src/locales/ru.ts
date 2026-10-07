@@ -2030,6 +2030,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Ждёт проверки",
   "Waiting for the model to answer": "Ждёт ответа модели",
   "Waiting for a model key that works": "Ждёт рабочий ключ модели",
+  "A person, not an agent": "Человек, а не агент",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Имя того, кому вы дали место, чтобы поручить эту роль человеку. Её работа ставится ему как вопрос, и его ответ — это то, что роль выполнила. Инструментов у неё нет.",
   "At most five files can come with an answer.": "К ответу можно приложить не более пяти файлов.",
   "Remove {name}": "Убрать {name}",
   "Attach a file": "Прикрепить файл",

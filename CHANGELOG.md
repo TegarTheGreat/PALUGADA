@@ -293,7 +293,10 @@ The first version. What it holds, in the order an owner meets it.
   answered by them or by you. An answer can carry up to five files (an
   invoice, a price list, a photo): they are kept in the company's files, a
   program is not, and the role that asked is told where each one is and who
-  answered (STATUS 2.173).
+  answered. A role can be a person: hire it with the name of someone you
+  have seated and its work is put to them as a question, and their answer
+  is what it produced. If they leave, the work stops and you are told; it is
+  never given to an agent unasked (STATUS 2.173).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

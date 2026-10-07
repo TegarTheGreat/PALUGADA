@@ -2027,6 +2027,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Wacht op beoordeling",
   "Waiting for the model to answer": "Wacht op antwoord van het model",
   "Waiting for a model key that works": "Wacht op een werkende modelsleutel",
+  "A person, not an agent": "Een persoon, geen agent",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "De naam van iemand die je een plek hebt gegeven, om deze rol aan een persoon te geven. Het werk wordt hem of haar als vraag voorgelegd, en het antwoord is wat de rol heeft opgeleverd. De rol heeft geen tools.",
   "At most five files can come with an answer.": "Bij een antwoord horen maximaal vijf bestanden.",
   "Remove {name}": "{name} verwijderen",
   "Attach a file": "Bestand toevoegen",

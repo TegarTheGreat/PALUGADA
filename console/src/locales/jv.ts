@@ -2043,6 +2043,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Nengga panliten",
   "Waiting for the model to answer": "Nengga modhèl mangsuli",
   "Waiting for a model key that works": "Nengga kunci modhèl ingkang saged dipunginakaken",
+  "A person, not an agent": "Wong, dudu agen",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Jenenge wong sing wis sampeyan wenehi kursi, kanggo masrahake peran iki marang manungsa. Gaweyane diajokake marang dheweke minangka pitakon, lan wangsulane yaiku asil gawéyane peran iki. Peran iki ora duwe piranti.",
   "At most five files can come with an answer.": "Paling akeh limang berkas bisa dilampirake ing siji wangsulan.",
   "Remove {name}": "Busak {name}",
   "Attach a file": "Lampirake berkas",

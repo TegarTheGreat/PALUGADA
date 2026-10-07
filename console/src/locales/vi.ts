@@ -2050,6 +2050,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Đang chờ rà soát",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",
   "Waiting for a model key that works": "Đang chờ khóa mô hình hợp lệ",
+  "A person, not an agent": "Một con người, không phải tác tử",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Tên người bạn đã cấp chỗ, để giao vai trò này cho một con người. Công việc của vai trò được đặt cho họ như một câu hỏi, và câu trả lời của họ chính là kết quả. Vai trò này không có công cụ.",
   "At most five files can come with an answer.": "Một câu trả lời đi kèm tối đa năm tệp.",
   "Remove {name}": "Gỡ {name}",
   "Attach a file": "Đính kèm tệp",

@@ -469,8 +469,9 @@ const TEAM_LIMIT = 60;
 async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
   const { rows } = await tx.query<{
     slug: string; display_name: string | null; title: string | null; system_prompt: string; division: string; frozen: boolean;
+    person_name: string | null;
   }>(
-    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen
+    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen, r.person_name
        FROM tasks t
        JOIN roles me ON me.id = t.role_id
        JOIN roles r ON r.company_id = t.company_id AND r.id <> me.id
@@ -485,7 +486,11 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
     const where = who ? `${who}, in ${role.division}.` : `In ${role.division}.`;
     const job = firstSentence(role.system_prompt);
     const frozen = role.frozen ? ' (Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so.)' : '';
-    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${frozen}`;
+    // A person is slower than a model and answers in their own words: the one who hands work over should know.
+    const person = role.person_name
+      ? ` (A person, ${role.person_name}, not an agent: the work is put to them as a question and may take a day or more to be answered, so allow for it.)`
+      : '';
+    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${person}${frozen}`;
   });
   const more = rows.length - lines.length;
   return [{

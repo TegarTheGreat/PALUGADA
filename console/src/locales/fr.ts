@@ -2033,6 +2033,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "En attente de revue",
   "Waiting for the model to answer": "Attend la réponse du modèle",
   "Waiting for a model key that works": "Attend une clé du modèle valide",
+  "A person, not an agent": "Une personne, pas un agent",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Le nom de quelqu’un à qui vous avez donné un siège, pour confier ce rôle à une personne. Son travail lui est posé comme une question, et sa réponse est ce que le rôle a produit. Il n’a pas d’outils.",
   "At most five files can come with an answer.": "Une réponse peut comporter cinq fichiers au plus.",
   "Remove {name}": "Retirer {name}",
   "Attach a file": "Joindre un fichier",

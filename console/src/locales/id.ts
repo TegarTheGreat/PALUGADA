@@ -1946,6 +1946,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "Menunggu tinjauan",
   "Waiting for the model to answer": "Menunggu model menjawab",
   "Waiting for a model key that works": "Menunggu kunci model yang berfungsi",
+  "A person, not an agent": "Seorang manusia, bukan agen",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Nama orang yang sudah Anda beri kursi, untuk menyerahkan peran ini kepada manusia. Pekerjaannya diajukan kepadanya sebagai pertanyaan, dan jawabannya adalah hasil kerja peran ini. Peran ini tidak punya alat.",
   "At most five files can come with an answer.": "Paling banyak lima berkas bisa menyertai satu jawaban.",
   "Remove {name}": "Hapus {name}",
   "Attach a file": "Lampirkan berkas",

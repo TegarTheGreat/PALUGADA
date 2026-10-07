@@ -89,7 +89,7 @@ const SECTIONS: Section[] = [
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
                  heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at,
-                 display_name, title, persona, max_run_seconds
+                 display_name, title, persona, max_run_seconds, person_name
             FROM roles ORDER BY slug`,
   },
   {

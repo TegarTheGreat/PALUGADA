@@ -2052,6 +2052,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "İnceleme bekliyor",
   "Waiting for the model to answer": "Modelin yanıtını bekliyor",
   "Waiting for a model key that works": "Çalışan bir model anahtarı bekliyor",
+  "A person, not an agent": "Bir kişi, ajan değil",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "Yer verdiğiniz birinin adı; bu rolü bir kişiye vermek için. Rolün işi ona soru olarak iletilir ve verdiği yanıt rolün ürettiği şey olur. Araçları yoktur.",
   "At most five files can come with an answer.": "Bir yanıta en çok beş dosya eklenebilir.",
   "Remove {name}": "{name} dosyasını kaldır",
   "Attach a file": "Dosya ekle",

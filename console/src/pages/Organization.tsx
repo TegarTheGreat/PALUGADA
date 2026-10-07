@@ -162,6 +162,8 @@ function Grow({ companyId, company, structure, changed }: {
               placeholder: t('e.g. You write the words customers read: product pages and newsletters. Draft first; nothing goes out without review.') },
             { name: 'tools', label: t('Tools'), wide: true, placeholder: 'doc.draft',
               description: t('Capabilities, separated by commas; at most twelve. Its division is granted the ones it lacks, except those that cannot be undone.') },
+            { name: 'person', label: t('A person, not an agent'), wide: true,
+              description: t('The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.') },
             { name: 'doneCriteria', label: t('How to know it is done'), type: 'textarea', required: true, wide: true,
               description: t('One per line. Work is checked against these before it counts as finished.'),
               placeholder: t('e.g. every claim about the product is one the product page makes') },
@@ -171,6 +173,7 @@ function Grow({ companyId, company, structure, changed }: {
             const hired: { roleId: string; ungranted: string[]; granted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
               divisionId: values.divisionId, slug: values.slug, systemPrompt: values.systemPrompt,
               tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/), grantTools: true,
+              ...(values.person ? { person: values.person } : {}),
               ...(values.displayName ? { displayName: values.displayName } : {}), ...(values.title ? { title: values.title } : {}), proof,
             });
             if (hired.granted.length > 0) {

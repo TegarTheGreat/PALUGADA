@@ -2045,6 +2045,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "รอการตรวจทาน",
   "Waiting for the model to answer": "รอโมเดลตอบ",
   "Waiting for a model key that works": "รอคีย์โมเดลที่ใช้ได้",
+  "A person, not an agent": "เป็นคน ไม่ใช่เอเจนต์",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "ชื่อคนที่คุณจัดที่นั่งไว้ เพื่อมอบบทบาทนี้ให้คน งานของบทบาทจะถูกส่งให้เขาเป็นคำถาม และคำตอบของเขาคือผลงานของบทบาทนี้ บทบาทนี้ไม่มีเครื่องมือ",
   "At most five files can come with an answer.": "แนบไฟล์กับคำตอบได้สูงสุดห้าไฟล์",
   "Remove {name}": "นำ {name} ออก",
   "Attach a file": "แนบไฟล์",

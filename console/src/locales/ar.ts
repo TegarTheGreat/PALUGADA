@@ -2023,6 +2023,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "بانتظار المراجعة",
   "Waiting for the model to answer": "ينتظر ردّ النموذج",
   "Waiting for a model key that works": "في انتظار مفتاح نموذج صالح",
+  "A person, not an agent": "شخص لا وكيل",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "اسم شخص خصّصتَ له مقعدًا، لإسناد هذا الدور إلى إنسان. يُعرض عمله عليه كسؤال، وجوابه هو ما أنتجه الدور. وليس له أدوات.",
   "At most five files can come with an answer.": "يمكن إرفاق خمسة ملفات كحدٍّ أقصى مع الإجابة.",
   "Remove {name}": "إزالة {name}",
   "Attach a file": "إرفاق ملف",

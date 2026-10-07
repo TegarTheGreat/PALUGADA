@@ -4869,8 +4869,14 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles',
         handle: async ({ params, body }) => {
+          // The person, when the role is one, is found before the owner's code
+          // is spent: a name nobody has costs nothing but being told who there is.
+          const person = typeof body.person === 'string' && body.person.trim() !== ''
+            ? await inbox.approverNamed(params.companyId!, body.person)
+            : null;
           await this.#requireFactor(body.proof, 'hire a role', params.companyId!, WITHIN_THE_WINDOW);
           return addRole(params.companyId!, {
+            ...(person ? { person } : {}),
             divisionId: requireText(body.divisionId, 'divisionId'),
             slug: requireText(body.slug, 'slug'),
             systemPrompt: requireText(body.systemPrompt, 'systemPrompt'),

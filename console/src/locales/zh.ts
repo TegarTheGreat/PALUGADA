@@ -2012,6 +2012,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "等待审核",
   "Waiting for the model to answer": "正在等待模型回应",
   "Waiting for a model key that works": "正在等待可用的模型密钥",
+  "A person, not an agent": "由真人担任，而非智能体",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "您已安排席位的人的名字，用于把这个角色交给真人。它的工作会作为问题交给对方，对方的回答就是这个角色的产出。它没有工具。",
   "At most five files can come with an answer.": "一个回答最多可附带五个文件。",
   "Remove {name}": "移除 {name}",
   "Attach a file": "附加文件",

@@ -2023,6 +2023,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "검토 대기 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",
   "Waiting for a model key that works": "사용할 수 있는 모델 키를 기다리는 중",
+  "A person, not an agent": "에이전트가 아닌 사람",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "자리를 마련해 둔 사람의 이름입니다. 이 역할을 사람에게 맡깁니다. 역할의 일은 질문으로 그 사람에게 전달되고, 그 답이 역할의 결과물이 됩니다. 도구는 없습니다.",
   "At most five files can come with an answer.": "답변에는 파일을 최대 다섯 개까지 첨부할 수 있습니다.",
   "Remove {name}": "{name} 제거",
   "Attach a file": "파일 첨부",

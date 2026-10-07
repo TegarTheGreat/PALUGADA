@@ -10409,6 +10409,25 @@ not a thing the platform knew. It is built in four steps, each one a commit with
   *Not done:* what a seat attaches is not counted against the received-files quota that customers' files are
   held to (a seat is staff, and an answer carries at most 15 MB); the card of a decided question does not yet
   list the files it carried; the owner's assistant cannot attach one.
+- **d. A role that is a person (done).** A role can run on `person` (migration 0127 adds `roles.person_seat` and
+  `person_name`): a contractor the company employs through a staff seat. `PersonAdapter` (`src/runtime/person.ts`)
+  runs nothing: the task's goal is put to the person as a question, in the words it was given in (the context is
+  what depends on it), addressed to the seat, so the task waits as it waits for any answer, the person sees it in
+  their own inbox and nobody else's, the owner is told if it goes a day unanswered, and asking again is the same
+  question. The answer is the role's output (`summary`, `answeredBy`, and `files` when it carried some), written
+  by code and not reported on against done criteria, as it is no model's report. A person no longer seated is
+  not replaced by a model: the task halts (`policy_denied`, with the sentence in the halt's detail) and the
+  owner is told by the halt. Hiring takes `person: "<name>"` (the same name resolution as a question: a seated
+  approver, in any case, refused saying who there is), refuses tools, and does not make the next hire that is
+  not a person inherit the runtime; the console's hire form has "A person, not an agent". The adapter is
+  registered in every deployment and does not count as a runtime (a deployment with only it still says it has none).
+  An archive carries the name and not the seat, so a restored person role refuses work until it is seated again.
+  Tests: `person-adapter.test.ts`; nine mutations, one of which (a hire inheriting a person's runtime) survived
+  the first test and made it name one.
+  *Not done:* a person role cannot be re-seated (hire it again); the console does not show a role's person on its
+  drawer; a task is not given to a person's role by anything that reads who is free or how fast they answer; the
+  halt for a person who has gone says `policy_denied` in the owner's language, not that someone has left (the
+  sentence is in the detail, in English).
 
 ## 3. Decisions, deviations, and what is unverified
 

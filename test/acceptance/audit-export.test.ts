@@ -737,6 +737,7 @@ test('every column of every exported table travels, or is named as deliberately 
     // slug and a fresh id; the archive's own row is read for its name.
     'companies.frozen_at': 'a freeze is a fact about the instance it was pressed on',
     'companies.first_hour_closed_at': 'a restored company is not a new one: the import closes its first hour',
+    'roles.person_seat': 'a staff seat is this deployment\'s, and not restored; a role that is a person comes back with its name and no seat, and refuses work until one is seated',
     'inbox_items.decided_by_seat': 'a staff seat is this deployment\'s, and not restored; the decision\'s record names the person',
     'inbox_items.addressee_seat': 'a staff seat is this deployment\'s, and not restored; a question that was for one comes back for the owner, with the name in its payload',
     'inbox_items.escalate_at': 'when an open question goes to the owner is a clock of this deployment, not restored',

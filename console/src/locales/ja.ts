@@ -2021,6 +2021,8 @@ export const DICTIONARY: Dictionary = {
   "Waiting for review": "レビューを待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",
   "Waiting for a model key that works": "使えるモデルのキーを待っています",
+  "A person, not an agent": "エージェントではなく人",
+  "The name of someone you have seated, to give this role to a person. Its work is put to them as a question, and what they answer is what it produced. It has no tools.": "席を用意した人の名前です。この役割を人に任せます。役割の仕事は質問としてその人に届き、その回答が役割の成果になります。ツールは持ちません。",
   "At most five files can come with an answer.": "1 つの回答に添付できるファイルは最大 5 つです。",
   "Remove {name}": "{name} を外す",
   "Attach a file": "ファイルを添付",

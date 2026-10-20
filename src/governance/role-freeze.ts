@@ -137,8 +137,8 @@ export async function liftFreeze(tx: TenantClient, companyId: string, roleId: st
 export async function pauseRole(companyId: string, roleId: string, reason?: string | null): Promise<void> {
   const why = reason?.trim() ? reason.trim().slice(0, 500) : null;
   await withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ slug: string; frozen: boolean }>(
-      'SELECT slug, frozen_at IS NOT NULL AS frozen FROM roles WHERE id = $1 AND company_id = $2 FOR UPDATE',
+    const { rows } = await tx.query<{ slug: string; frozen: boolean; frozen_by: string | null }>(
+      'SELECT slug, frozen_at IS NOT NULL AS frozen, frozen_by FROM roles WHERE id = $1 AND company_id = $2 FOR UPDATE',
       [roleId, companyId],
     );
     if (!rows[0]) {
@@ -146,7 +146,10 @@ export async function pauseRole(companyId: string, roleId: string, reason?: stri
     }
     // Already stopped, by the owner or by F3.7: the reason it has is the one
     // that explains it, and a second event would say it was paused twice.
-    if (rows[0].frozen) return;
+    // Except a stop the platform lifts by itself (the breaker's, 'spend'):
+    // left as it was, the owner's pause would be lifted with it once the burst
+    // cooled, against what they asked for. It is theirs from now on.
+    if (rows[0].frozen && rows[0].frozen_by !== 'spend') return;
     await tx.query(
       "UPDATE roles SET frozen_at = now(), frozen_reason = $2, frozen_by = 'owner' WHERE id = $1",
       [roleId, `paused by the owner${why ? `: ${why}` : ''}`],

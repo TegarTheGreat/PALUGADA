@@ -161,6 +161,35 @@ test('what the owner paused, or the denials froze, no clock lifts', async () => 
   assert.deepEqual(await thawCooledRoles(fixture.companyId, new Date(Date.now() + 48 * HOUR)), []);
 });
 
+test('the owner pausing a role the breaker already stopped makes the pause theirs, and no clock lifts it', async () => {
+  const fixture = await createCompany('heal-owner-after');
+  const now = new Date();
+  const task = await usual(fixture, now);
+  await seedTrace(fixture, task, 100, new Date(now.getTime() - 10 * MINUTE));
+  assert.equal((await evaluateCircuitBreakers(fixture.companyId, now)).length, 1);
+  assert.equal(await frozenBy(fixture), 'spend');
+
+  // The owner presses Pause on the page they opened before the breaker
+  // tripped: what they asked for is a pause only they lift.
+  await pauseRole(fixture.companyId, fixture.roleId, 'until I have read what it bought');
+  assert.equal(await frozenBy(fixture), 'owner');
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ frozen_reason: string }>(
+    'SELECT frozen_reason FROM roles WHERE id = $1', [fixture.roleId]));
+  assert.match(rows[0]!.frozen_reason, /paused by the owner: until I have read what it bought/);
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string }>(
+    "SELECT actor FROM events WHERE type = 'role.frozen'"));
+  assert.deepEqual(said.map((event) => event.actor), ['owner'], 'and the pause is said, as the owner\'s');
+
+  assert.deepEqual(await thawCooledRoles(fixture.companyId, new Date(now.getTime() + 61 * MINUTE)), [], 'the burst cooling does not lift it');
+  assert.equal((await frozenRoles(fixture.companyId)).length, 1);
+
+  // A pause that is already the owner's, or the denials', is left as it is.
+  await pauseRole(fixture.companyId, fixture.roleId, 'again');
+  const { rows: twice } = await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM events WHERE type = 'role.frozen'"));
+  assert.equal(twice[0]!.n, 1);
+});
+
 test('only a freeze says who made it', async () => {
   const fixture = await createCompany('heal-constraint');
   await assert.rejects(

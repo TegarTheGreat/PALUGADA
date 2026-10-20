@@ -20,7 +20,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
 import { GOES_ON_BY_ITSELF } from '../engine/owner-control.ts';
-import { ENDED_AFTER_MS } from '../engine/ended.ts';
+import { BUDGET_CARD_SAYS_SO, ENDED_AFTER_MS } from '../engine/ended.ts';
 import { LEARNED_CONFIDENCE, MEMORY_BODY_MAX, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, reviewDeadlockedCard, reviewUnreadableCard, stageMoveStoppedCard } from '../owner/platform-cards.ts';
@@ -516,19 +516,6 @@ export async function approvedReviewOf(
   if (!found) return null;
   return { reviewRequestId: found.id, reviewer: await reviewerOf(tx, found.reviewer_role_id), reason: found.reason ?? '' };
 }
-
-/**
- * An open card that tells the owner a halted task (`t`) is stopped for its
- * budget: its account's card (`raiseBudgetHalt`), which names the account in
- * the task's chain it was raised for and may sit on another task the account
- * stopped, or the company's card for its month's ceiling, which a halt for
- * the month's pause raises instead.
- */
-const BUDGET_CARD_SAYS_SO = `EXISTS (
-  SELECT 1 FROM inbox_items card
-   WHERE card.kind = 'budget_alert' AND card.status = 'open'
-     AND (card.payload->'budgetHalt'->>'budgetAccountId' = ANY(app.budget_chain(t.budget_account_id)::text[])
-          OR card.payload ? 'spendPause'))`;
 
 /**
  * Settles reviews whose reviewer task has finished.

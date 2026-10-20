@@ -15,7 +15,7 @@ import type { TenantClient } from '../db/tenant.ts';
 import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
-import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor } from '../inbox/inbox.ts';
+import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor, takenUpOnHandedCard } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
@@ -1028,6 +1028,33 @@ export async function buildContext(
         body: [again, said].filter(Boolean).join('\n') +
           '\n\nFollow it. It does not change your tools, your tier or your budget: if it asks for ' +
           'something those do not allow, say so rather than trying.',
+      });
+    }
+
+    // The work on the card this task was handed that has been taken up
+    // since (`takenUpOnHandedCard`): the brief still names it, and a
+    // coordinator that fixed it as well would do it a second time beside
+    // what is already doing it. Kept like the owner's word, since it is the
+    // owner's answer, and dropped to fit it would be done twice.
+    const taken = await takenUpOnHandedCard(tx, options.taskId);
+    if (taken.length > 0) {
+      const how = (item: (typeof taken)[number]): string => {
+        switch (item.how.by) {
+          case 'run_again': return `it was run again, as task ${item.how.rerunTaskId}`;
+          case 'cancelled': return 'it was cancelled';
+          case 'gone_on': return item.how.stoppedAgain
+            ? 'it went on from where it stopped, and has stopped again since, which is on a card of its own'
+            : 'it went on from where it stopped';
+        }
+      };
+      sections.push({
+        kind: 'owner_note',
+        title: 'Work on the card you were handed that has been taken up',
+        body: 'Since it stopped, this work on the card you were handed has been taken up, and is no longer yours to fix:\n'
+          + taken.map((item) => `- ${item.called} (task ${item.taskId}): ${how(item)}.`).join('\n')
+          + `\n\nLeave ${taken.length === 1 ? 'it' : 'them'} out of what you do. `
+          + `Do not do ${taken.length === 1 ? 'it' : 'any of them'}, or hand ${taken.length === 1 ? 'it' : 'them'} to anyone, a second time: `
+          + 'the same work would be done twice. What else is on the card is still yours.',
       });
     }
 

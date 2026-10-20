@@ -27,6 +27,8 @@ import { structureOf } from '../../src/owner/views.ts';
 import { createCompanyFromTemplate, type CreatedCompany } from '../../src/templates/company.ts';
 import { FOUNDING_TEMPLATE_SLUG, installFoundingTemplate } from '../../src/templates/founding.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
+import type { ArchiveLine } from '../../src/audit/export.ts';
+import type { HaltReason } from '../../src/domain/task.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -122,6 +124,43 @@ test('one cause under one goal is one card while it is open; another cause is an
   const hop = items.find((item) => item.task_id === first.id)!;
   assert.deepEqual(hop.payload.endedTaskIds, [first.id, second.id], 'the second is on the first\'s card');
   assert.equal(await reportEndedBadly(fixture.companyId, later()), 0, 'and is not found again');
+});
+
+/**
+ * A card is found again by its cause under its goal (`endedKey`), and a
+ * company restored from its archive has new goal ids. Restored as it was,
+ * the key named a goal the restored company does not have, and the next task
+ * to end the same way under that goal raised a second card beside it.
+ */
+test('a card restored from an archive still takes the next failure of its cause under its goal (F11.6)', async () => {
+  const fixture = await createCompany('ended-restored');
+  const first = await root(fixture, 'first');
+  await halt(fixture, first.id, 'hop_limit');
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+
+  const { exportCompany } = await import('../../src/audit/export.ts');
+  const { importCompany } = await import('../../src/audit/import.ts');
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: 'ended-restored-copy' });
+  const { rows: [was] } = await withTenant(restored.companyId, (tx) => tx.query<{
+    project_id: string; division_id: string; role_id: string; budget_account_id: string; goal_id: string;
+  }>(`SELECT t.project_id, t.division_id, t.role_id, t.budget_account_id, t.goal_id
+        FROM inbox_items i JOIN tasks t ON t.id = i.task_id WHERE i.kind = 'escalation'`));
+  const again = await createRootTask({
+    companyId: restored.companyId, projectId: was!.project_id, divisionId: was!.division_id, roleId: was!.role_id,
+    budgetAccountId: was!.budget_account_id, goalId: was!.goal_id, input: { goal: 'again' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(restored.companyId, again.id, 'running');
+  await transition(restored.companyId, again.id, 'halted', { haltReason: 'hop_limit', detail: 'it was refused' });
+
+  assert.equal(await reportEndedBadly(restored.companyId, later()), 0, 'no second card for the same cause under the same goal');
+  const cards = await withTenant(restored.companyId, (tx) => tx.query<{ ended: string[]; key: string }>(
+    "SELECT payload->'endedTaskIds' AS ended, payload->>'endedKey' AS key FROM inbox_items WHERE kind = 'escalation'"));
+  assert.equal(cards.rows.length, 1);
+  assert.equal(cards.rows[0]!.key, `${was!.goal_id}:hop_limit`, 'the key names the restored goal');
+  assert.equal(cards.rows[0]!.ended.length, 2);
+  assert.equal(cards.rows[0]!.ended[1], again.id, 'the next failure is on the restored card');
 });
 
 test('work the coordinator was handed that ends badly goes to the owner, not back to the coordinator', async () => {
@@ -523,4 +562,291 @@ test('the CEO named for a division is the title, so saving only the time follows
   await setEscalationPolicy(company.companyId, division, { roleSlug: 'coordinator' });
   const [pinned] = (await structureOf(company.companyId)).divisions;
   assert.equal(pinned!.escalationRole, 'coordinator');
+});
+
+/* ------------------------------------- the owner answers a handed card --- */
+
+const taskState = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query<{
+  status: string; halt_reason: string | null;
+}>('SELECT status, halt_reason FROM tasks WHERE id = $1', [taskId]))).rows[0]!;
+
+/**
+ * Run again closes the card that asked for it (STATUS 2.185), and a hired
+ * role's card is the CEO's for its first hour (2.187). The two met: the card
+ * closed under the CEO, whose task ran on beside the owner's -- the same
+ * invoice sent twice -- and whatever it did was written nowhere, since only
+ * an open card is noted.
+ */
+test('Run again on a card the CEO is handling stops the CEO\'s task, and the card says so', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-rerun');
+  const task = await rootOf(company, company.hiredId, 'send invoice 7 to PT Maju');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'policy_denied', detail: 'email.send was refused' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+
+  await rerunTask(company.companyId, task.id, null);
+  const [closed] = await cardsOf(company.companyId);
+  assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_rerun']);
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' },
+    'the CEO does not do beside the owner what the owner has run again');
+
+  await handEscalations(company.companyId);
+  const [noted] = await cardsOf(company.companyId);
+  assert.equal(noted!.status, 'withdrawn');
+  assert.equal(noted!.payload.handledOutcome, 'cancelled');
+  assert.match(noted!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and nothing more is raised about either');
+});
+
+test('a CEO that ended before the owner ran the work again keeps its account on the card', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-ended-rerun');
+  const task = await rootOf(company, company.hiredId, 'renew the bank feed');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'deadline_passed', detail: 'its deadline passed' });
+  await reportEndedBadly(company.companyId, later());
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  await transition(company.companyId, handling.id, 'running');
+  const why = 'The bank feed needs the owner to sign in at the bank again; no role here can.';
+  await transition(company.companyId, handling.id, 'failed', {
+    output: { summary: 'Looked at the feed.', notDone: why }, haltReason: 'not_done', detail: why,
+  });
+
+  // The owner runs it again before the next look notes the CEO's answer.
+  await rerunTask(company.companyId, task.id, null);
+  await handEscalations(company.companyId);
+  const [closed] = await cardsOf(company.companyId);
+  assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_rerun']);
+  assert.equal(closed!.payload.handledOutcome, 'failed');
+  assert.match(closed!.rationale, /Arka: The bank feed needs the owner to sign in at the bank again/, 'why it could not, kept');
+});
+
+/**
+ * A card stays open while any task on it has not been run again, and a task
+ * run again before the hand-over was still the brief's headline: "Escalated
+ * to you: ... send invoice 7", which the owner's rerun was already sending.
+ */
+test('work the owner ran again before the hand-over is left out of the CEO\'s brief', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-rerun-briefed');
+  const seven = await rootOf(company, company.hiredId, 'send invoice 7 to PT Maju');
+  const eight = await rootOf(company, company.hiredId, 'send invoice 8 to PT Jaya');
+  await transition(company.companyId, seven.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 7' });
+  await transition(company.companyId, eight.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 8' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  await rerunTask(company.companyId, seven.id, null);
+  const [card] = await cardsOf(company.companyId);
+  assert.equal(card!.status, 'open', 'invoice 8 has not been run again');
+
+  assert.equal(await handEscalations(company.companyId), 1);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  assert.match(handling.input.goal, /send invoice 8 to PT Jaya/, 'the headline is the work still stopped');
+  assert.doesNotMatch(`${handling.input.goal}\n${handling.input.context}`, /invoice 7/, 'nothing of the work run again');
+  assert.deepEqual((await cardsOf(company.companyId))[0]!.payload.briefedTaskIds, [eight.id]);
+});
+
+test('a card whose every task was run again is not handed to the CEO', async () => {
+  const company = await founded('ceo-all-rerun');
+  const task = await rootOf(company, company.hiredId, 'send invoice 9 to PT Sinar');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  // A press that made the new task and stopped before it closed the card.
+  await createRootTask({
+    companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+    roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: 'send invoice 9 to PT Sinar' },
+    createdBy: 'owner', reserveTokens: 1_000, idempotencyKey: `rerun:${task.id}`,
+  });
+  assert.equal(await handEscalations(company.companyId), 0);
+  const [card] = await cardsOf(company.companyId);
+  assert.equal(await handlingOf(company.companyId, card!.id), undefined, 'nothing is left for the CEO to do');
+});
+
+/* ---------------------------------------- work its budget stopped --- */
+
+const stoppedForBudget = async (company: Founded, goal: string, detail = 'its account has no room left') => {
+  const task = await rootOf(company, company.hiredId, goal);
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'budget_exhausted', detail });
+  return task;
+};
+
+/**
+ * An account has one card, on the work it stopped first, and says how much
+ * it stopped (2.83). ended.ts counted only a card on the task itself, so the
+ * second piece of work the same account stopped -- and everything the
+ * month's ceiling stopped, whose card is the company's -- was reported again
+ * as work that ended badly, and handed to the CEO, which cannot lift a budget.
+ */
+test('work its budget stopped is told by its account\'s card or the month\'s, and is not escalated as well', async () => {
+  const company = await founded('ended-budget');
+  const july = await stoppedForBudget(company, 'post the July invoices');
+  await inbox.raiseBudgetHalt(company.companyId, july.id);
+  const august = await stoppedForBudget(company, 'post the August invoices');
+  await inbox.raiseBudgetHalt(company.companyId, august.id);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'the account\'s one card tells of both');
+  assert.deepEqual(await cardsOf(company.companyId), [], 'nothing is escalated');
+
+  // A card that has closed tells of nothing it was not on: August, still
+  // stopped once the account's card was answered, is somebody's to hear of.
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE kind = 'budget_alert' AND task_id = $1",
+    [july.id]));
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.deepEqual((await cardsOf(company.companyId)).map((card) => card.task_id), [august.id]);
+
+  // The month's ceiling: the company's one card tells of what it stopped.
+  const september = await rootOf(company, company.hiredId, 'post the September invoices');
+  const { randomUUID } = await import('node:crypto');
+  const { evaluateSpendLimit, setSpendLimit } = await import('../../src/governance/spend-guard.ts');
+  await setSpendLimit(company.companyId, 1_000);
+  await withTenant(company.companyId, (tx) => tx.query(
+    `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
+     VALUES ($1, $2, NULL, 'test-model', '{}'::jsonb, '{}'::jsonb, 10, 5, 2000, now())`, [randomUUID(), company.companyId]));
+  assert.equal((await evaluateSpendLimit(company.companyId)).state, 'paused');
+  await transition(company.companyId, september.id, 'halted', {
+    haltReason: 'budget_exhausted', detail: 'the company has reached its monthly spending ceiling',
+  });
+  await reportEndedBadly(company.companyId, later());
+  assert.deepEqual((await cardsOf(company.companyId)).map((card) => card.payload.endedTaskIds), [[august.id]],
+    'the month\'s card tells of September, which is on no other card');
+});
+
+/**
+ * Going on with work answers the card that said it had stopped. Only the
+ * account's card was closed by it, so an ended-work card about the same
+ * stop -- one raised while no budget card covered it -- stayed open while
+ * the work ran, and the CEO it was handed went on fixing work that was
+ * already going on.
+ */
+test('an ended card about work its budget stopped closes when the work goes on, and the CEO\'s handling with it', async () => {
+  const { continueHalted } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ended-budget-continued');
+  const task = await stoppedForBudget(company, 'post the October invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'no budget card covers it');
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+
+  await continueHalted(company.companyId, task.id);
+  const [closed] = await cardsOf(company.companyId);
+  assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_continued']);
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' });
+  await handEscalations(company.companyId);
+  assert.match((await cardsOf(company.companyId))[0]!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
+});
+
+/**
+ * A card about a task names it for good, and ended.ts counted any card that
+ * names a task as having told of it, whatever had happened since. Going on
+ * is the same task: the card that said its budget stopped it -- the
+ * account's, or one raised as ended work -- closes or stays, and either way
+ * still named it, so the next time the same work ended badly, another way,
+ * nothing was raised and nobody heard.
+ */
+test('work gone on with that ends badly again is reported, whatever became of the card about its stop', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ended-gone-on');
+  const goneOnAndRefused = async (task: { id: string }, haltReason: HaltReason, detail: string) => {
+    await continueHalted(company.companyId, task.id);
+    await transition(company.companyId, task.id, 'running');
+    await transition(company.companyId, task.id, 'halted', { haltReason, detail });
+  };
+  const listing = async (id: string) => (await cardsOf(company.companyId)).filter((card) =>
+    card.status === 'open' && (card.payload.endedTaskIds as string[] | undefined)?.includes(id));
+
+  // An ended card that the work going on closed.
+  const october = await stoppedForBudget(company, 'post the October invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  await goneOnAndRefused(october, 'policy_denied', 'email.send was refused by a policy');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'the second ending reaches somebody');
+  assert.match(String((await listing(october.id))[0]?.payload.endedKey), /:policy_denied$/);
+
+  // The account's own card, which going on closed: the same, before any of this.
+  const november = await stoppedForBudget(company, 'post the November invoices');
+  await inbox.raiseBudgetHalt(company.companyId, november.id);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'the account\'s card tells of it');
+  await goneOnAndRefused(november, 'hop_limit', 'too many hand-offs');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal((await listing(november.id)).length, 1);
+
+  // A card still open for other work it names, and one another answer closed
+  // after the work went on.
+  const december = await stoppedForBudget(company, 'post the December invoices');
+  const january = await stoppedForBudget(company, 'post the January invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'one card for both');
+  const [both] = await listing(december.id);
+  await goneOnAndRefused(december, 'deadline_passed', 'its deadline passed');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'not swallowed by the card still open for January');
+  assert.equal((await listing(december.id)).filter((card) => card.id !== both!.id).length, 1);
+  await rerunTask(company.companyId, january.id, null);
+  const closed = (await cardsOf(company.companyId)).find((card) => card.id === both!.id)!;
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'task_rerun'],
+    'December went on, and January was run again: nothing on it is left');
+
+  // Stopped again for its budget, with nothing covering it: back on the card
+  // that says so, and not on a second one beside it.
+  const february = await stoppedForBudget(company, 'post the February invoices');
+  const march = await stoppedForBudget(company, 'post the March invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  await goneOnAndRefused(february, 'budget_exhausted', 'its account has no room left');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'on the card already open for its cause');
+  const [again, ...more] = await listing(february.id);
+  assert.equal(more.length, 0);
+  assert.deepEqual(again!.payload.endedTaskIds, [february.id, march.id], 'named once');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and told');
+});
+
+/**
+ * Run again, or going on, closes a card once nothing on it is left, and
+ * stops the CEO handling it. Answering only some of its work left the card
+ * open, rightly, and the CEO's task running on a brief that still named
+ * what the owner had already taken up -- "send invoice 7", which the owner's
+ * rerun was sending -- with nothing to tell it so.
+ */
+test('the CEO handling a card is told, at every run, of the work on it that has been taken up again', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { buildContext } = await import('../../src/context/builder.ts');
+  const company = await founded('ceo-told-taken-up');
+  const toldOf = async (handlingId: string) => {
+    const pack = await withTenant(company.companyId, (tx) => buildContext(tx, {
+      companyId: company.companyId, divisionId: company.divisionIds.management!, taskId: handlingId,
+    }));
+    return pack.sections.filter((section) => /taken up/.test(section.title)).map((section) => section.body).join('\n');
+  };
+
+  // Run again.
+  const seven = await rootOf(company, company.hiredId, 'send invoice 7 to PT Maju');
+  const eight = await rootOf(company, company.hiredId, 'send invoice 8 to PT Jaya');
+  await transition(company.companyId, seven.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 7' });
+  await transition(company.companyId, eight.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 8' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  assert.match(handling.input.goal, /send invoice 7 to PT Maju/);
+  assert.equal(await toldOf(handling.id), '', 'nothing yet');
+
+  const rerun = await rerunTask(company.companyId, seven.id, null);
+  assert.equal((await cardsOf(company.companyId))[0]!.status, 'open', 'invoice 8 is still stopped');
+  assert.equal((await taskState(company.companyId, handling.id)).status, 'pending', 'and the CEO still has it');
+  const told = await toldOf(handling.id);
+  assert.match(told, new RegExp(`send invoice 7 to PT Maju \\(task ${seven.id}\\): it was run again, as task ${rerun}`));
+  assert.match(told, /Do not do it, or hand it to anyone, a second time/);
+  assert.doesNotMatch(told, /invoice 8/, 'what is still stopped is still the CEO\'s');
+
+  // Gone on with.
+  const nine = await stoppedForBudget(company, 'post the September invoices');
+  const ten = await stoppedForBudget(company, 'post the October invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'no budget card covers them');
+  assert.equal(await handEscalations(company.companyId), 1);
+  const budgetCard = (await cardsOf(company.companyId)).find((item) => (item.payload.endedTaskIds as string[]).includes(nine.id))!;
+  const handlingBudget = (await handlingOf(company.companyId, budgetCard.id))!;
+  await continueHalted(company.companyId, nine.id);
+  assert.equal((await taskState(company.companyId, ten.id)).status, 'halted');
+  const goneOn = await toldOf(handlingBudget.id);
+  assert.match(goneOn, new RegExp(`post the September invoices \\(task ${nine.id}\\): it went on from where it stopped`));
+  assert.doesNotMatch(goneOn, /October/);
 });

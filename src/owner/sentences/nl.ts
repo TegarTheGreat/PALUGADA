@@ -422,4 +422,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Werk dat op het model wacht, gaat vanzelf verder zodra een werkende sleutel in gebruik is, en deze kaart sluit dan vanzelf.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Werk dat haar nodig heeft, wacht in plaats van te starten, en gaat vanzelf verder zodra de controle slaagt; deze kaart sluit dan vanzelf. Gebruikelijke oorzaken zijn verlopen inloggegevens of inloggegevens met de verkeerde rechten, een quotum dat op is, of een verkeerd adres.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} werd gestopt: het werk op deze kaart is weer opgepakt.',
 };

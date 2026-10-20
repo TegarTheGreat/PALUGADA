@@ -556,6 +556,16 @@ export function handledSaid(reading: OwnerReading, facts: { role: string; summar
   }
 }
 
+/**
+ * Said on a card a coordinator was handling when the work on it was taken up
+ * again -- run again by the owner, or gone on with -- and the coordinator's
+ * task was stopped for it, rather than "stopped without an account", which
+ * read as if it had failed.
+ */
+export function handlingStoppedSaid(reading: OwnerReading, facts: { role: string }): string {
+  return say(reading.language, '{role} was stopped: the work on this card has been taken up again.', { role: facts.role });
+}
+
 export function goalChangeCard(reading: OwnerReading, facts: {
   kind: string; statement: string; status: string; to: { statement?: string; status?: string }; reason: string;
   /** Where the goal's own measures stand, as the platform reads them: the evidence beside the agent's reason. */

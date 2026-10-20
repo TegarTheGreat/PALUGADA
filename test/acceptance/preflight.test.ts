@@ -349,6 +349,51 @@ test('work that has waited a day for a capability halts on the card open for it,
     'the card names work that stopped, so it stays for the owner');
 });
 
+/**
+ * F8.12 tells the owner at once when a credential fails. A card kept for the
+ * work that stopped under it kept the credential's name too, so when the
+ * credential failed again, the check's raise found that old card open and
+ * nobody was told. Nor did the card ever close.
+ */
+test("a credential's card kept for its stopped work: the next failure is a card of its own, and Run again closes the old one (F8.12)", async () => {
+  const fixture = await createCompany('preflight-held-passed');
+  const state = { healthy: false };
+  const { capability } = probedCapability(state);
+  const registry = await registryWith(fixture, capability as Capability<never, never>);
+  await giveRoleTools(fixture, ['dns.read']);
+  const engine = engineFor(registry, []);
+  const ctx = { companyId: fixture.companyId, divisionId: fixture.divisionId };
+  const cards = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{
+    id: string; status: string; closed_reason: string | null; ended: string[] | null;
+  }>(`SELECT id, status, closed_reason, payload->'endedTaskIds' AS ended FROM inbox_items
+       WHERE kind = 'incident' ORDER BY created_at`))).rows;
+
+  const task = await newTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
+     SELECT $1, $2, 'task.capability_waited', 'engine', '{"long": true, "capabilities": ["dns.read"]}',
+            now() - $3 * interval '1 millisecond' + make_interval(hours => hour)
+       FROM generate_series(0, 23) hour`,
+    [fixture.companyId, task.id, OUTAGE_PARK_CEILING_MS + 60_000]));
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'halted');
+  state.healthy = true;
+  await checkCapability(registry, ctx, 'dns.read', { force: true });
+  assert.deepEqual((await cards()).map((card) => [card.status, card.ended]), [['open', [task.id]]], 'kept for the work that stopped');
+
+  // The credential fails again: the owner is told, on a card of its own.
+  state.healthy = false;
+  await checkCapability(registry, ctx, 'dns.read', { force: true });
+  const now = await cards();
+  assert.equal(now.length, 2, 'a new failure is a new card');
+  assert.deepEqual(now.map((card) => card.status), ['open', 'open']);
+
+  // Running the stopped work again leaves nothing on the old card; the new one is the credential's.
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  await rerunTask(fixture.companyId, task.id, null);
+  assert.deepEqual((await cards()).map((card) => [card.status, card.closed_reason]), [['withdrawn', 'task_rerun'], ['open', null]]);
+});
+
 /** A capability whose vendor the test takes down and brings back: a 503 while down. */
 function vendorCapability(state: { down: boolean }, name = 'dns.read'): Capability<never, never> {
   const capability: Capability<{ zone: string }, { records: string[] }> = {

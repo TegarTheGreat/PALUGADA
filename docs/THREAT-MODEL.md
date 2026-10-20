@@ -185,11 +185,15 @@ binds it to an outside tracker), and any task a hook starts.
    brief names its tickets' ids and `ticket.list` given them returns only
    those, so an unrelated ticket from outside on the board does not taint
    the pass; a listing that returns any ticket from outside taints the
-   whole pass. A ticket the CEO files from an escalation it was handed is
-   as clean as that escalation task, which carries up to 300 characters of
-   the stuck task's record without its taint -- no wider than the
-   `task.delegate` it could already make from it. A yes for a while never
-   covers a call in tainted work, at any tier.
+   whole pass. A ticket is as clean as the work that filed it, and two
+   kinds of the CEO's work hold words they are not tainted by: an
+   escalation it was handed carries up to 300 characters of the stuck
+   task's record without its taint, and the review of a skill, the CEO's
+   when the company has no reviewer, holds the skill's text, an imported
+   one's included, fenced as data (`sendForReview`, `src/skills/skills.ts`).
+   A ticket the CEO files from either is clean -- no wider than the
+   `task.delegate` the same run could already make from the same words. A
+   yes for a while never covers a call in tainted work, at any tier.
 5c. A yes for a schedule (0116) does cover tainted work, and only because it
    is narrower than the taint: one schedule as it was defined when the yes
    was given (a digest of its role, division, project, goal, account,
@@ -302,8 +306,9 @@ binds it to an outside tracker), and any task a hook starts.
    wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
    settings). After a read of a task, an inbox item, a ticket, a message, a
    memory or a document, the same action is a card, so text from outside cannot
-   have the assistant start work as the owner. A test names the actions, so
-   adding one is a decision.
+   have the assistant start work as the owner in the answer that read it (what
+   a later answer carries of it is under Residual risk). A test names the
+   actions, so adding one is a decision.
 
 **Residual risk.**
 
@@ -315,6 +320,14 @@ binds it to an outside tracker), and any task a hook starts.
   was not.
 - A document the owner uploaded is the company's own: wrapped as data where
   it is shown, it does not taint the task that reads it.
+- The owner's assistant asks what it has read one answer at a time
+  (`converse`, `src/owner/assistant.ts`), and the conversation it is sent
+  holds its earlier answers. An answer that read a task's output says what
+  it found; the next answer, which reads only the company's structure, can
+  give work or file a ticket at once with those words in it, and the task
+  or ticket is the owner's and clean. What the conversation keeps is the
+  assistant's own account of what it read, never the text itself, and each
+  answer answers a line the owner wrote.
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

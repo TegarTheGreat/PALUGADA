@@ -23,6 +23,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { openTicket, startTicket } from '../../src/engine/tickets.ts';
 import { ensureTriage, TRIAGE_EVERY_MS } from '../../src/engine/triage.ts';
+import { FOUNDING_TEMPLATE } from '../../src/templates/founding.ts';
 import { reportEndedBadly } from '../../src/engine/ended.ts';
 import { Worker } from '../../src/worker.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
@@ -390,4 +391,19 @@ test('ticket.list takes ticket ids, and refuses something that is not one', asyn
   await company.fileByOwner('Order receipt paper');
   assert.deepEqual((await company.list({ ids: [ticket.id] })).tickets.map((one) => one.id), [ticket.id]);
   await assert.rejects(company.list({ ids: ['not-a-ticket'] }), /ticket\.list was called with input it does not accept/);
+});
+
+test("the CEO's charter, read beside a triage's brief, reads the tickets by the ids the brief names", async () => {
+  // The brief names the ids; a charter that says only "read them with
+  // ticket.list" is followed by listing the whole board, and one ticket from
+  // outside anywhere on it -- an open hire, a ticket worked after a customer
+  // wrote -- makes the pass, and the work it hands out, ask the owner again.
+  const ceo = FOUNDING_TEMPLATE.roles.find((role) => role.title === 'CEO')!;
+  assert.match(ceo.systemPrompt, /ticket\.list[^.]*\bids\b[^.]*brief/);
+
+  const { fixture } = await withCeo('triage-charter-ids');
+  const owed = (await file(fixture, 'Renew the shop\'s licence', 'owner')).ticket;
+  assert.ok(await ensureTriage(fixture.companyId));
+  const [task] = await triageTasks(fixture);
+  assert.ok(task!.input.context.includes(`ids: ${JSON.stringify([owed.id])}`), 'the brief names them');
 });

@@ -251,6 +251,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Пока модель не задана, ваш CEO может читать то, что вы пишете, но не может отвечать.",
   "Waiting for its role to be resumed": "Ждёт возобновления своей роли",
   "What is it for?": "Для чего она нужна?",
+  "You removed it from Files.": "Вы удалили его из «Файлов».",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "Ваш CEO предлагает роль, которой в компании нет. Нанимать решаете вы: CEO составляет роль вместе с вами в разговоре, и вы видите её до того, как она начнёт работу.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "Ваш CEO думает с помощью модели, а ни одна ещё не настроена. Выберите провайдера и вставьте его ключ. Позже это можно изменить в разделе «Эта установка».",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "напр. Мы обжариваем кофе из Гайо и продаём кафе и офисам Бандунга с доставкой в тот же день.",

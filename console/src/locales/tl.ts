@@ -227,6 +227,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Hangga't walang model, mababasa ng CEO mo ang isusulat mo pero hindi ito makakasagot.",
   "Waiting for its role to be resumed": "Naghihintay na ipagpatuloy ang role nito",
   "What is it for?": "Para saan ito?",
+  "You removed it from Files.": "Inalis mo ito sa Mga file.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "Nagmumungkahi ang iyong CEO ng tungkuling wala pa sa kumpanya. Ikaw ang magpapasya sa pagkuha: isinusulat ng CEO ang tungkulin kasama mo sa usapan, at makikita mo ito bago ito magsimula.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "Nag-iisip ang CEO mo gamit ang isang model, at wala pang naka-set up. Pumili ng provider at i-paste ang key nito. Mababago mo ito mamaya sa “Deployment na ito”.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "hal. Nag-iihaw kami ng kape mula Gayo at ibinebenta sa mga café at opisina sa Bandung, naihahatid sa parehong araw.",

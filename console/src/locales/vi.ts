@@ -271,6 +271,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Khi chưa có mô hình, CEO của bạn đọc được những gì bạn viết nhưng không thể trả lời.",
   "Waiting for its role to be resumed": "Đang chờ vai trò của nó được tiếp tục",
   "What is it for?": "Công ty này để làm gì?",
+  "You removed it from Files.": "Bạn đã xóa tệp này khỏi Tệp.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO của bạn đề xuất một vai trò công ty chưa có. Việc tuyển là do bạn quyết định: CEO cùng bạn viết vai trò trong cuộc trò chuyện, và bạn xem nó trước khi bắt đầu.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO của bạn suy nghĩ bằng một mô hình, và chưa có mô hình nào được thiết lập. Hãy chọn nhà cung cấp và dán khóa của nó. Bạn có thể đổi sau trong Hệ thống này.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "vd. Chúng tôi rang cà phê Gayo và bán cho quán cà phê và văn phòng ở Bandung, giao trong ngày.",

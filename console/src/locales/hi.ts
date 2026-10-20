@@ -217,6 +217,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "मॉडल सेट होने तक आपका CEO आपका लिखा पढ़ सकता है, पर जवाब नहीं दे सकता।",
   "Waiting for its role to be resumed": "इसकी भूमिका के फिर से शुरू होने का इंतज़ार",
   "What is it for?": "यह किसलिए है?",
+  "You removed it from Files.": "आपने इसे फ़ाइलों से हटा दिया।",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "आपके CEO एक ऐसी भूमिका का प्रस्ताव रखते हैं जो कंपनी में नहीं है। भर्ती का निर्णय आपका है: CEO बातचीत में आपके साथ भूमिका लिखते हैं, और शुरू होने से पहले आप उसे देखते हैं।",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "आपका CEO मॉडल से सोचता है, और अभी कोई मॉडल सेट नहीं है। प्रदाता चुनिए और उसकी कुंजी चिपकाइए। बाद में इसे यहाँ बदला जा सकता है: यह डिप्लॉयमेंट।",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "जैसे: हम गायो कॉफ़ी भूनकर बांडुंग के कैफ़े और दफ़्तरों को बेचते हैं, उसी दिन डिलीवर करते हैं।",

@@ -266,6 +266,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "จนกว่าจะตั้งโมเดล CEO ของคุณอ่านสิ่งที่คุณเขียนได้ แต่ตอบไม่ได้",
   "Waiting for its role to be resumed": "กำลังรอให้บทบาทของงานนี้กลับมาทำงาน",
   "What is it for?": "ตั้งขึ้นเพื่ออะไร",
+  "You removed it from Files.": "คุณลบไฟล์นี้ออกจากไฟล์แล้ว",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO ของคุณเสนอบทบาทที่บริษัทยังไม่มี การจ้างเป็นการตัดสินใจของคุณ: CEO เขียนบทบาทร่วมกับคุณในการสนทนา และคุณจะเห็นก่อนที่บทบาทจะเริ่มทำงาน",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO ของคุณคิดด้วยโมเดล และยังไม่ได้ตั้งค่าไว้ เลือกผู้ให้บริการแล้ววางคีย์ของมัน คุณเปลี่ยนได้ภายหลังที่ “ระบบนี้”",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "เช่น เราคั่วกาแฟกาโยแล้วขายให้คาเฟ่และออฟฟิศในบันดุง ส่งภายในวันเดียว",

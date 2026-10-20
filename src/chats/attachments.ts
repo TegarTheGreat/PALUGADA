@@ -48,10 +48,10 @@ export type KeptKind = 'pdf' | 'word' | 'excel' | 'photo' | 'voice' | 'text';
 /**
  * Why a file was not kept, as a word the console says in the owner's language:
  * too big, a kind that is never kept, no room left, a deployment that keeps no
- * files, or a failure to fetch or write it. `note` is the same in a sentence
- * for the run that is told.
+ * files, a failure to fetch or write it, or the owner having removed it since.
+ * `note` is the same in a sentence for the run that is told.
  */
-export type NotKeptWhy = 'too_big' | 'kind' | 'room' | 'no_files' | 'failed';
+export type NotKeptWhy = 'too_big' | 'kind' | 'room' | 'no_files' | 'failed' | 'removed';
 
 /** One file of a message as it is recorded (`chat_messages.files`): the path is null when it was not kept, and `note` says why. */
 export interface ReceivedFile {

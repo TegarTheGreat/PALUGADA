@@ -373,6 +373,46 @@ test('a company that already keeps what strangers sent up to its limit keeps no 
   }
 });
 
+/**
+ * The room is counted from what each message says it keeps, and nothing could
+ * take a received file out: the owner's delete removed only uploads. A company
+ * that had once been sent two gigabytes was refused every file after, for
+ * good, and told to "remove some from Files", which it could not.
+ */
+test('the owner removes a file a stranger sent, and its room is free again', { skip: SKIP_MAIL }, async () => {
+  const w = await world({ browser: false });
+  try {
+    assert.equal((await w.poll()).received, 0);
+    w.imap.deliver(letter('room-first', [{ name: 'a.txt', type: 'text/plain', data: 'one\n', disposition: 'attachment' }]));
+    assert.equal((await w.poll()).received, 1);
+    await withControlPlane((tx) => tx.query(
+      `UPDATE chat_messages SET files = jsonb_set(files, '{0,bytes}', to_jsonb($1::bigint)) WHERE direction = 'in'`, [2 * 1024 * 1024 * 1024]));
+    const [first] = await w.messages();
+    const path = first!.files[0]!.path!;
+
+    const removed = await w.api.call('POST', `/api/companies/${w.fixture.companyId}/files/delete`, w.owner, { path });
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    assert.equal(existsSync(join(w.mine, path)), false, 'the file is gone');
+    const [after] = await w.messages();
+    assert.deepEqual(after!.files.map((one) => [one.path, one.why]), [[null, 'removed']], 'the message says it is no longer kept, and why');
+
+    w.imap.deliver(letter('room-second', [{ name: 'b.txt', type: 'text/plain', data: 'two\n', disposition: 'attachment' }], { from: 'Budi <budi@pelanggan.example>' }));
+    assert.equal((await w.poll()).received, 1);
+    const second = (await w.messages()).at(-1)!;
+    assert.deepEqual(second.files.map((one) => [one.path !== null, one.why]), [[true, null]], 'the room it held is free');
+
+    // What a role made is still not the owner's to remove from here, nor is a folder.
+    await mkdir(join(w.mine, 'drafts'), { recursive: true });
+    await writeFile(join(w.mine, 'drafts', 'offer.md'), 'offer');
+    const draft = await w.api.call('POST', `/api/companies/${w.fixture.companyId}/files/delete`, w.owner, { path: 'drafts/offer.md' });
+    assert.equal(draft.status, 400);
+    const folder = await w.api.call('POST', `/api/companies/${w.fixture.companyId}/files/delete`, w.owner, { path: second.files[0]!.path!.split('/').slice(0, 3).join('/') });
+    assert.equal(folder.status, 400);
+  } finally {
+    await finish(w);
+  }
+});
+
 /* ------------------------------------------------------- what a stranger names --- */
 
 test('a stranger chooses no part of a path: a hostile name leaves a path of the platform\'s own and a plain name to show', async () => {

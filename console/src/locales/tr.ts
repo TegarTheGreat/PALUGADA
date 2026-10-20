@@ -273,6 +273,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Bir model ayarlanana kadar CEO'nuz yazdıklarınızı okuyabilir ama yanıtlayamaz.",
   "Waiting for its role to be resumed": "Rolünün sürdürülmesini bekliyor",
   "What is it for?": "Ne için?",
+  "You removed it from Files.": "Dosyalar'dan kaldırdınız.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO'nuz şirketin sahip olmadığı bir rol öneriyor. İşe almaya siz karar verirsiniz: CEO rolü sizinle sohbette yazar ve rol başlamadan önce onu görürsünüz.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO'nuz bir modelle düşünür ve henüz hiçbiri ayarlanmadı. Bir sağlayıcı seçin ve anahtarını yapıştırın. Bunu sonra şuradan değiştirebilirsiniz: Bu kurulum.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "örn. Gayo kahvesi kavuruyor, Bandung'daki kafelere ve ofislere aynı gün teslim ediyoruz.",

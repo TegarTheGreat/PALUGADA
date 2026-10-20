@@ -113,7 +113,7 @@ import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
 import {
-  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
+  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, receivedFileRemoved, setAnswersAlone,
 } from '../chats/chats.ts';
 import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
 import { invoiceHtml } from '../records/invoice-document.ts';
@@ -147,7 +147,7 @@ import type { CharterRepository } from '../governance/charter-repository.ts';
 import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
 import {
   DOWNLOAD_MAX_BYTES, UPLOAD_FOLDER, UPLOAD_MAX_BYTES, keepCompanyFile, listCompanyDirectory, mimeOf, plainFileName, readCompanyFile,
-  removeCompanyUpload,
+  removeCompanyFile,
 } from '../capabilities/files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
@@ -5099,14 +5099,16 @@ export class OwnerApi {
       },
 
       {
-        // Takes back what the owner handed over, and nothing else.
+        // Takes back what the owner handed over, or what a stranger sent, and nothing else.
         method: 'POST',
         pattern: '/api/companies/:companyId/files/delete',
         handle: async ({ params, body }) => {
           const root = this.#filesRoot();
           await this.#knownCompany(params.companyId!);
           // The path as the company keeps it, as `file.uploaded` has it, and not the spelling the owner typed.
-          const removed = await removeCompanyUpload(root, params.companyId!, body.path);
+          const removed = await removeCompanyFile(root, params.companyId!, body.path);
+          // A received file's message keeps counting it until it says the file is gone, and the room stays taken.
+          if (removed.startsWith('received/')) await receivedFileRemoved(params.companyId!, removed);
           await withTenant(params.companyId!, (tx) => appendEvent(tx, {
             companyId: params.companyId!, type: 'file.deleted', actor: 'owner', payload: { path: removed },
           }));

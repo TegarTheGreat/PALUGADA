@@ -266,6 +266,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Selagi model belum ditetapkan, CEO anda boleh membaca tulisan anda tetapi tidak boleh menjawab.",
   "Waiting for its role to be resumed": "Menunggu peranannya disambung semula",
   "What is it for?": "Untuk apa syarikat ini?",
+  "You removed it from Files.": "Anda telah membuangnya daripada Fail.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO anda mencadangkan peranan yang belum ada dalam syarikat. Mengambil pekerja ialah keputusan anda: CEO menyusun peranan itu bersama anda dalam perbualan, dan anda melihatnya sebelum ia bermula.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO anda berfikir dengan sebuah model, dan belum ada yang disediakan. Pilih penyedia dan tampal kuncinya. Anda boleh mengubahnya kemudian di Pemasangan ini.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "cth. Kami membakar kopi Gayo dan menjualnya kepada kafe dan pejabat di Bandung, dihantar pada hari yang sama.",

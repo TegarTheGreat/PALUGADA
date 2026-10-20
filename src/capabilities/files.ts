@@ -556,18 +556,24 @@ async function keepOne(
   throw new PalugadaError('contract.violation', `${folder} already holds twenty files named like ${name}: give it another name`, { folder });
 }
 
+/** The folder of what strangers sent (`src/chats/attachments.ts` keeps it): the other one a file is removed from. */
+const RECEIVED = 'received';
+
 /**
- * Removes a file the owner uploaded: one regular file directly in `uploads`,
- * found the way every reader here finds one. What a role drafted, made or
- * computed is not removed from here, and neither is a folder or a link.
+ * Removes a file the owner uploaded, or one a stranger sent: one regular file
+ * directly in `uploads`, or in a folder under `received`, found the way every
+ * reader here finds one. What strangers sent is counted against the room the
+ * company keeps for it, and the owner frees that room here. What a role
+ * drafted, made or computed is not removed from here, and neither is a
+ * folder or a link.
  */
-export async function removeCompanyUpload(root: string, companyId: string, path: unknown): Promise<string> {
+export async function removeCompanyFile(root: string, companyId: string, path: unknown): Promise<string> {
   const { realpath, lstat, unlink } = await import('node:fs/promises');
   const { join, resolve, sep, normalize, relative } = await import('node:path');
   const base = await companyRoot(root, companyId);
   const wanted = normalize(String(path ?? '')).replace(/^(\.\/)+/, '');
   const only = () => new PalugadaError('contract.violation',
-    `only what was uploaded can be removed here: ${wanted || String(path ?? '')} is not in ${UPLOAD_FOLDER}`, { path: wanted });
+    `only what was uploaded or sent in can be removed here: ${wanted || String(path ?? '')} is not in ${UPLOAD_FOLDER} or ${RECEIVED}`, { path: wanted });
   if (!wanted || wanted === '.') throw only();
   const target = resolve(join(base, wanted));
   const real = await realpath(target).catch(() => null);
@@ -576,7 +582,7 @@ export async function removeCompanyUpload(root: string, companyId: string, path:
     throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
   }
   const parts = relative(base, real).split(sep);
-  if (parts.length !== 2 || parts[0] !== UPLOAD_FOLDER) throw only();
+  if (!(parts.length === 2 && parts[0] === UPLOAD_FOLDER) && !(parts.length >= 3 && parts[0] === RECEIVED)) throw only();
   const info = await lstat(target).catch(() => null);
   if (!info || !info.isFile() || info.isSymbolicLink()) throw only();
   await unlink(real);

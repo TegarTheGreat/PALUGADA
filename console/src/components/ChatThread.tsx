@@ -47,6 +47,7 @@ function notKeptSaid(why: ChatMessage['files'][number]['why']): string {
     case 'room': return t('There was no room for it: remove files you no longer need.');
     case 'no_files': return t('This deployment keeps no files, so nothing was kept.');
     case 'failed': return t('It could not be fetched or written.');
+    case 'removed': return t('You removed it from Files.');
     default: return t('It was not kept.');
   }
 }

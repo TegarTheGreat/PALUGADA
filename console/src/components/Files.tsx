@@ -4,9 +4,10 @@
  *
  * The owner puts a file in (a contract, a price list, a photo) and it is kept
  * as it is, in the folder of uploads, under a plain name; takes any file out,
- * and removes what they put in. What a role drafted, made or computed is
- * listed and can be taken, never removed from here. Nothing is kept in the
- * browser, and a file is never opened in it: it is saved, or it is not.
+ * and removes what they put in, and what strangers sent, of which the company
+ * keeps only so much. What a role drafted, made or computed is listed and can
+ * be taken, never removed from here. Nothing is kept in the browser, and a
+ * file is never opened in it: it is saved, or it is not.
  */
 import { useRef, useState } from 'react';
 import { Anchor, Breadcrumbs, Button, CopyButton, FileButton, Group, Paper, Stack, Text } from '@mantine/core';
@@ -25,8 +26,10 @@ type Listing = { available: false } | { available: true; path: string; entries: 
 
 /** What the page sends in one file: the API's own ceiling (10 MB), checked before the file is read. */
 const UPLOAD_MAX_MB = 10;
-/** The folder of what the owner hands over: the only one a file is removed from here. */
+/** The folder of what the owner hands over, where an upload lands. */
 const UPLOADS = 'uploads';
+/** Whether a file in this folder can be removed here: what the owner handed over, or what a stranger sent. */
+const removable = (folder: string) => folder === UPLOADS || folder.startsWith('received/');
 
 export function Files({ companyId, owner }: { companyId: string; owner: boolean }) {
   const [path, setPath] = useState('.');
@@ -130,7 +133,7 @@ export function Files({ companyId, owner }: { companyId: string; owner: boolean 
               <Group gap={6} wrap="nowrap">
                 <ActionButton size="xs" variant="light" label={t('Download')} leftSection={<IconDownload size={14} />}
                   run={() => saveCompanyFile(companyId, join(entry.name))} />
-                {list.data && list.data.available && list.data.path === UPLOADS && (
+                {list.data && list.data.available && removable(list.data.path) && (
                   <ActionButton size="xs" variant="light" color="gray" label={t('Remove')}
                     run={() => api('POST', `/api/companies/${companyId}/files/delete`, { path: join(entry.name) })} done={list.reload} />
                 )}

@@ -439,6 +439,23 @@ async function keepMedia(channel: OpenChannel, message: InboundMessage, messageI
 }
 
 /**
+ * A received file the owner removed from Files: the message that carried it
+ * says it is no longer kept, and why. What a company keeps of what strangers
+ * sent is counted from what its messages say they keep, so this is what gives
+ * the room back.
+ */
+export async function receivedFileRemoved(companyId: string, path: string): Promise<void> {
+  await withControlPlane((tx) => tx.query(
+    `UPDATE chat_messages m
+        SET files = (SELECT jsonb_agg(CASE WHEN f ->> 'path' = $2
+                                           THEN f || jsonb_build_object('path', NULL, 'note', 'the owner removed it from Files', 'why', 'removed')
+                                           ELSE f END ORDER BY at)
+                       FROM jsonb_array_elements(m.files) WITH ORDINALITY AS each(f, at))
+      WHERE m.company_id = $1 AND m.files @> jsonb_build_array(jsonb_build_object('path', $2::text))`,
+    [companyId, path]));
+}
+
+/**
  * Where a channel will send its work, checked before anything is asked of
  * the transport or sealed: the role and goal are this company's, the goal is
  * open, and there is something to do with each message.

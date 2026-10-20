@@ -244,6 +244,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "모델을 설정하기 전에는 CEO가 쓴 내용을 읽을 수는 있지만 답할 수는 없어요.",
   "Waiting for its role to be resumed": "담당 역할이 재개되기를 기다리는 중",
   "What is it for?": "무엇을 위한 회사인가요?",
+  "You removed it from Files.": "파일에서 지웠어요.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO가 회사에 없는 역할을 제안합니다. 채용은 당신이 결정합니다. CEO가 대화에서 당신과 함께 역할을 작성하고, 시작하기 전에 당신이 확인합니다.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO는 모델로 생각하는데 아직 설정된 모델이 없어요. 제공업체를 고르고 그 키를 붙여넣으세요. 나중에 '이 인스턴스'에서 바꿀 수 있어요.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "예: 가요 커피를 로스팅해서 반둥의 카페와 사무실에 당일 배송으로 판매해요.",

@@ -244,6 +244,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "إلى أن يُعدّ نموذج، يقرأ الرئيس التنفيذي ما يُكتب إليه لكنه لا يستطيع الرد.",
   "Waiting for its role to be resumed": "بانتظار استئناف دورها",
   "What is it for?": "ما الغرض منها؟",
+  "You removed it from Files.": "لقد أزلته من الملفات.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "يقترح الرئيس التنفيذي دورًا لا تملكه الشركة. التوظيف قرارك: يكتب الرئيس التنفيذي الدور معك في المحادثة، وتراه قبل أن يبدأ.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "يفكر الرئيس التنفيذي بواسطة نموذج، ولم يُعدّ أي نموذج بعد. يُرجى اختيار مزوّد ولصق مفتاحه. يمكنك تغيير ذلك لاحقًا من «هذه المنصة».",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "مثال: نحمّص قهوة غايو ونبيعها للمقاهي والمكاتب في باندونغ، مع التوصيل في اليوم نفسه.",

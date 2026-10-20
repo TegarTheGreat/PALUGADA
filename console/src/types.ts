@@ -659,7 +659,7 @@ export interface ChatMessage {
   subject: string | null;
   outcome: 'started' | 'joined' | 'limited' | null;
   /** In: the files it carried, kept or not (0125). The name is the sender's: theirs, so shown as text and nothing more. */
-  files: Array<{ kind: string; name: string | null; path: string | null; bytes: number; note: string | null; why: 'too_big' | 'kind' | 'room' | 'no_files' | 'failed' | null }>;
+  files: Array<{ kind: string; name: string | null; path: string | null; bytes: number; note: string | null; why: 'too_big' | 'kind' | 'room' | 'no_files' | 'failed' | 'removed' | null }>;
   taskId: string | null;
   /** A reply the transport took; false for one whose send failed. */
   sent: boolean;

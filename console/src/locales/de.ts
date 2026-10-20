@@ -247,6 +247,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Solange kein Modell gesetzt ist, kann Ihr CEO lesen, was Sie schreiben, aber nicht antworten.",
   "Waiting for its role to be resumed": "Wartet darauf, dass die Rolle fortgesetzt wird",
   "What is it for?": "Wofür ist es da?",
+  "You removed it from Files.": "Sie haben sie aus den Dateien entfernt.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "Ihr CEO schlägt eine Rolle vor, die das Unternehmen nicht hat. Die Einstellung entscheiden Sie: Der CEO schreibt die Rolle mit Ihnen im Gespräch, und Sie sehen sie, bevor sie anfängt.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "Ihr CEO denkt mit einem Modell, und es ist noch keines eingerichtet. Wählen Sie einen Anbieter und fügen Sie dessen Schlüssel ein. Sie können das später unter „Diese Instanz“ ändern.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "z. B. Wir rösten Gayo-Kaffee und beliefern Cafés und Büros in Bandung, noch am selben Tag.",

@@ -264,6 +264,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Salami dereng wonten model, CEO panjenengan saged maos ingkang panjenengan serat nanging boten saged mangsuli.",
   "Waiting for its role to be resumed": "Ngentosi peranipun dipun lajengaken",
   "What is it for?": "Kangge menapa perusahaan menika?",
+  "You removed it from Files.": "Panjenengan sampun mbusak saking Berkas.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO panjenengan ngusulaké peran sing durung ana ing perusahaan. Nyewa iku keputusan panjenengan: CEO nyusun peran kasebut bareng panjenengan ing obrolan, lan panjenengan ndeleng sadurungé wiwit nyambut gawé.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO panjenengan mikir nganggé model, lan dereng wonten ingkang dipunsiapaken. Pilih panyedhia lan tempelna kunci-ipun. Panjenengan saged ngowahi mangké wonten ing Pamasangan punika.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "tuladha: Kula nyangrai kopi Gayo lan dodolan dhateng kafe lan kantor ing Bandung, dipunkirim ing dinten ingkang sami.",

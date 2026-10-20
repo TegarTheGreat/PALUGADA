@@ -272,6 +272,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "Salami can aya model, CEO anjeun tiasa maca naon anu anjeun serat tapi teu tiasa ngawalon.",
   "Waiting for its role to be resumed": "Ngadagoan perannana diteruskeun",
   "What is it for?": "Pausahaan ieu pikeun naon?",
+  "You removed it from Files.": "Anjeun parantos ngahapus tina Berkas.",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO anjeun ngusulkeun peran anu can aya di perusahaan. Ngarékrut téh kaputusan anjeun: CEO nyusun peranna babarengan jeung anjeun dina obrolan, sarta anjeun ningali éta saméméh mimiti damel.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO anjeun mikir maké model, sarta can aya anu disiapkeun. Pilih panyadia tuluy témpélkeun konci na. Anjeun tiasa ngarobahna engké di Pamasangan ieu.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "upamina: Kami nyangray kopi Gayo sarta ngajualna ka kafe jeung kantor di Bandung, dianteurkeun dina poé anu sarua.",

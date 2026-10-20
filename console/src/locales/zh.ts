@@ -233,6 +233,7 @@ export const DICTIONARY: Dictionary = {
   "Until a model is set, your CEO can read what you write but cannot answer.": "在设置模型之前，CEO 能读您写的内容，但无法回答。",
   "Waiting for its role to be resumed": "正在等待其角色恢复",
   "What is it for?": "公司是做什么的？",
+  "You removed it from Files.": "你已将它从“文件”中删除。",
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "您的 CEO 提议设立一个公司还没有的职位。是否招聘由您决定：CEO 会在对话中与您一起写好这个职位，并在它开始工作前让您过目。",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO 靠模型思考，而现在还没有设置。选择一个服务商并粘贴它的密钥。之后可以在“本部署”中更改。",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "例如：我们烘焙 Gayo 咖啡，卖给万隆的咖啡馆和办公室，当天送达。",

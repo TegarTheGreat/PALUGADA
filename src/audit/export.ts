@@ -176,9 +176,11 @@ const SECTIONS: Section[] = [
     sql: `SELECT document_id, seq, heading, body FROM document_passages ORDER BY document_id, seq`,
   },
   {
-    // The backlog (0070): what was owed, who filed it, and what worked it.
+    // The backlog (0070): what was owed, who filed it, whether its words may
+    // be a stranger's (0134), and what worked it. An archive from before
+    // 0134 has no `outside`, and its tickets are restored as from outside.
     name: 'tickets',
-    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
                  working_task_id, closed_reason, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at`,
   },

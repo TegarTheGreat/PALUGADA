@@ -9,6 +9,12 @@
  * role from the console. It closes itself when that task finishes, and opens
  * again, with the reason, when the task ends any other way -- so a ticket is
  * never left marked as being worked by something that has stopped.
+ *
+ * A ticket also says whether the work that filed it had read something from
+ * outside the company (F8.9, 0134): its words are then a stranger's as much
+ * as the run's, and work made from it carries them. Said once, when it is
+ * filed, and never changed: nothing here, and nothing the application role
+ * may write, rewrites a ticket's words or its provenance afterwards.
  */
 import type { TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
@@ -36,6 +42,12 @@ export interface Ticket {
   priority: number;
   openedBy: 'owner' | 'agent';
   openedByTaskId: string | null;
+  /**
+   * Filed by work that had read something from outside the company, or of
+   * unknown provenance (filed before 0134, or restored from an archive
+   * written before it). The owner's own ticket never is.
+   */
+  outside: boolean;
   workingTaskId: string | null;
   closedReason: string | null;
   createdAt: Date;
@@ -45,11 +57,11 @@ export interface Ticket {
 
 interface RawTicket {
   id: string; project_id: string; kind: TicketKind; division_id: string | null; title: string; body: string; status: TicketStatus;
-  priority: number; opened_by: 'owner' | 'agent'; opened_by_task_id: string | null; working_task_id: string | null;
+  priority: number; opened_by: 'owner' | 'agent'; opened_by_task_id: string | null; outside: boolean; working_task_id: string | null;
   closed_reason: string | null; created_at: Date; updated_at: Date; closed_at: Date | null;
 }
 
-const COLUMNS = `id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+const COLUMNS = `id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
                  working_task_id, closed_reason, created_at, updated_at, closed_at`;
 
 const toTicket = (row: RawTicket): Ticket => ({
@@ -63,6 +75,7 @@ const toTicket = (row: RawTicket): Ticket => ({
   priority: row.priority,
   openedBy: row.opened_by,
   openedByTaskId: row.opened_by_task_id,
+  outside: row.outside,
   workingTaskId: row.working_task_id,
   closedReason: row.closed_reason,
   createdAt: row.created_at,
@@ -84,7 +97,10 @@ export async function readTicket(tx: TenantClient, ticketId: string): Promise<Ti
  *
  * The same title still open in the same place is the same ticket: a run that
  * is retried, or two runs that noticed the same missing piece, would
- * otherwise fill the board with copies the owner has to close by hand.
+ * otherwise fill the board with copies the owner has to close by hand. It is
+ * returned as it is, words and provenance both: a filer that has read an
+ * email cannot put new words in a clean ticket by naming it again, and clean
+ * work cannot make a ticket from outside clean.
  */
 export async function openTicket(tx: TenantClient, input: {
   companyId: string;
@@ -97,6 +113,12 @@ export async function openTicket(tx: TenantClient, input: {
   kind?: TicketKind;
   openedBy: 'owner' | 'agent';
   openedByTaskId?: string | null;
+  /**
+   * Whether the filer's work had read something from outside (F8.9). Asked of
+   * every caller rather than defaulted: a writer that forgot would file a
+   * stranger's words as clean.
+   */
+  outside: boolean;
 }): Promise<{ ticket: Ticket; existing: boolean }> {
   const title = input.title.trim();
   const body = (input.body ?? '').trim();
@@ -123,9 +145,10 @@ export async function openTicket(tx: TenantClient, input: {
   if (same.rows[0]) return { ticket: toTicket(same.rows[0]), existing: true };
 
   const { rows } = await tx.query<RawTicket>(
-    `INSERT INTO tickets (company_id, project_id, division_id, title, body, priority, opened_by, opened_by_task_id, kind)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ${COLUMNS}`,
-    [input.companyId, input.projectId, input.divisionId, title, body, priority, input.openedBy, input.openedByTaskId ?? null, kind]);
+    `INSERT INTO tickets (company_id, project_id, division_id, title, body, priority, opened_by, opened_by_task_id, kind, outside)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${COLUMNS}`,
+    [input.companyId, input.projectId, input.divisionId, title, body, priority, input.openedBy, input.openedByTaskId ?? null, kind,
+      input.outside]);
   const ticket = toTicket(rows[0]!);
   await appendEvent(tx, {
     companyId: input.companyId,
@@ -138,21 +161,31 @@ export async function openTicket(tx: TenantClient, input: {
   return { ticket, existing: false };
 }
 
+/** Checked before the query, so a malformed id is a refusal that says so rather than a statement the database rejects. */
+const TICKET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** The board: open and in-progress first by priority and age, then the recently finished. */
 export async function listTickets(tx: TenantClient, options: {
   status?: 'active' | 'all' | TicketStatus;
   divisionId?: string | null;
+  /** Only these tickets: what a triage was given, and not the rest of the board. */
+  ids?: readonly string[] | null;
   limit?: number;
 } = {}): Promise<Ticket[]> {
   const status = options.status ?? 'active';
   const statuses = status === 'active' ? ['open', 'in_progress'] : status === 'all' ? [...TICKET_STATUSES] : [status];
+  const ids = options.ids ?? null;
+  if (ids && ids.some((id) => !TICKET_ID.test(id))) {
+    throw new PalugadaError('contract.violation', 'a ticket id is a uuid, as ticket.list and the board give it', { field: 'ids' });
+  }
   const { rows } = await tx.query<RawTicket>(
     `SELECT ${COLUMNS} FROM tickets
       WHERE status = ANY($1::text[])
         AND ($2::uuid IS NULL OR division_id = $2)
+        AND ($4::uuid[] IS NULL OR id = ANY($4::uuid[]))
       ORDER BY (status IN ('open', 'in_progress')) DESC, priority, created_at
       LIMIT $3`,
-    [statuses, options.divisionId ?? null, Math.min(Math.max(options.limit ?? 100, 1), 500)]);
+    [statuses, options.divisionId ?? null, Math.min(Math.max(options.limit ?? 100, 1), 500), ids ? [...ids] : null]);
   return rows.map(toTicket);
 }
 

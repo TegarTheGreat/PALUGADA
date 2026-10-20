@@ -500,7 +500,7 @@ test("the brief is the platform's numbers and the owner's words, and nothing an 
     'UPDATE roles SET display_name = $2, title = $2, system_prompt = $2 WHERE id = $1', [helper, sentinel]));
   await withTenant(fixture.companyId, (tx) => openTicket(tx, {
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: sentinel, openedBy: 'agent',
-    openedByTaskId: writer.id,
+    openedByTaskId: writer.id, outside: true,
   }));
 
   assert.ok(await ensureOutcomes(fixture.companyId));

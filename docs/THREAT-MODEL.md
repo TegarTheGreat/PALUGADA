@@ -133,7 +133,9 @@ refer to `docs/PRD.md`.
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
 `calendar.read`, `crm.read`, `speech.transcribe`, `image.describe`, `chat.read`,
 `browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
-`ticket.list`), and any task a hook starts.
+`ticket.list` when what it returns holds a ticket filed by work that had read
+outside content, or of unknown provenance -- and always when a vendor file
+binds it to an outside tracker), and any task a hook starts.
 
 **Defences, in order.**
 
@@ -167,8 +169,27 @@ refer to `docs/PRD.md`.
 5b. Taint follows the work to new tasks, in the transaction that makes
    them: a rerun carries what the task it reruns carried, a sub-task its
    parent's, including what the parent's other sub-tasks read, and a task
-   the owner makes from a ticket a run filed carries the ticket's words. A
-   yes for a while never covers a call in tainted work, at any tier.
+   made from a ticket filed by tainted work -- the owner's from the board,
+   or the CEO's triage of the backlog -- carries the ticket's words. A
+   ticket carries what its filer's work had read when it was filed
+   (`ticket.create` asks `outsideContentIn` in the transaction that files
+   it, 0134), recorded on the row because the events that say so expire
+   with retention. It never becomes clean: the application role may not
+   update a ticket's provenance, title or body, a ticket filed again under
+   the same title is returned as it was, a ticket from before 0134 counts
+   as outside unless the owner filed it, and every ticket restored from an
+   archive written before 0134 counts as outside. The owner's own tickets
+   are clean, as a task the owner gives is: typed on the board, a card the
+   owner applied, or one the assistant filed itself in an answer that read
+   nothing anyone else wrote (`auto`, `assistant-actions.ts`). A triage's
+   brief names its tickets' ids and `ticket.list` given them returns only
+   those, so an unrelated ticket from outside on the board does not taint
+   the pass; a listing that returns any ticket from outside taints the
+   whole pass. A ticket the CEO files from an escalation it was handed is
+   as clean as that escalation task, which carries up to 300 characters of
+   the stuck task's record without its taint -- no wider than the
+   `task.delegate` it could already make from it. A yes for a while never
+   covers a call in tainted work, at any tier.
 5c. A yes for a schedule (0116) does cover tainted work, and only because it
    is narrower than the taint: one schedule as it was defined when the yes
    was given (a digest of its role, division, project, goal, account,

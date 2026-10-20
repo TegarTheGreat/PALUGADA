@@ -440,7 +440,9 @@ export interface IncidentInput {
    * at once -- a refused model key, a model or a service that is down
    * (`ONCE` in src/engine/recovered.ts). While an incident with this name is
    * open in the company, it is that one the owner has to deal with, and
-   * another is not raised beside it.
+   * another is not raised beside it -- unless the cause it was raised for
+   * has passed and it is kept only for the work that stopped under it
+   * (`causePassed`, `withdrawOnceWithin`).
    */
   once?: string | undefined;
   /**
@@ -474,11 +476,13 @@ export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput
     if (input.once) {
       // Two tasks meeting the same outage in two workers at once each found
       // no card open and each raised one. The second now waits for the first
-      // and finds its card.
+      // and finds its card. Not a card whose cause passed: that is an outage
+      // the owner was told of before, and this one is told anew.
       await lockOnceWithin(tx, input.companyId, input.once);
       const { rows: open } = await tx.query<{ id: string }>(
         `SELECT id FROM inbox_items
           WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = $1
+            AND NOT payload ? 'causePassed'
           ORDER BY created_at LIMIT 1`,
         [input.once],
       );
@@ -514,7 +518,9 @@ const MOST_HELD = 50;
  * task is reported on it (`endedTaskIds`, which src/engine/ended.ts reads)
  * rather than on a card of its own: work that waited a day on a model that
  * never came back is one card, not one a task. With no card open -- the owner
- * answered it -- the task is reported as any ended work is.
+ * answered it -- the task is reported as any ended work is. Not on a card
+ * kept for an earlier outage's stopped work (`causePassed`): this outage has
+ * a card of its own.
  */
 export async function holdEndedOn(companyId: string, onces: readonly string[], taskId: string): Promise<boolean> {
   return withTenant(companyId, async (tx) => {
@@ -523,6 +529,7 @@ export async function holdEndedOn(companyId: string, onces: readonly string[], t
               jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) AS count
          FROM inbox_items
         WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = ANY($1::text[])
+          AND NOT payload ? 'causePassed'
         ORDER BY created_at LIMIT 1
         FOR UPDATE`,
       [onces, taskId],
@@ -542,10 +549,37 @@ export async function holdEndedOn(companyId: string, onces: readonly string[], t
 }
 
 /**
+ * Over a card about a cause (`card`): every task that stopped while it was
+ * open (`holdEndedOn`) has been run again, so nothing on it is left for the
+ * owner. Run again only, not "no longer stopped": a task is named on the card
+ * a moment before its halt is written, and in that moment it is still running.
+ */
+export function heldAllRunAgain(card: string): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(coalesce(${card}.payload->'endedTaskIds', '[]'::jsonb)) AS held(id)
+     WHERE NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || held.id))`;
+}
+
+/**
  * Withdraws the open cards about a cause that has passed (`once`), saying
- * why, and returns how many. Not a card that names work which stopped while
- * it was open (`holdEndedOn`): it is where that work is reported, and stays
- * for the owner.
+ * why, and returns how many.
+ *
+ * A card that names work which stopped while it was open (`holdEndedOn`) is
+ * where that work is reported, so it is withdrawn only once every task on it
+ * has been run again. Until then it stays for the owner, but it is marked as
+ * the cause having passed (`causePassed`) and no longer answers to the
+ * cause's name: a card about the outage of a week ago, kept for its stopped
+ * work, took in the next outage of the same model, key, vendor or credential
+ * -- no card was raised and nobody was pushed, and the work that outage
+ * stopped was added to a card the owner had long since read. Now the next
+ * outage raises a card of its own, and Run again closes the kept one once
+ * nothing on it is left (`rerunTask`).
+ *
+ * Under the lock on each name, taken in the order of the names: the mark and
+ * the owner's Run again cannot pass each other, so a card whose last stopped
+ * task is run again as its cause passes is withdrawn by one or the other.
+ * The callers that read a card under its lock (src/engine/recovered.ts)
+ * already hold it; a capability's check holds the reading's.
  */
 export async function withdrawOnceWithin(
   tx: TenantClient,
@@ -553,11 +587,12 @@ export async function withdrawOnceWithin(
   onces: readonly string[],
   reason: 'capability_healthy' | 'model_answered' | 'key_works' | 'nothing_waits',
 ): Promise<number> {
+  for (const once of [...onces].sort()) await lockOnceWithin(tx, companyId, once);
   const { rows } = await tx.query<{ id: string }>(
-    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
-      WHERE company_id = $1 AND kind = 'incident' AND status = 'open' AND payload->>'once' = ANY($2::text[])
-        AND jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) = 0
-      RETURNING id`,
+    `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = $3
+      WHERE i.company_id = $1 AND i.kind = 'incident' AND i.status = 'open' AND i.payload->>'once' = ANY($2::text[])
+        AND ${heldAllRunAgain('i')}
+      RETURNING i.id`,
     [companyId, onces, reason],
   );
   for (const item of rows) {
@@ -565,6 +600,15 @@ export async function withdrawOnceWithin(
       companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
     });
   }
+  // What is left open holds stopped work not yet run again. A card holding
+  // none would have been withdrawn above, and is never marked.
+  await tx.query(
+    `UPDATE inbox_items SET payload = payload || jsonb_build_object('causePassed', now())
+      WHERE company_id = $1 AND kind = 'incident' AND status = 'open' AND payload->>'once' = ANY($2::text[])
+        AND jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) > 0
+        AND NOT payload ? 'causePassed'`,
+    [companyId, onces],
+  );
   return rows.length;
 }
 

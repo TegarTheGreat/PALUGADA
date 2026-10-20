@@ -36,9 +36,12 @@
  * did for the key.
  *
  * A card that holds work which stopped while it was open (`holdEndedOn` in
- * inbox.ts: a day's waiting spent) is not withdrawn. That work is reported on
- * it and nowhere else (ended.ts counts it as told), and closing it because the
- * cause passed would leave the stopped work unsaid.
+ * inbox.ts: a day's waiting spent) is not withdrawn while any of that work
+ * has not been run again. That work is reported on it and nowhere else
+ * (ended.ts counts it as told), and closing it because the cause passed would
+ * leave the stopped work unsaid. It is kept for that work alone
+ * (`causePassed`): it is no longer read here, and the cause coming back
+ * raises a card of its own (`withdrawOnceWithin`).
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
@@ -166,7 +169,7 @@ interface CauseCard {
 export async function closeRecovered(companyId: string): Promise<number> {
   const cards = await withTenant(companyId, (tx) => tx.query<CauseCard>(
     `SELECT id, payload->>'once' AS once, created_at FROM inbox_items
-      WHERE kind = 'incident' AND status = 'open'
+      WHERE kind = 'incident' AND status = 'open' AND NOT payload ? 'causePassed'
         AND (payload->>'once' LIKE 'model\\_down:%' OR payload->>'once' LIKE 'service\\_down:%' OR payload->>'once' = $1)
       ORDER BY created_at`,
     [ONCE.key],
@@ -189,7 +192,8 @@ async function recover(companyId: string, card: CauseCard): Promise<number> {
     // moment found the card open, raised nothing, and the card closed under
     // it. Two workers reading the same card take turns on it too.
     await lockOnceWithin(tx, companyId, card.once);
-    const { rows: open } = await tx.query("SELECT 1 FROM inbox_items WHERE id = $1 AND status = 'open'", [card.id]);
+    const { rows: open } = await tx.query(
+      "SELECT 1 FROM inbox_items WHERE id = $1 AND status = 'open' AND NOT payload ? 'causePassed'", [card.id]);
     if (open.length === 0) return 0;
     // What waits on it: each task whose last wait for a model, of either
     // kind, was for this cause -- the key, or this model. A task last waiting

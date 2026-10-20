@@ -939,6 +939,105 @@ test("work that gets through on another model does not close a model's card (F13
   assert.deepEqual(await openCards(fixture.companyId), []);
 });
 
+/** Takes a task through a day of waiting for a model that stays down, to its halt on the model's card. */
+async function waitTheDayOut(fixture: Fixture, engine: Engine, taskId: string): Promise<void> {
+  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    assert.equal((await engine.runTask(fixture.companyId, taskId, 'worker')).status, 'waiting_window');
+  }
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
+     SELECT $1, $2, 'task.model_waited', 'engine', '{"long": true, "model": "test-model"}',
+            now() - $3 * interval '1 millisecond' + make_interval(hours => hour)
+       FROM generate_series(0, 23) hour`,
+    [fixture.companyId, taskId, OUTAGE_PARK_CEILING_MS + 60_000]));
+  await withTenant(fixture.companyId, (tx) => tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [taskId]));
+  assert.equal((await engine.runTask(fixture.companyId, taskId, 'worker')).status, 'halted');
+}
+async function causeCards(companyId: string) {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{
+    id: string; status: string; closed_reason: string | null; ended: string[] | null;
+  }>(`SELECT id, status, closed_reason, payload->'endedTaskIds' AS ended FROM inbox_items
+       WHERE kind = 'incident' ORDER BY created_at`));
+  return rows;
+}
+
+/**
+ * A card that holds work which stopped is kept for that work when the cause
+ * passes. It kept the cause's name too, so the next outage of the same model
+ * found it open: no card, no push, and the work that outage stopped was added
+ * to a card the owner had read days before. And nothing closed it: not the
+ * cause passing, not the owner running the stopped work again.
+ */
+test('a model\'s card that holds stopped work stops answering for the model once nothing waits on it: the next outage is a card of its own, and Run again closes the old one (F13.6)', async () => {
+  const fixture = await createCompany('model-card-held-passed');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const down = new Set(['test-model']);
+  const engine = engineWith(broker, switchedModels(down));
+  const stopped = await newTask(fixture, {});
+  await waitTheDayOut(fixture, engine, stopped.id);
+  const [old] = await causeCards(fixture.companyId);
+  assert.deepEqual(old!.ended, [stopped.id]);
+  // The owner's phone had it.
+  const { undelivered } = await import('../../src/owner/notify.ts');
+  assert.deepEqual((await undelivered(fixture.companyId, 'push:webhook')).map((item) => item.id), [old!.id]);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO owner_notifications (company_id, inbox_item_id, channel, delivery, delivered_at)
+     VALUES ($1, $2, 'push:webhook', 'actionable', now())`, [fixture.companyId, old!.id]));
+
+  // Nothing waits on the model any more: the card stays, for the work that stopped.
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  await closeRecovered(fixture.companyId);
+  assert.equal((await causeCards(fixture.companyId))[0]!.status, 'open');
+
+  // A week on, the same model goes down again.
+  const next = await newTask(fixture, {});
+  await waitTheDayOut(fixture, engine, next.id);
+  const cards = await causeCards(fixture.companyId);
+  assert.equal(cards.length, 2, 'the new outage has a card of its own');
+  assert.deepEqual(cards.map((card) => card.ended), [[stopped.id], [next.id]], 'and its work that stopped is on it');
+  assert.deepEqual((await undelivered(fixture.companyId, 'push:webhook')).map((item) => item.id), [cards[1]!.id], 'the owner is told of it');
+
+  // The owner runs the old card's stopped work again: nothing on it is left unanswered.
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  await rerunTask(fixture.companyId, stopped.id, null);
+  const after = await causeCards(fixture.companyId);
+  assert.deepEqual(after.map((card) => [card.status, card.closed_reason]), [['withdrawn', 'task_rerun'], ['open', null]]);
+  const { reportEndedBadly } = await import('../../src/engine/ended.ts');
+  assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + 5 * 60_000)), 0, 'neither stopped task is reported again');
+});
+
+/**
+ * The other order: the stopped work run again while the model is still down.
+ * The card still speaks for the work waiting on the model, the rerun among
+ * it, so it stays; once the model answers there is nothing left on it.
+ */
+test('a model\'s card whose stopped work was run again closes when the model answers (F13.6)', async () => {
+  const fixture = await createCompany('model-card-held-rerun');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const down = new Set(['test-model']);
+  const engine = engineWith(broker, switchedModels(down));
+  const stopped = await newTask(fixture, {});
+  await waitTheDayOut(fixture, engine, stopped.id);
+
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const rerun = await rerunTask(fixture.companyId, stopped.id, null);
+  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    assert.equal((await engine.runTask(fixture.companyId, rerun, 'worker')).status, 'waiting_window');
+  }
+  assert.deepEqual((await causeCards(fixture.companyId)).map((card) => card.status), ['open'],
+    'one card while the model is down, and it speaks for the rerun waiting on it');
+
+  down.clear();
+  await withTenant(fixture.companyId, (tx) => tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [rerun]));
+  assert.equal((await engine.runTask(fixture.companyId, rerun, 'worker')).status, 'completed');
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  await closeRecovered(fixture.companyId);
+  assert.deepEqual((await causeCards(fixture.companyId)).map((card) => [card.status, card.closed_reason]),
+    [['withdrawn', 'model_answered']]);
+});
+
 /**
  * 2.140 left the waiting work to find a key put right at its own next look,
  * which could be hours on. A saved key starts the deployment again, so the

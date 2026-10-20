@@ -24,6 +24,7 @@ import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
+import { heldAllRunAgain, lockOnceWithin } from '../inbox/inbox.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
 export const INSTRUCTION_MAX = 2_000;
@@ -241,6 +242,19 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
  * Under the lock ended.ts raises that card under, so the card and the run
  * again cannot pass each other: either the card is there to be closed here,
  * or ended.ts finds the new task and raises none.
+ *
+ * A card about a cause -- a model, a key, a vendor, a credential -- names the
+ * work that stopped while it was open in the same list, and goes the same
+ * way, once its cause has passed (`causePassed`, inbox.ts). While the cause
+ * is still there the card speaks for the work still waiting on it, the new
+ * task among it, and stays: it is withdrawn when the cause passes with
+ * nothing on it left (`withdrawOnceWithin`). Closed here instead, the work
+ * waiting on the cause would wait with no card until its next look, which
+ * would push a second card for the same outage, and work that stopped in
+ * between would be reported as any ended work is, not on the cause's card.
+ * Under the lock on the card's name, which the mark is made under: a card
+ * marked as this looks is seen marked, and one marked after it sees this
+ * task's new one.
  */
 async function closeCardsRunAgainAnswers(
   tx: TenantClient,
@@ -249,6 +263,20 @@ async function closeCardsRunAgainAnswers(
   taskId: string,
 ): Promise<void> {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [taskId]);
+  const { rows: causes } = await tx.query<{ once: string }>(
+    `SELECT DISTINCT payload->>'once' AS once FROM inbox_items
+      WHERE kind = 'incident' AND status = 'open' AND payload ? 'once' AND payload->'endedTaskIds' ? $1
+      ORDER BY 1`,
+    [taskId],
+  );
+  for (const cause of causes) await lockOnceWithin(tx, companyId, cause.once);
+  const { rows: passed } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = 'task_rerun'
+      WHERE i.kind = 'incident' AND i.status = 'open' AND i.payload ? 'causePassed'
+        AND i.payload->'endedTaskIds' ? $1 AND ${heldAllRunAgain('i')}
+      RETURNING i.id`,
+    [taskId],
+  );
   const { rows: incidents } = await tx.query<{ id: string }>(
     `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun'
       WHERE kind = 'incident' AND status = 'open' AND task_id = $1 AND payload->>'aboutTask' = 'true'
@@ -265,7 +293,7 @@ async function closeCardsRunAgainAnswers(
       RETURNING i.id`,
     [taskId],
   );
-  for (const item of [...incidents, ...ended]) {
+  for (const item of [...passed, ...incidents, ...ended]) {
     await appendEvent(tx, {
       companyId, projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
       payload: { inboxItemId: item.id, closedReason: 'task_rerun' },

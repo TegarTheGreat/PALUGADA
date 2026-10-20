@@ -140,6 +140,23 @@ test('an overdue invoice whose reminder is due is made a task, which writes the 
   }
 });
 
+test('the work goes in a project the company still has open, not the first one it closed', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-archived');
+  const { close } = await office(fixture);
+  try {
+    // The owner opened a second project and closed the first, which a company may do while another is open.
+    const { rows: [open] } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+      "INSERT INTO projects (company_id, slug, name) VALUES ($1, 'second', 'Second') RETURNING id", [fixture.companyId]));
+    await withTenant(fixture.companyId, (tx) => tx.query('UPDATE projects SET archived_at = now() WHERE id = $1', [fixture.projectId]));
+    await overdue(fixture, 5);
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.ok(look.task, 'a closed project took no work, and nothing was made or said');
+    assert.equal((await statusOf(fixture, look.task!)).projectId, open!.id);
+  } finally {
+    await close();
+  }
+});
+
 test('an invoice paid between the look and the work is not written to', { skip: SKIP }, async () => {
   const fixture = await createCompany('duty-paid');
   const { smtp, engine, close } = await office(fixture);

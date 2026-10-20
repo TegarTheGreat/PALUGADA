@@ -145,7 +145,9 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
          JOIN capability_grants g ON g.division_id = r.division_id AND g.capability_name = 'invoice.remind'
         WHERE 'invoice.remind' = ANY(r.tools) AND r.frozen_at IS NULL AND coalesce(r.runtime, '') <> 'person'
         ORDER BY r.created_at LIMIT 1`);
-    const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1');
+    // An open one: a closed project takes no new work, and a company always
+    // keeps one open (`changeProject`).
+    const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at LIMIT 1');
     const { rows: goal } = await tx.query<{ id: string }>(
       "SELECT id FROM goals WHERE status = 'active' ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1");
     return { role: rows[0] ?? null, projectId: project[0]?.id ?? null, goalId: goal[0]?.id ?? null };

@@ -344,9 +344,15 @@ binds it to an outside tracker), and any task a hook starts.
   `src/owner/assistant.ts`), so an answer that read a task's output says what
   it found, and the next answer, which reads only the company's structure,
   can give work or file a ticket at once with those words in it, and the
-  task or ticket is the owner's and clean. What the conversation keeps is the
-  assistant's own account of what it read, never the text itself, and each
-  answer answers a line the owner wrote.
+  task or ticket is the owner's and clean. What the conversation keeps of the
+  assistant's answers is its own account of what it read, never the text
+  itself, and each answer answers a line the owner wrote. The briefing the CEO
+  gives when the owner comes back answers nothing: the platform writes it
+  (`src/owner/ceo-briefing.ts`), so it quotes a goal only where the owner wrote
+  it -- work they gave, a ticket they filed, or either run again -- and counts
+  the rest. A ticket an agent filed, read from a customer's email or not, is
+  the owner's press when they give it out, not their words, and a run again of
+  a webhook's work or of an agent's brief has that work's goal.
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

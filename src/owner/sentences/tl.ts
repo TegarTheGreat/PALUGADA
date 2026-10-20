@@ -419,4 +419,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Kusang magpapatuloy ang trabahong naghihintay sa modelo kapag gumagamit na ng key na gumagana, at kusang magsasara ang card na ito.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Naghihintay ang trabahong nangangailangan nito sa halip na magsimula, at kusa itong magpapatuloy kapag pumasa na ang pagsusuri; kusang magsasara ang card na ito. Ang karaniwang dahilan ay credential na nag-expire o mali ang saklaw, quota na naubos na, o maling address.',
+  'Work finished: {count}':
+    'Mga gawaing natapos: {count}',
 };

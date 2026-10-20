@@ -422,4 +422,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Работа, ожидающая модель, продолжится сама, как только начнёт использоваться рабочий ключ, и тогда эта карточка закроется сама.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Работа, которой она нужна, ждёт, а не запускается, и продолжится сама, как только проверка будет пройдена; тогда эта карточка закроется сама. Обычные причины: истёкшие или выданные с неверными правами учётные данные, исчерпанная квота или неверный адрес.',
+  'Work finished: {count}':
+    'Завершено работ: {count}',
 };

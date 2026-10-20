@@ -426,4 +426,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Công việc đang chờ mô hình sẽ tự tiếp tục khi khóa hợp lệ được dùng, và khi đó thẻ này sẽ tự đóng.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Công việc cần đến nó sẽ chờ thay vì bắt đầu, và tự tiếp tục ngay khi vượt qua kiểm tra; khi đó thẻ này sẽ tự đóng. Nguyên nhân thường gặp là thông tin xác thực đã hết hạn hoặc sai phạm vi, hạn ngạch đã dùng hết, hoặc địa chỉ bị sai.',
+  'Work finished: {count}':
+    'Việc đã xong: {count}',
 };

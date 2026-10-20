@@ -423,4 +423,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder ve bu kart da kendiliğinden kapanır.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Buna ihtiyaç duyan iş başlatılmak yerine bekler ve kontrol geçilir geçilmez kendiliğinden devam eder; bu kart da kendiliğinden kapanır. Bunun nedeni genellikle süresi dolmuş ya da kapsamı yanlış ayarlanmış bir kimlik bilgisi, biten bir kota ya da yanlış bir adrestir.',
+  'Work finished: {count}':
+    'Tamamlanan işler: {count}',
 };

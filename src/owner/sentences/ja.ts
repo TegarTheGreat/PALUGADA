@@ -418,4 +418,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'モデルを待っている作業は、使えるキーに切り替わると自動的に再開し、このカードも自動的に閉じます。',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'それを必要とする作業は、開始されずに待機し、チェックに通れば自動的に再開します。このカードも自動的に閉じます。よくある原因は、認証情報の期限切れや権限範囲の誤り、利用枠の使い切り、アドレスの誤りです。',
+  'Work finished: {count}':
+    '完了した仕事：{count}',
 };

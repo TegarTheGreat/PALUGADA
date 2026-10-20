@@ -425,4 +425,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'งานที่รอโมเดลอยู่จะทำต่อเองทันทีที่ใช้คีย์ที่ใช้ได้ และการ์ดนี้จะปิดเอง',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'งานที่ต้องใช้ความสามารถนี้จะรอแทนที่จะเริ่ม และจะทำต่อเองทันทีที่ผ่านการตรวจสอบ แล้วการ์ดนี้จะปิดเอง สาเหตุที่พบบ่อยคือข้อมูลรับรองหมดอายุหรือกำหนดขอบเขตไว้ไม่ถูกต้อง โควตาหมด หรือที่อยู่ไม่ถูกต้อง',
+  'Work finished: {count}':
+    'งานที่เสร็จแล้ว: {count}',
 };

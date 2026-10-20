@@ -420,4 +420,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '모델을 기다리던 작업은 사용할 수 있는 키가 적용되면 자동으로 이어지고, 이 카드도 저절로 닫혀요.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     '이를 필요로 하는 일은 시작되지 않고 기다리다가, 검사를 통과하면 자동으로 이어져요. 이 카드도 저절로 닫혀요. 흔한 원인은 만료되었거나 범위가 잘못 지정된 자격 증명, 다 쓴 할당량, 잘못된 주소예요.',
+  'Work finished: {count}':
+    '완료된 일: {count}',
 };

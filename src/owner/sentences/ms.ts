@@ -421,4 +421,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Kerja yang menunggu model akan diteruskan sendiri sebaik sahaja kunci yang berfungsi digunakan, dan kad ini kemudian ditutup dengan sendirinya.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Kerja yang memerlukannya menunggu dan bukan dimulakan, dan akan diteruskan sendiri sebaik sahaja semakan itu lulus; kad ini kemudian ditutup dengan sendirinya. Punca biasa ialah bukti kelayakan yang tamat tempoh atau salah skop, kuota yang telah habis, atau alamat yang salah.',
+  'Work finished: {count}':
+    'Kerja selesai: {count}',
 };

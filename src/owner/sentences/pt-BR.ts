@@ -421,4 +421,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'O trabalho que espera o modelo continua sozinho assim que uma chave que funcione estiver em uso, e este cartão então se fecha sozinho.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'O trabalho que precisa dela espera em vez de ser iniciado, e segue sozinho assim que a verificação passar; este cartão então se fecha sozinho. As causas mais comuns são uma credencial expirada ou com escopo errado, uma cota esgotada ou um endereço errado.',
+  'Work finished: {count}':
+    'Trabalhos concluídos: {count}',
 };

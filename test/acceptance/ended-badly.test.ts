@@ -922,6 +922,45 @@ test('a CEO a close did not stop, its worker gone in between, is stopped at the 
 });
 
 /**
+ * The hand-over makes the CEO's task, then names it on the card, in a
+ * transaction of its own, and cancels it itself when the card closed in
+ * between. A worker that stopped between the two, with the card then closed
+ * -- run again, or answered by the owner -- before it was back, left a task
+ * the card never names: the next look hands over only open cards, and stops
+ * only what a card names, so it worked on, unread, beside the owner.
+ */
+test('a CEO\'s task its card never named, its worker gone in between, is stopped at the next look', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-unnamed');
+  for (const close of ['run again', 'answered'] as const) {
+    const task = await rootOf(company, company.hiredId, `send the letters, ${close}`);
+    await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+    assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+    const card = (await cardsOf(company.companyId)).find((item) => item.task_id === task.id)!;
+    // The hand-over's first step, committed; the worker stops here.
+    const ceo = await createRootTask({
+      companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+      roleId: company.ceoId, goalId: company.goalIds.mission!, createdBy: 'event',
+      idempotencyKey: `escalation:${card.id}`, input: { goal: `Escalated to you: send the letters, ${close}` },
+    });
+    if (close === 'run again') {
+      await rerunTask(company.companyId, task.id, null);
+    } else {
+      await withTenant(company.companyId, (tx) => tx.query(
+        "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [card.id]));
+    }
+    assert.notEqual((await cardsOf(company.companyId)).find((item) => item.id === card.id)!.status, 'open', close);
+
+    await handEscalations(company.companyId);
+    assert.deepEqual(await taskState(company.companyId, ceo.id), { status: 'cancelled', halt_reason: 'work_taken_up' }, close);
+    await handEscalations(company.companyId);
+    const { rows } = await withTenant(company.companyId, (tx) => tx.query(
+      "SELECT 1 FROM events WHERE task_id = $1 AND type = 'task.cancelled'", [ceo.id]));
+    assert.equal(rows.length, 1, `${close}: stopped once`);
+  }
+});
+
+/**
  * The CEO handling a card can itself be stopped by its budget, and a task so
  * stopped has ended as far as stopping it goes: Run again, or going on, that
  * closed the card left it halted, and self-heal then set it going again --

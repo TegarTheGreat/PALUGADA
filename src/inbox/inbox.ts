@@ -19,7 +19,7 @@ import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
 import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
-import { cancelTask, releaseReservations, stopHandlingLeftWorking } from '../engine/owner-control.ts';
+import { ANSWERED_BEFORE_HANDED, cancelTask, releaseReservations, stopHandlingLeftWorking } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -976,7 +976,7 @@ async function handOver(companyId: string, item: {
     // task, which the card no longer names, would work on unread beside
     // whatever answered it.
     try {
-      await cancelTask(companyId, taskId, 'the card it was handed was answered before it reached it', 'system');
+      await cancelTask(companyId, taskId, ANSWERED_BEFORE_HANDED, 'system');
     } catch (error) {
       if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
     }

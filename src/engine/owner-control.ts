@@ -257,6 +257,15 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 const RERUN_STOPS_HANDLING = 'the owner ran the work it was handling again';
 /** And when the work it was handed goes on from where it stopped. */
 const GONE_ON_STOPS_HANDLING = 'the work it was handling went on';
+/** And when its card closed before the card named it (`handOver`). */
+export const ANSWERED_BEFORE_HANDED = 'the card it was handed was answered before it reached it';
+
+/** Why a coordinator's task is stopped, by how the card it was handed closed. */
+function whyHandlingStops(closedReason: string | null): string {
+  if (closedReason === 'task_rerun') return RERUN_STOPS_HANDLING;
+  if (closedReason === 'task_continued' || closedReason === 'budget_room') return GONE_ON_STOPS_HANDLING;
+  return ANSWERED_BEFORE_HANDED;
+}
 
 /**
  * Stops the tasks a coordinator was handed for cards the work itself has
@@ -290,9 +299,17 @@ async function stopHandling(
  * Only until the card has its coordinator's account, which is written once
  * its task has ended -- or says it halted, which may be its budget, and then
  * it is stopped as well.
+ *
+ * And a coordinator's task the card never named. The hand-over makes the
+ * task, then names it on the card in a transaction of its own, and cancels
+ * the task itself when the card has closed in between (`handOver`). A worker
+ * that stopped between the two, with the card then closed -- run again, or
+ * the owner's own answer -- before it was back, left a task nothing found
+ * again: the next look hands over only open cards. Found by the key the
+ * hand-over made it under, from the card, by its id.
  */
 export async function stopHandlingLeftWorking(companyId: string): Promise<void> {
-  const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string; reason: string }>(
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string; reason: string | null }>(
     `SELECT DISTINCT ON (h.id) h.id, i.closed_reason AS reason FROM inbox_items i
        JOIN tasks h ON h.id = (i.payload->>'handedTaskId')::uuid
       WHERE i.kind = 'escalation' AND i.status = 'withdrawn'
@@ -302,8 +319,17 @@ export async function stopHandlingLeftWorking(companyId: string): Promise<void> 
       ORDER BY h.id
       LIMIT 50`,
     [TERMINAL_STATUSES]));
-  for (const row of rows) {
-    await stopHandling(companyId, [row.id], row.reason === 'task_rerun' ? RERUN_STOPS_HANDLING : GONE_ON_STOPS_HANDLING, 'system');
+  const { rows: unnamed } = await withTenant(companyId, (tx) => tx.query<{ id: string; reason: string | null }>(
+    `SELECT h.id, i.closed_reason AS reason FROM inbox_items i
+       JOIN tasks h ON h.idempotency_key = 'escalation:' || i.id::text
+      WHERE i.kind = 'escalation' AND i.status <> 'open' AND i.payload->>'escalationRole' IS NOT NULL
+        AND NOT i.payload ? 'handedTaskId' AND NOT i.payload ? 'handoffFailed'
+        AND (h.status <> ALL($1::text[]) OR (h.status = 'halted' AND h.halt_reason = 'budget_exhausted'))
+      ORDER BY h.id
+      LIMIT 50`,
+    [TERMINAL_STATUSES]));
+  for (const row of [...rows, ...unnamed]) {
+    await stopHandling(companyId, [row.id], whyHandlingStops(row.reason), 'system');
   }
 }
 

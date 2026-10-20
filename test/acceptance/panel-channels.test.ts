@@ -135,7 +135,7 @@ test('the owner connects Telegram from the console: the bot checked, their chat 
     assert.deepEqual(chats.body.chats, [{ id: '42', name: 'Tegar Owner', username: 'tegar' }]);
     assert.ok(telegram.calls.some((call) => call.method === 'deleteWebhook'));
 
-    const saved = await api.call('POST', '/api/control/channels/telegram', token, { token: TOKEN, chatId: '42' });
+    const saved = await api.call('POST', '/api/control/channels/telegram', token, { token: TOKEN, chatId: '42', proof: { totp: api.code() } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.equal(saved.body.webhook, 'set');
     const setWebhook = telegram.calls.find((call) => call.method === 'setWebhook')!;
@@ -212,7 +212,7 @@ test('the owner connects WhatsApp from the console: the number checked with Meta
     assert.equal(refused.status, 400, 'Meta\'s refusal is the owner\'s to read');
     assert.match(String(refused.body.error), /WhatsApp did not accept that number id and token: Invalid OAuth access token/);
 
-    const saved = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-system-user-token' });
+    const saved = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-system-user-token', proof: { totp: api.code() } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.deepEqual(saved.body.number, { number: '+62 21 5555 0100', name: 'Kopi Nusantara' });
     assert.equal(await api.secrets.resolve('db://channel-whatsapp'), 'EAAG-system-user-token');
@@ -497,7 +497,7 @@ test('the owner connects email from the console: a test first, then saved sealed
     });
 
     const saved = await api.call('POST', '/api/control/channels/email', token,
-      { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example' });
+      { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example', proof: { totp: api.code() } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const view = (await api.call('GET', '/api/control/channels', token)).body.email;
     assert.deepEqual([view.source, view.provider, view.from, view.to], ['console', 'resend', 'alerts@kopi.example', 'owner@kopi.example']);

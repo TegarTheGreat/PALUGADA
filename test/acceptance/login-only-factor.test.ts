@@ -13,7 +13,8 @@
  *
  * What still takes a code at the moment it is done is what changes who the
  * owner is -- revoking an authenticator, making new recovery codes, adding a
- * passkey, vouching for a device -- and everything in a session that was
+ * passkey, vouching for a device -- what lets someone new in for good --
+ * seating a person, connecting a channel -- and everything in a session that was
  * opened with a recovery code, which proves less than a device. A chat is
  * still no place to approve tier 3: it has no session at all.
  */
@@ -82,6 +83,30 @@ test('what changes who the owner is still takes a code, at the moment it is done
     }
     const made = await api.call('POST', '/api/mfa/recovery-codes', token, { proof: { totp: api.code() } });
     assert.equal(made.status, 200, JSON.stringify(made.body));
+  } finally {
+    await api.close();
+  }
+});
+
+test('what lets someone new in for good -- a seat, or a channel the owner is reached on -- takes a code at the moment too', async () => {
+  // The review of 20 October: a stolen session could seat its thief as an
+  // approver, or point the owner's Telegram at the thief's own chat, and keep
+  // that after the owner signed out everywhere. That is enrolling a device by
+  // another name, and it is asked for as a device is.
+  const fixture = await createCompany('login-only-seat');
+  const api = await consoleWithSettings({ baseEnv: {} });
+  try {
+    const token = await api.signIn();
+    const seat = (proof?: unknown) => api.call('POST', `/api/companies/${fixture.companyId}/staff`, token,
+      { name: 'Budi', kind: 'approver', ...(proof === undefined ? {} : { proof }) });
+    const refused = await seat();
+    assert.equal(refused.status, 403, 'a seat asks for a code even in a session opened with one');
+    assert.match(String(refused.body.error), /second factor/);
+    assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/staff`, token)).body.seats.length, 0, 'and nobody was seated');
+    assert.equal((await seat({ totp: api.code() })).status, 200);
+    // A channel the owner is reached on asks before it is saved.
+    const channel = await api.call('POST', '/api/control/channels/chat/slack', token, { url: 'https://hooks.slack.com/services/T000/B000/XXXX' });
+    assert.equal(channel.status, 403, JSON.stringify(channel.body));
   } finally {
     await api.close();
   }

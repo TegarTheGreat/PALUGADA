@@ -69,8 +69,11 @@ refer to `docs/PRD.md`.
    on every request). What still takes a code at the moment it is done: revoking
    an authenticator, making recovery codes, adding a passkey and vouching for a
    device -- the acts a thief would use to lock the owner out or to keep access
-   -- and everything in a session signed in with a recovery code, which proves
-   less than a device, until a device's code is shown in it. A chat has no
+   -- and, for the same reason, seating a person and connecting a channel the
+   owner is reached and answered on (Telegram, WhatsApp, push, Slack, Discord,
+   email), either of which would outlast the session's sign-out; and everything
+   in a session signed in with a recovery code, which proves less than a
+   device, until a device's code is shown in it. A chat has no
    session and still cannot approve tier 3, and a staff seat still cannot.
 5. Each open route has its own secret. Hooks: a public id from a random UUID,
    then a bearer token stored as its SHA-256 or an HMAC over the raw bytes,

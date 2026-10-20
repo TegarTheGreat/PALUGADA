@@ -1100,7 +1100,7 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/staff',
         handle: async ({ params, body }) => {
           const request = seatRequest(body);
-          await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!);
+          await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!, true);
           return this.#staff.create(params.companyId!, request);
         },
       },
@@ -2126,7 +2126,7 @@ export class OwnerApi {
           }
           const token = await this.#telegramToken(body);
           await outside(telegramBot(token, this.#botApi()));
-          await this.#requireFactor(body.proof, 'connect Telegram');
+          await this.#requireFactor(body.proof, 'connect Telegram', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           const webhookSecret = randomBytes(24).toString('hex');
@@ -2192,7 +2192,7 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'paste the app secret, from the app\'s Basic settings: it is how a delivery is known to be from Meta', { field: 'appSecret' });
           }
           const number = await outside(whatsappNumber(token, phoneNumberId, this.#whatsappApi()));
-          await this.#requireFactor(body.proof, 'connect WhatsApp');
+          await this.#requireFactor(body.proof, 'connect WhatsApp', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           const verifyToken = (await saved(stored?.verifySecret)) ?? randomBytes(24).toString('hex');
@@ -2235,7 +2235,7 @@ export class OwnerApi {
         handle: async ({ body }) => {
           const deployment = this.#deploymentSettings();
           const { format, url, topic, typed, keep } = await this.#pushCandidate(body);
-          await this.#requireFactor(body.proof, 'set up push notifications');
+          await this.#requireFactor(body.proof, 'set up push notifications', null, true);
           if (typed) {
             const master = deployment.master(true);
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
@@ -2271,7 +2271,7 @@ export class OwnerApi {
           const deployment = this.#deploymentSettings();
           const kind = chatKindNamed(params.kind!);
           const url = await this.#chatWebhook(kind, body);
-          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`);
+          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`, null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           await putSecret(`channel-${kind}`, url, master);
@@ -2303,7 +2303,7 @@ export class OwnerApi {
         handle: async ({ body }) => {
           const deployment = this.#deploymentSettings();
           const candidate = await this.#emailCandidate(body);
-          await this.#requireFactor(body.proof, 'connect email');
+          await this.#requireFactor(body.proof, 'connect email', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           await putSecret('channel-email', candidate.key, master);
@@ -6671,7 +6671,10 @@ export class OwnerApi {
    * - `fresh`, for what changes who the owner is -- an authenticator revoked,
    *   new recovery codes, a passkey added, a device vouched for -- which takes
    *   a code at the moment, because a stolen session must not be able to lock
-   *   the owner out or enrol its own device;
+   *   the owner out or enrol its own device; and for what lets someone new in
+   *   for good, which is enrolling a device by another name -- a person
+   *   seated, a channel the owner is reached and answered on -- since either
+   *   would outlast the stolen session's sign-out (the review of 20 October);
    * - a request with no session at all, which is what a chat is (a card from
    *   Telegram reaches only what needs no device, `chatMayApply`).
    *

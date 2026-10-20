@@ -6,7 +6,8 @@
  * `requireFactor(what, attempt)` first tries `attempt` with no code. The
  * server refuses, before doing anything, what needs a code of its own -- an
  * authenticator revoked, recovery codes made, a passkey added, a device
- * vouched for, and everything in a session signed in with a recovery code --
+ * vouched for, a person seated, a channel connected, and everything in a
+ * session signed in with a recovery code --
  * and that refusal is what opens a dialog for *this* action and no other: the
  * code the owner types is handed to `attempt`, which is the one request they
  * are confirming. It resolves `true` once that request succeeded and `false`

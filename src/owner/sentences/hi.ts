@@ -424,4 +424,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'जिस काम को इसकी ज़रूरत है, वह शुरू होने के बजाय इंतज़ार करता है, और जाँच पास होते ही अपने-आप आगे बढ़ जाता है; तब यह कार्ड अपने-आप बंद हो जाता है। आम कारण होते हैं: समाप्त या गलत दायरे वाला क्रेडेंशियल, खत्म हो चुका कोटा, या गलत पता।',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} का काम रोका गया: इस कार्ड का काम फिर से शुरू कर दिया गया है।',
+  'Withdrawn: the month it was about has ended.':
+    'वापस लिया गया: जिस महीने के बारे में था, वह बीत गया।',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'वापस लिया गया: रोक हटा दी गई है, और काम जारी है।',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'वापस लिया गया: मॉडल फिर से जवाब दे रहा है, और उसका इंतज़ार कर रहा काम वापस बुला लिया गया।',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'वापस लिया गया: मॉडल की कुंजी फिर से काम कर रही है, और उसका इंतज़ार कर रहा काम वापस बुला लिया गया।',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'वापस लिया गया: सेवा फिर से अपनी जाँच में सफल रही, और उसका इंतज़ार कर रहा काम वापस बुला लिया गया।',
+  'Withdrawn: no work is waiting on it any more.':
+    'वापस लिया गया: अब कोई काम इसका इंतज़ार नहीं कर रहा है।',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'वापस लिया गया: जिस भूमिका को यह सौंपा गया था, उसने इसे संभाल लिया, और आपके तय करने को कुछ नहीं बचा।',
 };

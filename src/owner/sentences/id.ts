@@ -418,4 +418,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Pekerjaan yang membutuhkannya menunggu, bukan dimulai, dan akan lanjut sendiri begitu pemeriksaannya lolos; kartu ini lalu tertutup sendiri. Penyebab yang biasa adalah kredensial yang kedaluwarsa atau cakupannya salah, kuota yang habis, atau alamat yang salah.',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} dihentikan: pekerjaan di kartu ini sudah dijalankan lagi.',
+  'Withdrawn: the month it was about has ended.':
+    'Ditarik: bulan yang dimaksud sudah berakhir.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Ditarik: jeda sudah dicabut, dan pekerjaan berlanjut.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Ditarik: model sudah merespons lagi, dan pekerjaan yang menunggunya sudah dipanggil kembali.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Ditarik: kunci model sudah berfungsi lagi, dan pekerjaan yang menunggunya sudah dipanggil kembali.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Ditarik: layanan sudah lolos pemeriksaannya lagi, dan pekerjaan yang menunggunya sudah dipanggil kembali.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Ditarik: tidak ada lagi pekerjaan yang menunggunya.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Ditarik: peran yang menerimanya sudah menanganinya, dan tidak ada lagi yang perlu Anda putuskan.',
 };

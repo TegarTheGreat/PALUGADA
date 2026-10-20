@@ -422,4 +422,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Padamelan anu meryogikeunana ngantosan, sanés dimimitian, sareng bakal diteruskeun sorangan saparantos pamariksaanana lulus; teras kartu ieu nutup sorangan. Sabab anu biasa nyaéta kredénsial anu kadaluwarsa atanapi cakupanana lepat, kuota anu séép, atanapi alamat anu lepat.',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} dieureunkeun: padamelan dina kartu ieu parantos dijalankeun deui.',
+  'Withdrawn: the month it was about has ended.':
+    'Ditarik: bulan anu dimaksud parantos réngsé.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Ditarik: reureuhna parantos dicabut, sarta pagawéan diteraskeun.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Ditarik: modél parantos ngawaler deui, sarta pagawéan anu ngantosanana parantos disauran deui.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Ditarik: konci modél parantos jalan deui, sarta pagawéan anu ngantosanana parantos disauran deui.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Ditarik: layanan parantos lulus pamariksaanana deui, sarta pagawéan anu ngantosanana parantos disauran deui.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Ditarik: tos teu aya deui pagawéan anu ngantosanana.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Ditarik: peran anu nampi parantos ngurusna, sarta teu aya deui anu kedah diputuskeun ku anjeun.',
 };

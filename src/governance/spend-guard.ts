@@ -229,9 +229,10 @@ async function withdrawEarlierWarnings(companyId: string, periodStart: Date): Pr
 
 /**
  * The pause card's English title, matched as well as its payload for a card
- * raised before the payload was kept -- all of which were in English.
+ * raised before the payload was kept -- all of which were in English. A
+ * restore tells it from the 80% warning by it too (audit/import.ts).
  */
-const PAUSED_TITLE = 'Monthly budget reached; the company is paused';
+export const PAUSED_TITLE = 'Monthly budget reached; the company is paused';
 
 /** Records that this alert has been raised for this period. False if already. */
 async function claimSlot(companyId: string, kind: string, day: Date): Promise<boolean> {

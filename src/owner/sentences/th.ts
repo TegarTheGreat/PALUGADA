@@ -427,4 +427,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'งานที่ต้องใช้ความสามารถนี้จะรอแทนที่จะเริ่ม และจะทำต่อเองทันทีที่ผ่านการตรวจสอบ แล้วการ์ดนี้จะปิดเอง สาเหตุที่พบบ่อยคือข้อมูลรับรองหมดอายุหรือกำหนดขอบเขตไว้ไม่ถูกต้อง โควตาหมด หรือที่อยู่ไม่ถูกต้อง',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} ถูกหยุดแล้ว เพราะงานในการ์ดนี้ได้กลับมาทำต่อแล้ว',
+  'Withdrawn: the month it was about has ended.':
+    'ถอนออกแล้ว: เดือนที่เกี่ยวข้องผ่านไปแล้ว',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'ถอนออกแล้ว: ยกเลิกการหยุดชั่วคราวแล้ว และงานดำเนินต่อไป',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'ถอนออกแล้ว: โมเดลตอบสนองอีกครั้งแล้ว และงานที่รออยู่ถูกเรียกกลับมาแล้ว',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'ถอนออกแล้ว: คีย์โมเดลใช้ได้อีกครั้งแล้ว และงานที่รออยู่ถูกเรียกกลับมาแล้ว',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'ถอนออกแล้ว: บริการผ่านการตรวจสอบอีกครั้งแล้ว และงานที่รออยู่ถูกเรียกกลับมาแล้ว',
+  'Withdrawn: no work is waiting on it any more.':
+    'ถอนออกแล้ว: ไม่มีงานใดรอสิ่งนี้อยู่อีกแล้ว',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'ถอนออกแล้ว: บทบาทที่ได้รับมอบหมายจัดการเรื่องนี้แล้ว และไม่มีอะไรเหลือให้คุณตัดสินใจ',
 };

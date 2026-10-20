@@ -421,4 +421,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Naghihintay ang trabahong nangangailangan nito sa halip na magsimula, at kusa itong magpapatuloy kapag pumasa na ang pagsusuri; kusang magsasara ang card na ito. Ang karaniwang dahilan ay credential na nag-expire o mali ang saklaw, quota na naubos na, o maling address.',
   '{role} was stopped: the work on this card has been taken up again.':
     'Inihinto si {role}: muli nang sinimulan ang trabaho sa card na ito.',
+  'Withdrawn: the month it was about has ended.':
+    'Binawi: tapos na ang buwang tinutukoy nito.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Binawi: inalis na ang pause, at tuloy ang trabaho.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Binawi: sumasagot na ulit ang modelo, at ibinalik na ang anumang trabahong naghihintay rito.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Binawi: gumagana na ulit ang key ng modelo, at ibinalik na ang anumang trabahong naghihintay rito.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Binawi: pumasa na ulit sa pagsusuri ang serbisyo, at ibinalik na ang anumang trabahong naghihintay rito.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Binawi: wala nang trabahong naghihintay rito.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Binawi: inasikaso na ito ng papel na pinagbigyan nito, at wala nang natitirang kailangan mong pagpasyahan.',
 };

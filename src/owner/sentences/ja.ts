@@ -420,4 +420,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'それを必要とする作業は、開始されずに待機し、チェックに通れば自動的に再開します。このカードも自動的に閉じます。よくある原因は、認証情報の期限切れや権限範囲の誤り、利用枠の使い切り、アドレスの誤りです。',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} は停止されました。このカードの作業はすでに再開されています。',
+  'Withdrawn: the month it was about has ended.':
+    '取り下げ済み：対象の月は終わりました。',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    '取り下げ済み：一時停止が解除され、作業は続いています。',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    '取り下げ済み：モデルが再び応答しています。待機していた作業は呼び戻されました。',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    '取り下げ済み：モデルのキーが再び使えるようになりました。待機していた作業は呼び戻されました。',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    '取り下げ済み：サービスが再びチェックに通りました。待機していた作業は呼び戻されました。',
+  'Withdrawn: no work is waiting on it any more.':
+    '取り下げ済み：これを待っている作業はもうありません。',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    '取り下げ済み：引き渡された役割が対応したため、あなたが決めることは残っていません。',
 };

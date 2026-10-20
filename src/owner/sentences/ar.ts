@@ -421,4 +421,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'العمل الذي يحتاجها ينتظر بدلًا من أن يبدأ، ويستأنف من تلقاء نفسه بمجرد نجاح الفحص؛ وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها. والأسباب المعتادة: بيانات اعتماد منتهية الصلاحية أو بنطاق صلاحيات خاطئ، أو حصة نفدت، أو عنوان خاطئ.',
   '{role} was stopped: the work on this card has been taken up again.':
     'أُوقف {role}: فالعمل الذي في هذه البطاقة استُؤنف من جديد.',
+  'Withdrawn: the month it was about has ended.':
+    'سُحب: انتهى الشهر الذي كان يتعلق به.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'سُحب: رُفع الإيقاف المؤقت، ويستمر العمل.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'سُحب: النموذج يستجيب مجددًا، واستُدعي أي عمل كان ينتظره.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'سُحب: مفتاح النموذج يعمل مجددًا، واستُدعي أي عمل كان ينتظره.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'سُحب: اجتازت الخدمة فحصها مجددًا، واستُدعي أي عمل كان ينتظرها.',
+  'Withdrawn: no work is waiting on it any more.':
+    'سُحب: لم يعد أي عمل ينتظره.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'سُحب: تولّى أمره الدور الذي أُسند إليه، ولم يبقَ شيء عليك أن تقرره.',
 };

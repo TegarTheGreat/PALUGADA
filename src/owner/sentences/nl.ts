@@ -424,4 +424,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Werk dat haar nodig heeft, wacht in plaats van te starten, en gaat vanzelf verder zodra de controle slaagt; deze kaart sluit dan vanzelf. Gebruikelijke oorzaken zijn verlopen inloggegevens of inloggegevens met de verkeerde rechten, een quotum dat op is, of een verkeerd adres.',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} werd gestopt: het werk op deze kaart is weer opgepakt.',
+  'Withdrawn: the month it was about has ended.':
+    'Ingetrokken: de maand waar het over ging is voorbij.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Ingetrokken: de pauze is opgeheven, en het werk gaat door.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Ingetrokken: het model antwoordt weer, en werk dat erop wachtte is teruggeroepen.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Ingetrokken: de modelsleutel werkt weer, en werk dat erop wachtte is teruggeroepen.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Ingetrokken: de dienst heeft zijn controle weer doorstaan, en werk dat erop wachtte is teruggeroepen.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Ingetrokken: er wacht geen werk meer op.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Ingetrokken: de rol waaraan het was overgedragen heeft het afgehandeld, en er valt voor u niets meer te beslissen.',
 };

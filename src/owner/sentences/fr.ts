@@ -427,4 +427,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Le travail qui en a besoin attend au lieu d’être lancé, et reprend de lui-même dès que la vérification réussit ; cette carte se ferme alors d’elle-même. Les causes habituelles sont un identifiant expiré ou aux droits mal définis, un quota épuisé, ou une adresse erronée.',
   '{role} was stopped: the work on this card has been taken up again.':
     'L’exécution de {role} a été arrêtée : le travail de cette carte a été repris.',
+  'Withdrawn: the month it was about has ended.':
+    'Retiré : le mois qu’il concernait est terminé.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Retiré : la pause a été levée, et le travail reprend.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Retiré : le modèle répond de nouveau, et le travail qui l’attendait a été rappelé.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Retiré : la clé du modèle fonctionne de nouveau, et le travail qui l’attendait a été rappelé.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Retiré : le service a de nouveau passé sa vérification, et le travail qui l’attendait a été rappelé.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Retiré : plus aucun travail ne l’attend.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Retiré : le rôle auquel il a été confié s’en est occupé, et vous n’avez plus rien à décider.',
 };

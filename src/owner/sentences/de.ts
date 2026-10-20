@@ -424,4 +424,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Arbeit, die sie braucht, wartet, statt zu starten, und läuft von selbst weiter, sobald die Prüfung besteht; diese Karte schließt sich dann von selbst. Die üblichen Ursachen sind abgelaufene oder mit falschem Umfang ausgestellte Zugangsdaten, ein aufgebrauchtes Kontingent oder eine falsche Adresse.',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} wurde gestoppt: Die Arbeit auf dieser Karte wurde wieder aufgenommen.',
+  'Withdrawn: the month it was about has ended.':
+    'Zurückgezogen: Der Monat, um den es ging, ist vorbei.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Zurückgezogen: Die Pause wurde aufgehoben, und die Arbeit geht weiter.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Zurückgezogen: Das Modell antwortet wieder, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Zurückgezogen: Der Modellschlüssel funktioniert wieder, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Zurückgezogen: Der Dienst hat seine Prüfung wieder bestanden, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Zurückgezogen: Es wartet keine Arbeit mehr darauf.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Zurückgezogen: Die Rolle, der es übergeben wurde, hat sich darum gekümmert, und für Sie bleibt nichts zu entscheiden.',
 };

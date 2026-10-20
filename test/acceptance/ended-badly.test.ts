@@ -324,6 +324,45 @@ test('where nobody was named, a hired role\'s failure goes to the CEO first, and
   assert.match(closed!.rationale, /Arka: Asked Sari to record it through the bank import instead/, 'and what was done stays on it');
 });
 
+/**
+ * A card carried to the owner's chat once the CEO's hour was up, and closed
+ * when the CEO's work then finished, was rewritten to its title and a bare
+ * "withdrawn": the owner read neither what the CEO did nor why the card went.
+ * The account the card keeps is what the chat keeps, above why it closed.
+ */
+test('a card the CEO dealt with after it reached the chat keeps the CEO\'s account there, under why it closed', async () => {
+  const { dispatch, retractClosed, closureText } = await import('../../src/owner/notify.ts');
+  type Closed = Parameters<typeof closureText>[0] & { said?: string | null };
+  const company = await founded('ceo-chat');
+  const task = await rootOf(company, company.hiredId, 'reconcile the bank statement');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'policy_denied', detail: 'ledger.record was refused by a policy' });
+  await reportEndedBadly(company.companyId, later());
+  const rewritten: Closed[] = [];
+  const chat = {
+    name: 'chat:telegram',
+    carries: () => true,
+    deliver: async () => ({ ref: '7' }),
+    retract: async (closed: Closed) => { rewritten.push(closed); return 'retracted' as const; },
+  };
+  // The CEO's hour is up and the owner has been told.
+  assert.equal((await dispatch(company.companyId, chat, { now: new Date(Date.now() + 2 * 3_600_000) })).delivered, 1);
+
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  await transition(company.companyId, handling.id, 'running');
+  await transition(company.companyId, handling.id, 'completed', {
+    output: { summary: 'Asked Sari to record it through the bank import instead; it is reconciled.' },
+  });
+  await handEscalations(company.companyId);
+  assert.equal((await cardsOf(company.companyId))[0]!.closed_reason, 'handled_by_coordinator');
+
+  assert.deepEqual(await retractClosed(company.companyId, chat), { retracted: 1, failed: 0 });
+  assert.equal(rewritten[0]!.said, 'Arka: Asked Sari to record it through the bank import instead; it is reconciled.');
+  assert.equal(closureText(rewritten[0]!),
+    'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.');
+});
+
 test('a CEO that could not fix it leaves the one card for the owner, with its reason, and raises no second', async () => {
   const company = await founded('ceo-not-done');
   const task = await rootOf(company, company.hiredId, 'renew the bank feed');

@@ -422,4 +422,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Pakaryan ingkang mbetahaken kasagedan punika ngentosi, mboten dipunwiwiti, lan badhé nglajengaken piyambak menawi pamriksanipun sampun lulus; lajeng kertu punika nutup piyambak. Sabab ingkang limrah: kredensial ingkang kadaluwarsa utawi wewenangipun lepat, kuota ingkang sampun telas, utawi alamat ingkang lepat.',
   '{role} was stopped: the work on this card has been taken up again.':
     '{role} dipunkendelaken: pakaryan ing kertu punika sampun dipunlampahaken malih.',
+  'Withdrawn: the month it was about has ended.':
+    'Dipunwangsulaken: wulan ingkang dipunrembag sampun rampung.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Dipunwangsulaken: kendelipun sampun dipunbikak, lan padamelan lumampah malih.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Dipunwangsulaken: model sampun mangsuli malih, lan padamelan ingkang ngentosi sampun dipuntimbali malih.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Dipunwangsulaken: kunci model sampun lumampah malih, lan padamelan ingkang ngentosi sampun dipuntimbali malih.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Dipunwangsulaken: layanan sampun lulus pamriksanipun malih, lan padamelan ingkang ngentosi sampun dipuntimbali malih.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Dipunwangsulaken: sampun mboten wonten padamelan ingkang ngentosi malih.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Dipunwangsulaken: peran ingkang dipunparingi sampun ngrampungaken, lan mboten wonten malih ingkang kedah panjenengan putusaken.',
 };

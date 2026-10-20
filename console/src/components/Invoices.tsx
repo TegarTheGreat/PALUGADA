@@ -162,7 +162,7 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
             <ActionForm
               columns={1}
               fields={[
-                { name: 'days', label: t('Days after the due date'), initial: collections.stepsDays.join(', '), placeholder: '3, 10, 24' },
+                { name: 'days', label: t('Days after the due date'), initial: collections.stepsDays.join(', '), placeholder: '3, 10, 24', required: true },
                 {
                   name: 'note', label: t('How customers pay'), type: 'textarea', initial: collections.paymentNote ?? '',
                   description: t('Added to every reminder. Left out when empty.'),
@@ -170,10 +170,15 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
               ]}
               action={t('Save')}
               success={t('Saved.')}
-              submit={(values) => api('POST', path, {
-                stepsDays: String(values.days).split(/[\s,;]+/).filter(Boolean).map(Number),
-                paymentNote: String(values.note).trim() === '' ? null : String(values.note),
-              })}
+              submit={(values) => {
+                // The form leaves out a field left empty, so the note is read as possibly absent: spelled out with
+                // String() it was the word "undefined", which went at the end of every letter to a customer.
+                const note = typeof values.note === 'string' ? values.note : '';
+                return api('POST', path, {
+                  stepsDays: String(values.days ?? '').split(/[\s,;]+/).filter(Boolean).map(Number),
+                  paymentNote: note.trim() === '' ? null : note,
+                });
+              }}
               done={changed}
             />
           )}

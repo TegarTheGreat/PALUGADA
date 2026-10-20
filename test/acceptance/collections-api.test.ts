@@ -9,6 +9,8 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
@@ -21,6 +23,7 @@ import { issueInvoice } from '../../src/records/invoices.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { chromium, openPage } from '../helpers/browser.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -204,4 +207,58 @@ test('the policy, the letters sent and the invoices left alone travel with the c
   assert.deepEqual(there.policy, { enabled: true, stepsDays: [2, 9], paymentNote: 'Transfer BCA 123' });
   assert.deepEqual(there.letters.map((one) => [one.step, one.sentOn, one.to, one.outstandingCents]), [[1, day(-9), 'bu.sari@kopisenja.example', 2_500_000]]);
   assert.deepEqual(there.held, [false, true]);
+});
+
+const BUILT = fileURLToPath(new URL('../../console/dist', import.meta.url));
+const browser = chromium();
+
+/**
+ * The form leaves out a field the owner left empty, and the page read the
+ * absent note as the word "undefined": saved, it went at the end of every
+ * letter to a customer as "How to pay: undefined". And a days field left
+ * empty became [NaN], which the server refused, so the note could not be
+ * saved alone either.
+ */
+test('saving the days with no word on how to pay saves no word, and the days cannot be left empty', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
+  assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
+  const fixture = await createCompany('collect-console');
+  await owing(fixture);
+  const registry = new CapabilityRegistry();
+  for (const capability of platformCapabilities({})) registry.register(capability);
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  const api = await consoleWithSettings({ registry, staticRoot: BUILT });
+  const page = await openPage(browser as string, { width: 1280, height: 900 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
+  const policy = async () => (await withControlPlane((tx) => tx.query<{ steps_days: number[]; payment_note: string | null }>(
+    'SELECT steps_days, payment_note FROM collections_policy WHERE company_id = $1', [fixture.companyId]))).rows[0] ?? null;
+  try {
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]')`, 'the console');
+    await page.evaluate(`location.hash = '#/c/${fixture.companyId}/books'`);
+    await page.waitFor(`[...document.querySelectorAll('button[role="tab"]')].some((one) => one.innerText.trim() === 'Invoices')`, 'the tabs');
+    await page.evaluate(`[...document.querySelectorAll('button[role="tab"]')].find((one) => one.innerText.trim() === 'Invoices').click()`);
+    const days = `[...document.querySelectorAll('label')].find((one) => one.innerText.startsWith('Days after the due date'))`;
+    await page.waitFor(days, 'the reminders form');
+    const input = `document.getElementById(${days}.htmlFor)`;
+    await page.evaluate(`${input}.focus(); ${input}.select()`);
+    await page.type('3, 10');
+    await page.evaluate(`${input}.closest('form').querySelector('button[type="submit"]').click()`);
+    const until = Date.now() + 15_000;
+    while (Date.now() < until && JSON.stringify((await policy())?.steps_days) !== '[3,10]') await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(await policy(), { steps_days: [3, 10], payment_note: null }, 'the days are saved, and no word on how to pay');
+
+    // Emptied, the days are asked for rather than sent as something the server refuses.
+    await page.evaluate(`${input}.focus(); ${input}.select()`);
+    await page.type(' ');
+    assert.equal(await page.evaluate(`${input}.required`), true, 'the days are a field the form will not send empty');
+  } finally {
+    await page.close();
+    await api.close();
+  }
 });

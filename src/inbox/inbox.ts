@@ -19,7 +19,7 @@ import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
 import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
-import { cancelTask, releaseReservations } from '../engine/owner-control.ts';
+import { cancelTask, releaseReservations, stopHandlingLeftWorking } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -784,6 +784,10 @@ export async function handEscalations(companyId: string): Promise<number> {
   for (const item of waiting) {
     if (await handOver(companyId, item)) handed += 1;
   }
+
+  // A coordinator the press that closed its card did not stop is stopped
+  // first, so that its card says so below, in this same look.
+  await stopHandlingLeftWorking(companyId);
 
   // And a card the work itself answered while it was being handled -- run
   // again by the owner, or gone on with -- whose account would otherwise be

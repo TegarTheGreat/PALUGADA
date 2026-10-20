@@ -846,6 +846,41 @@ test('an ended card about work its budget stopped closes when the work goes on, 
 });
 
 /**
+ * Run again, or going on, stops the CEO handling the card it closes after
+ * the card's transaction commits, in transactions of its own. A worker that
+ * stopped in between -- a deploy, a crash -- or a cancel that failed left
+ * the CEO's task working for good beside the work, paid for: a second
+ * Continue is refused, self-heal never presses twice, and only a card closed
+ * by Run again was looked at again, by a second press of it.
+ */
+test('a CEO a close did not stop, its worker gone in between, is stopped at the next look', async () => {
+  const company = await founded('ceo-unstopped');
+  for (const reason of ['budget_room', 'task_continued', 'task_rerun'] as const) {
+    const task = await stoppedForBudget(company, `post the invoices, closed as ${reason}`);
+    assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+    assert.equal(await handEscalations(company.companyId), 1);
+    const card = (await cardsOf(company.companyId)).find((item) => item.task_id === task.id)!;
+    const handling = (await handlingOf(company.companyId, card.id))!;
+    // What the CEO had already handed on is stopped with it.
+    const handedOn = await createSubTask(handling.id, {
+      companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+      roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: `${reason}: the part handed on` }, reserveTokens: 100,
+    });
+    // The close committed, and nothing after it ran.
+    await withTenant(company.companyId, (tx) => tx.query(
+      "UPDATE inbox_items SET status = 'withdrawn', closed_reason = $2 WHERE id = $1", [card.id, reason]));
+
+    await handEscalations(company.companyId);
+    assert.equal((await taskState(company.companyId, handling.id)).status, 'cancelled', reason);
+    assert.equal((await taskState(company.companyId, handedOn.id)).status, 'cancelled', `${reason}: and what it handed on`);
+    const noted = (await cardsOf(company.companyId)).find((item) => item.id === card.id)!;
+    assert.match(noted.rationale, /Arka was stopped: the work on this card has been taken up again\./, reason);
+    await handEscalations(company.companyId);
+    assert.equal((await cardsOf(company.companyId)).find((item) => item.id === card.id)!.rationale, noted.rationale, 'once');
+  }
+});
+
+/**
  * An account has one card, on the work it stopped first, and ended.ts counts
  * the rest of what it stopped as told while that card is open. Going on with
  * the card's own work -- the owner's Continue on it, or self-heal with room

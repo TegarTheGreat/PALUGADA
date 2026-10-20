@@ -230,6 +230,8 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 
 /** Why a coordinator's task is stopped when the owner runs again the work it was handed. */
 const RERUN_STOPS_HANDLING = 'the owner ran the work it was handling again';
+/** And when the work it was handed goes on from where it stopped. */
+const GONE_ON_STOPS_HANDLING = 'the work it was handling went on';
 
 /**
  * Stops the tasks a coordinator was handed for cards the work itself has
@@ -253,6 +255,33 @@ async function stopHandling(
     } catch (error) {
       if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
     }
+  }
+}
+
+/**
+ * Stops what a coordinator was handed for a card the work itself answered
+ * -- run again, or gone on with -- that the press did not stop. The press
+ * stops it after the card's transaction commits (`stopHandling`), and a
+ * worker that stopped in between, or a cancel that failed, left it working
+ * for good, paid for, beside the work: a second Continue is refused, and
+ * self-heal never presses twice. Found from the card, at every hand-over
+ * look (`handEscalations`), so whichever press it was, it is stopped once.
+ * Only until the card has its coordinator's account, which is written once
+ * its task has ended.
+ */
+export async function stopHandlingLeftWorking(companyId: string): Promise<void> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string; reason: string }>(
+    `SELECT DISTINCT ON (h.id) h.id, i.closed_reason AS reason FROM inbox_items i
+       JOIN tasks h ON h.id = (i.payload->>'handedTaskId')::uuid
+      WHERE i.kind = 'escalation' AND i.status = 'withdrawn'
+        AND i.closed_reason IN ('task_rerun', 'task_continued', 'budget_room')
+        AND NOT i.payload ? 'handledOutcome'
+        AND h.status <> ALL($1::text[])
+      ORDER BY h.id
+      LIMIT 50`,
+    [TERMINAL_STATUSES]));
+  for (const row of rows) {
+    await stopHandling(companyId, [row.id], row.reason === 'task_rerun' ? RERUN_STOPS_HANDLING : GONE_ON_STOPS_HANDLING, 'system');
   }
 }
 
@@ -582,7 +611,7 @@ export async function continueHalted(
     }
     return handed;
   });
-  await stopHandling(companyId, handling, 'the work it was handling went on', by);
+  await stopHandling(companyId, handling, GONE_ON_STOPS_HANDLING, by);
   await enqueueWake({ companyId, roleId: task.roleId, reason: 'event', detail: `the owner continued task ${taskId}` });
 }
 

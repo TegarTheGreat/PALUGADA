@@ -365,7 +365,8 @@ The first version. What it holds, in the order an owner meets it.
   was charged the highest rate; fractions of a cent stay with the division that spent them (STATUS 2.182).
 - Reminders for overdue invoices run as the platform's own procedure whatever the sending role runs on, never hire a
   second bookkeeper, count days in the company's time zone, go to the address you add to a customer, and never write
-  "How to pay: undefined" (STATUS 2.182).
+  "How to pay: undefined". A sender you paused no longer holds up the others, and saving only the days never asks
+  for your device (STATUS 2.182).
 - You can remove files customers sent (under Files, received), which frees the room they take; invoice PDFs print
   after the 500th; mail attachments arrive whole from servers that only estimate a message's size (STATUS 2.182).
 - A photo, voice note or document a customer sends on Telegram or WhatsApp is kept under Files, received, as a

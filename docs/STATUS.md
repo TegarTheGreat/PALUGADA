@@ -10882,7 +10882,7 @@ refuted: one about invoice.remind sending twice, which 2.180 had already fixed, 
 create, and one about prompt caching that is a cost choice, not a fault (it is taken up below anyway). Every other one
 was given a test that failed for the reason found before its fix. Two helpers worked on the console, files, mail and
 the collections duty in worktrees with databases of their own, and a second review of the fixes found five more, also
-fixed. None needed a migration.
+fixed; a review of the helpers' own commits found five more again, the last bullet but one. None needed a migration.
 
 - **Work the budget stopped goes on only when somebody still waits for it, within the room of every account above
   it (`src/engine/self-heal.ts`).** The platform went on with a task the owner had already run again -- the same work
@@ -10941,10 +10941,19 @@ fixed. None needed a migration.
   own; a company named in another script can be started; the console lands on a new company's overview; an offered
   answer sends its files, and a removed file can be chosen again; file sizes are in the owner's language and in the
   megabytes the limits use.
+- **What the review of the helpers' commits found.** Drawing an invoice's PDF again removed the entry it found by
+  name, and a link put there in its place took whatever it pointed at: only the file's own entry is removed now, and a
+  link there is refused. A reminder for an invoice issued to an address no letter can go to went nowhere, though the
+  look had counted the customer's address as where it would go: it now goes there. Reminders waiting for a paused
+  sender counted as the live task and kept another sender from sending them. A payment note of a few hundred thousand
+  spaces held the owner API for most of a minute (its trailing blanks were cut by a pattern that backtracked): it is
+  cleaned in one pass, and a note far too long is refused before it is cleaned. And saving the days asked a recovery
+  session for the device, because the form sends the note back untouched: only a note that says something new asks
+  now, and two saves at once no longer undo each other. Each was seen to fail first.
 - **Not done.** Saving the reminders' policy and giving the tool are still two transactions: an unexpected error
   between them leaves reminders on with nobody to send them, which the look then says on its card. A rerun pressed in
-  the same instant the platform goes on with the task can still run both. Telegram and WhatsApp media are still not
-  kept (next).
+  the same instant the platform goes on with the task can still run both. Telegram and WhatsApp media were kept next,
+  in 2.183.
 
 ## 2.183 A customer's photo or document on Telegram or WhatsApp is kept, as a mailed one is (P1.4 part 6)
 

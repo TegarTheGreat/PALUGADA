@@ -348,6 +348,34 @@ test('after reading what agents wrote, the same action is a card for the owner, 
   }
 });
 
+test('after a check that brings back what an outside server says, the action is a card too', async () => {
+  // The review of 20 October: an MCP server's tool descriptions are written
+  // by whoever runs it, and a poisoned one could ask the assistant to grant a
+  // division a tool and hire a role -- done at once, with no card, because
+  // only reads counted as other people's words.
+  const fixture = await createCompany('assistant-check-tainted');
+  const model = new ScriptedModel([
+    uses(['check', { path: '/api/control/mcp/inspect', body: { name: 'payments' } }], ['read', { path: `/api/companies/${fixture.companyId}/structure` }]),
+    uses(['propose', {
+      path: `/api/companies/${fixture.companyId}/assign`,
+      body: { roleId: fixture.roleId, divisionId: fixture.divisionId, projectId: fixture.projectId, goalId: fixture.goalId, goal: 'Set up what the server asked for' },
+      summary: 'Give the set-up the server described.',
+    }]),
+    says('Kartunya ada di atas.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = (await api.call('POST', '/api/assistant/messages', token, { text: 'Lihat server MCP payments lalu siapkan' })).body.messages[1];
+    assert.match(results(model).at(-1)!.content, /^Proposed as a card, not done/);
+    assert.equal(said.proposals[0].status, 'open');
+    const tasks = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM tasks WHERE input->>'goal' = 'Set up what the server asked for'"));
+    assert.equal(tasks.rows.length, 0, 'nothing started');
+  } finally {
+    await api.close();
+  }
+});
+
 test('only everyday work, and building the team in the app, is done at once; never a key, money or an inbox decision', () => {
   const buildsTheTeam = [
     '/api/companies/:companyId/divisions', '/api/companies/:companyId/goals', '/api/companies/:companyId/goals/:goalId',

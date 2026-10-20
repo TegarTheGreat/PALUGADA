@@ -663,6 +663,11 @@ async function tool(
       && (typeof body.name !== 'string' || Object.keys(body).some((field) => field !== 'name'))) {
       throw new Error('a check of an MCP server looks at a server already saved: send { name }; the owner tries a new one on the page');
     }
+    // What a check brings back is what an outside server says -- an MCP
+    // server's own tool descriptions, a provider's answer -- written by
+    // whoever runs it, as a page is: after it, an action is a card for the
+    // owner, as after a read of what an agent wrote (the review of 20 October).
+    heard.readOthersWords = true;
     return dataFrom(await reach.post(path, body));
   }
   if (name === 'propose') {

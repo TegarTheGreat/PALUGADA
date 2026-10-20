@@ -1002,6 +1002,70 @@ test('a CEO its budget stopped is stopped with the card the work answered, and i
 });
 
 /**
+ * Whether stopped work goes on by itself looked one level up: at the task's
+ * own card, and at its parent's. A task two levels under a CEO whose card
+ * the owner answered -- the CEO's task, what it handed on, and what that
+ * handed on, all stopped for their budget -- went on by itself, its answer
+ * for a parent that never would, paid for. So did one under a parent that
+ * waits for its budget under a grandparent that failed.
+ */
+test('nothing under a stopped coordinator or a given-up task goes on by itself, however deep', async () => {
+  const { resumeBudgetStopped, MIN_ROOM_CENTS, MIN_ROOM_TOKENS } = await import('../../src/engine/self-heal.ts');
+  const budgetStopped = (companyId: string, id: string) =>
+    transition(companyId, id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+  /** `count` tasks, each under the one before, the first under `parentId`, running. */
+  const chainUnder = async (company: Founded, parentId: string, count: number) => {
+    const ids: string[] = [];
+    for (let level = 0; level < count; level += 1) {
+      const task = await createSubTask(ids.at(-1) ?? parentId, {
+        companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+        roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: `handed on, level ${level + 1}` },
+        reserveTokens: 100,
+      });
+      await transition(company.companyId, task.id, 'running');
+      ids.push(task.id);
+    }
+    return ids;
+  };
+  const roomFor = async (companyId: string) => withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+      WHERE company_id = $1`, [companyId, 10 * MIN_ROOM_TOKENS, 10 * MIN_ROOM_CENTS]));
+  const statuses = async (companyId: string, ids: string[]) => {
+    const all = [];
+    for (const id of ids) all.push((await taskState(companyId, id)).status);
+    return all;
+  };
+
+  // The CEO's card, answered by the owner.
+  const company = await founded('ceo-answered-deep');
+  const task = await rootOf(company, company.hiredId, 'send invoice 9 to PT Sinar');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const ceo = (await handlingOf(company.companyId, card!.id))!.id;
+  await transition(company.companyId, ceo, 'running');
+  const below = await chainUnder(company, ceo, 2);
+  for (const id of [...below].reverse()) await budgetStopped(company.companyId, id);
+  await budgetStopped(company.companyId, ceo);
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [card!.id]));
+  await roomFor(company.companyId);
+  assert.deepEqual(await resumeBudgetStopped(company.companyId), { continued: 0, waiting: 0 });
+  assert.deepEqual(await statuses(company.companyId, [ceo, ...below]), ['halted', 'halted', 'halted']);
+
+  // A task that failed, with what it handed on stopped for its budget.
+  const failing = await founded('failed-deep');
+  const failed = await rootOf(failing, failing.hiredId, 'close the quarter');
+  const under = await chainUnder(failing, failed.id, 2);
+  for (const id of [...under].reverse()) await budgetStopped(failing.companyId, id);
+  await transition(failing.companyId, failed.id, 'failed', { detail: 'the quarter could not be closed' });
+  await roomFor(failing.companyId);
+  assert.deepEqual(await resumeBudgetStopped(failing.companyId), { continued: 0, waiting: 0 });
+  assert.deepEqual(await statuses(failing.companyId, under), ['halted', 'halted']);
+});
+
+/**
  * An account has one card, on the work it stopped first, and ended.ts counts
  * the rest of what it stopped as told while that card is open. Going on with
  * the card's own work -- the owner's Continue on it, or self-heal with room

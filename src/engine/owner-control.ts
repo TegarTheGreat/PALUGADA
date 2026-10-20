@@ -429,7 +429,12 @@ async function closeCardsRunAgainAnswers(
  * while the child waited, so the answer would go nowhere. A parent that
  * completed abandoned nothing: it is the ordinary state of a follow-up, of a
  * hand-off's successor and of work a coordinator handed down and left. A
- * parent stopped for its budget goes on too, and the child with it. Nor a
+ * parent stopped for its budget goes on too, and the child with it, unless
+ * that parent is itself left for good: so every ancestor stopped for its
+ * budget is looked at, up to the first that is not, and one looked at
+ * that was abandoned, or is a coordinator on a closed card (below), keeps
+ * everything under it where it is. One level up, a task two under such a
+ * coordinator went on, its answer for a parent that never would. Nor a
  * reviewer whose review is already settled -- gone to the owner while it was
  * stopped -- since a review that has an answer reads no other verdict. A
  * reviewer is its proposer's sub-task, so its review is found by the proposer,
@@ -451,11 +456,18 @@ export const GOES_ON_BY_ITSELF = `
                    WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
   AND NOT EXISTS (SELECT 1 FROM inbox_items hc WHERE hc.id = ${handedCard('t')} AND hc.status <> 'open')
   AND NOT EXISTS (
-        SELECT 1 FROM tasks p WHERE p.id = t.parent_task_id
-           AND (p.status IN ('failed', 'cancelled')
-                OR (p.status = 'halted' AND p.halt_reason IS DISTINCT FROM 'budget_exhausted')
-                OR (p.status = 'halted'
-                    AND EXISTS (SELECT 1 FROM inbox_items hc WHERE hc.id = ${handedCard('p')} AND hc.status <> 'open'))))`;
+        WITH RECURSIVE above AS (
+          SELECT p.id, p.parent_task_id, p.status, p.halt_reason, p.idempotency_key
+            FROM tasks p WHERE p.id = t.parent_task_id
+          UNION ALL
+          SELECT p.id, p.parent_task_id, p.status, p.halt_reason, p.idempotency_key
+            FROM tasks p JOIN above a ON p.id = a.parent_task_id
+           WHERE a.status = 'halted' AND a.halt_reason = 'budget_exhausted')
+        SELECT 1 FROM above p
+         WHERE p.status IN ('failed', 'cancelled')
+            OR (p.status = 'halted' AND p.halt_reason IS DISTINCT FROM 'budget_exhausted')
+            OR (p.status = 'halted'
+                AND EXISTS (SELECT 1 FROM inbox_items hc WHERE hc.id = ${handedCard('p')} AND hc.status <> 'open')))`;
 
 /** The card a coordinator's task (`task`) was handed, by the key it was made under; NULL for any other task. */
 function handedCard(task: string): string {

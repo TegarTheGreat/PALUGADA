@@ -562,3 +562,104 @@ test('the CEO named for a division is the title, so saving only the time follows
   const [pinned] = (await structureOf(company.companyId)).divisions;
   assert.equal(pinned!.escalationRole, 'coordinator');
 });
+
+/* ------------------------------------- the owner answers a handed card --- */
+
+const taskState = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query<{
+  status: string; halt_reason: string | null;
+}>('SELECT status, halt_reason FROM tasks WHERE id = $1', [taskId]))).rows[0]!;
+
+/**
+ * Run again closes the card that asked for it (STATUS 2.185), and a hired
+ * role's card is the CEO's for its first hour (2.187). The two met: the card
+ * closed under the CEO, whose task ran on beside the owner's -- the same
+ * invoice sent twice -- and whatever it did was written nowhere, since only
+ * an open card is noted.
+ */
+test('Run again on a card the CEO is handling stops the CEO\'s task, and the card says so', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-rerun');
+  const task = await rootOf(company, company.hiredId, 'send invoice 7 to PT Maju');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'policy_denied', detail: 'email.send was refused' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+
+  await rerunTask(company.companyId, task.id, null);
+  const [closed] = await cardsOf(company.companyId);
+  assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_rerun']);
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' },
+    'the CEO does not do beside the owner what the owner has run again');
+
+  await handEscalations(company.companyId);
+  const [noted] = await cardsOf(company.companyId);
+  assert.equal(noted!.status, 'withdrawn');
+  assert.equal(noted!.payload.handledOutcome, 'cancelled');
+  assert.match(noted!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and nothing more is raised about either');
+});
+
+test('a CEO that ended before the owner ran the work again keeps its account on the card', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-ended-rerun');
+  const task = await rootOf(company, company.hiredId, 'renew the bank feed');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'deadline_passed', detail: 'its deadline passed' });
+  await reportEndedBadly(company.companyId, later());
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  await transition(company.companyId, handling.id, 'running');
+  const why = 'The bank feed needs the owner to sign in at the bank again; no role here can.';
+  await transition(company.companyId, handling.id, 'failed', {
+    output: { summary: 'Looked at the feed.', notDone: why }, haltReason: 'not_done', detail: why,
+  });
+
+  // The owner runs it again before the next look notes the CEO's answer.
+  await rerunTask(company.companyId, task.id, null);
+  await handEscalations(company.companyId);
+  const [closed] = await cardsOf(company.companyId);
+  assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_rerun']);
+  assert.equal(closed!.payload.handledOutcome, 'failed');
+  assert.match(closed!.rationale, /Arka: The bank feed needs the owner to sign in at the bank again/, 'why it could not, kept');
+});
+
+/**
+ * A card stays open while any task on it has not been run again, and a task
+ * run again before the hand-over was still the brief's headline: "Escalated
+ * to you: ... send invoice 7", which the owner's rerun was already sending.
+ */
+test('work the owner ran again before the hand-over is left out of the CEO\'s brief', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-rerun-briefed');
+  const seven = await rootOf(company, company.hiredId, 'send invoice 7 to PT Maju');
+  const eight = await rootOf(company, company.hiredId, 'send invoice 8 to PT Jaya');
+  await transition(company.companyId, seven.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 7' });
+  await transition(company.companyId, eight.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 8' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  await rerunTask(company.companyId, seven.id, null);
+  const [card] = await cardsOf(company.companyId);
+  assert.equal(card!.status, 'open', 'invoice 8 has not been run again');
+
+  assert.equal(await handEscalations(company.companyId), 1);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  assert.match(handling.input.goal, /send invoice 8 to PT Jaya/, 'the headline is the work still stopped');
+  assert.doesNotMatch(`${handling.input.goal}\n${handling.input.context}`, /invoice 7/, 'nothing of the work run again');
+  assert.deepEqual((await cardsOf(company.companyId))[0]!.payload.briefedTaskIds, [eight.id]);
+});
+
+test('a card whose every task was run again is not handed to the CEO', async () => {
+  const company = await founded('ceo-all-rerun');
+  const task = await rootOf(company, company.hiredId, 'send invoice 9 to PT Sinar');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  // A press that made the new task and stopped before it closed the card.
+  await createRootTask({
+    companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+    roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: 'send invoice 9 to PT Sinar' },
+    createdBy: 'owner', reserveTokens: 1_000, idempotencyKey: `rerun:${task.id}`,
+  });
+  assert.equal(await handEscalations(company.companyId), 0);
+  const [card] = await cardsOf(company.companyId);
+  assert.equal(await handlingOf(company.companyId, card!.id), undefined, 'nothing is left for the CEO to do');
+});

@@ -89,7 +89,12 @@ async function taskHere(companyId: string, taskId: string) {
  * the runtime, the same path the stop button uses. Approvals the task was
  * waiting on are withdrawn by the trigger every terminal move fires (0036).
  */
-export async function cancelTask(companyId: string, taskId: string, reason?: string | null): Promise<number> {
+export async function cancelTask(
+  companyId: string,
+  taskId: string,
+  reason?: string | null,
+  by: 'owner' | 'system' = 'owner',
+): Promise<number> {
   const root = await taskHere(companyId, taskId);
   if (isTerminal(root.status)) {
     throw new PalugadaError('contract.violation', `task ${taskId} is already ${root.status}`, { taskId });
@@ -125,7 +130,7 @@ export async function cancelTask(companyId: string, taskId: string, reason?: str
         projectId: row.project_id,
         taskId: row.id,
         type: 'task.cancelled',
-        actor: 'owner',
+        actor: by,
         payload: {
           haltReason: 'owner_cancel',
           ...(row.id === taskId ? {} : { under: taskId }),
@@ -176,8 +181,10 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     tx.query<{ id: string }>('SELECT id FROM tasks WHERE idempotency_key = $1', [key]));
   if (already.rows[0]) {
     // A second press closes nothing twice, and after a first press that
-    // stopped between making the task and closing the cards, it closes them.
-    await withTenant(companyId, (tx) => closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId));
+    // stopped between making the task and closing the cards, it closes them
+    // and stops what was handling them.
+    const handling = await withTenant(companyId, (tx) => closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId));
+    await stopHandling(companyId, handling, RERUN_STOPS_HANDLING, 'owner');
     return already.rows[0].id;
   }
 
@@ -194,7 +201,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     priority: previous.priority,
     detail: `the owner asked for task ${taskId} again`,
   });
-  await withTenant(companyId, async (tx) => {
+  const handling = await withTenant(companyId, async (tx) => {
     await appendEvent(tx, {
       companyId,
       projectId: task.projectId,
@@ -215,9 +222,38 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
       actor: 'owner',
       payload: { rerunTaskId: task.id },
     });
-    await closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId);
+    return closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId);
   });
+  await stopHandling(companyId, handling, RERUN_STOPS_HANDLING, 'owner');
   return task.id;
+}
+
+/** Why a coordinator's task is stopped when the owner runs again the work it was handed. */
+const RERUN_STOPS_HANDLING = 'the owner ran the work it was handling again';
+
+/**
+ * Stops the tasks a coordinator was handed for cards the work itself has
+ * since answered -- run again, or gone on with -- and everything they
+ * started: the work is being done, and a CEO still fixing it would do it a
+ * second time beside it, an invoice sent twice. After the card is closed, in
+ * a transaction of its own, so the close never holds a card while it waits
+ * for tasks and budgets, which the engine takes the other way round. One that
+ * has ended meanwhile is left as it ended; its account is written on the card
+ * (`handEscalations`), as is that this one was stopped.
+ */
+async function stopHandling(
+  companyId: string,
+  taskIds: readonly string[],
+  why: string,
+  by: 'owner' | 'system',
+): Promise<void> {
+  for (const id of taskIds) {
+    try {
+      await cancelTask(companyId, id, why, by);
+    } catch (error) {
+      if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
+    }
+  }
 }
 
 /**
@@ -261,7 +297,7 @@ async function closeCardsRunAgainAnswers(
   companyId: string,
   projectId: string,
   taskId: string,
-): Promise<void> {
+): Promise<string[]> {
   await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [taskId]);
   const { rows: causes } = await tx.query<{ once: string }>(
     `SELECT DISTINCT payload->>'once' AS once FROM inbox_items
@@ -299,6 +335,17 @@ async function closeCardsRunAgainAnswers(
       payload: { inboxItemId: item.id, closedReason: 'task_rerun' },
     });
   }
+  // What a coordinator was handed for an ended-work card that running the
+  // work again has closed -- now, or by an earlier press that stopped before
+  // it got this far -- and is still working on, to be stopped (`stopHandling`).
+  const { rows: handling } = await tx.query<{ id: string }>(
+    `SELECT DISTINCT h.id FROM inbox_items i
+       JOIN tasks h ON h.id = (i.payload->>'handedTaskId')::uuid
+      WHERE i.kind = 'escalation' AND i.status = 'withdrawn' AND i.closed_reason = 'task_rerun'
+        AND i.payload->'endedTaskIds' ? $1 AND h.status <> ALL($2::text[])`,
+    [taskId, TERMINAL_STATUSES],
+  );
+  return handling.map((row) => row.id);
 }
 
 /**

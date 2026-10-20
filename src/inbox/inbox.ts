@@ -19,7 +19,7 @@ import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
 import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
-import { releaseReservations } from '../engine/owner-control.ts';
+import { cancelTask, releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -30,8 +30,8 @@ import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
 import { budgetHaltWords } from '../owner/budget-halt.ts';
 import {
-  askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard, skillCard, skillsCard,
-  taskCalledWithin,
+  askedFirstSaid, endedBadlyCard, handledSaid, handlingStoppedSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin,
+  runQuestionCard, skillCard, skillsCard, taskCalledWithin,
 } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 import type { AnswerFile } from '../chats/attachments.ts';
@@ -785,12 +785,16 @@ export async function handEscalations(companyId: string): Promise<number> {
     if (await handOver(companyId, item)) handed += 1;
   }
 
+  // And a card the work itself answered while it was being handled -- run
+  // again by the owner, or gone on with -- whose account would otherwise be
+  // written nowhere: what the coordinator did, or that it was stopped.
   const { rows: answered } = await withTenant(companyId, (tx) => tx.query<{
-    id: string; payload: { escalationRole: string; handedTaskId: string; handledCloses?: boolean };
+    id: string; status: string; payload: { escalationRole: string; handedTaskId: string; handledCloses?: boolean };
   }>(
-    `SELECT i.id, i.payload FROM inbox_items i
+    `SELECT i.id, i.status, i.payload FROM inbox_items i
        JOIN tasks t ON t.id = (i.payload->>'handedTaskId')::uuid
-      WHERE i.kind = 'escalation' AND i.status = 'open'
+      WHERE i.kind = 'escalation'
+        AND (i.status = 'open' OR i.closed_reason IN ('task_rerun', 'task_continued', 'budget_room'))
         AND NOT i.payload ? 'handledOutcome'
         AND t.status = ANY($1)
       ORDER BY i.created_at
@@ -824,16 +828,55 @@ async function handOver(companyId: string, item: {
     // closed, unread, with the coordinator's fix. Frozen on the card before
     // the task is made: a retry after a crash writes the same brief, and
     // nothing more is put on the card until it is answered.
-    const { rows: frozen } = await tx.query<{ ids: string[] }>(
+    //
+    // Not a task the owner has already run again: the card stays open while
+    // any task on it has not been, and the brief headlined the one that had --
+    // "send invoice 7" -- for the coordinator to send a second time beside
+    // the owner's rerun. Left out of the brief, and of the frozen list, which
+    // is what the coordinator was told of; it is already the owner's answer.
+    // And only while the card is open: one closed since it was read -- its
+    // work run again, the owner's own answer -- is nobody's to hand.
+    const { rows: frozen } = await tx.query<{ ids: string[] | null }>(
       `UPDATE inbox_items
-          SET payload = payload || jsonb_build_object('briefedTaskIds', coalesce(payload->'briefedTaskIds', payload->'endedTaskIds'))
-        WHERE id = $1 AND payload ? 'endedTaskIds'
-        RETURNING ARRAY(SELECT jsonb_array_elements_text(payload->'briefedTaskIds')) AS ids`,
+          SET payload = CASE WHEN payload ? 'endedTaskIds'
+                THEN payload || jsonb_build_object('briefedTaskIds', coalesce(payload->'briefedTaskIds', (
+                  SELECT coalesce(jsonb_agg(ended.id ORDER BY ended.n), '[]'::jsonb)
+                    FROM jsonb_array_elements(payload->'endedTaskIds') WITH ORDINALITY AS ended(id, n)
+                   WHERE NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || (ended.id #>> '{}')))))
+                ELSE payload END
+        WHERE id = $1 AND status = 'open'
+        RETURNING CASE WHEN payload ? 'briefedTaskIds'
+                       THEN ARRAY(SELECT jsonb_array_elements_text(payload->'briefedTaskIds')) END AS ids`,
       [item.id]);
-    const briefed = frozen[0]?.ids ?? [];
+    if (!frozen[0]) return null;
+    // A brief frozen by an earlier try, before a crash, is read again without
+    // what has been run again since.
+    const briefed = frozen[0].ids === null ? null : (await tx.query<{ id: string }>(
+      `SELECT b.id FROM unnest($1::text[]) WITH ORDINALITY AS b(id, n)
+        WHERE NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || b.id)
+        ORDER BY b.n`,
+      [frozen[0].ids])).rows.map((row) => row.id);
+    // Everything on it run again, with the card not yet closed -- the press
+    // that ran the last of it is closing it now: nothing is left to fix.
+    if (briefed !== null && briefed.length === 0) return null;
+    // The headline is the card's own task, unless that was run again: then
+    // the first that was not, said as the card would have said it.
+    const lead = briefed === null || item.task_id === null || briefed.includes(item.task_id) ? item.task_id : briefed[0]!;
+    let headline = { title: item.title, detail: item.rationale };
+    if (lead !== item.task_id) {
+      const { rows: said } = await tx.query<{ detail: string | null; halt_reason: string | null }>(
+        `SELECT (SELECT payload->>'detail' FROM events
+                  WHERE task_id = t.id AND type IN ('task.halted', 'task.failed') ORDER BY occurred_at DESC LIMIT 1) AS detail,
+                t.halt_reason
+           FROM tasks t WHERE t.id = $1`,
+        [lead]);
+      headline = endedBadlyCard(await ownerReadingWithin(tx), {
+        task: await taskCalledWithin(tx, lead!), reason: said[0]?.halt_reason ?? null, record: said[0]?.detail?.slice(0, 300) ?? null,
+      });
+    }
     const others: Array<{ called: string; record: string | null }> = [];
-    for (const id of briefed) {
-      if (id === item.task_id) continue;
+    for (const id of briefed ?? []) {
+      if (id === lead) continue;
       const { rows: said } = await tx.query<{ detail: string | null }>(
         `SELECT payload->>'detail' AS detail FROM events
           WHERE task_id = $1 AND type IN ('task.halted', 'task.failed') ORDER BY occurred_at DESC LIMIT 1`,
@@ -849,7 +892,7 @@ async function handOver(companyId: string, item: {
     // ticket's is: an injected "not done" must not become clean work for the
     // coordinator that a standing approval covers. Any one of them is enough.
     let carried: { from: 'begun' | 'read'; of: string } | null = null;
-    for (const id of new Set([...(item.task_id ? [item.task_id] : []), ...briefed])) {
+    for (const id of new Set([...(lead ? [lead] : []), ...(briefed ?? [])])) {
       const from = await outsideContentIn(tx, id);
       if (from) {
         carried = { from, of: id };
@@ -860,10 +903,12 @@ async function handOver(companyId: string, item: {
       role: roles[0] ?? null,
       goalId: stuck[0]?.goal_id ?? goal[0]?.id ?? null,
       projectId: stuck[0]?.project_id ?? project[0]?.id ?? null,
+      headline,
       others,
       carried,
     };
   });
+  if (!found) return false;
 
   const toOwnerNow = async (failed: Parameters<typeof handoffFailedSaid>[1]['why']) => {
     const why = await withTenant(companyId, async (tx) => handoffFailedSaid(await ownerReadingWithin(tx),
@@ -875,7 +920,7 @@ async function handOver(companyId: string, item: {
     await withTenant(companyId, (tx) => tx.query(
       `UPDATE inbox_items SET rationale = $2, notify_after = least(notify_after, now()),
               payload = payload || jsonb_build_object('handoffFailed', $3::text)
-        WHERE id = $1`,
+        WHERE id = $1 AND status = 'open'`,
       [item.id, rationale, why],
     ));
     return false;
@@ -891,13 +936,13 @@ async function handOver(companyId: string, item: {
       companyId, projectId: found.projectId, divisionId: found.role.division_id, roleId: found.role.id,
       goalId: found.goalId, createdBy: 'event', idempotencyKey: `escalation:${item.id}`,
       input: {
-        goal: `Escalated to you: ${item.title}`,
+        goal: `Escalated to you: ${found.headline.title}`,
         // How the handling ends decides the card: work marked done closes a
         // card about a task that ended badly (`noteHandling`), so a "neither
         // is possible" written into a done summary closed it, and the owner
         // never saw a failure nobody could mend. Not done keeps it theirs.
         context:
-          `${item.rationale}` +
+          `${found.headline.detail}` +
           (found.others.length === 0 ? '' :
             `\n\nThe card is also about ${found.others.length} more ${found.others.length === 1 ? 'task' : 'tasks'} ` +
             'that ended the same way, under the same goal:\n' +
@@ -917,16 +962,28 @@ async function handOver(companyId: string, item: {
     return toOwnerNow({ kind: 'refused', record: (error as Error).message });
   }
 
-  await withTenant(companyId, (tx) => tx.query(
-    `UPDATE inbox_items SET payload = payload || jsonb_build_object('handedTaskId', $2::text) WHERE id = $1`,
+  const { rowCount } = await withTenant(companyId, (tx) => tx.query(
+    `UPDATE inbox_items SET payload = payload || jsonb_build_object('handedTaskId', $2::text) WHERE id = $1 AND status = 'open'`,
     [item.id, taskId],
   ));
+  if (!rowCount) {
+    // Answered while its task was being made -- its work run again, or the
+    // owner's own answer. Nobody waits on the coordinator any more, and its
+    // task, which the card no longer names, would work on unread beside
+    // whatever answered it.
+    try {
+      await cancelTask(companyId, taskId, 'the card it was handed was answered before it reached it', 'system');
+    } catch (error) {
+      if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
+    }
+    return false;
+  }
   await enqueueWake({ companyId, roleId: found.role.id, reason: 'event', detail: `escalation ${item.id} handed to ${role}` });
   return true;
 }
 
 async function noteHandling(companyId: string, item: {
-  id: string; payload: { escalationRole: string; handedTaskId?: string; handledCloses?: boolean };
+  id: string; status: string; payload: { escalationRole: string; handedTaskId?: string; handledCloses?: boolean };
 }): Promise<void> {
   await withTenant(companyId, async (tx) => {
     // Only finished tasks are asked about, and a finished task stays finished.
@@ -937,11 +994,17 @@ async function noteHandling(companyId: string, item: {
     // not a summary of what it looked at on the way.
     const notDone = task.haltReason === 'not_done' && task.output ? saidNotDone(task.output) : null;
     const account = notDone || (typeof task.output?.summary === 'string' ? task.output.summary.trim() : '');
-    const said = handledSaid(await ownerReadingWithin(tx), {
-      role: await roleCalledWithin(tx, { slug: item.payload.escalationRole }),
-      summary: account ? account.slice(0, HANDLED_NOTE_LIMIT) : null,
-      status: task.status, haltReason: task.haltReason ?? null,
-    });
+    const reading = await ownerReadingWithin(tx);
+    const called = await roleCalledWithin(tx, { slug: item.payload.escalationRole });
+    // Stopped because the work on its card was taken up again
+    // (`stopHandling` in owner-control.ts), which is what closed the card.
+    const said = item.status !== 'open' && task.status === 'cancelled'
+      ? handlingStoppedSaid(reading, { role: called })
+      : handledSaid(reading, {
+        role: called,
+        summary: account ? account.slice(0, HANDLED_NOTE_LIMIT) : null,
+        status: task.status, haltReason: task.haltReason ?? null,
+      });
     // Guarded on the marker, so a second pass -- or a second worker -- adds
     // the note once.
     await tx.query(

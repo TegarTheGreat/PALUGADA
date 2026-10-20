@@ -420,4 +420,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Pagawéan anu ngantosan modél bakal diteruskeun sorangan sanggeus konci anu tiasa dipaké geus dipaké, teras kartu ieu nutup sorangan.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Padamelan anu meryogikeunana ngantosan, sanés dimimitian, sareng bakal diteruskeun sorangan saparantos pamariksaanana lulus; teras kartu ieu nutup sorangan. Sabab anu biasa nyaéta kredénsial anu kadaluwarsa atanapi cakupanana lepat, kuota anu séép, atanapi alamat anu lepat.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} dieureunkeun: padamelan dina kartu ieu parantos dijalankeun deui.',
 };

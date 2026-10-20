@@ -422,4 +422,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Arbeit, die auf das Modell wartet, läuft von selbst weiter, sobald ein funktionierender Schlüssel verwendet wird, und diese Karte schließt sich dann von selbst.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Arbeit, die sie braucht, wartet, statt zu starten, und läuft von selbst weiter, sobald die Prüfung besteht; diese Karte schließt sich dann von selbst. Die üblichen Ursachen sind abgelaufene oder mit falschem Umfang ausgestellte Zugangsdaten, ein aufgebrauchtes Kontingent oder eine falsche Adresse.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} wurde gestoppt: Die Arbeit auf dieser Karte wurde wieder aufgenommen.',
 };

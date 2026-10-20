@@ -421,4 +421,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '等待模型的工作会在换用可用密钥后自动继续，此卡片随后也会自动关闭。',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     '需要它的工作会等待而不是启动，检查一通过就会自动继续；此卡片随后会自动关闭。常见原因是凭据过期或权限范围有误、配额用尽，或地址错误。',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} 已被停止：此卡片上的工作已重新开始。',
 };

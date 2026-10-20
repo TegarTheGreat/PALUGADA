@@ -419,4 +419,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'العمل الذي يحتاجها ينتظر بدلًا من أن يبدأ، ويستأنف من تلقاء نفسه بمجرد نجاح الفحص؛ وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها. والأسباب المعتادة: بيانات اعتماد منتهية الصلاحية أو بنطاق صلاحيات خاطئ، أو حصة نفدت، أو عنوان خاطئ.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    'أُوقف {role}: فالعمل الذي في هذه البطاقة استُؤنف من جديد.',
 };

@@ -420,4 +420,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Padamelan ingkang nengga model badhé nglajengaken piyambak menawi kunci ingkang saged dipunginakaken sampun dipunginakaken, lajeng kertu punika nutup piyambak.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Pakaryan ingkang mbetahaken kasagedan punika ngentosi, mboten dipunwiwiti, lan badhé nglajengaken piyambak menawi pamriksanipun sampun lulus; lajeng kertu punika nutup piyambak. Sabab ingkang limrah: kredensial ingkang kadaluwarsa utawi wewenangipun lepat, kuota ingkang sampun telas, utawi alamat ingkang lepat.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} dipunkendelaken: pakaryan ing kertu punika sampun dipunlampahaken malih.',
 };

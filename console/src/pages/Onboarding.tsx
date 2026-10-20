@@ -35,9 +35,16 @@ function ownTimeZone(): string | null {
   }
 }
 
-/** A name as a link and an export spell it: lower case, letters and digits, hyphens between. */
-function slugOf(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/**
+ * A name as a link and an export spell it: lower case, latin letters and
+ * digits, hyphens between, two characters at least. A name in another script
+ * -- 東京コーヒー, Кофе -- has none of those letters, so it is given one from
+ * `fallback` rather than leaving the company impossible to start with nothing
+ * said why.
+ */
+function slugOf(name: string, fallback: string): string {
+  const spelled = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return spelled.length >= 2 ? spelled : fallback;
 }
 
 export function Onboarding({ languages, setup, started, cancel, restore, reloadSetup }: {
@@ -56,6 +63,8 @@ export function Onboarding({ languages, setup, started, cancel, restore, reloadS
   const [step, setStep] = useState<'company' | 'model'>('company');
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  // The short name a name with no latin letters gets: chosen once, so it does not change with every key.
+  const [fallback] = useState(() => `company-${Math.random().toString(36).slice(2, 8)}`);
   const [mission, setMission] = useState('');
   const [more, setMore] = useState(false);
   // Null until chosen: the panel's language, which the owner may change while this is open.
@@ -137,7 +146,7 @@ export function Onboarding({ languages, setup, started, cancel, restore, reloadS
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 setName(value);
-                setSlug(slugOf(value));
+                setSlug(value.trim() ? slugOf(value, fallback) : '');
               }}
               required
             />

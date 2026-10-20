@@ -96,3 +96,49 @@ test('an owner with no company is asked for a name and what it is for, and meets
     await api.close();
   }
 });
+
+/**
+ * The short name was made from the name's latin letters alone, so a name in
+ * Japanese, Thai, Arabic or Russian -- all languages the panel speaks -- left
+ * it empty, and the button to start stayed off with nothing to say why: the
+ * field that would have fixed it was folded under "More options".
+ */
+test('a company named in another script can be started, with a short name made for it', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
+  assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
+  const api = await consoleWithSettings({ staticRoot: BUILT });
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
+  try {
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`document.body.innerText.includes("Let's start your company")`, 'the first screen');
+    await page.evaluate(`document.querySelector('input[placeholder^="e.g."]').focus()`);
+    await page.type('東京コーヒー');
+    await page.waitFor(`document.querySelector('input[placeholder^="e.g."]').value === '東京コーヒー'`, 'the name typed');
+    const button = `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start the company')`;
+    assert.equal(await page.evaluate(`${button}.disabled`), false, 'a name in any script is enough to start');
+    await page.evaluate(`${button}.click()`);
+    await page.waitFor(
+      `document.querySelector('input[autocomplete="one-time-code"]') || document.body.innerText.includes('is running')`,
+      'the company, or its authenticator prompt');
+    if (await page.evaluate<boolean>(`!!document.querySelector('input[autocomplete="one-time-code"]')`)) {
+      await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+      await page.type(api.code());
+    }
+    const until = Date.now() + 30_000;
+    let made: { name: string; slug: string } | undefined;
+    while (!made && Date.now() < until) {
+      made = (await withControlPlane((tx) => tx.query<{ name: string; slug: string }>('SELECT name, slug FROM companies'))).rows[0];
+      if (!made) await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.equal(made?.name, '東京コーヒー');
+    assert.match(made!.slug, /^[a-z0-9][a-z0-9-]{1,62}$/, 'and a short name links and exports can carry');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});

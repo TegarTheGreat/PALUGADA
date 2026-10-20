@@ -41,7 +41,7 @@ import type { TaskHandler } from '../runtime/in-process.ts';
 export const COLLECTIONS_EVERY_MS = 30 * 60_000;
 /** The most invoices one task names; the rest are the next look's. */
 const MOST_INVOICES = 25;
-/** The key of the card that says nobody can remind, so there is one while it is open. */
+/** The key of the card that says nobody can remind, so there is one for each setting of the reminders. */
 const NOBODY = 'collections_nobody';
 
 const lastLook = new Map<string, number>();
@@ -196,11 +196,20 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
   });
 
   if (!who.role) {
-    // Nobody can write the letters: said once while the card is open.
+    // Nobody can write the letters: said once for each setting of the
+    // reminders -- while the card is open, and after the owner closed it
+    // until they change the reminders. Said again at every look once closed,
+    // it came back every half hour to a company that had chosen not to send
+    // them. The lock is for two workers looking at once, which each read no
+    // card and raised one.
     const told = await withTenant(companyId, async (tx) => {
-      const { rows: open } = await tx.query(
-        "SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND status = 'open' AND payload->>'once' = $1", [NOBODY]);
-      if (open.length > 0) return false;
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${NOBODY}:${companyId}`]);
+      const { rows: said } = await tx.query(
+        `SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1
+            AND (status = 'open' OR created_at > coalesce(
+                   (SELECT updated_at FROM collections_policy WHERE company_id = $2), '-infinity'::timestamptz))
+          LIMIT 1`, [NOBODY, companyId]);
+      if (said.length > 0) return false;
       const card = nobodyRemindsCard(await ownerReadingWithin(tx));
       await inbox.raiseEscalationWithin(tx, { companyId, title: card.title, detail: card.detail, payload: { once: NOBODY } });
       return true;

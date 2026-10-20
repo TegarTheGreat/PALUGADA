@@ -402,6 +402,31 @@ test('with nobody set to remind, the owner is told once where to switch it on, a
   }
 });
 
+test('nobody set to remind is one card, and once the owner closes it, it waits for the reminders to change', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-nobody-once');
+  const { close } = await office(fixture, { holdsTool: false });
+  try {
+    await overdue(fixture, 5);
+    // Two workers look at the same company at once.
+    const [first, second] = [later(), later()];
+    const looks = await Promise.all([ensureCollections(fixture.companyId, first), ensureCollections(fixture.companyId, second)]);
+    assert.deepEqual(looks.map((look) => look.nobody).sort(), [false, true]);
+    const [card, ...more] = await cards(fixture);
+    assert.equal(more.length, 0, 'one card between them');
+
+    // Closed by the owner, it is not raised again at the next look, nor the one after.
+    await inbox.decide(fixture.companyId, card!.id, 'approve');
+    for (let n = 0; n < 2; n += 1) assert.equal((await ensureCollections(fixture.companyId, later())).nobody, false);
+    assert.deepEqual(await cards(fixture), []);
+
+    // Until the owner changes the reminders, and nobody still sends them.
+    await withTenant(fixture.companyId, (tx) => setPolicy(tx, fixture.companyId, { stepsDays: [3, 10] }));
+    assert.equal((await ensureCollections(fixture.companyId, later())).nobody, true);
+  } finally {
+    await close();
+  }
+});
+
 test('the owner\'s switch, and one company\'s books not being another\'s', { skip: SKIP }, async () => {
   const mine = await createCompany('duty-mine');
   const theirs = await createCompany('duty-theirs');

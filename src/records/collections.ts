@@ -121,9 +121,21 @@ function oneLine(value: string, most = NAME_MAX): string {
 }
 
 /** The owner's words on how to pay, cleaned: lines kept, anything that could end a header or hide text dropped. */
+/** A line without the spaces and tabs at its end, walked back from the end: no pattern, so no backtracking. */
+function withoutTrailingBlanks(line: string): string {
+  let end = line.length;
+  while (end > 0 && (line[end - 1] === ' ' || line[end - 1] === '\t')) end -= 1;
+  return line.slice(0, end);
+}
+
 function cleanNote(value: string): string {
+  // The spaces at the ends of lines are taken off line by line, without a
+  // pattern: as one it was quadratic in a run of spaces with no newline, and
+  // 200,000 of them held the server for most of a minute (the review of 20
+  // October).
   return value.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(UNPRINTABLE, '')
-    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    .split('\n').map(withoutTrailingBlanks).join('\n')
+    .replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
@@ -264,6 +276,10 @@ export async function setPolicy(
     if (change.paymentNote !== null && typeof change.paymentNote !== 'string') throw wrong('paymentNote is the owner\'s words on how to pay, or null', 'paymentNote');
     // Measured as the letter will carry it, and refused whole: cut, a note
     // kept its first part, and the end of one is where the account number is.
+    // Something far longer than any note is refused before it is cleaned at all.
+    if (typeof change.paymentNote === 'string' && change.paymentNote.length > PAYMENT_NOTE_MAX * 8) {
+      throw wrong(`paymentNote is at most ${PAYMENT_NOTE_MAX} characters; this one is ${change.paymentNote.length}`, 'paymentNote');
+    }
     const length = typeof change.paymentNote === 'string' ? cleanNote(change.paymentNote).length : 0;
     if (length > PAYMENT_NOTE_MAX) {
       throw wrong(`paymentNote is at most ${PAYMENT_NOTE_MAX} characters; this one is ${length}`, 'paymentNote');

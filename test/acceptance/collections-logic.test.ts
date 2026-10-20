@@ -23,7 +23,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_STEPS, ESCALATE_AFTER_DAYS, MIN_GAP_DAYS, STALE_AFTER_DAYS, daysBetween, reminderLetter, whatIsNext,
+  DEFAULT_STEPS, ESCALATE_AFTER_DAYS, MIN_GAP_DAYS, STALE_AFTER_DAYS, daysBetween, paymentNoteOf, reminderLetter, whatIsNext,
 } from '../../src/records/collections.ts';
 
 test('days between two days of the calendar, across a month and a year, and not by the clock', () => {
@@ -142,4 +142,14 @@ test('whatever a name holds is a name: one line, no controls, no way to start an
   assert.match(letter.text, /Thank you,\nKopi Senja$/);
   // A long name is cut, not allowed to push the letter's own words off the page.
   assert.ok(reminderLetter({ ...base, language: 'en', step: 1, customerName: 'N'.repeat(500) }).text.split('\n')[0]!.length < 140);
+});
+
+test('a long run of spaces in the words on how to pay is cleaned in a moment, not in minutes', () => {
+  // Found reviewing the refusal of long notes: the step that takes spaces off
+  // the ends of lines was quadratic in a run of spaces with no newline, and
+  // the note is cleaned before it is measured -- a megabyte of spaces would
+  // have held the whole server for a quarter of an hour.
+  const started = Date.now();
+  assert.equal(paymentNoteOf(`${' '.repeat(200_000)}Transfer ke BCA 123 \n\n\n\nterima kasih   `), 'Transfer ke BCA 123\n\nterima kasih');
+  assert.ok(Date.now() - started < 500, `took ${Date.now() - started} ms`);
 });

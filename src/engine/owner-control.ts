@@ -226,12 +226,16 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
  * hand-off's successor and of work a coordinator handed down and left. A
  * parent stopped for its budget goes on too, and the child with it. Nor a
  * reviewer whose review is already settled -- gone to the owner while it was
- * stopped -- since a review that has an answer reads no other verdict.
+ * stopped -- since a review that has an answer reads no other verdict. A
+ * reviewer is its proposer's sub-task, so its review is found by the proposer,
+ * which the reviews are indexed by; by the reviewer alone it was a scan of
+ * every review the company ever had, for each stopped task, each look.
  */
 export const GOES_ON_BY_ITSELF = `
   NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
   AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
-  AND NOT EXISTS (SELECT 1 FROM review_requests rr WHERE rr.review_task_id = t.id AND rr.status <> 'pending')
+  AND NOT EXISTS (SELECT 1 FROM review_requests rr
+                   WHERE rr.proposer_task_id = t.parent_task_id AND rr.review_task_id = t.id AND rr.status <> 'pending')
   AND NOT EXISTS (SELECT 1 FROM task_steps s
                    WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
   AND NOT EXISTS (

@@ -257,6 +257,22 @@ async function stopHandling(
 }
 
 /**
+ * Over a card for work that ended badly (`card`, ended.ts): every task on it
+ * has been answered by the work itself -- run again, or no longer stopped
+ * because it was gone on with (`continueHalted`) -- so nothing on it is left
+ * for anyone. Both, so that a card about one task run again and another gone
+ * on with closes with whichever comes last.
+ */
+function endedAllAnswered(card: string): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(${card}.payload->'endedTaskIds') AS listed(id)
+      JOIN tasks s ON s.id = listed.id::uuid AND s.company_id = ${card}.company_id
+     WHERE s.status IN ('halted', 'failed')
+       AND NOT EXISTS (SELECT 1 FROM tasks r
+                        WHERE r.company_id = ${card}.company_id AND r.idempotency_key = 'rerun:' || listed.id))`;
+}
+
+/**
  * The cards that running a task again answers, withdrawn: the owner pressed
  * "Run again" -- or the CEO did, for them -- and then had to find the card
  * that asked for it and dismiss it by hand.
@@ -271,9 +287,10 @@ async function stopHandling(
  * The card for tasks that ended badly (ended.ts) names several under one
  * cause, and its list is how a task is known to have been reported: a task
  * taken off it would be reported again as if it had just ended. So the list
- * is kept whole, and the card goes once every task on it has been run again.
- * Two tasks of one card run again at once cannot both miss that: each looks
- * after its own new task is committed, so the later look sees both.
+ * is kept whole, and the card goes once every task on it has been run again
+ * or gone on with (`endedAllAnswered`). Two tasks of one card run again at
+ * once cannot both miss that: each looks after its own new task is
+ * committed, so the later look sees both.
  *
  * Under the lock ended.ts raises that card under, so the card and the run
  * again cannot pass each other: either the card is there to be closed here,
@@ -322,10 +339,7 @@ async function closeCardsRunAgainAnswers(
   const { rows: ended } = await tx.query<{ id: string }>(
     `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = 'task_rerun'
       WHERE i.kind = 'escalation' AND i.status = 'open' AND i.payload ? 'endedKey'
-        AND i.payload->'endedTaskIds' ? $1
-        AND NOT EXISTS (
-              SELECT 1 FROM jsonb_array_elements_text(i.payload->'endedTaskIds') AS listed(id)
-               WHERE NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || listed.id))
+        AND i.payload->'endedTaskIds' ? $1 AND ${endedAllAnswered('i')}
       RETURNING i.id`,
     [taskId],
   );
@@ -422,7 +436,11 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
         + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
   }
-  await withControlPlane(async (tx) => {
+  const handling = await withControlPlane(async (tx) => {
+    // The lock ended.ts reports a stopped task under: a card it raises about
+    // this one is either there to be closed below, or raised after the task
+    // has gone on, which it then sees and does not report.
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [taskId]);
     const { rows } = await tx.query<{ status: TaskStatus; halt_reason: string | null; budget_account_id: string; frozen: boolean }>(
       `SELECT t.status, t.halt_reason, t.budget_account_id, r.frozen_at IS NOT NULL AS frozen
          FROM tasks t JOIN roles r ON r.id = t.role_id
@@ -480,7 +498,18 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         RETURNING id`,
       [taskId, companyId, closedBecause],
     );
-    for (const item of withdrawn) {
+    // And the card for work that ended badly, raised about it while no
+    // budget card covered it (ended.ts), once every task on it has gone on or
+    // been run again: it stayed open while the work ran, and the CEO it was
+    // handed went on fixing work that was already going on.
+    const { rows: ended } = await tx.query<{ id: string; handed: string | null }>(
+      `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = $3
+        WHERE i.company_id = $2 AND i.kind = 'escalation' AND i.status = 'open' AND i.payload ? 'endedKey'
+          AND i.payload->'endedTaskIds' ? $1 AND ${endedAllAnswered('i')}
+        RETURNING i.id, i.payload->>'handedTaskId' AS handed`,
+      [taskId, companyId, closedBecause],
+    );
+    for (const item of [...withdrawn, ...ended]) {
       await appendEvent(tx, {
         companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
         payload: { inboxItemId: item.id, closedReason: closedBecause },
@@ -501,7 +530,9 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         companyId, projectId: task.projectId, taskId, type: 'ticket.started', actor: 'system', payload: { ticketId: ticket.id },
       });
     }
+    return ended.flatMap((item) => (item.handed ? [item.handed] : []));
   });
+  await stopHandling(companyId, handling, 'the work it was handling went on', by);
   await enqueueWake({ companyId, roleId: task.roleId, reason: 'event', detail: `the owner continued task ${taskId}` });
 }
 

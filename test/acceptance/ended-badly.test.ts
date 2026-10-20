@@ -663,3 +663,76 @@ test('a card whose every task was run again is not handed to the CEO', async () 
   const [card] = await cardsOf(company.companyId);
   assert.equal(await handlingOf(company.companyId, card!.id), undefined, 'nothing is left for the CEO to do');
 });
+
+/* ---------------------------------------- work its budget stopped --- */
+
+const stoppedForBudget = async (company: Founded, goal: string, detail = 'its account has no room left') => {
+  const task = await rootOf(company, company.hiredId, goal);
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'budget_exhausted', detail });
+  return task;
+};
+
+/**
+ * An account has one card, on the work it stopped first, and says how much
+ * it stopped (2.83). ended.ts counted only a card on the task itself, so the
+ * second piece of work the same account stopped -- and everything the
+ * month's ceiling stopped, whose card is the company's -- was reported again
+ * as work that ended badly, and handed to the CEO, which cannot lift a budget.
+ */
+test('work its budget stopped is told by its account\'s card or the month\'s, and is not escalated as well', async () => {
+  const company = await founded('ended-budget');
+  const july = await stoppedForBudget(company, 'post the July invoices');
+  await inbox.raiseBudgetHalt(company.companyId, july.id);
+  const august = await stoppedForBudget(company, 'post the August invoices');
+  await inbox.raiseBudgetHalt(company.companyId, august.id);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'the account\'s one card tells of both');
+  assert.deepEqual(await cardsOf(company.companyId), [], 'nothing is escalated');
+
+  // A card that has closed tells of nothing it was not on: August, still
+  // stopped once the account's card was answered, is somebody's to hear of.
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE kind = 'budget_alert' AND task_id = $1",
+    [july.id]));
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.deepEqual((await cardsOf(company.companyId)).map((card) => card.task_id), [august.id]);
+
+  // The month's ceiling: the company's one card tells of what it stopped.
+  const september = await rootOf(company, company.hiredId, 'post the September invoices');
+  const { randomUUID } = await import('node:crypto');
+  const { evaluateSpendLimit, setSpendLimit } = await import('../../src/governance/spend-guard.ts');
+  await setSpendLimit(company.companyId, 1_000);
+  await withTenant(company.companyId, (tx) => tx.query(
+    `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
+     VALUES ($1, $2, NULL, 'test-model', '{}'::jsonb, '{}'::jsonb, 10, 5, 2000, now())`, [randomUUID(), company.companyId]));
+  assert.equal((await evaluateSpendLimit(company.companyId)).state, 'paused');
+  await transition(company.companyId, september.id, 'halted', {
+    haltReason: 'budget_exhausted', detail: 'the company has reached its monthly spending ceiling',
+  });
+  await reportEndedBadly(company.companyId, later());
+  assert.deepEqual((await cardsOf(company.companyId)).map((card) => card.payload.endedTaskIds), [[august.id]],
+    'the month\'s card tells of September, which is on no other card');
+});
+
+/**
+ * Going on with work answers the card that said it had stopped. Only the
+ * account's card was closed by it, so an ended-work card about the same
+ * stop -- one raised while no budget card covered it -- stayed open while
+ * the work ran, and the CEO it was handed went on fixing work that was
+ * already going on.
+ */
+test('an ended card about work its budget stopped closes when the work goes on, and the CEO\'s handling with it', async () => {
+  const { continueHalted } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ended-budget-continued');
+  const task = await stoppedForBudget(company, 'post the October invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'no budget card covers it');
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+
+  await continueHalted(company.companyId, task.id);
+  const [closed] = await cardsOf(company.companyId);
+  assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_continued']);
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' });
+  await handEscalations(company.companyId);
+  assert.match((await cardsOf(company.companyId))[0]!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
+});

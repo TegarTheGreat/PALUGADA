@@ -63,6 +63,20 @@ interface Ended {
 }
 
 /**
+ * An open card that tells the owner a halted task (`t`) is stopped for its
+ * budget: its account's card (`raiseBudgetHalt`), which names the account in
+ * the task's chain it was raised for and may sit on another task the account
+ * stopped, or the company's card for its month's ceiling, which a halt for
+ * the month's pause raises instead. Here and for a reviewer whose review
+ * waits on it (src/review/review.ts), so the two read one rule.
+ */
+export const BUDGET_CARD_SAYS_SO = `EXISTS (
+  SELECT 1 FROM inbox_items card
+   WHERE card.kind = 'budget_alert' AND card.status = 'open'
+     AND (card.payload->'budgetHalt'->>'budgetAccountId' = ANY(app.budget_chain(t.budget_account_id)::text[])
+          OR card.payload ? 'spendPause'))`;
+
+/**
  * Already somebody's to hear of: a card about it, one it was handed to
  * handle, or run again already (rerunTask), which is the owner's answer given
  * before any card asked. The handling task's end -- done, not done, halted --
@@ -70,6 +84,14 @@ interface Ended {
  * the owner unless it was done; a second card about the same trouble would
  * only say it again, and a CEO that said "not done" as it was told would raise
  * one every time.
+ *
+ * And work its budget stopped, while a budget card covers it
+ * (`BUDGET_CARD_SAYS_SO`). An account has one card, on the work it stopped
+ * first, and the month's ceiling one for the company, on no task; the rest of
+ * what they stopped was reported again here as work that ended badly, and
+ * handed to the CEO, which cannot lift a budget. Only while that card is
+ * open: a card that has closed is about the work it sits on, and work still
+ * stopped after it is somebody's to hear of.
  */
 const ALREADY_TOLD = `(
   EXISTS (SELECT 1 FROM inbox_items i
@@ -77,7 +99,8 @@ const ALREADY_TOLD = `(
              AND (i.task_id = t.id OR i.payload->'endedTaskIds' ? t.id::text))
   OR EXISTS (SELECT 1 FROM inbox_items i
               WHERE i.kind = 'escalation' AND i.payload->>'handedTaskId' = t.id::text)
-  OR EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text))`;
+  OR EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
+  OR (t.halt_reason = 'budget_exhausted' AND ${BUDGET_CARD_SAYS_SO}))`;
 
 /**
  * A card more of the same can still be put on: one nobody has been briefed
@@ -136,9 +159,11 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
   return withTenant(companyId, async (tx) => {
     // The lock `rerunTask` closes this card under, too: a task run again
     // while this pass looked is seen here, after the lock, and not reported.
+    // So does `continueHalted`: a task gone on with since is no longer
+    // stopped, and is not reported either.
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [task.taskId]);
     const { rows: told } = await tx.query(
-      `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${ALREADY_TOLD}`, [task.taskId]);
+      `SELECT 1 FROM tasks t WHERE t.id = $1 AND (t.status NOT IN ('halted', 'failed') OR ${ALREADY_TOLD})`, [task.taskId]);
     if (told.length > 0) return false;
 
     // Who is asked first: the coordinator the division's policy names, unless

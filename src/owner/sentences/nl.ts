@@ -408,4 +408,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ingetrokken: het ticket waar het over ging is gesloten.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en is uitgeschreven zonder e-mailadres om een herinnering naartoe te sturen. Volg haar zelf op, of zeg de CEO wat u wilt.',
+  'Kept as your word: {words}':
+    'Bewaard als je eigen woorden: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Vastgelegd als jouw cijfer: {value} voor {measure}',
 };

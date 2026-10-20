@@ -412,4 +412,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã rút lại: phiếu liên quan đã được đóng.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và được lập mà không có địa chỉ email để gửi nhắc nhở. Hãy tự theo dõi, hoặc cho CEO biết bạn muốn làm gì.',
+  'Kept as your word: {words}':
+    'Đã lưu như lời của bạn: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Đã ghi là số liệu của bạn: {value} cho {measure}',
 };

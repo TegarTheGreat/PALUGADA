@@ -408,4 +408,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Отозвано: тикет, о котором шла речь, закрыт.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Счёт {number} ({amount}, {customer}) просрочен с {due}, и он выставлен без адреса электронной почты, на который можно отправить напоминание. Займитесь им сами или скажите CEO, что нужно сделать.',
+  'Kept as your word: {words}':
+    'Сохранено как ваши слова: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Записано как ваша цифра: {value} для «{measure}»',
 };

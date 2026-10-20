@@ -409,4 +409,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: ilgili bilet kapatıldı.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hatırlatma gönderilecek bir e-posta adresi olmadan kesilmiş. Kendiniz takip edin ya da CEO\'ya ne istediğinizi söyleyin.',
+  'Kept as your word: {words}':
+    'Sizin sözünüz olarak kaydedildi: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Sizin rakamınız olarak kaydedildi: {measure} için {value}',
 };

@@ -98,7 +98,7 @@ import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, 
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
-import { remember, retract, supersede } from '../memory/store.ts';
+import { ownerSaidAlready, remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
@@ -4507,12 +4507,18 @@ export class OwnerApi {
               throw new PalugadaError('contract.violation', 'no such division in this company', { field: 'divisionId' });
             }
           }
+          const words = requireText(body.body, 'body');
+          const scopeType = divisionId ? 'division' : 'company';
+          // Said again in the same place, it is what they said before: told
+          // once, and kept once (`ownerSaidAlready`).
+          const held = await ownerSaidAlready(tx, { memoryType: body.kind, scopeType, scopeId: divisionId, body: words });
+          if (held) return { id: held, already: true };
           const id = await remember(tx, {
             companyId: params.companyId!,
             memoryType: body.kind,
-            scopeType: divisionId ? 'division' : 'company',
+            scopeType,
             ...(divisionId ? { scopeId: divisionId } : {}),
-            body: requireText(body.body, 'body'),
+            body: words,
             confidence: 1,
             source: 'owner',
           });
@@ -6325,6 +6331,7 @@ export class OwnerApi {
         return {
           answer: said.body,
           cards: said.proposals.filter((one) => one.status === 'open').map((one) => ({ id: one.id, summary: one.summary, here: chatMayApply(one) })),
+          kept: await keptAsTheirs(said.proposals, await language()),
         };
       },
       // What the console's microphone gets: heard once, kept nowhere, in the console's language.
@@ -7413,6 +7420,43 @@ function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting 
     ...(Object.keys(aliases).length > 0 ? { aliases } : {}),
     ...(body.clearKey === true || !keep ? {} : { keySecret: keep }),
   };
+}
+
+/** The routes an answer writes the owner's own word through, done at once (assistant-actions.ts). */
+const OWNERS_WORD = { memory: '/api/companies/:companyId/memories', figure: '/api/companies/:companyId/metrics/:metricId/observations' } as const;
+
+/** The most of a memory a chat line shows; the Memory page has the whole. */
+const KEPT_SHOWN_MAX = 1_000;
+
+/**
+ * What an answer wrote as the owner's own word, as the lines a chat shows
+ * under it (docs/THREAT-MODEL.md section 2.2, item 8). A fact to remember and
+ * a figure the owner gave are written at once, as theirs, from what the
+ * model made of what they said. The console shows the closed card and what it
+ * sent; a chat showed only the model's account of it, so a fact it got wrong
+ * became the owner's word with nothing in front of them to show it. The
+ * words and the number are the ones written, not the card's summary.
+ */
+async function keptAsTheirs(proposals: AssistantProposal[], language: string): Promise<string[]> {
+  const kept: string[] = [];
+  for (const proposal of proposals) {
+    if (proposal.status !== 'applied') continue;
+    const pattern = patternFor(proposal.path, Object.values(OWNERS_WORD));
+    if (pattern === OWNERS_WORD.memory) {
+      const words = String(proposal.body.body ?? '').trim().replace(/\s+/g, ' ');
+      kept.push(say(language, 'Kept as your word: {words}', {
+        words: words.length <= KEPT_SHOWN_MAX ? words : `${words.slice(0, KEPT_SHOWN_MAX - 1)}…`,
+      }));
+    } else if (pattern === OWNERS_WORD.figure) {
+      const [, , companyId, , metric] = proposal.path.split('?')[0]!.split('/').filter(Boolean);
+      const { rows } = await withTenant(companyId!, (tx) => tx.query<{ name: string }>(
+        'SELECT name FROM goal_metrics WHERE id::text = $1 OR slug = $1', [metric]));
+      kept.push(say(language, 'Recorded as your figure: {value} for {measure}', {
+        value: String(Number(proposal.body.value)), measure: rows[0]?.name ?? metric!,
+      }));
+    }
+  }
+  return kept;
 }
 
 function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } | { recovery: string } {

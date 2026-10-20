@@ -404,4 +404,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '取り下げ: 対象のチケットが閉じられました。',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドを送るメールアドレスなしで発行されています。ご自身で対応するか、CEO にご希望を伝えてください。',
+  'Kept as your word: {words}':
+    'あなたの言葉として記録しました：{words}',
+  'Recorded as your figure: {value} for {measure}':
+    'あなたの数値として記録しました：{measure} に {value}',
 };

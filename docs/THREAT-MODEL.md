@@ -276,7 +276,8 @@ refer to `docs/PRD.md`.
    in length, lines, nesting and reach. The owner's assistant proposes
    cards the owner applies (`src/owner/assistant.ts`), with one exception: the
    everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
-   telling, stopping or rerunning a task; no device, no key -- is done as it is
+   telling, stopping or rerunning a task, remembering what the owner says to
+   remember and recording a figure they give; no device, no key -- is done as it is
    proposed, **only in an answer that has read nothing an agent or a stranger
    wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
    settings). After a read of a task, an inbox item, a ticket, a message, a
@@ -294,6 +295,22 @@ refer to `docs/PRD.md`.
   was not.
 - A document the owner uploaded is the company's own: wrapped as data where
   it is shown, it does not taint the task that reads it.
+- The assistant's guard looks at the answer it is giving, not the whole
+  conversation. An earlier answer may have summed up what an agent wrote, and
+  "remember that" or "that is the number" then turns the summary into the
+  owner's word: a memory written as the owner's (source `owner`, which no
+  lesson outranks and nothing expires, never marked as outside content) or a
+  figure recorded as theirs, which counts as verified. Giving work and telling
+  a task carry the same risk, less durably. The action is told to keep only
+  what the owner asked for, in their words, and the owner is shown what was
+  written: in the console the closed card and what it sent, and in Telegram
+  or WhatsApp a line under the answer with the words kept, or the number and
+  its measure, as they were written rather than as the model summed them up
+  (`keptAsTheirs` in `src/owner/api.ts`). Nothing stops it being written
+  first: a memory is taken back with **Take back** or **Correct** on the
+  Memory page, and a figure is replaced by the next one, though it stays in
+  its history. The same words said again in the same place are the memory
+  already kept, not a second one (`ownerSaidAlready`).
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

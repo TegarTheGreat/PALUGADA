@@ -411,4 +411,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Retiré : le ticket dont il s’agissait a été fermé.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et elle a été émise sans adresse e-mail à laquelle envoyer un rappel. Relancez-la vous-même, ou dites au CEO ce que vous voulez.',
+  'Kept as your word: {words}':
+    'Gardé comme votre parole : {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Enregistré comme votre chiffre : {value} pour {measure}',
 };

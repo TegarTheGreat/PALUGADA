@@ -675,3 +675,10 @@ export function budgetStopSaid(stop: { account: string | null; tokensSpent: numb
     account: stop.account ?? t('The company'), spent: stop.tokensSpent.toLocaleString(locale()), max: stop.tokensMax.toLocaleString(locale()),
   });
 }
+
+/** What the owner is given to say to the CEO to hire a role it proposed (0132): their words to send or change. */
+export function hireDraft(role: string, why: string): string {
+  return why.trim()
+    ? t('Hire the role you proposed: {role}. What it is for: {why}', { role, why: why.trim() })
+    : t('Hire the role you proposed: {role}.', { role });
+}

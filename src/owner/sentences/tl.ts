@@ -397,4 +397,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Hindi nakumpirma ang paalala para sa invoice {number}',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'Hindi kinumpirma ng mail server ang paalala {step} ng {of} para sa invoice {number} kay {customer} ({to}), na ibinigay rito noong {day}. Maaaring dumating ito, maaaring hindi. Hindi na ito muling ipapadala ng platform: kung sabihin ni {customer} na hindi nila ito natanggap, ipadala mo ito mismo, o sabihan ang CEO.',
+  'Your CEO proposes hiring: {role}':
+    'Iminumungkahi ng iyong CEO na kumuha ng: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Ikaw ang magpapasya sa pagkuha. Kunin ito kasama ang CEO sa isang salita, o isara ang ticket kung hindi ito kailangan ng kumpanya.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Binawi: isinara ang ticket na tinutukoy nito.',
 };

@@ -52,6 +52,7 @@ import { reportEndedBadly } from './engine/ended.ts';
 import { ensureTriage } from './engine/triage.ts';
 import { ensureCollections } from './duties/collections.ts';
 import { ensureOutcomes } from './engine/outcomes.ts';
+import { ensureGoalReview } from './engine/goal-review.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -177,6 +178,13 @@ export interface WorkerOptions {
     /** Defaults to once an hour. Distillation reads a window of events. */
     intervalMs?: number;
   };
+  /**
+   * Whether a goal nobody has worked on is put to the CEO (goal-review.ts).
+   * Only where a model can think about it: a deployment with none would make
+   * a task each week that no runtime takes, and the owner would be told each
+   * week that it halted.
+   */
+  reviewsGoals?: boolean;
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
   /** The same for a task, for the news that work the owner gave has finished (0059). */
@@ -244,6 +252,8 @@ export interface TickReport {
   collections: number;
   /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
   outcomes: number;
+  /** Review tasks made for the CEO, for a goal nobody had worked on (src/engine/goal-review.ts). */
+  reviews: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -323,6 +333,7 @@ function emptyReport(): TickReport {
     triaged: 0,
     collections: 0,
     outcomes: 0,
+    reviews: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -593,6 +604,13 @@ export class Worker {
       // housekeeping with `runs` false.
       await this.#stage(report, 'outcomes', async () => {
         if (await ensureOutcomes(company, now)) report.outcomes += 1;
+      });
+
+      // The goals the owner set, looked at against the work under them: one
+      // task for the CEO when a goal at the end of the ladder has had none for
+      // days, once a week at most for each. Not behind `runs`, as above.
+      if (this.#options.reviewsGoals) await this.#stage(report, 'reviews', async () => {
+        if (await ensureGoalReview(company, now)) report.reviews += 1;
       });
 
       if (runs) await this.#stage(report, 'wakes', async () => {

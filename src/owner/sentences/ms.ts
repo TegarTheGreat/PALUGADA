@@ -399,4 +399,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Peringatan untuk invois {number} tidak disahkan',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'Pelayan e-mel tidak mengesahkan peringatan {step} daripada {of} untuk invois {number} kepada {customer} ({to}), yang diserahkan kepadanya pada {day}. Ia mungkin sampai, mungkin tidak. Platform tidak akan menghantarnya lagi: jika {customer} berkata mereka tidak menerimanya, hantar sendiri, atau beritahu CEO.',
+  'Your CEO proposes hiring: {role}':
+    'CEO anda mencadangkan untuk mengambil: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Mengambil pekerja ialah keputusan anda. Ambil bersama CEO dengan sepatah kata, atau tutup tiket jika syarikat tidak memerlukannya.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Ditarik balik: tiket yang dibincangkannya telah ditutup.',
 };

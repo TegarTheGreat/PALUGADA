@@ -86,7 +86,11 @@ const SECRET_LABELS = [
 ];
 void SECRET_LABELS;
 
-export function Assistant({ opened, onClose, company = null }: { opened: boolean; onClose: () => void; company?: Company | null }) {
+export function Assistant({ opened, onClose, company = null, draft = null }: {
+  opened: boolean; onClose: () => void; company?: Company | null;
+  /** Words put in the box when it opens, for the owner to send or change: a card's "hire it with the CEO". */
+  draft?: string | null;
+}) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [text, setText] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -111,6 +115,10 @@ export function Assistant({ opened, onClose, company = null }: { opened: boolean
       setProblem(explain(failure));
     }
   };
+
+  useEffect(() => {
+    if (opened && draft) setText(draft);
+  }, [opened, draft]);
 
   useEffect(() => {
     if (!opened) {

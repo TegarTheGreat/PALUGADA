@@ -398,4 +398,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '청구서 {number} 독촉장이 확인되지 않았습니다',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     '메일 서버가 {day}에 전달된 청구서 {number}의 {customer}({to}) 앞 독촉장 {of}통 중 {step}번째를 받았다고 확인하지 않았습니다. 도착했을 수도 있고 아닐 수도 있습니다. 플랫폼은 다시 보내지 않습니다. {customer}이(가) 받지 못했다고 하면 직접 보내거나 CEO에게 알려 주세요.',
+  'Your CEO proposes hiring: {role}':
+    'CEO가 채용을 제안합니다: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    '채용은 당신이 결정합니다. CEO와 한마디로 채용하거나, 회사에 필요 없으면 티켓을 닫으세요.',
+  'Withdrawn: the ticket it was about was closed.':
+    '철회됨: 관련된 티켓이 닫혔습니다.',
 };

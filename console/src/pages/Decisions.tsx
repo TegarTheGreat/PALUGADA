@@ -36,7 +36,7 @@ import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
-import { capabilitySaid, dateTime, goalKind, money, numberSeparators, relative } from '../format.ts';
+import { capabilitySaid, dateTime, goalKind, hireDraft, money, numberSeparators, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
@@ -331,6 +331,7 @@ export function Decisions({ ctx, route }: PageProps) {
                   position={t('{index} of {total}', { index: items.indexOf(current) + 1, total: items.length })}
                   back={narrow ? () => select(null) : undefined}
                   decided={() => decided(current.id)}
+                  talk={(draft) => ctx.talk(draft)}
                   openTask={() => ctx.open('work', { item: current.taskId })}
                   openSkills={() => ctx.open('settings', { section: 'skills' })}
                   seat={ctx.staff}
@@ -507,9 +508,11 @@ function BudgetResume({ companyId, halt, done }: {
 }
 
 function Detail({
-  item, companyId, position, back, decided, openTask, openSkills, seat,
+  item, companyId, position, back, decided, openTask, openSkills, seat, talk,
 }: {
   item: InboxItem;
+  /** Opens the conversation with the CEO, with words waiting in the box. */
+  talk: (draft: string) => void;
   /** A staff seat reading the inbox (0110): a viewer decides nothing, and nobody but the owner decides tier 3. */
   seat: Staff | null;
   companyId: string;
@@ -882,7 +885,14 @@ function Detail({
           />
         )}
 
-        {decides && item.kind === 'escalation' && !item.question && (
+        {item.hire && seat === null && (
+          <HireCard companyId={companyId} hire={item.hire} talk={talk} settled={async (decision) => {
+            await send(decision);
+            decided();
+          }} />
+        )}
+
+        {decides && item.kind === 'escalation' && !item.question && !item.hire && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
               label={t('Answer the agent instead')}
@@ -970,6 +980,55 @@ function Detail({
         </Group>
       </Group>
       )}
+    </Paper>
+  );
+}
+
+/**
+ * A role the CEO proposes hiring (0132). Hiring is the owner's (F2.9), and is
+ * done with the CEO in conversation, which writes the role: this card opens it
+ * with the proposal waiting in the box, or closes the ticket when the company
+ * does not need it.
+ */
+function HireCard({ companyId, hire, talk, settled }: {
+  companyId: string;
+  hire: NonNullable<InboxItem['hire']>;
+  talk: (draft: string) => void;
+  settled: (decision: 'approve' | 'deny') => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<'hire' | 'close' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (which: 'hire' | 'close') => {
+    setBusy(which);
+    setError(null);
+    try {
+      if (which === 'hire') {
+        talk(hireDraft(hire.role, hire.why));
+        await settled('approve');
+      } else {
+        await api('POST', `/api/companies/${companyId}/tickets/${hire.ticketId}`, { status: 'closed', reason: t('Not needed now') });
+        await settled('deny');
+      }
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
+      <Stack gap="xs">
+        <Text size="sm">{t('Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.')}</Text>
+        {error && <Alert color="red" variant="light">{error}</Alert>}
+        <Group justify="flex-end" gap="xs" wrap="wrap">
+          <Button size="xs" variant="default" leftSection={<IconX size={14} />} loading={busy === 'close'} onClick={() => void act('close')}>
+            {t('Not needed now')}
+          </Button>
+          <Button size="xs" leftSection={<IconCheck size={14} />} loading={busy === 'hire'} onClick={() => void act('hire')}>
+            {t('Hire it with the CEO')}
+          </Button>
+        </Group>
+      </Stack>
     </Paper>
   );
 }

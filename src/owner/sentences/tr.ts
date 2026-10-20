@@ -401,4 +401,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{number} numaralı fatura hatırlatması onaylanmadı',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'E-posta sunucusu, {number} numaralı fatura için {customer} ({to}) adresine {day} tarihinde teslim edilen {of} hatırlatmadan {step}. hatırlatmayı aldığını onaylamadı. Ulaşmış da olabilir, ulaşmamış da. Platform onu yeniden göndermeyecek: {customer} almadığını söylerse kendiniz gönderin ya da CEO\'ya söyleyin.',
+  'Your CEO proposes hiring: {role}':
+    'CEO\'nuz işe almayı öneriyor: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'İşe almaya siz karar verirsiniz. CEO ile tek sözle işe alın ya da şirketin ihtiyacı yoksa bileti kapatın.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Geri çekildi: ilgili bilet kapatıldı.',
 };

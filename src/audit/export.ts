@@ -178,7 +178,7 @@ const SECTIONS: Section[] = [
   {
     // The backlog (0070): what was owed, who filed it, and what worked it.
     name: 'tickets',
-    sql: `SELECT id, project_id, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
                  working_task_id, closed_reason, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at`,
   },

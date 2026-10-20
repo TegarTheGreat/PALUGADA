@@ -1026,6 +1026,7 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'superseded': return say(language, 'Withdrawn: the agent changed what it proposes and asked again about the new one.');
     case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
     case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');
+    case 'ticket_closed': return say(language, 'Withdrawn: the ticket it was about was closed.');
     default: return say(language, 'Withdrawn. Nothing left to press here.');
   }
 }

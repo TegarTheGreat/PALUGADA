@@ -88,7 +88,7 @@ export function Organization({ ctx, route }: PageProps) {
 
         <Tabs.Panel value="chart">
           <Grow companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
-          <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={ctx.talk} giveWork={ctx.giveWork} />
+          <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
           <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />

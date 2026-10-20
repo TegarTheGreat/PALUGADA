@@ -126,8 +126,8 @@ export interface ConsoleContext {
   /** The inbox tells the navigation how many decisions are waiting. */
   setOpenCount: (count: number) => void;
   giveWork: () => void;
-  /** Open the conversation with this company's CEO. */
-  talk: () => void;
+  /** Open the conversation with this company's CEO, with `draft` waiting in the box to send or change. */
+  talk: (draft?: string) => void;
   /** A staff seat signed in (0110), or null for the owner: a page leaves out what is the owner's. */
   staff: Staff | null;
 }
@@ -171,6 +171,8 @@ function Console({ device, staff, recovered, signOut }: {
   const [asking, setAsking] = useState(false);
   // The company whose CEO the owner is talking to, if any.
   const [talking, setTalking] = useState<Company | null>(null);
+  // What the owner was given to say when the conversation opened: theirs to send or change.
+  const [draft, setDraft] = useState<string | null>(null);
   // A company just started, whose CEO has spoken first (its first hour):
   // the conversation opens once the company is in the list.
   const [greeting, setGreeting] = useState<string | null>(null);
@@ -275,7 +277,11 @@ function Console({ device, staff, recovered, signOut }: {
     refreshCompanies,
     setOpenCount: (count: number) => setOpenCount((current) => (current[company.id] === count ? current : { ...current, [company.id]: count })),
     giveWork: () => setGiving(true),
-    talk: () => setTalking(company),
+    talk: (said?: string) => {
+      // Only words: a handler that passes its click event on opens it empty.
+      setDraft(typeof said === 'string' ? said : null);
+      setTalking(company);
+    },
     staff,
   } : null), [company, companies, open, refreshCompanies, staff]);
 
@@ -724,7 +730,7 @@ function Console({ device, staff, recovered, signOut }: {
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
       <Assistant opened={asking} onClose={() => setAsking(false)} />
-      <Assistant opened={talking !== null} company={talking} onClose={() => setTalking(null)} />
+      <Assistant opened={talking !== null} company={talking} draft={draft} onClose={() => { setTalking(null); setDraft(null); }} />
 
       <Tour
         opened={touring}

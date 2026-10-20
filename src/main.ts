@@ -1081,6 +1081,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // work; without it the worker never distils and never screens, which the
     // note below says out loud.
     ...(llm ? { learning: { llm, model: draftModel } } : {}),
+    // A goal nobody works on is put to the CEO only where a model can take
+    // the task: without one it would halt each week, and be reported each week.
+    reviewsGoals: llm !== null && llm !== undefined,
     // The documents' meaning, from the provider chosen under Tools.
     ...(toolBindings.embed ? { meaning: toolBindings.embed } : {}),
     // What failed, in lines a log collector reads. A worker whose stage

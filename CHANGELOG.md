@@ -349,6 +349,12 @@ The first version. What it holds, in the order an owner meets it.
 - Every model call is paid for: a picture read (`image.describe`) and the company's documents being searched by
   meaning were charged nothing and are now on the Money page at the provider's price. A month whose money is spent
   asks the model nothing more, and a call the budget refused after it was made is still counted (STATUS 2.180).
+- A goal nobody has worked on for three days wakes your CEO, at most once a week for each goal: it hands the next
+  piece of work to the role whose job it is, proposes a schedule, or says the goal is waiting on you, instead of the
+  company sitting still until you write. Only where the deployment has a model (STATUS 2.181).
+- When the company lacks a role, the CEO proposes the hire, and you see it at once as a card. *Hire it with the
+  CEO* opens your conversation with the proposal ready to send; *Not needed now* closes it. The board marks a
+  proposed hire, and it is never handed out as ordinary work (STATUS 2.181).
 - Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
   same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
   for a minute instead of failing at fifteen seconds (STATUS 2.179).

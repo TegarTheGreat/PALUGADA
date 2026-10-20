@@ -400,4 +400,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'चालान {number} का अनुस्मारक पुष्ट नहीं हुआ',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'मेल सर्वर ने चालान {number} के लिए {customer} ({to}) को {of} में से अनुस्मारक {step} की पुष्टि नहीं की, जो उसे {day} को सौंपा गया था। हो सकता है वह पहुँचा हो, हो सकता है नहीं। प्लेटफ़ॉर्म उसे दोबारा नहीं भेजेगा: अगर {customer} कहें कि उन्हें नहीं मिला, तो उसे स्वयं भेजें, या CEO को बताएँ।',
+  'Your CEO proposes hiring: {role}':
+    'आपके CEO भर्ती का प्रस्ताव रखते हैं: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'भर्ती का निर्णय आपका है। CEO के साथ एक शब्द में भर्ती करें, या अगर कंपनी को इसकी ज़रूरत नहीं है तो टिकट बंद करें।',
+  'Withdrawn: the ticket it was about was closed.':
+    'वापस लिया गया: जिस टिकट के बारे में था, वह बंद हो गया।',
 };

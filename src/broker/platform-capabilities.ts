@@ -26,7 +26,7 @@ import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { QUESTION_ESCALATES_AFTER_HOURS, answerFilesSaid, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
-import { ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
+import { hireProposedCard, ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
@@ -340,6 +340,8 @@ export interface TicketCreateInput {
   body?: string;
   /** 0 first to 3 last; 2 unless said. */
   priority?: number;
+  /** `work` unless said; `hire` proposes a role the company lacks (0132). */
+  kind?: 'work' | 'hire';
 }
 
 /**
@@ -360,6 +362,11 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
         title: { type: 'string', minLength: 1, maxLength: 200, description: 'What needs doing, in a line.' },
         body: { type: 'string', maxLength: 8000, description: 'What whoever picks it up needs to know, and what done looks like.' },
         priority: { type: 'integer', minimum: 0, maximum: 3, description: '0 first to 3 last; 2 unless it is urgent.' },
+        kind: {
+          type: 'string', enum: ['work', 'hire'],
+          description: 'work (unless said): something that needs doing. hire: a role the company lacks -- the title is the role, '
+            + 'the body the work it would take over and what it needs -- which the owner is shown and decides.',
+        },
       },
     },
     adapter: 'platform',
@@ -376,6 +383,7 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
           title: String(input.title ?? ''),
           body: typeof input.body === 'string' ? input.body : '',
           ...(input.priority === undefined ? {} : { priority: Number(input.priority) }),
+          ...(input.kind === undefined ? {} : { kind: input.kind }),
           openedBy: 'agent',
           openedByTaskId: ctx.taskId,
         });
@@ -387,6 +395,18 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
             companyId: ctx.companyId, taskId: ctx.taskId, where: 'ticket',
             text: `${opened.ticket.title}\n${opened.ticket.body}`,
           });
+          // A hire is the owner's (F2.9): they are shown it now, once, in
+          // their language, and decide it on the board or with the CEO.
+          if (opened.ticket.kind === 'hire') {
+            const card = hireProposedCard(await ownerReadingWithin(tx), { role: opened.ticket.title, why: opened.ticket.body });
+            // Not tied to the task that filed it: the card is the owner's
+            // to decide whenever they do, not something the run waits on or
+            // that closes when the run ends.
+            await raiseEscalationWithin(tx, {
+              companyId: ctx.companyId, title: card.title, detail: card.detail,
+              payload: { ticketId: opened.ticket.id, hire: true, role: opened.ticket.title, why: opened.ticket.body.slice(0, 1_500) },
+            });
+          }
         }
         return { ticketId: opened.ticket.id, existing: opened.existing };
       });

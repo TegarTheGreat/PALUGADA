@@ -396,4 +396,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '請求書 {number} の督促状が確認されていません',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'メールサーバーは、{day} に渡された請求書 {number} の {customer}（{to}）宛て督促状（{of} 通中 {step} 通目）を受け取ったと確認しませんでした。届いているかもしれませんし、届いていないかもしれません。プラットフォームは再送しません。{customer} が受け取っていないと言う場合は、ご自身で送るか、CEO に伝えてください。',
+  'Your CEO proposes hiring: {role}':
+    'CEO から採用の提案: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    '採用を決めるのはあなたです。CEO と一言で採用するか、会社に不要ならチケットを閉じてください。',
+  'Withdrawn: the ticket it was about was closed.':
+    '取り下げ: 対象のチケットが閉じられました。',
 };

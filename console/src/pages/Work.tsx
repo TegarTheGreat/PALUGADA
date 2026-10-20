@@ -124,7 +124,7 @@ export function Work({ ctx, route }: PageProps) {
 
       {view === 'results' && <Gallery companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} />}
 
-      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} /> : (<>
+      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} talk={(draft) => ctx.talk(draft)} /> : (<>
       {/* The same choice as a list on a phone, where five segments ran off
           the screen and "Stopped" was the one out of sight (§2.3 item 8). */}
       <SegmentedControl

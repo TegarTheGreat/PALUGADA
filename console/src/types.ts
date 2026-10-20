@@ -58,6 +58,8 @@ export interface InboxItem {
   addressee?: { seatId: string; name: string };
   /** A question put to a person who has not answered in a day: the owner has been told. */
   escalated?: boolean;
+  /** A role the CEO proposes hiring (a ticket of kind `hire`): the owner hires it with the CEO, or closes the ticket. */
+  hire?: { ticketId: string; role: string; why: string };
   /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
   key?: { alias: string; divisionId: string; capabilities: string[] };
   /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
@@ -798,6 +800,8 @@ export interface PolicyRow {
 export interface Ticket {
   id: string;
   projectId: string;
+  /** `hire`: a role the company lacks, which the owner decides (0132). */
+  kind: 'work' | 'hire';
   divisionId: string | null;
   title: string;
   body: string;

@@ -404,4 +404,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Thư nhắc cho hóa đơn {number} chưa được xác nhận',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'Máy chủ thư không xác nhận thư nhắc thứ {step}/{of} cho hóa đơn {number} gửi {customer} ({to}), được giao cho nó vào {day}. Thư có thể đã đến, cũng có thể chưa. Nền tảng sẽ không gửi lại: nếu {customer} nói chưa nhận được, hãy tự gửi, hoặc báo cho CEO.',
+  'Your CEO proposes hiring: {role}':
+    'CEO của bạn đề xuất tuyển: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Việc tuyển là do bạn quyết định. Tuyển cùng CEO chỉ bằng một câu, hoặc đóng phiếu nếu công ty không cần.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Đã rút lại: phiếu liên quan đã được đóng.',
 };

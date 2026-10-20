@@ -399,4 +399,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '发票 {number} 的催款函未获确认',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     '邮件服务器未确认已收到发票 {number} 致 {customer}（{to}）的第 {step} 封（共 {of} 封）催款函，该函于 {day} 交给服务器。它可能已送达，也可能没有。平台不会再次发送：如果 {customer} 表示没有收到，请您自己发送，或告诉 CEO。',
+  'Your CEO proposes hiring: {role}':
+    '您的 CEO 提议招聘：{role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    '是否招聘由您决定。一句话就能和 CEO 一起招聘，如果公司不需要，请关闭该工单。',
+  'Withdrawn: the ticket it was about was closed.':
+    '已撤回：它涉及的工单已关闭。',
 };

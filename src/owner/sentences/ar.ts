@@ -397,4 +397,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'لم يُؤكَّد التذكير بالفاتورة {number}',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'لم يؤكد خادم البريد تسلّم التذكير {step} من {of} بالفاتورة {number} إلى {customer} ({to})، الذي سُلّم إليه في {day}. ربما وصل وربما لم يصل. لن ترسله المنصة مرة أخرى: إن قال {customer} إنه لم يتسلّمه، فأرسله بنفسك أو أخبر الرئيس التنفيذي (CEO).',
+  'Your CEO proposes hiring: {role}':
+    'يقترح الرئيس التنفيذي توظيف: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'التوظيف قرارك. وظّفه مع الرئيس التنفيذي بكلمة واحدة، أو أغلق التذكرة إن لم تحتج إليه الشركة.',
+  'Withdrawn: the ticket it was about was closed.':
+    'سُحب: أُغلقت التذكرة التي كان يتعلق بها.',
 };

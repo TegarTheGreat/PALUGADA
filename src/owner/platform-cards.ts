@@ -206,6 +206,22 @@ export function reminderUnconfirmedCard(reading: OwnerReading, facts: {
   };
 }
 
+/**
+ * The CEO proposes a role the company lacks (a ticket of kind `hire`, 0132).
+ * Hiring is the owner's (F2.9); the card says what the CEO said, as its words.
+ */
+export function hireProposedCard(reading: OwnerReading, facts: { role: string; why: string }): Card {
+  const { language } = reading;
+  const role = facts.role.replace(/\s+/g, ' ').trim().slice(0, 120);
+  return {
+    title: say(language, 'Your CEO proposes hiring: {role}', { role }),
+    detail: [
+      facts.why.trim().slice(0, 1_500),
+      say(language, 'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.'),
+    ].filter(Boolean).join('\n\n'),
+  };
+}
+
 /** Invoices are overdue and no role can write the reminders: where to switch that on. */
 export function nobodyRemindsCard(reading: OwnerReading): Card {
   const { language } = reading;

@@ -17,9 +17,18 @@ import { PalugadaError } from '../errors.ts';
 export const TICKET_STATUSES = ['open', 'in_progress', 'done', 'closed'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
+/**
+ * What a ticket is: `work` to be handed to a role, or a `hire` -- a role the
+ * company lacks and the work it would take over, which is the owner's to
+ * decide (F2.9, 0132).
+ */
+export const TICKET_KINDS = ['work', 'hire'] as const;
+export type TicketKind = (typeof TICKET_KINDS)[number];
+
 export interface Ticket {
   id: string;
   projectId: string;
+  kind: TicketKind;
   divisionId: string | null;
   title: string;
   body: string;
@@ -35,17 +44,18 @@ export interface Ticket {
 }
 
 interface RawTicket {
-  id: string; project_id: string; division_id: string | null; title: string; body: string; status: TicketStatus;
+  id: string; project_id: string; kind: TicketKind; division_id: string | null; title: string; body: string; status: TicketStatus;
   priority: number; opened_by: 'owner' | 'agent'; opened_by_task_id: string | null; working_task_id: string | null;
   closed_reason: string | null; created_at: Date; updated_at: Date; closed_at: Date | null;
 }
 
-const COLUMNS = `id, project_id, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+const COLUMNS = `id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
                  working_task_id, closed_reason, created_at, updated_at, closed_at`;
 
 const toTicket = (row: RawTicket): Ticket => ({
   id: row.id,
   projectId: row.project_id,
+  kind: row.kind,
   divisionId: row.division_id,
   title: row.title,
   body: row.body,
@@ -83,6 +93,8 @@ export async function openTicket(tx: TenantClient, input: {
   title: string;
   body?: string;
   priority?: number;
+  /** `work` unless said: a `hire` proposes a role the company lacks. */
+  kind?: TicketKind;
   openedBy: 'owner' | 'agent';
   openedByTaskId?: string | null;
 }): Promise<{ ticket: Ticket; existing: boolean }> {
@@ -94,6 +106,10 @@ export async function openTicket(tx: TenantClient, input: {
   }
   if (body.length > BODY_MAX) {
     throw new PalugadaError('contract.violation', `a ticket's body is at most ${BODY_MAX} characters`, { field: 'body' });
+  }
+  const kind = input.kind ?? 'work';
+  if (!(TICKET_KINDS as readonly string[]).includes(kind)) {
+    throw new PalugadaError('contract.violation', `a ticket's kind is ${TICKET_KINDS.join(' or ')}`, { field: 'kind' });
   }
   const priority = input.priority ?? 2;
   if (!Number.isInteger(priority) || priority < 0 || priority > 3) {
@@ -107,9 +123,9 @@ export async function openTicket(tx: TenantClient, input: {
   if (same.rows[0]) return { ticket: toTicket(same.rows[0]), existing: true };
 
   const { rows } = await tx.query<RawTicket>(
-    `INSERT INTO tickets (company_id, project_id, division_id, title, body, priority, opened_by, opened_by_task_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${COLUMNS}`,
-    [input.companyId, input.projectId, input.divisionId, title, body, priority, input.openedBy, input.openedByTaskId ?? null]);
+    `INSERT INTO tickets (company_id, project_id, division_id, title, body, priority, opened_by, opened_by_task_id, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ${COLUMNS}`,
+    [input.companyId, input.projectId, input.divisionId, title, body, priority, input.openedBy, input.openedByTaskId ?? null, kind]);
   const ticket = toTicket(rows[0]!);
   await appendEvent(tx, {
     companyId: input.companyId,
@@ -117,7 +133,7 @@ export async function openTicket(tx: TenantClient, input: {
     ...(input.openedByTaskId ? { taskId: input.openedByTaskId } : {}),
     type: 'ticket.opened',
     actor: input.openedBy === 'owner' ? 'owner' : 'agent_run',
-    payload: { ticketId: ticket.id, title: ticket.title, priority: ticket.priority, divisionId: ticket.divisionId },
+    payload: { ticketId: ticket.id, title: ticket.title, priority: ticket.priority, divisionId: ticket.divisionId, kind: ticket.kind },
   });
   return { ticket, existing: false };
 }
@@ -192,6 +208,20 @@ export async function setTicketStatus(tx: TenantClient, companyId: string, ticke
     companyId, projectId: ticket.projectId, type: closing ? 'ticket.closed' : 'ticket.reopened', actor: 'owner',
     payload: { ticketId, reason: ticket.closedReason },
   });
+  // A hire closed on the board is answered: its card in the inbox goes with it.
+  if (closing && ticket.kind === 'hire') {
+    const { rows: withdrawn } = await tx.query<{ id: string }>(
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'ticket_closed'
+        WHERE company_id = $1 AND kind = 'escalation' AND status = 'open'
+          AND payload->>'hire' = 'true' AND payload->>'ticketId' = $2
+        RETURNING id`, [companyId, ticketId]);
+    for (const item of withdrawn) {
+      await appendEvent(tx, {
+        companyId, projectId: ticket.projectId, type: 'inbox.withdrawn', actor: 'system',
+        payload: { inboxItemId: item.id, closedReason: 'ticket_closed' },
+      });
+    }
+  }
   return ticket;
 }
 

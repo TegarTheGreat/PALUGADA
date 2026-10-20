@@ -398,4 +398,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Panginget pikeun invoice {number} teu acan dikonfirmasi',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'Server surélék henteu ngonfirmasi panginget {step} ti {of} pikeun invoice {number} ka {customer} ({to}), anu dipasrahkeun ka dinya dina {day}. Bisa jadi parantos dugi, bisa jadi henteu. Platform moal ngirimkeun deui: upami {customer} nyarios teu nampi, kirimkeun nyalira, atanapi wartosan CEO.',
+  'Your CEO proposes hiring: {role}':
+    'CEO anjeun ngusulkeun ngarékrut: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Ngarékrut téh kaputusan anjeun. Rékrut babarengan jeung CEO ku sakecap, atanapi tutup tikétna upami perusahaan henteu peryogi.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Ditarik: tikét anu dibahasna parantos ditutup.',
 };

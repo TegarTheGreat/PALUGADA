@@ -399,4 +399,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Recordatorio de la factura {number} sin confirmar',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'El servidor de correo no confirmó el recordatorio {step} de {of} de la factura {number} a {customer} ({to}), entregado el {day}. Puede que haya llegado o no. La plataforma no lo enviará de nuevo: si {customer} dice que no lo recibió, envíelo usted o dígaselo al CEO.',
+  'Your CEO proposes hiring: {role}':
+    'Su CEO propone contratar: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Contratar lo decide usted. Contrátelo con el CEO en una palabra, o cierre el ticket si la empresa no lo necesita.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Retirado: el ticket al que se refería se cerró.',
 };

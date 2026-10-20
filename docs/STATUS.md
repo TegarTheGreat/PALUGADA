@@ -9167,7 +9167,8 @@ the audit of 3 October, which found two promises that the code did not keep.
 - **Not done:** a goal-level cadence -- the CEO looking at a goal that has no
   work under it, a metric that has not moved, a due date that passed -- is the
   rest of the audit's P1 item 1 and 2. The tickets and the failures are the two
-  things that were owed and silent.
+  things that were owed and silent. (The measures came in 2.163, a goal with no
+  work under it in 2.181.)
 - **Tested** in `ended-badly.test.ts` (a halted root task reported once,
   coordinator first and handed over; what already had a card, a child, the
   owner's own stop and one in its first minute not reported; one cause under one
@@ -10834,6 +10835,44 @@ is built. These are the ones about correctness and money.
 - **Not done.** Money is still checked against what is spent, not reserved before a call: a call can overshoot a
   ceiling by its own cost, which is recorded. `metric.record`, `ticket.create` and the platform's other writers either
   write what is the same however often they are called or are not money; they are not keyed.
+
+## 2.181 A goal nobody works on wakes the CEO, and the CEO proposes the hires the company lacks (the audit of 10 October)
+
+The audit's verdict on autonomy was that the platform keeps work moving once something starts it, and starts
+nothing itself: a company with one CEO and one mission goal, left for a day, made six idle wakes and no task, because
+every source of self-started work -- a schedule, a ticket, a measure, an invoice -- is a record somebody made. And the
+company could not grow: the CEO was told to file a ticket beginning "Hire:", and nothing read the prefix. The
+goal-level cadence was listed here as not done since the audit of 3 October (P1 items 1 and 2).
+
+- **A goal with no work under it wakes the CEO (`src/engine/goal-review.ts`).** A goal at the end of the company's
+  ladder -- active, with no active goal below it -- whose own work and the work below it is all finished, and none of
+  it, nor the goal, newer than three days, makes one task for the CEO: decide the next useful piece of work toward it
+  and see that it is done (hand it on with `task.delegate`, or do it), propose a schedule for work owed again and
+  again, propose the role the company lacks, or, when the goal waits on the owner, a customer or time, say so in one
+  line and stop -- *do not invent work to look busy*. The brief is the platform's words, the goal's own statement cut
+  to a line, and numbers; the CEO may ask the owner at most once, in their language.
+- **What keeps it from becoming a meter.** One read when nothing is owed; a goal at most once a week (the look is
+  itself work under the goal, so it is not idle again for three days, and a second look waits seven); one look at a
+  time for a company and one an hour, the goal idle longest first; not while the company winds down; nothing for a
+  frozen CEO; lower priority than work somebody asked for; and **only where the deployment has a model**
+  (`reviewsGoals`, set in `main.ts`): a task no runtime can take would halt every week and be reported every week. A
+  goal the owner closes takes its look with it if it had not started, as an outcome look does.
+- **A ticket says what it is (`tickets.kind`, 0132).** `ticket.create` takes `kind: "hire"` for a role the company
+  lacks: the title is the role, the body the work it would take over. The owner is shown it the moment it is filed,
+  once, as a card in their language (`hireProposedCard`), not tied to the run that filed it; it is never offered to
+  the CEO's triage as work to hand on to nobody; and the board marks it **A hire**. The CEO's charter now says to
+  propose a hire so, and not to ask again while one is open.
+- **The owner hires it with the CEO in a word.** The card and the board offer *Hire it with the CEO*, which opens
+  the conversation with the CEO with the proposal waiting in the box, in the owner's language: the owner sends it,
+  or changes it, and the CEO builds the role there (2.175), where building the team needs no card. *Not needed now*
+  closes the ticket, and a hire closed on the board withdraws its card (`ticket_closed`).
+- **Tested.** `goal-review.test.ts` (the look and its brief; a busy goal, a young one, open work, work below it; a
+  week after a look and not before; the oldest first, one an hour, winding down; the worker only with a model; a
+  closed goal) and `hire-proposals.test.ts` (the card in the owner's language, once; an ordinary ticket raises none;
+  never triaged; the board and the inbox say it is a hire; the charter; a closed hire takes its card). Each was seen
+  to fail first.
+- **Not done.** Whether a real model, woken this way, does useful work rather than busy work is the next live run's
+  to show (2.24 is the last). Hiring still takes the owner's word, by design (F2.9).
 
 ## 3. Decisions, deviations, and what is unverified
 

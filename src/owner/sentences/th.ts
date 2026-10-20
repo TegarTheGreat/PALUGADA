@@ -403,4 +403,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ยังไม่ได้รับการยืนยันจดหมายแจ้งเตือนของใบแจ้งหนี้ {number}',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'เซิร์ฟเวอร์อีเมลไม่ได้ยืนยันจดหมายแจ้งเตือนฉบับที่ {step} จาก {of} ฉบับของใบแจ้งหนี้ {number} ถึง {customer} ({to}) ที่ส่งให้เมื่อ {day} จดหมายอาจถึงหรือไม่ถึงก็ได้ แพลตฟอร์มจะไม่ส่งซ้ำ: หาก {customer} บอกว่าไม่ได้รับ โปรดส่งเอง หรือแจ้ง CEO',
+  'Your CEO proposes hiring: {role}':
+    'CEO ของคุณเสนอให้จ้าง: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'การจ้างเป็นการตัดสินใจของคุณ จ้างร่วมกับ CEO ได้ในคำเดียว หรือปิดทิกเก็ตหากบริษัทไม่ต้องการ',
+  'Withdrawn: the ticket it was about was closed.':
+    'ถอนแล้ว: ทิกเก็ตที่เกี่ยวข้องถูกปิดแล้ว',
 };

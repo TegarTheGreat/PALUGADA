@@ -23,7 +23,7 @@ export function FirstHourCard({ ctx }: { ctx: ConsoleContext }) {
   const ceo = ctx.company.ceo?.displayName ?? t('the CEO');
 
   const said: Record<FirstHour['steps'][number]['step'], { text: string; action: string; press: () => void }> = {
-    talk: { text: t('Tell {ceo} what the company sells, and to whom', { ceo }), action: t('Talk to {ceo}', { ceo }), press: ctx.talk },
+    talk: { text: t('Tell {ceo} what the company sells, and to whom', { ceo }), action: t('Talk to {ceo}', { ceo }), press: () => ctx.talk() },
     budget: { text: t('Set how much it may spend in a month'), action: t('Open Money'), press: () => ctx.open('money') },
     work: { text: t('Give it its first piece of work'), action: t('Give work'), press: ctx.giveWork },
     result: { text: t('Read its first result'), action: t('Open Work'), press: () => ctx.open('work') },

@@ -400,4 +400,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Herinnering voor factuur {number} niet bevestigd',
   'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
     'De mailserver heeft herinnering {step} van {of} voor factuur {number} aan {customer} ({to}), overgedragen op {day}, niet bevestigd. Misschien is ze aangekomen, misschien niet. Het platform stuurt haar niet nog eens: als {customer} zegt dat ze niet is aangekomen, stuur haar dan zelf, of zeg het tegen de CEO.',
+  'Your CEO proposes hiring: {role}':
+    'Uw CEO stelt voor aan te nemen: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Aannemen beslist u. Neem de rol in één woord met de CEO aan, of sluit het ticket als het bedrijf hem niet nodig heeft.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Ingetrokken: het ticket waar het over ging is gesloten.',
 };

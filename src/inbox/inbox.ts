@@ -126,6 +126,8 @@ export interface InboxItem {
   addressee?: { seatId: string; name: string };
   /** The seat's turn is over, and the question is the owner's too: it went unanswered for the time it was given. */
   escalated?: boolean;
+  /** A role the CEO proposes hiring (a ticket of kind `hire`, 0132): the owner hires it with the CEO, or closes the ticket. */
+  hire?: { ticketId: string; role: string; why: string };
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -1322,6 +1324,7 @@ export async function listOpen(
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
       key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
       addressee: { seatId: string; name: string } | null; escalated: boolean;
+      hire: { ticketId: string; role: string; why: string } | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1335,6 +1338,9 @@ export async function listOpen(
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
               CASE WHEN i.addressee_seat IS NOT NULL THEN i.payload->'addressee' END AS addressee,
               (i.escalated_at IS NOT NULL) AS escalated,
+              CASE WHEN i.kind = 'escalation' AND i.payload->>'hire' = 'true'
+                   THEN jsonb_build_object('ticketId', i.payload->>'ticketId', 'role', coalesce(i.payload->>'role', ''),
+                                           'why', coalesce(i.payload->>'why', '')) END AS hire,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               CASE WHEN i.kind = 'budget_alert' THEN i.payload->'budgetHalt'->>'budgetAccountId' END AS budget_account,
               i.payload->'asked' AS asked,
@@ -1381,6 +1387,7 @@ export async function listOpen(
         ...(r.key ? { key: r.key } : {}),
         ...(r.addressee ? { addressee: r.addressee } : {}),
         ...(r.escalated ? { escalated: true } : {}),
+        ...(r.hire ? { hire: r.hire } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,

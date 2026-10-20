@@ -3835,13 +3835,21 @@ export class OwnerApi {
           const pending = this.#drawing.get(key) ?? (async () => {
             const path = `invoices/${name}`;
             const there = await readCompanyFile(root, companyId, path, PRINT_MAX_BYTES, 'an invoice is at most 5 MB').then(
-              () => true,
+              (file) => file,
               (error: unknown) => {
-                if (isPalugadaError(error, 'contract.violation') && /^there is no file /.test(error.message)) return false;
+                if (isPalugadaError(error, 'contract.violation') && /^there is no file /.test(error.message)) return null;
                 throw error;
               },
             );
-            if (there) return { path };
+            // A page is written straight into its name, so a process stopped while writing it leaves one cut short
+            // there. Only a whole page -- PDF's header first and its end mark last -- is the invoice; a broken one is
+            // the platform's own, and is drawn again under the same name rather than served from then on.
+            const whole = (bytes: Buffer) => bytes.subarray(0, 5).toString('latin1') === '%PDF-' && bytes.subarray(-1024).includes('%%EOF');
+            if (there && whole(there.bytes)) return { path };
+            if (there) {
+              const { unlink } = await import('node:fs/promises');
+              await unlink(there.real);
+            }
             const bytes = await browsers.print(invoiceHtml(made.invoice, made.company, made.language));
             // Not held to the uploads' room: one page per invoice, each at most PRINT_MAX_BYTES, and none taken out.
             const kept = await keepCompanyFile(root, companyId, 'invoices', name, bytes, false);

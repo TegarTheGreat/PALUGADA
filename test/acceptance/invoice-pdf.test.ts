@@ -177,6 +177,35 @@ test('the five hundred and first invoice prints like the first', { skip: SKIP },
   }
 });
 
+/**
+ * A page is written straight into its name, so a process killed while writing
+ * it leaves a file cut short there; pressing again answered "the page that is
+ * there", and the broken page was the invoice from then on, downloaded by the
+ * owner and attached by roles. A page is answered only when it is whole.
+ */
+test('a page cut short by a crash is drawn again, not served as the invoice', { skip: SKIP }, async () => {
+  const { api, issue, print, mine } = await owned();
+  try {
+    const { mkdir, readFile, writeFile } = await import('node:fs/promises');
+    await mkdir(join(mine, 'invoices'), { recursive: true });
+    const first = await issue();
+    const second = await issue();
+    await writeFile(join(mine, 'invoices', 'inv-0001.pdf'), '%PDF-1.4\n1 0 obj\n<< /Type /Catalog');
+    await writeFile(join(mine, 'invoices', 'inv-0002.pdf'), '');
+    for (const [invoice, path] of [[first, 'invoices/inv-0001.pdf'], [second, 'invoices/inv-0002.pdf']] as const) {
+      const made = await print(invoice.invoiceId);
+      assert.equal(made.status, 200, JSON.stringify(made.body));
+      assert.equal(made.body.path, path, 'under its own name, not beside the broken one');
+      const bytes = await readFile(join(mine, path));
+      assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
+      assert.match(bytes.subarray(-1024).toString('latin1'), /%%EOF/, 'and whole');
+    }
+    assert.deepEqual((await readdir(join(mine, 'invoices'))).sort(), ['inv-0001.pdf', 'inv-0002.pdf']);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a hostile name prints as plain text, and nothing it names is fetched', { skip: SKIP }, async () => {
   const { api, fixture, root, browser, issue, print } = await owned();
   const requests: string[] = [];

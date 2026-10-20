@@ -505,7 +505,9 @@ test('the container entrypoint sets the database up, then starts the platform wi
   const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
   assert.equal(code, 0, err);
   const lines = out.trim().split('\n');
-  assert.match(out, /database palugada: already as PALUGADA needs it/, 'provisioned, and nothing to change');
+  // The database the suite runs on, which is not always called palugada.
+  const database = new URL(connectionString('owner')).pathname.slice(1);
+  assert.ok(out.includes(`database ${database}: already as PALUGADA needs it`), `provisioned, and nothing to change: ${out}`);
   assert.match(out, /already up to date/, 'migrated');
   const seen = JSON.parse(lines.at(-1)!) as string[];
   for (const gone of [

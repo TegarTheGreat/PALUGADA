@@ -112,10 +112,16 @@ export async function ceoBriefsOwner(companyId: string, options: { now?: Date } 
   if (news.finished.length === 0 && news.stopped.length === 0 && news.fresh === 0) return false;
 
   const body = briefingSaid(await ceoSaysIn(companyId), news);
-  const written = await withControlPlane((tx) => tx.query(
-    `INSERT INTO assistant_messages (role, channel, body, company_id)
-     SELECT 'assistant', 'console', $2, $1
-      WHERE NOT EXISTS (SELECT 1 FROM assistant_messages WHERE company_id = $1 AND at > $3::timestamptz)`,
-    [companyId, body, last.at]));
+  const written = await withControlPlane(async (tx) => {
+    // One at a time for a company: two tabs opening together each read a
+    // conversation without the other's briefing, and both wrote one (the
+    // review of 20 October). The second reads the first's once it waits.
+    await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('briefing:' || $1, 0))", [companyId]);
+    return tx.query(
+      `INSERT INTO assistant_messages (role, channel, body, company_id)
+       SELECT 'assistant', 'console', $2, $1
+        WHERE NOT EXISTS (SELECT 1 FROM assistant_messages WHERE company_id = $1 AND at > $3::timestamptz)`,
+      [companyId, body, last.at]);
+  });
   return written.rowCount === 1;
 }

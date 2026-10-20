@@ -15,12 +15,15 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
 import { withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { setDeploymentLanguages } from '../../src/domain/language.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { say } from '../../src/owner/say.ts';
+import { ceoBriefsOwner } from '../../src/owner/ceo-briefing.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -114,6 +117,38 @@ test('the owner comes back, and the CEO says what finished, what stopped and wha
     assert.equal(again.body.spoke, false);
     assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages.length, 2);
   });
+});
+
+test('tabs opening the conversation together make one briefing between them', async () => {
+  // The review of 20 October: "write it unless something was said since"
+  // was one statement, but two transactions at once each read a conversation
+  // without the other's briefing and both wrote one. The window is a moment
+  // wide, so it is held open here: a session that holds the table keeps both
+  // writes waiting, and lets them go together.
+  const fixture = await createCompany('briefing-together');
+  await lastSpokeAgo(fixture, 5);
+  await finished(fixture, 'Tulis newsletter Oktober');
+  const holder = new pg.Client({ connectionString: connectionString('owner') });
+  await holder.connect();
+  try {
+    await holder.query('BEGIN');
+    await holder.query('LOCK TABLE assistant_messages IN SHARE ROW EXCLUSIVE MODE');
+    // Separate transactions, as separate tabs are.
+    const spoke = Promise.all([ceoBriefsOwner(fixture.companyId), ceoBriefsOwner(fixture.companyId)]);
+    for (let waited = 0; waited < 10_000; waited += 20) {
+      // Both waiting: on the table, or one on the other.
+      const { rows } = await holder.query<{ n: number }>('SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted');
+      if (rows[0]!.n >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await holder.query('COMMIT');
+    assert.equal((await spoke).filter(Boolean).length, 1, 'one of them spoke');
+  } finally {
+    await holder.end();
+  }
+  const { rows } = await withControlPlane((tx) => tx.query(
+    "SELECT 1 FROM assistant_messages WHERE company_id = $1 AND role = 'assistant' AND at > now() - interval '1 minute'", [fixture.companyId]));
+  assert.equal(rows.length, 1, 'and the CEO said it once');
 });
 
 test('a CEO has nothing to say when nothing happened, or when the owner has only just left', async () => {

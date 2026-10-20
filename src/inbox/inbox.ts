@@ -19,7 +19,7 @@ import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
 import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
-import { cancelTask, releaseReservations } from '../engine/owner-control.ts';
+import { ANSWERED_BEFORE_HANDED, cancelTask, releaseReservations, stopHandlingLeftWorking } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -785,6 +785,10 @@ export async function handEscalations(companyId: string): Promise<number> {
     if (await handOver(companyId, item)) handed += 1;
   }
 
+  // A coordinator the press that closed its card did not stop is stopped
+  // first, so that its card says so below, in this same look.
+  await stopHandlingLeftWorking(companyId);
+
   // And a card the work itself answered while it was being handled -- run
   // again by the owner, or gone on with -- whose account would otherwise be
   // written nowhere: what the coordinator did, or that it was stopped.
@@ -972,7 +976,7 @@ async function handOver(companyId: string, item: {
     // task, which the card no longer names, would work on unread beside
     // whatever answered it.
     try {
-      await cancelTask(companyId, taskId, 'the card it was handed was answered before it reached it', 'system');
+      await cancelTask(companyId, taskId, ANSWERED_BEFORE_HANDED, 'system');
     } catch (error) {
       if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
     }
@@ -1567,53 +1571,91 @@ export async function raiseBudgetAlert(input: {
  * not stack a second card on the first.
  */
 export async function raiseBudgetHalt(companyId: string, taskId: string): Promise<string | null> {
-  const notifyAfter = await notifyAfterFor('budget_alert', {});
-  const language = (await deploymentLanguages()).console;
-  return withTenant(companyId, async (tx) => {
-    const raised = await tx.query(
-      "SELECT 1 FROM inbox_items WHERE task_id = $1 AND kind = 'budget_alert' AND status = 'open'", [taskId]);
-    if (raised.rows.length > 0) return null;
-    const task = await getTask(tx, taskId);
-    if (!task?.budgetAccountId) return null;
-    const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
-      `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
-        WHERE a.id = ANY(app.budget_chain($1))
-        ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
-        LIMIT 1`,
-      [task.budgetAccountId],
-    );
-    const account = accounts[0];
-    if (!account) return null;
-    // One card for an account, however many tasks it stopped: a division that
-    // runs out stops everything charged to it together, and a card each, to be
-    // opened and continued one by one, was the owner's whole afternoon. The
-    // card says how many it stopped, live, and one press goes on with them all.
-    const standing = await tx.query<{ id: string }>(
-      `SELECT id FROM inbox_items WHERE kind = 'budget_alert' AND status = 'open'
-          AND payload->'budgetHalt'->>'budgetAccountId' = $1 LIMIT 1`, [account.id]);
-    if (standing.rows[0]) return standing.rows[0].id;
-    const words = budgetHaltWords(language, {
-      account: account.name,
-      work: workOf(task.input),
-      spent: Number(account.tokens_spent),
-      max: Number(account.tokens_max),
-    });
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO inbox_items
-         (company_id, task_id, kind, title, action_summary, rationale, consequence_if_denied,
-          notify_after, payload)
-       VALUES ($1, $2, 'budget_alert', $3, $3, $4, '', $5, $6)
-       RETURNING id`,
-      [companyId, taskId, words.title, words.rationale, notifyAfter,
-        JSON.stringify({ budgetHalt: { budgetAccountId: account.id } })],
-    );
-    const id = rows[0]!.id;
-    await appendEvent(tx, {
-      companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
-      payload: { inboxItemId: id, budgetAccountId: account.id },
-    });
-    return id;
+  const terms = await budgetHaltTerms();
+  return withTenant(companyId, (tx) => raiseBudgetHaltWithin(tx, companyId, taskId, terms));
+}
+
+/** When a budget card may reach the owner, and in what words: read before the transaction that raises it. */
+export interface BudgetHaltTerms {
+  notifyAfter: Date;
+  language: string | null;
+}
+
+export async function budgetHaltTerms(): Promise<BudgetHaltTerms> {
+  return { notifyAfter: await notifyAfterFor('budget_alert', {}), language: (await deploymentLanguages()).console };
+}
+
+/**
+ * The same, inside a transaction that also changed what the card is about:
+ * going on with the work an account's card sits on raises it again, in the
+ * same transaction, for the work the account still stops (`continueHalted`).
+ * On the control plane there, so every statement names the company. Raised
+ * again, it names the account it named before (`accountId`), not the
+ * tightest over the work it lands on: that could be a narrower account,
+ * whose card covers only its own work, and the rest of what the first
+ * account stopped would be told by nothing.
+ */
+export async function raiseBudgetHaltWithin(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string,
+  terms: BudgetHaltTerms,
+  accountId?: string,
+): Promise<string | null> {
+  const raised = await tx.query(
+    "SELECT 1 FROM inbox_items WHERE company_id = $1 AND task_id = $2 AND kind = 'budget_alert' AND status = 'open'",
+    [companyId, taskId]);
+  if (raised.rows.length > 0) return null;
+  const task = await getTask(tx, taskId);
+  if (!task?.budgetAccountId || task.companyId !== companyId) return null;
+  const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
+    `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
+      WHERE a.id = ANY(app.budget_chain($1)) AND ($2::uuid IS NULL OR a.id = $2::uuid)
+      ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
+      LIMIT 1`,
+    [task.budgetAccountId, accountId ?? null],
+  );
+  const account = accounts[0];
+  if (!account) return null;
+  // One card for an account, however many tasks it stopped: a division that
+  // runs out stops everything charged to it together, and a card each, to be
+  // opened and continued one by one, was the owner's whole afternoon. The
+  // card says how many it stopped, live, and one press goes on with them all.
+  //
+  // Locked, so that going on with the card's own work, which withdraws it
+  // (`continueHalted`), is waited for: read as open in that moment, it was
+  // taken for this work's card and withdrawn a moment later, while the going
+  // on had looked for stopped work to raise it again on before this work had
+  // stopped. A halt is not held up by that transaction's lock on the account
+  // when its run had spent what it reserved. Once the withdraw commits, the
+  // card is no longer read; one raised again in its place is, on a second look.
+  const standingQuery = `SELECT id FROM inbox_items WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open'
+      AND payload->'budgetHalt'->>'budgetAccountId' = $2 ORDER BY created_at, id LIMIT 1`;
+  const standing = await tx.query<{ id: string }>(`${standingQuery} FOR NO KEY UPDATE`, [companyId, account.id]);
+  if (standing.rows[0]) return standing.rows[0].id;
+  const raisedAgain = await tx.query<{ id: string }>(standingQuery, [companyId, account.id]);
+  if (raisedAgain.rows[0]) return raisedAgain.rows[0].id;
+  const words = budgetHaltWords(terms.language, {
+    account: account.name,
+    work: workOf(task.input),
+    spent: Number(account.tokens_spent),
+    max: Number(account.tokens_max),
   });
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items
+       (company_id, task_id, kind, title, action_summary, rationale, consequence_if_denied,
+        notify_after, payload)
+     VALUES ($1, $2, 'budget_alert', $3, $3, $4, '', $5, $6)
+     RETURNING id`,
+    [companyId, taskId, words.title, words.rationale, terms.notifyAfter,
+      JSON.stringify({ budgetHalt: { budgetAccountId: account.id } })],
+  );
+  const id = rows[0]!.id;
+  await appendEvent(tx, {
+    companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
+    payload: { inboxItemId: id, budgetAccountId: account.id },
+  });
+  return id;
 }
 
 /** What a task is for, as one line: its goal, or the first thing its input says. */

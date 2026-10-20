@@ -163,6 +163,74 @@ test('a card restored from an archive still takes the next failure of its cause 
   assert.equal(cards.rows[0]!.ended[1], again.id, 'the next failure is on the restored card');
 });
 
+/**
+ * A task's key names rows by their ids -- a run again the task it does again
+ * (`rerun:<task>`), a coordinator's task the card it was handed
+ * (`escalation:<card>`) -- and a restore gives every row a new one. Kept as
+ * the archive had them, the restored company read work run again as never
+ * run again: the card it answered stayed open, Run again made a second task
+ * beside the first, and a rerun of a duty was its role's model work. And a
+ * coordinator handling a restored card was told nothing of the work on it
+ * taken up since.
+ */
+test('a restored company reads its tasks\' keys as the archive did: what was run again, and the card a coordinator has', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { buildContext } = await import('../../src/context/builder.ts');
+  const { dutyOf } = await import('../../src/duties/duties.ts');
+  const { exportCompany } = await import('../../src/audit/export.ts');
+  const { importCompany } = await import('../../src/audit/import.ts');
+  const fixture = await createCompany('ended-restored-keys');
+  await addRole(fixture, 'coordinator');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: 'coordinator', afterMinutes: 60 });
+  const seven = await root(fixture, 'send invoice 7');
+  const eight = await root(fixture, 'send invoice 8');
+  const nine = await root(fixture, 'send invoice 9');
+  for (const task of [seven, eight, nine]) await halt(fixture, task.id, 'hop_limit');
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+  await rerunTask(fixture.companyId, seven.id, null);
+  assert.equal(await handEscalations(fixture.companyId), 1, 'handed with 8 and 9 in its brief');
+  const duty = await root(fixture, 'collect what is owed', 'duty:collections:restored');
+  await halt(fixture, duty.id, 'deadline_passed');
+  await rerunTask(fixture.companyId, duty.id, null);
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const archived = new Set(lines.map((line) => line.row.id).filter((id): id is string => typeof id === 'string'));
+  const restored = await importCompany(lines, { slug: 'ended-restored-keys-copy' });
+  const tasks = await withTenant(restored.companyId, (tx) => tx.query<{ id: string; goal: string; key: string; division_id: string }>(
+    "SELECT id, input->>'goal' AS goal, idempotency_key AS key, division_id FROM tasks ORDER BY created_at")).then((r) => r.rows);
+  assert.deepEqual(tasks.filter((task) => task.key.split(':').some((part) => archived.has(part))), [],
+    'no key names a row by the id it had in the archive');
+  const restoredOf = (goal: string, rerun = false) => tasks.find((task) => task.goal === goal && task.key.startsWith('rerun:') === rerun)!;
+  const card = async () => (await withTenant(restored.companyId, (tx) => tx.query<{
+    id: string; status: string; closed_reason: string | null; handed: string;
+  }>("SELECT id, status, closed_reason, payload->>'handedTaskId' AS handed FROM inbox_items WHERE kind = 'escalation'"))).rows[0]!;
+  const handed = await card();
+  const handling = tasks.find((task) => task.id === handed.handed)!;
+  assert.equal(handling.key, `escalation:${handed.id}`);
+
+  // Run again once per task, in the restored company as in the archive's.
+  assert.equal(restoredOf('send invoice 7', true).key, `rerun:${restoredOf('send invoice 7').id}`);
+  assert.equal(await rerunTask(restored.companyId, restoredOf('send invoice 7').id, null), restoredOf('send invoice 7', true).id,
+    'the rerun made before the archive, not a second');
+  // A rerun of a duty is still the duty.
+  assert.notEqual(await dutyOf(restored.companyId, { idempotencyKey: restoredOf('collect what is owed', true).key }), null);
+
+  // The coordinator handling the restored card is told what was taken up since.
+  await rerunTask(restored.companyId, restoredOf('send invoice 8').id, null);
+  assert.equal((await card()).status, 'open', 'invoice 9 is still stopped');
+  const pack = await withTenant(restored.companyId, (tx) => buildContext(tx, {
+    companyId: restored.companyId, divisionId: handling.division_id, taskId: handling.id,
+  }));
+  assert.match(pack.sections.filter((section) => /taken up/.test(section.title)).map((section) => section.body).join('\n'),
+    /send invoice 8/);
+
+  // And the card closes with its last task run again, 7's rerun counted.
+  await rerunTask(restored.companyId, restoredOf('send invoice 9').id, null);
+  const closed = await card();
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'task_rerun']);
+});
+
 test('work the coordinator was handed that ends badly goes to the owner, not back to the coordinator', async () => {
   const fixture = await createCompany('ended-loop');
   await addRole(fixture, 'coordinator');
@@ -344,8 +412,11 @@ test('a card the CEO dealt with after it reached the chat keeps the CEO\'s accou
     deliver: async () => ({ ref: '7' }),
     retract: async (closed: Closed) => { rewritten.push(closed); return 'retracted' as const; },
   };
-  // The CEO's hour is up and the owner has been told.
-  assert.equal((await dispatch(company.companyId, chat, { now: new Date(Date.now() + 2 * 3_600_000) })).delivered, 1);
+  // The CEO's hour is up and the owner has been told: at the moment the card
+  // was due, which is the next opening of the owner's window when the hour
+  // ends outside it. A fixed two hours from now failed every evening.
+  const [due] = await cardsOf(company.companyId);
+  assert.equal((await dispatch(company.companyId, chat, { now: new Date(due!.notify_after.getTime() + 60_000) })).delivered, 1);
 
   assert.equal(await handEscalations(company.companyId), 1);
   const [card] = await cardsOf(company.companyId);
@@ -629,8 +700,11 @@ test('Run again on a card the CEO is handling stops the CEO\'s task, and the car
   await rerunTask(company.companyId, task.id, null);
   const [closed] = await cardsOf(company.companyId);
   assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_rerun']);
-  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' },
-    'the CEO does not do beside the owner what the owner has run again');
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'work_taken_up' },
+    'the CEO does not do beside the owner what the owner has run again, and is not said to be cancelled by them');
+  assert.deepEqual((await withTenant(company.companyId, (tx) => tx.query(
+    "SELECT actor, payload->>'haltReason' AS said FROM events WHERE task_id = $1 AND type = 'task.cancelled'",
+    [handling.id]))).rows, [{ actor: 'owner', said: 'work_taken_up' }], 'the owner\'s press, and what it did');
 
   await handEscalations(company.companyId);
   const [noted] = await cardsOf(company.companyId);
@@ -772,9 +846,559 @@ test('an ended card about work its budget stopped closes when the work goes on, 
   await continueHalted(company.companyId, task.id);
   const [closed] = await cardsOf(company.companyId);
   assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_continued']);
-  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' });
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'work_taken_up' });
   await handEscalations(company.companyId);
   assert.match((await cardsOf(company.companyId))[0]!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
+});
+
+/**
+ * The platform stops a coordinator too -- self-heal going on with the work
+ * it was handling, the next look after a press that stopped short -- and the
+ * stop was written as the owner's own cancel: the Work page told the owner
+ * "Cancelled by you", and "You cancelled it", of a stop they never made.
+ */
+test('a CEO the platform stopped is said to have been stopped by the platform, not cancelled by the owner', async () => {
+  const { continueHalted } = await import('../../src/engine/owner-control.ts');
+  const { haltSaid } = await import('../../src/owner/halt-said.ts');
+  const company = await founded('ceo-stopped-by-platform');
+  const cancelled = async (taskId: string) => (await withTenant(company.companyId, (tx) => tx.query<{
+    halt_reason: string; actor: string; said: string;
+  }>(`SELECT t.halt_reason, e.actor, e.payload->>'haltReason' AS said
+        FROM tasks t JOIN events e ON e.task_id = t.id AND e.type = 'task.cancelled' WHERE t.id = $1`, [taskId]))).rows[0];
+
+  // Self-heal goes on with the work the CEO was handling.
+  const september = await stoppedForBudget(company, 'post the September invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const healed = (await handlingOf(company.companyId, (await cardsOf(company.companyId))[0]!.id))!;
+  await continueHalted(company.companyId, september.id, 'system');
+  assert.deepEqual(await cancelled(healed.id), { halt_reason: 'work_taken_up', actor: 'system', said: 'work_taken_up' });
+
+  // The next look stops one a press left running.
+  const october = await rootOf(company, company.hiredId, 'send the October letters');
+  await transition(company.companyId, october.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const card = (await cardsOf(company.companyId)).find((item) => item.task_id === october.id)!;
+  const left = (await handlingOf(company.companyId, card.id))!;
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun' WHERE id = $1", [card.id]));
+  await handEscalations(company.companyId);
+  assert.equal((await cancelled(left.id))!.halt_reason, 'work_taken_up');
+
+  // Said as what it was, in the owner's language.
+  assert.equal(haltSaid(null, 'work_taken_up'), 'Stopped: its work was taken up another way');
+  assert.doesNotMatch(haltSaid('id', 'work_taken_up'), /work|taken/);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and it is nobody\'s news');
+});
+
+/**
+ * Run again, or going on, stops the CEO handling the card it closes after
+ * the card's transaction commits, in transactions of its own. A worker that
+ * stopped in between -- a deploy, a crash -- or a cancel that failed left
+ * the CEO's task working for good beside the work, paid for: a second
+ * Continue is refused, self-heal never presses twice, and only a card closed
+ * by Run again was looked at again, by a second press of it.
+ */
+test('a CEO a close did not stop, its worker gone in between, is stopped at the next look', async () => {
+  const company = await founded('ceo-unstopped');
+  for (const reason of ['budget_room', 'task_continued', 'task_rerun'] as const) {
+    const task = await stoppedForBudget(company, `post the invoices, closed as ${reason}`);
+    assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+    assert.equal(await handEscalations(company.companyId), 1);
+    const card = (await cardsOf(company.companyId)).find((item) => item.task_id === task.id)!;
+    const handling = (await handlingOf(company.companyId, card.id))!;
+    // What the CEO had already handed on is stopped with it.
+    const handedOn = await createSubTask(handling.id, {
+      companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+      roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: `${reason}: the part handed on` }, reserveTokens: 100,
+    });
+    // The close committed, and nothing after it ran.
+    await withTenant(company.companyId, (tx) => tx.query(
+      "UPDATE inbox_items SET status = 'withdrawn', closed_reason = $2 WHERE id = $1", [card.id, reason]));
+
+    await handEscalations(company.companyId);
+    assert.equal((await taskState(company.companyId, handling.id)).status, 'cancelled', reason);
+    assert.equal((await taskState(company.companyId, handedOn.id)).status, 'cancelled', `${reason}: and what it handed on`);
+    const noted = (await cardsOf(company.companyId)).find((item) => item.id === card.id)!;
+    assert.match(noted.rationale, /Arka was stopped: the work on this card has been taken up again\./, reason);
+    await handEscalations(company.companyId);
+    assert.equal((await cardsOf(company.companyId)).find((item) => item.id === card.id)!.rationale, noted.rationale, 'once');
+  }
+});
+
+/**
+ * The hand-over makes the CEO's task, then names it on the card, in a
+ * transaction of its own, and cancels it itself when the card closed in
+ * between. A worker that stopped between the two, with the card then closed
+ * -- run again, or answered by the owner -- before it was back, left a task
+ * the card never names: the next look hands over only open cards, and stops
+ * only what a card names, so it worked on, unread, beside the owner.
+ */
+test('a CEO\'s task its card never named, its worker gone in between, is stopped at the next look', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ceo-unnamed');
+  for (const close of ['run again', 'answered'] as const) {
+    const task = await rootOf(company, company.hiredId, `send the letters, ${close}`);
+    await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+    assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+    const card = (await cardsOf(company.companyId)).find((item) => item.task_id === task.id)!;
+    // The hand-over's first step, committed; the worker stops here.
+    const ceo = await createRootTask({
+      companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+      roleId: company.ceoId, goalId: company.goalIds.mission!, createdBy: 'event',
+      idempotencyKey: `escalation:${card.id}`, input: { goal: `Escalated to you: send the letters, ${close}` },
+    });
+    if (close === 'run again') {
+      await rerunTask(company.companyId, task.id, null);
+    } else {
+      await withTenant(company.companyId, (tx) => tx.query(
+        "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [card.id]));
+    }
+    assert.notEqual((await cardsOf(company.companyId)).find((item) => item.id === card.id)!.status, 'open', close);
+
+    await handEscalations(company.companyId);
+    assert.deepEqual(await taskState(company.companyId, ceo.id), { status: 'cancelled', halt_reason: 'work_taken_up' }, close);
+    await handEscalations(company.companyId);
+    const { rows } = await withTenant(company.companyId, (tx) => tx.query(
+      "SELECT 1 FROM events WHERE task_id = $1 AND type = 'task.cancelled'", [ceo.id]));
+    assert.equal(rows.length, 1, `${close}: stopped once`);
+  }
+});
+
+/**
+ * The CEO handling a card can itself be stopped by its budget, and a task so
+ * stopped has ended as far as stopping it goes: Run again, or going on, that
+ * closed the card left it halted, and self-heal then set it going again --
+ * the CEO back at "send invoice 7" on a card the owner had answered, and
+ * what it handed on with it, its account written nowhere.
+ */
+test('a CEO its budget stopped is stopped with the card the work answered, and is not set going again on it', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { resumeBudgetStopped } = await import('../../src/engine/self-heal.ts');
+  /** The CEO's task on the card, and what it handed on, both stopped for their budget. */
+  const stoppedHandling = async (company: Founded, cardId: string) => {
+    const handling = (await handlingOf(company.companyId, cardId))!;
+    await transition(company.companyId, handling.id, 'running');
+    const handedOn = await createSubTask(handling.id, {
+      companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+      roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: 'the part handed on' }, reserveTokens: 100,
+    });
+    await transition(company.companyId, handedOn.id, 'running');
+    await transition(company.companyId, handedOn.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+    await transition(company.companyId, handling.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+    await handEscalations(company.companyId);
+    return [handling.id, handedOn.id];
+  };
+  const states = async (companyId: string, ids: string[]) => {
+    const all = [];
+    for (const id of ids) all.push((await taskState(companyId, id)).status);
+    return all;
+  };
+  const cardOn = async (company: Founded, goal: string) => {
+    const task = await rootOf(company, company.hiredId, goal);
+    await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+    assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+    assert.equal(await handEscalations(company.companyId), 1);
+    return { task, card: (await cardsOf(company.companyId)).find((item) => item.task_id === task.id)! };
+  };
+
+  // Run again.
+  const rerun = await founded('ceo-budget-rerun');
+  const seven = await cardOn(rerun, 'send invoice 7 to PT Maju');
+  const ceo = await stoppedHandling(rerun, seven.card.id);
+  assert.equal((await cardsOf(rerun.companyId))[0]!.payload.handledOutcome, 'halted');
+  await rerunTask(rerun.companyId, seven.task.id, null);
+  assert.deepEqual(await states(rerun.companyId, ceo), ['cancelled', 'cancelled'], 'the CEO, and what it handed on');
+  assert.deepEqual(await resumeBudgetStopped(rerun.companyId), { continued: 0, waiting: 0 });
+
+  // Going on, by self-heal, with the CEO stopped on the same account.
+  const goneOn = await founded('ceo-budget-gone-on');
+  const work = await stoppedForBudget(goneOn, 'post the October invoices');
+  assert.equal(await reportEndedBadly(goneOn.companyId, later()), 1);
+  assert.equal(await handEscalations(goneOn.companyId), 1);
+  const [card] = await cardsOf(goneOn.companyId);
+  const handlers = await stoppedHandling(goneOn, card!.id);
+  assert.equal((await resumeBudgetStopped(goneOn.companyId)).continued, 1, 'the work, and not the CEO beside it');
+  assert.equal((await taskState(goneOn.companyId, work.id)).status, 'pending');
+  assert.deepEqual([(await cardsOf(goneOn.companyId))[0]!.status, (await cardsOf(goneOn.companyId))[0]!.closed_reason],
+    ['withdrawn', 'budget_room']);
+  assert.deepEqual(await states(goneOn.companyId, handlers), ['cancelled', 'cancelled']);
+  await assert.rejects(continueHalted(goneOn.companyId, handlers[0]!, 'system'), { code: 'task.not_continuable' });
+
+  // A card the owner answered themselves: nobody reads the CEO's account any
+  // more, so neither it nor what it handed on goes on by itself.
+  const answered = await founded('ceo-budget-answered');
+  const nine = await cardOn(answered, 'send invoice 9 to PT Sinar');
+  const left = await stoppedHandling(answered, nine.card.id);
+  await withTenant(answered.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [nine.card.id]));
+  assert.deepEqual(await resumeBudgetStopped(answered.companyId), { continued: 0, waiting: 0 });
+  assert.deepEqual(await states(answered.companyId, left), ['halted', 'halted']);
+
+  // A press that stopped before it stopped them: the next look does.
+  const interrupted = await founded('ceo-budget-interrupted');
+  const ten = await cardOn(interrupted, 'send invoice 10 to PT Sinar');
+  const waiting = await stoppedHandling(interrupted, ten.card.id);
+  await withTenant(interrupted.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun' WHERE id = $1", [ten.card.id]));
+  await handEscalations(interrupted.companyId);
+  assert.deepEqual(await states(interrupted.companyId, waiting), ['cancelled', 'cancelled']);
+});
+
+/**
+ * Whether stopped work goes on by itself looked one level up: at the task's
+ * own card, and at its parent's. A task two levels under a CEO whose card
+ * the owner answered -- the CEO's task, what it handed on, and what that
+ * handed on, all stopped for their budget -- went on by itself, its answer
+ * for a parent that never would, paid for. So did one under a parent that
+ * waits for its budget under a grandparent that failed.
+ */
+test('nothing under a stopped coordinator or a given-up task goes on by itself, however deep', async () => {
+  const { resumeBudgetStopped, MIN_ROOM_CENTS, MIN_ROOM_TOKENS } = await import('../../src/engine/self-heal.ts');
+  const budgetStopped = (companyId: string, id: string) =>
+    transition(companyId, id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+  /** `count` tasks, each under the one before, the first under `parentId`, running. */
+  const chainUnder = async (company: Founded, parentId: string, count: number) => {
+    const ids: string[] = [];
+    for (let level = 0; level < count; level += 1) {
+      const task = await createSubTask(ids.at(-1) ?? parentId, {
+        companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+        roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: `handed on, level ${level + 1}` },
+        reserveTokens: 100,
+      });
+      await transition(company.companyId, task.id, 'running');
+      ids.push(task.id);
+    }
+    return ids;
+  };
+  const roomFor = async (companyId: string) => withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+      WHERE company_id = $1`, [companyId, 10 * MIN_ROOM_TOKENS, 10 * MIN_ROOM_CENTS]));
+  const statuses = async (companyId: string, ids: string[]) => {
+    const all = [];
+    for (const id of ids) all.push((await taskState(companyId, id)).status);
+    return all;
+  };
+
+  // The CEO's card, answered by the owner.
+  const company = await founded('ceo-answered-deep');
+  const task = await rootOf(company, company.hiredId, 'send invoice 9 to PT Sinar');
+  await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const ceo = (await handlingOf(company.companyId, card!.id))!.id;
+  await transition(company.companyId, ceo, 'running');
+  const below = await chainUnder(company, ceo, 2);
+  for (const id of [...below].reverse()) await budgetStopped(company.companyId, id);
+  await budgetStopped(company.companyId, ceo);
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [card!.id]));
+  await roomFor(company.companyId);
+  assert.deepEqual(await resumeBudgetStopped(company.companyId), { continued: 0, waiting: 0 });
+  assert.deepEqual(await statuses(company.companyId, [ceo, ...below]), ['halted', 'halted', 'halted']);
+
+  // A task that failed, with what it handed on stopped for its budget.
+  const failing = await founded('failed-deep');
+  const failed = await rootOf(failing, failing.hiredId, 'close the quarter');
+  const under = await chainUnder(failing, failed.id, 2);
+  for (const id of [...under].reverse()) await budgetStopped(failing.companyId, id);
+  await transition(failing.companyId, failed.id, 'failed', { detail: 'the quarter could not be closed' });
+  await roomFor(failing.companyId);
+  assert.deepEqual(await resumeBudgetStopped(failing.companyId), { continued: 0, waiting: 0 });
+  assert.deepEqual(await statuses(failing.companyId, under), ['halted', 'halted']);
+});
+
+/**
+ * An account has one card, on the work it stopped first, and ended.ts counts
+ * the rest of what it stopped as told while that card is open. Going on with
+ * the card's own work -- the owner's Continue on it, or self-heal with room
+ * for one run -- withdrew the card while the rest was still stopped, and only
+ * "go on with all" raised it again. ended.ts looks back a day, so work that
+ * had stopped longer ago was then told by nothing.
+ */
+test('going on with the work an account\'s card sits on raises the card again for the work it still stops', async () => {
+  const { continueAllHalted, continueHalted } = await import('../../src/engine/owner-control.ts');
+  const { MIN_ROOM_CENTS, MIN_ROOM_TOKENS, resumeBudgetStopped } = await import('../../src/engine/self-heal.ts');
+  const { DEFAULT_TASK_RESERVE_TOKENS } = await import('../../src/engine/tasks.ts');
+  const { BUDGET_CARD_SAYS_SO } = await import('../../src/engine/ended.ts');
+  const stoppedLongAgo = async (slug: string, goals: string[]) => {
+    const company = await founded(slug);
+    const tasks: Array<{ id: string }> = [];
+    for (const goal of goals) tasks.push(await stoppedForBudget(company, goal));
+    for (const task of tasks) await inbox.raiseBudgetHalt(company.companyId, task.id);
+    await withTenant(company.companyId, (tx) => tx.query(
+      "UPDATE tasks SET finished_at = now() - interval '2 days' WHERE id = ANY($1::uuid[])", [tasks.map((task) => task.id)]));
+    return { company, tasks };
+  };
+  const budgetCards = (companyId: string) => withTenant(companyId, (tx) => tx.query<{
+    task_id: string; status: string; closed_reason: string | null;
+  }>("SELECT task_id, status, closed_reason FROM inbox_items WHERE kind = 'budget_alert' ORDER BY created_at")).then((r) => r.rows);
+  const covered = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${BUDGET_CARD_SAYS_SO}`, [taskId]))).rowCount === 1;
+  /** Room on every account the work draws on for `tokens` more, and `cents`. */
+  const room = async (companyId: string, taskId: string, tokens: number, cents: number) => {
+    const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+      'SELECT unnest(app.budget_chain(budget_account_id))::text AS id FROM tasks WHERE id = $1', [taskId]));
+    await withControlPlane((tx) => tx.query(
+      `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+        WHERE id = ANY($1::uuid[])`, [rows.map((row) => row.id), tokens, cents]));
+  };
+
+  // The owner goes on with the work the card sits on.
+  const owner = await stoppedLongAgo('budget-card-owner', ['post the July invoices', 'post the August invoices']);
+  const [july, august] = owner.tasks;
+  await continueHalted(owner.company.companyId, july!.id);
+  assert.deepEqual(await budgetCards(owner.company.companyId), [
+    { task_id: july!.id, status: 'withdrawn', closed_reason: 'task_continued' },
+    { task_id: august!.id, status: 'open', closed_reason: null },
+  ], 'the card is raised again, on the work still stopped');
+  assert.equal(await covered(owner.company.companyId, august!.id), true);
+  assert.equal(await reportEndedBadly(owner.company.companyId, later()), 0);
+
+  // Self-heal with room for two runs goes on with the oldest two, the card's
+  // first: the card is raised again once, on the one left, and not on each
+  // next one only to be withdrawn as it goes on.
+  const healed = await stoppedLongAgo('budget-card-heal',
+    ['post the September invoices', 'post the October invoices', 'post the November invoices']);
+  const [september, october, november] = healed.tasks;
+  await room(healed.company.companyId, september!.id, 2 * MIN_ROOM_TOKENS + 500, 2 * MIN_ROOM_CENTS + 50);
+  assert.deepEqual(await resumeBudgetStopped(healed.company.companyId), { continued: 2, waiting: 1 });
+  assert.equal((await taskState(healed.company.companyId, october!.id)).status, 'pending');
+  assert.deepEqual(await budgetCards(healed.company.companyId), [
+    { task_id: september!.id, status: 'withdrawn', closed_reason: 'budget_room' },
+    { task_id: november!.id, status: 'open', closed_reason: null },
+  ]);
+  assert.equal(await covered(healed.company.companyId, november!.id), true);
+
+  // "Go on with all", with room for two of three: one card raised again at
+  // the end, for the one left, and none raised and withdrawn on the way.
+  const all = await stoppedLongAgo('budget-card-all', ['post the December invoices', 'post the January invoices', 'post the February invoices']);
+  const [december, , february] = all.tasks;
+  await room(all.company.companyId, december!.id, 2 * DEFAULT_TASK_RESERVE_TOKENS + 500, 150);
+  const [account] = await withTenant(all.company.companyId, (tx) => tx.query<{ account: string }>(
+    "SELECT payload->'budgetHalt'->>'budgetAccountId' AS account FROM inbox_items WHERE kind = 'budget_alert'")).then((r) => r.rows);
+  const went = await continueAllHalted(all.company.companyId, account!.account);
+  assert.equal(went.continued, 2);
+  assert.deepEqual(await budgetCards(all.company.companyId), [
+    { task_id: december!.id, status: 'withdrawn', closed_reason: 'task_continued' },
+    { task_id: february!.id, status: 'open', closed_reason: null },
+  ]);
+});
+
+/**
+ * The card raised again was worked out afresh from the work it landed on:
+ * the tightest account over that work, and nothing at all when that work had
+ * a card of its own -- for a role's account under the division, say -- so
+ * the rest of what the division stopped was told by no card. And it landed
+ * on any work still stopped, work the owner had already run again among it,
+ * whose card's one press then did that work a second time beside its rerun.
+ */
+test('the card raised again is the withdrawn account\'s, on work somebody still waits for', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { MIN_ROOM_CENTS, MIN_ROOM_TOKENS, resumeBudgetStopped } = await import('../../src/engine/self-heal.ts');
+  const { createAccount } = await import('../../src/engine/budget.ts');
+  const { BUDGET_CARD_SAYS_SO } = await import('../../src/engine/ended.ts');
+  const openCards = (companyId: string) => withTenant(companyId, (tx) => tx.query<{ task_id: string; account: string }>(
+    `SELECT task_id, payload->'budgetHalt'->>'budgetAccountId' AS account FROM inbox_items
+      WHERE kind = 'budget_alert' AND status = 'open' ORDER BY created_at`)).then((r) => r.rows);
+  const covered = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${BUDGET_CARD_SAYS_SO}`, [taskId]))).rowCount === 1;
+
+  // The division's card sits on July, and the collector's own account, under
+  // the division, has a card on the newest of the work.
+  const company = await founded('budget-card-narrower');
+  const [division] = await withTenant(company.companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM budget_accounts WHERE scope_type = 'division'")).then((r) => r.rows);
+  const collector = await withTenant(company.companyId, async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO roles (company_id, division_id, slug, display_name, system_prompt, model, output_schema, done_criteria)
+     VALUES ($1, $2, 'collector', 'Dewi', 'You collect what is owed.', 'test-model', '{"type":"object"}'::jsonb,
+             ARRAY['the run returns an output matching its schema'])
+     RETURNING id`, [company.companyId, company.divisionIds.management])).rows[0]!.id);
+  const collectors = await withTenant(company.companyId, (tx) => createAccount(tx, {
+    companyId: company.companyId, label: 'collector', tokensMax: 100_000_000,
+    scope: { scopeType: 'role', scopeId: collector, parentAccountId: division!.id },
+  }));
+  const july = await stoppedForBudget(company, 'post the July invoices');
+  const august = await stoppedForBudget(company, 'post the August invoices');
+  const owed = await rootOf(company, collector, 'collect what is owed');
+  await transition(company.companyId, owed.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + 5 WHERE id = $1', [division!.id]));
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + 1 WHERE id = $1', [collectors]));
+  for (const task of [july, august, owed]) await inbox.raiseBudgetHalt(company.companyId, task.id);
+  assert.deepEqual(await openCards(company.companyId),
+    [{ task_id: july.id, account: division!.id }, { task_id: owed.id, account: collectors }]);
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE tasks SET finished_at = now() - interval '2 days' WHERE id = ANY($1::uuid[])", [[july.id, august.id, owed.id]]));
+  // Room for one run on the division and the company, none on the collector's.
+  await withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+      WHERE company_id = $1 AND scope_type <> 'role'`, [company.companyId, MIN_ROOM_TOKENS + 500, MIN_ROOM_CENTS + 50]));
+  assert.deepEqual(await resumeBudgetStopped(company.companyId), { continued: 1, waiting: 2 });
+  assert.equal((await taskState(company.companyId, july.id)).status, 'pending');
+  assert.deepEqual(await openCards(company.companyId),
+    [{ task_id: owed.id, account: collectors }, { task_id: august.id, account: division!.id }],
+    'the division\'s card is raised again, on August, and the collector\'s stays');
+  assert.equal(await covered(company.companyId, august.id), true);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0);
+
+  // Work the owner ran again waits for nobody: going on with the rest raises
+  // no card on it, by the owner's press or by self-heal.
+  for (const by of ['owner', 'system'] as const) {
+    const again = await founded(`budget-card-rerun-${by}`);
+    const september = await stoppedForBudget(again, 'post the September invoices');
+    await inbox.raiseBudgetHalt(again.companyId, september.id);
+    const invoice = await stoppedForBudget(again, 'send invoice 7 to PT Maju');
+    await inbox.raiseBudgetHalt(again.companyId, invoice.id);
+    await rerunTask(again.companyId, invoice.id, null);
+    if (by === 'owner') {
+      await continueHalted(again.companyId, september.id);
+    } else {
+      const { rows } = await withTenant(again.companyId, (tx) => tx.query<{ id: string }>(
+        'SELECT unnest(app.budget_chain(budget_account_id))::text AS id FROM tasks WHERE id = $1', [september.id]));
+      await withControlPlane((tx) => tx.query(
+        `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+          WHERE id = ANY($1::uuid[])`, [rows.map((row) => row.id), 5 * MIN_ROOM_TOKENS, 5 * MIN_ROOM_CENTS]));
+      assert.deepEqual(await resumeBudgetStopped(again.companyId), { continued: 1, waiting: 0 });
+    }
+    assert.equal((await taskState(again.companyId, september.id)).status, 'pending', by);
+    assert.deepEqual(await openCards(again.companyId), [], `${by}: no card on work run again`);
+  }
+});
+
+/**
+ * Going on with the work an account's card sits on reads what else the
+ * account stopped, to raise the card again on it, while other workers change
+ * that work. Two going on at once under one account wait for each other at
+ * the account's reservation, which locks it until the first commits: the
+ * second reads what the first left -- a card it can withdraw, or work no
+ * longer stopped -- and one refused for room leaves its work with the card
+ * the first raised on it. A halt is not held up that way when its run had
+ * spent what it reserved, so it releases nothing: raised while the card was
+ * being withdrawn, it found the card still open and raised none, and the
+ * going on had looked for stopped work before this was stopped. The work was
+ * told by no budget card. Each moment is held open here with a row lock on a
+ * card the transaction going on updates after its reads.
+ */
+test('the account\'s card and the work under it are changed by one worker at a time', async () => {
+  const { continueHalted } = await import('../../src/engine/owner-control.ts');
+  const { DEFAULT_TASK_RESERVE_TOKENS } = await import('../../src/engine/tasks.ts');
+  const { BUDGET_CARD_SAYS_SO } = await import('../../src/engine/ended.ts');
+  const openCards = (companyId: string) => withTenant(companyId, (tx) => tx.query<{ task_id: string }>(
+    "SELECT task_id FROM inbox_items WHERE kind = 'budget_alert' AND status = 'open'")).then((r) => r.rows);
+  const covered = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${BUDGET_CARD_SAYS_SO}`, [taskId]))).rowCount === 1;
+  /** A card the owner said no to, about `task`: a row going on with `task` updates after its reads. */
+  const answeredCard = async (company: Founded, task: { id: string }) => {
+    const id = (await inbox.raiseBudgetHalt(company.companyId, task.id))!;
+    await withTenant(company.companyId, (tx) => tx.query(
+      "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [id]));
+    return id;
+  };
+  /** Holds the card's row until the returned function lets it go. */
+  const hold = async (companyId: string, cardId: string) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => { held = resolve; });
+    const done = withTenant(companyId, async (tx) => {
+      await tx.query('SELECT 1 FROM inbox_items WHERE id = $1 FOR UPDATE', [cardId]);
+      held();
+      await gate;
+    });
+    await holding;
+    return async () => { release(); await done; };
+  };
+  /** Settles to what `work` did, and says when it has. */
+  const watched = (work: Promise<unknown>) => {
+    const state = { settled: false, outcome: undefined as unknown };
+    const promise = work.then((value) => { state.outcome = value; }, (error) => { state.outcome = error; })
+      .finally(() => { state.settled = true; });
+    return { state, promise };
+  };
+  /** Until `n` connections to this database wait for a lock, or what was watched has settled. */
+  const waitingOn = async (n: number, state: { settled: boolean }) => {
+    for (let waited = 0; waited < 10_000 && !state.settled; waited += 20) {
+      const { rows } = await withControlPlane((tx) => tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+          WHERE NOT l.granted AND a.datname = current_database()`));
+      if (rows[0]!.n >= n) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+
+  // Two going on at once: "go on with all" on August, self-heal on July, the
+  // card's. Neither raises a card on work the other is going on with.
+  const company = await founded('budget-card-two-continues');
+  const august = await stoppedForBudget(company, 'post the August invoices');
+  const answered = await answeredCard(company, august);
+  const july = await stoppedForBudget(company, 'post the July invoices');
+  await inbox.raiseBudgetHalt(company.companyId, july.id);
+  const letGo = await hold(company.companyId, answered);
+  const all = watched(continueHalted(company.companyId, august.id, 'owner', { reraise: false }));
+  await waitingOn(1, all.state);
+  const healed = watched(continueHalted(company.companyId, july.id, 'system'));
+  await waitingOn(2, healed.state);
+  await letGo();
+  await all.promise;
+  await healed.promise;
+  assert.equal(all.state.outcome, undefined);
+  assert.equal(healed.state.outcome, undefined);
+  assert.equal((await taskState(company.companyId, august.id)).status, 'pending');
+  assert.equal((await taskState(company.companyId, july.id)).status, 'pending');
+  assert.deepEqual(await openCards(company.companyId), [], 'no card on work that went on');
+
+  // The second refused for room once the first has gone on: its work keeps
+  // the card the first raised on it.
+  const tight = await founded('budget-card-second-refused');
+  const may = await stoppedForBudget(tight, 'post the May invoices');
+  const mayCard = (await inbox.raiseBudgetHalt(tight.companyId, may.id))!;
+  const june = await stoppedForBudget(tight, 'post the June invoices');
+  await withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2
+      WHERE id = ANY(SELECT unnest(app.budget_chain(budget_account_id)) FROM tasks WHERE id = $1)`,
+    [may.id, DEFAULT_TASK_RESERVE_TOKENS]));
+  const free = await hold(tight.companyId, mayCard);
+  const first = watched(continueHalted(tight.companyId, may.id));
+  await waitingOn(1, first.state);
+  const second = watched(continueHalted(tight.companyId, june.id));
+  await waitingOn(2, second.state);
+  await free();
+  await first.promise;
+  await second.promise;
+  assert.equal(first.state.outcome, undefined);
+  assert.equal((second.state.outcome as { code?: string }).code, 'budget.reservation_refused');
+  assert.equal((await taskState(tight.companyId, june.id)).status, 'halted');
+  assert.deepEqual(await openCards(tight.companyId), [{ task_id: june.id }]);
+  assert.equal(await covered(tight.companyId, june.id), true);
+
+  // A halt raised while the card's work goes on, by a run that had spent
+  // what it reserved.
+  const halting = await founded('budget-card-halt-meanwhile');
+  const october = await stoppedForBudget(halting, 'post the October invoices');
+  const said = await answeredCard(halting, october);
+  await inbox.raiseBudgetHalt(halting.companyId, october.id);
+  const november = await rootOf(halting, halting.hiredId, 'post the November invoices');
+  await withTenant(halting.companyId, async (tx) => {
+    await tx.query('SELECT app.budget_release(budget_account_id, tokens_reserved) FROM tasks WHERE id = $1', [november.id]);
+    await tx.query('UPDATE tasks SET tokens_reserved = 0 WHERE id = $1', [november.id]);
+  });
+  const release = await hold(halting.companyId, said);
+  const goingOn = watched(continueHalted(halting.companyId, october.id));
+  await waitingOn(1, goingOn.state);
+  await transition(halting.companyId, november.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+  const raised = watched(inbox.raiseBudgetHalt(halting.companyId, november.id));
+  await waitingOn(2, raised.state);
+  await release();
+  await goingOn.promise;
+  await raised.promise;
+  assert.equal(goingOn.state.outcome, undefined);
+  assert.deepEqual(await openCards(halting.companyId), [{ task_id: november.id }]);
+  assert.equal(await covered(halting.companyId, november.id), true);
+  assert.equal(await reportEndedBadly(halting.companyId, later()), 0);
 });
 
 /**

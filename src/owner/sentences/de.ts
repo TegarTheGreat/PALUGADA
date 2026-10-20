@@ -440,4 +440,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Zurückgezogen: Die Rolle, der es übergeben wurde, hat sich darum gekümmert, und für Sie bleibt nichts zu entscheiden.',
   'Work finished: {count}':
     'Erledigte Arbeiten: {count}',
+  'Stopped: its work was taken up another way':
+    'Gestoppt: Die Arbeit wurde auf anderem Weg aufgenommen',
 };

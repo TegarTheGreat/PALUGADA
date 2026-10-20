@@ -438,4 +438,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Dipunwangsulaken: peran ingkang dipunparingi sampun ngrampungaken, lan mboten wonten malih ingkang kedah panjenengan putusaken.',
   'Work finished: {count}':
     'Pakaryan ingkang rampung: {count}',
+  'Stopped: its work was taken up another way':
+    'Dimandhegaké: gawéané wis ditangani kanthi cara liya',
 };

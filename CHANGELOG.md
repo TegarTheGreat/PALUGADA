@@ -375,7 +375,9 @@ The first version. What it holds, in the order an owner meets it.
   Telegram and WhatsApp show the words or the number kept under the answer, and the same thing said again is kept
   once. A reviewer stopped by its budget waits while the budget card is open instead of raising a second card, and
   goes to you once no card covers it. Other work a budget stopped is not put to your CEO while its budget card is
-  open. You are no longer offered procedures for the platform's own tools or for its duties (STATUS 2.184).
+  open, and going on with the work that card is about raises it again, for the same account, for the work it still
+  stops that you have not already run again. You are no longer offered procedures for the platform's own tools or
+  for its duties (STATUS 2.184).
 - Cards that only told you something now close themselves once it is handled. A day's spending, failure-rate or
   refusal card closes a whole day after it reached you, and its Telegram message keeps the figure. Last month's 80%
   warning closes in the new month, or when the "paused" card takes its place. A stopped task's own cards close when
@@ -384,18 +386,21 @@ The first version. What it holds, in the order an owner meets it.
   lost if the worker stops. Such cards left open by the upgrade, or in a company restored from an older archive,
   close the same way, and a card's Telegram message and its line in History say why it closed. The alert thresholds
   no longer take `verificationFailuresPerDay` (STATUS 2.185).
-- A model or a service that stays down, or a capability whose check fails for good (a refused credential), no
-  longer halts every task in flight with a card of its own. The work waits, looking again up to an hour apart for
-  up to a day. There is one card for the cause, raised again if the cause comes back. The card closes itself and
-  the waiting work goes on by itself when the cause passes. Work still waiting after a day stops and is listed on
-  the card, to open and run again; the card stays for that work once the cause passes, and the next outage has a
-  card of its own. Saving a model key now calls back the work waiting for it (STATUS 2.186).
+- A model or a service that stays down, or a capability whose check fails for good (a refused credential), no longer
+  halts every task in flight with a card of its own. The work waits, looking again up to an hour apart for up to a
+  day. There is one card for the cause while work waits on it, raised again if the cause comes back. The card closes
+  itself and the waiting work goes on by itself when the cause passes. Work still waiting after a day stops and is
+  listed on the card, to open and run again; the card stays for that work once the cause passes or, for a model or a
+  service, no work waits on it any more, and the next work to meet the cause has a card of its own, beside the first
+  if the cause is still down. Saving a model key now calls back the work waiting for it (STATUS 2.186).
 - A task of a role you hired that ends without being done now goes to your CEO first, for an hour, in every
   division where you have not named someone else or nobody under Who hears about trouble first. The CEO is told of
   every task on the card. A fix closes the card, which stays readable; when the CEO cannot fix it, it says why and
   the card is yours. Running the work on it again, or going on with it, stops the CEO once nothing on the card is
   left, and tells it what was taken up while some is still stopped. Naming the CEO there follows the title when you
-  appoint another (STATUS 2.187).
+  appoint another. A company restored from an archive still knows which of its work was run again and which card
+  the CEO was handling. A CEO stopped because its work was taken up, by your press on the work or by the
+  platform, says so, rather than "Cancelled by you" (STATUS 2.187).
 - Work handed out from your own backlog no longer asks you before every letter or payment just because a run wrote
   the ticket. This holds whether the CEO's triage or you on the board hands it out. Only a ticket filed by work
   that had read something from outside (a customer's message, a web page, a mailbox) makes the work it leads to

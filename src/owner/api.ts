@@ -3756,6 +3756,13 @@ export class OwnerApi {
           if (body.stepsDays !== undefined) change.stepsDays = body.stepsDays;
           if (body.paymentNote !== undefined) change.paymentNote = body.paymentNote === null ? null : String(body.paymentNote);
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'nothing to change: give enabled, stepsDays or paymentNote', {});
+          // Switching on hires and grants, as /roles and /structure/grant do,
+          // and the note is what every letter tells customers about paying:
+          // both are the owner's with their device. Switching off, or moving
+          // the days, lets nobody do anything new.
+          if (change.enabled === true || change.paymentNote !== undefined) {
+            await this.#requireFactor(body.proof, change.enabled === true ? 'let roles remind customers' : 'change what reminders tell customers about paying', companyId);
+          }
           const policy = await withTenant(companyId, (tx) => setPolicy(tx, companyId, change));
           const given = change.enabled === true ? await giveReminders(companyId) : { given: [], full: [], ungranted: [], unavailable: [] };
           return { ...policy, ...given, senders: await withTenant(companyId, (tx) => sendersOf(tx, companyId)) };

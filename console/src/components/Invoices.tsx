@@ -14,7 +14,8 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconDownload, IconPlus, IconTrash } from '@tabler/icons-react';
-import { api, explain } from '../api.ts';
+import { api, explain, type Proof } from '../api.ts';
+import { useFactor } from '../factor.tsx';
 import { saveCompanyFile } from '../files.ts';
 import { useLoad } from '../hooks.ts';
 import { inCurrency, moneyDisplay, numberSeparators } from '../format.ts';
@@ -119,12 +120,14 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
   companyId: string; owner: boolean; collections: Collections; changed: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const requireFactor = useFactor();
   const path = `/api/companies/${companyId}/collections`;
   // A role that would send them and cannot -- paused, or a person's -- is
   // said, so a switch that went on with nobody able to send is not read as
-  // done.
-  const switchTo = async (enabled: boolean) => {
-    const answer: { unavailable?: string[] } = await api('POST', `/api/companies/${companyId}/collections`, { enabled });
+  // done. Switching on hires and grants, so the route may ask for the
+  // owner's device (a session opened with a recovery code), as hiring does.
+  const switchTo = async (enabled: boolean, proof?: Proof) => {
+    const answer: { unavailable?: string[] } = await api('POST', `/api/companies/${companyId}/collections`, { enabled, ...(proof ? { proof } : {}) });
     if (answer.unavailable && answer.unavailable.length > 0) {
       notifications.show({
         color: 'yellow',
@@ -135,7 +138,11 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
   const flip = async (enabled: boolean) => {
     setBusy(true);
     try {
-      await switchTo(enabled);
+      if (enabled) {
+        if (!(await requireFactor(t('Remind customers about overdue invoices'), (proof) => switchTo(true, proof)))) return;
+      } else {
+        await switchTo(false);
+      }
       notifications.show({ color: 'teal', message: t('Saved.') });
       changed();
     } catch (failure) {
@@ -165,7 +172,8 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
               <Text size="sm">{t('No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.')}</Text>
               {owner && (
                 <Group mt="xs">
-                  <ActionButton size="xs" variant="default" label={t('Let them send reminders')} run={() => switchTo(true)} done={changed} />
+                  <ActionButton size="xs" variant="default" label={t('Let them send reminders')}
+                    factor={t('Remind customers about overdue invoices')} run={(proof) => switchTo(true, proof)} done={changed} />
                 </Group>
               )}
             </Alert>
@@ -182,13 +190,16 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
               ]}
               action={t('Save')}
               success={t('Saved.')}
-              submit={(values) => {
+              // What every letter tells customers about paying: the route may ask for the device.
+              factor={t('Reminders for overdue invoices')}
+              submit={(values, proof) => {
                 // The form leaves out a field left empty, so the note is read as possibly absent: spelled out with
                 // String() it was the word "undefined", which went at the end of every letter to a customer.
                 const note = typeof values.note === 'string' ? values.note : '';
                 return api('POST', path, {
                   stepsDays: String(values.days ?? '').split(/[\s,;]+/).filter(Boolean).map(Number),
                   paymentNote: note.trim() === '' ? null : note,
+                  ...(proof ? { proof } : {}),
                 });
               }}
               done={changed}

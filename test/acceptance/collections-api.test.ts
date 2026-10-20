@@ -162,6 +162,38 @@ test('a bookkeeper that is paused, or run by a person, is not hired twice: remin
   }
 });
 
+test('in a session opened with a recovery code, letting roles write to customers asks for a device, as hiring and granting do', async () => {
+  const fixture = await createCompany('collect-factor');
+  const { api, token } = await open();
+  try {
+    const made = await api.call('POST', '/api/mfa/recovery-codes', token, { proof: { totp: api.code() } });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    const signedIn = await fetch(`${api.url}/api/auth/sign-in`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recovery: made.body.codes[0] }),
+    });
+    const recovered = String(((await signedIn.json()) as { token: string }).token);
+    const path = `/api/companies/${fixture.companyId}/collections`;
+
+    // Switching on hires and grants; the payment note is what every letter tells customers about paying.
+    for (const change of [{ enabled: true }, { paymentNote: 'Transfer BCA 999 000 1111' }]) {
+      const asked = await api.call('POST', path, recovered, change);
+      assert.equal(asked.status, 403, JSON.stringify(change));
+      assert.match(String(asked.body.error), /second factor/);
+    }
+    assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM roles WHERE slug = 'bookkeeper'"))).rowCount, 0, 'nobody was hired');
+    assert.deepEqual(await withTenant(fixture.companyId, (tx) => policyOf(tx, fixture.companyId)), { enabled: true, stepsDays: [3, 10, 24], paymentNote: null });
+
+    // Switching off, and the days, let nobody do anything new.
+    assert.equal((await api.call('POST', path, recovered, { enabled: false })).status, 200);
+    assert.equal((await api.call('POST', path, recovered, { stepsDays: [5, 12] })).status, 200);
+    const shown = await api.call('POST', path, recovered, { enabled: true, proof: { totp: api.code() } });
+    assert.equal(shown.status, 200, JSON.stringify(shown.body));
+    assert.deepEqual(shown.body.given, ['Bookkeeper']);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a role with all twelve of its tools is left as it is, and the owner is told', async () => {
   const fixture = await createCompany('collect-full');
   const biller = await addRole(fixture, 'bookkeeper');

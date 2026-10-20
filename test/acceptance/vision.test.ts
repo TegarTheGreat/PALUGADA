@@ -18,6 +18,9 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
+import { withTenant } from '../../src/db/tenant.ts';
+import { createAccount } from '../../src/engine/budget.ts';
+import { createRootTask } from '../../src/engine/tasks.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
 import { imageDescribe, VISION_PROVIDERS } from '../../src/capabilities/vision.ts';
@@ -26,6 +29,7 @@ import { CONSERVATIVE_FALLBACK, type PriceTable } from '../../src/engine/pricing
 import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
+import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 
@@ -246,4 +250,33 @@ test('image.describe is charged what the provider says it used, at the model\'s 
   const unpriced = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root });
   const again = await unpriced.execute({ path: 'nota/kopi.png' }, { ...(ctx as object), idempotencyKey: 'look-2' } as never);
   assert.equal(await unpriced.actualCostCents!({ path: 'nota/kopi.png' }, again, { ...(ctx as object), idempotencyKey: 'look-2' } as never), null);
+});
+
+test('what a look costs below a cent is carried for the account its task draws on', async () => {
+  // Found reviewing the carry fix of 20 October: the engine carried a run's
+  // fractions for its own account, image.describe still for the company.
+  const fixture = await createCompany('vision-carry');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-vision-'));
+  await mkdir(join(root, fixture.companyId, 'nota'), { recursive: true });
+  await writeFile(join(root, fixture.companyId, 'nota', 'kopi.png'), PIXEL);
+  const provider = VISION_PROVIDERS.find((one) => one.id === 'openai')!;
+  // 100k tokens in at 6 cents a million: six tenths of a cent a look.
+  const prices: PriceTable = { rates: [{ pattern: 'gpt-4.1-mini', rate: { inputCentsPerMTok: 6, outputCentsPerMTok: 0 } }], fallback: CONSERVATIVE_FALLBACK };
+  const { fetch } = providerFetch({ ...(ANSWERS.openai!.answer as object), usage: { prompt_tokens: 100_000, completion_tokens: 0 } });
+  const describe = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root, prices });
+  const charged: Array<number | null> = [];
+  for (const label of ['Sales', 'Operations']) {
+    const account = await withTenant(fixture.companyId, (tx) => createAccount(tx, {
+      companyId: fixture.companyId, label, tokensMax: 1_000_000, moneyMaxCents: 10_000,
+      scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+    }));
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: account, goalId: fixture.goalId, input: { goal: `read the receipt (${label})` }, createdBy: 'owner', reserveTokens: 100,
+    });
+    const ctx = { companyId: fixture.companyId, taskId: task.id, idempotencyKey: `look-${label}`, signal: AbortSignal.timeout(5_000) } as never;
+    const output = await describe.execute({ path: 'nota/kopi.png' }, ctx);
+    charged.push(await describe.actualCostCents!({ path: 'nota/kopi.png' }, output, ctx));
+  }
+  assert.deepEqual(charged, [0, 0], 'neither account has spent a whole cent');
 });

@@ -17,6 +17,7 @@
  * The picture goes as a `data:` address inside the request, so no provider
  * is ever handed a link to fetch.
  */
+import { withTenant } from '../db/tenant.ts';
 import { carryFor, costOf, type PriceTable } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
 import type { Capability } from '../broker/registry.ts';
@@ -295,7 +296,12 @@ export function imageDescribe(binding: VisionBinding & { root: string }): Capabi
       const call = used.get(ctx.idempotencyKey);
       used.delete(ctx.idempotencyKey);
       if (!call || !binding.prices) return null;
-      return carryFor(ctx.companyId).charge(costOf(binding.prices, call.model, call.usage).cents);
+      // Carried for the account the look is settled to, the task's own, as a
+      // run's calls are: one carry for the company made one division's
+      // fraction another's cent.
+      const { rows } = await withTenant(ctx.companyId, (tx) => tx.query<{ budget_account_id: string }>(
+        'SELECT budget_account_id FROM tasks WHERE id = $1', [ctx.taskId]));
+      return carryFor(rows[0]?.budget_account_id ?? ctx.companyId).charge(costOf(binding.prices, call.model, call.usage).cents);
     },
   };
 }

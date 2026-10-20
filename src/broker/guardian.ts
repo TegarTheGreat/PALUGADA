@@ -190,13 +190,16 @@ export class Guardian {
    * is traced at what it cost, and the call it was about is not made.
    */
   async #record(call: GuardedCall, asked: string, response: LlmResponse | null, verdict: GuardianVerdict): Promise<void> {
-    const costCents = response ? carryFor(call.companyId).charge(response.costCents) : 0;
     const refused = await withTenant(call.companyId, async (tx) => {
       let refusedBy: string | null = null;
+      let costCents = 0;
       if (response) {
         const { rows } = await tx.query<{ budget_account_id: string }>(
           'SELECT budget_account_id FROM tasks WHERE id = $1', [call.taskId]);
         const account = rows[0]?.budget_account_id;
+        // Carried for the account it is charged to, as a run's calls are: one
+        // carry for the company made one division's fraction another's cent.
+        costCents = carryFor(account ?? call.companyId).charge(response.costCents);
         if (account && !(await budget.spend(tx, account, {
           tokens: response.inputTokens + response.outputTokens, moneyCents: costCents,
         }))) {

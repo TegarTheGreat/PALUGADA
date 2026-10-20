@@ -144,7 +144,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     name: 'task.await',
     adapter: 'platform',
     tier: TIER.READ_ONLY,
-    summary: 'Reads the result of work this task delegated, waiting if it is not done.',
+    summary: 'Reads the result of work this task delegated, and the paths of the files it made, waiting if it is not done.',
     calibration:
       'Reads one row of the company\'s own tasks. Waiting parks the task until ' +
       'it looks again, and holds no worker in between.',
@@ -631,6 +631,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'Voiding an invoice is possible but visible: the customer, and often a ' +
       'tax authority, has already seen the number. That is "slow to undo" ' +
       'rather than "cheap to undo".',
+    needsCredential: true,
+  },
+  {
+    name: 'invoice.remind',
+    adapter: 'accounting',
+    tier: TIER.COSTLY,
+    summary: 'Reminds a customer, by a letter the books write, that an invoice is overdue.',
+    calibration:
+      'A letter cannot be called back, which is what makes it tier 2 like any ' +
+      'other. But nothing in it is the caller\'s: the customer, the figures, ' +
+      'the days and the words are the books\' and the platform\'s, so a caller ' +
+      'persuaded by content from outside cannot make it say anything.',
     needsCredential: true,
   },
   {

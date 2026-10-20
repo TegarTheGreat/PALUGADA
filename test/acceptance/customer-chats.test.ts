@@ -142,13 +142,6 @@ test('a customer writes to the company\'s bot, work starts, and its answer waits
   try {
     const owner = await api.signIn();
 
-    // Without the owner's device nothing is connected.
-    const bare = await api.call('POST', `/api/companies/${fixture.companyId}/chat-channels`, owner, {
-      kind: 'telegram', token: TOKEN, roleId: fixture.roleId, goalId: fixture.goalId, instruction: 'Answer customers.',
-    });
-    assert.equal(bare.status, 403, JSON.stringify(bare.body));
-    assert.equal(telegram.calls.some((call) => call.method === 'setWebhook'), false);
-
     const made = await connect(api, owner, fixture);
     assert.equal(made.status, 200, JSON.stringify(made.body));
     assert.equal(made.body.channel.account, 'tokosenja_bot');

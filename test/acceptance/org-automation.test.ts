@@ -20,7 +20,7 @@ import { handEscalations } from '../../src/inbox/inbox.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { installStandardTemplate, STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
+import { installStandardTemplate, STANDARD_TEMPLATE_SLUG } from '../helpers/standard-team.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -228,7 +228,8 @@ test('a role that hands work on is told which roles there are to hand it to (N1)
   await assert.rejects(new CapabilityBroker(registry).invoke({
     companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.ops!,
     roleId: company.roleIds.coordinator!, taskId: route.id, idempotencyKey: 'to-the-frozen',
-  }, 'task.delegate', { role: 'bookkeeper', brief: 'Pay the roaster.' }), /is frozen and cannot be given work/);
+  }, 'task.delegate', { role: 'bookkeeper', brief: 'Pay the roaster.' }),
+  /role bookkeeper is paused \(test\) and takes no work now: hand the work to another role, or say it waits for this one/);
 });
 
 test('a delegation takes a role by its slug, title or name, and a name that is none of them is told the roles there are (N1)', async () => {

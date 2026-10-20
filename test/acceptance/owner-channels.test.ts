@@ -1458,6 +1458,11 @@ test('every sentence the platform says to the owner has its translation (src/own
       if (match[2]) said.add(literal(match[2]));
     }
   }
+  // The standard template's own statements, which a company's goals say in the
+  // language it talks in (`words` of createCompanyFromTemplate): said by
+  // variable, so the scan above cannot see them.
+  const { STANDARD_COMPANY_TEMPLATE } = await import('../helpers/standard-team.ts');
+  for (const goal of STANDARD_COMPANY_TEMPLATE.goals ?? []) said.add(goal.statement);
   assert.ok(said.size >= 15, `only ${said.size} sentences were found; the scan is broken`);
   // The language that picks these is the panel's, so every language the
   // console is drawn in has them: an owner who reads the panel in Russian
@@ -1566,7 +1571,7 @@ test("a run's question is answered from the chat, in the owner's words (owner.as
     assert.deepEqual(rows[0], { decision: 'approve', owner_note: 'Arabica, from Gayo.', status: 'decided' });
     assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running');
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, task.id)),
-      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.' }]);
+      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.', files: [], by: null }]);
   } finally {
     await vendor.close();
   }

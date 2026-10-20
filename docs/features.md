@@ -1,7 +1,8 @@
 # What PALUGADA does
 
 The [README](../README.md) is the short version. This page is the whole list:
-what PALUGADA guarantees, and everything that is built. `docs/STATUS.md`
+what PALUGADA guarantees, everything that is built, and what is built but
+will not run until something is bound. `docs/STATUS.md`
 grades each requirement of the specification as built, partial or not built.
 
 ## The guarantees
@@ -26,7 +27,7 @@ it:
 | 0 | Read only | DNS lookup, uptime check, listing files | Runs it |
 | 1 | Cheap to undo | A draft, a staging deploy | Runs it, then reads back to verify |
 | 2 | Costly or spends money | An external email, a purchase | Needs a recorded plan and a budget check first, verified after |
-| 3 | Irreversible | Nameservers, deletions, transfers, signatures | Waits for the owner, in the app, with a second factor |
+| 3 | Irreversible | Nameservers, deletions, transfers, signatures | Waits for the owner, in the app, signed in with a second factor |
 
 No policy, template or agent can move a tier 3 action out of the owner's
 hands. An approval nobody answers expires into a cancellation, so silence
@@ -90,10 +91,11 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 ## Everything that is built
 
 **Companies and structure**
-- Start a company from a template, with no deploy. The standard template is
-  organised by function (Operations, Delivery and Build, Growth, Finance,
-  Support, Assurance, Lab) and has eight roles, so it fits any line of
-  business.
+- Start a company with no deploy: a name, and what it is for in your own
+  words. It begins with its CEO and nothing else (one division, one role,
+  one goal); the CEO builds the team as the work needs it, so the structure
+  fits the line of business rather than a guess at it. An operator can store
+  a template of their own and start companies from it by name.
 - The organisation moves on its own. The coordinator is where work arrives
   when the owner names no role, and it hands the work to the role whose job
   it is; the planner hands a finished plan to the builder. Both delegate as
@@ -130,8 +132,12 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - Adversarial review by a different role with its own memory. After two
   revisions, the decision goes to the owner.
 - A role that keeps being denied is frozen until the owner looks.
-- Code-executing capabilities can never also hold a credential or reach
-  tier 2. Capabilities cannot reach the private network.
+- A capability that runs code supplied at call time can share a division with
+  neither a credential nor a tier 2 grant -- unless the code can reach no
+  network at all, as in `code.compute`'s container, which has none and is handed
+  no credential. Capabilities reach a private address only where the operator
+  allowed it (`PALUGADA_ALLOW_PRIVATE_HOSTS`), and a vendor call is checked against
+  the address its name resolves to.
 - A vendor integration is a JSON spec, not code: method, URL, body template,
   read-back, idempotency key.
 
@@ -145,9 +151,6 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   non-urgent escalations until the owner is available, while incidents still
   come through.
 - Cheap hours for batchable, read-only work.
-- Invoices kept in the books: numbered without gaps, written with the entry that
-  puts what is owed in them, paid in part or in full, voided by a reversal; what
-  is owed and what is late read from the books.
 - Office hours for a company that wants a working day: what reaches the
   outside world -- an email, a post, a reply -- waits for the opening, while
   reading, drafting and planning go on at any hour.
@@ -197,7 +200,15 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
     progress, schedules and policies.
   - **Memory**: what the company knows and will tell its agents, with the
     unverified facts marked. The owner corrects a fact, confirms one, or tells
-    the company something new.
+    the company something new. Its **Files** tab is the company's folder of
+    files: the owner uploads one (a contract, a price list, a photo, up to
+    10 MB; kept as it is under a plain name in `uploads`, never opened or
+    run), takes any file out, and removes what they put in. A role that holds
+    `files.read` can read an uploaded file, and reading it is a read of
+    outside content like any other; one that holds no file tool cannot, so an
+    upload helps only a role given them. The files are the deployment's
+    volume and not part of the export archive: back the volume up with the
+    database. A staff seat is shown none of it.
   - **Money** and **History**, and one **Settings** page for the rest:
     company, languages, safeguards, skills, bundles, devices and security.
 - Everything is picked from the company's own shape, never typed in as ids.
@@ -229,6 +240,12 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 **Running a company well, not only safely**
 - Goals are measured by numbers with targets, and an agent's number counts as
   verified only when it read that number from its source.
+- A measure that reaches its target, passes its due date short of it, or has a
+  source unread for a week wakes the CEO, who asks the owner where it stands and
+  has the source read again. A target and a date are each looked at once for
+  the value the owner set; a source nobody has read is read again about every
+  week while those reads succeed, until the target is reached, the date passes,
+  or the owner retires the measure. Only checked figures count.
 - The built-in `company-os` bundle adds a strategist that proposes at most
   three bets and never applies them, a critic that reads every stage
   proposal before the owner does and whose verdict the owner sees, a weekly
@@ -245,8 +262,28 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   number or its own mailbox (read over IMAP, answered over SMTP), which the
   owner connects with their device: each message starts work for the role
   they chose (a second, written before anyone picked the first up, joins
-  it), what the customer wrote is data, and every reply is a tier 2 card
-  the owner -- or an approver -- answers with the conversation beside it.
+  it), what the customer wrote is data, and a reply is a tier 2 card the
+  owner -- or an approver -- answers with the conversation beside it. The one
+  exception is an answer drawn only from passages of documents the owner marked
+  for customers, with no figure or address they do not hold and a model's check
+  passed, which goes by itself, six an hour per conversation at most; refunds,
+  prices of its own, complaints, the law, personal data and promises always come
+  to the owner.
+- What a customer attaches to a mail is kept: up to five files of up to ten megabytes (fifteen
+  together), under `received/mail/<year-month>/` in the company's files, at a path this platform makes
+  and never the sender's name. The bytes decide what a file is -- a PDF, a Word or Excel document, a
+  picture, a recording or text are kept; a program, a script, an archive, an SVG, an Office file from
+  before 2007 or with macros, and anything unrecognised are not, and the owner and the role are told why.
+  The thread shows each file with **Download** for the owner; `chat.read` gives the role the path and what
+  up to three documents say (twelve thousand characters each, read in the sandboxed browser), so the role that
+  answers customers needs no `files.read` over everything else. Everything in it is data from outside. Kept
+  until the owner removes it or the company is erased (there is no retention yet, no virus scan, and the
+  archive of an export carries no file); at most 2 GB of them for a company and 500 MB in a day. Telegram
+  and WhatsApp files are not kept yet.
+- A letter can carry files. A role names up to five files of the company's own -- what it drafted, made
+  or was given, ten megabytes together -- and the owner's card names every one before they say yes;
+  what a stranger sent is never sent on, nor another company's file. The mail server's own size limit is
+  heard before the letter is sent (STATUS 2.167).
 - Each company has a browser of its own, for sites with no API: a role reads
   pages as a person sees them and fills in a form only after the owner's
   yes, with every field and button on the card; sign-ins are sealed between
@@ -261,6 +298,38 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - The owner hires a role, opens a division or starts a project from the
   console; hiring and opening a division take the owner's device.
 - An agent that needs the owner asks, and its task waits for the answer.
+
+**The company's own records**
+- Customers and deals: contacts, notes and deals in five stages, linked to the
+  chats they came from. Business state is kept in tables like these and read
+  again when it is needed; it is never distilled into memory, where a stale
+  copy could outrank the record.
+- Books: a double-entry ledger with a chart of accounts, entries written whole
+  with their lines, and reversal instead of edit; reports through `ledger.read`.
+- Invoices kept in the books: numbered without gaps, written with the entry that
+  puts what is owed in them, paid in part or in full, voided by a reversal; what
+  is owed and what is late read from the books. An invoice is a row that is never
+  sent by the platform itself. **Download PDF** draws it as a page (the company's
+  name, the customer, the lines, the tax and the total, in Indonesian or English
+  by the company's work language) in the deployment's Chromium, offline and with
+  scripts off, and keeps it in the company's `invoices` folder under its number,
+  where `email.send` can attach it and the Files tab lists it. It needs Chromium
+  and a files root; it has no letterhead, address or tax number (those are not
+  kept yet), so it is an invoice and not a Faktur Pajak, and the font in the
+  image covers Latin and Cyrillic, so names in other scripts print as boxes.
+
+**What a stock install does not bind**
+- Reading and branching a repository, deploying, writing DNS, paying, signing,
+  writing to a calendar, posting to social networks (one example entry, for
+  Mastodon), ads and `code.execute` are catalogued, with their tiers and tests,
+  and have nothing behind them until the operator binds a vendor or connects an
+  MCP server. Seven vendor entries ship as examples; the MCP client reaches any
+  server the owner connects, with presets for several.
+- Every agent CLI runs with the platform's tools alone: no shell, files or web
+  of its own, so a role cannot run a build or a test suite.
+- A person has no work of their own yet. A staff seat is a viewer or an
+  approver: it reads and answers the inbox, and a question to a person goes to
+  the owner and comes back as text.
 
 **PALUGADA develops PALUGADA**
 - [`AGENTS.md`](../AGENTS.md) is the guide for changing this repository, read by

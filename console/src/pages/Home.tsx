@@ -121,7 +121,7 @@ export function Home({
         <EmptyState
           image="/illustrations/owner-and-agents.webp"
           title={t('Start your first company')}
-          description={t('A company is a set of divisions and roles that work towards goals you set, within a budget you set. It starts from a template and you shape it from there.')}
+          description={t('A company starts with a CEO and what you say it is for. The CEO builds the team as the work needs it, within a budget you set.')}
           action={startCompany && restoreCompany ? (
             <Group justify="center">
               <Button leftSection={<IconPlus size={16} />} onClick={startCompany}>{t('Start a company')}</Button>

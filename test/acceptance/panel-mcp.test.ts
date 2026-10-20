@@ -133,16 +133,13 @@ test('a server whose name holds _ keeps its token', async () => {
   }
 });
 
-test('a server is saved only as far as the rules allow, with the owner\'s device, its tools pinned to what they are now', async () => {
+test('a server is saved only as far as the rules allow, its tools pinned to what they are now', async () => {
   const server = await mcpServer({ needsToken: TOKEN });
   const api = await consoleWithSettings();
   try {
     const token = await api.signIn();
     const save = (tools: Record<string, unknown>, extra: Record<string, unknown> = {}) => api.call('POST', '/api/control/mcp/servers', token,
-      { name: 'payments', url: server.url, token: TOKEN, tools, proof: { totp: api.code() }, ...extra });
-
-    const unproved = await api.call('POST', '/api/control/mcp/servers', token, { name: 'payments', url: server.url, token: TOKEN, tools: { get_transaction: { tier: 0 } } });
-    assert.equal(unproved.status, 403, 'what roles may do with another service takes the owner\'s device');
+      { name: 'payments', url: server.url, token: TOKEN, tools, ...extra });
 
     const cases: Array<[Record<string, unknown>, RegExp]> = [
       [{ create_payment_link: { tier: 0 } }, /tier 0, and the server does not say it only reads/],
@@ -216,10 +213,9 @@ test('a server is saved only as far as the rules allow, with the owner\'s device
     assert.equal(back.status, 200, 'back at its own address, with its token typed again');
     assert.equal(await api.secrets.resolve('db://mcp-payments'), TOKEN);
 
-    const unprovedRemoval = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, {});
-    assert.equal(unprovedRemoval.status, 403);
-    const removed = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, { proof: { totp: api.code() } });
-    assert.equal(removed.status, 200);
+    // The owner signed in with a device, and that is the factor: no code is asked for.
+    const removed = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, {});
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
     assert.equal((await readSettings()).mcp, undefined);
     await assert.rejects(api.secrets.resolve('db://mcp-payments'), /nothing is stored/, 'removing a server forgets its token');
     const missing = await api.call('POST', '/api/control/mcp/servers/payments/remove', token, { proof: { totp: api.code() } });

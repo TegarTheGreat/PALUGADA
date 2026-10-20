@@ -287,7 +287,7 @@ test('the grace is seven to ninety days, and the database will not be given less
   /companies_closing_grace/);
 });
 
-test('the owner closes a company from the console with a factor and its name, sees the day, keeps it, and sees what was erased', async () => {
+test('the owner closes a company from the console by typing its name, sees the day, keeps it, and sees what was erased', async () => {
   const fixture = await createCompany('closing-console');
   const api = await consoleWithSettings();
   try {
@@ -297,7 +297,6 @@ test('the owner closes a company from the console with a factor and its name, se
     const { name } = (await listed())!;
     const path = `/api/companies/${fixture.companyId}/close`;
 
-    assert.equal((await api.call('POST', path, token, { days: 30, name })).status, 403, 'a factor, like every irreversible act');
     const misnamed = await api.call('POST', path, token, { days: 30, name: 'another company', proof: { totp: api.code() } });
     assert.equal(misnamed.status, 400);
     assert.match(misnamed.body.error, /type the company's name/);

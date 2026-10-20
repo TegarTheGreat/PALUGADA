@@ -319,7 +319,7 @@ test('the owner keeps invoices on Books: issues, is paid, voids, and they travel
     const base = `/api/companies/${fixture.companyId}/invoices`;
     const empty = await api.call('GET', base, owner);
     assert.equal(empty.status, 200, JSON.stringify(empty.body));
-    assert.deepEqual(empty.body, { invoices: [], outstanding: [] });
+    assert.deepEqual([empty.body.invoices, empty.body.outstanding, empty.body.reminding], [[], [], {}]);
 
     const issued = await api.call('POST', base, owner, JOB);
     assert.equal(issued.status, 200, JSON.stringify(issued.body));

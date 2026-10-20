@@ -109,6 +109,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Pekerjaan berhenti: token akun {account} habis',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” berhenti karena akun {account} sudah memakai {spent} dari {max} token. Naikkan plafonnya di Keuangan, lalu buka tugasnya dan tekan Lanjutkan: tugas meneruskan dari titik berhentinya.',
   'Withdrawn: you continued the task it was about.': 'Ditarik: Anda sudah melanjutkan tugas yang dimaksud.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Ditarik: anggaran sudah punya ruang lagi, dan pekerjaan berlanjut dengan sendirinya.',
   'Broke its contract': 'Melanggar kontraknya',
   'Refused by a policy': 'Ditolak oleh kebijakan',
   'Out of budget': 'Kehabisan anggaran',
@@ -325,6 +326,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Yang berikut ditolaknya, dan tetap nonaktif:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Setujui untuk mengaktifkan semuanya, atau Tolak untuk menolak semuanya. Untuk memutuskan satu per satu, buka halaman Skill.',
   'Nothing changes; none of these skills is switched on.': 'Tidak ada yang berubah; tidak satu pun dari skill ini diaktifkan.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Saya {ceo}, dan saya menjalankan {company} untuk Anda. Saya sudah tahu perusahaan ini untuk apa: “{mission}” Dua hal sebelum kita mulai: berapa yang boleh dibelanjakannya dalam sebulan? Dan apa pekerjaan pertamanya — atau perlu saya usulkan satu, beserta tim yang dibutuhkannya?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Saya {ceo}, dan saya menjalankan {company} untuk Anda. Tiga hal sebelum kita mulai: apa yang dijual {company}, dan kepada siapa? Berapa yang boleh dibelanjakannya dalam sebulan? Dan apa pekerjaan pertamanya — atau perlu saya usulkan satu?',
   'Read a customer conversation': 'Baca percakapan pelanggan',
   'Reply to a customer': 'Balas pelanggan',
@@ -349,4 +352,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} dengan target {target}, dilaporkan dan belum diperiksa.',
   'Look at it again later': 'Lihat lagi nanti',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Menyerahkan apa yang dijual perusahaan ini dengan andal dan tanpa mengejutkan pemiliknya.",
+  "Ship the work the company has promised, on time and verified.":
+    "Menyelesaikan pekerjaan yang sudah dijanjikan perusahaan, tepat waktu dan terverifikasi.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Menjaga keuangan perusahaan tetap sehat, bisa dipertanggungjawabkan, dan berjalan tanpa perlu perhatian harian.",
+  "Since we last spoke:":
+    "Sejak kita terakhir bicara:",
+  "More finished: {count}":
+    "Yang lain selesai: {count}",
+  "Waiting for you: {count}":
+    "Menunggu Anda: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Ini ketiga kalinya dalam sehari, jadi tidak berlanjut sendiri.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Faktur {number} butuh Anda: {customer} belum membayar',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} masih berutang {amount} pada faktur {number}, jatuh tempo {due}, setelah pengingat terakhir. Platform sudah berhenti menulis kepada mereka. Langkah berikutnya milik Anda: menelepon, surat peringatan terakhir, atau merelakannya.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Faktur {number} ({amount}, {customer}) terlambat sejak {due}, dan tidak pernah ada pengingat yang dikirim, jadi platform tidak mengirim surat baku sekarang. Tindak lanjuti sendiri, atau beri tahu CEO apa yang Anda inginkan.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Faktur {number} ({amount}, {customer}) terlambat sejak {due}, dan tidak ada alamat email untuk mengirim pengingat. Tambahkan ke data pelanggan, atau tindak lanjuti sendiri.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Belum ada yang ditugaskan mengingatkan pelanggan tentang faktur terlambat',
+  'Reminded the customers of: {invoices}.':
+    'Pelanggan diingatkan tentang: {invoices}.',
+  'No reminder was due.':
+    'Tidak ada pengingat yang jatuh tempo.',
+  'Remind a customer about an invoice':
+    'Mengingatkan pelanggan tentang sebuah faktur',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Beberapa faktur sudah lewat jatuh tempo, dan tidak ada peran yang bisa mengirim pengingat. Nyalakan pengingat otomatis di Pembukuan, Faktur: perusahaan lalu mengirimnya pada hari yang Anda tetapkan.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Pengingat untuk faktur yang terlambat membutuhkan kotak surat untuk mengirimnya. Berikan kotak surat divisi ini.',
+  'Remind the customers whose invoices are overdue':
+    'Mengingatkan pelanggan yang fakturnya terlambat',
+  'each customer whose next reminder is due has been written to once':
+    'setiap pelanggan yang pengingat berikutnya jatuh tempo sudah dikirimi satu kali',
+  'Reminder for invoice {number} not confirmed':
+    'Pengingat untuk faktur {number} belum dikonfirmasi',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Server email tidak mengonfirmasi pengingat {step} dari {of} untuk faktur {number} kepada {customer} ({to}), yang diserahkan kepadanya pada {day}. Pengingat itu mungkin sampai, mungkin tidak. Platform tidak akan mengirimkannya lagi: jika {customer} mengatakan tidak menerimanya, kirimkan sendiri, atau beri tahu CEO.',
+  'Your CEO proposes hiring: {role}':
+    'CEO Anda mengusulkan merekrut: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Merekrut adalah keputusan Anda. Rekrut bersama CEO dengan satu kata, atau tutup tiketnya jika perusahaan tidak membutuhkannya.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Ditarik: tiket yang dibahasnya sudah ditutup.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Faktur {number} ({amount}, {customer}) terlambat sejak {due}, dan diterbitkan tanpa alamat email untuk mengirim pengingat. Tindak lanjuti sendiri, atau beri tahu CEO apa yang Anda inginkan.',
 };

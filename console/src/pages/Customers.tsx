@@ -115,13 +115,13 @@ export function Customers({ ctx, route }: PageProps) {
       <Channels companyId={companyId} channels={channels} owner={owner} changed={view.reload} />
 
       <Drawer opened={opened !== null} onClose={() => setOpened(null)} position="right" size="lg" title={t('Conversation')}>
-        {opened && <Conversation companyId={companyId} chatId={opened} />}
+        {opened && <Conversation companyId={companyId} chatId={opened} owner={owner} />}
       </Drawer>
     </Stack>
   );
 }
 
-function Conversation({ companyId, chatId }: { companyId: string; chatId: string }) {
+function Conversation({ companyId, chatId, owner }: { companyId: string; chatId: string; owner: boolean }) {
   const view = useLoad<{ chat: Chat; messages: ChatMessage[] }>(
     () => api('GET', `/api/companies/${companyId}/chats/${chatId}`), [companyId, chatId], { every: 10_000 });
   if (view.error && !view.data) return <LoadFailed message={view.error} retry={view.reload} />;
@@ -135,7 +135,7 @@ function Conversation({ companyId, chatId }: { companyId: string; chatId: string
         <Badge variant="outline" color="gray" leftSection={<KindIcon kind={chat.kind} size={12} />}>{channelSaid(chat.kind, chat.account)}</Badge>
       </Group>
       {!chat.open && <Alert color="gray" variant="light">{t('This channel is closed: nothing more is heard or sent on it.')}</Alert>}
-      <ChatThread messages={messages} />
+      <ChatThread messages={messages} companyId={companyId} owner={owner} />
     </Stack>
   );
 }

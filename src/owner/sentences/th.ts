@@ -118,6 +118,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'งานหยุดแล้ว: บัญชี {account} ใช้โทเคนหมดแล้ว',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” หยุดเพราะบัญชี {account} ใช้ไป {spent} จาก {max} โทเคนแล้ว เพิ่มเพดานที่หน้าการเงิน แล้วเปิดงานและกดทำต่อ: งานจะทำต่อจากจุดที่หยุด',
   'Withdrawn: you continued the task it was about.': 'ถอนออกแล้ว: คุณทำงานที่เกี่ยวข้องต่อแล้ว',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'ถอนออกแล้ว: งบประมาณมีที่ว่างอีกครั้ง และงานก็ดำเนินต่อไปเอง',
   'Broke its contract': 'ทำผิดสัญญาของงาน',
   'Refused by a policy': 'ถูกนโยบายปฏิเสธ',
   'Out of budget': 'งบประมาณหมด',
@@ -334,6 +335,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'ทักษะเหล่านี้ถูกตีกลับ และจะยังปิดอยู่:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'อนุมัติเพื่อเปิดใช้ทั้งหมด หรือปฏิเสธเพื่อตีกลับทั้งหมด หากต้องการตัดสินใจทีละรายการ ให้เปิดหน้าทักษะ',
   'Nothing changes; none of these skills is switched on.': 'ไม่มีอะไรเปลี่ยน ไม่มีทักษะใดในนี้ถูกเปิดใช้',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "ฉันคือ {ceo} ผู้ดูแล {company} ให้คุณ ฉันรู้แล้วว่าบริษัทนี้มีไว้เพื่ออะไร “{mission}” ก่อนเริ่มงาน มี 2 เรื่องที่อยากถาม ใช้จ่ายได้เดือนละเท่าไร และงานชิ้นแรกควรเป็นอะไร หรือจะให้ฉันเสนอสักงานพร้อมทีมที่ต้องใช้ไหม",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'ฉันคือ {ceo} ผู้ดูแล {company} ให้คุณ ก่อนเริ่มงาน มี 3 เรื่องที่อยากถาม {company} ขายอะไร และขายให้ใคร ใช้จ่ายได้เดือนละเท่าไร และงานชิ้นแรกควรเป็นอะไร หรือจะให้ฉันเสนอสักงานไหม',
   'Read a customer conversation': 'อ่านบทสนทนากับลูกค้า',
   'Reply to a customer': 'ตอบกลับลูกค้า',
@@ -358,4 +361,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} เทียบกับเป้าหมาย {target} รายงานมาและยังไม่ได้ตรวจสอบ',
   'Look at it again later': 'กลับมาดูอีกครั้งภายหลัง',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "ส่งมอบสิ่งที่บริษัทนี้ขายอย่างเชื่อถือได้ และไม่ทำให้เจ้าของต้องประหลาดใจ",
+  "Ship the work the company has promised, on time and verified.":
+    "ส่งมอบงานที่บริษัทสัญญาไว้ ตรงเวลาและผ่านการตรวจสอบแล้ว",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "รักษาสถานะการเงินของบริษัทให้มั่นคง ตรวจสอบได้ และดำเนินไปได้โดยไม่ต้องดูแลทุกวัน",
+  "Since we last spoke:":
+    "ตั้งแต่เราคุยกันครั้งล่าสุด:",
+  "More finished: {count}":
+    "เสร็จเพิ่มอีก: {count}",
+  "Waiting for you: {count}":
+    "รอคุณอยู่: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'นี่เป็นครั้งที่สามในหนึ่งวัน จึงจะไม่กลับมาทำงานเอง',
+  'Invoice {number} needs you: {customer} has not paid':
+    'ใบแจ้งหนี้ {number} ต้องการคุณ: {customer} ยังไม่ชำระ',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} ยังค้างชำระ {amount} ในใบแจ้งหนี้ {number} ครบกำหนด {due} หลังการเตือนครั้งสุดท้าย แพลตฟอร์มหยุดเขียนถึงพวกเขาแล้ว ขั้นต่อไปเป็นของคุณ: โทรหา ส่งหนังสือแจ้งครั้งสุดท้าย หรือปล่อยไป',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และไม่เคยส่งการเตือนเลย แพลตฟอร์มจึงไม่ส่งจดหมายแบบฟอร์มที่ช้าขนาดนี้ โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดเพิ่มให้ลูกค้า หรือติดตามเอง',
+  'Nobody is set to remind customers about overdue invoices':
+    'ยังไม่มีใครได้รับมอบหมายให้เตือนลูกค้าเรื่องใบแจ้งหนี้ที่เกินกำหนด',
+  'Reminded the customers of: {invoices}.':
+    'เตือนลูกค้าเรื่อง: {invoices}',
+  'No reminder was due.':
+    'ไม่มีการเตือนที่ถึงกำหนด',
+  'Remind a customer about an invoice':
+    'เตือนลูกค้าเรื่องใบแจ้งหนี้',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'มีใบแจ้งหนี้ที่เลยกำหนดแล้ว และไม่มีบทบาทใดส่งการเตือนได้ เปิดการเตือนอัตโนมัติที่สมุดบัญชี, ใบแจ้งหนี้: บริษัทจะส่งตามวันที่คุณตั้ง',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'การเตือนใบแจ้งหนี้ที่เกินกำหนดต้องมีกล่องจดหมายสำหรับส่ง โปรดให้กล่องจดหมายของแผนกนี้',
+  'Remind the customers whose invoices are overdue':
+    'เตือนลูกค้าที่ใบแจ้งหนี้เกินกำหนด',
+  'each customer whose next reminder is due has been written to once':
+    'ลูกค้าทุกรายที่ถึงกำหนดเตือนครั้งถัดไปได้รับจดหมายหนึ่งครั้ง',
+  'Reminder for invoice {number} not confirmed':
+    'ยังไม่ได้รับการยืนยันจดหมายแจ้งเตือนของใบแจ้งหนี้ {number}',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'เซิร์ฟเวอร์อีเมลไม่ได้ยืนยันจดหมายแจ้งเตือนฉบับที่ {step} จาก {of} ฉบับของใบแจ้งหนี้ {number} ถึง {customer} ({to}) ที่ส่งให้เมื่อ {day} จดหมายอาจถึงหรือไม่ถึงก็ได้ แพลตฟอร์มจะไม่ส่งซ้ำ: หาก {customer} บอกว่าไม่ได้รับ โปรดส่งเอง หรือแจ้ง CEO',
+  'Your CEO proposes hiring: {role}':
+    'CEO ของคุณเสนอให้จ้าง: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'การจ้างเป็นการตัดสินใจของคุณ จ้างร่วมกับ CEO ได้ในคำเดียว หรือปิดทิกเก็ตหากบริษัทไม่ต้องการ',
+  'Withdrawn: the ticket it was about was closed.':
+    'ถอนแล้ว: ทิกเก็ตที่เกี่ยวข้องถูกปิดแล้ว',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และออกโดยไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
 };

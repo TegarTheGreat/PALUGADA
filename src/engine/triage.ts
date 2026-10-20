@@ -72,6 +72,8 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
       `SELECT k.id, k.project_id, k.title, k.priority, k.opened_by, k.updated_at
          FROM tickets k
         WHERE k.status = 'open' AND k.working_task_id IS NULL
+          -- A hire is the owner's to decide (0132), never work to hand on.
+          AND k.kind = 'work'
           AND NOT EXISTS (
                 SELECT 1 FROM tasks t
                  WHERE t.idempotency_key LIKE 'triage:%'

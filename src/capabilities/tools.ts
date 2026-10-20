@@ -12,6 +12,7 @@ import {
 import { imageProvider, speechProvider, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { listenProvider, type ListenBinding } from './listen.ts';
 import { embedProvider, type EmbedBinding } from './embed.ts';
+import type { PriceTable } from '../engine/pricing.ts';
 import { visionProvider, type VisionBinding } from './vision.ts';
 
 /** Each kind of tool, the capability it binds, and the variables it is configured by. */
@@ -79,6 +80,8 @@ export function toolBindingsFrom(
   env: NodeJS.ProcessEnv,
   resolve: (reference: string) => Promise<string>,
   filesRoot: string | null = null,
+  /** The deployment's price list: what a picture read or a text embedded is charged by. */
+  prices: PriceTable | null = null,
 ): ToolBindings {
   const notes: string[] = [];
   const bind = <P extends Described>(kind: ToolKind, find: (id: string) => P | undefined) => {
@@ -150,9 +153,9 @@ export function toolBindingsFrom(
   return {
     ...(search ? { search } : {}), ...(extract ? { extract } : {}), ...(image ? { image } : {}), ...(speech ? { speech } : {}),
     ...(listening && filesRoot ? { listen: { ...listening, root: filesRoot } } : {}),
-    ...(seeing && filesRoot ? { vision: { ...seeing, root: filesRoot, model: env[TOOL_KINDS.vision.model]?.trim() || null } } : {}),
+    ...(seeing && filesRoot ? { vision: { ...seeing, root: filesRoot, model: env[TOOL_KINDS.vision.model]?.trim() || null, ...(prices ? { prices } : {}) } } : {}),
     voice: { ...(listening ? { listen: listening } : {}), ...(speaking ? { speak: speaking } : {}) },
-    ...(meaning ? { embed: { ...meaning, model: env[TOOL_KINDS.embed.model]?.trim() || null } } : {}),
+    ...(meaning ? { embed: { ...meaning, model: env[TOOL_KINDS.embed.model]?.trim() || null, ...(prices ? { prices } : {}) } } : {}),
     notes,
   };
 }

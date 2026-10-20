@@ -168,10 +168,9 @@ async function setting(name: string, options: { model?: boolean } = {}) {
 test('the owner lets a channel answer on its own, and a reply from a document for customers goes without a card', async () => {
   const { fixture, api, owner, channelId, menu, write, broker, at, reply, cardOf, sends, check } = await setting('answers-alone');
   try {
-    // Turning it on loosens a control: the owner's device.
+    // Turning it on loosens a control, which the owner's sign-in answers for.
     const path = `/api/companies/${fixture.companyId}/chat-channels/${channelId}/answers-alone`;
-    assert.equal((await api.call('POST', path, owner, { on: true })).status, 403);
-    assert.equal((await api.call('POST', path, owner, { on: true, proof: { totp: api.code() } })).status, 200);
+    assert.equal((await api.call('POST', path, owner, { on: true })).status, 200);
     // The role that answers can now find what to answer from.
     const { rows: [answering] } = await withTenant(fixture.companyId, (tx) => tx.query<{ tools: string[] }>('SELECT tools FROM roles WHERE id = $1', [fixture.roleId]));
     assert.ok(answering!.tools.includes('memory.search'));

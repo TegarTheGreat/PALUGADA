@@ -38,7 +38,12 @@ test('an approver joins from the invite, sees one company without the owner\'s c
   });
 
   const api = await consoleWithSettings({ staticRoot: BUILT });
-  const page = await openPage(browser as string, { width: 1280, height: 900 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 1280, height: 900 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     const owner = await api.signIn();
     const made = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name: 'Budi', kind: 'approver', proof: { totp: api.code() } });

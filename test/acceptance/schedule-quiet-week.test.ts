@@ -15,8 +15,9 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { changeMetric, defineMetric, recordObservation } from '../../src/domain/metrics.ts';
 import { runDueSchedules, runScheduleNow, upsertSchedule } from '../../src/scheduler/scheduler.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -94,6 +95,51 @@ test('a week with work in it is reviewed, and the owner may run a review of an e
   const fired = await runDueSchedules();
   assert.equal(fired.length, 1, 'the week is reviewed');
   assert.equal(await runsOf(fixture, scheduleId), 2);
+});
+
+/**
+ * The audit of 6 October (L1): the one evaluator the company has skipped a
+ * quiet week, and a quiet week is what a stalled company looks like. A measure
+ * the owner set and the company has not reached is a reason to look, whatever
+ * the week held; one it has reached, or the owner retired, is not.
+ */
+test('a quiet week is still reviewed while the company has a measure it has not reached', async () => {
+  const fixture = await createCompany('quiet-unreached');
+  const scheduleId = await review(fixture);
+  const metricId = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'paid-invoices', name: 'Paid invoices', unit: 'count', target: 10, dueOn: '2026-12-31',
+  });
+
+  await due(fixture, scheduleId);
+  assert.equal((await runDueSchedules()).length, 1, 'nothing happened, and the number is not where it should be');
+  // That review is done (a schedule does not overlap itself), and long ago.
+  const ran = await withControlPlane(async (tx) => (await tx.query<{ id: string }>('SELECT id FROM tasks WHERE schedule_id = $1', [scheduleId])).rows);
+  for (const one of ran) {
+    await transition(fixture.companyId, one.id, 'running');
+    await transition(fixture.companyId, one.id, 'cancelled');
+  }
+
+  // Reached long ago: nothing to chase, and nothing happened this week.
+  await withControlPlane(async (tx) => {
+    await recordObservation(tx, { companyId: fixture.companyId, metric: 'paid-invoices', value: 12, recordedBy: 'owner' });
+    await tx.query("UPDATE metric_observations SET observed_at = now() - interval '20 days' WHERE metric_id = $1", [metricId]);
+    await tx.query("UPDATE tasks SET created_at = now() - interval '20 days', finished_at = now() - interval '20 days' WHERE schedule_id = $1", [scheduleId]);
+  });
+  await due(fixture, scheduleId);
+  assert.deepEqual(await runDueSchedules(), [], 'a number that has reached its target is not chased');
+
+  // The target is raised past the value: it is a reason again; and a retired measure is none.
+  await changeMetric(fixture.companyId, metricId, { target: 20 });
+  await due(fixture, scheduleId);
+  assert.equal((await runDueSchedules()).length, 1);
+  for (const one of (await withControlPlane(async (tx) => (await tx.query<{ id: string }>("SELECT id FROM tasks WHERE schedule_id = $1 AND status = 'pending'", [scheduleId])).rows))) {
+    await transition(fixture.companyId, one.id, 'running');
+    await transition(fixture.companyId, one.id, 'cancelled');
+  }
+  await changeMetric(fixture.companyId, metricId, { retired: true });
+  await withControlPlane((tx) => tx.query("UPDATE tasks SET created_at = now() - interval '20 days', finished_at = now() - interval '20 days' WHERE schedule_id = $1", [scheduleId]));
+  await due(fixture, scheduleId);
+  assert.deepEqual(await runDueSchedules(), [], 'a retired measure is not chased');
 });
 
 /**

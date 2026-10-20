@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BUILT_IN_BUNDLES } from '../../src/bundles/builtin.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 
 /** Every role a review can be given to: by the slug the policies and templates name as a reviewer. */
 const REVIEWERS = ['reviewer', 'qa-reviewer', 'platform-reviewer', 'critic'];

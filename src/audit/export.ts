@@ -88,8 +88,8 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
-                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at,
-                 display_name, title, persona, max_run_seconds
+                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, frozen_by, created_at,
+                 display_name, title, persona, max_run_seconds, person_name
             FROM roles ORDER BY slug`,
   },
   {
@@ -178,7 +178,7 @@ const SECTIONS: Section[] = [
   {
     // The backlog (0070): what was owed, who filed it, and what worked it.
     name: 'tickets',
-    sql: `SELECT id, project_id, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
                  working_task_id, closed_reason, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at`,
   },
@@ -244,6 +244,32 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, invoice_id, paid_on, amount_cents, entry_id, written_by, task_id, outside, created_at FROM invoice_payments ORDER BY created_at, id`,
   },
   {
+    // Reminding customers (0130, STATUS 2.178): the policy, each letter that
+    // went, and the invoices left alone. A restore without the letters would
+    // write to customers from the first one again.
+    name: 'collections_policy',
+    sql: `SELECT enabled, steps_days, payment_note, updated_at FROM collections_policy`,
+  },
+  {
+    name: 'invoice_reminders',
+    sql: `SELECT id, invoice_id, step, sent_on, sent_at, to_address, message_id, outstanding_cents, days_overdue, task_id
+            FROM invoice_reminders ORDER BY invoice_id, step`,
+  },
+  {
+    // A letter handed to the mail server that it never said it took (0131):
+    // it counts as sent, and a restore without it would send it again.
+    name: 'invoice_reminder_attempts',
+    sql: `SELECT id, invoice_id, step, to_address, outstanding_cents, days_overdue, started_at, task_id
+            FROM invoice_reminder_attempts ORDER BY invoice_id, step`,
+  },
+  {
+    name: 'invoice_collections',
+    sql: `SELECT invoice_id, held_at, escalated_at FROM invoice_collections ORDER BY invoice_id`,
+  },
+  // \`call_answers\` (0131) does not travel: an answer is kept under a key made
+  // from the task that made the call, and a restored task has a new identity,
+  // so no call in the restored company could ever be answered from one.
+  {
     name: 'chats',
     sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id
             FROM chats ORDER BY created_at`,
@@ -251,8 +277,12 @@ const SECTIONS: Section[] = [
   {
     name: 'chat_messages',
     // With what a reply that went on its own answered from (0117).
+    // The files a message carried are listed without their paths: the archive carries no file, so a restored
+    // company must not list what it does not have (0125).
     sql: `SELECT id, chat_id, direction, external_id, body, attachment, subject, outcome, task_id, idempotency_key, created_at,
-                 grounds
+                 grounds,
+                 (SELECT coalesce(jsonb_agg(one || '{"path": null, "note": "not in the archive"}'::jsonb), '[]'::jsonb)
+                    FROM jsonb_array_elements(files) one) AS files
             FROM chat_messages ORDER BY created_at`,
   },
   {
@@ -506,6 +536,8 @@ export const EXPORT_SECTION_NAMES: readonly string[] = [
 
 /** Rows are fetched in pages so a long history does not arrive all at once. */
 const PAGE_SIZE = 500;
+/** PostgreSQL's `date` (pg_type.oid 1082). */
+const DATE_TYPE = 1082;
 
 async function streamSection(
   tx: TenantClient,
@@ -518,11 +550,21 @@ async function streamSection(
   let total = 0;
 
   for (;;) {
-    const { rows } = await tx.query<Record<string, unknown>>(
+    const { rows, fields } = await tx.query<Record<string, unknown>>(
       `${sql} LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
       params,
     );
+    // A date column is a day, and is written as one. The driver reads it as midnight where this process runs,
+    // which as an instant is the day before east of UTC: an archive written in Jakarta restored every letter,
+    // invoice and entry a day early. Its local day is the day the database holds.
+    const days = fields.filter((field) => field.dataTypeID === DATE_TYPE).map((field) => field.name);
     for (const row of rows) {
+      for (const name of days) {
+        const value = row[name];
+        if (value instanceof Date) {
+          row[name] = `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+        }
+      }
       await write({ section, row });
       total += 1;
     }

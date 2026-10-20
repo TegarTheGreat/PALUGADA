@@ -38,8 +38,13 @@ export const ENDED_AFTER_MS = 60_000;
 export const ENDED_WITHIN_MS = 24 * 60 * 60_000;
 /** The most tasks one card names. */
 const MOST_GROUPED = 50;
-/** Work created to handle another's failing is not handed to the same coordinator again. */
-const HANDLED_KEYS = /^(escalation|triage):/;
+/**
+ * Work created to handle another's failing is not handed to the same
+ * coordinator again, and neither is an errand the platform made for the CEO
+ * itself -- a triage, an outcome look -- which would come back to the CEO
+ * that has just failed it.
+ */
+const HANDLED_KEYS = /^(escalation|triage|outcome):/;
 
 interface Ended {
   taskId: string;
@@ -57,7 +62,12 @@ async function findEnded(companyId: string, now: Date): Promise<Ended[]> {
       `SELECT t.id, t.division_id, t.goal_id, t.halt_reason, t.idempotency_key
          FROM tasks t
         WHERE t.status IN ('halted', 'failed')
-          AND t.parent_task_id IS NULL
+          -- A root task, and a follow-up (task.follow_up): it is a child by
+          -- its parentage and a root by its work, since the run that made it
+          -- finished long ago and nothing above it is waiting to hear. A look
+          -- that fails -- unfunded, past its window -- was silent, so the one
+          -- primitive made to chase an outcome could lose it unseen.
+          AND (t.parent_task_id IS NULL OR t.idempotency_key LIKE 'followup:%')
           AND coalesce(t.halt_reason, '') NOT IN ('owner_stop', 'owner_cancel')
           AND t.finished_at <= $1::timestamptz - make_interval(secs => $2)
           AND t.finished_at >  $1::timestamptz - make_interval(secs => $3)

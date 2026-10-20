@@ -199,13 +199,16 @@ test('a customer writes on WhatsApp, Meta is the only one heard, and the reply w
       companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId, taskId, idempotencyKey: key,
     });
     const read = (await broker.invoke(at('read'), 'chat.read', {})).output as {
-      channel: string; handle: string; messages: Array<{ from: string; text: string; attachment?: string }>;
+      channel: string; handle: string; messages: Array<{ from: string; text: string; attachment?: string; files?: Array<{ note?: string }> }>;
     };
     assert.deepEqual([read.channel, read.handle], ['whatsapp', SARI.wa]);
     assert.deepEqual(read.messages.map((message) => [message.text, message.attachment ?? null]), [
       ['Kak, kopi susu gula aren masih ada?', null],
-      ['Yang ini ya', 'photo, which cannot be read here'],
+      ['Yang ini ya', null],
     ]);
+    // The picture is a file of the message, as a mailed one is: here a
+    // deployment that keeps no files says so (chat-media.test.ts keeps one).
+    assert.match(String(read.messages[1]!.files?.[0]?.note), /keeps no files/);
 
     // The reply waits for the owner, then goes to Sari from the company's number.
     await planTask(fixture.companyId, taskId, [{ capability: 'chat.send' }]);

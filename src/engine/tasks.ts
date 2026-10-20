@@ -408,6 +408,26 @@ async function assertRoleIsNotFrozen(tx: TenantClient, roleId: string): Promise<
 }
 
 /**
+ * The same refusal for work one task hands another role, said to the task
+ * that asked and marked as being about that other role (`delegated`).
+ *
+ * The run that asked is not stopped: its own role works. Read as its own
+ * role's freeze, it parked the task to wait for a role nobody had paused, and
+ * nothing called it back (the review of 20 October). Shown to the run, it can
+ * hand the work to another role, or say it waits.
+ */
+async function assertDelegateIsNotFrozen(tx: TenantClient, roleId: string): Promise<void> {
+  if (!(await isRoleFrozen(tx, roleId))) return;
+  const { rows } = await tx.query<{ slug: string; frozen_reason: string | null }>(
+    'SELECT slug, frozen_reason FROM roles WHERE id = $1', [roleId]);
+  const role = rows[0]?.slug ?? roleId;
+  throw new PalugadaError('role.frozen',
+    `role ${role} is paused${rows[0]?.frozen_reason ? ` (${rows[0].frozen_reason})` : ''} and takes no work now: `
+      + 'hand the work to another role, or say it waits for this one',
+    { roleId, delegated: true });
+}
+
+/**
  * Refuses to defer work that can change something (F9.5).
  *
  * F9.5 restricts batching to tier 0, and the tier is read from the registry
@@ -470,7 +490,7 @@ export async function createSubTask(
 
     // A frozen role takes no delegated work either, or a parent could route
     // around the freeze simply by handing the task down.
-    await assertRoleIsNotFrozen(tx, input.roleId);
+    await assertDelegateIsNotFrozen(tx, input.roleId);
     await assertRoleIsComplete(tx, input.roleId);
     if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 
@@ -540,6 +560,10 @@ export async function createSubTask(
           budgetAccountId: parent.budgetAccountId,
           createdBy: input.createdBy ?? 'agent_run',
           goalId: inherited,
+          // As urgent as what it is part of, unless told otherwise: P0 work was
+          // P2 by its first hop, and the urgent place could never be reached
+          // (the audit of 6 October, S5).
+          priority: input.priority ?? parent.priority,
         },
         { parentTaskId, hopDepth, reserveTokens },
       );
@@ -699,8 +723,10 @@ export interface TransitionOptions {
  * - `service`: a capability's vendor having a moment, before it starts (H2)
  * - `retry`: the next attempt after one failed
  * - `follow_up`: a task made to look again at an outcome, at its time (`task.follow_up`)
+ * - `role_paused`: its role is stopped -- paused, frozen or held by the breaker -- and it
+ *   goes on when the role does
  */
-export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up';
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up' | 'role_paused';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(
@@ -868,6 +894,16 @@ export async function transitionWithin(
         [taskId, `task.${task.status}`],
       );
       waitedMs = Math.max(0, Number(rows[0]?.waited ?? 0));
+    }
+    // Nor is it for the hours, the vendor or the model that are not ready: a
+    // task parked until a closed window reopens, a limit lifts or a key is
+    // replaced is given the wait when it parks, since it is known then. A
+    // delegated child has an hour; a weekend of office hours is sixty-five,
+    // and the sweep halted it long before (the audit of 6 October, S1). A
+    // parent waiting on a child is the one wait not given back here: it is
+    // covered by the child's own deadline, where it asks (`task.await`).
+    if (to === 'waiting_window' && task.deadlineAt && options.waitUntil && options.waitReason && options.waitReason !== 'child') {
+      waitedMs = Math.max(waitedMs, options.waitUntil.getTime() - Date.now());
     }
 
     await tx.query(

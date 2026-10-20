@@ -111,6 +111,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': '作業が止まりました：{account} アカウントのトークンが尽きました',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '「{work}」は、{account} アカウントが {max} トークンのうち {spent} を使い切ったため止まりました。「お金」で上限を引き上げ、タスクを開いて「続ける」を押してください。止まったところから再開します。',
   'Withdrawn: you continued the task it was about.': '取り下げ済み：対象のタスクはあなたが続行しました。',
+  'Withdrawn: the budget had room again, and the work went on by itself.': '取り下げ済み：予算に再び余裕ができ、作業は自動的に再開しました。',
   'Broke its contract': '契約違反',
   'Refused by a policy': 'ポリシーにより拒否',
   'Out of budget': '予算切れ',
@@ -327,6 +328,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': '次のスキルは不採用になり、オフのままです：',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '承認するとすべて有効にし、却下するとすべて不採用にします。1 つずつ決めるには、「スキル」ページを開いてください。',
   'Nothing changes; none of these skills is switched on.': '何も変わりません。これらのスキルはどれも有効になりません。',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "{ceo} です。あなたに代わって {company} を運営します。何のための会社かは把握しています：「{mission}」始める前に 2 つ教えてください。ひと月にいくらまで使ってよいですか？そして、最初の仕事は何にしますか？それとも、必要なチームも含めて私から提案しましょうか？",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '{ceo} です。あなたに代わって {company} を運営します。始める前に 3 つ教えてください。{company} は何を誰に売りますか？ひと月にいくらまで使ってよいですか？そして、最初の仕事は何にしますか？それとも私から提案しましょうか？',
   'Read a customer conversation': '顧客との会話を読む',
   'Reply to a customer': '顧客に返信する',
@@ -351,4 +354,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}：{value}（目標 {target}）、報告のみで未確認。',
   'Look at it again later': '後でもう一度確認する',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "この会社が販売するものを確実に届け、オーナーを驚かせないこと。",
+  "Ship the work the company has promised, on time and verified.":
+    "会社が約束した仕事を、期日どおりに、検証済みの状態で出荷すること。",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "会社の支払い能力を保ち、説明責任を果たし、日々の手間をかけずに動かし続けること。",
+  "Since we last spoke:":
+    "前回お話ししてから：",
+  "More finished: {count}":
+    "ほかに完了：{count}",
+  "Waiting for you: {count}":
+    "あなたの対応待ち：{count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    '1日で3回目のため、自動では再開しません。',
+  'Invoice {number} needs you: {customer} has not paid':
+    '請求書 {number} はあなたの対応が必要です: {customer} が未払いです',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '最後のリマインドの後も、{customer} は請求書 {number} の {amount}（期限 {due}）を支払っていません。プラットフォームは書くのをやめました。次はあなたの番です: 電話、最終通知、または見送り。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドは一度も送られていないため、これほど遅れてから定型文は送りませんでした。ご自身で対応するか、CEO にご希望を伝えてください。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドを送るメールアドレスがありません。お客様に追加するか、ご自身で対応してください。',
+  'Nobody is set to remind customers about overdue invoices':
+    '期限超過の請求書についてお客様にリマインドする担当がいません',
+  'Reminded the customers of: {invoices}.':
+    'お客様にリマインドしました: {invoices}。',
+  'No reminder was due.':
+    '期限の来たリマインドはありません。',
+  'Remind a customer about an invoice':
+    '請求書についてお客様にリマインド',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    '期限を過ぎた請求書がありますが、リマインドを送れるロールがありません。帳簿の請求書で自動リマインドをオンにしてください。設定した日数に会社が送ります。',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    '期限超過の請求書のリマインドには、送信元のメールボックスが必要です。この部門のメールボックスを設定してください。',
+  'Remind the customers whose invoices are overdue':
+    '請求書が期限超過のお客様にリマインドする',
+  'each customer whose next reminder is due has been written to once':
+    '次のリマインドの時期が来たお客様全員に、一度ずつ手紙が送られている',
+  'Reminder for invoice {number} not confirmed':
+    '請求書 {number} の督促状が確認されていません',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'メールサーバーは、{day} に渡された請求書 {number} の {customer}（{to}）宛て督促状（{of} 通中 {step} 通目）を受け取ったと確認しませんでした。届いているかもしれませんし、届いていないかもしれません。プラットフォームは再送しません。{customer} が受け取っていないと言う場合は、ご自身で送るか、CEO に伝えてください。',
+  'Your CEO proposes hiring: {role}':
+    'CEO から採用の提案: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    '採用を決めるのはあなたです。CEO と一言で採用するか、会社に不要ならチケットを閉じてください。',
+  'Withdrawn: the ticket it was about was closed.':
+    '取り下げ: 対象のチケットが閉じられました。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドを送るメールアドレスなしで発行されています。ご自身で対応するか、CEO にご希望を伝えてください。',
 };

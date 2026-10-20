@@ -79,10 +79,11 @@ test('the owner\'s conversation with a CEO is counted in its company\'s money, e
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
 
     // Two turns, each a call of its own: outside any task, at what the model
-    // charged, a fraction rounded up as every other charge is.
+    // charged -- 2.5 cents each, so two cents and then three: the half is
+    // carried to the next call rather than rounded up twice.
     const two = await traces(fixture.companyId);
     assert.deepEqual(two.map((row) => [row.task_id, row.kind, row.model, row.input_tokens, row.output_tokens, row.cost_cents]), [
-      [null, 'call', 'priced-1', 1_000, 200, 3],
+      [null, 'call', 'priced-1', 1_000, 200, 2],
       [null, 'call', 'priced-1', 1_000, 200, 3],
     ]);
     assert.deepEqual(await traces(other.companyId), [], 'another company pays for nothing');
@@ -94,9 +95,10 @@ test('the owner\'s conversation with a CEO is counted in its company\'s money, e
 
     // The month's ceiling reads it: what the guard sums is what was spent.
     const { start, end } = periodBounds(new Date());
-    assert.equal(await withTenant(fixture.companyId, (tx) => spendBetween(tx, start, end)), 9);
+    // Seven cents of the seven and a half spent: the half is owed, and goes with the next call.
+    assert.equal(await withTenant(fixture.companyId, (tx) => spendBetween(tx, start, end)), 7);
     const timeline = await api.call('GET', `/api/companies/${fixture.companyId}/cost?by=month`, token);
-    assert.equal(timeline.body.timeline.reduce((sum: number, period: { costCents: number }) => sum + period.costCents, 0), 9);
+    assert.equal(timeline.body.timeline.reduce((sum: number, period: { costCents: number }) => sum + period.costCents, 0), 7);
   } finally {
     await api.close();
   }
@@ -113,14 +115,15 @@ test('PALUGADA\'s own assistant belongs to no company, and what it costs is show
 
     const cost = await api.call('GET', '/api/control/cost', token);
     assert.equal(cost.status, 200, JSON.stringify(cost.body));
-    assert.deepEqual(cost.body.assistant, { costCents: 6, tokens: 2_400 });
+    // Two turns of 2.5 cents: five, not six.
+    assert.deepEqual(cost.body.assistant, { costCents: 5, tokens: 2_400 });
 
     // A CEO's conversation is its company's, not the deployment's.
     await api.call('POST', `/api/companies/${fixture.companyId}/conversation/messages`, token, { text: 'Halo' });
     const after = await api.call('GET', '/api/control/cost', token);
-    assert.deepEqual(after.body.assistant, { costCents: 6, tokens: 2_400 });
+    assert.deepEqual(after.body.assistant, { costCents: 5, tokens: 2_400 });
     const companies = after.body.companies as Array<{ companyId: string; costCents: number }>;
-    assert.equal(companies.find((row) => row.companyId === fixture.companyId)?.costCents, 3);
+    assert.equal(companies.find((row) => row.companyId === fixture.companyId)?.costCents, 2, 'one turn of 2.5: two now, and the half owed');
   } finally {
     await api.close();
   }

@@ -24,7 +24,7 @@ import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
-import { journalOf } from '../engine/journal.ts';
+import { journalOf, NOT_A_READ, madeFiles } from '../engine/journal.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 import type { WaitReason } from '../engine/tasks.ts';
 import type { OverlapPolicy } from '../scheduler/scheduler.ts';
@@ -138,14 +138,14 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     const roles = await tx.query<{
       id: string; division_id: string; slug: string; model: string; runtime: string | null;
       tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
-      frozen_at: Date | null; frozen_reason: string | null;
+      frozen_at: Date | null; frozen_reason: string | null; frozen_by: string | null;
       open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
       display_name: string | null; title: string | null; persona: { preset?: string; notes?: string } | null;
       max_run_seconds: number | null;
     }>(
       `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
               r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
-              r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria, r.max_run_seconds,
+              r.frozen_at, r.frozen_reason, r.frozen_by, r.system_prompt, r.done_criteria, r.max_run_seconds,
               r.display_name, r.title, r.persona,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
@@ -238,6 +238,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         dormantUntil: role.dormant_until,
         frozenAt: role.frozen_at,
         frozenReason: role.frozen_reason,
+        // Who stopped it, since only some stops are over by themselves.
+        frozenBy: role.frozen_by,
         openTasks: role.open_tasks,
         doneLastWeek: role.done_last_week,
         charter: role.system_prompt,
@@ -612,6 +614,13 @@ export interface TaskDetail {
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
   /**
+   * The files it made, whatever they hold -- a picture, a computed
+   * spreadsheet, a draft -- read from its journal, in the order they were
+   * made, for the owner to take out (`/files/download`). Paths are text from
+   * a capability: shown, never opened from here.
+   */
+  files: Array<{ capability: string; path: string }>;
+  /**
    * The work this task handed to other roles, oldest first, with what each
    * piece came to: a plan a sub-task wrote is reached from the task the
    * owner asked for, not only by finding the sub-task in the list.
@@ -635,6 +644,8 @@ export interface HandedPiece {
 
 /** More pieces than this are not listed on the parent; the work list has them all. */
 const HANDED_ON_LIMIT = 50;
+/** More files than this are not listed on a task's page: the newest. The Files tab has every one. */
+const FILES_LISTED = 50;
 
 /** A document's first heading, which is what a person would call it. */
 function headingOf(text: string | null): string | null {
@@ -666,13 +677,15 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     const { rows: steps } = await tx.query<{
       step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
     }>(
-      `SELECT step_index, name, committed_at, output FROM task_steps
-        WHERE task_id = $1 AND status = 'committed' AND name LIKE 'capability:%'
-          AND jsonb_typeof(output -> 'path') = 'string'
-          AND (jsonb_typeof(output -> 'text') = 'string' OR jsonb_typeof(output -> 'body') = 'string')
-        ORDER BY step_index`,
+      `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
+        WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+          AND jsonb_typeof(s.output -> 'path') = 'string'
+          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          AND ${NOT_A_READ}
+        ORDER BY s.step_index`,
       [taskId],
     );
+    const made = await madeFiles(tx, taskId);
     const { rows: pieces } = await tx.query<{
       id: string; role: string; role_name: string | null; status: TaskStatus; output: unknown;
     }>(
@@ -729,6 +742,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
           ? null : redactor.redact(summarise(piece.output, 200, RESULT_FIELDS)),
       })),
       handedBy: by[0] ? { id: by[0].id, role: by[0].role, roleName: by[0].role_name } : null,
+      files: made.slice(-FILES_LISTED).map((file) => ({ capability: file.capability, path: redactor.redact(file.path) })),
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),
@@ -817,6 +831,8 @@ export async function galleryOf(
           AND s.status = 'committed' AND s.name LIKE 'capability:%'
           AND jsonb_typeof(s.output -> 'path') = 'string'
           AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          -- A file the task only read is not something it produced.
+          AND ${NOT_A_READ}
           -- The next page: after the last one shown, in the order shown.
           AND ($3::bigint IS NULL
                OR (s.committed_at, s.task_id, s.step_index)
@@ -1216,7 +1232,13 @@ export async function memoriesOf(
     const last = rows[rows.length - 1];
     const { rows: grouped } = await tx.query<{ memory_type: MemoryKind; n: number; candidates: number }>(
       `SELECT memory_type, count(*)::int AS n,
-              count(*) FILTER (WHERE approval_state = 'candidate')::int AS candidates
+              -- Only a candidate somebody is being asked about: one whose card
+              -- expired (a fortnight, 2.146) is not procedure and is not waiting
+              -- on the owner, and counting it said "waiting for your yes" over an
+              -- empty inbox (the audit of 6 October, M9).
+              count(*) FILTER (WHERE approval_state = 'candidate' AND EXISTS (
+                SELECT 1 FROM inbox_items i
+                 WHERE i.kind = 'sop_candidate' AND i.status = 'open' AND i.payload->>'memoryId' = memories.id::text))::int AS candidates
          FROM memories WHERE superseded_by IS NULL GROUP BY memory_type`,
     );
     const counts = { working: 0, episodic: 0, semantic: 0, procedural: 0 } as Record<MemoryKind, number>;

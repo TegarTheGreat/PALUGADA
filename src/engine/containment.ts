@@ -66,13 +66,27 @@ export function containChildResult(
   output: Record<string, unknown>,
   detail: { status: string; steps: number; costCents: number; taskId: string },
 ): ChildResult {
+  const contained = containOutput(output, detail.taskId);
+  return { output: contained.output, summary: summarise(roleSlug, contained.output, detail, contained.abbreviated), abbreviated: contained.abbreviated };
+}
+
+/**
+ * The most of another task's output a task may carry: the same ceiling, and
+ * the same cuts that say where the whole is kept, whoever is handed it -- a
+ * parent given a child's result, a follow-up given the work it follows up.
+ * One policy decides what enters a run's context from a run that is not its
+ * own.
+ */
+export function containOutput(
+  output: Record<string, unknown>,
+  taskId: string,
+): { output: Record<string, unknown>; abbreviated: { taskId: string; characters: number } | null } {
   const serialised = JSON.stringify(output);
-  if (estimateTokens(serialised) <= CHILD_OUTPUT_TOKEN_LIMIT) {
-    return { output, summary: summarise(roleSlug, output, detail, null), abbreviated: null };
-  }
-  const abbreviated = { taskId: detail.taskId, characters: serialised.length };
-  const cut = cutToFit(output, detail.taskId, CHILD_OUTPUT_TOKEN_LIMIT * CHARS_PER_TOKEN);
-  return { output: cut, summary: summarise(roleSlug, cut, detail, abbreviated), abbreviated };
+  if (estimateTokens(serialised) <= CHILD_OUTPUT_TOKEN_LIMIT) return { output, abbreviated: null };
+  return {
+    output: cutToFit(output, taskId, CHILD_OUTPUT_TOKEN_LIMIT * CHARS_PER_TOKEN),
+    abbreviated: { taskId, characters: serialised.length },
+  };
 }
 
 /**

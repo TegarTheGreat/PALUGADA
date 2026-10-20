@@ -119,6 +119,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Công việc dừng lại: tài khoản {account} đã hết token',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” dừng lại vì tài khoản {account} đã dùng {spent} trên {max} token. Hãy nâng trần của nó trong mục Tài chính, rồi mở nhiệm vụ và nhấn Tiếp tục: nhiệm vụ sẽ tiếp tục từ chỗ đã dừng.',
   'Withdrawn: you continued the task it was about.': 'Đã rút lại: bạn đã tiếp tục nhiệm vụ mà nó nói đến.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Đã rút lại: ngân sách lại có chỗ, và công việc đã tự tiếp tục.',
   'Broke its contract': 'Vi phạm hợp đồng',
   'Refused by a policy': 'Bị chính sách từ chối',
   'Out of budget': 'Hết ngân sách',
@@ -335,6 +336,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Những kỹ năng sau đã bị bác bỏ và vẫn tắt:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Phê duyệt để bật tất cả, hoặc từ chối để bác bỏ tất cả. Để quyết định từng kỹ năng một, hãy mở mục Kỹ năng.',
   'Nothing changes; none of these skills is switched on.': 'Không có gì thay đổi; không kỹ năng nào trong số này được bật.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Tôi là {ceo}, tôi điều hành {company} cho bạn. Tôi đã biết công ty này để làm gì: “{mission}” Hai điều trước khi bắt đầu: mỗi tháng công ty được chi bao nhiêu? Và phần việc đầu tiên nên là gì — hay để tôi đề xuất một việc, cùng đội ngũ cần cho việc đó?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Tôi là {ceo}, tôi điều hành {company} cho bạn. Ba điều trước khi bắt đầu: {company} bán gì, và bán cho ai? Mỗi tháng công ty được chi bao nhiêu? Và phần việc đầu tiên nên là gì — hay để tôi đề xuất một việc?',
   'Read a customer conversation': 'Đọc cuộc trò chuyện với khách hàng',
   'Reply to a customer': 'Trả lời khách hàng',
@@ -359,4 +362,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} so với mục tiêu {target}, được báo cáo và chưa kiểm tra.',
   'Look at it again later': 'Xem lại sau',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Giao đúng những gì công ty này bán, đáng tin cậy và không làm chủ sở hữu bất ngờ.",
+  "Ship the work the company has promised, on time and verified.":
+    "Hoàn thành công việc công ty đã hứa, đúng hạn và đã được kiểm chứng.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Giữ cho công ty có khả năng thanh toán, minh bạch và vận hành mà không cần chú ý hằng ngày.",
+  "Since we last spoke:":
+    "Từ lần trò chuyện trước:",
+  "More finished: {count}":
+    "Hoàn thành thêm: {count}",
+  "Waiting for you: {count}":
+    "Đang chờ bạn: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Đây là lần thứ ba trong một ngày, nên vai trò không tự tiếp tục.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Hóa đơn {number} cần bạn: {customer} chưa thanh toán',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} vẫn còn nợ {amount} của hóa đơn {number}, hạn {due}, sau lần nhắc cuối. Nền tảng đã ngừng viết cho họ. Bước tiếp theo là của bạn: một cuộc gọi, thông báo cuối cùng, hoặc bỏ qua.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và chưa từng có lời nhắc nào được gửi, nên nền tảng không gửi thư mẫu muộn như vậy. Hãy tự theo dõi, hoặc cho CEO biết bạn muốn làm gì.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và không có địa chỉ email để gửi nhắc nhở. Hãy thêm địa chỉ vào khách hàng, hoặc tự theo dõi.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Chưa ai được giao nhắc khách hàng về hóa đơn quá hạn',
+  'Reminded the customers of: {invoices}.':
+    'Đã nhắc khách hàng về: {invoices}.',
+  'No reminder was due.':
+    'Không có nhắc nhở nào đến hạn.',
+  'Remind a customer about an invoice':
+    'Nhắc khách hàng về một hóa đơn',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Một số hóa đơn đã quá hạn, và không có vai trò nào gửi được nhắc nhở. Bật nhắc nhở tự động ở Sổ sách, Hóa đơn: công ty sẽ gửi chúng vào những ngày bạn đặt.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Nhắc nhở cho hóa đơn quá hạn cần một hộp thư để gửi đi. Hãy cung cấp hộp thư của bộ phận này.',
+  'Remind the customers whose invoices are overdue':
+    'Nhắc các khách hàng có hóa đơn quá hạn',
+  'each customer whose next reminder is due has been written to once':
+    'mỗi khách hàng đến hạn nhắc tiếp theo đã được viết thư một lần',
+  'Reminder for invoice {number} not confirmed':
+    'Thư nhắc cho hóa đơn {number} chưa được xác nhận',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Máy chủ thư không xác nhận thư nhắc thứ {step}/{of} cho hóa đơn {number} gửi {customer} ({to}), được giao cho nó vào {day}. Thư có thể đã đến, cũng có thể chưa. Nền tảng sẽ không gửi lại: nếu {customer} nói chưa nhận được, hãy tự gửi, hoặc báo cho CEO.',
+  'Your CEO proposes hiring: {role}':
+    'CEO của bạn đề xuất tuyển: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Việc tuyển là do bạn quyết định. Tuyển cùng CEO chỉ bằng một câu, hoặc đóng phiếu nếu công ty không cần.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Đã rút lại: phiếu liên quan đã được đóng.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và được lập mà không có địa chỉ email để gửi nhắc nhở. Hãy tự theo dõi, hoặc cho CEO biết bạn muốn làm gì.',
 };

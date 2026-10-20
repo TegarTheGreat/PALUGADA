@@ -73,7 +73,6 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/control': 'the deployment\'s brakes and settings',
   '/api/erasures': 'companies the owner closed',
   '/api/control/owner-window': 'when the owner is woken',
-  '/api/control/step-up': 'a rule about the owner\'s own second factor',
   '/api/control/settings': 'the deployment\'s settings',
   '/api/control/channels': 'the owner\'s own channels',
   '/api/control/tools': 'the deployment\'s',
@@ -97,6 +96,8 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/bundles/:slug/verify': 'what is installed is the owner\'s',
   '/api/companies/:companyId/export': 'the whole company, to take away',
   '/api/companies/:companyId/staff': 'who is seated is the owner\'s',
+  '/api/companies/:companyId/files': 'the company\'s files, including what customers sent, are the owner\'s until a seat has its own items',
+  '/api/companies/:companyId/files/download': 'the company\'s files, including what customers sent, are the owner\'s until a seat has its own items',
   '/api/companies/:companyId/browser': 'the company\'s browser holds its sign-ins: the owner\'s alone',
   '/api/companies/:companyId/browser/tabs/:tabId': 'a picture of a signed-in page is the owner\'s alone',
 };

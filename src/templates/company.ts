@@ -344,6 +344,13 @@ export interface CreateFromTemplateInput {
   companySlug: string;
   name: string;
   timezone?: string;
+  /**
+   * How the template's own sentences -- the statements of its goals -- are
+   * said to this company's owner. A template is written once, in English; the
+   * owner who asked for Indonesian was shown a mission in English as the first
+   * thing on the Overview. Left out, they are said as the template wrote them.
+   */
+  words?: (statement: string) => string;
 }
 
 export async function createCompanyFromTemplate(
@@ -357,10 +364,11 @@ export async function createCompanyFromTemplate(
     await assertCapabilitiesExist(tx, template);
     const companyId = await insertCompany(tx, input);
     const projectIds = await insertProjects(tx, companyId, template);
-    const goalIds = await insertGoals(tx, companyId, template);
+    const goalIds = await insertGoals(tx, companyId, template, input.words ?? ((statement) => statement));
     // Made with its charter, so its first run is told the rules F3.2 puts
     // first; the owner rewrites it from the console.
-    const mission = template.goals?.find((goal) => goal.kind === 'mission')?.statement ?? null;
+    const missionStatement = template.goals?.find((goal) => goal.kind === 'mission')?.statement;
+    const mission = missionStatement === undefined ? null : (input.words ?? ((statement: string) => statement))(missionStatement);
     await publishCharterIn(tx, { companyId, body: defaultCompanyCharter(input.name, mission) }, 'template');
     const divisionIds = await insertDivisions(tx, companyId, template);
     const roleIds = await insertRoles(tx, companyId, template, divisionIds);
@@ -490,6 +498,7 @@ async function insertGoals(
   tx: TenantClient,
   companyId: string,
   template: CompanyTemplate,
+  words: (statement: string) => string,
 ): Promise<Record<string, string>> {
   const ids: Record<string, string> = {};
   const order: Array<TemplateGoal['kind']> = ['mission', 'objective', 'key_result'];
@@ -498,7 +507,7 @@ async function insertGoals(
       const { rows } = await tx.query<{ id: string }>(
         `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement)
          VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [companyId, goal.parent ? ids[goal.parent] : null, goal.kind, goal.slug, goal.statement],
+        [companyId, goal.parent ? ids[goal.parent] : null, goal.kind, goal.slug, words(goal.statement)],
       );
       ids[goal.slug] = rows[0]!.id;
     }

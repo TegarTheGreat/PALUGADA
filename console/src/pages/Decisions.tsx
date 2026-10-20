@@ -19,22 +19,24 @@
  * way -- the confirmation says which of the chosen stay, and the server
  * leaves them whatever the page sends.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, NumberInput, Paper,
-  ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
+  ActionIcon, Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, FileButton, Grid, Group, Kbd, Menu, Modal, NumberInput,
+  Paper, ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconRepeat, IconRoute, IconTarget, IconWorldWww, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconPaperclip, IconRepeat, IconRoute,
+  IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
+import { readForUpload } from '../files.ts';
 import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
-import { capabilitySaid, dateTime, goalKind, money, numberSeparators, relative } from '../format.ts';
+import { capabilitySaid, dateTime, goalKind, hireDraft, megabytes, money, numberSeparators, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
@@ -42,7 +44,11 @@ import { ConversationOfTask } from '../components/ChatThread.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
-type Filter = 'all' | 'approval' | 'incident' | 'escalation';
+type Filter = 'all' | 'approval' | 'incident' | 'escalation' | 'mine';
+
+/** What an answer may carry: the server holds the same limits and has the last word. */
+const ANSWER_FILES_MAX = 5;
+const ANSWER_FILE_MAX_MB = 10;
 
 const KIND_COLOR: Record<string, string> = {
   approval: 'var(--mantine-color-orange-6)',
@@ -115,7 +121,9 @@ export function Decisions({ ctx, route }: PageProps) {
   const select = (id: string | null) => go({ ...route, item: id }, { replace: true });
 
   const items = useMemo(() => (queue.data?.items ?? [])
-    .filter((item) => filter === 'all' || item.kind === filter)
+    // A seat is sent only the questions put to it and those put to no one, so
+    // an item with an addressee is its own.
+    .filter((item) => filter === 'all' || (filter === 'mine' ? item.addressee !== undefined : item.kind === filter))
     .sort((a, b) => urgency(a) - urgency(b) || a.createdAt.localeCompare(b.createdAt)), [queue.data, filter]);
 
   useEffect(() => {
@@ -231,6 +239,7 @@ export function Decisions({ ctx, route }: PageProps) {
                       { value: 'approval', label: t('Approvals') },
                       { value: 'incident', label: t('Incidents') },
                       { value: 'escalation', label: t('Questions') },
+                      ...(ctx.staff && (filter === 'mine' || queue.data.items.some((item) => item.addressee)) ? [{ value: 'mine', label: t('For me') }] : []),
                     ]}
                   />
                   {ctx.staff?.kind !== 'viewer' && (
@@ -322,6 +331,7 @@ export function Decisions({ ctx, route }: PageProps) {
                   position={t('{index} of {total}', { index: items.indexOf(current) + 1, total: items.length })}
                   back={narrow ? () => select(null) : undefined}
                   decided={() => decided(current.id)}
+                  talk={(draft) => ctx.talk(draft)}
                   openTask={() => ctx.open('work', { item: current.taskId })}
                   openSkills={() => ctx.open('settings', { section: 'skills' })}
                   seat={ctx.staff}
@@ -498,9 +508,11 @@ function BudgetResume({ companyId, halt, done }: {
 }
 
 function Detail({
-  item, companyId, position, back, decided, openTask, openSkills, seat,
+  item, companyId, position, back, decided, openTask, openSkills, seat, talk,
 }: {
   item: InboxItem;
+  /** Opens the conversation with the CEO, with words waiting in the box. */
+  talk: (draft: string) => void;
   /** A staff seat reading the inbox (0110): a viewer decides nothing, and nobody but the owner decides tier 3. */
   seat: Staff | null;
   companyId: string;
@@ -519,6 +531,31 @@ function Detail({
   const [trace, setTrace] = useState<Trace | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [answer, setAnswer] = useState('');
+  // Files that go with the answer to a run's question: read when chosen, sent with the answer, kept nowhere here.
+  const [attached, setAttached] = useState<Array<{ name: string; data: string }>>([]);
+  // The button keeps the files it was given until it is told to forget them, and a browser says nothing when the
+  // same one is chosen again -- after it was taken off, or refused as too big.
+  const forget = useRef<() => void>(null);
+  const attach = async (chosen: File[]) => {
+    forget.current?.();
+    const room = ANSWER_FILES_MAX - attached.length;
+    if (chosen.length > room) {
+      setError(t('At most five files can come with an answer.'));
+      return;
+    }
+    const tooBig = chosen.find((file) => file.size > ANSWER_FILE_MAX_MB * 1_048_576);
+    if (tooBig) {
+      setError(t('That file is {size} MB; at most {max} MB can be uploaded.', { size: megabytes(tooBig.size), max: ANSWER_FILE_MAX_MB }));
+      return;
+    }
+    setError(null);
+    try {
+      const read = await Promise.all(chosen.map((file) => readForUpload(file)));
+      setAttached((current) => [...current, ...read]);
+    } catch (failure) {
+      setError(explain(failure));
+    }
+  };
 
   const send = (decision: string, proof?: Proof, allowForHours?: number, forSchedule?: boolean) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
@@ -577,7 +614,13 @@ function Detail({
       // tier to decide whether one is needed -- `decide` decides, and asking it
       // is how the console stays out of the business of implementing F10.10.
       try {
-        await send(decision);
+        // An answer with files goes by the answer route, which keeps them; a
+        // question answered in words is decided as it always was.
+        if (decision === 'approve' && item.question && attached.length > 0) {
+          await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer: note, files: attached });
+        } else {
+          await send(decision);
+        }
       } catch (failure) {
         if (failure instanceof ApiError && failure.code === 'approval.channel_forbidden') {
           const done = await requireFactor(item.title, (proof) => send(decision, proof));
@@ -601,12 +644,17 @@ function Detail({
   };
 
   // One of the answers the agent offered, pressed: the answer is its text,
-  // on a yes, exactly as if it had been typed.
+  // on a yes, exactly as if it had been typed -- with the files attached, by
+  // the route that keeps them, as a typed answer goes.
   const choose = async (option: string) => {
     setBusy(`choose:${option}`);
     setError(null);
     try {
-      await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      if (attached.length > 0) {
+        await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer: option, files: attached });
+      } else {
+        await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      }
       notifications.show({ color: 'teal', message: t('Answer sent. The task carries on with it.') });
       decided();
     } catch (failure) {
@@ -667,6 +715,16 @@ function Detail({
         <Group gap="xs" mb="xs">
           <TierBadge tier={item.tier} />
           <KindBadge kind={item.kind} />
+          {item.addressee && (
+            <Badge color="grape" variant="light">
+              {seat ? t('For you') : t('For {name}', { name: item.addressee.name })}
+            </Badge>
+          )}
+          {item.escalated && (
+            <Tooltip label={t('Not answered within a day: the owner has been told, and can answer it too.')}>
+              <Badge color="orange" variant="light" leftSection={<IconClock size={12} />}>{t('Unanswered for a day')}</Badge>
+            </Tooltip>
+          )}
           {expires && (
             <Tooltip label={t('Unanswered, it is cancelled {when}. Silence never executes anything.', { when: dateTime(item.expiresAt) })}>
               <Badge color={soon ? 'red' : 'gray'} variant="light" leftSection={<IconClock size={12} />}>
@@ -804,6 +862,26 @@ function Detail({
               value={note}
               onChange={(event) => setNote(event.currentTarget.value)}
             />
+            {decides && (
+              <Stack gap={6} mt="sm" align="flex-start">
+                {attached.map((file, index) => (
+                  <Group key={`${file.name}:${index}`} gap={6} wrap="nowrap">
+                    <IconPaperclip size={14} />
+                    <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{file.name}</Text>
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('Remove {name}', { name: file.name })}
+                      onClick={() => setAttached((current) => current.filter((_, at) => at !== index))}>
+                      <IconX size={14} />
+                    </ActionIcon>
+                  </Group>
+                ))}
+                {attached.length < ANSWER_FILES_MAX && (
+                  <FileButton multiple resetRef={forget} onChange={(chosen) => void attach(chosen)}>
+                    {(props) => <Button {...props} size="xs" variant="light" leftSection={<IconPaperclip size={14} />}>{t('Attach a file')}</Button>}
+                  </FileButton>
+                )}
+                <Text size="xs" c="dimmed">{t("Kept in the company's files; the role that asked is told where each one is.")}</Text>
+              </Stack>
+            )}
           </Paper>
         ) : (
           <Textarea
@@ -816,7 +894,14 @@ function Detail({
           />
         )}
 
-        {decides && item.kind === 'escalation' && !item.question && (
+        {item.hire && seat === null && (
+          <HireCard companyId={companyId} hire={item.hire} talk={talk} settled={async (decision) => {
+            await send(decision);
+            decided();
+          }} />
+        )}
+
+        {decides && item.kind === 'escalation' && !item.question && !item.hire && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
               label={t('Answer the agent instead')}
@@ -904,6 +989,55 @@ function Detail({
         </Group>
       </Group>
       )}
+    </Paper>
+  );
+}
+
+/**
+ * A role the CEO proposes hiring (0132). Hiring is the owner's (F2.9), and is
+ * done with the CEO in conversation, which writes the role: this card opens it
+ * with the proposal waiting in the box, or closes the ticket when the company
+ * does not need it.
+ */
+function HireCard({ companyId, hire, talk, settled }: {
+  companyId: string;
+  hire: NonNullable<InboxItem['hire']>;
+  talk: (draft: string) => void;
+  settled: (decision: 'approve' | 'deny') => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<'hire' | 'close' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (which: 'hire' | 'close') => {
+    setBusy(which);
+    setError(null);
+    try {
+      if (which === 'hire') {
+        talk(hireDraft(hire.role, hire.why));
+        await settled('approve');
+      } else {
+        await api('POST', `/api/companies/${companyId}/tickets/${hire.ticketId}`, { status: 'closed', reason: t('Not needed now') });
+        await settled('deny');
+      }
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
+      <Stack gap="xs">
+        <Text size="sm">{t('Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.')}</Text>
+        {error && <Alert color="red" variant="light">{error}</Alert>}
+        <Group justify="flex-end" gap="xs" wrap="wrap">
+          <Button size="xs" variant="default" leftSection={<IconX size={14} />} loading={busy === 'close'} onClick={() => void act('close')}>
+            {t('Not needed now')}
+          </Button>
+          <Button size="xs" leftSection={<IconCheck size={14} />} loading={busy === 'hire'} onClick={() => void act('hire')}>
+            {t('Hire it with the CEO')}
+          </Button>
+        </Group>
+      </Stack>
     </Paper>
   );
 }

@@ -13,14 +13,19 @@
  * presenting a second factor; the token that comes back says which factor it
  * was and when, and every request carries it.
  *
- * **The distinction that does the work.** A session is *not* a second factor.
- * F10.10 asks a tier 3 approval to be given "through the app **with MFA**", and
- * a token minted eight hours ago is possession of a browser tab, not of the
- * owner's phone. So `decide` still takes a fresh proof for tier 3, and the
- * session only establishes that the request came from the app at all. That is
- * why `assurance` on a session is `session` and never `mfa`: the two answer
- * different questions and collapsing them is exactly the shortcut F10.10
- * exists to forbid.
+ * **What a session is worth.** F10.10 asked a tier 3 approval to be given
+ * "through the app **with MFA**", and a session was only the fact that the
+ * request came from the app: a token minted eight hours ago is possession of a
+ * browser tab, not of the owner's phone. So every change asked for a code of
+ * its own, and the owner building a company reached for their phone for each
+ * division. On the owner's report of 7 October ("the authenticator is for
+ * signing in") a session opened with a device *is* the second factor for what
+ * the owner does in it, tier 3 approvals included -- which relaxes F10.10 and
+ * F12.5, and is written down as such (STATUS 2.175, THREAT-MODEL). Two things
+ * keep their code: what changes who the owner is (an authenticator revoked,
+ * recovery codes made, a passkey added, a device vouched for), and a session
+ * opened with a recovery code, which proves less than a device. A chat has no
+ * session, and so cannot approve tier 3 as it never could.
  *
  * **Held in the database, as a hash.** They were held in each process's
  * memory, on the argument that a session should not outlive the process that
@@ -45,9 +50,11 @@ export interface OwnerSession {
   issuedAt: Date;
   expiresAt: Date;
   /**
-   * When the owner last showed a code or a passkey, for the window it opens
-   * (0120). Null for a session signed in with a recovery code, which proves
-   * less than a device and opens none.
+   * When the owner last showed a code or a passkey: at sign-in for a session
+   * opened with a device, so that such a session is the second factor for what
+   * the console does (`#requireFactor` in api.ts, `decide` in the inbox).
+   * Null for a session signed in with a recovery code, which proves less than
+   * a device, until a device's code is shown in it.
    */
   provedAt: Date | null;
 }
@@ -158,9 +165,9 @@ export class OwnerSessions {
   }
 
   /**
-   * The owner has just shown a code or a passkey: the window opens from now.
-   * Not for a recovery code, and never extended by what the window covers --
-   * only a fresh proof moves it.
+   * The owner has just shown a device's code or passkey in this session, which
+   * makes a session signed in with a recovery code one opened with a device.
+   * Not for a recovery code, which proves less.
    */
   async prove(token: string): Promise<void> {
     await withControlPlane((tx) => tx.query(

@@ -12,7 +12,7 @@ import { Badge, Button, Group, Modal, Paper, SimpleGrid, Stack, Text } from '@ma
 import { IconArchive, IconArchiveOff, IconLanguage, IconPencil, IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import type { Company, Structure } from '../types.ts';
-import type { Languages } from '../App.tsx';
+import type { Languages } from '../types.ts';
 import { useLoad } from '../hooks.ts';
 import { money } from '../format.ts';
 import { t } from '../i18n.ts';

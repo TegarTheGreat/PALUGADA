@@ -12,7 +12,6 @@
  * act.
  */
 import { withTenant } from '../db/tenant.ts';
-import { recall } from '../memory/store.ts';
 import { costBreakdown } from './cost.ts';
 
 export interface DailyDigest {
@@ -146,13 +145,11 @@ export async function buildWeeklyRetro(
     }),
   ]);
 
-  const candidates = await withTenant(companyId, (tx) =>
-    recall(tx, companyId, {
-      memoryType: 'procedural',
-      approvalState: 'candidate',
-      limit: 100,
-    }),
-  );
+  // The ones the owner is being asked about, which is what "pending" means:
+  // a candidate whose card expired is neither procedure nor waiting (the audit
+  // of 6 October, M9).
+  const candidates = await withTenant(companyId, async (tx) => Number((await tx.query<{ n: string }>(
+    "SELECT count(*)::text AS n FROM inbox_items WHERE kind = 'sop_candidate' AND status = 'open'")).rows[0]!.n));
 
   return {
     companyId,
@@ -163,7 +160,7 @@ export async function buildWeeklyRetro(
     costliestDivisions: divisions
       .slice(0, 3)
       .map((division) => ({ label: division.label, costCents: division.costCents })),
-    sopCandidatesPending: candidates.length,
+    sopCandidatesPending: candidates,
     decisionsRecorded: Number(summary.decisions),
   };
 }

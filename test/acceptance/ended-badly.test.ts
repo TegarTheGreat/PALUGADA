@@ -132,6 +132,19 @@ test('work the coordinator was handed that ends badly goes to the owner, not bac
   assert.equal(await handEscalations(fixture.companyId), 0, 'and nothing is handed back round');
 });
 
+test('an outcome task that halts goes to the owner, not back to the coordinator that made it', async () => {
+  const fixture = await createCompany('ended-outcome');
+  await addRole(fixture, 'coordinator');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: 'coordinator', afterMinutes: 60 });
+  const looked = await root(fixture, 'Measure "Paying customers" has reached its target', 'outcome:0f0f0f0f0f0f0f0f0f0f0f0f');
+  await halt(fixture, looked.id, 'hop_limit');
+
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+  const [item] = await escalations(fixture);
+  assert.equal(item!.payload.escalationRole, undefined, 'the CEO is the one that failed: the owner hears at once');
+  assert.equal(await handEscalations(fixture.companyId), 0, 'and nothing is handed back round');
+});
+
 test('what the coordinator handled and finished is closed for the owner; what it could not stays open', async () => {
   const fixture = await createCompany('ended-handled');
   const leadId = await addRole(fixture, 'coordinator');
@@ -159,4 +172,32 @@ test('what the coordinator handled and finished is closed for the owner; what it
   assert.equal(byTask(fixed.id).status, 'withdrawn', 'handled: not the owner\'s to answer');
   assert.match(byTask(fixed.id).rationale, /Sent it from the other account/, 'with what was done, kept on the card');
   assert.equal(byTask(unfixed.id).status, 'open', 'not handled: the owner is told');
+});
+
+test('a follow-up that ends badly is reported, and an ordinary child is not (the audit of 6 October, S7)', async () => {
+  const fixture = await createCompany('ended-follow-up');
+  const parent = await root(fixture, 'send the invoices');
+  await transition(fixture.companyId, parent.id, 'completed', { output: { summary: 'Sent; look again at the due date.' } });
+
+  // The look-again task `task.follow_up` made: a child, woken later, with nobody above it still running.
+  const followUp = await createSubTask(parent.id, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    input: { goal: 'Check that invoice 7 was paid', followUpOf: parent.id }, reserveTokens: 500,
+    idempotencyKey: `followup:${parent.id}:abc`,
+  });
+  const delegated = await createSubTask(parent.id, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    input: { goal: 'A part of the work' }, reserveTokens: 500,
+  });
+  for (const child of [followUp, delegated]) {
+    await transition(fixture.companyId, child.id, 'running');
+    await halt(fixture, child.id, 'deadline_passed', 'its deadline passed');
+  }
+
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1, 'the look-again that failed is told; a part of a run is its parent\'s to hear');
+  const [item, ...rest] = await escalations(fixture);
+  assert.equal(rest.length, 0);
+  assert.equal(item!.task_id, followUp.id);
+  assert.match(item!.title, /Check that invoice 7 was paid/);
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 0, 'once');
 });

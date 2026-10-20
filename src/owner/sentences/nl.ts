@@ -115,6 +115,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Werk gestopt: het account {account} heeft geen tokens meer',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '‘{work}’ is gestopt omdat het account {account} {spent} van zijn {max} tokens heeft gebruikt. Verhoog het plafond onder Financiën, open dan de taak en druk op Doorgaan: die gaat verder waar hij stopte.',
   'Withdrawn: you continued the task it was about.': 'Ingetrokken: u hebt de taak waar het over ging voortgezet.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Ingetrokken: het budget had weer ruimte en het werk ging vanzelf verder.',
   'Broke its contract': 'Contract geschonden',
   'Refused by a policy': 'Geweigerd door een beleidsregel',
   'Out of budget': 'Budget op',
@@ -331,6 +332,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Deze heeft hij afgewezen; ze blijven uitgeschakeld:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Kies “Goedkeuren” om ze allemaal in te schakelen, of “Afwijzen” om ze allemaal af te wijzen. Wil je per vaardigheid beslissen, open dan de pagina Vaardigheden.',
   'Nothing changes; none of these skills is switched on.': 'Er verandert niets; geen van deze vaardigheden wordt ingeschakeld.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Ik ben {ceo}, en ik leid {company} voor je. Ik weet waar het voor is: “{mission}” Twee dingen voordat we beginnen: hoeveel mag het bedrijf per maand uitgeven? En wat moet de eerste klus zijn – of zal ik er een voorstellen, met het team dat daarvoor nodig is?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Ik ben {ceo}, en ik leid {company} voor je. Drie dingen voordat we beginnen: wat verkoopt {company}, en aan wie? Hoeveel mag het bedrijf per maand uitgeven? En wat moet de eerste klus zijn – of zal ik er een voorstellen?',
   'Read a customer conversation': 'Een klantgesprek lezen',
   'Reply to a customer': 'Een klant antwoorden',
@@ -355,4 +358,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} bij een doel van {target}, gemeld en niet gecontroleerd.',
   'Look at it again later': 'Later nog eens bekijken',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Leveren wat dit bedrijf verkoopt, betrouwbaar en zonder de eigenaar te verrassen.",
+  "Ship the work the company has promised, on time and verified.":
+    "Het werk opleveren dat het bedrijf heeft beloofd, op tijd en gecontroleerd.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Het bedrijf solvabel, verantwoordelijk en draaiend houden zonder dagelijkse aandacht.",
+  "Since we last spoke:":
+    "Sinds ons laatste gesprek:",
+  "More finished: {count}":
+    "Daarnaast klaar: {count}",
+  "Waiting for you: {count}":
+    "Wacht op jou: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Dit is de derde keer op één dag, dus ze gaat niet vanzelf verder.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Factuur {number} heeft u nodig: {customer} heeft niet betaald',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} is na de laatste herinnering nog {amount} verschuldigd op factuur {number}, vervallen op {due}. Het platform schrijft hen niet meer. Wat nu komt, is aan u: een telefoontje, een laatste aanmaning of het laten gaan.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en er is nooit een herinnering gestuurd, dus het platform stuurde zo laat geen standaardbrief. Volg haar zelf op, of zeg de CEO wat u wilt.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en er is geen e-mailadres om een herinnering naartoe te sturen. Voeg er een toe bij de klant, of volg haar zelf op.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Niemand is aangewezen om klanten aan verlopen facturen te herinneren',
+  'Reminded the customers of: {invoices}.':
+    'Klanten herinnerd aan: {invoices}.',
+  'No reminder was due.':
+    'Er was geen herinnering verschuldigd.',
+  'Remind a customer about an invoice':
+    'Een klant aan een factuur herinneren',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Enkele facturen zijn over hun vervaldatum, en geen rol kan de herinneringen sturen. Zet de automatische herinneringen aan onder Boekhouding, Facturen: het bedrijf stuurt ze dan op de dagen die u instelt.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Herinneringen voor verlopen facturen hebben een mailbox nodig om vanuit te verzenden. Geef deze afdeling haar mailbox.',
+  'Remind the customers whose invoices are overdue':
+    'Klanten met verlopen facturen herinneren',
+  'each customer whose next reminder is due has been written to once':
+    'elke klant wiens volgende herinnering is verschuldigd, is één keer aangeschreven',
+  'Reminder for invoice {number} not confirmed':
+    'Herinnering voor factuur {number} niet bevestigd',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'De mailserver heeft herinnering {step} van {of} voor factuur {number} aan {customer} ({to}), overgedragen op {day}, niet bevestigd. Misschien is ze aangekomen, misschien niet. Het platform stuurt haar niet nog eens: als {customer} zegt dat ze niet is aangekomen, stuur haar dan zelf, of zeg het tegen de CEO.',
+  'Your CEO proposes hiring: {role}':
+    'Uw CEO stelt voor aan te nemen: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Aannemen beslist u. Neem de rol in één woord met de CEO aan, of sluit het ticket als het bedrijf hem niet nodig heeft.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Ingetrokken: het ticket waar het over ging is gesloten.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en is uitgeschreven zonder e-mailadres om een herinnering naartoe te sturen. Volg haar zelf op, of zeg de CEO wat u wilt.',
 };

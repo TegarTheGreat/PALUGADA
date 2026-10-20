@@ -16,10 +16,13 @@
  * tripping a policy, and F3.7's own wording is "attempted actions that were
  * denied" rather than "policy matches".
  *
- * A freeze is never automatic in the other direction. Thawing is the owner's,
- * because the condition that caused it -- a prompt, a missing grant, a policy
- * the role does not understand -- does not fix itself by waiting, and a role
- * that unfroze on a timer would simply spend tomorrow's allowance the same way.
+ * A freeze from denials is never automatic in the other direction. Thawing is
+ * the owner's, because the condition that caused it -- a prompt, a missing
+ * grant, a policy the role does not understand -- does not fix itself by
+ * waiting, and a role that unfroze on a timer would simply spend tomorrow's
+ * allowance the same way. (A freeze from spending too fast is a different
+ * case, and ends when the burst does: `frozen_by` says which is which, and
+ * `thawCooledRoles` in spend-guard.ts is the only thing that lifts one.)
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
@@ -27,6 +30,14 @@ import { thresholdsFor } from '../reporting/alerts.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, roleCalledWithin, roleFrozenCard } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
+
+/**
+ * Who stopped a role (`roles.frozen_by`). The owner and the denials are lifted
+ * by the owner; `spend` is lifted by the platform when the burst has cooled,
+ * and `spend_held` is a role that did it three times in a day and is the
+ * owner's again.
+ */
+export type FrozenBy = 'owner' | 'denials' | 'spend' | 'spend_held';
 
 export interface DenialContext {
   companyId: string;
@@ -75,25 +86,44 @@ export async function frozenRoles(
 }
 
 /**
- * Lifts a freeze.
+ * Lifts a freeze, and calls back the work that waited for it.
  *
  * Through the control plane, like every other owner control: thawing a role is
  * a decision about the company rather than work inside it, and an agent that
  * could unfreeze its own role would make the freeze a suggestion.
  */
 export async function unfreezeRole(companyId: string, roleId: string): Promise<void> {
-  await withControlPlane(async (tx) => {
-    await tx.query(
-      'UPDATE roles SET frozen_at = NULL, frozen_reason = NULL WHERE id = $1 AND company_id = $2',
-      [roleId, companyId],
-    );
-    await appendEvent(tx, {
-      companyId,
-      type: 'role.unfrozen',
-      actor: 'owner',
-      payload: { roleId },
-    });
+  await withControlPlane((tx) => liftFreeze(tx, companyId, roleId, 'owner'));
+}
+
+/**
+ * The one way a freeze ends: the role works again, the event says who ended
+ * it, and every task that parked for the role is called back now instead of
+ * sitting out the rest of its wait.
+ */
+export async function liftFreeze(tx: TenantClient, companyId: string, roleId: string, by: 'owner' | 'cooled'): Promise<void> {
+  await tx.query(
+    'UPDATE roles SET frozen_at = NULL, frozen_reason = NULL, frozen_by = NULL WHERE id = $1 AND company_id = $2',
+    [roleId, companyId],
+  );
+  await appendEvent(tx, {
+    companyId,
+    type: 'role.unfrozen',
+    actor: by === 'owner' ? 'owner' : 'system',
+    payload: by === 'owner' ? { roleId } : { roleId, by },
   });
+  // A task parked for its role says so in its last waiting event. Only those
+  // are called back: one waiting for the model, or for a window, is waiting
+  // for something this has not changed.
+  await tx.query(
+    `UPDATE tasks t SET wait_until = now()
+      WHERE t.company_id = $1 AND t.role_id = $2
+        AND t.status = 'waiting_window' AND t.wait_until > now()
+        AND (SELECT e.payload->>'reason' FROM events e
+              WHERE e.task_id = t.id AND e.type = 'task.waiting_window'
+              ORDER BY e.occurred_at DESC LIMIT 1) = 'role_paused'`,
+    [companyId, roleId],
+  );
 }
 
 /**
@@ -107,8 +137,8 @@ export async function unfreezeRole(companyId: string, roleId: string): Promise<v
 export async function pauseRole(companyId: string, roleId: string, reason?: string | null): Promise<void> {
   const why = reason?.trim() ? reason.trim().slice(0, 500) : null;
   await withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ slug: string; frozen: boolean }>(
-      'SELECT slug, frozen_at IS NOT NULL AS frozen FROM roles WHERE id = $1 AND company_id = $2 FOR UPDATE',
+    const { rows } = await tx.query<{ slug: string; frozen: boolean; frozen_by: string | null }>(
+      'SELECT slug, frozen_at IS NOT NULL AS frozen, frozen_by FROM roles WHERE id = $1 AND company_id = $2 FOR UPDATE',
       [roleId, companyId],
     );
     if (!rows[0]) {
@@ -116,9 +146,12 @@ export async function pauseRole(companyId: string, roleId: string, reason?: stri
     }
     // Already stopped, by the owner or by F3.7: the reason it has is the one
     // that explains it, and a second event would say it was paused twice.
-    if (rows[0].frozen) return;
+    // Except a stop the platform lifts by itself (the breaker's, 'spend'):
+    // left as it was, the owner's pause would be lifted with it once the burst
+    // cooled, against what they asked for. It is theirs from now on.
+    if (rows[0].frozen && rows[0].frozen_by !== 'spend') return;
     await tx.query(
-      'UPDATE roles SET frozen_at = now(), frozen_reason = $2 WHERE id = $1',
+      "UPDATE roles SET frozen_at = now(), frozen_reason = $2, frozen_by = 'owner' WHERE id = $1",
       [roleId, `paused by the owner${why ? `: ${why}` : ''}`],
     );
     await appendEvent(tx, {
@@ -204,7 +237,7 @@ export async function evaluateRoleFreeze(ctx: DenialContext): Promise<FreezeOutc
   // can also lift the freeze, and a stop an agent can undo is not a stop.
   await withControlPlane(async (tx) => {
     await tx.query(
-      `UPDATE roles SET frozen_at = now(), frozen_reason = $2
+      `UPDATE roles SET frozen_at = now(), frozen_reason = $2, frozen_by = 'denials'
         WHERE id = $1 AND frozen_at IS NULL`,
       [ctx.roleId, reason],
     );

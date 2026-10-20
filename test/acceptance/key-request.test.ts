@@ -140,7 +140,12 @@ test('the card asking for a key opens the division\'s keys on Team, where giving
   assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
   const fixture = await createCompany('key-request-console');
   const { api, broker, taskId, at } = await setting(fixture, BUILT);
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     await assert.rejects(broker.invoke(at('ask'), 'owner.ask', { question: 'Saya perlu kunci CRM untuk membaca data pelanggan.', key: 'crm' }), refused('owner.asked'));
     await page.goto(api.url);
@@ -160,10 +165,9 @@ test('the card asking for a key opens the division\'s keys on Team, where giving
     await page.evaluate(`document.querySelector('input[aria-label="The crm key"]').focus()`);
     await page.type(KEY);
     await page.evaluate(`[...document.querySelectorAll('.mantine-Drawer-content button')].find((one) => one.innerText.trim() === 'Save' && !one.disabled).click()`);
-    await page.waitFor(`document.body.innerText.includes('Confirm with your authenticator')`, 'the device asked for');
-    await page.evaluate(`document.querySelector('.mantine-Modal-content input[autocomplete="one-time-code"]').focus()`);
-    await page.type(api.code());
+    // The owner signed in with their device, and that is the factor: the key is sealed with no code asked for.
     await page.waitFor(`document.body.innerText.includes('The crm key is sealed')`, 'the key sealed', 20_000);
+    assert.ok(!String(await page.evaluate('document.body.innerText')).includes('Confirm with your authenticator'), 'no code was asked for');
     const { rows: [item] } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
       "SELECT status FROM inbox_items WHERE task_id = $1 AND kind = 'escalation'", [taskId]));
     assert.equal(item!.status, 'decided', 'giving the key answered the role');

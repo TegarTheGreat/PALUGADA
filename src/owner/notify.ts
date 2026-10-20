@@ -264,6 +264,9 @@ export async function undelivered(
           AND i.notify_after <= $3
           -- Put off by the owner (0060): not sent until then.
           AND (i.snoozed_until IS NULL OR i.snoozed_until <= $3)
+          -- A question for a person is theirs until it has gone unanswered a
+          -- day (escalateQuestions): the owner's phone is not for it before.
+          AND (i.addressee_seat IS NULL OR i.escalated_at IS NOT NULL)
           AND n.id IS NULL
         ORDER BY i.created_at`,
       [companyId, channel, now],
@@ -1019,9 +1022,11 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'task_halted': return say(language, 'Withdrawn: the task it was asking about was stopped.');
     case 'task_cancelled': return say(language, 'Withdrawn: the task it was asking about was cancelled.');
     case 'task_continued': return say(language, 'Withdrawn: you continued the task it was about.');
+    case 'budget_room': return say(language, 'Withdrawn: the budget had room again, and the work went on by itself.');
     case 'superseded': return say(language, 'Withdrawn: the agent changed what it proposes and asked again about the new one.');
     case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
     case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');
+    case 'ticket_closed': return say(language, 'Withdrawn: the ticket it was about was closed.');
     default: return say(language, 'Withdrawn. Nothing left to press here.');
   }
 }

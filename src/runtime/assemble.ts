@@ -27,6 +27,7 @@ import { ClaudeCodeAdapter } from './claude-code.ts';
 import { CliAdapter, runtimeSpecsFrom } from './cli.ts';
 import { KNOWN_CLI_NAMES, knownCli, type KnownCliName } from './known-clis.ts';
 import { HttpAdapter } from './http.ts';
+import { PersonAdapter } from './person.ts';
 import { ContainerAdapter } from './container.ts';
 import { HttpSandboxProvider, RemoteSandboxAdapter } from './sandbox-adapter.ts';
 import type { LlmClient } from '../llm/client.ts';
@@ -273,8 +274,13 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
   }
   for (const adapter of clis.values()) adapters.register(adapter);
 
+  // A person needs nothing this process cannot conjure, so a role that is one
+  // always has its runtime. It does no work of its own, which is why it does
+  // not count below: a deployment with only this is a deployment with no runtime.
+  if (!adapters.get('person')) adapters.register(new PersonAdapter());
+
   const names = adapters.names();
-  if (names.length === 0) {
+  if (names.filter((name) => name !== 'person').length === 0) {
     notes.push(
       'no runtime is registered: every task will halt with runtime_unavailable (F13.1)',
     );

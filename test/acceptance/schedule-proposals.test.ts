@@ -21,7 +21,7 @@ import { declarationFor } from '../../src/broker/catalogue.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { upsertSchedule } from '../../src/scheduler/scheduler.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { addRole, createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 

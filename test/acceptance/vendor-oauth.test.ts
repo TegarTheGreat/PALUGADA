@@ -141,14 +141,12 @@ test('a division signs in for a vendor key from the console: the app once, PKCE,
     assert.equal(before.body.callback, `${api.url}/api/oauth/callback`);
 
     // Without an app, the start says to register one and where to come back to.
-    const noApp = await api.call('POST', `${keys}/calendar/oauth/start`, token, { proof: { totp: api.code() } });
+    const noApp = await api.call('POST', `${keys}/calendar/oauth/start`, token, {});
     assert.equal(noApp.status, 400, JSON.stringify(noApp.body));
     assert.match(String(noApp.body.error), /register one, with .*\/api\/oauth\/callback as the address to come back to/);
 
-    // With it: the owner's device, and then the provider's page.
-    const refused = await api.call('POST', `${keys}/calendar/oauth/start`, token, { clientId: 'app-1', clientSecret: 'app-secret-1' });
-    assert.notEqual(refused.status, 200, 'a sign-in that makes a key asks for the owner\'s device');
-    const started = await api.call('POST', `${keys}/calendar/oauth/start`, token, { clientId: 'app-1', clientSecret: 'app-secret-1', proof: { totp: api.code() } });
+    // With it: the provider's page.
+    const started = await api.call('POST', `${keys}/calendar/oauth/start`, token, { clientId: 'app-1', clientSecret: 'app-secret-1' });
     assert.equal(started.status, 200, JSON.stringify(started.body));
     const authorize = new URL(started.body.authorizeUrl as string);
     assert.equal(`${authorize.origin}${authorize.pathname}`, `${acme.base}/authorize`);

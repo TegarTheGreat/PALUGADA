@@ -19,6 +19,10 @@ export async function consoleWithSettings(options: {
   browsers?: ConstructorParameters<typeof OwnerApi>[0]['browsers'];
   /** What the deployment reported when it started, for the setup checklist. */
   deploymentNotes?: string[];
+  /** Where the companies' files are, for the owner's Files page. */
+  files?: ConstructorParameters<typeof OwnerApi>[0]['files'];
+  /** The runtimes the deployment employs, for a test that moves a role between them. */
+  runtimes?: ConstructorParameters<typeof OwnerApi>[0]['runtimes'];
 } = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
@@ -40,6 +44,8 @@ export async function consoleWithSettings(options: {
     ...(options.staticRoot ? { staticRoot: options.staticRoot } : {}),
     ...(options.browsers ? { browsers: options.browsers } : {}),
     ...(options.deploymentNotes ? { deploymentNotes: options.deploymentNotes } : {}),
+    ...(options.files ? { files: options.files } : {}),
+    ...(options.runtimes ? { runtimes: options.runtimes } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,

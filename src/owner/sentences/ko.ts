@@ -113,6 +113,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': '작업이 멈췄습니다: {account} 계정의 토큰이 모두 소진되었습니다',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}”이(가) 멈췄습니다. {account} 계정이 {max} 토큰 중 {spent}을(를) 사용했기 때문입니다. 금액에서 한도를 올린 다음, 작업을 열고 계속을 누르세요. 멈춘 곳부터 이어서 진행합니다.',
   'Withdrawn: you continued the task it was about.': '철회됨: 관련 작업을 계속 진행했습니다.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': '철회됨: 예산에 다시 여유가 생겨 작업이 저절로 이어졌습니다.',
   'Broke its contract': '계약 위반',
   'Refused by a policy': '정책에 의해 거부됨',
   'Out of budget': '예산 소진',
@@ -329,6 +330,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': '다음 스킬은 반려되어 꺼진 상태로 남아요:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '승인하면 모두 켜고, 거절하면 모두 반려해요. 하나씩 결정하려면 \'스킬\' 페이지를 여세요.',
   'Nothing changes; none of these skills is switched on.': '아무것도 바뀌지 않아요. 이 스킬은 하나도 켜지지 않아요.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "저는 {ceo}(이)에요. 제가 {company}을(를) 맡아 운영할게요. 무엇을 위한 곳인지는 알고 있어요: “{mission}” 시작하기 전에 두 가지만 여쭤볼게요. 한 달에 얼마까지 쓸 수 있나요? 그리고 첫 번째 일은 무엇으로 할까요? 아니면 필요한 팀까지 포함해서 제가 하나 제안할까요?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '저는 {ceo}(이)에요. 제가 {company}을(를) 맡아 운영할게요. 시작하기 전에 세 가지만 여쭤볼게요. {company}은(는) 무엇을 누구에게 파나요? 한 달에 얼마까지 쓸 수 있나요? 그리고 첫 번째 일은 무엇으로 할까요? 아니면 제가 하나 제안할까요?',
   'Read a customer conversation': '고객 대화 읽기',
   'Reply to a customer': '고객에게 답장하기',
@@ -353,4 +356,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}(목표 {target}), 보고만 되었고 확인되지 않았습니다.',
   'Look at it again later': '나중에 다시 확인하기',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "이 회사가 파는 것을 믿을 수 있게 전달하고, 소유자를 놀라게 하지 않는다.",
+  "Ship the work the company has promised, on time and verified.":
+    "회사가 약속한 일을 기한에 맞춰, 검증된 상태로 내보낸다.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "회사의 지급 능력을 지키고, 책임질 수 있게 하며, 매일 신경 쓰지 않아도 돌아가게 한다.",
+  "Since we last spoke:":
+    "지난 대화 이후:",
+  "More finished: {count}":
+    "그 밖에 완료: {count}",
+  "Waiting for you: {count}":
+    "당신을 기다리는 것: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    '하루에 세 번째라서 저절로 다시 시작되지 않습니다.',
+  'Invoice {number} needs you: {customer} has not paid':
+    '청구서 {number}에 조치가 필요합니다: {customer}이(가) 아직 결제하지 않았습니다',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '마지막 알림 이후에도 {customer}은(는) 청구서 {number}의 {amount}(기한 {due})을 아직 내지 않았습니다. 플랫폼은 더 이상 편지를 쓰지 않습니다. 다음은 당신의 몫입니다: 전화, 최종 통지, 또는 포기.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '청구서 {number}({amount}, {customer})은 {due}부터 연체되었는데 알림이 한 번도 나가지 않았으므로, 플랫폼은 이렇게 늦은 시점에 양식 편지를 보내지 않았습니다. 직접 처리하거나 CEO에게 원하는 바를 알려 주세요.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '청구서 {number}({amount}, {customer})은 {due}부터 연체되었고 알림을 보낼 이메일 주소가 없습니다. 고객에게 주소를 추가하거나 직접 처리하세요.',
+  'Nobody is set to remind customers about overdue invoices':
+    '연체된 청구서를 고객에게 알리도록 지정된 사람이 없습니다',
+  'Reminded the customers of: {invoices}.':
+    '고객에게 알렸습니다: {invoices}.',
+  'No reminder was due.':
+    '기한이 된 알림이 없습니다.',
+  'Remind a customer about an invoice':
+    '청구서에 대해 고객에게 알림',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    '기한이 지난 청구서가 있지만 알림을 보낼 수 있는 역할이 없습니다. 장부의 청구서에서 자동 알림을 켜세요. 정해 둔 날짜에 회사가 보냅니다.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    '연체된 청구서 알림을 보내려면 메일함이 필요합니다. 이 부서의 메일함을 등록해 주세요.',
+  'Remind the customers whose invoices are overdue':
+    '청구서가 연체된 고객에게 알림',
+  'each customer whose next reminder is due has been written to once':
+    '다음 알림 시기가 된 고객 모두에게 한 번씩 편지가 갔다',
+  'Reminder for invoice {number} not confirmed':
+    '청구서 {number} 독촉장이 확인되지 않았습니다',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    '메일 서버가 {day}에 전달된 청구서 {number}의 {customer}({to}) 앞 독촉장 {of}통 중 {step}번째를 받았다고 확인하지 않았습니다. 도착했을 수도 있고 아닐 수도 있습니다. 플랫폼은 다시 보내지 않습니다. {customer}이(가) 받지 못했다고 하면 직접 보내거나 CEO에게 알려 주세요.',
+  'Your CEO proposes hiring: {role}':
+    'CEO가 채용을 제안합니다: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    '채용은 당신이 결정합니다. CEO와 한마디로 채용하거나, 회사에 필요 없으면 티켓을 닫으세요.',
+  'Withdrawn: the ticket it was about was closed.':
+    '철회됨: 관련된 티켓이 닫혔습니다.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    '청구서 {number}({amount}, {customer})은 {due}부터 연체되었고, 알림을 보낼 이메일 주소 없이 발행되었습니다. 직접 처리하거나 CEO에게 원하는 바를 알려 주세요.',
 };

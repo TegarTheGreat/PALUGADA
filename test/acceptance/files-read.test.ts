@@ -22,7 +22,7 @@ import { isPalugadaError } from '../../src/errors.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
 import { filesRead } from '../../src/capabilities/files.ts';
 import { platformCapabilities } from '../../src/capabilities/platform.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { Browsers } from '../../src/browser/browsers.ts';
 import { sealedCookies } from '../../src/browser/cookies.ts';
 import { chromium } from '../helpers/browser.ts';

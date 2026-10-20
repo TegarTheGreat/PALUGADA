@@ -10,7 +10,7 @@
  * company's mailbox, so it is in the thread the customer started and in the
  * mailbox's own Sent mail, which only the mailbox's server can do.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { connect as plainConnect, type Socket } from 'node:net';
 import type { TLSSocket } from 'node:tls';
 import { PalugadaError } from '../errors.ts';
@@ -61,12 +61,18 @@ function named(name: string, address: string): string {
  */
 export function composeMail(input: {
   from: string; fromName?: string | null; to: string[]; cc?: string[]; subject: string; text: string;
-  inReplyTo?: string | null; messageId?: string; now?: Date;
+  inReplyTo?: string | null; messageId?: string; now?: Date; attachments?: Attachment[];
 }): Composed {
   const domain = input.from.split('@')[1] ?? 'palugada.invalid';
   const messageId = input.messageId ?? `<${randomUUID()}@${domain}>`;
   const date = (input.now ?? new Date()).toUTCString().replace(/GMT$/, '+0000');
-  const body = Buffer.from(`${input.text.replace(/\r?\n/g, '\r\n')}\r\n`, 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n');
+  const wrapped = (bytes: Buffer) => bytes.toString('base64').replace(/.{1,76}/g, '$&\r\n');
+  const body = wrapped(Buffer.from(`${input.text.replace(/\r?\n/g, '\r\n')}\r\n`, 'utf8'));
+  const files = input.attachments ?? [];
+  // The boundary is made from the message's own id, so a letter made again
+  // after a crash is the same bytes; it begins `=_`, which no line of base64
+  // can, so no part can hold it.
+  const boundary = `=_palugada_${createHash('sha256').update(messageId).digest('hex').slice(0, 24)}`;
   const headers = [
     `From: ${input.fromName ? named(input.fromName, input.from) : input.from}`,
     `To: ${input.to.join(', ')}`,
@@ -76,10 +82,38 @@ export function composeMail(input: {
     `Message-ID: ${messageId}`,
     ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`, `References: ${input.inReplyTo}`] : []),
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=utf-8',
-    'Content-Transfer-Encoding: base64',
+    ...(files.length === 0
+      ? ['Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64']
+      : [`Content-Type: multipart/mixed; boundary="${boundary}"`]),
   ];
-  return { raw: Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8'), messageId };
+  if (files.length === 0) return { raw: Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8'), messageId };
+
+  const parts = [
+    `--${boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${body}`,
+    ...files.map((file) => {
+      // A name is one plain name: a line break or a quote in it would end the header it is in.
+      if (/[\r\n"\\\u0000]/.test(file.name) || file.name.length === 0) throw new PalugadaError('contract.violation', 'an attachment\'s name is a plain file name', { field: 'attachments' });
+      const fallback = file.name.replace(/[^\x20-\x7e]/g, '_');
+      const encoded = encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+      // A `message/*` part may not be encoded (RFC 2046), and a file is not read as a message here: it is bytes.
+      const mime = file.mime.startsWith('message/') ? 'application/octet-stream' : file.mime;
+      // The real name first, in the form RFC 2231 gives (`filename*=`), and the
+      // ASCII fallback after it, for a reader that takes only the first it finds; a
+      // name in Content-Type, where some clients look for it, is given the same way.
+      const named = fallback === file.name;
+      return `--${boundary}\r\nContent-Type: ${mime}; ${named ? '' : `name*=UTF-8''${encoded}; `}name="${fallback}"\r\nContent-Transfer-Encoding: base64\r\n`
+        + `Content-Disposition: attachment; ${named ? '' : `filename*=UTF-8''${encoded}; `}filename="${fallback}"\r\n\r\n${wrapped(file.bytes)}`;
+    }),
+    `--${boundary}--\r\n`,
+  ];
+  return { raw: Buffer.from(`${headers.join('\r\n')}\r\n\r\n${parts.join('')}`, 'utf8'), messageId };
+}
+
+/** A file a letter carries: the name it is saved under, what it is, and its bytes. */
+export interface Attachment {
+  name: string;
+  mime: string;
+  bytes: Buffer;
 }
 
 /**
@@ -96,14 +130,23 @@ export function composeReply(input: {
 class Conversation {
   #socket: Socket | TLSSocket;
   #reader: LineReader;
+  /**
+   * Every socket the conversation runs over: after STARTTLS the TLS one wraps
+   * the plain one, and the plain one keeps the timer it was given at connect
+   * (Node never changes a parent's duration), so a longer patience has to be
+   * given to each or the shorter ends the session first.
+   */
+  readonly #sockets: Array<Socket | TLSSocket>;
 
   constructor(socket: Socket | TLSSocket) {
     this.#socket = socket;
+    this.#sockets = [socket];
     this.#reader = new LineReader(socket);
   }
 
   upgraded(socket: TLSSocket): void {
     this.#socket = socket;
+    this.#sockets.push(socket);
     this.#reader = new LineReader(socket);
   }
 
@@ -128,6 +171,11 @@ class Conversation {
 
   write(data: Buffer): void {
     this.#socket.write(data);
+  }
+
+  /** How long the line may be silent before the conversation is given up: more while a large message is taken. */
+  patience(ms: number): void {
+    for (const socket of this.#sockets) socket.setTimeout(ms);
   }
 
   close(): void {
@@ -164,6 +212,11 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
   const first = implicit ? await secureSocket(login.host, login.port, login) : await plainSocket(login.host, login.port, timeoutMs);
   const talk = new Conversation(first);
   const name = login.username.split('@')[1] ?? 'palugada.invalid';
+  // Whether the whole letter has been handed over and the server's answer is
+  // what is awaited: from then until that answer, a failure leaves it unknown
+  // whether the server took the letter (it may already be on its way).
+  let handedOver = false;
+  let taken: string | null = null;
   try {
     if ((await talk.reply()).code !== 220) throw new MailRefused('the server did not greet');
     let offered = await talk.send(`EHLO ${name}`, [250]);
@@ -186,19 +239,36 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
       await talk.send(Buffer.from(login.username, 'utf8').toString('base64'), [334], 'AUTH LOGIN');
       await talk.send(Buffer.from(login.password, 'utf8').toString('base64'), [235], 'AUTH LOGIN');
     }
-    let taken: string | null = null;
     if (message) {
+      // A server says how large a message it takes (RFC 1870): said before the
+      // message is sent, and not after the whole of it has gone for nothing.
+      const limit = Number(offered.lines.map((line) => /^SIZE\s+(\d+)/i.exec(line)?.[1]).find((one) => one !== undefined));
+      if (Number.isFinite(limit) && limit > 0 && message.raw.length > limit) {
+        throw new MailRefused(`the mail server takes messages up to ${(limit / 1_048_576).toFixed(1)} MB; this one is ${(message.raw.length / 1_048_576).toFixed(1)} MB`);
+      }
       await talk.send(`MAIL FROM:<${message.from}>`, [250]);
       for (const to of Array.isArray(message.to) ? message.to : [message.to]) await talk.send(`RCPT TO:<${to}>`, [250, 251]);
       await talk.send('DATA', [354]);
+      // A large letter takes longer than a line to be accepted, and a timeout
+      // after the server took it would invite a second send of the same letter.
+      if (message.raw.length > 1_048_576) talk.patience(Math.max(timeoutMs, 60_000));
       talk.write(stuffed(message.raw));
+      handedOver = true;
       const answer = await talk.send('.', [250], 'DATA');
+      talk.patience(timeoutMs);
       taken = `${answer.code} ${answer.lines.join(' ')}`.slice(0, 300);
     }
     await talk.send('QUIT', [221]).catch(() => undefined);
     return taken;
   } catch (failure) {
     if (failure instanceof PalugadaError || failure instanceof MailRefused) throw failure;
+    if (handedOver && taken === null) {
+      // Said so, for a caller that must not send the same letter twice
+      // (`invoice.remind`): the server may have it, and may send it.
+      throw new PalugadaError('capability.unreachable',
+        `the mail server at ${where} was handed the letter and stopped answering before it said whether it took it: ${(failure as Error).message}`,
+        { delivery: 'unknown' });
+    }
     throw new PalugadaError('capability.unreachable', `the mail server at ${where} stopped answering: ${(failure as Error).message}`, {});
   } finally {
     talk.close();

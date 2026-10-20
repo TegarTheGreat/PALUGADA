@@ -31,7 +31,7 @@ import { TIER } from '../domain/tier.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { recordVersion } from './config-versions.ts';
 import { CEO, titleFor } from './ceo.ts';
-import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/standard.ts';
+import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/work.ts';
 
 export type StructuralChange =
   | { kind: 'add_division'; slug: string; name: string; parentDivisionId?: string | null }
@@ -181,6 +181,26 @@ export async function grantRoleTools(
     const { rows: held } = await tx.query<{ capability_name: string }>(
       'SELECT capability_name FROM capability_grants WHERE division_id = $1', [role.division_id]);
     return grantMissingWithin(tx, companyId, role.division_id, role.tools.filter((tool) => !held.some((row) => row.capability_name === tool)));
+  });
+}
+
+/**
+ * Grants a division the tools named that it lacks, and nothing else: for a
+ * change the owner approved that needs those tools and no others. A role's
+ * list can name tools the owner took from its division -- revoking a grant
+ * leaves the list as it was -- so `grantRoleTools` would give those back too.
+ */
+export async function grantDivisionTools(
+  companyId: string,
+  divisionId: string,
+  tools: readonly string[],
+  options: { ownerApproved: boolean },
+): Promise<{ granted: string[]; ungranted: string[] }> {
+  assertOwnerApproved(options.ownerApproved, { kind: 'change_grant', divisionId, capabilityName: tools.join(', '), tierOverride: null });
+  return withTenant(companyId, async (tx) => {
+    const { rows: held } = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [divisionId]);
+    return grantMissingWithin(tx, companyId, divisionId, tools.filter((tool) => !held.some((row) => row.capability_name === tool)));
   });
 }
 
@@ -474,6 +494,12 @@ export interface NewRole {
   displayName?: string | null;
   title?: string | null;
   persona?: RolePersona | null;
+  /**
+   * The role is a person: a contractor the company employs through this staff
+   * seat (`approverNamed`). Its work is put to them as a question and their
+   * answer is what it produced, so it runs on no model and holds no tools.
+   */
+  person?: { seatId: string; name: string };
 }
 
 /**
@@ -504,6 +530,10 @@ export async function addRole(
   if (tools.length > 12) {
     throw new PalugadaError('contract.violation', 'a role has at most 12 tools (F2.6)', { field: 'tools' });
   }
+  if (role.person && tools.length > 0) {
+    throw new PalugadaError('contract.violation',
+      `a person has no tools: ${role.person.name} is given work as a question and answers it. Leave the tools out`, { field: 'tools' });
+  }
 
   return withTenant(companyId, async (tx) => {
     const division = await tx.query('SELECT 1 FROM divisions WHERE id = $1', [role.divisionId]);
@@ -529,19 +559,22 @@ export async function addRole(
     const title = await titleFor(tx, companyId, { id: null, current: null }, role.title ?? undefined);
 
     // Where the company's roles run; the column's default when it has none.
+    // Not where a person's do: a hire that is not a person must not be given a runtime that needs one.
     const { rows: usual } = await tx.query<{ runtime: string; backend: string }>(
-      `SELECT runtime, backend FROM roles GROUP BY runtime, backend ORDER BY count(*) DESC, runtime LIMIT 1`);
+      `SELECT runtime, backend FROM roles WHERE runtime <> 'person' GROUP BY runtime, backend ORDER BY count(*) DESC, runtime LIMIT 1`);
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools, input_schema, output_schema,
-                          max_tokens_per_run, done_criteria, runtime, backend, display_name, title, persona)
+                          max_tokens_per_run, done_criteria, runtime, backend, display_name, title, persona,
+                          person_seat, person_name)
        VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10::text[],
-               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb)
+               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb, $16, $17)
        RETURNING id`,
       [
         companyId, role.divisionId, slug, systemPrompt, role.model ?? 'standard', tools,
         JSON.stringify(WORK_INPUT), JSON.stringify(WORK_OUTPUT), role.maxTokensPerRun ?? 60_000, doneCriteria,
-        usual[0]?.runtime ?? null, usual[0]?.backend ?? null,
+        role.person ? 'person' : usual[0]?.runtime ?? null, role.person ? 'local' : usual[0]?.backend ?? null,
         role.displayName ?? null, title ?? null, role.persona ? JSON.stringify(role.persona) : null,
+        role.person?.seatId ?? null, role.person?.name ?? null,
       ],
     );
     const roleId = rows[0]!.id;

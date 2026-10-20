@@ -6,7 +6,7 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Avatar, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
+  Avatar, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { api } from '../api.ts';
@@ -81,7 +81,7 @@ export function Health({ ctx }: PageProps) {
         </Grid.Col>
       </Grid>
 
-      <Section title={t('Disable a capability everywhere')} description={t('Per capability and platform-wide: a vendor that has started doing something wrong is wrong for every company. Allowing it again takes your authenticator.')}>
+      <Section title={t('Disable a capability everywhere')} description={t('Per capability and platform-wide: a vendor that has started doing something wrong is wrong for every company.')}>
         <Group align="flex-end" gap="xs" wrap="wrap">
           <TextInput label={t('Capability')} placeholder="email.send" value={capability} onChange={(event) => setCapability(event.currentTarget.value)} w={280} />
           <ActionButton label={t('Disable it')} color="red" variant="light"
@@ -116,8 +116,6 @@ export function Health({ ctx }: PageProps) {
           </Timeline>
         )}
       </Section>
-
-      {frozen.length > 0 && <Alert color="blue" variant="light">{t('Resuming a role takes your authenticator: a thaw is a decision about the company, not work inside it.')}</Alert>}
     </Stack>
   );
 }

@@ -35,6 +35,26 @@ export interface Mail {
   attachments: string[];
   /** False for mail no person sent: an auto-reply, a bounce, a list. */
   fromPerson: boolean;
+  /**
+   * The files it carried, when they were asked for (`readMail(raw, { keep: true })`): at most five, each
+   * decoded only when it is asked for. The rest are counted in `filesOmitted`; a part too big to decode is
+   * in `files` with `tooLarge` and no bytes to give.
+   */
+  files: MailFile[];
+  filesOmitted: number;
+}
+
+export interface MailFile {
+  /** The kind the other transports use: photo, voice, video, document. */
+  kind: string;
+  /** What the sender called it, as they wrote it: theirs, so data. */
+  name: string | null;
+  mime: string;
+  /** About how many bytes it is once decoded. */
+  size: number;
+  tooLarge: boolean;
+  /** The bytes, decoded from the message. */
+  get(): Buffer;
 }
 
 interface Part {
@@ -132,6 +152,86 @@ function parameters(value: string): { value: string; params: Map<string, string>
   return { value: first.trim().toLowerCase(), params };
 }
 
+/**
+ * A header's parameters, split where a `;` is outside a quoted string, with a
+ * quoted string's backslash escapes undone. Names are lower case; a name that
+ * is repeated keeps its first.
+ */
+function parameterList(value: string): Map<string, string> {
+  const params = new Map<string, string>();
+  const pieces: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let at = 0; at < value.length; at += 1) {
+    const char = value[at]!;
+    if (quoted && char === '\\' && at + 1 < value.length) {
+      current += char + value[at + 1]!;
+      at += 1;
+      continue;
+    }
+    if (char === '"') quoted = !quoted;
+    if (char === ';' && !quoted) {
+      pieces.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  pieces.push(current);
+  for (const piece of pieces.slice(1)) {
+    const equals = piece.indexOf('=');
+    if (equals < 0) continue;
+    const name = piece.slice(0, equals).trim().toLowerCase();
+    let raw = piece.slice(equals + 1).trim();
+    if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) raw = raw.slice(1, -1).replace(/\\(.)/g, '$1');
+    if (name && !params.has(name)) params.set(name, raw);
+  }
+  return params;
+}
+
+/** `UTF-8''%E2%80%AE` (RFC 2231): the bytes percent-decoded, read in the charset it names. */
+function extendedValue(value: string, inherited: string | null): { text: string; charset: string | null } {
+  const found = /^([^']*)'[^']*'(.*)$/.exec(value);
+  const charset = found ? (found[1] || inherited) : inherited;
+  const body = found ? found[2]! : value;
+  const bytes = Buffer.from(body.replace(/%([0-9A-Fa-f]{2})/g, (_whole, hex: string) => String.fromCharCode(parseInt(hex, 16))), 'latin1');
+  return { text: decodeCharset(bytes, charset), charset };
+}
+
+/**
+ * The file name a part carries: `filename*=` (RFC 2231, with its continuations
+ * `filename*0*=`, `filename*1*=`), then `filename=`, then the content type's
+ * `name=`, each with RFC 2047's encoded words undone. Null when it has none.
+ */
+function fileNameOf(headers: Map<string, string>): string | null {
+  const readFrom = (params: Map<string, string>, key: string): string | null => {
+    const direct = params.get(`${key}*`);
+    if (direct !== undefined) return extendedValue(direct, null).text;
+    const first = params.get(`${key}*0*`) ?? params.get(`${key}*0`);
+    if (first !== undefined) {
+      let out = '';
+      let charset: string | null = null;
+      for (let n = 0; n < 20; n += 1) {
+        const piece = params.get(`${key}*${n}*`) ?? params.get(`${key}*${n}`);
+        if (piece === undefined) break;
+        if (params.has(`${key}*${n}*`)) {
+          const decoded = extendedValue(piece, charset);
+          charset = decoded.charset;
+          out += decoded.text;
+        } else {
+          out += piece;
+        }
+      }
+      return out;
+    }
+    const plain = params.get(key);
+    return plain === undefined ? null : decodeHeader(plain);
+  };
+  const named = readFrom(parameterList(headers.get('content-disposition') ?? ''), 'filename')
+    ?? readFrom(parameterList(headers.get('content-type') ?? ''), 'name');
+  return named === null || named.trim() === '' ? null : named.slice(0, 1_000);
+}
+
 /** One address: `"Name" <a@b>`, `Name <a@b>` or `a@b`; the address in lower case. */
 export function address(value: string): { name: string | null; address: string } | null {
   const decoded = decodeHeader(value).trim();
@@ -173,8 +273,46 @@ function attachmentKind(type: string): string {
   return 'document';
 }
 
+/** How many bytes base64 decodes to: six bits for each character of its alphabet, whatever lies between them. */
+function base64Size(body: Buffer): number {
+  let characters = 0;
+  for (const byte of body) {
+    if ((byte >= 0x41 && byte <= 0x5a) || (byte >= 0x61 && byte <= 0x7a) || (byte >= 0x30 && byte <= 0x39) || byte === 0x2b || byte === 0x2f) characters += 1;
+  }
+  return Math.floor((characters * 3) / 4);
+}
+
+/** Parts walked in one message, past which the rest are left: a message built to be a maze is read no further. */
+const PARTS_MAX = 200;
+/** Files returned from one message, and the largest one decoded. */
+const FILES_MAX = 5;
+const FILE_DECODE_MAX = 10 * 1024 * 1024;
+/** A picture this small that the message refers to by Content-ID is a signature's logo or a tracking pixel, not an attachment. */
+const INLINE_LOGO_MAX = 30 * 1024;
+/** The mail system's own notes on a message, which nobody sent and which are no part of what was said. */
+const MAIL_NOTES = new Set(['message/delivery-status', 'message/disposition-notification']);
+/**
+ * Parts a person sent that are not kept as files: a forwarded message and a
+ * calendar invitation. They are still something that came, so a mail that is
+ * only one of them starts its work and says so, rather than being skipped as
+ * empty.
+ */
+const NOT_FILES = new Set(['message/rfc822', 'text/calendar']);
+
+interface Found {
+  plain: string[];
+  html: string[];
+  attachments: string[];
+  files: MailFile[];
+  omitted: number;
+  parts: number;
+  keep: boolean;
+}
+
 /** The text of a part and what it carries, walking a multipart's parts; plain text before HTML. */
-function walk(part: Part, found: { plain: string[]; html: string[]; attachments: string[] }, depth = 0): void {
+function walk(part: Part, found: Found, depth = 0): void {
+  found.parts += 1;
+  if (found.parts > PARTS_MAX) return;
   const type = parameters(part.headers.get('content-type') ?? 'text/plain');
   const disposition = parameters(part.headers.get('content-disposition') ?? '').value;
   if (type.value.startsWith('multipart/') && depth < 8) {
@@ -190,7 +328,33 @@ function walk(part: Part, found: { plain: string[]; html: string[]; attachments:
     return;
   }
   if (disposition === 'attachment' || !type.value.startsWith('text/')) {
-    if (type.value !== 'message/delivery-status') found.attachments.push(attachmentKind(type.value));
+    if (MAIL_NOTES.has(type.value)) return;
+    if (NOT_FILES.has(type.value)) {
+      found.attachments.push(attachmentKind(type.value));
+      return;
+    }
+    const encoding = (part.headers.get('content-transfer-encoding') ?? '').trim().toLowerCase();
+    // What the part holds once decoded, without decoding it: base64 is three bytes to four characters, counted
+    // without its line breaks -- a break every 76 characters made the guess 2.6 per cent over, and a file just
+    // under the limit was refused as over it.
+    const size = encoding === 'base64' ? base64Size(part.body) : part.body.length;
+    if (found.keep && /^image\//.test(type.value) && part.headers.has('content-id') && disposition !== 'attachment' && size <= INLINE_LOGO_MAX) return;
+    found.attachments.push(attachmentKind(type.value));
+    if (found.keep) {
+      if (found.files.length >= FILES_MAX) {
+        found.omitted += 1;
+        return;
+      }
+      const tooLarge = size > FILE_DECODE_MAX * 1.05;
+      found.files.push({
+        kind: attachmentKind(type.value),
+        name: fileNameOf(part.headers),
+        mime: type.value.slice(0, 100),
+        size,
+        tooLarge,
+        get: () => (tooLarge ? Buffer.alloc(0) : transferDecoded(part)),
+      });
+    }
     return;
   }
   const decoded = decodeCharset(transferDecoded(part), type.params.get('charset') ?? null);
@@ -235,9 +399,9 @@ function dateOf(value: string | undefined): string | null {
   return Number.isFinite(at) ? new Date(at).toISOString() : null;
 }
 
-export function readMail(raw: Buffer): Mail {
+export function readMail(raw: Buffer, options: { keep?: boolean } = {}): Mail {
   const top = split(raw);
-  const found = { plain: [] as string[], html: [] as string[], attachments: [] as string[] };
+  const found: Found = { plain: [], html: [], attachments: [], files: [], omitted: 0, parts: 0, keep: options.keep === true };
   walk(top, found);
   const text = found.plain.length > 0 ? found.plain.join('\n\n') : found.html.join('\n\n');
   const from = address(top.headers.get('from') ?? '');
@@ -251,5 +415,7 @@ export function readMail(raw: Buffer): Mail {
     text: withoutHistory(text).slice(0, TEXT_MAX),
     attachments: found.attachments,
     fromPerson: fromPerson(top.headers, from),
+    files: found.files,
+    filesOmitted: found.omitted,
   };
 }

@@ -214,6 +214,28 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 }
 
 /**
+ * A halted task (`t`) the platform may go on with by itself, whatever its
+ * room (self-heal.ts): not run again by the owner, whose new task does the
+ * work -- said by the event on it, or, in the moment before that is written,
+ * by the new task's key; one whose run retention has not cleared, so there is
+ * something to go on from; and not a child its parent abandoned -- a parent
+ * that failed, was cancelled, or was stopped for good while the child waited,
+ * so the answer would go nowhere. A parent that completed abandoned nothing:
+ * it is the ordinary state of a follow-up, of a hand-off's successor and of
+ * work a coordinator handed down and left. A parent stopped for its budget
+ * goes on too, and the child with it.
+ */
+export const GOES_ON_BY_ITSELF = `
+  NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
+  AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
+  AND NOT EXISTS (SELECT 1 FROM task_steps s
+                   WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
+  AND NOT EXISTS (
+        SELECT 1 FROM tasks p WHERE p.id = t.parent_task_id
+           AND (p.status IN ('failed', 'cancelled')
+                OR (p.status = 'halted' AND p.halt_reason IS DISTINCT FROM 'budget_exhausted')))`;
+
+/**
  * Goes on with a task its budget stopped, from where it stopped.
  *
  * Section 6.3 says such a task is never resumed *automatically*; it goes to
@@ -233,7 +255,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
  * reach this: `halted` has no way out in the state machine, and this is the
  * one door, opened by the owner.
  */
-export async function continueHalted(companyId: string, taskId: string): Promise<void> {
+export async function continueHalted(companyId: string, taskId: string, by: 'owner' | 'system' = 'owner'): Promise<void> {
   const task = await taskHere(companyId, taskId);
   const refuse = (status: string, reason: string | null) => new PalugadaError(
     'task.not_continuable',
@@ -246,6 +268,17 @@ export async function continueHalted(companyId: string, taskId: string): Promise
     throw new PalugadaError('spend.paused',
       'the company has reached its monthly spending ceiling; raise it or grant an override before going on', { companyId });
   }
+  // Retention blanks a finished task's model turns after ninety days, and a
+  // journal with a blanked turn cannot be replayed: the run read nothing where
+  // a reply had been and failed three times (the audit of 6 October, W6).
+  const cleared = await withControlPlane((tx) => tx.query(
+    `SELECT 1 FROM task_steps WHERE task_id = $1 AND company_id = $2 AND kind = 'llm'
+        AND output = '{"redacted":"retention"}'::jsonb LIMIT 1`, [taskId, companyId]));
+  if (cleared.rowCount === 1) {
+    throw new PalugadaError('task.record_cleared',
+      `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
+        + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
+  }
   await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ status: TaskStatus; halt_reason: string | null; budget_account_id: string; frozen: boolean }>(
       `SELECT t.status, t.halt_reason, t.budget_account_id, r.frozen_at IS NOT NULL AS frozen
@@ -257,6 +290,16 @@ export async function continueHalted(companyId: string, taskId: string): Promise
     const row = rows[0]!;
     // A second press, or one racing the first: the task has moved on.
     if (row.status !== 'halted' || row.halt_reason !== 'budget_exhausted') throw refuse(row.status, row.halt_reason);
+    // The platform goes on only with work somebody still waits for; the owner
+    // may go on with anything their budget stopped.
+    if (by === 'system') {
+      const { rowCount } = await tx.query(`SELECT 1 FROM tasks t WHERE t.id = $1 AND ${GOES_ON_BY_ITSELF}`, [taskId]);
+      if (rowCount === 0) {
+        throw new PalugadaError('task.not_continuable',
+          `task ${taskId} was run again by the owner, or its parent was given up: nothing waits for it to go on`,
+          { taskId, status: row.status, haltReason: row.halt_reason });
+      }
+    }
     if (row.frozen) {
       throw new PalugadaError('role.frozen', 'its role is frozen; unfreeze the role before going on with its work', { taskId });
     }
@@ -271,25 +314,32 @@ export async function continueHalted(companyId: string, taskId: string): Promise
     await tx.query(
       `UPDATE tasks
           SET status = 'pending', halt_reason = NULL, finished_at = NULL, wait_until = NULL,
-              tokens_reserved = $2
+              tokens_reserved = $2,
+              -- The time it was stopped is not held against it: a delegated
+              -- child's hour is for the work, and the next sweep would have
+              -- halted it for the hours the owner took to raise the ceiling.
+              deadline_at = deadline_at + (now() - finished_at)
         WHERE id = $1`,
       [taskId, DEFAULT_TASK_RESERVE_TOKENS],
     );
+    // By the owner, or -- when the owner's own ceiling has room again -- by
+    // the platform (self-heal.ts), and said so.
     await appendEvent(tx, {
-      companyId, projectId: task.projectId, taskId, type: 'task.continued', actor: 'owner',
-      payload: { reservedTokens: DEFAULT_TASK_RESERVE_TOKENS },
+      companyId, projectId: task.projectId, taskId, type: 'task.continued', actor: by,
+      payload: { reservedTokens: DEFAULT_TASK_RESERVE_TOKENS, ...(by === 'system' ? { by: 'budget_room' } : {}) },
     });
+    const closedBecause = by === 'system' ? 'budget_room' : 'task_continued';
     // The card that said it stopped has been answered by going on.
     const { rows: withdrawn } = await tx.query<{ id: string }>(
-      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_continued'
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
         WHERE task_id = $1 AND company_id = $2 AND kind = 'budget_alert' AND status = 'open'
         RETURNING id`,
-      [taskId, companyId],
+      [taskId, companyId, closedBecause],
     );
     for (const item of withdrawn) {
       await appendEvent(tx, {
         companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
-        payload: { inboxItemId: item.id, closedReason: 'task_continued' },
+        payload: { inboxItemId: item.id, closedReason: closedBecause },
       });
     }
     // A ticket the halt put back on the board, and nobody has taken since,

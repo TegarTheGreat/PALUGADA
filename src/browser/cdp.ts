@@ -55,6 +55,8 @@ const QUIET = [
 
 /** How long one command may take before it is given up. */
 const COMMAND_MS = 30_000;
+/** How long a starting browser has to answer: a first start builds its font cache. */
+const LAUNCH_WAIT_MS = 60_000;
 
 type Listener = (params: Record<string, unknown>, sessionId: string | undefined) => void;
 
@@ -90,7 +92,10 @@ export class Cdp {
 
   /** The last thing Chromium wrote that reads as a reason, without its log prefixes. */
   #lastWords(): string {
-    const lines = this.#said.split('\n').map((line) => line.replace(/^\[[^\]]*\]\s*/, '').trim()).filter(Boolean);
+    const lines = this.#said.split('\n').map((line) => line.replace(/^\[[^\]]*\]\s*/, '').trim())
+      // Chromium says it has no D-Bus on every start on a server, and starts
+      // anyway: that line is never the reason, though it reads like one.
+      .filter((line) => line && !/to connect to the bus|dbus/i.test(line));
     return (lines.find((line) => /sandbox|error|cannot|failed/i.test(line)) ?? lines.at(-1) ?? '').slice(0, 300);
   }
 
@@ -113,7 +118,11 @@ export class Cdp {
     }
     const cdp = new Cdp(child, profile);
     try {
-      await cdp.send('Browser.getVersion', {}, undefined, 15_000);
+      // A first start on a machine that has never run it builds the font cache
+      // before it answers: twelve seconds here, more on a slow disk (CI's first
+      // browser test failed at fifteen). One that is merely slow is waited for;
+      // one that is broken exits, and its exit ends this wait at once.
+      await cdp.send('Browser.getVersion', {}, undefined, LAUNCH_WAIT_MS);
     } catch (failure) {
       await cdp.close();
       // Chromium's own first sentence, and what to do about it here.

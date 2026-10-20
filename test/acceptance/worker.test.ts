@@ -28,6 +28,7 @@ import { installBundle } from '../../src/bundles/bundle.ts';
 import { readTemplate } from '../../src/templates/company.ts';
 import type { HandoffRule } from '../../src/engine/handoff.ts';
 import { isRoleFrozen } from '../../src/governance/role-freeze.ts';
+import { isSpendPaused } from '../../src/governance/spend-guard.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import type { NotifiableItem, OwnerChannel } from '../../src/owner/notify.ts';
 import { createCompany, addRole, setRoleSchemas, type Fixture } from '../helpers/fixtures.ts';
@@ -815,11 +816,18 @@ test('one tick trips the breaker on a role that spiked (F1.8, F1.7)', async () =
     'the loop found the spike without anybody calling the breaker',
   );
 
-  const incidents = (await inbox.listOpen(fixture.companyId)).filter(
-    (item) => item.kind === 'incident',
+  // The first stop is the platform's to hold: nothing for the owner to press.
+  assert.deepEqual(
+    (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident'),
+    [],
   );
-  assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /spending too fast/);
+  assert.equal(report.thawed, 0, 'the burst is in the last hour still');
+
+  // An hour and some on, the same loop lets the role go and says so in the tick.
+  const cooled = await worker.tick(new Date(now.getTime() + 62 * 60_000));
+  assert.deepEqual(cooled.errors, []);
+  assert.equal(cooled.thawed, 1);
+  assert.equal(await withTenant(fixture.companyId, (tx) => isRoleFrozen(tx, fixture.roleId)), false);
 
   // And the interval that makes the criterion's five minutes generous.
   assert.ok(DEFAULT_IDLE_MS <= 60_000, `idle interval is ${DEFAULT_IDLE_MS}ms`);
@@ -881,7 +889,7 @@ test('a tick that only met an unhealthy runtime is not progress (F13.8)', async 
 
 test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13.8)', () => {
   const base = { reclaimed: 0, scheduled: 0, woken: 0, alerts: 0, retained: 0, handedOff: 0,
-    notified: 0, digests: 0, retracted: 0, stranded: 0, ended: 0, triaged: 0, escalated: 0, leftovers: 0, embedded: 0, erased: 0, traced: 0, mail: 0, distilled: 0, screened: 0, pastDeadline: 0, stopped: false, errors: [] };
+    notified: 0, digests: 0, retracted: 0, stranded: 0, ended: 0, triaged: 0, outcomes: 0, reviews: 0, escalated: 0, leftovers: 0, embedded: 0, erased: 0, traced: 0, mail: 0, distilled: 0, screened: 0, pastDeadline: 0, resumed: 0, thawed: 0, collections: 0, stopped: false, errors: [] };
 
   // The case the loop got wrong: a run happened, and it got nowhere.
   assert.equal(
@@ -897,6 +905,10 @@ test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13
   assert.equal(madeProgress({ ...base, ran: [], scheduled: 1 }), true);
   // A customer's mail started work, which the next tick should run without sleeping first.
   assert.equal(madeProgress({ ...base, ran: [], mail: 1 }), true);
+  // Work its budget stopped went on by itself: the next tick has it to run.
+  assert.equal(madeProgress({ ...base, ran: [], resumed: 1 }), true);
+  // A role the breaker let go has its waiting work to run.
+  assert.equal(madeProgress({ ...base, ran: [], thawed: 1 }), true);
   assert.equal(madeProgress({ ...base, ran: [] }), false);
 
   // And a tick that met one sick runtime and one healthy task still counts:
@@ -1184,6 +1196,54 @@ test('a tick distils what happened into what is known (F4.5)', async () => {
   assert.ok((await later.tick()).distilled > 0, 'the new events were never read');
 });
 
+/**
+ * The audit of 6 October (M7): the learning stage went division by division
+ * with nothing around each, so one that threw -- a model that answered
+ * nonsense for it, a store that refused a row -- ended the stage, and the
+ * divisions after it in slug order were never reached on any tick.
+ */
+test('one division that cannot be distilled does not stop the divisions after it (M7)', async () => {
+  const { appendEvent } = await import('../../src/audit/event-log.ts');
+  const fixture = await createCompany('worker-distil-isolated');
+  const other = await withTenant(fixture.companyId, async (tx) => {
+    const { rows: divisions } = await tx.query<{ id: string }>(
+      "INSERT INTO divisions (company_id, slug, name) VALUES ($1, 'zeta', 'Zeta') RETURNING id", [fixture.companyId]);
+    const { rows: roles } = await tx.query<{ id: string }>(
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, input_schema, output_schema, done_criteria)
+       VALUES ($1, $2, 'marketer', 'You market.', 'test-model', '{}'::jsonb, '{"type":"object"}'::jsonb, ARRAY['it is done'])
+       RETURNING id`, [fixture.companyId, divisions[0]!.id]);
+    return { divisionId: divisions[0]!.id, roleId: roles[0]!.id };
+  });
+  for (const [divisionId, roleId, note] of [
+    [fixture.divisionId, fixture.roleId, 'the first division noticed the provider is Alpha'],
+    [other.divisionId, other.roleId, 'the second division noticed the client prefers email'],
+  ] as const) {
+    const carrier = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId, roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: `work of ${note}` }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+      companyId: fixture.companyId, projectId: fixture.projectId, taskId: carrier.id, type: 'task.completed', actor: 'agent_run', payload: { note },
+    }));
+  }
+
+  // The model fails for the first division and answers for the second.
+  const llm = new RecordingLlmClient((request) => {
+    if (JSON.stringify(request).includes('first division')) throw new Error('the model fell over');
+    return JSON.stringify({ facts: [{ body: 'The client prefers email.' }] });
+  });
+  const worker = new Worker({
+    engine: new Engine({ broker: new CapabilityBroker(baseRegistry()), llm: new RecordingLlmClient(), handlers: new Map() }),
+    companyId: fixture.companyId,
+    learning: { llm, model: 'test-model' },
+  });
+  const report = await worker.tick();
+  const facts = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ body: string }>(
+    "SELECT body FROM memories WHERE memory_type = 'semantic'")).rows.map((row) => row.body));
+  assert.ok(facts.includes('The client prefers email.'), `the second division was reached (${JSON.stringify(report.errors)})`);
+  assert.equal(report.errors.filter((one) => one.stage === 'learn').length, 1, 'and the first one\'s failure is still said');
+});
+
 test('a tick screens a skill candidate before anyone is asked about it (F15.3)', async () => {
   const { proposeSkillVersion, addEvalCase } = await import('../../src/skills/skills.ts');
   const fixture = await createCompany('worker-screen');
@@ -1309,4 +1369,38 @@ test('a tick hands an escalation to the role its division names', async () => {
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
     'SELECT count(*)::int AS n FROM tasks WHERE role_id = $1', [leadId]));
   assert.equal(rows[0]!.n, 1);
+});
+
+/**
+ * The tick is what makes "the company handles it itself" true: the owner
+ * raises a ceiling and does nothing else, and the next look lifts the pause
+ * and goes on with the work it stopped (src/engine/self-heal.ts).
+ */
+test('one tick lifts a pause the owner raised the ceiling past, and goes on with the work it stopped', async () => {
+  const fixture = await createCompany('worker-heals');
+  const now = new Date();
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'halted', { haltReason: 'budget_exhausted' });
+  // The month's money is spent to its ceiling: the look pauses the company.
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO spend_limits (company_id, money_max_cents) VALUES ($1, 20000)
+     ON CONFLICT (company_id) DO UPDATE SET money_max_cents = 20000`, [fixture.companyId]));
+  const spent = await newTask(fixture);
+  await seedTrace(fixture, spent.id, 20_000, now);
+  const worker = workerFor(fixture, async () => ({ done: true }));
+
+  // Paused, and the ceiling not touched: it stays stopped, however often it is looked at.
+  const first = await worker.tick(now);
+  assert.deepEqual(first.errors, []);
+  assert.equal(first.resumed, 0);
+  assert.equal(await isSpendPaused(fixture.companyId), true);
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'halted');
+
+  // The owner's one act. Nothing is pressed after it.
+  await withControlPlane((tx) => tx.query('UPDATE spend_limits SET money_max_cents = 50000 WHERE company_id = $1', [fixture.companyId]));
+  const second = await worker.tick(now);
+  assert.deepEqual(second.errors, []);
+  assert.equal(second.resumed, 1, 'the look lifted the pause and went on with the work in one pass');
+  assert.notEqual((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'halted');
+  assert.equal(madeProgress(second), true, 'and the worker does not sleep before running it');
 });

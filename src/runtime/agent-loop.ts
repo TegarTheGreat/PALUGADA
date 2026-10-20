@@ -17,6 +17,12 @@
  * steps leave the model out of theirs: a fallback model (F13.6) continues the
  * primary's conversation rather than diverging from it.
  *
+ * **A run does not spend itself.** One that goes round in circles is told, and
+ * if it goes on is given no tools and asked to finish (`loop-health.ts`); one
+ * whose conversation outgrows its model writes its work down and carries on
+ * (`compaction.ts`), inside the turn that needs it, so the journal keeps what
+ * was decided and a resumed run is compacted at the same turn in the same way.
+ *
  * **A refusal is an answer, a wait is not.** A tool the broker refuses --
  * not granted, a schema it does not meet, a policy, the owner's no -- comes
  * back to the model as an error it can work around, which is what a person
@@ -25,11 +31,16 @@
  * ends the run, and the engine parks or halts the task as it would for any
  * runtime.
  */
-import { PalugadaError } from '../errors.ts';
+import { isPalugadaError, PalugadaError } from '../errors.ts';
+import { outputFrom } from '../llm/json.ts';
 import { wrapUntrusted } from '../context/builder.ts';
 import { citeStep } from '../engine/done.ts';
 import { renderSystem, renderTask, toWireRequest } from './wire.ts';
 import { toolsForModel } from './tool-names.ts';
+import { loopHealth, withHealthNotice, type LoopMessage } from './loop-health.ts';
+import {
+  applyCompaction, compactConversation, tokensOf, COMPACT_AT_TOKENS, KEEP_TAIL_TOKENS, type Compaction,
+} from './compaction.ts';
 import type { LlmBlock, ToolUsingLlmClient } from '../llm/client.ts';
 import type { RunRequest, RunServices } from './protocol.ts';
 
@@ -37,6 +48,14 @@ import type { RunRequest, RunServices } from './protocol.ts';
 export const MAX_TURNS = 40;
 /** How much of one tool result the model is shown. */
 export const TOOL_RESULT_LIMIT = 20_000;
+/** The newest answers of read-only calls a model is always sent whole. */
+export const RESULTS_SHOWN_WHOLE = 8;
+/** What is left out moves in steps of this many answers, so most of what is sent is the same from turn to turn. */
+const ELISION_STEP = 4;
+/** An answer this short costs less to keep than the line that would replace it. */
+const STUB_FLOOR = 600;
+/** The model is told which turn it is on in its last this many. */
+const LATE_TURNS = 5;
 
 /**
  * How much one turn may write, and how far that grows.
@@ -72,38 +91,133 @@ const ENDS_THE_RUN: ReadonlySet<string> = new Set([
   'capability.verify_failed', 'run.limit',
 ]);
 
+/**
+ * Whether what a tool call threw ends the run. A paused role is one of those
+ * when it is the run's own; work handed to another role that is paused is
+ * the run's to hear about, so it can hand the work elsewhere (tasks.ts,
+ * assertDelegateIsNotFrozen).
+ */
+function endsTheRun(error: unknown): boolean {
+  return error instanceof PalugadaError && ENDS_THE_RUN.has(error.code) && error.details.delegated !== true;
+}
+
 function bounded(text: string): string {
   if (text.length <= TOOL_RESULT_LIMIT) return text;
   return `${text.slice(0, TOOL_RESULT_LIMIT)}\n... [cut short: the result was ${text.length} characters]`;
 }
 
+export { outputFrom } from '../llm/json.ts';
+
+type Message = LoopMessage;
+
+/** The platform's own line after a call's answer, which names the step: no page can say it, because it follows the fence. */
+const STEP_LINE = /This call is step:(\d+) of your task; evidence may cite it as step:\1\.\s*$/;
+
 /**
- * The output in the model's last word: a JSON object, perhaps in a fence.
+ * The conversation as a model is sent it: the answers of old read-only calls
+ * are a line each.
  *
- * Null when there is none, so the loop can ask once more rather than fail a
- * task over a model that wrote a sentence before its answer.
+ * Every turn used to be sent the whole conversation, so a run that read a
+ * page on each of thirty turns paid for every page thirty times. The oldest
+ * answers (all but the newest eight to eleven) of calls that only read, and
+ * that ran to more than a few hundred characters, become a line that says
+ * which step they were and how long, so a done-report that cites the step
+ * still verifies against the journal, and that the call can be made again.
+ * What a model wrote, what a write answered, a refusal and a short answer are
+ * never touched, and every call keeps an answer.
+ *
+ * The result depends on the conversation alone -- no clock, no counts of
+ * tokens -- and the conversation is rebuilt from the journal on every resume,
+ * so a run that was stopped and went on is sent the same answers left out and
+ * the same turn notices as one that was not (the journal keeps an object's
+ * keys in its own order, which may differ from the live call's). What is left
+ * out moves in steps, so a provider that caches a prompt's start finds most
+ * of it unchanged from one turn to the next.
  */
-export function outputFrom(text: string): Record<string, unknown> | null {
-  const candidates = [text.trim()];
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  if (fenced) candidates.push(fenced[1]!.trim());
-  const first = text.indexOf('{');
-  const last = text.lastIndexOf('}');
-  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
-  for (const candidate of candidates) {
-    try {
-      const value: unknown = JSON.parse(candidate);
-      if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-    } catch {
-      // The next candidate.
-    }
+export function elideOldResults(messages: readonly Message[], readers: ReadonlySet<string>): Message[] {
+  let answers = 0;
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) if (block.type === 'tool_result') answers += 1;
   }
-  return null;
+  // What the model has just been given is whole, however many calls the turn
+  // made: those answers are in the conversation's last message, and it has not
+  // read them yet.
+  const last = messages.at(-1);
+  const latest = last && Array.isArray(last.content) ? last.content.filter((block) => block.type === 'tool_result').length : 0;
+  const hidden = answers <= RESULTS_SHOWN_WHOLE ? 0
+    : Math.min(Math.floor((answers - RESULTS_SHOWN_WHOLE) / ELISION_STEP) * ELISION_STEP, answers - latest);
+  if (hidden <= 0) return [...messages];
+
+  // An answer is paired with the call before it: a server that sends no ids
+  // gets `call_0` for the first call of every reply, and the last call to have
+  // used an id is not the one an old answer belongs to.
+  const called = new Map<string, string>();
+  let ordinal = 0;
+  return messages.map((message) => {
+    if (!Array.isArray(message.content)) return message;
+    let changed = false;
+    const content = message.content.map((block): LlmBlock => {
+      if (block.type === 'tool_use') called.set(block.id, block.name);
+      if (block.type !== 'tool_result') return block;
+      const mine = ordinal;
+      ordinal += 1;
+      const tool = called.get(block.toolUseId);
+      if (mine >= hidden || block.isError || tool === undefined || !readers.has(tool) || block.content.length <= STUB_FLOOR) return block;
+      changed = true;
+      const step = STEP_LINE.exec(block.content)?.[1];
+      return {
+        ...block,
+        content: `[The result of ${step ? `step:${step}` : 'an earlier call'} (${tool}) ran to ${block.content.length} characters and is left out to save room. `
+          + `${step ? `The journal keeps it, and step:${step} still cites it. ` : ''}Call ${tool} again if you need it.]`,
+      };
+    });
+    return changed ? { ...message, content } : message;
+  });
+}
+
+/**
+ * In its last few turns the model is told which turn it is on.
+ *
+ * A run that has not returned its output by the last turn fails, and used to
+ * fail without the model having been told there was a last turn. Told only at
+ * the end, so a run that finishes early is sent nothing it did not need and
+ * the message before the new one stays as it was.
+ */
+export function withTurnNotice(messages: readonly Message[], turn: number, max = MAX_TURNS): readonly Message[] {
+  const left = max - turn - 1;
+  const last = messages.at(-1);
+  if (left >= LATE_TURNS || !last || last.role !== 'user') return messages;
+  const note = left > 0
+    ? `This is turn ${turn + 1} of ${max}. ${left} ${left === 1 ? 'turn remains' : 'turns remain'} after it. If the work is not finished, `
+      + `plan to reply by turn ${max} with the task's output as a single JSON object, saying plainly what is done and what is not.`
+    : `This is turn ${max} of ${max}, your last. Reply now with the task's output as a single JSON object, `
+      + 'saying plainly what is done and what is not. A tool call now ends the task unfinished.';
+  const content = typeof last.content === 'string'
+    ? `${last.content}\n\n${note}`
+    : [...last.content, { type: 'text' as const, text: note }];
+  return [...messages.slice(0, -1), { role: 'user', content }];
+}
+
+/** Said once in the system prompt, where it does not change from turn to turn and so does not break a cached start. */
+function turnBudgetNote(max: number): string {
+  return `## Your turns\n\nYou have at most ${max} turns on this task, counting those of earlier runs of it. A turn is one reply `
+    + `of yours, whether or not it calls tools; the tools' answers come back with the next turn. A task that has not returned `
+    + `its output by turn ${max} fails. As the conversation grows, the answers of older read-only tools are replaced by a line `
+    + 'that names their step and size: say in your own words, as you go, what you will need of them, and call the tool again '
+    + 'if you need the text itself.';
 }
 
 interface RecordedTurn {
   content: LlmBlock[];
   stopReason: string;
+  /**
+   * The work written down in the course of this turn, when the conversation
+   * had outgrown what the model reads. Kept with the turn, so a run rebuilt
+   * from the journal is compacted at the same turn in the same way and the
+   * model is not asked to write it a second time (compaction.ts).
+   */
+  compacted?: Compaction;
 }
 
 export async function runAgentLoop(
@@ -112,9 +226,13 @@ export async function runAgentLoop(
   client: ToolUsingLlmClient,
 ): Promise<Record<string, unknown>> {
   const wire = toWireRequest(request);
-  const system = renderSystem(wire);
+  const system = `${renderSystem(wire)}\n\n${turnBudgetNote(MAX_TURNS)}`;
   const { tools, platformName } = toolsForModel(request.allowedTools);
-  const messages: Array<{ role: 'user' | 'assistant'; content: string | LlmBlock[] }> = [
+  // The tools that only read: the ones whose old answers may be left out, because asking again is safe.
+  const tierOf = new Map(request.allowedTools.map((tool) => [tool.name, tool.tier]));
+  const readers = new Set([...platformName].filter(([, platform]) => tierOf.get(platform) === 0).map(([model]) => model));
+  // Replaced, not added to, when the work so far is written down.
+  let messages: Message[] = [
     { role: 'user', content: renderTask(wire) },
   ];
   const model = request.modelRouting.primary;
@@ -122,44 +240,119 @@ export async function runAgentLoop(
   let allowance = Math.min(TURN_ALLOWANCE, Math.max(1_024, request.limits.tokens));
   const ceiling = Math.max(allowance, Math.min(TURN_ALLOWANCE_CEILING, request.limits.tokens));
 
-  for (let turn = 0; turn < MAX_TURNS; turn += 1) {
-    if (services.signal.aborted) throw services.signal.reason ?? new Error('the run was stopped');
-    // Whether the model wrote this turn now, or the journal replayed it.
-    let fresh = false;
-    const recorded = await services.step<RecordedTurn>(`model:turn ${turn + 1}`, 'llm', { turn }, async () => {
-      fresh = true;
-      // Asked here, inside the step, so a turn replayed from the journal --
-      // which calls nothing -- is never refused for want of money: a task the
-      // owner continued after raising its ceiling replays its turns for free.
-      let room = allowance;
+  /**
+   * The work so far, written down by the model itself (compaction.ts). A call
+   * like any other: charged to the run, and traced. Not asked when the budget
+   * could not pay for it, which is the list of calls instead.
+   */
+  const writeDown = (conversation: readonly Message[], tailTokens: number) => compactConversation(conversation, {
+    tailTokens,
+    ask: async (summarySystem, prompt, maxTokens) => {
       if (services.tokensLeft) {
         const left = await services.tokensLeft();
-        const sending = Math.ceil(JSON.stringify({ system, messages, tools }).length / 4);
-        if (left - sending < LEAST_ROOM) {
-          throw new PalugadaError('budget.exceeded',
-            `the budget has ${left} tokens left, and this turn would send about ${sending} before the model wrote ` +
-              `anything: raise the account's ceiling to go on`,
-            { tokensLeft: left, sending });
-        }
-        room = Math.min(allowance, left - sending);
+        if (left - Math.ceil((summarySystem.length + prompt.length) / 4) < maxTokens + LEAST_ROOM) return null;
       }
+      const asked: Message[] = [{ role: 'user', content: prompt }];
       const started = Date.now();
-      const reply = await client.turn(
-        { model, system, messages, tools, maxTokens: room },
-        services.signal,
-      );
-      // Charged before the turn is kept: the engine throws when the budget
-      // will not cover it, and a turn the budget refused is not one the run
-      // may build on.
+      const reply = await client.turn({ model, system: summarySystem, messages: asked, tools: [], maxTokens }, services.signal);
       await services.reportUsage({
         model: reply.model ?? model,
         inputTokens: reply.inputTokens,
         outputTokens: reply.outputTokens,
         costCents: reply.costCents,
         latencyMs: Date.now() - started,
-        prompt: { system, messages },
+        prompt: { system: summarySystem, messages: asked },
         response: { content: reply.content },
       });
+      if (reply.stopReason === 'refusal') return null;
+      return reply.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n');
+    },
+    // What ends a run ends it here too; anything else about the writing is a reason to list the calls instead.
+    endsTheRun: (error) => services.signal.aborted || endsTheRun(error),
+  });
+
+  for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+    if (services.signal.aborted) throw services.signal.reason ?? new Error('the run was stopped');
+    // Whether the run is going round in circles, from the conversation alone
+    // (loop-health.ts): what a run rebuilt from the journal is told is what an
+    // uninterrupted one was.
+    const health = loopHealth(messages);
+    // Whether the model wrote this turn now, or the journal replayed it.
+    let fresh = false;
+    const recorded = await services.step<RecordedTurn>(`model:turn ${turn + 1}`, 'llm', { turn }, async () => {
+      fresh = true;
+      // What the model is sent: the conversation with its oldest reads left
+      // out, the turn's number when few remain, and a word when the run is
+      // going round in circles. The conversation itself, the journal and the
+      // step a turn is kept under are not changed.
+      let view: readonly Message[] = messages;
+      const prepare = () => withHealthNotice(withTurnNotice(elideOldResults(view, readers), turn), health);
+      // A run that was told it was going round in circles and went on is
+      // given no tools: it can only finish, and say what stopped it.
+      const offered = health.state === 'wrap-up' ? [] : tools;
+      let sent = prepare();
+      let compacted: Compaction | null = null;
+
+      // Written down before the provider has to refuse it, once the model
+      // would be sent more than it should be asked to read.
+      if (tokensOf({ system, messages: sent, tools: offered }) > COMPACT_AT_TOKENS) {
+        compacted = await writeDown(messages, KEEP_TAIL_TOKENS);
+        if (compacted) { view = applyCompaction(messages, compacted); sent = prepare(); }
+      }
+
+      // One ask of the model. Money is checked here, inside the step, so a
+      // turn replayed from the journal -- which calls nothing -- is never
+      // refused for want of it: a task the owner continued after raising its
+      // ceiling replays its turns for free. The answer is charged before the
+      // turn is kept: the engine throws when the budget will not cover it,
+      // and a turn the budget refused is not one the run may build on.
+      const ask = async () => {
+        let room = allowance;
+        if (services.tokensLeft) {
+          const left = await services.tokensLeft();
+          const sending = tokensOf({ system, messages: sent, tools: offered });
+          if (left - sending < LEAST_ROOM) {
+            throw new PalugadaError('budget.exceeded',
+              `the budget has ${left} tokens left, and this turn would send about ${sending} before the model wrote ` +
+                `anything: raise the account's ceiling to go on`,
+              { tokensLeft: left, sending });
+          }
+          room = Math.min(allowance, left - sending);
+        }
+        const started = Date.now();
+        const reply = await client.turn(
+          { model, system, messages: [...sent], tools: offered, maxTokens: room },
+          services.signal,
+        );
+        await services.reportUsage({
+          model: reply.model ?? model,
+          inputTokens: reply.inputTokens,
+          outputTokens: reply.outputTokens,
+          costCents: reply.costCents,
+          latencyMs: Date.now() - started,
+          prompt: { system, messages: sent },
+          response: { content: reply.content },
+        });
+        return { reply, room };
+      };
+
+      let answered: Awaited<ReturnType<typeof ask>>;
+      try {
+        answered = await ask();
+      } catch (failure) {
+        // The provider reads less than was thought, as a small model does:
+        // the work is written down, with a smaller share kept whole, and the
+        // turn asked again. Said twice, it is said: the task fails once, with
+        // the reason, because asking again would send the same.
+        if (compacted || !isPalugadaError(failure, 'model.context_too_long')) throw failure;
+        const share = Math.max(1_000, Math.min(KEEP_TAIL_TOKENS, Math.floor(tokensOf({ system, messages: sent, tools: offered }) / 4)));
+        compacted = await writeDown(messages, share);
+        if (!compacted) throw failure;
+        view = applyCompaction(messages, compacted);
+        sent = prepare();
+        answered = await ask();
+      }
+      const { reply, room } = answered;
       // Thrown inside the step, so the step is not committed: the next
       // attempt asks the model again. Returned, it would be journalled, and
       // every retry would replay the same silence without asking anyone.
@@ -170,8 +363,10 @@ export async function runAgentLoop(
             + 'that answers within it',
         );
       }
-      return { content: reply.content, stopReason: reply.stopReason };
+      return { content: reply.content, stopReason: reply.stopReason, ...(compacted ? { compacted } : {}) };
     });
+    // The conversation the reply was written to is the compacted one.
+    if (recorded.compacted) messages = applyCompaction(messages, recorded.compacted);
 
     // A turn that said nothing and called nothing is not one to build on: a
     // provider refuses a conversation holding an empty assistant turn, and
@@ -202,6 +397,15 @@ export async function runAgentLoop(
     const calls = recorded.content.filter((block): block is Extract<LlmBlock, { type: 'tool_use' }> =>
       block.type === 'tool_use');
     if (calls.length > 0) {
+      // Asked to finish, with no tools, and it called one. Not run: the model
+      // was told what was left to it. Not tried again either (the journal
+      // would give the same turn): the owner reads why, and decides.
+      if (health.state === 'wrap-up') {
+        throw new PalugadaError('run.stuck',
+          `the model was going round in circles (${health.stuck.pattern}: ${health.stuck.tool}, ${health.stuck.times} times), `
+            + `was told so and asked to finish, and called ${calls[0]!.name} again instead of finishing`,
+          { pattern: health.stuck.pattern, tool: health.stuck.tool, times: health.stuck.times });
+      }
       const results: LlmBlock[] = [];
       for (const call of calls) {
         results.push(await answer(call, platformName, services));
@@ -258,7 +462,7 @@ async function answer(
     };
   } catch (error) {
     if (services.signal.aborted) throw error;
-    if (error instanceof PalugadaError && ENDS_THE_RUN.has(error.code)) throw error;
+    if (endsTheRun(error)) throw error;
     const code = error instanceof PalugadaError ? `${error.code}: ` : '';
     return {
       type: 'tool_result', toolUseId: call.id, isError: true,

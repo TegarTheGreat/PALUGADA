@@ -113,6 +113,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Pakaryan kendel: token akun {account} sampun telas',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” kendel amargi akun {account} sampun ngginakaken {spent} saking {max} token. Inggahaken watesipun ing Arta, lajeng bikak tugas punika lan pencet Lajengaken: tugas nglajengaken saking papan kendelipun.',
   'Withdrawn: you continued the task it was about.': 'Dipunwangsulaken: panjenengan sampun nglajengaken tugas ingkang dipunrembag.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Dipunwangsulaken: anggaran sampun gadhah papan malih, lan pakaryan kalajengaken piyambak.',
   'Broke its contract': 'Nerak kontrakipun',
   'Refused by a policy': 'Dipuntolak kawicaksanan',
   'Out of budget': 'Anggaran telas',
@@ -329,6 +330,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Ingkang punika dipuntampik, lan tetep mati:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Setujoni kangge ngurupaken sedaya, utawi Tolak kangge nampik sedaya. Kangge mutusaken setunggal-setunggal, bikak kaca Kaprigelan.',
   'Nothing changes; none of these skills is switched on.': 'Mboten wonten ingkang ewah; mboten wonten kaprigelan punika ingkang dipunurupaken.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Kula {ceo}, ingkang nglampahaken {company} kagem panjenengan. Kula sampun mangertos perusahaan menika kangge menapa: “{mission}” Kalih prekawis rumiyin saderengipun kita wiwit: pinten wragad ingkang kenging dipunginakaken ing sawulan? Lan punapa pakaryanipun ingkang sepisanan — utawi kula ingkang ngaturaken usul, kalihan tim ingkang dipunbetahaken?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Kula {ceo}, ingkang nglampahaken {company} kagem panjenengan. Tigang prekawis rumiyin saderengipun kita wiwit: {company} sade punapa, saha dhateng sinten? Pinten wragad ingkang kenging dipunginakaken ing sawulan? Lan punapa pakaryanipun ingkang sepisanan — utawi kula ingkang ngaturaken usul?',
   'Read a customer conversation': 'Waos obrolan pelanggan',
   'Reply to a customer': 'Wangsuli pelanggan',
@@ -353,4 +356,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} kanthi target {target}, dilaporaken lan dereng dipriksa.',
   'Look at it again later': 'Dipirsani malih mangke',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Ngirimaké apa sing didol perusahaan iki kanthi pasti lan tanpa gawé kaget sing nduwé.",
+  "Ship the work the company has promised, on time and verified.":
+    "Ngrampungaké gawéan sing wis dijanjèkaké perusahaan, pas wektuné lan wis dipriksa.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Njaga kauangané perusahaan tetep sehat, bisa dipertanggungjawabaké, lan mlaku tanpa kudu dipantau saben dina.",
+  "Since we last spoke:":
+    "Wiwit rembugan pungkasan:",
+  "More finished: {count}":
+    "Liyané wis rampung: {count}",
+  "Waiting for you: {count}":
+    "Ngenteni panjenengan: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Punika kaping tiga ing sedinten, dados boten lajeng piyambak.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Faktur {number} butuh sampeyan: {customer} durung mbayar',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} isih nanggung {amount} ing faktur {number}, tenggat {due}, sawise pangeling pungkasan. Platform wis mandheg nulis marang dheweke. Sabanjure iku urusan sampeyan: telpon, surat pungkasan, utawa dilereni.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Faktur {number} ({amount}, {customer}) wis telat wiwit {due}, lan durung tau ana pangeling sing dikirim, dadi platform ora ngirim layang baku ing wektu semene telate. Tindak lanjuti dhewe, utawa kandhani CEO apa sing dikarepake.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Faktur {number} ({amount}, {customer}) wis telat wiwit {due}, lan ora ana alamat email kanggo ngirim pangeling. Tambahna ing data pelanggan, utawa tindak lanjuti dhewe.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Durung ana sing ditugasi ngelingake pelanggan bab faktur sing telat',
+  'Reminded the customers of: {invoices}.':
+    'Pelanggan diélingaké bab: {invoices}.',
+  'No reminder was due.':
+    'Ora ana pangeling sing kudu dikirim.',
+  'Remind a customer about an invoice':
+    'Ngelingake pelanggan bab faktur',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Sawetara faktur wis liwat tenggat, lan ora ana peran sing bisa ngirim pangeling. Urupna pangeling otomatis ing Pembukuan, Faktur: perusahaan banjur ngirim ing dina sing sampeyan netepake.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Pangeling kanggo faktur sing telat mbutuhake kothak layang kanggo ngirim. Wenehana kothak layang divisi iki.',
+  'Remind the customers whose invoices are overdue':
+    'Ngelingake pelanggan sing fakture telat',
+  'each customer whose next reminder is due has been written to once':
+    'saben pelanggan sing pangeling sabanjure wis wayahe wis dikirimi sapisan',
+  'Reminder for invoice {number} not confirmed':
+    'Pangéling-éling kanggo invoice {number} durung dikonfirmasi',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Server email ora ngonfirmasi pangéling-éling {step} saka {of} kanggo invoice {number} marang {customer} ({to}), sing dipasrahaké tanggal {day}. Bisa uga wis tekan, bisa uga durung. Platform ora bakal ngirim manèh: yèn {customer} kandha ora nampa, kirimen dhéwé, utawa kandhani CEO.',
+  'Your CEO proposes hiring: {role}':
+    'CEO panjenengan ngusulaké nyewa: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Nyewa iku keputusan panjenengan. Sewa bareng CEO kanthi sakecap, utawa tutup tikèté yèn perusahaan ora butuh.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Ditarik: tikèt sing dirembug wis ditutup.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Faktur {number} ({amount}, {customer}) wis telat wiwit {due}, lan diterbitake tanpa alamat email kanggo ngirim pangeling. Tindak lanjuti dhewe, utawa kandhani CEO apa sing dikarepake.',
 };

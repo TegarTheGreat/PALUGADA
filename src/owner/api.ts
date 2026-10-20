@@ -48,7 +48,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { PalugadaError } from '../errors.ts';
+import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -72,6 +72,7 @@ import { VERSION } from '../version.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
+  evaluateSpendLimit,
   limitFor,
   overrideSpendPause,
   periodSpend,
@@ -95,6 +96,7 @@ import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
+import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
@@ -111,14 +113,18 @@ import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
 import {
-  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
+  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, receivedFileRemoved, setAnswersAlone,
 } from '../chats/chats.ts';
 import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
+import { invoiceHtml } from '../records/invoice-document.ts';
+import { holdInvoice, isHeld, policyOf, remindersOf, remindingOf, sameNote, sendersOf, setPolicy } from '../records/collections.ts';
+import { giveReminders } from '../governance/collections.ts';
 import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
 import {
   addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
 } from '../records/contacts.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
+import { base64Bytes, keepAnswerFiles } from '../chats/attachments.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
@@ -139,6 +145,10 @@ import { history as configHistory, type ConfigKind } from '../governance/config-
 import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
 import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
+import {
+  DOWNLOAD_MAX_BYTES, UPLOAD_FOLDER, UPLOAD_MAX_BYTES, companyRoot, keepCompanyFile, listCompanyDirectory, mimeOf, plainFileName, readCompanyFile,
+  removeCompanyFile,
+} from '../capabilities/files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
@@ -173,8 +183,10 @@ import { keysAskedFor } from '../broker/keys.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
-import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type PriceTable } from '../engine/pricing.ts';
-import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
+import { DEFAULT_PRICE_TABLE, parsePriceTable, type PriceTable } from '../engine/pricing.ts';
+import { CATALOGUE_SETTING, PriceBook } from '../engine/price-book.ts';
+import { clearCatalogueCache } from '../engine/models-dev.ts';
+import { keptInSettings, modelsInUse, syncPrices } from '../engine/price-sync.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import { DEFAULT_QUESTION, describePicture, pictureKind, VISION_PROVIDERS, visionProvider, type Picture, type VisionProvider } from '../capabilities/vision.ts';
@@ -183,6 +195,7 @@ import {
   ceoOpensConversation, chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
 } from './assistant.ts';
+import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
@@ -195,7 +208,6 @@ import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProf
 import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
-import { checkedStepUp, setStepUpMinutes, STEP_UP_CHOICES, stepUpMinutes, withinWindow } from './step-up.ts';
 import { OwnerClaims } from './claim.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
@@ -238,7 +250,7 @@ import {
   databaseNow,
   summarise,
 } from './views.ts';
-import type { Browsers, OwnerInput } from '../browser/browsers.ts';
+import { PRINT_MAX_BYTES, type Browsers, type OwnerInput } from '../browser/browsers.ts';
 import { giveBack, holdOf, takeOver, touchHold } from '../browser/holds.ts';
 
 export interface OwnerApiOptions {
@@ -283,6 +295,12 @@ export interface OwnerApiOptions {
    */
   prices?: PriceTable;
   /**
+   * The deployment's live prices: the same book its model client and its
+   * engine price calls by, so that a price saved or read here is the next
+   * call's. Absent, the console keeps a book of its own from `prices`.
+   */
+  priceBook?: PriceBook;
+  /**
    * The handlers F11.4's replay re-runs (F5.9).
    *
    * The deployment's own, not a copy: a replay of a handler nobody runs is a
@@ -309,6 +327,12 @@ export interface OwnerApiOptions {
    * nobody running the company from a phone will ever read.
    */
   deploymentNotes?: readonly string[];
+  /**
+   * Where the companies' files are kept (`PALUGADA_FILES_ROOT`): the folder the
+   * owner hands files into and takes them out of. Absent, the console says this
+   * deployment keeps none.
+   */
+  files?: { root: string };
   /**
    * The runtimes this deployment employs (F13.1), so the owner can see which
    * answer and move a role onto one. Absent means none can be chosen: a role
@@ -467,13 +491,23 @@ interface Route {
   handle: Handler;
 }
 
+/**
+ * The deployment's settings without what the platform learned by itself: the
+ * prices it read from the catalogue are kept there and change every day, and
+ * are not something the owner saved and this process has not yet taken up.
+ */
+function withoutKept(settings: Settings): Settings {
+  const { [CATALOGUE_SETTING]: _kept, ...rest } = settings;
+  return rest;
+}
+
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
   /**
-   * The owner's session behind the request being handled, for the window a
-   * recent code opens (0120): `#requireFactor` is called from seventy places
-   * that were each written without a session in hand.
+   * The owner's session behind the request being handled, so `#requireFactor`
+   * can ask whether it was opened with a device: it is called from seventy
+   * places that were each written without a session in hand.
    */
   readonly #acting = new AsyncLocalStorage<OwnerSession | null>();
   readonly #claims: OwnerClaims;
@@ -487,13 +521,23 @@ export class OwnerApi {
   #allowedHosts: ReadonlySet<string> | null = null;
   /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
   readonly #answering = new Set<ServerResponse>();
+  /** The invoice pages being drawn, by company and file, so two presses of one button draw one page. */
+  readonly #drawing = new Map<string, Promise<{ path: string }>>();
   /** Set by `drain()`: readiness says 503, and every answer lets its connection go. */
   #draining = false;
   /** Whether anything has asked `/api/ready`: only then is there a balancer to wait for. */
   #readinessAsked = false;
+  /** What each model costs, by layer: the owner's, the operator's, the catalogue's (price-book.ts). */
+  readonly #book: PriceBook;
 
   constructor(options: OwnerApiOptions) {
     this.#options = options;
+    this.#book = options.priceBook ?? new PriceBook(options.prices ?? DEFAULT_PRICE_TABLE, {
+      owner: async () => (options.deploymentSettings
+        ? withSettings(options.deploymentSettings.baseEnv, await readSettings()).PALUGADA_MODEL_PRICE_SETTINGS
+        : undefined),
+      catalogue: keptInSettings.read,
+    });
     this.#sessions = options.sessions ?? new OwnerSessions({ mfa: options.mfa });
     // The first owner's claim seals their secret with the deployment's master
     // key; built without console settings, there is none, and a claim says so.
@@ -770,16 +814,7 @@ export class OwnerApi {
         // Who is signed in: the owner, or a staff seat and what it may do (0110).
         method: 'GET',
         pattern: '/api/me',
-        handle: async ({ staff, session }) => {
-          if (staff) return { owner: false, staff: staffOf(staff) };
-          const minutes = await stepUpMinutes();
-          const until = session?.provedAt && minutes > 0 ? new Date(session.provedAt.getTime() + minutes * 60_000) : null;
-          return {
-            owner: true, staff: null,
-            // Until when a code just shown covers what builds the company (0120); null when none does. A seat has none.
-            stepUp: { minutes, until: until && until.getTime() > Date.now() ? until.toISOString() : null },
-          };
-        },
+        handle: async ({ staff }) => (staff ? { owner: false, staff: staffOf(staff) } : { owner: true, staff: null }),
       },
 
       {
@@ -870,8 +905,20 @@ export class OwnerApi {
           // left them unset and the deployment's agent language was English.
           const workLanguage = body.workLanguage === undefined ? undefined : languageCode(body.workLanguage, 'workLanguage');
           const talkLanguage = body.talkLanguage === undefined ? undefined : languageCode(body.talkLanguage, 'talkLanguage');
-          await this.#requireFactor(body.proof, 'start a company', null, WITHIN_THE_WINDOW);
-          const templateSlug = requireText(body.templateSlug, 'templateSlug');
+          // What the company is for, in the owner's own words: checked here,
+          // before the factor is spent, like the rest. Blank is no mission and
+          // leaves the default.
+          if (body.mission !== undefined && body.mission !== null && typeof body.mission !== 'string') {
+            throw new PalugadaError('contract.violation', 'mission is what the company is for, in a sentence or two', { field: 'mission' });
+          }
+          const mission = typeof body.mission === 'string' ? body.mission.trim() : '';
+          if (mission.length > MISSION_MAX) {
+            throw new PalugadaError('contract.violation', `the mission is at most ${MISSION_MAX} characters`, { field: 'mission' });
+          }
+          await this.#requireFactor(body.proof, 'start a company', null);
+          // A company starts with its CEO and builds the team as it needs it
+          // (founding.ts); a template is named only by an operator who has stored one.
+          const templateSlug = body.templateSlug === undefined ? FOUNDING_TEMPLATE_SLUG : requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
           // arriving as a plain `Error` the caller reads as a broken console.
           if (!(await readTemplate(templateSlug))) {
@@ -879,6 +926,14 @@ export class OwnerApi {
               'contract.violation', `no company template named ${templateSlug}`, { templateSlug },
             );
           }
+          const panel = (await deploymentLanguages()).console;
+          const owners = panel && isLanguageCode(panel) ? panel : null;
+          const work = workLanguage ?? owners;
+          const talk = talkLanguage ?? owners;
+          // Whether the owner's sentence became the mission: a template that
+          // states its own mission has no place for it, and the CEO must not
+          // then say it knows what the company is for.
+          const taken: { mission: string | null } = { mission: null };
           const created = await createCompanyFromTemplate({
             templateSlug,
             companySlug: requireText(body.companySlug, 'companySlug'),
@@ -886,11 +941,15 @@ export class OwnerApi {
             ...(body.timezone === undefined
               ? {}
               : { timezone: requireText(body.timezone, 'timezone') }),
+            // Its mission and objectives are what the owner reads first, so
+            // they are said in the language the company talks in -- or are the
+            // owner's own words, when they gave them for the mission.
+            words: (statement) => {
+              if (!mission || statement !== DEFAULT_MISSION) return say(talk, statement);
+              taken.mission = mission;
+              return mission;
+            },
           });
-          const panel = (await deploymentLanguages()).console;
-          const owners = panel && isLanguageCode(panel) ? panel : null;
-          const work = workLanguage ?? owners;
-          const talk = talkLanguage ?? owners;
           if (work || talk) await setCompanyLanguages(created.companyId, { work, talk });
           // One factor covers the company and what it starts with: installing
           // a bundle is the same structural change F2.9 already approved here.
@@ -898,8 +957,8 @@ export class OwnerApi {
             await installBundle({ companyId: created.companyId, slug: bundle.slug, version: bundle.version });
           }
           // Its first hour (first-hour.ts): the CEO asks what it needs to
-          // know before the owner has said anything.
-          await ceoOpensConversation(created.companyId);
+          // know before the owner has said anything more than what it is for.
+          await ceoOpensConversation(created.companyId, taken.mission);
           return {
             companyId: created.companyId,
             divisions: Object.keys(created.divisionIds),
@@ -914,8 +973,14 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox',
         // `?snoozed=1` lists the items the owner put off instead (0060).
-        handle: async ({ params, query }) => ({
-          items: await inbox.listOpen(params.companyId!, { snoozed: query.get('snoozed') === '1' }),
+        // A seat is not shown a question put to someone else; `?mine=1`
+        // narrows it to the questions put to the seat itself.
+        handle: async ({ params, query, staff }) => ({
+          items: await inbox.listOpen(params.companyId!, {
+            snoozed: query.get('snoozed') === '1',
+            seat: staff ? { id: staff.seat.id } : null,
+            mine: query.get('mine') === '1',
+          }),
         }),
       },
 
@@ -932,10 +997,11 @@ export class OwnerApi {
         // waiting; this is what the owner said, and what closed without them.
         method: 'GET',
         pattern: '/api/companies/:companyId/decisions',
-        handle: async ({ params, query }) => inbox.history(params.companyId!, {
+        handle: async ({ params, query, staff }) => inbox.history(params.companyId!, {
           query: query.get('q'),
           before: query.get('before'),
           limit: query.get('limit') === null ? 25 : wholeNumber(query.get('limit'), 'limit'),
+          seat: staff ? { id: staff.seat.id } : null,
         }),
       },
 
@@ -1035,7 +1101,7 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/staff',
         handle: async ({ params, body }) => {
           const request = seatRequest(body);
-          await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!);
+          await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!, true);
           return this.#staff.create(params.companyId!, request);
         },
       },
@@ -1280,9 +1346,12 @@ export class OwnerApi {
             String(body.note ?? ''),
             {
               channel: 'app',
-              // The session is possession of a tab, not of the owner's phone.
-              // Sent for the record; it is never what unlocks tier 3.
+              // Sent for the record; it is never what unlocks tier 3. What
+              // does is a session opened with a device, which `decide` asks
+              // the sessions about, or a proof for a session that was not
+              // (one signed in with a recovery code).
               assurance: 'session',
+              ...(session ? { sessions: this.#sessions, sessionToken: session.token } : {}),
               ...(proof ? { proof } : {}),
               mfa: this.#options.mfa,
               // 0083: `decide` checks it, and asks for the factor it needs.
@@ -1294,7 +1363,6 @@ export class OwnerApi {
               seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
           );
-          void session;
           return { ok: true };
         },
       },
@@ -1365,7 +1433,8 @@ export class OwnerApi {
         // list gives an id, this gives the trace behind it.
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox/:itemId/trace',
-        handle: async ({ params, query }) => {
+        handle: async ({ params, query, staff }) => {
+          if (staff) await inbox.assertSeatMayRead(params.companyId!, params.itemId!, { id: staff.seat.id });
           const trace = await traceFromInboxItem(params.companyId!, params.itemId!, {
             includePrompts: query.get('prompts') === '1',
           });
@@ -1646,6 +1715,10 @@ export class OwnerApi {
             await this.#requireFactor(body.proof, 'raise the spend ceiling', params.companyId!);
           }
           await setSpendLimit(params.companyId!, ceiling);
+          // A ceiling raised past what is spent lifts the month's pause now,
+          // not at the worker's next look, and the work it stopped goes on
+          // with that (src/engine/self-heal.ts).
+          await evaluateSpendLimit(params.companyId!);
           return { ok: true };
         },
       },
@@ -1707,26 +1780,6 @@ export class OwnerApi {
       },
 
       /* ----------------------------------------------------- F9.5, F9.6 --- */
-
-      {
-        // How long a code just shown covers what builds the company (0120).
-        method: 'GET',
-        pattern: '/api/control/step-up',
-        handle: async () => ({ minutes: await stepUpMinutes(), choices: [...STEP_UP_CHOICES] }),
-      },
-
-      {
-        // Raising it loosens, so it takes a code -- which opens the window it
-        // chose; lowering, or turning it off, is the session's to do.
-        method: 'POST',
-        pattern: '/api/control/step-up',
-        handle: async ({ body }) => {
-          const minutes = checkedStepUp(body.minutes);
-          if (minutes > await stepUpMinutes()) await this.#requireFactor(body.proof, 'keep a code valid for longer');
-          await setStepUpMinutes(minutes);
-          return { minutes };
-        },
-      },
 
       {
         method: 'GET',
@@ -1820,12 +1873,14 @@ export class OwnerApi {
             // What each model the tiers name costs, and who said so (L12): the
             // owner here, the operator's file, or nobody -- the fallback,
             // high on purpose, which the console says in as many words.
-            prices: this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : [], stored),
+            prices: await this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : []),
+            // When the catalogue was last read, and what it could not price.
+            priceSync: this.#priceSync(),
             secrets: await secretNames(),
             masterKey: deployment.master(false)?.source ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
             // Saved, and not yet what this process runs on.
-            pending: JSON.stringify(stored) !== JSON.stringify(deployment.settings),
+            pending: JSON.stringify(withoutKept(stored)) !== JSON.stringify(withoutKept(deployment.settings)),
           };
         },
       },
@@ -1887,25 +1942,30 @@ export class OwnerApi {
       },
 
       {
-        // What models.dev says each model the tiers name costs, for the owner
-        // to look at and save (L12). Saves nothing, and sends nothing of the
-        // deployment's: the catalogue is read whole and searched here.
+        // Reads the catalogue now, rather than at its next turn: what the
+        // platform does every day on its own, for an owner who has just changed
+        // a model or wants to see it done. Sends nothing of the deployment's:
+        // the catalogue is read whole and searched here.
         method: 'POST',
-        pattern: '/api/control/settings/model/prices/lookup',
+        pattern: '/api/control/settings/model/prices/sync',
         handle: async () => {
           const deployment = this.#deploymentSettings();
-          const effective = modelSettingsFrom(deployment.env);
-          const models = effective
-            ? [...new Set(MODEL_TIERS.map((tier) => effective.aliases[tier]).filter((model): model is string => Boolean(model)))]
-            : [];
-          if (models.length === 0) return { prices: {}, missing: [], problem: 'no model is set yet' };
-          try {
-            const found = await lookupPrices(models, { url: effective?.url ?? null, provider: effective?.provider ?? null },
-              deployment.baseEnv.PALUGADA_MODELS_DEV_URL ?? MODELS_DEV_URL);
-            return { ...found, problem: null };
-          } catch (failure) {
-            return { prices: {}, missing: models, problem: `models.dev could not be read: ${(failure as Error).message}` };
-          }
+          const live = withSettings(deployment.baseEnv, await readSettings());
+          const models = modelsInUse(live);
+          if (models.length === 0) return { ok: false, problem: 'no model is set yet', prices: await this.#pricesFor([]), priceSync: null };
+          const effective = modelSettingsFrom(live);
+          const source = deployment.baseEnv.PALUGADA_MODELS_DEV_URL;
+          clearCatalogueCache();
+          await syncPrices({
+            models, where: { url: effective?.url ?? null, provider: effective?.provider ?? null },
+            ...(source ? { source } : {}), ...keptInSettings,
+          });
+          await this.#book.refresh();
+          return {
+            ok: true, problem: this.#book.catalogue?.problem ?? null,
+            prices: await this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : []),
+            priceSync: this.#priceSync(),
+          };
         },
       },
 
@@ -1935,6 +1995,8 @@ export class OwnerApi {
           parsePriceTable({ models }, 'these prices');
           await this.#requireFactor(body.proof, 'change what a model costs');
           await writeSetting('model_prices', Object.keys(models).length > 0 ? { models } : null);
+          // Priced by it from the next call, not from the next start.
+          await this.#book.refresh();
           return this.#applySettings();
         },
       },
@@ -2065,7 +2127,7 @@ export class OwnerApi {
           }
           const token = await this.#telegramToken(body);
           await outside(telegramBot(token, this.#botApi()));
-          await this.#requireFactor(body.proof, 'connect Telegram');
+          await this.#requireFactor(body.proof, 'connect Telegram', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           const webhookSecret = randomBytes(24).toString('hex');
@@ -2131,7 +2193,7 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'paste the app secret, from the app\'s Basic settings: it is how a delivery is known to be from Meta', { field: 'appSecret' });
           }
           const number = await outside(whatsappNumber(token, phoneNumberId, this.#whatsappApi()));
-          await this.#requireFactor(body.proof, 'connect WhatsApp');
+          await this.#requireFactor(body.proof, 'connect WhatsApp', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           const verifyToken = (await saved(stored?.verifySecret)) ?? randomBytes(24).toString('hex');
@@ -2174,7 +2236,7 @@ export class OwnerApi {
         handle: async ({ body }) => {
           const deployment = this.#deploymentSettings();
           const { format, url, topic, typed, keep } = await this.#pushCandidate(body);
-          await this.#requireFactor(body.proof, 'set up push notifications');
+          await this.#requireFactor(body.proof, 'set up push notifications', null, true);
           if (typed) {
             const master = deployment.master(true);
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
@@ -2210,7 +2272,7 @@ export class OwnerApi {
           const deployment = this.#deploymentSettings();
           const kind = chatKindNamed(params.kind!);
           const url = await this.#chatWebhook(kind, body);
-          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`);
+          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`, null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           await putSecret(`channel-${kind}`, url, master);
@@ -2242,7 +2304,7 @@ export class OwnerApi {
         handle: async ({ body }) => {
           const deployment = this.#deploymentSettings();
           const candidate = await this.#emailCandidate(body);
-          await this.#requireFactor(body.proof, 'connect email');
+          await this.#requireFactor(body.proof, 'connect email', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           await putSecret('channel-email', candidate.key, master);
@@ -2837,6 +2899,18 @@ export class OwnerApi {
       },
 
       {
+        // The CEO speaks first when the owner comes back and something has
+        // happened since the last word (owner/ceo-briefing.ts). The console
+        // asks as it opens the conversation; most times there is nothing to say.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/conversation/briefing',
+        handle: async ({ params }) => {
+          await speakerOf(params.companyId!);
+          return { spoke: await ceoBriefsOwner(params.companyId!) };
+        },
+      },
+
+      {
         method: 'POST',
         pattern: '/api/companies/:companyId/conversation/messages',
         handle: async ({ request, session, params, body }) => ({
@@ -3159,11 +3233,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/control/languages',
         handle: async ({ body }) => {
-          const change: { console?: string | null; agents?: string } = {};
+          const change: { console?: string | null; agents?: string | null } = {};
           if (body.console !== undefined) {
             change.console = body.console === null ? null : languageCode(body.console, 'console');
           }
-          if (body.agents !== undefined) change.agents = languageCode(body.agents, 'agents');
+          // Null is an answer: the agents follow the panel's language.
+          if (body.agents !== undefined) change.agents = body.agents === null ? null : languageCode(body.agents, 'agents');
           if (Object.keys(change).length === 0) {
             throw new PalugadaError('contract.violation', 'give console, agents, or both', {});
           }
@@ -3454,7 +3529,12 @@ export class OwnerApi {
         raw: true,
         maxBodyBytes: 256 * 1024,
         handle: async ({ params, request, raw }) =>
-          receiveChatHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets),
+          receiveChatHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets, {
+            // A customer's file is kept where a mailed one is, fetched with the channel's own token.
+            ...(this.#options.files ? { files: this.#options.files } : {}),
+            telegram: this.#botApi(),
+            whatsapp: this.#whatsappApi(),
+          }),
       },
 
       {
@@ -3648,10 +3728,68 @@ export class OwnerApi {
           if (status !== null && !(INVOICE_FILTERS as readonly string[]).includes(status)) {
             throw new PalugadaError('contract.violation', `status is ${INVOICE_FILTERS.join(', ')}; got ${JSON.stringify(status)}`, { field: 'status' });
           }
-          const { invoices, outstanding } = await withTenant(params.companyId!, (tx) => listInvoices(tx, params.companyId!, {
-            ...(status ? { status: status as InvoiceFilter } : {}),
-          }));
-          return { invoices, outstanding };
+          const companyId = params.companyId!;
+          return withTenant(companyId, async (tx) => {
+            const { invoices, outstanding } = await listInvoices(tx, companyId, { ...(status ? { status: status as InvoiceFilter } : {}) });
+            // What has been done about each, and who does it (STATUS 2.178).
+            return {
+              invoices, outstanding,
+              reminding: await remindingOf(tx, companyId, invoices.map((invoice) => invoice.id)),
+              collections: { ...(await policyOf(tx, companyId)), senders: await sendersOf(tx, companyId) },
+            };
+          });
+        },
+      },
+
+      {
+        // Reminding customers about overdue invoices (STATUS 2.178): whether
+        // the company does, on which days after the due date, and the owner's
+        // words on how to pay, which the letters carry. Switching it on is
+        // the owner's decision to let the roles that bill customers write
+        // the reminders too (or the CEO, when none does): the tool is theirs
+        // from then on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/collections',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          await this.#knownCompany(companyId);
+          const change: { enabled?: boolean; stepsDays?: unknown; paymentNote?: string | null } = {};
+          if (body.enabled !== undefined) {
+            if (typeof body.enabled !== 'boolean') throw new PalugadaError('contract.violation', 'enabled is true or false', { field: 'enabled' });
+            change.enabled = body.enabled;
+          }
+          if (body.stepsDays !== undefined) change.stepsDays = body.stepsDays;
+          if (body.paymentNote !== undefined) change.paymentNote = body.paymentNote === null ? null : String(body.paymentNote);
+          if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'nothing to change: give enabled, stepsDays or paymentNote', {});
+          // Switching on hires and grants, as /roles and /structure/grant do,
+          // and the note is what every letter tells customers about paying:
+          // both are the owner's with their device. Switching off, or moving
+          // the days, lets nobody do anything new. The console sends the note
+          // back with the days whether or not it was touched, so a note that
+          // reads as the one kept is left out of the change, asks nothing, and
+          // is not written back over one changed meanwhile.
+          if (change.paymentNote !== undefined
+            && sameNote(change.paymentNote, (await withTenant(companyId, (tx) => policyOf(tx, companyId))).paymentNote)) {
+            delete change.paymentNote;
+          }
+          if (change.enabled === true || change.paymentNote !== undefined) {
+            await this.#requireFactor(body.proof, change.enabled === true ? 'let roles remind customers' : 'change what reminders tell customers about paying', companyId);
+          }
+          const policy = await withTenant(companyId, (tx) => setPolicy(tx, companyId, change));
+          const given = change.enabled === true ? await giveReminders(companyId) : { given: [], full: [], ungranted: [], unavailable: [] };
+          return { ...policy, ...given, senders: await withTenant(companyId, (tx) => sendersOf(tx, companyId)) };
+        },
+      },
+
+      {
+        // The owner asks that one invoice be left out of the reminders, or
+        // put back: a customer who is slow for a reason the books do not know.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/reminders',
+        handle: async ({ params, body }) => {
+          if (typeof body.held !== 'boolean') throw new PalugadaError('contract.violation', 'held is true to leave the invoice alone, false to remind about it again', { field: 'held' });
+          await withTenant(params.companyId!, (tx) => holdInvoice(tx, params.companyId!, params.invoiceId!, body.held as boolean));
+          return { held: body.held };
         },
       },
 
@@ -3660,9 +3798,16 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/invoices/:invoiceId',
         handle: async ({ params }) => {
-          const found = await withTenant(params.companyId!, (tx) => invoiceWith(tx, params.companyId!, params.invoiceId!));
-          if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
-          return found;
+          const companyId = params.companyId!;
+          return withTenant(companyId, async (tx) => {
+            const found = await invoiceWith(tx, companyId, params.invoiceId!);
+            if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+            return {
+              ...found,
+              reminders: (await remindersOf(tx, companyId, found.id)).map((one) => ({ step: one.step, sentOn: one.sentOn, to: one.to, confirmed: one.confirmed })),
+              held: await isHeld(tx, companyId, found.id),
+            };
+          });
         },
       },
 
@@ -3678,6 +3823,69 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
         handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => payInvoice(tx, params.companyId!, params.invoiceId!, body, 'owner')),
+      },
+
+      {
+        // The owner prints an invoice. It is drawn from the books by the
+        // deployment's sandboxed browser, offline and with scripts off, and
+        // kept in `invoices` under its number, so a role can attach it by path
+        // (`email.send`) and the owner can take it from the Files tab. Drawn
+        // once: pressing again answers the page that is there. It writes a
+        // file from what the owner can already read and spends nothing, so
+        // the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/pdf',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const root = this.#filesRoot();
+          await this.#knownCompany(companyId);
+          const browsers = this.#browsers();
+          const made = await withTenant(companyId, async (tx) => {
+            const invoice = await invoiceWith(tx, companyId, params.invoiceId!);
+            if (!invoice) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+            if (invoice.status === 'void') {
+              throw new PalugadaError('contract.violation', `${invoice.number} was voided: there is no invoice to print`, { field: 'invoice' });
+            }
+            const { rows } = await tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]);
+            return { invoice, company: rows[0]?.name ?? '', language: (await languagesFor(tx, companyId)).work };
+          });
+          const name = `${made.invoice.number.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}.pdf`;
+          const key = `${companyId}/${name}`;
+          const pending = this.#drawing.get(key) ?? (async () => {
+            const path = `invoices/${name}`;
+            const there = await readCompanyFile(root, companyId, path, PRINT_MAX_BYTES, 'an invoice is at most 5 MB').then(
+              (file) => file,
+              (error: unknown) => {
+                if (isPalugadaError(error, 'contract.violation') && /^there is no file /.test(error.message)) return null;
+                throw error;
+              },
+            );
+            // A page is written straight into its name, so a process stopped while writing it leaves one cut short
+            // there. Only a whole page -- PDF's header first and its end mark last -- is the invoice; a broken one is
+            // the platform's own, and is drawn again under the same name rather than served from then on.
+            const whole = (bytes: Buffer) => bytes.subarray(0, 5).toString('latin1') === '%PDF-' && bytes.subarray(-1024).includes('%%EOF');
+            if (there && whole(there.bytes)) return { path };
+            if (there) {
+              // The entry under invoices/ is removed, and only when it is the platform's own file: removed by the
+              // path a link points to, a link there would take an upload or a contract with it (the review of 20
+              // October), and every other delete in the files refuses a link too.
+              const { lstat, unlink } = await import('node:fs/promises');
+              const entry = join(await companyRoot(root, companyId), 'invoices', name);
+              const info = await lstat(entry);
+              if (info.isSymbolicLink() || !info.isFile()) {
+                throw new PalugadaError('contract.violation',
+                  `${path} is a link, not the invoice: remove it under Files, then print again`, { field: 'invoice' });
+              }
+              await unlink(entry);
+            }
+            const bytes = await browsers.print(invoiceHtml(made.invoice, made.company, made.language));
+            // Not held to the uploads' room: one page per invoice, each at most PRINT_MAX_BYTES, and none taken out.
+            const kept = await keepCompanyFile(root, companyId, 'invoices', name, bytes, false);
+            return { path: kept.path };
+          })().finally(() => this.#drawing.delete(key));
+          this.#drawing.set(key, pending);
+          return pending;
+        },
       },
 
       {
@@ -3882,7 +4090,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/handoffs',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!);
           return {
             ruleId: await createHandoffRule(params.companyId!, {
               fromRoleId: requireText(body.fromRoleId, 'fromRoleId'),
@@ -3988,6 +4196,7 @@ export class OwnerApi {
             ...(body.reserveTokens === undefined
               ? {}
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
+            ...(body.priority === undefined || body.priority === null || body.priority === '' ? {} : { priority: priorityOf(body.priority) }),
           });
           return { taskId: assigned.task.id, wakeId: assigned.wakeId };
         },
@@ -4070,6 +4279,8 @@ export class OwnerApi {
             input: { goal: ticket.title, ...(ticket.body ? { context: ticket.body } : {}), ticketId: ticket.id },
             createdBy: 'owner',
             idempotencyKey: `ticket:${ticket.id}:${ticket.updatedAt.toISOString()}`,
+            // The ticket's own urgency (0070): it was dropped here.
+            priority: ticket.priority,
             // A ticket a run filed may hold a customer's words, which is why
             // `ticket.list` reads as outside content (F8.9); handed out by the
             // owner, they are still not the owner's words.
@@ -4249,7 +4460,7 @@ export class OwnerApi {
           }
           if (body.retired !== undefined) change.retired = body.retired === true;
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
-          await this.#requireFactor(body.proof, 'change a measure', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
           await changeMetric(params.companyId!, params.metricId!, change);
           return { ok: true };
         },
@@ -4660,9 +4871,19 @@ export class OwnerApi {
         // A run's own question is decided by its answer (B6).
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
+        // An answer may carry up to five files ({ name, data }, the file in
+        // base64): kept under received/answers, and the run is told where.
+        maxBodyBytes: 24 * 1024 * 1024,
         handle: async ({ params, body, staff }) => {
-          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''),
-            { channel: 'app', seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null });
+          // Kept once the answerer's right to answer is settled (answerEscalation
+          // calls it), and every file looked at before any is written: a file
+          // that is refused refuses the answer and leaves nothing behind.
+          const carried = Array.isArray(body.files) && body.files.length > 0;
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''), {
+            channel: 'app',
+            seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
+            ...(carried ? { keepFiles: () => keepAnswerFiles(this.#filesRoot(), params.companyId!, params.itemId!, body.files) } : {}),
+          });
           return { ok: true };
         },
       },
@@ -4710,7 +4931,7 @@ export class OwnerApi {
           if (body.statement === undefined && body.status === undefined) {
             throw new PalugadaError('contract.violation', 'no goal field was given', {});
           }
-          await this.#requireFactor(body.proof, 'change a goal', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
           const changed = await applyGoalChange({
             companyId: params.companyId!,
             goalId: params.goalId!,
@@ -4732,7 +4953,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/structure/grant',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a grant', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a grant', params.companyId!);
           // `revoke` decides, on its own. The first version read it only when
           // no `tierOverride` was sent, so `{ revoke: true, tierOverride: null }`
           // became a *change* to an unlimited grant -- and the database's
@@ -4773,8 +4994,14 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'hire a role', params.companyId!, WITHIN_THE_WINDOW);
+          // The person, when the role is one, is found before the owner's code
+          // is spent: a name nobody has costs nothing but being told who there is.
+          const person = typeof body.person === 'string' && body.person.trim() !== ''
+            ? await inbox.approverNamed(params.companyId!, body.person)
+            : null;
+          await this.#requireFactor(body.proof, 'hire a role', params.companyId!);
           return addRole(params.companyId!, {
+            ...(person ? { person } : {}),
             divisionId: requireText(body.divisionId, 'divisionId'),
             slug: requireText(body.slug, 'slug'),
             systemPrompt: requireText(body.systemPrompt, 'systemPrompt'),
@@ -4791,7 +5018,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/divisions',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'open a division', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'open a division', params.companyId!);
           return {
             divisionId: await addDivision(params.companyId!, {
               slug: requireText(body.slug, 'slug'),
@@ -4851,6 +5078,82 @@ export class OwnerApi {
       },
 
       {
+        // The company's files, as the owner sees them: a folder at a time.
+        // Without a files root there is nothing to list, said so the page can
+        // draw it plainly.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/files',
+        handle: async ({ params, query }) => {
+          if (!this.#options.files?.root) return { available: false };
+          await this.#knownCompany(params.companyId!);
+          const listed = await listCompanyDirectory(this.#filesRoot(), params.companyId!, query.get('path') ?? '.', 500);
+          return { available: true, ...listed };
+        },
+      },
+
+      {
+        // One file out, as the bytes the company holds, in base64 inside JSON,
+        // like everything the console asks the API for: never a page the
+        // browser could draw from this origin.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/files/download',
+        handle: async ({ params, query }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          const opened = await readCompanyFile(root, params.companyId!, query.get('path'), DOWNLOAD_MAX_BYTES, 'the console downloads files up to 25 MB');
+          const name = opened.path.split('/').at(-1) ?? 'file';
+          return {
+            name, path: opened.path, mime: mimeOf(name), bytes: opened.size,
+            sha256: createHash('sha256').update(opened.bytes).digest('hex'), data: opened.bytes.toString('base64'),
+          };
+        },
+      },
+
+      {
+        // The owner gives the company a file. It is kept under a plain name in
+        // the folder of uploads, never opened, run or unpacked here; what reads
+        // it later is a read of outside content, as for every file. It grants
+        // and spends nothing, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/files',
+        maxBodyBytes: 16 * 1024 * 1024,
+        handle: async ({ params, body }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          const bytes = base64Bytes(body.data);
+          if (bytes.length === 0) throw new PalugadaError('contract.violation', 'an empty file is not kept', { field: 'data' });
+          if (bytes.length > UPLOAD_MAX_BYTES) {
+            throw new PalugadaError('contract.violation',
+              `a file is at most ${UPLOAD_MAX_BYTES / 1_048_576} MB; this one is ${(bytes.length / 1_048_576).toFixed(1)} MB`, { field: 'data' });
+          }
+          const kept = await keepCompanyFile(root, params.companyId!, UPLOAD_FOLDER, plainFileName(body.name), bytes);
+          await withTenant(params.companyId!, (tx) => appendEvent(tx, {
+            companyId: params.companyId!, type: 'file.uploaded', actor: 'owner',
+            payload: { path: kept.path, bytes: kept.bytes, sha256: kept.sha256 },
+          }));
+          return kept;
+        },
+      },
+
+      {
+        // Takes back what the owner handed over, or what a stranger sent, and nothing else.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/files/delete',
+        handle: async ({ params, body }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          // The path as the company keeps it, as `file.uploaded` has it, and not the spelling the owner typed.
+          const removed = await removeCompanyFile(root, params.companyId!, body.path);
+          // A received file's message keeps counting it until it says the file is gone, and the room stays taken.
+          if (removed.startsWith('received/')) await receivedFileRemoved(params.companyId!, removed);
+          await withTenant(params.companyId!, (tx) => appendEvent(tx, {
+            companyId: params.companyId!, type: 'file.deleted', actor: 'owner', payload: { path: removed },
+          }));
+          return { ok: true };
+        },
+      },
+
+      {
         // Which documents customers may be told (0117): a channel that
         // answers on its own answers only from these. The session is enough:
         // what a marked document lets go alone, the session could already
@@ -4902,7 +5205,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/roles/:roleId',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a role', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a role', params.companyId!);
           // `String(null)` is the four letters "null", and a role whose
           // `model_primary` is the string "null" fails every later run. Each
           // field that is present must be a real value, and a field that is
@@ -4957,6 +5260,24 @@ export class OwnerApi {
                 `no runtime named ${runtime} runs here; this deployment runs ${here.join(', ') || 'none'}`,
                 { runtime });
             }
+            // A person is not a runtime a role is moved onto, nor one it is
+            // moved off: a person is seated, then hired as a role of their own,
+            // and an agent does a person's work as a role of its own. Moved
+            // either way, the role ended in the database's own refusal
+            // (roles_person_is_named), in its words (the review of 20 October).
+            const { rows: was } = await withControlPlane((tx) => tx.query<{ runtime: string | null; person_name: string | null }>(
+              'SELECT runtime, person_name FROM roles WHERE id = $1 AND company_id = $2', [params.roleId, params.companyId]));
+            const isPerson = was[0]?.runtime === 'person';
+            if (runtime === 'person' && !isPerson) {
+              throw new PalugadaError('contract.violation',
+                'a person is hired as a role of their own: seat them under People, then hire them, rather than moving a role onto them',
+                { field: 'runtime' });
+            }
+            if (isPerson && runtime !== 'person') {
+              throw new PalugadaError('contract.violation',
+                `${was[0]!.person_name ?? 'a person'} does this role's work; to have an agent do it, hire an agent role for it`,
+                { field: 'runtime' });
+            }
             fields.runtime = runtime;
           }
           Object.assign(fields, whoFrom(body));
@@ -4983,7 +5304,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/ceo',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!);
           return appointCeo(params.companyId!, requireText(body.roleId, 'roleId'), {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
@@ -5254,7 +5575,7 @@ export class OwnerApi {
         // Activating a skill puts its text in front of every agent it reaches,
         // which is the one thing a skill's review exists to control.
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!);
           return approveSkillVersion(params.companyId!, params.versionId!);
         },
       },
@@ -5266,7 +5587,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/skills/:skillId/scope',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!);
           // Built rather than cast. The first version passed
           // `{ scope, scopeId } as never`, which type-checked and was the
           // wrong shape entirely -- `setSkillScope` reads `scopeType`, so
@@ -5359,7 +5680,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/bundles',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!, WITHIN_THE_WINDOW);
+          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!);
           return installBundle({
             companyId: params.companyId!,
             slug: requireText(body.slug, 'slug'),
@@ -5404,7 +5725,7 @@ export class OwnerApi {
           // Read before the factor is spent, so a pairing missing its key
           // does not cost the owner a code.
           const keyFingerprint = requireText(body.keyFingerprint, 'keyFingerprint');
-          await this.#requireFactor(body.proof, 'pair a device', params.companyId!);
+          await this.#requireFactor(body.proof, 'pair a device', params.companyId!, true);
           await pairDevice(params.companyId!, params.deviceId!, {
             keyFingerprint,
             liftQuarantine: body.liftQuarantine === true,
@@ -5627,7 +5948,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/authenticators/:authenticatorId/revoke',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'revoke an authenticator');
+          await this.#requireFactor(body.proof, 'revoke an authenticator', null, true);
           await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
           return { signedOut: await this.#sessions.signOutFactor(params.authenticatorId!) };
         },
@@ -5667,7 +5988,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/recovery-codes',
         handle: async ({ body }) => {
-          await this.#requireFactor(body.proof, 'make new recovery codes');
+          await this.#requireFactor(body.proof, 'make new recovery codes', null, true);
           return { codes: await this.#options.mfa.issueRecoveryCodes() };
         },
       },
@@ -5698,7 +6019,7 @@ export class OwnerApi {
             clientDataJSON: requireText(credential.clientDataJSON, 'credential.clientDataJSON'),
             attestationObject: requireText(credential.attestationObject, 'credential.attestationObject'),
           };
-          await this.#requireFactor(body.proof, 'add a passkey');
+          await this.#requireFactor(body.proof, 'add a passkey', null, true);
           return this.#options.mfa.enrolPasskey(made);
         },
       },
@@ -5707,19 +6028,28 @@ export class OwnerApi {
 
   /* --------------------------------------------------------------- plumbing --- */
 
+  /** The folder the companies' files are in, or the one sentence that says there is none. */
+  #filesRoot(): string {
+    const root = this.#options.files?.root;
+    if (!root) {
+      throw new PalugadaError('capability.unknown',
+        'this deployment keeps no files: PALUGADA_FILES_ROOT is not set (the Compose install sets one)', {});
+    }
+    return root;
+  }
+
   /**
-   * Refuses an action that needs the owner's device rather than their tab.
-   *
-   * `decide` owns F10.10's gate for inbox items and this module never
-   * second-guesses it. This is the same *rule* applied to the handful of
-   * console actions that are not inbox items and are just as irreversible: a
-   * rotation is the answer to "that token leaked", and a session minted eight
-   * hours ago is possession of a browser tab.
-   *
-   * Kept here rather than pushed down into `rotateCredential` because rotation
-   * is also what a scheduled job does, and a job has no phone. The surface
-   * that has a human in front of it is the surface that can ask for one.
+   * A company that is there, before its folder is named: `companyRoot` makes
+   * the folder it is given, and a made-up id must not make one.
    */
+  async #knownCompany(companyId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+      throw new PalugadaError('contract.violation', 'that is not a company id', {});
+    }
+    const found = await withControlPlane((tx) => tx.query('SELECT 1 FROM companies WHERE id = $1', [companyId]));
+    if (found.rowCount !== 1) throw new PalugadaError('contract.violation', 'no such company', {});
+  }
+
   #deploymentSettings(): NonNullable<OwnerApiOptions['deploymentSettings']> {
     const deployment = this.#options.deploymentSettings;
     if (!deployment) {
@@ -6154,26 +6484,30 @@ export class OwnerApi {
   }
 
   /**
-   * What each model costs as the next start will price it: the operator's
-   * list with the owner's laid over it, from what is stored now, so a price
-   * just saved shows before the restart that takes it up.
+   * What each model costs now, and whose word it is (price-book.ts): the
+   * owner's own, the operator's file, the catalogue's, or nobody's -- the
+   * fallback, high on purpose, which the console says in as many words. The
+   * book is read again first, so a price just saved or just read shows at once.
    */
-  #pricesFor(models: ReadonlyArray<string | undefined>, stored: Record<string, unknown>) {
-    const own = (stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {};
-    // The file's, then setup's (PALUGADA_MODEL_PRICE_SETTINGS in the
-    // environment), then the owner's: the order the start lays them in.
-    const configured = withConsolePrices(this.#options.prices ?? DEFAULT_PRICE_TABLE,
-      this.#deploymentSettings().baseEnv.PALUGADA_MODEL_PRICE_SETTINGS);
-    const table = withConsolePrices(configured, Object.keys(own).length > 0 ? JSON.stringify({ models: own }) : undefined);
+  async #pricesFor(models: ReadonlyArray<string | undefined>) {
+    await this.#book.refresh();
     return [...new Set(models.filter((model): model is string => Boolean(model)))].map((model) => {
-      const { rate, basis } = rateFor(table, model);
+      const described = this.#book.describe(model);
       return {
         model,
-        input: rate.inputCentsPerMTok,
-        output: rate.outputCentsPerMTok,
-        source: model in own ? 'console' : basis === 'fallback' ? 'fallback' : 'file',
+        input: described.rate.inputCentsPerMTok,
+        output: described.rate.outputCentsPerMTok,
+        source: described.layer,
+        ...(described.provider === undefined ? {} : { provider: described.provider }),
       };
     });
+  }
+
+  /** When the catalogue was last read, why the last try failed if it did, and which models it could not price. */
+  #priceSync() {
+    const kept = this.#book.catalogue;
+    if (!kept) return null;
+    return { syncedAt: kept.syncedAt, problem: kept.problem, unpriced: kept.unpriced, source: kept.source, changes: kept.changes.slice(-5) };
   }
 
   /**
@@ -6381,16 +6715,42 @@ export class OwnerApi {
     return this.#options.browsers;
   }
 
+  /**
+   * Refuses an action the owner's device must stand behind.
+   *
+   * The owner signed in with a code or a passkey, and that sign-in is the
+   * second factor for what they do in the session (the owner's report of 7
+   * October: the authenticator is for signing in, not for each division). So
+   * a session that was opened with a device passes. What it does not pass:
+   *
+   * - a session opened with a recovery code, which proves less than a device
+   *   and is asked for a code each time, until a device's code is shown in it
+   *   (`prove`), when it is the same as one opened with a device;
+   * - `fresh`, for what changes who the owner is -- an authenticator revoked,
+   *   new recovery codes, a passkey added, a device vouched for -- which takes
+   *   a code at the moment, because a stolen session must not be able to lock
+   *   the owner out or enrol its own device; and for what lets someone new in
+   *   for good, which is enrolling a device by another name -- a person
+   *   seated, a channel the owner is reached and answered on -- since either
+   *   would outlast the stolen session's sign-out (the review of 20 October);
+   * - a request with no session at all, which is what a chat is (a card from
+   *   Telegram reaches only what needs no device, `chatMayApply`).
+   *
+   * `decide` owns the same rule for inbox items, and this module never
+   * second-guesses it. This is that rule for the console actions that are not
+   * inbox items, kept here rather than pushed down into `rotateCredential`
+   * because rotation is also what a scheduled job does, and a job has no
+   * phone: the surface with a human in front of it is the one that can ask.
+   * A code presented when none is needed is not read, so it is not spent.
+   */
   async #requireFactor(
     proof: unknown,
     purpose: string,
     companyId: string | null = null,
-    covered: typeof WITHIN_THE_WINDOW | null = null,
+    fresh = false,
   ): Promise<void> {
+    if (!fresh && this.#acting.getStore()?.provedAt) return;
     if (proof === undefined || proof === null) {
-      // What builds the company is covered by a code shown a few minutes ago;
-      // what loosens money, reaches outside or changes a key never is.
-      if (covered === WITHIN_THE_WINDOW && await this.#withinStepUp()) return;
       throw new PalugadaError(
         'approval.channel_forbidden',
         `${purpose} needs a second factor; none was presented (PRD F10.10, F12.5)`,
@@ -6408,20 +6768,13 @@ export class OwnerApi {
     // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
     else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
-    // A code or a passkey just shown opens the window; a recovery code proves less and opens none.
+    // A device's code or passkey shown in a session opened with a recovery
+    // code makes it one opened with a device; a recovery code proves less and
+    // does not.
     if (!('recovery' in presented)) {
       const session = this.#acting.getStore();
       if (session) await this.#sessions.prove(session.token);
     }
-  }
-
-  /** Whether the owner's session showed a code recently enough to cover an action in the window. */
-  async #withinStepUp(): Promise<boolean> {
-    const session = this.#acting.getStore();
-    if (!session) return false;
-    // Read again, not from the request's own copy: a code shown a moment ago, in another tab, counts.
-    const live = await this.#sessions.verify(session.token);
-    return withinWindow(live?.provedAt ?? null, await stepUpMinutes(), new Date());
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -6709,7 +7062,7 @@ function statusFor(code: string): number {
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
   if (code === 'schedule.slug_taken') return 409;
-  if (code === 'task.not_continuable') return 409;
+  if (code === 'task.not_continuable' || code === 'task.record_cleared') return 409;
   if (code === 'company.slug_taken') return 409;
   if (code === 'browser.not_held') return 409;
   if (code === 'mfa.locked_out') return 429;
@@ -6869,17 +7222,24 @@ function pictureFrom(body: Record<string, unknown>): Picture {
   return { bytes, mime };
 }
 
-/** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
-/**
- * Marks a call to `#requireFactor` as one a recent code covers (0120): the
- * actions that build the company -- a division, a role, a grant, a goal, a
- * measure, a skill, a bundle -- which the owner is already doing, one after
- * another, when they set it up. Left off, as every other is, it asks for a
- * code each time: money, keys, the model, channels, devices, what lets
- * outsiders in, and every tier 3 decision.
- */
-const WITHIN_THE_WINDOW = Symbol('within the window');
+/** A priority from a request: 0 (first) to 3 (last), the range F5.10 and a ticket both keep. */
+function priorityOf(value: unknown): number {
+  // `Number(null)`, `Number('')`, `Number(false)` and `Number([])` are all 0, the
+  // most urgent there is: a blank is not a priority, and is refused as one.
+  if (typeof value !== 'number' && !(typeof value === 'string' && value.trim() !== '')) {
+    throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
+  }
+  const priority = wholeNumber(value, 'priority');
+  if (priority < 0 || priority > 3) {
+    throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
+  }
+  return priority;
+}
 
+/** The longest mission: the sentence or two the owner reads first, and the CEO is told first. */
+const MISSION_MAX = 2_000;
+
+/** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';
   return text.length > 300 ? `${text.slice(0, 300)}...` : text;

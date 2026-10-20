@@ -201,7 +201,7 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
                 <Anchor component="button" type="button" size="sm" onClick={() => setRecovering(true)}>{t('Lost your phone? Use a recovery code')}</Anchor>
               )}
               <Text size="xs" c="dimmed" ta="center">
-                {t('The session lives in this tab only. Tier 3 approvals ask for your authenticator every time.')}
+                {t('The session lives in this tab only, and signing in is what confirms what you do in it. It ends after eight hours.')}
               </Text>
             </Stack>
           </Paper>

@@ -10,12 +10,12 @@ import { Alert, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Selec
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
-import { api, explain, type Proof } from '../api.ts';
+import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
-import { LANGUAGES, N, isLanguage, language, t } from '../i18n.ts';
-import { useFactor } from '../factor.tsx';
-import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
+import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
+import { chooseLanguage, type ConsoleContext } from '../App.tsx';
+import type { Languages } from '../types.ts';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { OfficeHoursForm, type Hours } from '../components/OfficeHours.tsx';
@@ -145,7 +145,7 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
 
       <Grid gap="lg">
         <Grid.Col span={{ base: 12, md: 6 }}>
-          <Section title={t('Freeze this company')} description={t('Nothing of theirs starts while it is frozen; work in progress stops at its next step. Unfreezing takes your authenticator.')}>
+          <Section title={t('Freeze this company')} description={t('Nothing of theirs starts while it is frozen; work in progress stops at its next step.')}>
             <Group>
               <ActionButton label={t('Freeze')} color="red" variant="light" leftSection={<IconSnowflake size={16} />}
                 run={() => api('POST', `/api/control/company/${companyId}/freeze`, { on: true })}
@@ -245,7 +245,7 @@ export function SecuritySettings() {
   const recovery = view.data.authenticators.find((one) => one.kind === 'recovery') ?? null;
   return (
     <Stack gap="lg">
-      <Section title={t('Your authenticators')} description={t('What can approve a tier 3 action in your name. Revoking takes a code from a device that is staying, and ends every session the revoked one signed in.')}>
+      <Section title={t('Your authenticators')} description={t('What can sign you in, and so approve a tier 3 action in your name. Revoking takes a code from a device that is staying, and ends every session the revoked one signed in.')}>
         {authenticators.length === 0 ? <Text size="sm" c="red">{t('None enrolled. No tier 3 action can be approved until one is.')}</Text> : (
           <Table verticalSpacing="sm">
             <Table.Tbody>
@@ -268,60 +268,12 @@ export function SecuritySettings() {
           </Table>
         )}
       </Section>
-      <StepUpWindow />
       <AddPasskey party={passkeys} added={view.reload} />
       <RecoveryCodes recovery={recovery} changed={view.reload} />
       <Section title={t('Sessions')} description={t('Every browser signed in to this console, on every device. Signing out everywhere ends all of them, this one included.')}>
         <ActionButton label={t('Sign out everywhere')} color="red" variant="light" run={() => api('POST', '/api/auth/sign-out-everywhere', {})} done={() => window.location.reload()} />
       </Section>
     </Stack>
-  );
-}
-
-const STEP_UP_LABELS: Record<number, string> = {
-  0: N('Ask every time'), 5: N('5 minutes'), 10: N('10 minutes'), 30: N('30 minutes'), 60: N('One hour'),
-};
-
-/**
- * How long a code just shown keeps covering what builds the company (0120).
- * Raising it loosens, so it takes a code; lowering does not.
- */
-function StepUpWindow() {
-  const requireFactor = useFactor();
-  const view = useLoad(async () => {
-    const answer: { minutes: number; choices: number[] } = await api('GET', '/api/control/step-up');
-    return answer;
-  }, []);
-  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
-  if (!view.data) return <Loading rows={1} />;
-  const { minutes, choices } = view.data;
-  const choose = async (value: string | null) => {
-    if (value === null || Number(value) === minutes) return;
-    const chosen = Number(value);
-    const save = (proof?: Proof) => api('POST', '/api/control/step-up', { minutes: chosen, ...(proof ? { proof } : {}) });
-    try {
-      if (chosen > minutes) {
-        if (!(await requireFactor(t('Keep a code valid for longer'), (proof) => save(proof)))) return;
-      } else {
-        await save();
-      }
-      view.reload();
-    } catch (failure) {
-      notifications.show({ color: 'red', title: t('How long a code counts'), message: explain(failure) });
-    }
-  };
-  return (
-    <Section title={t('How long a code counts')}
-      description={t('After you confirm with your authenticator, what builds the company -- a division, a role, a grant, a goal, a skill, a bundle -- needs no new code for this long. Money, keys, the model, channels, devices and every approval of something that cannot be undone always ask.')}>
-      <Select
-        aria-label={t('How long a code counts')}
-        data={choices.map((one) => ({ value: String(one), label: t(STEP_UP_LABELS[one] ?? String(one)) }))}
-        value={String(minutes)}
-        onChange={(value) => void choose(value)}
-        allowDeselect={false}
-        w={{ base: '100%', sm: 260 }}
-      />
-    </Section>
   );
 }
 
@@ -459,7 +411,8 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
     const answer: Languages = await api('GET', '/api/control/languages');
     return answer;
   }, []);
-  const [agents, setAgents] = useState<string | null>(null);
+  // Undefined until the owner touches it; null is an answer: follow the panel.
+  const [agents, setAgents] = useState<string | null | undefined>(undefined);
   const [work, setWork] = useState<string | null>(ctx.company.workLanguage);
   const [talk, setTalk] = useState<string | null>(ctx.company.talkLanguage);
   const [busy, setBusy] = useState<string | null>(null);
@@ -468,7 +421,8 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
   if (!view.data) return <Loading rows={3} />;
   const supported = view.data.supported.map((one) => ({ value: one.code, label: one.native === one.name ? one.name : `${one.native} · ${one.name}` }));
   const nameOf = (code: string) => view.data?.supported.find((one) => one.code === code)?.native ?? code;
-  const fallback = agents ?? view.data.agents;
+  const chosenAgents = view.data.agentsChosen ? view.data.agents : null;
+  const fallback = agents === undefined ? chosenAgents : agents;
 
   const save = async (what: string, run: () => Promise<unknown>) => {
     setBusy(what);
@@ -507,8 +461,9 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
 
       <Section title={t('Agents, by default')} description={t('The language every company’s agents use unless the company sets its own below.')}>
         <Group align="flex-end" gap="sm">
-          <Select data={supported} value={fallback} onChange={setAgents} searchable w={320} allowDeselect={false} />
-          <Button loading={busy === 'agents'} disabled={!agents || agents === view.data.agents}
+          <Select data={supported} value={fallback} onChange={setAgents} searchable clearable w={320}
+            placeholder={t('Follows the panel: {language}', { language: nameOf(view.data.console ?? 'en') })} />
+          <Button loading={busy === 'agents'} disabled={agents === undefined || agents === chosenAgents}
             onClick={() => void save('agents', () => api('POST', '/api/control/languages', { agents }))}>
             {t('Save')}
           </Button>

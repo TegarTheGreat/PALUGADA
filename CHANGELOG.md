@@ -285,6 +285,95 @@ The first version. What it holds, in the order an owner meets it.
   app, never yours; tier 3, settings, keys and devices stay yours, the
   record names who decided, and ending a seat signs them out at once
   (STATUS 2.116).
+- A role can put a question to a person by name, not only to you: the
+  bookkeeper asks Budi, and only Budi and you see the question and can
+  answer it. The card says who it is for, and a seat's inbox has a "For me"
+  list. You are not pinged about a question that is for someone else until
+  it has gone a day unanswered; then you are told once, and it can be
+  answered by them or by you. An answer can carry up to five files (an
+  invoice, a price list, a photo): they are kept in the company's files, a
+  program is not, and the role that asked is told where each one is and who
+  answered. A role can be a person: hire it with the name of someone you
+  have seated and its work is put to them as a question, and their answer
+  is what it produced. If they leave, the work stops and you are told; it is
+  never given to an agent unasked (STATUS 2.173).
+- A company starts with its CEO and nothing else: no division, role or goal
+  you did not ask for. The first screen is a name and what the company is
+  for, in your own words, and the CEO's first message says that sentence
+  back, asks only what it cannot know, and offers to suggest the first piece
+  of work and the team it would take. The built-in team template is gone;
+  an operator who stores a template of their own can still start a company
+  from it by name. Six boxes of the authenticator's code no longer spill out
+  of their dialog on a phone (STATUS 2.174).
+- **The authenticator is for signing in, and nothing else.** Once you have signed in
+  with its code or a passkey, a division, a role, a grant, a goal, the spend
+  ceiling, the model and its key, a channel and every approval of something
+  that cannot be undone need no new code. What still asks, each time: revoking
+  an authenticator, making new recovery codes, adding a passkey, pairing a
+  device, and anything in a session you signed in to with a recovery code until
+  you show a device's code in it. A chat and a staff seat still cannot approve
+  what cannot be undone. The "how long a code counts" setting is gone. A
+  stolen, signed-in tab is now worth more, for the eight hours a session lives;
+  signing out and freezing the company are what you have against it (STATUS 2.175).
+- Your CEO now builds the company when you tell it to: it opens a division, a
+  project and a goal, hires a role with its tools, and grants it, and says what it
+  did, instead of putting a card in front of you to press. After it has read
+  what agents wrote in the same turn, or in a session signed in with a recovery
+  code, the same change is still a card for you (STATUS 2.175).
+- A role that goes round in circles -- the same tool with the same input and the same answer four
+  times, a refusal three times, two calls taking turns -- is told so, and if it goes on it is given no tools and
+  asked to finish saying what is done and what stopped it, instead of spending forty turns and your budget.
+  A conversation that grows past what the model reads is written down by the model and the work carries on, where
+  it used to fail "too long" with the work half done (STATUS 2.176).
+- The money is counted as the provider counts it. A call is priced to the fraction of a cent, no longer rounded up
+  to a whole one (a call worth a tenth of a cent was charged a cent), and what is below a cent is carried to the
+  next call so the total is right. Cached tokens are priced at the cache's own rates. The platform reads models.dev
+  every day for the models you use and keeps their prices current; a price you typed in the console still wins, and
+  the Model page says whose price each one is, when it was last read and what changed (STATUS 2.177).
+- When the budget runs out, the company handles it. Once your own ceiling has room -- a new month, a raised
+  ceiling -- the month's pause lifts and the work the budget stopped goes on by itself, oldest first, as far as the
+  room goes, with its card withdrawn; you no longer raise the ceiling and then press Continue on each account. A
+  role the breaker stopped for a burst of spending goes back to work when the burst has passed, and the work that
+  waited for it is called back; only the third stop in a day is put to you. Work waits for a paused role and does
+  not fail (STATUS 2.177).
+- The company collects what it is owed, without being asked. An invoice past its due date is reminded three days
+  late, then ten, then twenty-four, by a letter written from the books -- the customer, the amount, the date, in
+  Indonesian or English, and your own words on how to pay -- so there is no card for you to press and no model to
+  get it wrong. It stops when the invoice is paid, never writes twice in a week, and tells you once, in your
+  language, about an invoice a letter did not mend. Switch it on under Books, Invoices (it gives the job to the
+  roles that bill customers, or hires a bookkeeper); leave one invoice alone with a press (STATUS 2.178).
+- An entry, an invoice, a customer, a deal or a note is never made twice because the platform stopped between making
+  it and hearing that it had. A reminder is never sent twice: if the mail server hangs up before it says it took a
+  letter, the invoice shows the letter as not confirmed and you are told once, instead of the customer being written
+  to again (STATUS 2.180).
+- Every model call is paid for: a picture read (`image.describe`) and the company's documents being searched by
+  meaning were charged nothing and are now on the Money page at the provider's price. A month whose money is spent
+  asks the model nothing more, and a call the budget refused after it was made is still counted (STATUS 2.180).
+- A goal nobody has worked on for three days wakes your CEO, at most once a week for each goal: it hands the next
+  piece of work to the role whose job it is, proposes a schedule, or says the goal is waiting on you, instead of the
+  company sitting still until you write. Only where the deployment has a model (STATUS 2.181).
+- When the company lacks a role, the CEO proposes the hire, and you see it at once as a card. *Hire it with the
+  CEO* opens your conversation with the proposal ready to send; *Not needed now* closes it. The board marks a
+  proposed hire, and it is never handed out as ordinary work (STATUS 2.181).
+- Work its budget stopped goes on by itself only when somebody still waits for it: not after you pressed *Run
+  again* (no more work done twice), not for a child whose parent failed, and never past the room of a company
+  account two divisions share. A role you pause stays paused, even one the spending breaker had stopped first
+  (STATUS 2.182).
+- Seating a person, and connecting Telegram, WhatsApp, push, Slack, Discord or email, now asks for your
+  authenticator code at that moment, as adding a device does; nothing else does (STATUS 2.182).
+- Calls are charged at the price you see: a model a provider answers under a dated name (OpenAI's "gpt-5-2025-08-07")
+  was charged the highest rate; fractions of a cent stay with the division that spent them (STATUS 2.182).
+- Reminders for overdue invoices run as the platform's own procedure whatever the sending role runs on, never hire a
+  second bookkeeper, count days in the company's time zone, go to the address you add to a customer, and never write
+  "How to pay: undefined". A sender you paused no longer holds up the others, and saving only the days never asks
+  for your device (STATUS 2.182).
+- You can remove files customers sent (under Files, received), which frees the room they take; invoice PDFs print
+  after the 500th; mail attachments arrive whole from servers that only estimate a message's size (STATUS 2.182).
+- A photo, voice note or document a customer sends on Telegram or WhatsApp is kept under Files, received, as a
+  mailed one is, and the role answering reads it, instead of being told it cannot (STATUS 2.183).
+- Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
+  same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
+  for a minute instead of failing at fifteen seconds (STATUS 2.179).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,
@@ -405,11 +494,9 @@ The first version. What it holds, in the order an owner meets it.
 - Work you approved after the hour it was given is no longer halted for the
   time you took: a task's deadline is for the work, and the time it spent
   waiting for your answer, or for a review, is given back (STATUS 2.142).
-- One authenticator code now covers what builds the company -- a division, a
-  role, a grant, a goal, a skill, a bundle -- for ten minutes, instead of a
-  code for each. Money, keys, the model, channels, devices and every approval
-  of something that cannot be undone still ask every time. Set the length, or
-  turn it off, under Settings, Security (STATUS 2.143).
+- One authenticator code covered what builds the company for ten minutes,
+  instead of a code for each (STATUS 2.143); the authenticator is now asked
+  for at sign-in only, so there is no window to set (STATUS 2.175).
 - A task that ends without being done no longer ends in silence: it is put to
   the coordinator your division names first, and to you only if the
   coordinator could not handle it, with what it did. Tickets the company owes
@@ -473,6 +560,93 @@ The first version. What it holds, in the order an owner meets it.
   tokens ran out, not a bare "out of budget" beside a cost of nothing, and new
   companies' token ceilings are sized against their money so tokens do not run
   out a hundred times first (STATUS 2.155).
+- The language you read is the language your team writes in. A console drawn in
+  your browser's language tells PALUGADA so at your first sign-in, your CEO opens
+  and answers in the language its company talks in, a new company's mission is
+  written in it, and agents that were never given a language follow the console's
+  instead of English. Choose one for them under **Settings**, **Languages**; clear
+  it to follow the console again. Before, an Indonesian console had a CEO and a
+  team that greeted in English (STATUS 2.156). An 'English' that was only the
+  default is cleared by the upgrade: if you chose English for your team on
+  purpose, choose it again there.
+- Your CEO speaks first when you come back. Open the conversation after being away
+  and, if something happened -- work you gave finished, work stopped, something waits
+  for you -- it says so in one message, in your language: what finished, why work stopped,
+  how many things wait. Nothing happened, nothing is said (STATUS 2.157).
+- A deadline is for the work, not for the waiting. Work you delegate no longer halts as
+  "missed its deadline" while it waits for office hours to reopen, for a vendor's limit, for
+  your yes, or while you raise a budget and continue it (STATUS 2.158).
+- A role's "look again later" that fails is reported to you like any work that ends badly,
+  and the weekly review runs in a quiet week when a number you set has not been reached,
+  instead of passing over the one week that most needed it (STATUS 2.159).
+- What your company remembers is dated and bounded. Every run is told today's date, a
+  memory search says how old each fact is, the context a run starts from takes what the company
+  learned recently (or saw again lately) instead of every lesson ever, and a lesson from an email
+  reaches a run only when it is about the task -- so fewer runs ask you about everything. The words
+  you wrote yourself are never changed by an agent repeating them. A fenced reply from the
+  learning step is read, one failing division no longer stops the others, and the Memory page no
+  longer says something waits for your yes when its card has expired (STATUS 2.160).
+- A company keeps what it makes. The Compose deployment now gives every company a folder for its
+  files, on the volume that survives an upgrade, so drafts, pictures, speech and computed files are
+  stored instead of being switched off; `docs/features.md` now also says what is built but
+  not bound on a fresh install (STATUS 2.161).
+- Urgent work stays urgent: a priority you give (or a ticket carries) reaches the task and
+  everything it hands on. A question a role asked leaves your inbox when its task is cancelled
+  or ends, instead of waiting for ever; and a task whose record the ninety-day clean-up has
+  cleared is not "continued" into a failure but told to run again (STATUS 2.162).
+- What your company learns is a rule for the next customer, not a note about one: lessons no longer
+  carry what one named customer liked into every other customer's work, and a suggested procedure
+  is counted in tasks and answered from when you said no. A fresh install also says, at start, when a
+  connected service has taken over a name the platform keeps (such as invoicing in the books) and
+  that the lab analyst's code tool is not connected to anything (STATUS 2.163).
+- The company looks at its numbers. When a measure you set reaches its target, passes its
+  due date short of it, or has a source nobody has read for a week, the CEO is given a task for
+  it -- once for each target or date you set, not every time a figure crosses; a source nobody has read
+  is read again about every week while those reads succeed -- asks you where it stands in your
+  language, and has the source read again by a role that can. Only a figure
+  you entered or a run read from the source counts, and nothing runs while nothing changed. On
+  upgrade, every measure already in one of those states gets one look, at most one every ten
+  minutes, and each reached or overdue one puts a question in your inbox. Handing on the tickets the
+  company owes, which the CEO does by itself, now also happens in the default deployment, where
+  four places at once had kept it from ever starting (STATUS 2.164).
+- A run knows where its task stands. A runtime that starts again from what it is told is given the plan
+  the task recorded and how far it got, the files its writes made, and the work it handed on; a role woken
+  to look again at what it did is given that work (what it was asked, what it returned, how it ended), and a
+  role that awaits a sub-task is told the files it made. A long run is told its forty turns and no longer
+  sent every page it ever read on every turn, and one whose conversation is too long for its model fails
+  once with the reason instead of three times. The gallery and a task's page no longer list as produced a
+  file that was only read (STATUS 2.165).
+- You can hand the company a file and take one out. **Memory**, **Files** lists the company's folders,
+  uploads a file of up to 10 MB (a contract, a price list, a photo) under a plain name in `uploads`, saves any
+  file to your device, and removes what you put in. A role that can read files can read what you uploaded,
+  as outside content; what the company's roles made is listed beside it. `files.list` now gives folders
+  first and each in name order (STATUS 2.166).
+- A letter can carry files. `email.send` takes up to five files of the company's own -- what a role
+  drafted, made or was given, ten megabytes together -- and the owner's card names every one; what a stranger
+  sent and another company's files cannot be sent. A mail server that says how large a message it takes is not
+  sent a larger one (STATUS 2.167).
+- The installer shows it is working and says where to open the console. It numbers its steps, says every
+  ten seconds how long the wait has been, what is running and what the platform last printed, and stops
+  at once with the platform's last lines when the platform stops, instead of waiting ten minutes. Over SSH
+  it prints the tunnel command with the server's own public address instead of only `localhost`, and
+  `PALUGADA_PUBLIC_HOST=console.example.com` puts HTTPS (Caddy) in front of the console, or
+  `PALUGADA_PUBLIC_HOST=<address>` opens it on the address over plain HTTP, with a warning; `private`
+  shuts it again, and `doctor` says where it is meant to be opened (STATUS 2.168).
+- A task's page lists the files it made -- a picture, a computed spreadsheet, a draft -- and you can download
+  each; the gallery showed only what has text (STATUS 2.169).
+- An invoice can be downloaded as a PDF: drawn offline by the deployment's own Chromium from the invoice as
+  it was issued, kept in the Files tab as `invoices/inv-0001.pdf` so a role can attach it to a letter (STATUS
+  2.170).
+- What a customer attaches to a mail is kept in the company's files (up to five files, ten megabytes each),
+  shown in the conversation with a Download button, and read for the role that answers: `chat.read` gives
+  its path and what a PDF, Word or Excel document or a text file says. Programs, scripts, archives, SVGs and
+  old or macro Office files are not kept, and the conversation says why (STATUS 2.171).
+- The installer says where to open the console on any server, also under `sudo` or in a provider's web
+  console (it printed `localhost` there), stops Caddy when HTTPS is given up, checks its numbers before it
+  writes or waits, and keeps `.env` private as it is made. A letter's approval card names every file even when
+  it has many recipients, a large letter is given its minute after STARTTLS too, a company's id in capitals no
+  longer makes a second folder, a named pipe in the files no longer hangs a read, and concurrent uploads
+  respect the count (STATUS 2.172).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

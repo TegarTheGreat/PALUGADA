@@ -114,6 +114,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': '工作已停止：{account} 账户的令牌已用完',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}”已停止，因为 {account} 账户已用掉 {max} 个令牌中的 {spent} 个。请在“资金”中提高其上限，然后打开该任务并点击“继续”：它会从停止的地方继续。',
   'Withdrawn: you continued the task it was about.': '已撤回：你已继续了它所涉及的任务。',
+  'Withdrawn: the budget had room again, and the work went on by itself.': '已撤回：预算重新有了余地，工作已自动继续。',
   'Broke its contract': '违反了任务约定',
   'Refused by a policy': '被策略拒绝',
   'Out of budget': '预算用尽',
@@ -330,6 +331,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': '以下技能被驳回，将保持关闭：',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '批准即全部启用，拒绝则全部驳回。如需逐个决定，请打开“技能”页面。',
   'Nothing changes; none of these skills is switched on.': '不会有任何变化；这些技能都不会启用。',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "我是 {ceo}，替您打理 {company}。我已经知道它是做什么的：“{mission}”开始之前有两件事：每个月可以花多少钱？第一项工作应该是什么——还是由我来建议一项，连同需要的团队？",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '我是 {ceo}，替您打理 {company}。开始之前有三件事：{company} 卖什么、卖给谁？每个月可以花多少钱？第一项工作应该是什么——还是由我来建议一项？',
   'Read a customer conversation': '阅读与客户的对话',
   'Reply to a customer': '回复客户',
@@ -354,4 +357,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}：{value}，目标为 {target}，仅为上报，未经核对。',
   'Look at it again later': '稍后再查看',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "可靠地交付公司所售之物，不让所有者感到意外。",
+  "Ship the work the company has promised, on time and verified.":
+    "按时交付公司承诺的工作，并经过核实。",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "保持公司有偿付能力、可追责，并且无需每天关注也能运转。",
+  "Since we last spoke:":
+    "自上次交谈以来：",
+  "More finished: {count}":
+    "另有完成：{count}",
+  "Waiting for you: {count}":
+    "等你处理：{count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    '这是一天内的第三次，所以不会自行继续。',
+  'Invoice {number} needs you: {customer} has not paid':
+    '发票 {number} 需要您：{customer} 尚未付款',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '最后一次提醒之后，{customer} 仍欠发票 {number} 的 {amount}，到期日 {due}。平台已不再给他们写信。接下来由您决定：打电话、发最后通知，或不再追究。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且从未发送过提醒，所以平台没有在这么晚的时候发模板信。请自行跟进，或告诉 CEO 您想怎么处理。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且没有可发送提醒的电子邮件地址。请为客户补上，或自行跟进。',
+  'Nobody is set to remind customers about overdue invoices':
+    '还没有人负责就逾期发票提醒客户',
+  'Reminded the customers of: {invoices}.':
+    '已就以下发票提醒客户：{invoices}。',
+  'No reminder was due.':
+    '没有到期需要发送的提醒。',
+  'Remind a customer about an invoice':
+    '就发票提醒客户',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    '有些发票已过到期日，且没有角色能发送提醒。请在账簿的发票中打开自动提醒：公司将按您设定的日子发送。',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    '逾期发票提醒需要一个邮箱来发送。请提供此部门的邮箱。',
+  'Remind the customers whose invoices are overdue':
+    '提醒发票已逾期的客户',
+  'each customer whose next reminder is due has been written to once':
+    '每位到了下一次提醒时间的客户都已收到一封信',
+  'Reminder for invoice {number} not confirmed':
+    '发票 {number} 的催款函未获确认',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    '邮件服务器未确认已收到发票 {number} 致 {customer}（{to}）的第 {step} 封（共 {of} 封）催款函，该函于 {day} 交给服务器。它可能已送达，也可能没有。平台不会再次发送：如果 {customer} 表示没有收到，请您自己发送，或告诉 CEO。',
+  'Your CEO proposes hiring: {role}':
+    '您的 CEO 提议招聘：{role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    '是否招聘由您决定。一句话就能和 CEO 一起招聘，如果公司不需要，请关闭该工单。',
+  'Withdrawn: the ticket it was about was closed.':
+    '已撤回：它涉及的工单已关闭。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且开具时没有可发送提醒的电子邮件地址。请自行跟进，或告诉 CEO 您想怎么处理。',
 };

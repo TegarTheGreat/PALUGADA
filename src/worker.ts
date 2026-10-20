@@ -50,12 +50,16 @@ import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
 import { reportEndedBadly } from './engine/ended.ts';
 import { ensureTriage } from './engine/triage.ts';
+import { ensureCollections } from './duties/collections.ts';
+import { ensureOutcomes } from './engine/outcomes.ts';
+import { ensureGoalReview } from './engine/goal-review.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
-import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused } from './governance/spend-guard.ts';
+import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused, thawCooledRoles } from './governance/spend-guard.ts';
 import { startNewPeriods } from './engine/budget.ts';
+import { resumeBudgetStopped } from './engine/self-heal.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { embedBacklog } from './knowledge/meaning.ts';
@@ -174,6 +178,13 @@ export interface WorkerOptions {
     /** Defaults to once an hour. Distillation reads a window of events. */
     intervalMs?: number;
   };
+  /**
+   * Whether a goal nobody has worked on is put to the CEO (goal-review.ts).
+   * Only where a model can think about it: a deployment with none would make
+   * a task each week that no runtime takes, and the owner would be told each
+   * week that it halted.
+   */
+  reviewsGoals?: boolean;
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
   /** The same for a task, for the news that work the owner gave has finished (0059). */
@@ -227,12 +238,22 @@ export interface TickReport {
   screened: number;
   /** Tasks halted because their deadline passed while nobody was running them (F5.6). */
   pastDeadline: number;
+  /** Work its budget stopped that went on by itself, its owner's ceiling having room again (src/engine/self-heal.ts). */
+  resumed: number;
+  /** Roles the breaker had stopped for a burst that has passed, and that went back to work by themselves. */
+  thawed: number;
   /** Live tasks found with nothing left to move them, and put to the owner. */
   stranded: number;
   /** Root tasks that ended badly with nobody told, put to the coordinator and then the owner. */
   ended: number;
   /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
   triaged: number;
+  /** Customers' overdue invoices looked at: reminders made into a task, or a card put to the owner (src/duties/collections.ts). */
+  collections: number;
+  /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
+  outcomes: number;
+  /** Review tasks made for the CEO, for a goal nobody had worked on (src/engine/goal-review.ts). */
+  reviews: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -305,9 +326,14 @@ function emptyReport(): TickReport {
     distilled: 0,
     screened: 0,
     pastDeadline: 0,
+    resumed: 0,
+    thawed: 0,
     stranded: 0,
     ended: 0,
     triaged: 0,
+    collections: 0,
+    outcomes: 0,
+    reviews: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -339,7 +365,7 @@ export interface WorkerCounts {
 
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
-  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0;
+  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0 || report.resumed > 0 || report.thawed > 0 || report.collections > 0;
 }
 
 export class Worker {
@@ -554,9 +580,37 @@ export class Worker {
 
       // The tickets the company owes, handed to the CEO to hand on. Before the
       // claim, so the task it makes can be taken up on this tick. Two queries
-      // when nothing is owed: no task, no model call, no tokens.
-      if (runs) await this.#stage(report, 'triage', async () => {
+      // when nothing is owed: no task, no model call, no tokens. Not behind
+      // `runs`: it makes a task and runs none, and a worker with places above
+      // one ticks its housekeeping with `runs` false, where it never ran.
+      await this.#stage(report, 'triage', async () => {
         if (await ensureTriage(company, now)) report.triaged += 1;
+      });
+
+      // What customers owe, looked at against the books: the reminders that
+      // are due made into one task for the role that sends them, and the
+      // invoices a letter will not mend put to the owner. A look is cheap and
+      // is made at most every half hour for a company; nothing owed, nothing
+      // made.
+      await this.#stage(report, 'collections', async () => {
+        const look = await ensureCollections(company, now);
+        if (look.task !== null || look.escalated > 0 || look.nobody) report.collections += 1;
+      });
+
+      // The measures the owner set, looked at against their numbers: one task
+      // for the CEO when one reached its target, passed its date or went
+      // unread. Not behind `runs`: it makes a task and runs none, and a worker
+      // with places above one (the default is four, main.ts) ticks its
+      // housekeeping with `runs` false.
+      await this.#stage(report, 'outcomes', async () => {
+        if (await ensureOutcomes(company, now)) report.outcomes += 1;
+      });
+
+      // The goals the owner set, looked at against the work under them: one
+      // task for the CEO when a goal at the end of the ladder has had none for
+      // days, once a week at most for each. Not behind `runs`, as above.
+      if (this.#options.reviewsGoals) await this.#stage(report, 'reviews', async () => {
+        if (await ensureGoalReview(company, now)) report.reviews += 1;
       });
 
       if (runs) await this.#stage(report, 'wakes', async () => {
@@ -623,6 +677,10 @@ export class Worker {
         // the owner after its grace (src/engine/ended.ts).
         report.ended += await reportEndedBadly(company, now);
 
+        // A question for a person who has not answered in a day is brought to
+        // the owner; before the notify stage, which then carries it.
+        await inbox.escalateQuestions(company, now);
+
         // F6.3: a completed task's output is what starts its successor, and
         // the engine is what starts it -- not the finishing agent naming who
         // to call. Driven from state, so a worker that was down when the task
@@ -638,6 +696,12 @@ export class Worker {
         // A passed month's counts start again before anything reads them (0101).
         await startNewPeriods(company);
         await evaluateSpendLimit(company, now);
+        // After the pause is read: a month that began, or a ceiling raised, is
+        // what the work it stopped was waiting for, and goes on in the same look.
+        report.resumed += (await resumeBudgetStopped(company, now)).continued;
+        // Before the breaker looks: a role whose burst has passed goes back to
+        // work, and a role still above the line is stopped again if it must be.
+        report.thawed += (await thawCooledRoles(company, now)).length;
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;
       });
@@ -1001,29 +1065,36 @@ export class Worker {
       });
 
       for (const scope of scopes) {
-        const distilled = await distillEpisodicToSemantic({
-          companyId: company,
-          projectId: scope.project_id,
-          divisionId: scope.division_id,
-          llm: learning.llm,
-          model: learning.model,
-          until: now,
-        });
-        report.distilled += distilled.factsCreated;
-
-        // Only when there is something new to generalise from. A procedural
-        // pass over facts that did not change would raise the same SOP
-        // candidate again, and the owner would decline it again.
-        if (distilled.factsCreated > 0) {
-          const candidates = await distillSemanticToProcedural({
+        // One division at a time and each on its own: one whose model answered
+        // nonsense, or whose rows the store refused, ended the stage, so the
+        // divisions after it in slug order were never reached on any tick (the
+        // audit of 6 October, M7). Its failure is still said, and it is read
+        // again at the next pass, for nothing of it was consumed.
+        await this.#stage(report, 'learn', async () => {
+          const distilled = await distillEpisodicToSemantic({
             companyId: company,
             projectId: scope.project_id,
             divisionId: scope.division_id,
             llm: learning.llm,
             model: learning.model,
+            until: now,
           });
-          report.distilled += candidates.length;
-        }
+          report.distilled += distilled.factsCreated;
+
+          // Only when there is something new to generalise from. A procedural
+          // pass over facts that did not change would raise the same SOP
+          // candidate again, and the owner would decline it again.
+          if (distilled.factsCreated > 0) {
+            const candidates = await distillSemanticToProcedural({
+              companyId: company,
+              projectId: scope.project_id,
+              divisionId: scope.division_id,
+              llm: learning.llm,
+              model: learning.model,
+            });
+            report.distilled += candidates.length;
+          }
+        });
       }
 
       // Recorded after the work rather than before it, for the same reason as

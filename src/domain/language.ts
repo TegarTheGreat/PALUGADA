@@ -10,13 +10,16 @@
  *   approval requests, questions, plans, reports, handoffs. The owner's.
  *
  * Either may be left unset, and then the deployment's default applies
- * (`platform_control.agent_language`). A project may set its own work
+ * (`platform_control.agent_language`) -- which, until the owner chooses one,
+ * is the language they read the panel in (`console_language`), and English
+ * only where they have named neither: an owner who chose Indonesian for the
+ * console was greeted by agents in English. A project may set its own work
  * language (0100), which overrides the company's for the work done in it: a
  * company that sells in Malaysia and in Brazil writes each market's copy in
  * its language, and its agents still talk to the one owner in one. Talk has
  * no per-project setting for that reason. The console's own language is a third
  * setting and a different thing: it is what the *panel* is drawn in, and it
- * never reaches an agent.
+ * reaches an agent only as the default above, never as a thing it reads.
  *
  * **Why this is more than a preference.** A model writes in the language of
  * whatever it read last. An agent that reads an English web page, an email in
@@ -131,7 +134,8 @@ export async function languagesForTask(tx: TenantClient, companyId: string, task
 
 async function languagesIn(tx: TenantClient, companyId: string, taskId: string | null): Promise<RunLanguages> {
   const { rows } = await tx.query<{ project: string | null; work: string | null; talk: string | null; fallback: string }>(
-    `SELECT pr.work_language AS project, c.work_language AS work, c.talk_language AS talk, p.agent_language AS fallback
+    `SELECT pr.work_language AS project, c.work_language AS work, c.talk_language AS talk,
+            COALESCE(p.agent_language, p.console_language, 'en') AS fallback
        FROM companies c CROSS JOIN platform_control p
        LEFT JOIN tasks t ON t.company_id = c.id AND t.id = $2::uuid
        LEFT JOIN projects pr ON pr.company_id = t.company_id AND pr.id = t.project_id
@@ -405,23 +409,36 @@ export function slipReminder(slips: { found: string; times: number; where: reado
 /* ------------------------------------------------------------- settings --- */
 
 export interface DeploymentLanguages {
-  /** The owner's panel; null follows the browser. */
+  /** The owner's panel; null until the console has told the deployment which. */
   console: string | null;
-  /** What agents write in where a company has not chosen. */
+  /**
+   * What agents write in where a company has not chosen: the owner's choice
+   * for them, or the panel's language, or English.
+   */
   agents: string;
+  /** Whether the owner chose `agents`, or it is following the panel. */
+  agentsChosen: boolean;
 }
 
 export async function deploymentLanguages(): Promise<DeploymentLanguages> {
   return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ console_language: string | null; agent_language: string }>(
+    const { rows } = await tx.query<{ console_language: string | null; agent_language: string | null }>(
       'SELECT console_language, agent_language FROM platform_control',
     );
-    return { console: rows[0]?.console_language ?? null, agents: rows[0]?.agent_language ?? 'en' };
+    const row = rows[0];
+    return {
+      console: row?.console_language ?? null,
+      agents: row?.agent_language ?? row?.console_language ?? 'en',
+      agentsChosen: row?.agent_language != null,
+    };
   });
 }
 
-/** Partial: a field left out keeps its value; `console: null` goes back to the browser's. */
-export async function setDeploymentLanguages(change: Partial<DeploymentLanguages>): Promise<DeploymentLanguages> {
+/**
+ * Partial: a field left out keeps its value. `console: null` goes back to
+ * none, and `agents: null` back to following the panel.
+ */
+export async function setDeploymentLanguages(change: { console?: string | null; agents?: string | null }): Promise<DeploymentLanguages> {
   await withControlPlane(async (tx) => {
     if (change.console !== undefined) {
       await tx.query('UPDATE platform_control SET console_language = $1, updated_at = now()', [change.console]);

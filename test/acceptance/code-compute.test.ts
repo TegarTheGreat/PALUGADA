@@ -32,7 +32,7 @@ import { isPalugadaError } from '../../src/errors.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { codeCompute, computeFrom } from '../../src/capabilities/compute.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -233,6 +233,32 @@ test('what the code wrote is kept only when every file is a plain file with a pl
     assert.match(result.said ?? '', said);
   }
   assert.equal(existsSync(join(mine, 'computed')), false, 'nothing was kept from a forged answer either');
+});
+
+/**
+ * email.send never sends on what a stranger sent: received/ is not a folder a
+ * letter takes from. But code.compute could be handed a file from there and
+ * keep what its code wrote -- the same bytes, copied -- under computed/,
+ * which a letter does take from, so a role talked into it sent a stranger's
+ * file on under a name that looked like the company's own work.
+ */
+test('what code made from a file a stranger sent is kept with what strangers sent, where no letter takes it from', needsPython, async () => {
+  const { docker } = await fakeDocker();
+  const { root, mine, ctx } = await companyFiles();
+  await mkdir(join(mine, 'received', 'mail', '2026-10'), { recursive: true });
+  await writeFile(join(mine, 'received', 'mail', '2026-10', 'abcd1234-1.pdf'), '%PDF-1.4 sent by a stranger');
+  const compute = codeCompute({ root, image: IMAGE, docker });
+  const copy = "import shutil\nshutil.copy('in/received/mail/2026-10/abcd1234-1.pdf', 'out/invoice.pdf')\n";
+  const result = await compute.execute({ code: copy, files: ['received/mail/2026-10/abcd1234-1.pdf'] }, ctx());
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.files.length, 1);
+  assert.match(result.files[0]!.path, /^received\/computed\/\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\/invoice\.pdf$/);
+  assert.equal(await readFile(join(mine, result.files[0]!.path), 'utf8'), '%PDF-1.4 sent by a stranger');
+
+  // What it makes from the company's own files is kept where it always was.
+  const own = await compute.execute({ code: SUMS, files: ['penjualan/september.csv'] }, ctx());
+  assert.equal(own.ok, true, JSON.stringify(own));
+  assert.ok(own.files.every((file) => file.path.startsWith('computed/')), JSON.stringify(own.files));
 });
 
 test('code.compute is handed only this company\'s files, and says so before anything runs', needsPython, async () => {

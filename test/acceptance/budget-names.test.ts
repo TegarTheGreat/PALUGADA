@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../../src/templates/standard.ts';
+import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../helpers/standard-team.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';

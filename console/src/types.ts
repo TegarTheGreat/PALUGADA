@@ -54,6 +54,12 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
   browser?: boolean;
+  /** The person a question was put to; only they and the owner see it. Absent when it was put to no one in particular. */
+  addressee?: { seatId: string; name: string };
+  /** A question put to a person who has not answered in a day: the owner has been told. */
+  escalated?: boolean;
+  /** A role the CEO proposes hiring (a ticket of kind `hire`): the owner hires it with the CEO, or closes the ticket. */
+  hire?: { ticketId: string; role: string; why: string };
   /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
   key?: { alias: string; divisionId: string; capabilities: string[] };
   /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
@@ -199,6 +205,8 @@ export interface Role {
   dormantUntil: string | null;
   frozenAt: string | null;
   frozenReason: string | null;
+  /** `spend` is the platform's to lift when the burst has passed; the others wait for the owner. */
+  frozenBy: 'owner' | 'denials' | 'spend' | 'spend_held' | null;
   openTasks: number;
   doneLastWeek: number;
   /** Who the role is and how it works: first in every run's context. */
@@ -408,7 +416,7 @@ export interface RunBriefing {
       memories: string[];
       goalAncestry: Array<{ kind: string; statement: string }>;
       notes: Array<{ title: string; body: string }>;
-      workingMemory: Array<{ name: string; output: unknown }>;
+      workingMemory: Array<{ name: string; input?: unknown; output: unknown }>;
     };
     allowedTools?: Array<{ name: string; tier: number }>;
     modelRouting?: { primary: string; fallback: string[] };
@@ -551,6 +559,8 @@ export interface TaskDetail {
   /** The run's report on its done criteria, weighed against its journal; null when it made none. */
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
+  /** The files it made, whatever they hold, in the order it made them: to take out. */
+  files: Array<{ capability: string; path: string }>;
   /** The work it handed to other roles, oldest first, with what each piece came to. */
   handedOn: HandedPiece[];
   /** The task that handed this one on, or null when the owner, a schedule or a trigger gave it. */
@@ -648,6 +658,8 @@ export interface ChatMessage {
   /** A mail's subject. */
   subject: string | null;
   outcome: 'started' | 'joined' | 'limited' | null;
+  /** In: the files it carried, kept or not (0125). The name is the sender's: theirs, so shown as text and nothing more. */
+  files: Array<{ kind: string; name: string | null; path: string | null; bytes: number; note: string | null; why: 'too_big' | 'kind' | 'room' | 'no_files' | 'failed' | 'removed' | null }>;
   taskId: string | null;
   /** A reply the transport took; false for one whose send failed. */
   sent: boolean;
@@ -788,6 +800,8 @@ export interface PolicyRow {
 export interface Ticket {
   id: string;
   projectId: string;
+  /** `hire`: a role the company lacks, which the owner decides (0132). */
+  kind: 'work' | 'hire';
   divisionId: string | null;
   title: string;
   body: string;
@@ -877,9 +891,40 @@ export interface InvoiceRow {
 export interface InvoiceDetail extends InvoiceRow {
   lines: Array<{ description: string; quantity: number; unitCents: number; amountCents: number }>;
   payments: Array<{ id: string; paidOn: string; amountCents: number; entryId: string; reversed: boolean; writtenBy: 'owner' | 'agent' }>;
+  /** The reminders sent, in order, and whether the owner asked that it be left alone. */
+  /** `confirmed` false: handed to the mail server, which never said it took it; it counts as sent and is not sent again. */
+  reminders: Array<{ step: number; sentOn: string; to: string; confirmed: boolean }>;
+  held: boolean;
+}
+
+/** What has been done about reminding a customer of one invoice. */
+export interface InvoiceReminding {
+  sent: number;
+  lastOn: string | null;
+  held: boolean;
+  told: boolean;
+}
+
+/** Reminders for overdue invoices: the company's policy, and who writes them. */
+export interface Collections {
+  enabled: boolean;
+  stepsDays: number[];
+  paymentNote: string | null;
+  senders: { names: string[]; waiting: string[] };
 }
 
 export interface Invoices {
   invoices: InvoiceRow[];
   outstanding: Array<{ currency: string; outstandingCents: number; overdueCents: number }>;
+  reminding: Record<string, InvoiceReminding>;
+  collections: Collections;
+}
+
+/** The languages of the deployment: the panel's, the agents', and the ones it can be set to. */
+export interface Languages {
+  console: string | null;
+  agents: string;
+  /** Whether the owner chose the agents' language, or it follows the panel's. */
+  agentsChosen: boolean;
+  supported: Array<{ code: string; name: string; native: string }>;
 }

@@ -1,0 +1,295 @@
+/**
+ * The collections duty: customers who owe are reminded, and a person is told
+ * about the ones a letter did not reach (the owner's request of 7 October:
+ * white-collar work handled, and automatically).
+ *
+ * Two halves, as the other things the platform starts for itself have
+ * (`engine/triage.ts`, `engine/outcomes.ts`):
+ *
+ *  - **The look** (`ensureCollections`), run by the worker for each company, at
+ *    most every half hour. It reads the books and the letters sent
+ *    (`whatIsNext`, src/records/collections.ts), and does two things. For the
+ *    invoices whose next reminder is due it makes one task for the role that
+ *    holds `invoice.remind`. For the invoices a letter is no longer the answer
+ *    to -- unpaid after the last one, overdue for months and never reminded, or
+ *    with nowhere to send a letter -- it puts one card to the owner, once for
+ *    each, and says so in words and not in codes.
+ *  - **The work** (`collectionsDuty`), which is that task: no model, one call of
+ *    `invoice.remind` for each invoice named, under the role's grants and the
+ *    broker's rules. The capability decides again, from the books at that
+ *    moment, whether each reminder is still due: an invoice paid between the
+ *    look and the work is not written to.
+ *
+ * What it will not do is start anything it has no one to give to. With no role
+ * that holds the capability it does not guess a role into having it -- giving a
+ * role a tool is the owner's (F2.9) -- it tells the owner, once, that nobody is
+ * set to remind customers and where to switch that on.
+ */
+import { createHash } from 'node:crypto';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { languagesFor } from '../domain/language.ts';
+import { isPalugadaError, type PalugadaError } from '../errors.ts';
+import * as inbox from '../inbox/inbox.ts';
+import { invoiceUnpaidCard, nobodyRemindsCard, ownerReadingWithin, remindedSaid, reminderMailboxAsked, reminderPlanSaid, reminderUnconfirmedCard } from '../owner/platform-cards.ts';
+import { reminderAddress, type RemindResult } from '../capabilities/collections.ts';
+import { createRootTask } from '../engine/tasks.ts';
+import { dayIn, lettersOf, lockInvoice, noteEscalated, policyOf, unconfirmedLetters, whatIsNext, zoneOf } from '../records/collections.ts';
+import { overdueInvoices } from '../records/invoices.ts';
+import type { TaskHandler } from '../runtime/in-process.ts';
+
+/** The least time between one look at a company's invoices and the next. */
+export const COLLECTIONS_EVERY_MS = 30 * 60_000;
+/** The most invoices one task names; the rest are the next look's. */
+const MOST_INVOICES = 25;
+/** The key of the card that says nobody can remind, so there is one for each setting of the reminders. */
+const NOBODY = 'collections_nobody';
+
+const lastLook = new Map<string, number>();
+
+export interface CollectionsLook {
+  /** The task made (or already there) for the invoices whose reminder is due. */
+  task: string | null;
+  /** How many invoices it names. */
+  due: number;
+  /** Cards put to the owner about invoices a letter no longer answers. */
+  escalated: number;
+  /** The owner was told that nobody is set to remind customers. */
+  nobody: boolean;
+}
+
+const NOTHING: CollectionsLook = { task: null, due: 0, escalated: 0, nobody: false };
+
+interface Candidate { id: string; number: string; step: number }
+interface ForAPerson {
+  id: string; number: string; customer: string; cents: number; currency: string; dueDate: string; why: 'unpaid_after_last' | 'stale' | 'no_email';
+  /** Issued to one of the company's contacts, where the owner can add an address. */
+  contact: boolean;
+}
+
+/**
+ * The key that an invoice with nowhere to send its reminder was told: once,
+ * and apart from the escalation an invoice is told once (`noteEscalated`).
+ * Kept with that, it took the invoice's one card, and the one for a letter
+ * that did not mend it -- once an address was given -- was never raised.
+ */
+const noAddressKey = (invoiceId: string) => `reminder_no_email:${invoiceId}`;
+
+/** What the books say needs doing about overdue invoices today. */
+async function read(tx: TenantClient, companyId: string, today: string): Promise<{ due: Candidate[]; person: ForAPerson[] } | null> {
+  const policy = await policyOf(tx, companyId);
+  if (!policy.enabled) return null;
+  const invoices = await overdueInvoices(tx, companyId, today);
+  if (invoices.length === 0) return { due: [], person: [] };
+  const ids = invoices.map((invoice) => invoice.id);
+  // The letters the server took and those it may have: a step in flight or
+  // unconfirmed is a step taken (`invoice.remind`).
+  const sent = await lettersOf(tx, companyId, ids);
+  const { rows: flags } = await tx.query<{ invoice_id: string; held: boolean; told: boolean }>(
+    `SELECT invoice_id, held_at IS NOT NULL AS held, escalated_at IS NOT NULL AS told FROM invoice_collections
+      WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])`, [companyId, ids]);
+  // Where each goes (`reminderAddress`): the contact's address as it is now,
+  // for an invoice issued with none.
+  const { rows: contacts } = await tx.query<{ id: string; email: string | null }>(
+    'SELECT id, email FROM contacts WHERE company_id = $1 AND id = ANY($2::uuid[])',
+    [companyId, invoices.flatMap((invoice) => (invoice.contactId ? [invoice.contactId] : []))]);
+  const { rows: toldNoAddress } = await tx.query<{ once: string }>(
+    "SELECT payload->>'once' AS once FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = ANY($1::text[])",
+    [ids.map(noAddressKey)]);
+
+  const due: Candidate[] = [];
+  const person: ForAPerson[] = [];
+  for (const invoice of invoices) {
+    const flag = flags.find((one) => one.invoice_id === invoice.id);
+    if (flag?.held) continue;
+    const next = whatIsNext({ dueDate: invoice.dueDate, today, steps: policy.stepsDays, sent: sent.get(invoice.id) ?? [] });
+    const contactNow = contacts.find((one) => one.id === invoice.contactId)?.email ?? null;
+    const reachable = reminderAddress(invoice.customerEmail, contactNow) !== null;
+    const about = {
+      id: invoice.id, number: invoice.number, customer: invoice.customerName, cents: invoice.outstandingCents, currency: invoice.currency,
+      dueDate: invoice.dueDate, contact: invoice.contactId !== null,
+    };
+    if (next.action === 'remind') {
+      if (reachable) due.push({ id: invoice.id, number: invoice.number, step: next.step });
+      else if (!toldNoAddress.some((one) => one.once === noAddressKey(invoice.id))) person.push({ ...about, why: 'no_email' });
+    } else if (next.action === 'escalate' && !flag?.told) {
+      person.push({ ...about, why: next.why });
+    }
+  }
+  return { due: due.slice(0, MOST_INVOICES), person };
+}
+
+/**
+ * Looks at a company's overdue invoices: makes the work for the reminders that
+ * are due, and puts the ones a letter will not mend to the owner.
+ */
+export async function ensureCollections(companyId: string, now = new Date()): Promise<CollectionsLook> {
+  const before = lastLook.get(companyId);
+  if (before !== undefined && now.getTime() - before < COLLECTIONS_EVERY_MS && now.getTime() >= before) return NOTHING;
+  lastLook.set(companyId, now.getTime());
+
+  // A letter the mail server never said it took is told to the owner once,
+  // whether or not the company still reminds: it was written either way.
+  // And the day it is, where the company is: what is late is counted on its
+  // calendar, as invoice.remind counts it.
+  const today = await withTenant(companyId, async (tx) => {
+    for (const letter of await unconfirmedLetters(tx, companyId)) {
+      const once = `reminder_unconfirmed:${letter.attemptId}`;
+      const { rows: told } = await tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1", [once]);
+      if (told.length > 0) continue;
+      const card = reminderUnconfirmedCard(await ownerReadingWithin(tx), letter);
+      await inbox.raiseEscalationWithin(tx, {
+        companyId, title: card.title, detail: card.detail,
+        payload: { once, invoiceId: letter.invoiceId, number: letter.number, step: letter.step },
+      });
+    }
+    return dayIn(await zoneOf(tx, companyId), now);
+  });
+
+  const found = await withTenant(companyId, (tx) => read(tx, companyId, today));
+  if (!found) return NOTHING;
+
+  // A card for each invoice a letter no longer answers, once, in the same
+  // transaction that notes it was told: the note and the card exist together.
+  // One with nowhere to write is told once on its own key, under the lock its
+  // reminders are written under, so two looks at once raise one card.
+  let escalated = 0;
+  for (const one of found.person) {
+    const raised = await withTenant(companyId, async (tx) => {
+      const once = one.why === 'no_email' ? noAddressKey(one.id) : null;
+      if (once) {
+        await lockInvoice(tx, one.id);
+        const { rows: told } = await tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1", [once]);
+        if (told.length > 0) return false;
+      } else if (!(await noteEscalated(tx, companyId, one.id))) {
+        return false;
+      }
+      const card = invoiceUnpaidCard(await ownerReadingWithin(tx), {
+        why: one.why, number: one.number, customer: one.customer, cents: one.cents, currency: one.currency, dueDate: one.dueDate, contact: one.contact,
+      });
+      await inbox.raiseEscalationWithin(tx, {
+        companyId, title: card.title, detail: card.detail,
+        payload: { invoiceId: one.id, number: one.number, why: one.why, ...(once ? { once } : {}) },
+      });
+      return true;
+    });
+    if (raised) escalated += 1;
+  }
+  if (found.due.length === 0) return { ...NOTHING, escalated };
+
+  const who = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; division_id: string }>(
+      `SELECT r.id, r.division_id FROM roles r
+         JOIN capability_grants g ON g.division_id = r.division_id AND g.capability_name = 'invoice.remind'
+        WHERE 'invoice.remind' = ANY(r.tools) AND r.frozen_at IS NULL AND coalesce(r.runtime, '') <> 'person'
+        ORDER BY r.created_at LIMIT 1`);
+    // An open one: a closed project takes no new work, and a company always
+    // keeps one open (`changeProject`).
+    const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at LIMIT 1');
+    const { rows: goal } = await tx.query<{ id: string }>(
+      "SELECT id FROM goals WHERE status = 'active' ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1");
+    // One at a time: a task still waiting -- for the owner's mailbox, a
+    // window, its turn -- has the reminders in hand. The next day's look sees
+    // another day, so another task, which asked the owner for the same
+    // mailbox again, each day, until they gave it. Not one whose sender is
+    // paused: it waits as long as the pause, and another sender may send
+    // meanwhile (a letter's step is taken under the invoice's lock, so the
+    // two never write the same one).
+    const { rows: live } = await tx.query(
+      `SELECT 1 FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.idempotency_key LIKE 'duty:collections:%' AND r.frozen_at IS NULL
+          AND t.status NOT IN ('completed', 'failed', 'halted', 'cancelled') LIMIT 1`);
+    return { role: rows[0] ?? null, projectId: project[0]?.id ?? null, goalId: goal[0]?.id ?? null, busy: live.length > 0 };
+  });
+
+  if (!who.role) {
+    // Nobody can write the letters: said once for each setting of the
+    // reminders -- while the card is open, and after the owner closed it
+    // until they change the reminders. Said again at every look once closed,
+    // it came back every half hour to a company that had chosen not to send
+    // them. The lock is for two workers looking at once, which each read no
+    // card and raised one.
+    const told = await withTenant(companyId, async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${NOBODY}:${companyId}`]);
+      const { rows: said } = await tx.query(
+        `SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1
+            AND (status = 'open' OR created_at > coalesce(
+                   (SELECT updated_at FROM collections_policy WHERE company_id = $2), '-infinity'::timestamptz))
+          LIMIT 1`, [NOBODY, companyId]);
+      if (said.length > 0) return false;
+      const card = nobodyRemindsCard(await ownerReadingWithin(tx));
+      await inbox.raiseEscalationWithin(tx, { companyId, title: card.title, detail: card.detail, payload: { once: NOBODY } });
+      return true;
+    });
+    return { task: null, due: found.due.length, escalated, nobody: told };
+  }
+  if (!who.projectId || !who.goalId || who.busy) return { ...NOTHING, escalated };
+
+  // The same invoices at the same steps on the same day are the same task: two
+  // workers that look at once make one between them.
+  const fingerprint = createHash('sha256')
+    .update(`${today}|${found.due.map((one) => `${one.id}@${one.step}`).join('|')}`).digest('hex').slice(0, 24);
+  try {
+    const task = await createRootTask({
+      companyId, projectId: who.projectId, divisionId: who.role.division_id, roleId: who.role.id, goalId: who.goalId,
+      createdBy: 'event', idempotencyKey: `duty:collections:${fingerprint}`, reserveTokens: 100,
+      input: {
+        goal: 'Remind the customers whose invoices are overdue.',
+        context: 'Each invoice named is past its due date and its next reminder is due. Nothing here needs a model: the reminders are written from the books.',
+        duty: 'collections',
+        invoices: found.due.map((one) => one.number),
+      },
+    });
+    return { task: task.id, due: found.due.length, escalated, nobody: false };
+  } catch (error) {
+    // A frozen role, a paused month, a goal just closed: each is a reason
+    // nothing starts now, and the next look finds it again.
+    if (isPalugadaError(error)) return { ...NOTHING, escalated };
+    throw error;
+  }
+}
+
+/** The task the look made: one `invoice.remind` for each invoice it names. */
+export const collectionsDuty: TaskHandler = async (ctx) => {
+  const named = Array.isArray(ctx.task.input.invoices)
+    ? (ctx.task.input.invoices as unknown[]).filter((one): one is string => typeof one === 'string').slice(0, MOST_INVOICES)
+    : [];
+  const languages = await withTenant(ctx.task.companyId, (tx) => languagesFor(tx, ctx.task.companyId));
+  const talk = languages.talk;
+  // The plan is words the company's agents write for people, so it is in the
+  // company's work language; one in another would be noted as a slip.
+  await ctx.callCapability('plan.record', {
+    steps: [{ capability: 'invoice.remind', ...reminderPlanSaid(languages.work) }],
+  });
+  const reminded: string[] = [];
+  const left: Array<{ invoice: string; why: string }> = [];
+  const remind = (number: string) => ctx.callCapability<{ invoice: string }, RemindResult>('invoice.remind', { invoice: number });
+  for (const number of named) {
+    try {
+      let result: RemindResult;
+      try {
+        result = await remind(number);
+      } catch (error) {
+        // No mailbox yet: the owner is asked for it, the way any role asks for a
+        // key it lacks (`owner.ask` with the key), and the task waits. Given
+        // since, it is tried once more.
+        if (!isPalugadaError(error, 'capability.not_granted') || (error as PalugadaError).details.alias !== 'mailbox') throw error;
+        await ctx.callCapability('owner.ask', {
+          question: reminderMailboxAsked(talk),
+          key: 'mailbox',
+        });
+        result = await remind(number);
+      }
+      if (result.status === 'sent') reminded.push(number);
+      else left.push({ invoice: number, why: result.reason });
+    } catch (error) {
+      // An invoice that is gone or refused is that invoice's; a mailbox that is
+      // down, a card for the owner or a rate limit is the whole task's, and the
+      // engine knows what to do with each.
+      if (isPalugadaError(error, 'contract.violation')) left.push({ invoice: number, why: (error as Error).message });
+      else throw error;
+    }
+  }
+
+  const summary = remindedSaid(talk, reminded);
+  return { summary, reminded, left };
+};

@@ -360,10 +360,14 @@ export async function applyGoalChangeWithin(
     paused.schedules = schedules.rows.length;
     paused.triggers = triggers.rows.length;
     // Nobody is woken about a goal that is done: the follow-ups waiting under
-    // it (`task.follow_up`) are cancelled, which releases what they held.
+    // it (`task.follow_up`) and the outcome and review looks the platform made
+    // for the CEO (src/engine/outcomes.ts, goal-review.ts) are cancelled, which
+    // releases what they held. Only what has not started: running work is
+    // left to finish.
     const waiting = await tx.query<{ id: string }>(
       `${under} SELECT id FROM tasks
-                 WHERE company_id = $2 AND status = 'pending' AND idempotency_key LIKE 'followup:%'
+                 WHERE company_id = $2 AND status = 'pending'
+                   AND (idempotency_key LIKE 'followup:%' OR idempotency_key LIKE 'outcome:%' OR idempotency_key LIKE 'review:%')
                    AND goal_id IN (SELECT id FROM under)
                  ORDER BY id`,
       [input.goalId, input.companyId]);

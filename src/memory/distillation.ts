@@ -35,6 +35,7 @@ import { LEARNED_CONFIDENCE, learn, remember } from './store.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
+import { outputFrom } from '../llm/json.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 
 /** How many times a pattern must recur before it is worth proposing as an SOP. */
@@ -98,12 +99,10 @@ interface ExtractedFact {
  * rather than aborting the nightly job or writing half a fact.
  */
 function parseFacts(content: string): { facts: ExtractedFact[] } | { error: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return { error: 'response was not JSON' };
-  }
+  // Read as the agent loop reads an output: a fence or a sentence before it
+  // is not a reason to throw the reply away.
+  const parsed: unknown = outputFrom(content);
+  if (parsed === null) return { error: 'response was not JSON' };
 
   const raw = (parsed as { facts?: unknown }).facts;
   if (!Array.isArray(raw)) return { error: 'response had no facts array' };
@@ -257,8 +256,9 @@ export async function distillEpisodicToSemantic(
       'You distil durable facts from a company\'s record of its own work: what tasks were for, what ' +
       'they produced, why some stopped, and what the owner said. Return JSON of the form ' +
       '{"facts":[{"body":"...","confidence":0.0-1.0}]}. Keep facts about the business -- how ' +
-      'a customer or a supplier likes to be dealt with, and what worked or failed and why -- that would ' +
-      'help the next piece of work; not a price, a stock level, who owes what or a customer\'s details, ' +
+      'customers or suppliers in general like to be dealt with, and what worked or failed and why -- that would ' +
+      'help the next piece of work; nothing about one named person, whose notes belong in their customer ' +
+      'record; not a price, a stock level, who owes what or a customer\'s details, ' +
       'which the company reads from its records and which go out of date; not facts about this record ' +
       'or the software keeping it. State only ' +
       'what the record supports, in one sentence each. Prefer few well-supported facts over many ' +
@@ -369,8 +369,10 @@ export async function distillSemanticToProcedural(
     // Counted since the owner last turned a proposal for the same pattern
     // down, when they have: a rejection is answered by new evidence, not by
     // the same count asking again every night.
+    // In tasks, not calls: the card says "observed in N completed tasks", and
+    // three calls in one task were a pattern (the audit of 6 October, M8).
     const { rows } = await tx.query<{ capability: string; occurrences: string }>(
-      `SELECT e.payload->>'capability' AS capability, count(*)::text AS occurrences
+      `SELECT e.payload->>'capability' AS capability, count(DISTINCT e.task_id)::text AS occurrences
          FROM events e
          JOIN tasks t ON t.id = e.task_id
         WHERE e.type = 'tool.called'
@@ -379,13 +381,19 @@ export async function distillSemanticToProcedural(
           AND e.payload->>'capability' IS NOT NULL
           AND NOT (e.payload->>'capability' = ANY($3::text[]))
           AND e.occurred_at > coalesce(
-                (SELECT max(m.created_at) FROM memories m
+                -- From when the owner said no, not from when the candidate was
+                -- written: what happened while the card waited was already known
+                -- to them (the audit of 6 October, M8).
+                (SELECT max(coalesce((SELECT max(i.decided_at) FROM inbox_items i
+                                       WHERE i.kind = 'sop_candidate' AND i.payload->>'memoryId' = m.id::text),
+                                     m.created_at))
+                   FROM memories m
                   WHERE m.memory_type = 'procedural' AND m.scope_id = $1 AND m.approval_state = 'rejected'
                     AND m.source = 'pattern:' || (e.payload->>'capability')),
                 '-infinity'::timestamptz)
         GROUP BY 1
-       HAVING count(*) >= $2
-        ORDER BY count(*) DESC`,
+       HAVING count(DISTINCT e.task_id) >= $2
+        ORDER BY count(DISTINCT e.task_id) DESC`,
       [input.divisionId, minOccurrences, HOUSEKEEPING_CAPABILITIES],
     );
     return rows.map((row) => ({ capability: row.capability, occurrences: Number(row.occurrences) }));

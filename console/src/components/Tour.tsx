@@ -82,7 +82,7 @@ const STOPS: readonly Stop[] = [
   },
   {
     title: N('Start your first company'),
-    body: N('A company starts from the standard template: a coordinator, and a role in each division. Give it a goal and its first piece of work, and answer the inbox when it asks.'),
+    body: N('A company starts with its CEO. Say what it is for, then talk to the CEO: it builds the team as the work needs it, and you answer the inbox when it asks.'),
     icon: IconBuildingStore,
     place: 'home',
     spot: 'new',

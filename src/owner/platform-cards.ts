@@ -130,17 +130,135 @@ export function spendWarnedCard(reading: OwnerReading, facts: { spentCents: numb
   };
 }
 
-export function roleSpendingFastCard(reading: OwnerReading, facts: { role: string; lastHourCents: number; usualCents: number; multiple: number }): Card {
+/**
+ * The breaker's card is raised only when it holds a role for the owner: one
+ * it stopped for a burst goes on by itself and asks for nothing. `held` says
+ * why the owner is being asked, so the card does not read as a first offence.
+ */
+export function roleSpendingFastCard(reading: OwnerReading, facts: { role: string; lastHourCents: number; usualCents: number; multiple: number; held?: boolean }): Card {
   const { language } = reading;
+  const detail = say(language,
+    '{role} spent {spent} in the last hour, {multiple} times its usual {usual} an hour. It is paused before the monthly ceiling is reached, so there is money left to work with once you have found out why. Resume it when you have.',
+    {
+      role: facts.role, spent: moneySaid(language, facts.lastHourCents, reading.display),
+      usual: moneySaid(language, facts.usualCents, reading.display), multiple: number(reading, facts.multiple, 1),
+    });
   return {
     title: say(language, 'Role {role} is paused for spending too fast', { role: facts.role }),
-    detail: say(language,
-      '{role} spent {spent} in the last hour, {multiple} times its usual {usual} an hour. It is paused before the monthly ceiling is reached, so there is money left to work with once you have found out why. Resume it when you have.',
-      {
-        role: facts.role, spent: moneySaid(language, facts.lastHourCents, reading.display),
-        usual: moneySaid(language, facts.usualCents, reading.display), multiple: number(reading, facts.multiple, 1),
-      }),
+    detail: facts.held
+      ? `${detail} ${say(language, 'This is the third time in a day, so it does not go on by itself.')}`
+      : detail,
   };
+}
+
+/* ----------------------------------------------------------- collections --- */
+
+/** An invoice's figure in the language the owner reads, in the invoice's own currency (which is not the owner's display currency). */
+function invoiceMoney(reading: OwnerReading, cents: number, currency: string): string {
+  const amount = cents / 100;
+  try {
+    // Two places, as the invoice itself writes it (src/records/invoice-document.ts).
+    return amount.toLocaleString(reading.language ?? 'en', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } catch {
+    return `${amount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+}
+
+/**
+ * An invoice the platform's letters will not mend: it stays unpaid after the
+ * last one, it was overdue for months before anything was switched on, or there
+ * is no address to write to. What happens next is a person's.
+ */
+export function invoiceUnpaidCard(reading: OwnerReading, facts: {
+  why: 'unpaid_after_last' | 'stale' | 'no_email'; number: string; customer: string; cents: number; currency: string; dueDate: string;
+  /** Issued to one of the company's contacts: an address added there is the one the next reminder goes to. */
+  contact: boolean;
+}): Card {
+  const { language } = reading;
+  const values = {
+    number: facts.number, customer: facts.customer, amount: invoiceMoney(reading, facts.cents, facts.currency),
+    due: day({ ...reading, timezone: 'UTC' }, new Date(`${facts.dueDate}T00:00:00Z`)),
+  };
+  return {
+    title: say(language, 'Invoice {number} needs you: {customer} has not paid', values),
+    detail: facts.why === 'unpaid_after_last'
+      ? say(language, '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.', values)
+      : facts.why === 'stale'
+        ? say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.', values)
+        // An invoice issued to a name and not to a contact has no customer to
+        // add an address to, and is never edited: asking for one is advice
+        // that cannot be taken.
+        : facts.contact
+          ? say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.', values)
+          : say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.', values),
+  };
+}
+
+/**
+ * A reminder handed to the mail server that the server never said it took
+ * (`invoice.remind`): it counts as sent and is not sent again, and the owner
+ * is told it may not have arrived.
+ */
+export function reminderUnconfirmedCard(reading: OwnerReading, facts: {
+  number: string; customer: string; to: string; step: number; of: number; day: string;
+}): Card {
+  const { language } = reading;
+  const values = {
+    number: facts.number, customer: facts.customer, to: facts.to, step: String(facts.step), of: String(facts.of),
+    day: day({ ...reading, timezone: 'UTC' }, new Date(`${facts.day}T00:00:00Z`)),
+  };
+  return {
+    title: say(language, 'Reminder for invoice {number} not confirmed', values),
+    detail: say(language, 'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.', values),
+  };
+}
+
+/**
+ * The CEO proposes a role the company lacks (a ticket of kind `hire`, 0132).
+ * Hiring is the owner's (F2.9); the card says what the CEO said, as its words.
+ */
+export function hireProposedCard(reading: OwnerReading, facts: { role: string; why: string }): Card {
+  const { language } = reading;
+  const role = facts.role.replace(/\s+/g, ' ').trim().slice(0, 120);
+  return {
+    title: say(language, 'Your CEO proposes hiring: {role}', { role }),
+    detail: [
+      facts.why.trim().slice(0, 1_500),
+      say(language, 'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.'),
+    ].filter(Boolean).join('\n\n'),
+  };
+}
+
+/** Invoices are overdue and no role can write the reminders: where to switch that on. */
+export function nobodyRemindsCard(reading: OwnerReading): Card {
+  const { language } = reading;
+  return {
+    title: say(language, 'Nobody is set to remind customers about overdue invoices'),
+    detail: say(language, 'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.'),
+  };
+}
+
+/**
+ * What the collections duty (src/duties/collections.ts) says in words: its
+ * summary in the language the owner talks in, its plan in the one the company
+ * works in, and its question when there is no mailbox. Composed here with the
+ * platform's other sentences, so each has its translation checked.
+ */
+export function remindedSaid(language: string | null, invoices: string[]): string {
+  return invoices.length > 0
+    ? say(language, 'Reminded the customers of: {invoices}.', { invoices: invoices.join(', ') })
+    : say(language, 'No reminder was due.');
+}
+
+export function reminderPlanSaid(language: string | null): { intent: string; expectedEffect: string } {
+  return {
+    intent: say(language, 'Remind the customers whose invoices are overdue'),
+    expectedEffect: say(language, 'each customer whose next reminder is due has been written to once'),
+  };
+}
+
+export function reminderMailboxAsked(language: string | null): string {
+  return say(language, 'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.');
 }
 
 /* -------------------------------------------------------------- alerts --- */

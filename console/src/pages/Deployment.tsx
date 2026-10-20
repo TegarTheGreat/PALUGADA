@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { dateTime } from '../format.ts';
+import { dateTime, relative } from '../format.ts';
 import { N, locale, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
@@ -62,7 +62,9 @@ interface SettingsView {
   };
   providers: ProviderEntry[];
   /** What each model the tiers name costs, in cents per million tokens, and who said so. */
-  prices: Array<{ model: string; input: number; output: number; source: 'console' | 'file' | 'fallback' }>;
+  prices: Array<{ model: string; input: number; output: number; source: 'console' | 'file' | 'catalogue' | 'fallback'; provider?: string }>;
+  /** When the platform last read models.dev, why the last try failed if it did, and what it could not price. */
+  priceSync: { syncedAt: string | null; problem: string | null; unpriced: string[] } | null;
   secrets: Array<{ name: string; updatedAt: string }>;
   masterKey: string | null;
   applies: 'now' | 'next_start';
@@ -198,19 +200,20 @@ function ErasureList() {
   );
 }
 
-function ModelSettings() {
+/** The model every role runs on: chosen here, and by the first run (Onboarding.tsx) when there is none. */
+export function ModelSettings() {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
       <ModelForm view={view.data} reload={view.reload} />
-      {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} reload={view.reload} />}
+      {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} sync={view.data.priceSync} reload={view.reload} />}
     </Stack>
   );
 }
 
-const PRICE_SOURCE: Record<SettingsView['prices'][number]['source'], string> = {
+const PRICE_SOURCE: Record<Exclude<SettingsView['prices'][number]['source'], 'catalogue'>, string> = {
   console: N('your price'),
   file: N('set in the configuration'),
   fallback: N('not priced: charged at the highest rate'),
@@ -222,55 +225,55 @@ function dollars(cents: number): string {
 }
 
 /**
- * What each model costs (L12). Without a price a call is charged at the top
- * of the market, on purpose -- a budget then stops early rather than late --
- * which is fifty times what some models cost. The owner types the numbers
- * from their provider's price list, in dollars per million tokens.
+ * What each model costs (L12). The platform reads models.dev every day for the
+ * models in use and prices by it, so the money agrees with the bill without
+ * anyone keeping it so; a price typed here is the owner's own and wins. A model
+ * nobody priced is charged at the top of the market, on purpose -- a budget then
+ * stops early rather than late -- which is fifty times what some models cost.
  */
-function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reload: () => void }) {
+function ModelPrices({ prices, sync, reload }: { prices: SettingsView['prices']; sync: SettingsView['priceSync']; reload: () => void }) {
   const requireFactor = useFactor();
+  // Only a price that is the owner's own (or the configuration's) is in a box. The catalogue's is the box's
+  // placeholder: filled in, it stayed when "Check the prices now" redrew the prices, read as typed, and Save
+  // pinned the old catalogue price as the owner's for good.
   const [typed, setTyped] = useState<Record<string, { input: string; output: string }>>(
-    Object.fromEntries(prices.map((row) => [row.model, row.source === 'fallback' ? { input: '', output: '' } : { input: dollars(row.input), output: dollars(row.output) }])),
+    Object.fromEntries(prices.map((row) => [row.model, row.source === 'console' || row.source === 'file' ? { input: dollars(row.input), output: dollars(row.output) } : { input: '', output: '' }])),
   );
+  // What a row would be saved at: what was typed, or, for a box left empty, the price it shows. A model nobody
+  // priced has no price to show, so both its boxes are typed.
+  const priced = (row: SettingsView['prices'][number], side: 'input' | 'output') => {
+    const box = typed[row.model]?.[side].trim() ?? '';
+    return box !== '' || row.source === 'fallback' ? box : dollars(row[side]);
+  };
   const changed = prices.filter((row) => {
-    const now = typed[row.model];
-    return now && now.input.trim() !== '' && now.output.trim() !== ''
-      && (row.source === 'fallback' || now.input !== dollars(row.input) || now.output !== dollars(row.output));
+    const input = priced(row, 'input');
+    const output = priced(row, 'output');
+    return input !== '' && output !== ''
+      && (row.source === 'fallback' || input !== dollars(row.input) || output !== dollars(row.output));
   });
   const save = async () => {
     const body = Object.fromEntries(changed.map((row) => [row.model, {
-      input: Math.round(Number(typed[row.model]!.input) * 100), output: Math.round(Number(typed[row.model]!.output) * 100),
+      input: Math.round(Number(priced(row, 'input')) * 100), output: Math.round(Number(priced(row, 'output')) * 100),
     }]));
     const done = await requireFactor(t('Change what a model costs'), (proof) =>
       api('POST', '/api/control/settings/model/prices', { prices: body, proof }));
     if (done) {
-      notifications.show({ color: 'teal', message: t('Saved. Calls are priced by it from the next start, in a moment.') });
-      setTimeout(reload, 3_000);
+      notifications.show({ color: 'teal', message: t('Saved. Calls are priced by it from now on.') });
+      reload();
     }
   };
-  // models.dev's prices, filled into the form for the owner to look at and
-  // save: nothing is saved by looking.
+  // Reads models.dev now rather than at its turn: what the platform does every
+  // day on its own, for an owner who has just changed a model. It saves no price
+  // of theirs.
   const [looking, setLooking] = useState(false);
   const [found, setFound] = useState<string | null>(null);
   const lookUp = async () => {
     setLooking(true);
     setFound(null);
     try {
-      const answer: { prices: Record<string, { input: number; output: number; provider: string }>; missing: string[]; problem: string | null } =
-        await api('POST', '/api/control/settings/model/prices/lookup', {});
-      if (answer.problem) {
-        setFound(answer.problem);
-        return;
-      }
-      setTyped((all) => ({
-        ...all,
-        ...Object.fromEntries(Object.entries(answer.prices).map(([model, price]) => [model, { input: dollars(price.input), output: dollars(price.output) }])),
-      }));
-      const from = Object.entries(answer.prices).map(([model, price]) => `${model} (${price.provider})`).join(', ');
-      setFound([
-        from ? t('Filled from models.dev: {models}. Check them against your bill, then save.', { models: from }) : '',
-        answer.missing.length > 0 ? t('Not found there: {models}.', { models: answer.missing.join(', ') }) : '',
-      ].filter(Boolean).join(' '));
+      const answer: { ok: boolean; problem: string | null } = await api('POST', '/api/control/settings/model/prices/sync', {});
+      if (answer.problem) setFound(answer.problem);
+      reload();
     } catch (failure) {
       setFound(explain(failure));
     } finally {
@@ -279,8 +282,12 @@ function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reloa
   };
   const unpriced = prices.some((row) => row.source === 'fallback');
   return (
-    <Section title={t('What it costs')} description={t('From your provider\'s price list, in dollars per million tokens. Budgets are counted in these prices.')}>
+    <Section title={t('What it costs')} description={t('Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.')}>
       <Stack gap="sm">
+        <Text size="xs" c="dimmed">
+          {sync?.syncedAt ? t('Last read from models.dev {when}.', { when: relative(sync.syncedAt) }) : t('Not read from models.dev yet.')}
+          {sync?.problem ? ` ${t('The last try failed, so these are the prices from before: {problem}', { problem: sync.problem })}` : ''}
+        </Text>
         {unpriced && (
           <Alert color="yellow" variant="light">
             {t('A model with no price is charged at the highest rate, $15 in and $75 out per million tokens, so a budget stops early rather than late. For most models that is many times what they cost.')}
@@ -290,7 +297,9 @@ function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reloa
           <Group key={row.model} gap="sm" align="flex-end" wrap="wrap">
             <Stack gap={0} style={{ minWidth: 180, flex: 1 }}>
               <Code>{row.model}</Code>
-              <Text size="xs" c={row.source === 'fallback' ? 'orange' : 'dimmed'}>{t(PRICE_SOURCE[row.source])}</Text>
+              <Text size="xs" c={row.source === 'fallback' ? 'orange' : 'dimmed'}>
+                {row.source === 'catalogue' ? t('{provider}, kept current automatically', { provider: row.provider ?? 'models.dev' }) : t(PRICE_SOURCE[row.source])}
+              </Text>
             </Stack>
             <TextInput size="xs" w={130} label={t('Input, $ per million')} placeholder={dollars(row.input)} inputMode="decimal"
               value={typed[row.model]?.input ?? ''} onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [row.model]: { ...all[row.model]!, input: value } })); }} />
@@ -300,8 +309,8 @@ function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reloa
         ))}
         {found && <Text size="xs" c="dimmed">{found}</Text>}
         <Group>
-          <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Fill from models.dev')}</Button>
-          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(typed[row.model]!.input)) || !Number.isFinite(Number(typed[row.model]!.output)))}
+          <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Check the prices now')}</Button>
+          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(priced(row, 'input'))) || !Number.isFinite(Number(priced(row, 'output'))))}
             onClick={() => void save()}>{t('Save prices')}</Button>
         </Group>
       </Stack>
@@ -1813,6 +1822,7 @@ const SERVICE_TEXT: Record<string, string> = {
   'dns.read': N('Read a domain\'s DNS records.'),
   'dns.update': N('Change a DNS record.'),
   'invoice.issue': N('Issue an invoice a customer pays.'),
+  'invoice.remind': N('Remind a customer, in a letter written from the books, that an invoice is overdue.'),
   'social.publish': N('Publish a post.'),
   'metrics.read': N('Read your site\'s visits and goals.'),
   'calendar.read': N('Read the events on a Google calendar, signed in with Google.'),

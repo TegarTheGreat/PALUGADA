@@ -118,6 +118,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Le travail s’est arrêté : le compte {account} n’a plus de jetons',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '« {work} » s’est arrêté parce que le compte {account} a utilisé {spent} de ses {max} jetons. Relevez son plafond dans Argent, puis ouvrez la tâche et appuyez sur Continuer : elle reprend là où elle s’était arrêtée.',
   'Withdrawn: you continued the task it was about.': 'Retiré : vous avez poursuivi la tâche qu’il concernait.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Retiré : le budget avait de nouveau de la marge, et le travail a repris de lui-même.',
   'Broke its contract': 'N’a pas respecté son contrat',
   'Refused by a policy': 'Refusé par une politique',
   'Out of budget': 'Budget épuisé',
@@ -334,6 +335,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Il a refusé celles-ci, qui restent désactivées :',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Approuvez pour les activer toutes, ou refusez pour les rejeter toutes. Pour décider une par une, ouvrez la page Compétences.',
   'Nothing changes; none of these skills is switched on.': 'Rien ne change ; aucune de ces compétences n’est activée.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Je suis {ceo}, et je dirige {company} pour vous. Je sais à quoi elle sert : « {mission} » Deux questions avant de commencer : combien l’entreprise peut-elle dépenser par mois ? Et quel doit être son premier travail – ou voulez-vous que j’en propose un, avec l’équipe qu’il faudrait ?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Je suis {ceo}, et je dirige {company} pour vous. Trois questions avant de commencer : que vend {company}, et à qui ? Combien l’entreprise peut-elle dépenser par mois ? Et quel doit être son premier travail – ou voulez-vous que j’en propose un ?',
   'Read a customer conversation': 'Lire une discussion avec un client',
   'Reply to a customer': 'Répondre à un client',
@@ -358,4 +361,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name} : {value} pour un objectif de {target}, déclaré et non vérifié.',
   'Look at it again later': 'Y revenir plus tard',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Livrer ce que cette entreprise vend, de façon fiable et sans surprendre son propriétaire.",
+  "Ship the work the company has promised, on time and verified.":
+    "Livrer le travail promis par l’entreprise, dans les délais et vérifié.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Maintenir l’entreprise solvable, responsable et en marche sans attention quotidienne.",
+  "Since we last spoke:":
+    "Depuis notre dernier échange :",
+  "More finished: {count}":
+    "Terminé en plus : {count}",
+  "Waiting for you: {count}":
+    "En attente de vous : {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'C’est la troisième fois en un jour : il ne reprend donc pas de lui-même.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'La facture {number} a besoin de vous : {customer} n’a pas payé',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    '{customer} doit encore {amount} sur la facture {number}, échue le {due}, après le dernier rappel. La plateforme a cessé de lui écrire. La suite est à vous : un appel, un dernier avis, ou laisser tomber.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et aucun rappel n’a jamais été envoyé ; la plateforme n’a donc pas envoyé de lettre type aussi tard. Relancez-la vous-même, ou dites au CEO ce que vous voulez.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et il n’y a pas d’adresse e-mail pour envoyer un rappel. Ajoutez-en une au client, ou relancez-la vous-même.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Personne n’est chargé de rappeler aux clients leurs factures en retard',
+  'Reminded the customers of: {invoices}.':
+    'Clients relancés au sujet de : {invoices}.',
+  'No reminder was due.':
+    'Aucun rappel n’était dû.',
+  'Remind a customer about an invoice':
+    'Rappeler une facture à un client',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'Des factures ont dépassé leur échéance, et aucun rôle ne peut envoyer les rappels. Activez les rappels automatiques sous Comptabilité, Factures : l’entreprise les enverra alors aux jours que vous fixez.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Les rappels des factures en retard ont besoin d’une boîte mail pour partir. Donnez à cette division sa boîte mail.',
+  'Remind the customers whose invoices are overdue':
+    'Rappeler leurs factures en retard aux clients concernés',
+  'each customer whose next reminder is due has been written to once':
+    'chaque client dont le prochain rappel est dû a reçu une lettre, une seule fois',
+  'Reminder for invoice {number} not confirmed':
+    'Relance de la facture {number} non confirmée',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Le serveur de messagerie n\'a pas confirmé la relance {step} sur {of} de la facture {number} à {customer} ({to}), remise le {day}. Elle est peut-être arrivée, peut-être pas. La plateforme ne l\'enverra pas une seconde fois : si {customer} dit ne pas l\'avoir reçue, envoyez-la vous-même ou dites-le au CEO.',
+  'Your CEO proposes hiring: {role}':
+    'Votre CEO propose d’embaucher : {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'L’embauche vous revient. Embauchez avec le CEO en un mot, ou fermez le ticket si l’entreprise n’en a pas besoin.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Retiré : le ticket dont il s’agissait a été fermé.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et elle a été émise sans adresse e-mail à laquelle envoyer un rappel. Relancez-la vous-même, ou dites au CEO ce que vous voulez.',
 };

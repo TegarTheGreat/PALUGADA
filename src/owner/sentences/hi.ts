@@ -115,6 +115,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'काम रुक गया: {account} खाते के टोकन खत्म हो गए',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” रुक गया क्योंकि {account} खाता अपने {max} टोकन में से {spent} इस्तेमाल कर चुका है। पैसा पेज पर इसकी सीमा बढ़ाएँ, फिर कार्य खोलकर जारी रखें दबाएँ: यह वहीं से आगे बढ़ेगा जहाँ रुका था।',
   'Withdrawn: you continued the task it was about.': 'वापस लिया गया: आपने इससे जुड़ा कार्य जारी रखा।',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'वापस लिया गया: बजट में फिर गुंजाइश हो गई, और काम अपने आप आगे बढ़ गया।',
   'Broke its contract': 'अपना अनुबंध तोड़ा',
   'Refused by a policy': 'नीति ने अस्वीकार किया',
   'Out of budget': 'बजट खत्म',
@@ -331,6 +332,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'इन्हें उसने ठुकरा दिया, और ये बंद रहेंगी:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'सभी को चालू करने के लिए स्वीकृत करें, या सभी को ठुकराने के लिए अस्वीकार करें। एक-एक करके तय करने के लिए स्किल पेज खोलें।',
   'Nothing changes; none of these skills is switched on.': 'कुछ नहीं बदलेगा; इनमें से कोई भी स्किल चालू नहीं होगी।',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "मैं {ceo} हूँ, और आपके लिए {company} को चलाने का ज़िम्मा मेरा है। मुझे पता है कि यह किसलिए है: “{mission}” शुरू करने से पहले दो बातें: एक महीने में यह कितना खर्च कर सकती है? और इसका पहला काम क्या हो — या मैं ही कोई काम सुझाऊँ, उसके लिए ज़रूरी टीम के साथ?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'मैं {ceo} हूँ, और आपके लिए {company} को चलाने का ज़िम्मा मेरा है। शुरू करने से पहले तीन बातें: {company} क्या बेचती है, और किसे? एक महीने में यह कितना खर्च कर सकती है? और इसका पहला काम क्या हो — या मैं ही कोई काम सुझाऊँ?',
   'Read a customer conversation': 'ग्राहक की बातचीत पढ़ें',
   'Reply to a customer': 'ग्राहक को जवाब दें',
@@ -355,4 +358,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value}, लक्ष्य {target}, केवल बताया गया, जाँचा नहीं गया।',
   'Look at it again later': 'बाद में फिर देखें',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "इस कंपनी जो बेचती है उसे भरोसेमंद ढंग से पहुँचाना, और मालिक को चौंकाए बिना।",
+  "Ship the work the company has promised, on time and verified.":
+    "कंपनी ने जो काम करने का वादा किया है, उसे समय पर और जाँच-परख कर पूरा करना।",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "कंपनी को आर्थिक रूप से सक्षम, जवाबदेह और रोज़ की निगरानी के बिना चलने लायक बनाए रखना।",
+  "Since we last spoke:":
+    "पिछली बातचीत के बाद से:",
+  "More finished: {count}":
+    "और पूरे हुए: {count}",
+  "Waiting for you: {count}":
+    "आपकी प्रतीक्षा में: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'यह एक दिन में तीसरी बार है, इसलिए यह अपने आप आगे नहीं बढ़ेगी।',
+  'Invoice {number} needs you: {customer} has not paid':
+    'चालान {number} को आपकी ज़रूरत है: {customer} ने भुगतान नहीं किया',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'आख़िरी अनुस्मारक के बाद भी {customer} पर चालान {number} का {amount} बाकी है, देय तिथि {due}। प्लेटफ़ॉर्म ने उन्हें लिखना बंद कर दिया है। आगे का फ़ैसला आपका है: फ़ोन करना, अंतिम सूचना, या छोड़ देना।',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'चालान {number} ({amount}, {customer}) {due} से बकाया है, और कोई अनुस्मारक कभी नहीं भेजा गया, इसलिए प्लेटफ़ॉर्म ने इतनी देर से तैयार पत्र नहीं भेजा। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'चालान {number} ({amount}, {customer}) {due} से बकाया है, और अनुस्मारक भेजने के लिए कोई ईमेल पता नहीं है। ग्राहक में जोड़ें, या खुद पीछा करें।',
+  'Nobody is set to remind customers about overdue invoices':
+    'बकाया चालानों के बारे में ग्राहकों को याद दिलाने के लिए कोई तय नहीं है',
+  'Reminded the customers of: {invoices}.':
+    'ग्राहकों को याद दिलाया गया: {invoices}।',
+  'No reminder was due.':
+    'कोई अनुस्मारक देय नहीं था।',
+  'Remind a customer about an invoice':
+    'चालान के बारे में ग्राहक को याद दिलाएँ',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'कुछ चालान देय तिथि पार कर चुके हैं, और कोई भूमिका अनुस्मारक नहीं भेज सकती। बहीखाते, चालान में स्वचालित अनुस्मारक चालू करें: कंपनी उन्हें आपके तय दिनों पर भेजेगी।',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'बकाया चालानों के अनुस्मारक भेजने के लिए एक मेलबॉक्स चाहिए। इस विभाग का मेलबॉक्स दें।',
+  'Remind the customers whose invoices are overdue':
+    'जिन ग्राहकों के चालान बकाया हैं उन्हें याद दिलाना',
+  'each customer whose next reminder is due has been written to once':
+    'जिन ग्राहकों का अगला अनुस्मारक देय है, सभी को एक-एक बार पत्र लिखा गया है',
+  'Reminder for invoice {number} not confirmed':
+    'चालान {number} का अनुस्मारक पुष्ट नहीं हुआ',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'मेल सर्वर ने चालान {number} के लिए {customer} ({to}) को {of} में से अनुस्मारक {step} की पुष्टि नहीं की, जो उसे {day} को सौंपा गया था। हो सकता है वह पहुँचा हो, हो सकता है नहीं। प्लेटफ़ॉर्म उसे दोबारा नहीं भेजेगा: अगर {customer} कहें कि उन्हें नहीं मिला, तो उसे स्वयं भेजें, या CEO को बताएँ।',
+  'Your CEO proposes hiring: {role}':
+    'आपके CEO भर्ती का प्रस्ताव रखते हैं: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'भर्ती का निर्णय आपका है। CEO के साथ एक शब्द में भर्ती करें, या अगर कंपनी को इसकी ज़रूरत नहीं है तो टिकट बंद करें।',
+  'Withdrawn: the ticket it was about was closed.':
+    'वापस लिया गया: जिस टिकट के बारे में था, वह बंद हो गया।',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'चालान {number} ({amount}, {customer}) {due} से बकाया है, और यह बिना किसी ईमेल पते के जारी हुआ था जिस पर अनुस्मारक भेजा जा सके। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
 };

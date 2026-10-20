@@ -62,6 +62,11 @@ export interface Imap {
   commands: string[];
   /** Set to refuse every sign-in, as a server does after the password changed. */
   refuse: boolean;
+  /**
+   * What RFC822.SIZE says for a message of this many bytes: the exact count
+   * unless set, and an estimate when set, as Exchange gives by default.
+   */
+  sizeSaid: ((bytes: number) => number) | null;
   deliver(raw: string, options?: { seen?: boolean; arrived?: Date }): number;
   close(): Promise<void>;
 }
@@ -127,6 +132,7 @@ export async function imapServer(certificate: Certificate, account: { user: stri
     logins: [],
     commands: [],
     refuse: false,
+    sizeSaid: null,
     deliver(raw: string, options = {}) {
       const uid = (state.messages.at(-1)?.uid ?? 100) + 1;
       state.messages.push({ uid, raw, flags: new Set(options.seen ? ['\\Seen'] : []), arrived: options.arrived ?? new Date() });
@@ -212,8 +218,10 @@ export async function imapServer(certificate: Certificate, account: { user: stri
             // BODY[] without PEEK marks the message read, as a server does.
             if (!/BODY\.PEEK\[/i.test(line)) message.flags.add('\\Seen');
             const flags = /\bFLAGS\b/i.test(line) ? ` FLAGS (${[...message.flags].join(' ')})` : '';
-            const body = Buffer.from(message.raw, 'utf8').subarray(0, partial ? Number(partial[2]) : undefined);
-            socket.write(`* ${index + 1} FETCH (UID ${uid}${flags} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
+            const whole = Buffer.from(message.raw, 'utf8');
+            const size = /\bRFC822\.SIZE\b/i.test(line) ? ` RFC822.SIZE ${state.sizeSaid ? state.sizeSaid(whole.length) : whole.length}` : '';
+            const body = whole.subarray(0, partial ? Number(partial[2]) : undefined);
+            socket.write(`* ${index + 1} FETCH (UID ${uid}${flags}${size} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
             socket.write(body);
             socket.write(')\r\n');
           }
@@ -237,12 +245,29 @@ export interface Smtp {
   port: number;
   /** Every message accepted: who it was from, to, and the data as sent. */
   sent: Array<{ from: string; to: string[]; data: string; user: string }>;
+  /** Every command line the client sent, in order, the data of a message left out. */
+  commands: string[];
+  /** The largest message the server says it takes (`250-SIZE`, RFC 1870), or none. */
+  size: number | null;
+  /** How long, in milliseconds, it takes to say it has accepted a message after the last dot: a busy server's. */
+  acceptsAfter: number;
+  /**
+   * Takes the message and hangs up before saying so: the one moment SMTP
+   * leaves a sender unable to tell whether a letter went. The message is kept
+   * in `sent`, since a real server may well deliver it.
+   */
+  dropsAfterData: boolean;
+  /** Refuses every recipient (550), as a server does an address it will not send to. */
+  refusesRecipients: boolean;
   close(): Promise<void>;
 }
 
 /** An SMTP server on a plain port that a client must upgrade with STARTTLS before it may sign in. */
 export async function smtpServer(certificate: Certificate, account: { user: string; password: string }): Promise<Smtp> {
-  const state: Smtp = { port: 0, sent: [], close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  const state: Smtp = {
+    port: 0, sent: [], commands: [], size: null, acceptsAfter: 0, dropsAfterData: false, refusesRecipients: false,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
   const server: Server = createPlainServer((plain) => {
     let socket: Socket = plain;
     let secure = false;
@@ -264,15 +289,22 @@ export async function smtpServer(certificate: Certificate, account: { user: stri
             if (line === '.') {
               state.sent.push({ from, to, data: Buffer.from(data, 'latin1').toString('utf8'), user });
               data = null;
-              say('250 2.0.0 OK queued as T1');
+              if (state.dropsAfterData) {
+                socket.destroy();
+                return;
+              }
+              if (state.acceptsAfter > 0) setTimeout(() => say('250 2.0.0 OK queued as T1'), state.acceptsAfter);
+              else say('250 2.0.0 OK queued as T1');
             } else {
               data += `${line.startsWith('..') ? line.slice(1) : line}\r\n`;
             }
             continue;
           }
           const verb = line.split(' ')[0]!.toUpperCase();
+          if (verb !== 'AUTH') state.commands.push(line);
           if (verb === 'EHLO') {
             say('250-smtp.test greets you');
+            if (state.size !== null) say(`250-SIZE ${state.size}`);
             say(secure ? '250 AUTH PLAIN LOGIN' : '250 STARTTLS');
           } else if (verb === 'STARTTLS' && !secure) {
             say('220 2.0.0 Ready to start TLS');
@@ -297,6 +329,7 @@ export async function smtpServer(certificate: Certificate, account: { user: stri
             to = [];
             say('250 2.1.0 OK');
           } else if (verb === 'RCPT') {
+            if (state.refusesRecipients) { say('550 5.1.1 The recipient is not accepted'); continue; }
             to.push(/<([^>]*)>/.exec(line)?.[1] ?? '');
             say('250 2.1.5 OK');
           } else if (verb === 'DATA') {

@@ -112,6 +112,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'توقف العمل: نفدت رموز الحساب {account}',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': 'توقف «{work}» لأن الحساب {account} استهلك {spent} من أصل {max} رمزًا. ارفع سقفه من صفحة «المال»، ثم افتح المهمة واضغط «متابعة»: ستكمل من حيث توقفت.',
   'Withdrawn: you continued the task it was about.': 'سُحب: لقد تابعتَ المهمة التي يخصها.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'سُحب: صار في الميزانية متسع من جديد، وتابع العمل من تلقاء نفسه.',
   'Broke its contract': 'أخلّ بعقده',
   'Refused by a policy': 'رفضته سياسة',
   'Out of budget': 'نفدت الميزانية',
@@ -328,6 +329,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'رفض المراجِع هذه، وستبقى متوقفة:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '«موافقة» تُفعّلها كلها، و«رفض» يرفضها كلها. ولتقرّر في كل واحدة على حدة، افتح صفحة «المهارات».',
   'Nothing changes; none of these skills is switched on.': 'لن يتغير شيء؛ لن تُفعَّل أي من هذه المهارات.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "أنا {ceo}، وأدير شركة {company} نيابةً عنك. أعرف الغرض منها: «{mission}» أمران قبل أن نبدأ: كم يمكنها أن تنفق في الشهر؟ وما أول عمل ينبغي أن تقوم به — أم أقترح عملًا مع الفريق الذي يلزمه؟",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'أنا {ceo}، وأدير شركة {company} نيابةً عنك. قبل أن نبدأ، ثلاثة أمور: ماذا تبيع {company}، ولمن؟ وكم يمكنها أن تنفق في الشهر؟ وما أول عمل ينبغي أن تقوم به — أم أقترح عملًا؟',
   'Read a customer conversation': 'قراءة محادثة مع عميل',
   'Reply to a customer': 'الرد على عميل',
@@ -352,4 +355,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} مقابل هدف {target}، أُبلغ عنها ولم تُفحص.',
   'Look at it again later': 'مراجعته لاحقًا',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "تسليم ما تبيعه هذه الشركة بثبات ودون أن تفاجئ مالكها.",
+  "Ship the work the company has promised, on time and verified.":
+    "إنجاز العمل الذي وعدت به الشركة في موعده وبعد التحقق منه.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "الحفاظ على سلامة الشركة المالية وقابليتها للمساءلة واستمرار عملها دون حاجة إلى اهتمام يومي.",
+  "Since we last spoke:":
+    "منذ آخر حديث بيننا:",
+  "More finished: {count}":
+    "اكتمل غير ذلك: {count}",
+  "Waiting for you: {count}":
+    "بانتظارك: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'هذه ثالث مرة في يوم واحد، لذلك لن يستأنف من تلقاء نفسه.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'الفاتورة {number} تحتاج إليك: {customer} لم يدفع',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'لا يزال {customer} مدينًا بمبلغ {amount} من الفاتورة {number}، استحقاقها {due}، بعد آخر تذكير. توقفت المنصة عن مراسلته. ما يلي هو من شأنك: اتصال، أو إشعار أخير، أو التغاضي.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، ولم يُرسل أي تذكير قط، لذا لم ترسل المنصة رسالة جاهزة في وقت متأخر كهذا. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، ولا يوجد عنوان بريد إلكتروني لإرسال تذكير. أضف واحدًا للعميل، أو تابعها بنفسك.',
+  'Nobody is set to remind customers about overdue invoices':
+    'لم يُكلَّف أحد بتذكير العملاء بالفواتير المتأخرة',
+  'Reminded the customers of: {invoices}.':
+    'جرى تذكير العملاء بـ: {invoices}.',
+  'No reminder was due.':
+    'لم يحن موعد أي تذكير.',
+  'Remind a customer about an invoice':
+    'تذكير عميل بفاتورة',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'بعض الفواتير تجاوزت تاريخ استحقاقها، ولا يوجد دور يستطيع إرسال التذكيرات. فعّل التذكيرات التلقائية في الدفاتر، الفواتير: ستُرسلها الشركة في الأيام التي تحددها.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'تحتاج تذكيرات الفواتير المتأخرة إلى صندوق بريد لإرسالها. زوّد هذا القسم بصندوق بريده.',
+  'Remind the customers whose invoices are overdue':
+    'تذكير العملاء الذين تأخرت فواتيرهم',
+  'each customer whose next reminder is due has been written to once':
+    'كل عميل حان موعد تذكيره التالي كُتب إليه مرة واحدة',
+  'Reminder for invoice {number} not confirmed':
+    'لم يُؤكَّد التذكير بالفاتورة {number}',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'لم يؤكد خادم البريد تسلّم التذكير {step} من {of} بالفاتورة {number} إلى {customer} ({to})، الذي سُلّم إليه في {day}. ربما وصل وربما لم يصل. لن ترسله المنصة مرة أخرى: إن قال {customer} إنه لم يتسلّمه، فأرسله بنفسك أو أخبر الرئيس التنفيذي (CEO).',
+  'Your CEO proposes hiring: {role}':
+    'يقترح الرئيس التنفيذي توظيف: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'التوظيف قرارك. وظّفه مع الرئيس التنفيذي بكلمة واحدة، أو أغلق التذكرة إن لم تحتج إليه الشركة.',
+  'Withdrawn: the ticket it was about was closed.':
+    'سُحب: أُغلقت التذكرة التي كان يتعلق بها.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، وقد صدرت دون عنوان بريد إلكتروني يُرسل إليه تذكير. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
 };

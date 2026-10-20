@@ -17,6 +17,32 @@ safe to mend, and says what to do about the rest
 
 ## Installing
 
+### The installer printed `http://localhost:8787/...` and this is a server
+
+**Cause.** The console is open to the server itself alone until you say
+otherwise, and `localhost` is the server's own. Run over SSH, the installer
+also prints the tunnel command with the server's public address in it.
+
+**Fix.** Either open the tunnel from your own computer (`ssh -N -L
+8787:127.0.0.1:8787 user@<the server's address>`) and use the link as it is,
+or give the console a name: run the installer again with
+`PALUGADA_PUBLIC_HOST=console.example.com` (HTTPS, once the name points at the
+server) or `PALUGADA_PUBLIC_HOST=<the server's address>` (plain HTTP). See
+[getting started](getting-started.md#on-a-server-a-vps).
+
+### The installer says `the platform stopped while starting`
+
+**Cause.** The platform's container exited, or kept restarting, while the
+installer was waiting for it, so it stopped waiting and printed its last
+lines. They name the cause: a setting that is not valid, or the platform
+failing once it ran. (A database that would not start, or a migration that
+failed, is another message, `PALUGADA did not start`, with the last lines of
+the migration and of the platform.)
+
+**Fix.** Read the lines above the message, then `cd ~/palugada && docker
+compose logs --tail 100 app`; mend what they say and run the installer
+again, which keeps `.env` and the data.
+
 ### `db:setup: database palugada already exists, and this would drop it with everything in it.`
 
 **Cause.** `npm run db:setup` creates the database from nothing, and there

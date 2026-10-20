@@ -18,12 +18,18 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
+import { withTenant } from '../../src/db/tenant.ts';
+import { createAccount } from '../../src/engine/budget.ts';
+import { createRootTask } from '../../src/engine/tasks.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
 import { imageDescribe, VISION_PROVIDERS } from '../../src/capabilities/vision.ts';
+import { estimateFor } from '../../src/broker/cost.ts';
+import { CONSERVATIVE_FALLBACK, type PriceTable } from '../../src/engine/pricing.ts';
 import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
+import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 
@@ -165,7 +171,7 @@ test('image.describe is catalogued as a read from outside, and bound only when t
   assert.deepEqual(bound.notes.filter((note) => note.startsWith('image.describe')), []);
 });
 
-test('the owner chooses a vision provider in the console, tries it on a picture, and saves it with the device', async () => {
+test('the owner chooses a vision provider in the console, tries it on a picture, and saves it', async () => {
   // A server of the owner's own, OpenAI-compatible, as Ollama is.
   const asked: Array<Record<string, unknown>> = [];
   const own = createServer((req, res) => {
@@ -199,8 +205,7 @@ test('the owner chooses a vision provider in the console, tries it on a picture,
     });
     assert.match(String(notPicture.body.problem ?? notPicture.body.error), /a PNG, JPEG, WebP or GIF/);
 
-    assert.equal((await api.call('POST', '/api/control/tools/vision', token, { provider: 'openai-compatible', url: base, model: 'qwen2.5vl' })).status, 403);
-    const saved = await api.call('POST', '/api/control/tools/vision', token, { provider: 'openai-compatible', url: base, model: 'qwen2.5vl', proof: { totp: api.code() } });
+    const saved = await api.call('POST', '/api/control/tools/vision', token, { provider: 'openai-compatible', url: base, model: 'qwen2.5vl' });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const env = withSettings({}, await readSettings());
     assert.deepEqual([env.PALUGADA_VISION_PROVIDER, env.PALUGADA_VISION_URL, env.PALUGADA_VISION_MODEL], ['openai-compatible', base, 'qwen2.5vl']);
@@ -209,4 +214,69 @@ test('the owner chooses a vision provider in the console, tries it on a picture,
   } finally {
     await api.close();
   }
+});
+
+test('image.describe is charged what the provider says it used, at the model\'s price, and never nothing', async () => {
+  const { root, mine, ctx: files } = await companyFiles();
+  await writeFile(join(mine, 'nota', 'kopi.png'), PIXEL);
+  const ctx = { ...(files as object), idempotencyKey: 'look-1' } as never;
+  const provider = VISION_PROVIDERS.find((one) => one.id === 'openai')!;
+  // Each provider's answer says what it used, where its reference says it does.
+  const used: Record<string, unknown> = {
+    openai: { usage: { prompt_tokens: 100_000, completion_tokens: 20_000 } },
+    gemini: { usageMetadata: { promptTokenCount: 100_000, candidatesTokenCount: 15_000, thoughtsTokenCount: 5_000 } },
+    anthropic: { usage: { input_tokens: 100_000, output_tokens: 20_000 } },
+  };
+  for (const one of VISION_PROVIDERS) {
+    const shape = one.id === 'gemini' || one.id === 'anthropic' ? one.id : 'openai';
+    assert.deepEqual(one.usage(used[shape]), { input: 100_000, output: 20_000 }, one.id);
+    assert.equal(one.usage({}), null, `${one.id}: an answer that says nothing used is not read as free`);
+  }
+
+  // Before the call, what is reserved is the provider's figure, not nothing: a
+  // call estimated at nothing was charged nothing.
+  const prices: PriceTable = { rates: [{ pattern: 'gpt-4.1-mini', rate: { inputCentsPerMTok: 40, outputCentsPerMTok: 160 } }], fallback: CONSERVATIVE_FALLBACK };
+  const { fetch } = providerFetch({ ...(ANSWERS.openai!.answer as object), ...(used.openai as object) });
+  const priced = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root, prices });
+  assert.equal(estimateFor(priced, { path: 'nota/kopi.png' }), provider.reserveCents);
+  assert.ok(provider.reserveCents > 0);
+
+  // After it, what the provider used at the model's price: 100k in at 40 and
+  // 20k out at 160 a million is 7.2 cents, 7 now and the rest carried.
+  const output = await priced.execute({ path: 'nota/kopi.png' }, ctx);
+  assert.equal(await priced.actualCostCents!({ path: 'nota/kopi.png' }, output, ctx), 7);
+
+  // With no price list there is nothing to price it with: the estimate stands.
+  const unpriced = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root });
+  const again = await unpriced.execute({ path: 'nota/kopi.png' }, { ...(ctx as object), idempotencyKey: 'look-2' } as never);
+  assert.equal(await unpriced.actualCostCents!({ path: 'nota/kopi.png' }, again, { ...(ctx as object), idempotencyKey: 'look-2' } as never), null);
+});
+
+test('what a look costs below a cent is carried for the account its task draws on', async () => {
+  // Found reviewing the carry fix of 20 October: the engine carried a run's
+  // fractions for its own account, image.describe still for the company.
+  const fixture = await createCompany('vision-carry');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-vision-'));
+  await mkdir(join(root, fixture.companyId, 'nota'), { recursive: true });
+  await writeFile(join(root, fixture.companyId, 'nota', 'kopi.png'), PIXEL);
+  const provider = VISION_PROVIDERS.find((one) => one.id === 'openai')!;
+  // 100k tokens in at 6 cents a million: six tenths of a cent a look.
+  const prices: PriceTable = { rates: [{ pattern: 'gpt-4.1-mini', rate: { inputCentsPerMTok: 6, outputCentsPerMTok: 0 } }], fallback: CONSERVATIVE_FALLBACK };
+  const { fetch } = providerFetch({ ...(ANSWERS.openai!.answer as object), usage: { prompt_tokens: 100_000, completion_tokens: 0 } });
+  const describe = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root, prices });
+  const charged: Array<number | null> = [];
+  for (const label of ['Sales', 'Operations']) {
+    const account = await withTenant(fixture.companyId, (tx) => createAccount(tx, {
+      companyId: fixture.companyId, label, tokensMax: 1_000_000, moneyMaxCents: 10_000,
+      scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+    }));
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: account, goalId: fixture.goalId, input: { goal: `read the receipt (${label})` }, createdBy: 'owner', reserveTokens: 100,
+    });
+    const ctx = { companyId: fixture.companyId, taskId: task.id, idempotencyKey: `look-${label}`, signal: AbortSignal.timeout(5_000) } as never;
+    const output = await describe.execute({ path: 'nota/kopi.png' }, ctx);
+    charged.push(await describe.actualCostCents!({ path: 'nota/kopi.png' }, output, ctx));
+  }
+  assert.deepEqual(charged, [0, 0], 'neither account has spent a whole cent');
 });

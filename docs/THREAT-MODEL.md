@@ -55,14 +55,26 @@ refer to `docs/PRD.md`.
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
    passkey needs a single-use challenge and user verification.
-4b. A code or passkey shown opens a window (`owner_sessions.proved_at`, 0120;
-   `step-up.ts`), ten minutes unless the owner chooses, in which twelve actions
-   that build the company need no new code (`WITHIN_THE_WINDOW`,
-   `src/owner/api.ts`): a stolen tab used inside it can build structure, which
-   is the cost. It reaches nothing else -- not money, keys, the model, channels,
-   devices, what lets outsiders in, or any tier 3 decision, which takes a fresh
-   proof each time (F10.10) -- and it is never extended by what it covers. A
-   recovery code opens none. A route is not covered unless it says so.
+4b. **The sign-in is the second factor for the session, and a stolen session
+   can do what the owner can.** A session opened with a code or a passkey
+   (`owner_sessions.proved_at`) passes every check that used to ask for a code
+   of its own (`OwnerApi.#requireFactor`, and `decide` for tier 3, a yes for a
+   while and a yes for a schedule), on the owner's report of 7 October: the
+   authenticator is for signing in. This deliberately relaxes F10.10 and F12.5,
+   which wanted a fresh proof for each tier 3 approval (STATUS 2.175). The cost
+   is that a phone left unlocked with the console open, a tab on a shared
+   machine, or a leaked bearer token can approve money and irreversible actions
+   within the session's eight hours, until it is signed out ("sign out
+   everywhere" ends every one) or the device that opened it is revoked (checked
+   on every request). What still takes a code at the moment it is done: revoking
+   an authenticator, making recovery codes, adding a passkey and vouching for a
+   device -- the acts a thief would use to lock the owner out or to keep access
+   -- and, for the same reason, seating a person and connecting a channel the
+   owner is reached and answered on (Telegram, WhatsApp, push, Slack, Discord,
+   email), either of which would outlast the session's sign-out; and everything
+   in a session signed in with a recovery code, which proves less than a
+   device, until a device's code is shown in it. A chat has no
+   session and still cannot approve tier 3, and a staff seat still cannot.
 5. Each open route has its own secret. Hooks: a public id from a random UUID,
    then a bearer token stored as its SHA-256 or an HMAC over the raw bytes,
    with a five-minute window for Stripe, Slack and Standard Webhooks
@@ -186,6 +198,22 @@ refer to `docs/PRD.md`.
    in plain words that the model misses goes out; each reply on its own is
    marked in the conversation with what it answered from, and the owner
    turns the channel off with their session.
+5d2. A reminder about an overdue invoice may go without the owner in work that
+   read content from outside (0130, `invoice.remind`'s `clearsOutside`),
+   because nothing in it is from outside. The capability takes the invoice and
+   no other field (a closed schema); the address is the invoice's, the figures
+   are the books', the words are the platform's in two languages, and the
+   customer's name, the one thing a stranger could have typed, is cut to one
+   line with every control and direction character dropped. It goes only when
+   the books say it is due -- overdue, still owed, not set aside by the owner,
+   its next step reached, a week since the last -- and each step is written
+   once under a lock on the invoice. What an injection can still do is make a
+   reminder go that was due anyway, to the address an invoice already named;
+   it cannot change who, what or when. An invoice issued to an address a
+   stranger chose is the invoice's problem (`invoice.issue` is tier 2), not
+   this letter's. A duty (src/duties) runs under a role's grants and the
+   broker's rules, with no model; only the platform can make its task (a key
+   no agent can derive).
 5e. A customer's first message files them under a record (0118): the one the
    owner keeps with that mail address, or with that number -- every digit
    when it was written with its country code, and otherwise only the
@@ -284,6 +312,12 @@ refer to `docs/PRD.md`.
 - A division's mailbox key reaches every message in the mailbox, and
   `mailbox.read` is tier 0: a role granted it can read any of them, codes
   a site sent included. What it may send is `email.send`, at tier 2.
+- A letter may carry files, named by path on the owner's card. They are read from this company's own
+  directory, never through a link out of it, and only from the folders of what the company made or was given
+  (never from what strangers sent, which is kept apart): a role that read an injection cannot send the owner's
+  contracts away by naming them, because the card says which files, and a file that is not in an allowed folder
+  is refused whatever it is called. What the card cannot say is what a named file holds at the moment of the
+  send; the journal keeps its hash.
 
 ### 2.3 A compromised or misbehaving runtime
 
@@ -437,6 +471,23 @@ redelivery after a restart or at another replica is taken in once.
 **Residual risk.** Whoever holds the owner's chat account has session-level
 authority below tier 3.
 
+#### 2.7.1 A stranger's file
+
+A customer's mail can carry files, and keeping one writes a stranger's bytes into the company's files
+(`src/chats/attachments.ts`, STATUS 2.171). **Defences.** The sender names nothing: the path is
+`received/mail/<yyyy-mm>/<first eight characters of the message's id>-<n>.<ext>`, made by the platform, and the
+extension is the kind the bytes turned out to be; the name they gave is kept apart, made plain and short, and
+is shown as data. The bytes decide (`sniffReceived`): a PDF, Word or Excel document, a picture, a recording or
+text is kept; a program, script, archive, SVG, pre-2007 or macro Office file and anything unrecognised is not.
+The file is created and never replaced, and not through a link; a link where the folder goes is found before
+anything is written beyond it. Five files a message, ten megabytes a file, fifteen a message, 2 GB a company
+and 500 MB a day. Nothing is opened or run: a document is read, if at all, in the sandboxed browser, and
+downloaded as an octet stream; `chat.read` is a read of outside content like any other, so the work it taints
+asks the owner at tier 2. The customer-facing role gets a customer's own files through `chat.read` and needs no
+`files.read` over the rest. **Residual risk.** A document is parsed by Chromium (no files, network or secrets in
+its context), now reachable by strangers; there is no virus scan and no retention, so personal data a stranger
+sends stays until the owner removes it; an export carries no file.
+
 ### 2.8 Supply chain
 
 - **Bundles and skills.** A signature that does not verify is refused; one from
@@ -460,6 +511,17 @@ authority below tier 3.
   advisory passes the audit; `pgvector/pgvector:pg16` in the compose files
   and `deploy/container-check`'s base are still by tag; and a pin is only as
   good as the review of the pull request that moves it.
+- **The price catalogue.** The platform reads models.dev daily for the models
+  in use (`src/engine/price-sync.ts`), through the same refusing fetch every
+  outbound call of the platform uses, and what it reads is data: a number per
+  model. What a poisoned or mistaken catalogue could do is make a model look
+  cheap and so stretch every budget. It cannot price anything at nothing (a
+  free or unlisted entry stays unpriced and is charged at the conservative
+  fallback), a price the owner typed or the operator's file gave is laid over
+  it, and the console shows which source set each price and what the last
+  reading changed. Residual: a low but non-zero price is believed, as the
+  owner's own typing would be; the cost recorded for a call is also the
+  provider's own `usage`, which the ceilings do not cross-check against a bill.
 
 ### 2.9 The operator's own mistakes
 
@@ -566,3 +628,4 @@ All under `test/acceptance/` unless named.
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |
 | The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
+| A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |

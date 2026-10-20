@@ -112,6 +112,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Work stopped: the {account} account is out of tokens': 'Huminto ang trabaho: ubos na ang token ng account na {account}',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': 'Huminto ang “{work}” dahil nagamit na ng account na {account} ang {spent} sa {max} nitong token. Itaas ang limit nito sa Pera, pagkatapos ay buksan ang gawain at pindutin ang Ituloy: magpapatuloy ito mula sa kung saan ito huminto.',
   'Withdrawn: you continued the task it was about.': 'Binawi: itinuloy mo na ang gawaing tinutukoy nito.',
+  'Withdrawn: the budget had room again, and the work went on by itself.': 'Binawi: may espasyo na ulit ang badyet, at kusang nagpatuloy ang gawain.',
   'Broke its contract': 'Lumabag sa kontrata nito',
   'Refused by a policy': 'Tinanggihan ng isang patakaran',
   'Out of budget': 'Ubos na ang badyet',
@@ -328,6 +329,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Tinanggihan nito ang mga ito, at mananatili silang naka-off:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'I-approve para i-on silang lahat, o Tanggihan para tanggihan silang lahat. Para magpasya nang isa-isa, buksan ang pahina ng Mga kasanayan.',
   'Nothing changes; none of these skills is switched on.': 'Walang magbabago; walang i-o-on sa alinman sa mga kasanayang ito.',
+  "I am {ceo}, and I run {company} for you. I know what it is for: “{mission}” Two things before we start: how much may it spend in a month? And what should its first piece of work be -- or shall I suggest one, and the team it would take?":
+    "Ako si {ceo}, at ako ang nagpapatakbo ng {company} para sa iyo. Alam ko na kung para saan ito: “{mission}” Dalawang bagay bago tayo magsimula: magkano ang puwede nitong gastusin sa isang buwan? At ano ang dapat na una nitong trabaho — o ako na ang magmumungkahi, kasama ang team na kakailanganin?",
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Ako si {ceo}, at ako ang nagpapatakbo ng {company} para sa iyo. Tatlong bagay bago tayo magsimula: ano ang ibinebenta ng {company}, at kanino? Magkano ang puwede nitong gastusin sa isang buwan? At ano ang dapat na una nitong trabaho — o ako na ang magmumungkahi?',
   'Read a customer conversation': 'Basahin ang usapan ng customer',
   'Reply to a customer': 'Sumagot sa customer',
@@ -352,4 +355,54 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{name}: {value} against a target of {target}, reported and not checked.':
     '{name}: {value} laban sa target na {target}, iniulat at hindi sinuri.',
   'Look at it again later': 'Tingnan muli mamaya',
+  "Deliver what this company sells, reliably and without surprising its owner.":
+    "Ihatid ang ibinebenta ng kumpanyang ito nang maaasahan at hindi ginugulat ang may-ari nito.",
+  "Ship the work the company has promised, on time and verified.":
+    "Tapusin ang gawaing ipinangako ng kumpanya, nasa oras at napatunayan.",
+  "Keep the company solvent, answerable and running without daily attention.":
+    "Panatilihing may sapat na pondo ang kumpanya, may pananagutan, at tumatakbo nang hindi kailangan ng araw-araw na atensyon.",
+  "Since we last spoke:":
+    "Mula nang huli tayong mag-usap:",
+  "More finished: {count}":
+    "Iba pang natapos: {count}",
+  "Waiting for you: {count}":
+    "Naghihintay sa iyo: {count}",
+  'This is the third time in a day, so it does not go on by itself.':
+    'Ito na ang ikatlong beses sa isang araw, kaya hindi ito kusang magpapatuloy.',
+  'Invoice {number} needs you: {customer} has not paid':
+    'Kailangan ka ng invoice {number}: hindi pa nagbabayad si {customer}',
+  '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.':
+    'May utang pa si {customer} na {amount} sa invoice {number}, na takda sa {due}, pagkatapos ng huling paalala. Huminto na ang platform sa pagsulat sa kanila. Sa iyo na ang susunod: isang tawag, isang huling abiso, o pagpapaubaya.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.':
+    'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at wala pang naipadalang paalala, kaya hindi nagpadala ang platform ng karaniwang liham nang ganito kahuli. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.':
+    'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at walang email address na mapagpapadalhan ng paalala. Magdagdag ng isa sa kliyente, o ikaw na ang humabol.',
+  'Nobody is set to remind customers about overdue invoices':
+    'Walang itinakdang magpaalala sa mga kliyente tungkol sa mga invoice na lampas na sa takda',
+  'Reminded the customers of: {invoices}.':
+    'Pinaalalahanan ang mga kliyente tungkol sa: {invoices}.',
+  'No reminder was due.':
+    'Walang paalalang kailangang ipadala.',
+  'Remind a customer about an invoice':
+    'Paalalahanan ang kliyente tungkol sa isang invoice',
+  'Some invoices are past their due date, and no role can send the reminders. Turn on automatic reminders under Books, Invoices: the company then sends them on the days you set.':
+    'May mga invoice na lampas na sa takda, at walang role na makapagpapadala ng mga paalala. I-on ang awtomatikong paalala sa Mga libro, Mga invoice: ipapadala na ito ng kumpanya sa mga araw na itatakda mo.',
+  'Reminders for overdue invoices need a mailbox to send them from. Give this division its mailbox.':
+    'Kailangan ng mailbox ang mga paalala para sa mga invoice na lampas na sa takda para maipadala ang mga ito. Ibigay ang mailbox ng division na ito.',
+  'Remind the customers whose invoices are overdue':
+    'Paalalahanan ang mga kliyenteng lampas na sa takda ang invoice',
+  'each customer whose next reminder is due has been written to once':
+    'ang bawat kliyenteng dapat nang bigyan ng susunod na paalala ay nasulatan nang isang beses',
+  'Reminder for invoice {number} not confirmed':
+    'Hindi nakumpirma ang paalala para sa invoice {number}',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Hindi kinumpirma ng mail server ang paalala {step} ng {of} para sa invoice {number} kay {customer} ({to}), na ibinigay rito noong {day}. Maaaring dumating ito, maaaring hindi. Hindi na ito muling ipapadala ng platform: kung sabihin ni {customer} na hindi nila ito natanggap, ipadala mo ito mismo, o sabihan ang CEO.',
+  'Your CEO proposes hiring: {role}':
+    'Iminumungkahi ng iyong CEO na kumuha ng: {role}',
+  'Hiring is yours to decide. Hire it with the CEO in a word, or close the ticket if the company does not need it.':
+    'Ikaw ang magpapasya sa pagkuha. Kunin ito kasama ang CEO sa isang salita, o isara ang ticket kung hindi ito kailangan ng kumpanya.',
+  'Withdrawn: the ticket it was about was closed.':
+    'Binawi: isinara ang ticket na tinutukoy nito.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at inilabas ito nang walang email address na mapagpapadalhan ng paalala. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
 };

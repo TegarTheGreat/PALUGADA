@@ -39,6 +39,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The suite takes about twenty minutes. A test file that leaves a browser
+    # or a server running after it fails never ends, and without a limit of
+    # its own the job waited GitHub's six hours for it (runs of 7 to 19
+    # October): a hang fails here, in time to be read the same morning.
+    timeout-minutes: 45
 
     services:
       postgres:

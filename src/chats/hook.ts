@@ -10,9 +10,28 @@
 import { PalugadaError } from '../errors.ts';
 import type { HookHeaders } from '../scheduler/triggers.ts';
 import type { SecretManager } from '../secrets/manager.ts';
+import type { BotApi } from '../owner/telegram.ts';
 import { channelAt, receiveMessage, recordRefusal, secretMatches, type OpenChannel, type Received } from './chats.ts';
-import { customerMessage, TELEGRAM_SECRET_HEADER } from './telegram.ts';
-import { customerMessages, signedByMeta, WHATSAPP_SIGNATURE_HEADER } from './whatsapp.ts';
+import { customerMessage, telegramFile, TELEGRAM_SECRET_HEADER } from './telegram.ts';
+import { customerMessages, signedByMeta, whatsappMedia, WHATSAPP_SIGNATURE_HEADER, type GraphApi } from './whatsapp.ts';
+
+/** What a delivery's files need: where the company's files are, and how each transport is reached. */
+export interface ChatHookOptions {
+  files?: { root: string };
+  telegram?: BotApi;
+  whatsapp?: GraphApi;
+}
+
+/**
+ * The channel's token, opened when a file is fetched and not before: a
+ * message with no file, or one that is a duplicate, opens nothing.
+ */
+function tokenOf(channel: OpenChannel, secrets: SecretManager | undefined): () => Promise<string> {
+  return async () => {
+    if (!secrets || !channel.tokenRef) throw new Error('this deployment cannot open the channel\'s token');
+    return secrets.resolve(channel.tokenRef);
+  };
+}
 
 export type ChatHookAnswer =
   | Received
@@ -38,10 +57,11 @@ export async function receiveChatHook(
   publicId: string,
   delivery: { raw: Buffer; headers: HookHeaders },
   secrets?: SecretManager,
+  options: ChatHookOptions = {},
 ): Promise<ChatHookAnswer> {
   const channel = await channelAt(publicId);
   if (!channel) throw new PalugadaError('hook.unknown', 'no such hook', {});
-  if (channel.kind === 'whatsapp') return receiveWhatsApp(channel, delivery, secrets);
+  if (channel.kind === 'whatsapp') return receiveWhatsApp(channel, delivery, secrets, options);
 
   if (!secretMatches(channel, header(delivery.headers, TELEGRAM_SECRET_HEADER))) {
     await recordRefusal(channel, header(delivery.headers, TELEGRAM_SECRET_HEADER) ? 'wrong secret' : 'no secret');
@@ -50,15 +70,17 @@ export async function receiveChatHook(
   const update = parsed(delivery.raw);
   // From Telegram, by its secret, and not JSON: nothing a retry would mend.
   if (update === undefined) return { outcome: 'ignored', reason: 'not JSON' };
-  const message = customerMessage(update);
+  const token = tokenOf(channel, secrets);
+  const message = customerMessage(update, async (fileId) => telegramFile(await token(), fileId, options.telegram));
   if ('ignored' in message) return { outcome: 'ignored', reason: message.ignored };
-  return receiveMessage(channel, message);
+  return receiveMessage(channel, message, options.files);
 }
 
 async function receiveWhatsApp(
   channel: OpenChannel,
   delivery: { raw: Buffer; headers: HookHeaders },
   secrets: SecretManager | undefined,
+  options: ChatHookOptions,
 ): Promise<ChatHookAnswer> {
   let appSecret: string;
   try {
@@ -79,7 +101,11 @@ async function receiveWhatsApp(
   const messages: Received[] = [];
   // One at a time, in the order they came: the second message of a
   // conversation joins the work the first one started.
-  for (const message of customerMessages(body, channel.accountId ?? '')) messages.push(await receiveMessage(channel, message));
+  const token = tokenOf(channel, secrets);
+  const fetchMedia = async (mediaId: string) => whatsappMedia(await token(), mediaId, options.whatsapp);
+  for (const message of customerMessages(body, channel.accountId ?? '', fetchMedia)) {
+    messages.push(await receiveMessage(channel, message, options.files));
+  }
   return { outcome: 'received', messages };
 }
 

@@ -34,7 +34,6 @@ const WORK_OUTPUT = {
   required: ['summary'],
   properties: {
     summary: { type: 'string', minLength: 1 },
-    artefacts: { type: 'array', items: { type: 'string' } },
   },
 };
 

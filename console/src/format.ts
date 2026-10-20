@@ -105,6 +105,29 @@ const UNITS: Array<[number, Intl.RelativeTimeFormatUnit]> = [
 ];
 
 /** "5 min ago", "in 2 hr": how far a moment is from now, at a glance, in the owner's language. */
+/**
+ * A size in bytes, as a person reads one in their language: 800 bytes,
+ * 12,4 kB, 3,1 Mo. Counted in the megabytes of 1,048,576 bytes every upload
+ * limit here is checked in, so a file let in under "at most 10 MB" is never
+ * listed as more than ten.
+ */
+export function fileSize(bytes: number): string {
+  const said = (value: number, unit: string, unitDisplay: 'long' | 'short') =>
+    new Intl.NumberFormat(locale(), { style: 'unit', unit, unitDisplay, maximumFractionDigits: 1 }).format(value);
+  if (bytes < 1_024) return said(bytes, 'byte', 'long');
+  if (bytes < 1_048_576) return said(bytes / 1_024, 'kilobyte', 'short');
+  return said(bytes / 1_048_576, 'megabyte', 'short');
+}
+
+/**
+ * How many megabytes a file is, as a figure in the owner's language, for a
+ * sentence that names the unit itself. Rounded up, so a file refused for
+ * being over a limit is never said to be the limit.
+ */
+export function megabytes(bytes: number): string {
+  return new Intl.NumberFormat(locale(), { maximumFractionDigits: 1, roundingMode: 'ceil' }).format(bytes / 1_048_576);
+}
+
 export function relative(iso: string | null | undefined): string {
   if (!iso) return '—';
   let delta = (new Date(iso).getTime() - Date.now()) / 1000;
@@ -151,6 +174,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.rate_limited': N('Parked: a vendor said not now'),
   'task.waiting_slot': N('Parked: waiting for a call to the same capability to finish'),
   'task.model_waited': N('Parked: the model did not answer; it is tried again shortly'),
+  'task.role_waited': N('Parked: its role is paused; it goes on when the role does'),
   'task.stranded': N('Task stranded, put to you'),
   'task.lease_expired': N('Worker lost the task; reclaimed'),
   'task.handed_back': N('Handed back when the platform stopped; it resumes where it was'),
@@ -175,6 +199,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.rerun': N('Done again as a new task'),
   'task.question_answered_by_platform': N('Asked how to set up a tool; told it is not connected'),
   'owner.notified': N('You were notified'),
+  'inbox.question_escalated': N('A question put to a person went unanswered for a day, and was brought to you'),
   'incident.raised': N('Incident raised'),
   'escalation.raised': N('Escalation raised'),
   'policy.denied': N('Refused by a policy'),
@@ -182,6 +207,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'review.decided': N('Review decided'),
   'budget.refused': N('Refused: over budget'),
   'budget.circuit_open': N('Spending circuit breaker opened'),
+  'invoice.reminded': N('A customer was reminded about an invoice'),
+  'budget.pause_lifted': N('The pause was lifted: your ceiling is above what has been spent'),
   'budget.period_exhausted': N('Monthly ceiling reached'),
   'schedule.fired': N('Schedule fired'),
   'schedule.fire_failed': N('Schedule could not fire'),
@@ -222,6 +249,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'chat.channel_closed': N('A customer channel was closed'),
   'chat.received': N('A customer wrote'),
   'chat.rate_limited': N("A customer wrote past the channel's hourly limit, and no work was started"),
+  'chat.attachment_kept': N("A customer's file was kept"),
+  'chat.attachment_not_kept': N("A customer's file was not kept"),
   'security.chat_refused': N('A customer channel refused a delivery without its secret'),
   'chat.mailbox_failed': N('A customer mailbox could not be read'),
   'chat.answer_checked': N('A reply to a customer was checked against documents for customers'),
@@ -267,6 +296,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'books.entry_posted': N('An entry was recorded in the books'),
   'books.entry_reversed': N('An entry in the books was reversed'),
   'invoice.issued': N('An invoice was issued'),
+  'file.uploaded': N("You put a file in the company's files"),
+  'file.deleted': N("You took a file out of the company's files"),
   'invoice.paid': N('A payment was recorded on an invoice'),
   'invoice.voided': N('An invoice was voided'),
   'eval.negative_candidate': N('A run was kept as an example of what not to do'),
@@ -408,6 +439,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'schedule.propose': N('Propose a schedule'),
   'image.generate': N('Make a picture'),
   'invoice.issue': N('Issue an invoice'),
+  'invoice.remind': N('Remind a customer about an invoice'),
   'invoice.pay': N('Pay an invoice'),
   'ledger.read': N('Read the books'),
   'ledger.record': N('Record an entry in the books'),
@@ -600,6 +632,7 @@ const WAIT_REASONS: Record<string, string> = {
   service: N('Waiting for a service to answer again'),
   retry: N('Trying again shortly'),
   follow_up: N('Coming back to it later'),
+  role_paused: N('Waiting for its role to be resumed'),
 };
 
 /** A role a waiting task is held up by, as the work view sends it. */
@@ -647,7 +680,9 @@ export function goalKind(kind: string): string {
 
 /** An amount in its own currency, as the owner's language writes it: the books' and the invoices'. */
 export function inCurrency(cents: number, currency: string): string {
-  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, maximumFractionDigits: 2 });
+  // Two places, always, as the invoice the customer reads writes it: the
+  // browser's own idea of a currency's places differs between versions.
+  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Why a task its budget stopped has no room: the tokens, which are not the dollars beside it. */
@@ -655,4 +690,11 @@ export function budgetStopSaid(stop: { account: string | null; tokensSpent: numb
   return t('Out of tokens: {account} has used {spent} of {max} this month', {
     account: stop.account ?? t('The company'), spent: stop.tokensSpent.toLocaleString(locale()), max: stop.tokensMax.toLocaleString(locale()),
   });
+}
+
+/** What the owner is given to say to the CEO to hire a role it proposed (0132): their words to send or change. */
+export function hireDraft(role: string, why: string): string {
+  return why.trim()
+    ? t('Hire the role you proposed: {role}. What it is for: {why}', { role, why: why.trim() })
+    : t('Hire the role you proposed: {role}.', { role });
 }

@@ -22,7 +22,7 @@ import { processLedger } from './process-ledger.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
-import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
+import { DEFAULT_PRICE_TABLE, carryFor, costOf, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
 import { journalOf, reopenFinalTurns, runStep, writtenBefore, type StepKind } from './journal.ts';
 import { hashInput } from './hash.ts';
@@ -31,6 +31,7 @@ import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
+import { isRoleFrozen } from '../governance/role-freeze.ts';
 import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import {
@@ -42,6 +43,7 @@ import {
   type RunServices,
 } from '../runtime/protocol.ts';
 import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
+import { DutyRuntime, dutyOf } from '../duties/duties.ts';
 import { ProviderFailure } from '../runtime/wire.ts';
 import { proposeNegativeCase } from '../eval/role-eval.ts';
 import { buildContext, type ContextSection } from '../context/builder.ts';
@@ -170,6 +172,15 @@ export const MODEL_KEY_WAITS_MS: readonly number[] = [60_000, 120_000, 300_000, 
  * since a passing reading stands for a minute (`TRANSIENT_TTL_MS`).
  */
 export const CAPABILITY_OUTAGE_WAITS_MS: readonly number[] = [60_000, 120_000, 240_000, 480_000, 960_000];
+/**
+ * How long work waits for a role that is stopped, between looks: a minute,
+ * then longer, to an hour, which is as long as it stays. The wait is only a
+ * safety net -- the role going back to work calls its tasks back at once
+ * (`liftFreeze`) -- and a look costs no model call, since it is made before
+ * the run starts. The work is not failed and not halted: it is where the role
+ * left it, and nobody has to start it again.
+ */
+export const ROLE_PAUSED_WAITS_MS: readonly number[] = [60_000, 300_000, 900_000, 3_600_000];
 
 export interface RunOutcome {
   status:
@@ -205,7 +216,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
+  'language', 'today', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
 ]);
 
 // A place or a vendor's "not now" parks the task like the rest: handed to an
@@ -381,6 +392,8 @@ export class Engine {
       maxRunSeconds: number | null;
     };
     agentRunId: string;
+    /** The runtime replays the task's journal as its own conversation, so the pack does not list the steps again. */
+    stepsReplayed: boolean;
   }): Promise<RunRequest> {
     const { companyId, task, runtime } = input;
     // The role's tools nothing in this process is bound to: a catalogued
@@ -396,6 +409,7 @@ export class Engine {
         companyId,
         divisionId: task.divisionId,
         taskId: task.id,
+        stepsReplayed: input.stepsReplayed,
       });
       // F8.9: a lesson learned from outside content is data, and a run told
       // it carries that data from its first step, as if it had read the
@@ -405,6 +419,15 @@ export class Engine {
         await appendEvent(tx, {
           companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
           payload: { capability: 'memory', from: 'briefing', memories: outsideMemories },
+        });
+      }
+      // The same for a follow-up and the work it follows up, which may have
+      // read outside content after the follow-up was made.
+      if (context.carriesOutsideFrom) {
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
+          // Named as the Work page lists it: "through the task that made it".
+          payload: { capability: 'the task that made it', from: 'follow_up', parentTaskId: context.carriesOutsideFrom },
         });
       }
       const goalAncestry = await ancestryForTask(tx, task.id);
@@ -591,6 +614,15 @@ export class Engine {
       }
     }
 
+    // A role that is stopped -- paused by the owner, frozen for its denials,
+    // held by the breaker for spending too fast -- does no work, so its tasks
+    // wait for it and are not started to find that out. A run begun anyway
+    // would assemble its context and call its model before its first tool was
+    // refused, and be paid for.
+    if (await withTenant(companyId, (tx) => isRoleFrozen(tx, task.roleId))) {
+      return this.#waitForRole(companyId, taskId, task.roleId);
+    }
+
     // F8.12: everything the role declares has to be usable before the task
     // starts. Checked after the cheap-hours check, because a task that is
     // about to park should not be probing external services, and before the
@@ -630,9 +662,16 @@ export class Engine {
       };
     }
 
-    // F13.1: which runtime executes this role, on what, with which models.
-    const runtime = await this.#loadRuntimeConfig(companyId, task.roleId);
-    const adapter = this.#adapters.get(runtime.runtime);
+    // F13.1: which runtime executes this role, on what, with which models. A
+    // duty first, whatever runtime the role names (src/duties): it is the
+    // platform's procedure, run in this process with no model, and handed to
+    // the role's runtime an agent decided for itself what to write to
+    // customers. As this process's own code it is journalled by place and
+    // calls what its procedure calls, as an in-process handler does.
+    const duty = await dutyOf(companyId, task);
+    const configured = await this.#loadRuntimeConfig(companyId, task.roleId);
+    const runtime = duty ? { ...configured, runtime: 'in-process' } : configured;
+    const adapter = duty ? new DutyRuntime(duty) : this.#adapters.get(runtime.runtime);
     if (!adapter) {
       // Loud rather than falling back to whatever is registered: running a
       // role on a runtime nobody chose for it is how a role calibrated for one
@@ -1048,8 +1087,11 @@ export class Engine {
     };
 
     // What this run has put on the company's account so far, estimates and
-    // measurements alike, so a runtime's final total can replace it.
+    // measurements alike, so a runtime's final total can replace it; and what
+    // those calls cost exactly, so that what the carry still owes on them goes
+    // with them when the bill replaces them.
     let chargedCents = 0;
+    let exactRunCents = 0;
     // What this run's model calls have written, against the role's own
     // ceiling (F2.3's max_tokens_per_run). Not reset for a fallback model:
     // the ceiling is on the run, whichever model spent it.
@@ -1095,7 +1137,9 @@ export class Engine {
             payload: { model: usage.model, chargedCents, actualCents: actual, deltaCents: delta },
           });
         });
+        carryFor(task.budgetAccountId).forgive(exactRunCents - chargedCents);
         chargedCents = actual;
+        exactRunCents = actual;
         return;
       }
 
@@ -1103,19 +1147,27 @@ export class Engine {
       // and the estimate is marked as one. Reporting a guess as a measurement
       // is how a cost dashboard stops being worth reading.
       const estimate = usage.costCents === null
-        ? estimateCents(
+        ? costOf(
             this.#options.prices ?? DEFAULT_PRICE_TABLE,
-            usage.model, usage.inputTokens, usage.outputTokens,
+            usage.model, { input: usage.inputTokens, output: usage.outputTokens },
           )
         : null;
       const estimated = estimate !== null;
-      // Whole cents, rounded up. A runtime may price a call at a fraction of
-      // one, and the ledger, the budget functions and the trace all count in
-      // cents: a fraction reached `budget_spend` as "0.4" and the run failed
-      // on a bigint cast. Up rather than to nearest, because the error is a
-      // cent at most per call and a ceiling should be the side that is
-      // reached early, not late.
-      const costCents = usage.costCents === null ? estimate!.cents : wholeCents(usage.costCents);
+      // Whole cents, carried. A runtime prices a call at a fraction of a cent
+      // and the ledger, the budget functions and the trace all count in whole
+      // ones (a fraction reached `budget_spend` as "0.4" and the run failed on
+      // a bigint cast). Each call used to be rounded up, and never below one,
+      // so a task of forty small calls was charged forty cents for two. What
+      // a company owes below a cent is carried to its next call instead and
+      // charged when it adds up to one: the total is right, and the ceiling is
+      // reached under a cent late, never early (pricing.ts, `CostCarry`).
+      // Carried for the account the run draws on: what is charged is charged
+      // to that account's chain, and one carry for the company turned one
+      // division's fractions into another's whole cent (the review of 20
+      // October).
+      const exactCents = usage.costCents === null ? estimate!.cents : usage.costCents;
+      const costCents = carryFor(task.budgetAccountId).charge(exactCents);
+      exactRunCents += exactCents;
 
       // Drawn from this task's own reservation, by what is left of it, in the
       // same transaction as the charge. Every call used to hand in the whole
@@ -1147,6 +1199,13 @@ export class Engine {
             taskId,
             drawn,
           ]);
+        }
+        // Refused, the call still happened and the provider billed it: the
+        // bill reaches every account the charge would have, above its
+        // ceiling (`budget_settle`, 0037), so the Money page and the next
+        // check see it. The refusal stops the next call, not this record.
+        if (!ok && costCents > 0) {
+          await tx.query('SELECT app.budget_settle($1, $2)', [task.budgetAccountId, costCents]);
         }
         // The run's own count, which the orphan sweep and the export read:
         // nothing wrote it, so every run said it had used none.
@@ -1184,6 +1243,7 @@ export class Engine {
               model: usage.model,
               tokens,
               cents: costCents,
+              exactCents,
               // Which row of the price table priced it, or `fallback`: an owner
               // reading an estimate needs to know whether it came from their
               // own price list or from the deliberately high default.
@@ -1224,13 +1284,22 @@ export class Engine {
     const processes = processLedger(companyId, agentRunId, this.#workerId);
     // The task's own reservation, which its calls draw on first, and the
     // least any account above it has free: what `budget_spend` would allow.
+    //
+    // Money too: an account whose money is spent leaves no room, however many
+    // tokens it has, or every running task would ask the model once more and
+    // be billed for it. Spent means at a ceiling above nothing, or past one:
+    // an account allowed nothing still lets a call that costs nothing go.
     const tokensLeft = async (): Promise<number> => withTenant(companyId, async (tx) => {
-      const { rows } = await tx.query<{ left: string | null }>(
+      const { rows } = await tx.query<{ left: string | null; spent: boolean }>(
         `SELECT (SELECT tokens_reserved FROM tasks WHERE id = $2)
               + (SELECT min(tokens_max - tokens_spent - tokens_reserved) FROM budget_accounts
-                  WHERE id = ANY(app.budget_chain($1))) AS left`,
+                  WHERE id = ANY(app.budget_chain($1))) AS left,
+                EXISTS (SELECT 1 FROM budget_accounts WHERE id = ANY(app.budget_chain($1))
+                         AND (money_spent_cents > money_max_cents
+                              OR (money_max_cents > 0 AND money_spent_cents >= money_max_cents))) AS spent`,
         [task.budgetAccountId, taskId],
       );
+      if (rows[0]?.spent) return 0;
       return Math.max(0, Number(rows[0]?.left ?? 0));
     });
     const services: RunServices = {
@@ -1249,12 +1318,16 @@ export class Engine {
       const { output, writtenBy } = await Promise.race([abandoned, this.#runWithFallback(
         adapter,
         {
-          companyId, task, roleSlug, runtime, agentRunId,
+          companyId, task, roleSlug, runtime, agentRunId, stepsReplayed: !byContent,
           startAttempt: () => {
             stepIndex = 0;
             recorded = null;
             taken = new Set();
+            // A fallback model's bill replaces its own calls' estimates, not
+            // what the model before it spent: those stay charged, and what
+            // they left below a cent stays owed.
             chargedCents = 0;
+            exactRunCents = 0;
           },
         },
         services,
@@ -1583,6 +1656,30 @@ export class Engine {
   }
 
   /**
+   * A task whose role is stopped waits for it: parked, with a look at the
+   * times `ROLE_PAUSED_WAITS_MS` gives, and called back at once when the role
+   * goes back to work. Not an attempt spent and not a halt -- a role the owner
+   * paused is exactly work that is supposed to wait.
+   */
+  async #waitForRole(companyId: string, taskId: string, roleId: string): Promise<RunOutcome> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.role_waited' AND occurred_at > now() - interval '6 hours'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    const waitUntil = new Date(Date.now() + ROLE_PAUSED_WAITS_MS[Math.min(waits, ROLE_PAUSED_WAITS_MS.length - 1)]!);
+    await withTenant(companyId, (tx) => appendEvent(tx, {
+      companyId, taskId, type: 'task.role_waited', actor: 'engine',
+      payload: { roleId, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
+    }));
+    await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'role_paused' });
+    return { status: 'waiting_window', reason: 'role.frozen', waitUntil };
+  }
+
+  /**
    * A model whose key was refused (401, 403). Every task that needs the model
    * meets the same refusal, and only the owner can change a key, so the owner
    * is told once -- one card for the company, saying where to put a key that
@@ -1707,6 +1804,14 @@ export class Engine {
       if (parked) return parked;
     }
 
+    // A role stopped while its task ran: the task waits for the role, as it
+    // would have had the role been stopped a moment sooner. Not when the
+    // paused role is one it handed work to: its own role works, and waiting
+    // for it would wait for nothing (an ordinary failure, said to the owner).
+    if (code === 'role.frozen' && (error as PalugadaError).details.delegated !== true) {
+      return this.#waitForRole(companyId, taskId, settled.roleId);
+    }
+
     if (code === 'platform.stopped' || code === 'company.frozen') {
       const current = await withTenant(companyId, (tx) => getTask(tx, taskId));
       if (current && current.status !== 'cancelled') {
@@ -1779,7 +1884,12 @@ export class Engine {
     }
 
     const task = await withTenant(companyId, (tx) => getTask(tx, taskId));
-    const exhausted = !task || task.attempt + 1 >= task.attemptMax;
+    // A conversation too long for its model fails the same way every time:
+    // each retry replays the same journal and asks the same turn. Not asked
+    // again; the owner's "run again" starts a conversation of its own. The
+    // same for a run that went round in circles and was asked to finish.
+    const exhausted = code === 'model.context_too_long' || code === 'run.stuck'
+      || !task || task.attempt + 1 >= task.attemptMax;
     await withTenant(companyId, async (tx) => {
       await tx.query('UPDATE tasks SET attempt = attempt + 1 WHERE id = $1', [taskId]);
       await appendEvent(tx, {
@@ -1848,6 +1958,7 @@ export class Engine {
         maxRunSeconds: number | null;
       };
       agentRunId: string;
+      stepsReplayed: boolean;
       /**
        * Starts the next model's run from zero, in both of the things counted
        * per run.

@@ -13,6 +13,7 @@
  * tier 2 (F8.9). Noting and recording are internal and tier 1, each read
  * back.
  */
+import { once } from '../broker/once.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
@@ -120,11 +121,12 @@ export function crmNote(): Capability<{ contact?: string; body: string }, { note
     fallback: true,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
-      return withTenant(ctx.companyId, async (tx) => {
+      // Once for each call (src/broker/once.ts): a note made again after a crash is the note already written.
+      return withTenant(ctx.companyId, (tx) => once(tx, ctx, 'crm.note', async () => {
         const contactId = await contactFor(tx, ctx, input.contact);
         const noteId = await noteContact(tx, ctx.companyId, contactId, String(input.body ?? ''), 'agent', ctx.taskId);
         return { noteId, contactId };
-      });
+      }));
     },
     async verify(_input, result, ctx) {
       return withTenant(ctx.companyId, async (tx) => (await tx.query(
@@ -193,7 +195,9 @@ export function crmRecord(): Capability<RecordInput, { contactId: string; create
         ...(input.phone !== undefined ? { phone: input.phone } : {}),
       });
       const deal = input.deal ? dealInput(input.deal) : null;
-      return withTenant(ctx.companyId, async (tx) => {
+      // Once for each call (src/broker/once.ts): someone kept and a deal opened
+      // again after a crash are the ones already kept, not two of each.
+      return withTenant(ctx.companyId, (tx) => once(tx, ctx, 'crm.record', async () => {
         let contactId: string;
         let created = false;
         if (input.contact === 'new') {
@@ -205,7 +209,7 @@ export function crmRecord(): Capability<RecordInput, { contactId: string; create
         }
         const dealId = deal ? await recordDeal(tx, ctx.companyId, contactId, deal, 'agent', ctx.taskId) : null;
         return { contactId, created, ...(dealId ? { dealId } : {}) };
-      });
+      }));
     },
     async verify(_input, result, ctx) {
       return withTenant(ctx.companyId, async (tx) => {

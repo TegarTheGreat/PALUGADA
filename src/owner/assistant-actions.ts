@@ -37,29 +37,37 @@ export interface AssistantAction {
   /** Fields the owner types into a sealed field on the card, never the model. */
   secrets?: Readonly<Record<string, string>>;
   /**
-   * Whether the route takes the owner's device: always, or only for some
-   * requests (a tier 3 decision), when the card asks for it after a refusal.
+   * What the route asks of the owner. `never` is nothing, so a chat may do it.
+   * `always` and `sometimes` are the owner signed in to the app: their sign-in
+   * with a device is the second factor (STATUS 2.175), so the card is applied
+   * with a press and no code, in the app and not in a chat, which has no
+   * session. (The names are from before: `always` took a code every time and
+   * `sometimes` only for a tier 3 decision. A route still asks for a code of a
+   * session signed in with a recovery code, and the card then asks for it.)
    */
   factor: 'always' | 'sometimes' | 'never';
   /**
    * Whether a card for it may be applied with one press in a chat (F10.9):
    * the everyday things an owner says to their CEO from a phone -- give this
    * work, file this, tell that task, cancel it, remember this, this is the
-   * number. Only an action that takes no device and no key; anything that
+   * number. Only an action that needs no session and no key; anything that
    * decides an inbox item, loosens money or changes the deployment is
-   * applied in the app, where the owner's device is.
+   * applied in the app, where the owner is signed in.
    */
   chat?: true;
   /**
    * Done at once when the owner has asked, with no card to press: a CEO that
    * answers "give the team this" with a card for the owner to apply is a
-   * chatbot that fills in a form for them. Only a `chat` action -- no device,
-   * no key -- and only everyday work: give it, file it, tell it, stop it, run
-   * it again. And only in an answer that has read nothing an agent or a
-   * stranger wrote (`READS_OF_NO_ONE_ELSES_WORDS`): what the owner said, and
-   * what the company is, are the whole of what moved it. An answer that has
-   * read a task's output, an inbox item, a customer's message or a memory
-   * leaves the same action as a card, which is the owner's to press.
+   * chatbot that fills in a form for them. Everyday work, anywhere (a `chat`
+   * action: give it, file it, tell it, stop it, run it again), and building
+   * the team in the owner's conversation in the app, where they are signed in
+   * (open a division, hire a role, change one, let a division use a tool, set a
+   * goal): never an action that takes a key, and never one that loosens money
+   * or decides an inbox item. And only in an answer that has read nothing an
+   * agent or a stranger wrote (`READS_OF_NO_ONE_ELSES_WORDS`): what the owner
+   * said, and what the company is, are the whole of what moved it. An answer
+   * that has read a task's output, an inbox item, a customer's message or a
+   * memory leaves the same action as a card, which is the owner's to press.
    */
   auto?: true;
 }
@@ -79,6 +87,24 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     },
     secrets: { key: 'API key' },
     factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/collections',
+    what: 'Turn reminders for overdue invoices on or off, set the days after the due date they go, and the owner\'s own words on how customers pay. Turning them on lets the roles that issue invoices (or the CEO) send them; the letters are written from the books, not by a model.',
+    fields: {
+      enabled: 'true or false',
+      stepsDays: 'one to five days after the due date, each later than the one before, such as [3, 10, 24]',
+      paymentNote: 'where and how customers pay, in the owner\'s words, added to every reminder; null to remove',
+    },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/invoices/:invoiceId/reminders',
+    what: 'Leave one invoice out of the automatic reminders, or put it back.',
+    fields: { held: 'true to leave it alone, false to remind about it again' },
+    factor: 'never',
+    chat: true,
+    auto: true,
   },
   { pattern: '/api/control/settings/model/clear', what: 'Go back to the model the environment names.', factor: 'always' },
   {
@@ -211,8 +237,8 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/control/languages',
-    what: 'The console\'s language and the agents\' default language.',
-    fields: { console: 'a language code such as id or en', agents: 'a language code' },
+    what: 'The console\'s language and the agents\' default language. Agents follow the console\'s language until one is chosen for them.',
+    fields: { console: 'a language code such as id or en', agents: 'a language code, or null to follow the console\'s language' },
     factor: 'never',
   },
   {
@@ -247,7 +273,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies',
     what: 'Start a company.',
     fields: {
-      name: 'its name', companySlug: 'lowercase letters, digits and -', templateSlug: 'standard-company',
+      name: 'its name', companySlug: 'lowercase letters, digits and -',
       timezone: 'an IANA zone', bundles: 'optional list of bundle slugs, such as ["company-os"] for a company that runs itself',
     },
     factor: 'always',
@@ -274,6 +300,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       roleId: 'the role that does it', divisionId: 'the role\'s division', projectId: 'the project it belongs to',
       goalId: 'the goal it serves', goal: 'what is wanted, in the owner\'s words', detail: 'optional detail',
+      priority: 'optional: 0 (an incident, first) to 3 (whenever); left out, 2, which is what almost everything is',
     },
     factor: 'never', chat: true, auto: true,
   },
@@ -385,12 +412,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/goals',
     what: 'Add a goal.',
     fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it' },
-    factor: 'never',
+    factor: 'never', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/goals/:goalId',
     what: 'Reword a goal, or close it. Closing one pauses the schedules and triggers under it.',
-    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always',
+    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/metrics/:metricId',
@@ -433,7 +460,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/divisions',
     what: 'Open a division.',
     fields: { name: 'its name', slug: 'short id', parentDivisionId: 'optional', maxConcurrency: 'optional number' },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/projects',
@@ -443,7 +470,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       slug: 'short id',
       workLanguage: 'optional: a language code from GET /api/control/languages (supported[].code) for a project that sells in another market than the company; left out, the company\'s work language',
     },
-    factor: 'never',
+    factor: 'never', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/documents',
@@ -482,7 +509,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
       grantTools: 'true to also let its division use the tools it lacks, except those that cannot be undone; say true whenever you name tools',
     },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
@@ -495,7 +522,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',
       displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',
     },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/ceo',
@@ -511,7 +538,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/structure/grant',
     what: 'Let a division use a capability, at a tier, or take it away.',
     fields: { divisionId: 'the division', capabilityName: 'such as web.search', tierOverride: 'optional 0-3', revoke: 'true to take it away' },
-    factor: 'always',
+    factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/divisions/:divisionId/escalation',
@@ -758,7 +785,6 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
 export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
   '/api/control/settings/model/models': 'Which models the saved provider serves: {}.',
   '/api/control/settings/model/test': 'Whether the model saved answers and can call a tool: {}.',
-  '/api/control/settings/model/prices/lookup': 'What models.dev says each model in use costs, to propose saving: {}.',
   '/api/control/mcp/inspect': 'What a saved MCP server offers now: { name }.',
 };
 
@@ -789,6 +815,7 @@ export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
 ];
 
 export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
+  '/api/control/settings/model/prices/sync': 'the platform reads the price catalogue itself every day; the button on the Model page is for an owner who has just changed a model',
   '/api/auth/sign-in': 'signing in is the owner\'s',
   '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',
   '/api/auth/claim/confirm': 'the same claim, confirmed with the owner\'s new authenticator',
@@ -801,7 +828,6 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
-  '/api/control/step-up': 'how long a code covers what builds the company is a rule about the owner\'s own second factor, and is changed only by hand',
   '/api/companies/:companyId/first-hour/close': 'the list on the owner\'s own Overview is closed by the owner, who is looking at it',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/channels/whatsapp': 'Meta posts here, not a person',
@@ -824,6 +850,9 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/control/agents/:name/login/cancel': 'part of the sign-in in Agent CLIs',
   '/api/companies/:companyId/skills/import': 'a skill arrives with its publisher\'s signature, which the assistant cannot make',
   '/api/publishers': 'trusting a publisher is a key the owner checks with the publisher',
+  '/api/companies/:companyId/files': 'a file is handed over from the owner\'s own device, on Memory > Files: the model neither holds the bytes nor puts a file into the company\'s files in the owner\'s name',
+  '/api/companies/:companyId/files/delete': 'what the owner uploaded is theirs to take out, on Memory > Files, where they see what it is',
+  '/api/companies/:companyId/invoices/:invoiceId/pdf': 'the page is drawn when the owner presses Download PDF on the invoice and saved on their own device: it is made for that moment, not for the model',
   '/api/companies/:companyId/devices': 'a device registers itself',
   '/api/companies/:companyId/devices/:deviceId/pair': 'pairing compares a fingerprint on the device itself, in Devices',
   '/api/companies/:companyId/devices/:deviceId/challenge': 'a device asks for its own challenge',
@@ -833,6 +862,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/assistant/proposals/:proposalId/dismiss': 'only the owner dismisses a proposal',
   '/api/assistant/clear': 'only the owner starts the conversation again',
   '/api/companies/:companyId/conversation/messages': 'the conversation with a company\'s CEO itself',
+  '/api/companies/:companyId/conversation/briefing': 'the CEO speaks first by itself, when the owner opens the conversation',
   '/api/companies/:companyId/conversation/clear': 'only the owner starts a conversation again',
   '/api/assistant/listen': 'the owner\'s own voice, written down',
   '/api/assistant/speak': 'an answer said aloud to the owner',

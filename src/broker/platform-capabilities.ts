@@ -25,8 +25,8 @@ import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
-import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
-import { ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
+import { QUESTION_ESCALATES_AFTER_HOURS, answerFilesSaid, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { hireProposedCard, ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
@@ -41,6 +41,7 @@ import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
+import { madeFiles } from '../engine/journal.ts';
 import { noteTalkDrift } from '../domain/language.ts';
 import { proposeSchedule } from '../scheduler/proposals.ts';
 import type { Capability } from './registry.ts';
@@ -62,6 +63,8 @@ export interface MemorySearchResult {
     body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
     /** The day it was recorded: a price or a status may have changed since, and the record wins. */
     recordedOn: string;
+    /** How many days ago that was, so a run need not do the arithmetic against a date it was never told. */
+    ageDays: number;
   }>;
   /** Passages of the company's documents the query's words point at (0075). */
   documents: Array<{
@@ -147,7 +150,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       // And by meaning, when the deployment has a provider for it: the
       // query's vector is made before the transaction, which a network call
       // should not hold open.
-      const meaning = await queryMeaning(input.query);
+      const meaning = await queryMeaning(input.query, ctx.signal, ctx.companyId);
       const passages = await withTenant(ctx.companyId, (tx) => searchDocuments(tx, {
         divisionId: ctx.divisionId, query: input.query, limit: 3, ...(meaning ? { meaning } : {}),
       }));
@@ -173,6 +176,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           // as anything but data (0071).
           unverified: memory.confidence < 0.6 || memory.outside,
           recordedOn: memory.validFrom.toISOString().slice(0, 10),
+          ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
           ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
         })),
         truncated: facts.length > limit,
@@ -336,6 +340,8 @@ export interface TicketCreateInput {
   body?: string;
   /** 0 first to 3 last; 2 unless said. */
   priority?: number;
+  /** `work` unless said; `hire` proposes a role the company lacks (0132). */
+  kind?: 'work' | 'hire';
 }
 
 /**
@@ -356,6 +362,11 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
         title: { type: 'string', minLength: 1, maxLength: 200, description: 'What needs doing, in a line.' },
         body: { type: 'string', maxLength: 8000, description: 'What whoever picks it up needs to know, and what done looks like.' },
         priority: { type: 'integer', minimum: 0, maximum: 3, description: '0 first to 3 last; 2 unless it is urgent.' },
+        kind: {
+          type: 'string', enum: ['work', 'hire'],
+          description: 'work (unless said): something that needs doing. hire: a role the company lacks -- the title is the role, '
+            + 'the body the work it would take over and what it needs -- which the owner is shown and decides.',
+        },
       },
     },
     adapter: 'platform',
@@ -372,6 +383,7 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
           title: String(input.title ?? ''),
           body: typeof input.body === 'string' ? input.body : '',
           ...(input.priority === undefined ? {} : { priority: Number(input.priority) }),
+          ...(input.kind === undefined ? {} : { kind: input.kind }),
           openedBy: 'agent',
           openedByTaskId: ctx.taskId,
         });
@@ -383,6 +395,18 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
             companyId: ctx.companyId, taskId: ctx.taskId, where: 'ticket',
             text: `${opened.ticket.title}\n${opened.ticket.body}`,
           });
+          // A hire is the owner's (F2.9): they are shown it now, once, in
+          // their language, and decide it on the board or with the CEO.
+          if (opened.ticket.kind === 'hire') {
+            const card = hireProposedCard(await ownerReadingWithin(tx), { role: opened.ticket.title, why: opened.ticket.body });
+            // Not tied to the task that filed it: the card is the owner's
+            // to decide whenever they do, not something the run waits on or
+            // that closes when the run ends.
+            await raiseEscalationWithin(tx, {
+              companyId: ctx.companyId, title: card.title, detail: card.detail,
+              payload: { ticketId: opened.ticket.id, hire: true, role: opened.ticket.title, why: opened.ticket.body.slice(0, 1_500) },
+            });
+          }
         }
         return { ticketId: opened.ticket.id, existing: opened.existing };
       });
@@ -672,11 +696,20 @@ export interface OwnerAskInput {
    * is told it is there, never what it is.
    */
   key?: string;
+  /**
+   * The person the question is for, by name, when it is one of the people
+   * seated beside the owner and not the owner: an approver. Only that person
+   * and the owner see and answer it; if it is not answered in a day it is the
+   * owner's to answer too, and they are told.
+   */
+  to?: string;
 }
 
 export interface OwnerAskResult {
   answered: boolean;
   answer?: string;
+  /** What came with the answer, kept in the company's files: read it with files.read. */
+  files?: Array<{ kind: string; name: string | null; path: string }>;
   /** Said when there is no answer to give. */
   note?: string;
 }
@@ -795,6 +828,7 @@ export function ownerAskCapability(
         why: { type: 'string', description: 'What depends on the answer.' },
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
         key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
+        to: { type: 'string', maxLength: 120, description: 'The person this is for, by name, when it is someone the company has seated and not the owner. They are named in your brief; a name no one has is refused saying who there is.' },
       },
     },
     adapter: 'platform',
@@ -822,6 +856,7 @@ export function ownerAskCapability(
         }
         key = { alias, divisionId: ctx.divisionId, capabilities: asked.capabilities };
       }
+      const person = input.to !== undefined && String(input.to).trim() !== '' ? await approverNamed(ctx.companyId, String(input.to)) : null;
       const unbound = bound && !key ? await setupAsked(ctx, question, input.options, bound) : [];
       if (unbound.length > 0) {
         await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
@@ -843,8 +878,16 @@ export function ownerAskCapability(
         why: typeof input.why === 'string' ? input.why : null,
         options: Array.isArray(input.options) ? input.options.map(String) : null,
         ...(key ? { key } : {}),
+        ...(person ? { addressee: { ...person, escalateAfterHours: QUESTION_ESCALATES_AFTER_HOURS } } : {}),
       });
-      if (asked.state === 'answered') return { answered: true, answer: asked.answer };
+      if (asked.state === 'answered') {
+        if (asked.files.length === 0) return { answered: true, answer: asked.answer };
+        return {
+          answered: true,
+          answer: asked.answer + answerFilesSaid(asked.files),
+          files: asked.files.map((one) => ({ kind: one.kind, name: one.name, path: one.path })),
+        };
+      }
       if (asked.state === 'unanswered') {
         return {
           answered: false,
@@ -874,6 +917,8 @@ export interface TaskDelegateInput {
 
 /** How often a parent waiting on a child looks again. */
 export const AWAIT_POLL_MS = 2 * 60_000;
+/** How far past its child's deadline a waiting parent's own reaches: a few looks, and the answer. */
+const AWAIT_COVER_MS = 5 * 60_000;
 
 /**
  * `task.delegate`: hand part of the work to another role, as a sub-task.
@@ -952,6 +997,9 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         input: childInput,
         createdBy: 'agent_run',
         deadlineAt,
+        // A ticket handed on is as urgent as it was filed; without one the child
+        // is as urgent as the work it is part of (createSubTask).
+        ...(found.ticket ? { priority: found.ticket.priority } : {}),
       });
       await withTenant(ctx.companyId, async (tx) => {
         await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role.id]);
@@ -1022,7 +1070,7 @@ export function taskFollowUpCapability(): Capability<TaskFollowUpInput, { taskId
           type: 'string', minLength: 1,
           description: 'What to look at again, what to check it against (the figure, the record, the page), and what to do about what it finds: continue, propose a goal change, or ask the owner.',
         },
-        context: { type: 'string', description: 'What it needs that the brief does not say: the invoice number, the campaign, the figure you expect.' },
+        context: { type: 'string', description: 'What it needs that the brief does not say: the invoice number, the campaign, the figure you expect. Do not paste what you did or the files you made: the follow-up is shown your result and the paths of the files you made.' },
         afterHours: { type: 'integer', minimum: 1, maximum: 2160, description: 'How many hours from now it wakes: 1 to 2160 (ninety days).' },
         windowMinutes: { type: 'integer', minimum: 15, maximum: 1440, description: 'How long it has once it wakes (default 120).' },
       },
@@ -1171,7 +1219,18 @@ export interface TaskAwaitResult {
   summary: string;
   /** Set when the output was cut to fit: the child keeps it whole, for the owner and for anyone pointing to it. */
   abbreviated: { taskId: string; characters: number } | null;
+  /**
+   * The paths of the files the child's own writes made, from its journal and
+   * not from anything it said, the last twenty at most. A child that was
+   * halted after drafting something still has the draft, and its parent is
+   * told. Paths are references: a role that does not hold a tool to open
+   * files names them, or hands them on.
+   */
+  files: string[];
 }
+
+/** The most paths a parent is told of one child's work. */
+const FILES_SHOWN = 20;
 
 /**
  * `task.await`: the result of work this task delegated.
@@ -1214,12 +1273,17 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           { childId: input.childId },
         );
       }
+      const filesOf = () => withTenant(ctx.companyId, async (tx) =>
+        (await madeFiles(tx, String(input.childId))).map((file) => file.path).slice(-FILES_SHOWN));
       if (found.status === 'completed') {
         const costCents = await withTenant(ctx.companyId, (tx) => taskCostCents(tx, String(input.childId)));
         const contained = containChildResult(found.role, found.output ?? {}, {
           status: found.status, steps: found.steps, costCents, taskId: String(input.childId),
         });
-        return { status: found.status, output: contained.output, summary: contained.summary, abbreviated: contained.abbreviated };
+        return {
+          status: found.status, output: contained.output, summary: contained.summary, abbreviated: contained.abbreviated,
+          files: await filesOf(),
+        };
       }
       // Past its deadline and nobody running it: halted here, as the worker's
       // sweep would halt it, and answered. Parking again would reopen at a
@@ -1241,7 +1305,20 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           output: null,
           summary: `${found.role} ${found.status}${found.halt_reason ? ` (${found.halt_reason})` : ''} without a result`,
           abbreviated: null,
+          files: await filesOf(),
         };
+      }
+      // A coordinator waiting for a specialist is not halted before the
+      // specialist is: its deadline reaches the child's, and while the child
+      // waits for a person -- the owner's yes, a reviewer -- it is carried
+      // past now, so a wait that is not the work's is not held against it
+      // (the audit of 6 October, S1). A parent with no deadline keeps none.
+      if (found.status === 'waiting_approval' || found.status === 'waiting_review' || found.deadline_at) {
+        const covers = Math.max(found.deadline_at?.getTime() ?? 0, found.status === 'running' || found.status === 'pending' ? 0 : Date.now())
+          + AWAIT_COVER_MS;
+        await withTenant(ctx.companyId, (tx) => tx.query(
+          'UPDATE tasks SET deadline_at = $2 WHERE id = $1 AND deadline_at IS NOT NULL AND deadline_at < $2',
+          [ctx.taskId, new Date(covers)]));
       }
       const next = Date.now() + AWAIT_POLL_MS;
       // The deadline only while it is ahead: one already passed belongs to a

@@ -22,7 +22,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import * as budget from '../../src/engine/budget.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -86,7 +86,7 @@ test('an account that stops many tasks has one card, which says how many', async
   assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert').length, 2);
 });
 
-test('the owner raises the ceiling and continues everything it stopped, with a code only for the raise', async () => {
+test('the owner raises the ceiling and continues everything it stopped, with no code', async () => {
   const fixture = await createCompany('budget-continue-all', { tokensMax: 5_000 });
   const tasks = [await stopped(fixture), await stopped(fixture), await stopped(fixture)];
   await spendAll(fixture.budgetAccountId);
@@ -109,12 +109,8 @@ test('the owner raises the ceiling and continues everything it stopped, with a c
     assert.match(none.body.skipped[0].code, /budget\.reservation_refused/);
     assert.deepEqual(await Promise.all(tasks.map((id) => statusOf(fixture, id))), ['halted', 'halted', 'halted']);
 
-    // Raising is the owner's decision with their code.
-    const without = await api.call('POST', path, owner, { tokensMax: 5_000_000 });
-    assert.equal(without.status, 403, 'raising a ceiling asks for the code');
-    assert.deepEqual(await Promise.all(tasks.map((id) => statusOf(fixture, id))), ['halted', 'halted', 'halted']);
-
-    const done = await api.call('POST', path, owner, { tokensMax: 5_000_000, proof: { totp: api.code() } });
+    // Raising is the owner's decision, which their sign-in answers for.
+    const done = await api.call('POST', path, owner, { tokensMax: 5_000_000 });
     assert.equal(done.status, 200, JSON.stringify(done.body));
     assert.deepEqual([done.body.continued, done.body.skipped, done.body.tokensMax], [3, [], 5_000_000]);
     assert.deepEqual(await Promise.all(tasks.map((id) => statusOf(fixture, id))), ['pending', 'pending', 'pending']);
@@ -175,6 +171,40 @@ test('only what stopped on this account is continued, and only what its budget s
     const wrong = await api.call('POST', `/api/companies/${fixture.companyId}/budget-accounts/${fixture.companyId}/continue`, owner, {});
     assert.equal(wrong.status, 400);
     assert.match(String(wrong.body.error), /no budget account/);
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * The audit of 6 October (W6): retention blanks a finished task's model turns at
+ * ninety days, and continue-all (2.155) makes going on with an old halted task
+ * likelier. A journal with a blanked turn cannot be replayed -- the run read
+ * `undefined` where a reply had been, and failed three times -- so the task is
+ * not continued, and the owner is told to do it again.
+ */
+test('a task whose record retention has cleared is not continued, and says to do it again', async () => {
+  const fixture = await createCompany('budget-scrubbed', { tokensMax: 5_000 });
+  const old = await stopped(fixture);
+  const fresh = await stopped(fixture);
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, output, committed_at)
+     VALUES ($1, 0, $2, 'model:turn', 'llm', 'committed', 'h', 'k', '{"redacted":"retention"}'::jsonb, now())`, [old, fixture.companyId]));
+  const api = await consoleWithSettings({ baseEnv: {} });
+  try {
+    const owner = await api.signIn();
+    const one = await api.call('POST', `/api/companies/${fixture.companyId}/tasks/${old}/continue`, owner, {});
+    assert.equal(one.status, 409, JSON.stringify(one.body));
+    assert.equal(one.body.code, 'task.record_cleared', 'its own code, so the console says what it means and not what a budget halt means');
+    assert.match(String(one.body.error), /retention/);
+    assert.match(String(one.body.error), /do it again|run it again/i);
+    assert.equal(await statusOf(fixture, old), 'halted');
+
+    // Continue-all passes it over by name and goes on with the rest.
+    const all = await api.call('POST', `/api/companies/${fixture.companyId}/budget-accounts/${fixture.budgetAccountId}/continue`, owner, {});
+    assert.equal(all.body.continued, 1, JSON.stringify(all.body));
+    assert.deepEqual(all.body.skipped.map((entry: { taskId: string }) => entry.taskId), [old]);
+    assert.equal(await statusOf(fixture, fresh), 'pending');
   } finally {
     await api.close();
   }

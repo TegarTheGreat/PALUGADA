@@ -574,7 +574,8 @@ test('finished work past the windows goes with what hangs from it, and work some
 
   const left = await withControlPlane(async (tx) => {
     const tasks = await tx.query<{ goal: string }>(
-      "SELECT input->>'goal' AS goal FROM tasks WHERE company_id = $1 ORDER BY 1", [fixture.companyId]);
+      // Byte order, so the list reads the same under any database's collation.
+      "SELECT input->>'goal' AS goal FROM tasks WHERE company_id = $1 ORDER BY input->>'goal' COLLATE \"C\"", [fixture.companyId]);
     const hanging = await tx.query<{ steps: number; runs: number; items: number; events: number }>(
       `SELECT (SELECT count(*)::int FROM task_steps WHERE task_id = ANY($1::uuid[])) AS steps,
               (SELECT count(*)::int FROM agent_runs WHERE task_id = ANY($1::uuid[])) AS runs,
@@ -582,7 +583,7 @@ test('finished work past the windows goes with what hangs from it, and work some
               (SELECT count(*)::int FROM events WHERE task_id = ANY($1::uuid[])) AS events`,
       [[old, oldParent, oldChild]]);
     const cards = await tx.query<{ title: string }>(
-      'SELECT title FROM inbox_items WHERE company_id = $1 AND task_id IS NULL ORDER BY 1', [fixture.companyId]);
+      'SELECT title FROM inbox_items WHERE company_id = $1 AND task_id IS NULL ORDER BY title COLLATE "C"', [fixture.companyId]);
     return { tasks: tasks.rows.map((row) => row.goal), hanging: hanging.rows[0], cards: cards.rows.map((row) => row.title) };
   });
   assert.deepEqual(left.tasks, [

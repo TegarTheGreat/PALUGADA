@@ -146,17 +146,13 @@ export async function resetData(): Promise<void> {
               -- the agents' default to Indonesian would otherwise hand it to
               -- every file after it.
               console_language = NULL,
-              agent_language = 'en',
+              agent_language = NULL,
               -- And the owner's tour (0064), so each file meets a console that
               -- has not been toured.
               tour_finished_at = NULL,
               -- And the currency the owner reads money in (0106).
               display_currency = NULL,
-              display_rate = NULL,
-              -- And the window a code opens (0120): none, so that a test of what
-              -- asks for a second factor meets a console that asks every time,
-              -- as these were written to expect. step-up.test.ts sets its own.
-              step_up_minutes = 0`,
+              display_rate = NULL`,
     );
   });
 }

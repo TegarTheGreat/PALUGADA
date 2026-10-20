@@ -32,6 +32,7 @@ import {
   askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard, skillCard, skillsCard,
 } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
+import type { AnswerFile } from '../chats/attachments.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
 interface StageChange {
@@ -40,6 +41,7 @@ interface StageChange {
 }
 import type { Tier } from '../domain/tier.ts';
 import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.ts';
+import type { OwnerSessions } from '../owner/session.ts';
 
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
 export const DEFAULT_APPROVAL_TTL_HOURS = 72;
@@ -120,6 +122,12 @@ export interface InboxItem {
   budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   /** A question answered by giving a division a key (`owner.ask` with `key`): its card opens the division's keys. */
   key?: AskedKey;
+  /** Whom a question is for, when it names a seat (0126); the owner's and any approver's when it does not. */
+  addressee?: { seatId: string; name: string };
+  /** The seat's turn is over, and the question is the owner's too: it went unanswered for the time it was given. */
+  escalated?: boolean;
+  /** A role the CEO proposes hiring (a ticket of kind `hire`, 0132): the owner hires it with the CEO, or closes the ticket. */
+  hire?: { ticketId: string; role: string; why: string };
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -759,8 +767,17 @@ async function noteHandling(companyId: string, item: {
 /** How many questions one task may put to the owner. */
 export const QUESTIONS_PER_TASK = 3;
 
+/**
+ * How long a question put to a seat waits before the owner is told it has not
+ * been answered. A day: a person who works shifts, or is ill, or is asleep in
+ * another timezone, has been given a working day to look, and a run that
+ * waits longer than that is waiting on something the owner can change.
+ */
+export const QUESTION_ESCALATES_AFTER_HOURS = 24;
+
 export type AgentQuestion =
-  | { state: 'answered'; inboxItemId: string; answer: string }
+  /** `bySeat`: the person it was put to answered it, rather than the owner in their place. */
+  | { state: 'answered'; inboxItemId: string; answer: string; files: AnswerFile[]; bySeat: boolean }
   | { state: 'waiting'; inboxItemId: string }
   | { state: 'unanswered'; inboxItemId: string };
 
@@ -810,6 +827,14 @@ export async function askOwner(input: {
    * the division's keys, and saving the key answers it.
    */
   key?: AskedKey;
+  /**
+   * Whom the question is for: a staff seat (`approverNamed`). Only that seat
+   * and the owner may answer it, and it is in no other seat's inbox. Left
+   * out, it is the owner's and any approver's, as it always was. When the
+   * seat has not answered by `escalateAfterHours` the owner is told, once
+   * (`escalateQuestions`); the question stays the seat's to answer.
+   */
+  addressee?: { seatId: string; name: string; escalateAfterHours: number };
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
   const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
@@ -833,9 +858,11 @@ export async function askOwner(input: {
       throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: input.taskId });
     }
     const { rows: asked } = await tx.query<{
-      id: string; status: string; decision: string | null; owner_note: string | null; question: string;
+      id: string; status: string; decision: string | null; owner_note: string | null; question: string; answer_files: AnswerFile[];
+      by_seat: boolean;
     }>(
-      `SELECT id, status, decision, owner_note, payload->>'question' AS question FROM inbox_items
+      `SELECT id, status, decision, owner_note, payload->>'question' AS question, answer_files,
+              decided_by_seat IS NOT NULL AS by_seat FROM inbox_items
         WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
         ORDER BY created_at`,
       [input.taskId],
@@ -853,7 +880,7 @@ export async function askOwner(input: {
         return { state: 'waiting', inboxItemId: same.id };
       }
       if (same.status === 'decided' && same.decision === 'approve') {
-        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '' };
+        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '', files: same.answer_files, bySeat: same.by_seat };
       }
       return { state: 'unanswered', inboxItemId: same.id };
     }
@@ -881,8 +908,16 @@ export async function askOwner(input: {
       payload: {
         askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}), ...(input.browser ? { browser: true } : {}),
         ...(input.key ? { key: input.key } : {}),
+        ...(input.addressee ? { addressee: { seatId: input.addressee.seatId, name: input.addressee.name } } : {}),
       },
     });
+    if (input.addressee) {
+      // The seat is a column, not only a word in the payload: it is what the seat's inbox and the right to answer are read from.
+      await tx.query(
+        `UPDATE inbox_items SET addressee_seat = $2, escalate_at = now() + make_interval(hours => $3) WHERE id = $1`,
+        [id, input.addressee.seatId, input.addressee.escalateAfterHours],
+      );
+    }
     // Everything on the card is the run's own words to the owner: the
     // question, what depends on it and the answers it offers. Checked here,
     // where the item is opened, and not when the same question is asked
@@ -906,15 +941,96 @@ export async function askOwner(input: {
 export async function answersFor(
   tx: TenantClient,
   taskId: string,
-): Promise<Array<{ question: string; answer: string }>> {
-  const { rows } = await tx.query<{ question: string; answer: string | null }>(
-    `SELECT payload->>'question' AS question, owner_note AS answer FROM inbox_items
+): Promise<Array<{ question: string; answer: string; files: AnswerFile[]; by: string | null }>> {
+  const { rows } = await tx.query<{ question: string; answer: string | null; files: AnswerFile[]; by: string | null }>(
+    `SELECT payload->>'question' AS question, owner_note AS answer, answer_files AS files,
+            -- Who answered, when it was not the owner: the person it was put to (only they can answer it), or staff ('').
+            CASE WHEN decided_by_seat IS NULL THEN NULL ELSE coalesce(payload->'addressee'->>'name', '') END AS by
+       FROM inbox_items
       WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
         AND status = 'decided' AND decision = 'approve'
       ORDER BY created_at`,
     [taskId],
   );
-  return rows.map((row) => ({ question: row.question, answer: row.answer ?? '' }));
+  return rows.map((row) => ({ question: row.question, answer: row.answer ?? '', files: row.files, by: row.by }));
+}
+
+/**
+ * Who answered, as a run is told: the owner, the person the question was put
+ * to, or staff when it was put to no one in particular. `start` capitalises
+ * the owner and staff for the head of a sentence; a name is never changed.
+ */
+export function answererSaid(by: string | null, start = true): string {
+  if (by === null) return start ? 'The owner' : 'the owner';
+  if (by === '') return start ? 'A member of staff' : 'a member of staff';
+  return by;
+}
+
+/**
+ * What a run is told of the files an answer carried: where each is, by the
+ * path this platform made, and that `files.read` shows what it says. The name
+ * the person gave it is theirs, so it is not in the sentence; the console shows it.
+ */
+export function answerFilesSaid(files: readonly AnswerFile[]): string {
+  if (files.length === 0) return '';
+  return `\n\nFiles that came with the answer, kept in the company's files (files.read shows what each says): ${files.map((one) => one.path).join(', ')}`;
+}
+
+/**
+ * The seats of a company that can answer a question: joined, not revoked, and
+ * approvers -- a viewer reads and answers nothing. Read on the control plane,
+ * where seats are kept (0110), and by name only: nothing of a seat's factor
+ * leaves it.
+ */
+export async function askableSeats(companyId: string): Promise<Array<{ seatId: string; name: string }>> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string; name: string }>(
+      `SELECT id, name FROM staff_seats
+        WHERE company_id = $1 AND kind = 'approver' AND joined_at IS NOT NULL AND revoked_at IS NULL
+        ORDER BY name, id`,
+      [companyId],
+    );
+    return rows.map((row) => ({ seatId: row.id, name: row.name }));
+  });
+}
+
+/**
+ * The seat a run means by a name: the approver called that, in any case. A
+ * name no one has, a name two have, a viewer's and a revoked seat's are each
+ * refused saying who there is, so the run asks again of a person who can answer.
+ */
+export async function approverNamed(companyId: string, name: string): Promise<{ seatId: string; name: string }> {
+  const wanted = name.trim().toLowerCase();
+  const answerers = await askableSeats(companyId);
+  const found = answerers.filter((one) => one.name.toLowerCase() === wanted);
+  if (found.length === 1) return found[0]!;
+  const people = answerers.length > 0 ? `the people who can answer are: ${answerers.map((one) => one.name).join(', ')}` : 'no one is seated beside the owner who can answer: ask the owner';
+  if (found.length > 1) {
+    throw new PalugadaError('contract.violation', `${found.length} people are called ${name}; ${people}`, { field: 'to' });
+  }
+  const viewer = await withControlPlane((tx) => tx.query<{ name: string }>(
+    `SELECT name FROM staff_seats WHERE company_id = $1 AND kind = 'viewer' AND joined_at IS NOT NULL AND revoked_at IS NULL AND lower(name) = $2`,
+    [companyId, wanted]));
+  if (viewer.rows[0]) {
+    throw new PalugadaError('contract.violation',
+      `${viewer.rows[0].name} can only read: a question is for someone who can answer it; ${people}`, { field: 'to' });
+  }
+  throw new PalugadaError('contract.violation', `no one called ${name} is seated; ${people}`, { field: 'to' });
+}
+
+/**
+ * Whether a seat may look at an item it was not listed: refused when the item
+ * is a question put to another seat. The list leaves such a question out, and
+ * this keeps its id from being a way in to what is behind it.
+ */
+export async function assertSeatMayRead(companyId: string, itemId: string, seat: { id: string }): Promise<void> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ addressee_seat: string | null; name: string | null }>(
+    "SELECT addressee_seat, payload->'addressee'->>'name' AS name FROM inbox_items WHERE id = $1", [itemId]));
+  const row = rows[0];
+  if (row?.addressee_seat && row.addressee_seat !== seat.id) {
+    throw new PalugadaError('staff.forbidden',
+      `this question is for ${row.name ?? 'someone else'}: only they and the owner can read it`, { inboxItemId: itemId });
+  }
 }
 
 /**
@@ -1191,7 +1307,15 @@ const ALLOW_FOR_SQL = `i.kind = 'approval' AND i.tier <= 2 AND i.capability_name
 const FOR_SCHEDULE_SQL = `(i.kind = 'approval' AND i.tier <= 2 AND i.capability_name IS NOT NULL
   AND i.action_fingerprint IS NOT NULL AND i.task_id IS NOT NULL AND app.task_schedule(i.task_id) IS NOT NULL)`;
 
-export async function listOpen(companyId: string, options: { snoozed?: boolean } = {}): Promise<InboxItem[]> {
+/**
+ * The open items. `seat` is a staff seat reading: it sees what is nobody's in
+ * particular and what is its own, not what another seat was asked, and `mine`
+ * leaves it only what is its own. The owner reads all of it.
+ */
+export async function listOpen(
+  companyId: string,
+  options: { snoozed?: boolean; seat?: { id: string } | null; mine?: boolean } = {},
+): Promise<InboxItem[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; kind: InboxKind; status: InboxStatus;
@@ -1202,6 +1326,8 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
       key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
+      addressee: { seatId: string; name: string } | null; escalated: boolean;
+      hire: { ticketId: string; role: string; why: string } | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1213,6 +1339,11 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
+              CASE WHEN i.addressee_seat IS NOT NULL THEN i.payload->'addressee' END AS addressee,
+              (i.escalated_at IS NOT NULL) AS escalated,
+              CASE WHEN i.kind = 'escalation' AND i.payload->>'hire' = 'true'
+                   THEN jsonb_build_object('ticketId', i.payload->>'ticketId', 'role', coalesce(i.payload->>'role', ''),
+                                           'why', coalesce(i.payload->>'why', '')) END AS hire,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               CASE WHEN i.kind = 'budget_alert' THEN i.payload->'budgetHalt'->>'budgetAccountId' END AS budget_account,
               i.payload->'asked' AS asked,
@@ -1226,8 +1357,11 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         WHERE i.status = 'open'
           AND (CASE WHEN $1 THEN i.snoozed_until > now()
                     ELSE i.snoozed_until IS NULL OR i.snoozed_until <= now() END)
+          -- A seat reads what is nobody's in particular and what is its own (or, once its time is up, the owner's too).
+          AND ($2::uuid IS NULL OR i.addressee_seat IS NULL OR i.addressee_seat = $2::uuid)
+          AND ($3::boolean = false OR i.addressee_seat = $2::uuid)
         ORDER BY i.created_at`,
-      [options.snoozed ?? false],
+      [options.snoozed ?? false, options.seat?.id ?? null, options.mine === true && !!options.seat],
     );
     const items: InboxItem[] = [];
     for (const r of rows) {
@@ -1254,6 +1388,9 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         options: r.options,
         ...(r.browser ? { browser: true } : {}),
         ...(r.key ? { key: r.key } : {}),
+        ...(r.addressee ? { addressee: r.addressee } : {}),
+        ...(r.escalated ? { escalated: true } : {}),
+        ...(r.hire ? { hire: r.hire } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
@@ -1308,7 +1445,7 @@ export interface HistoryPage {
  */
 export async function history(
   companyId: string,
-  options: { query?: string | null; before?: string | null; limit?: number } = {},
+  options: { query?: string | null; before?: string | null; limit?: number; seat?: { id: string } | null } = {},
 ): Promise<HistoryPage> {
   const limit = Math.min(Math.max(Math.trunc(options.limit ?? 25), 1), 100);
   const cursor = options.before ? readCursor(options.before) : null;
@@ -1343,9 +1480,13 @@ export async function history(
           AND ($2::bigint IS NULL
                OR (created_at, id) < (timestamptz 'epoch' + $2::bigint * interval '1 microsecond',
                                       $3::uuid))
+          -- A seat reads what was nobody's in particular and what was its
+          -- own, as in the queue: a question put to another seat, and the
+          -- answer it gave, are that seat's and the owner's.
+          AND ($5::uuid IS NULL OR addressee_seat IS NULL OR addressee_seat = $5::uuid)
         ORDER BY created_at DESC, id DESC
         LIMIT $4`,
-      [pattern, cursor?.createdMicros ?? null, cursor?.id ?? null, limit + 1],
+      [pattern, cursor?.createdMicros ?? null, cursor?.id ?? null, limit + 1, options.seat?.id ?? null],
     );
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];
@@ -1438,11 +1579,17 @@ const TIER_3_CHANNELS = new Set<DecisionChannel>(['app', 'api']);
  * supplies is the proof -- a TOTP code, or a WebAuthn assertion signed by the
  * owner's phone -- and the platform does the arithmetic.
  *
+ * `login` is the other thing `decide` derives: the owner's session was opened
+ * with a device (a code or a passkey), which `OwnerSessions` has just been
+ * asked about and answered for. The owner's report of 7 October -- the
+ * authenticator is for signing in, not for each approval -- made that enough
+ * for tier 3 as well, which relaxes F10.10 and F12.5 (STATUS 2.175).
+ *
  * `session` and `none` remain, for the tiers where a second factor is not
  * required. They are the caller's word, and at those tiers the caller's word
  * is what the requirement asks for.
  */
-export type OwnerAssurance = 'mfa' | 'session' | 'none';
+export type OwnerAssurance = 'mfa' | 'login' | 'session' | 'none';
 
 /**
  * What the owner presents to prove a tier 3 approval (F10.10, F12.5).
@@ -1519,7 +1666,11 @@ export interface DecideOptions {
    * Ignored at tier 3: there, `assurance` is what the verifier concluded.
    */
   assurance?: OwnerAssurance;
-  /** The second factor itself. Required to approve a tier 3 action. */
+  /**
+   * The second factor itself: what a tier 3 approval takes when the owner is
+   * not in a session opened with a device, such as one signed in with a
+   * recovery code.
+   */
   proof?: MfaProof;
   /**
    * Who checks it.
@@ -1529,6 +1680,15 @@ export interface DecideOptions {
    * of a verifier is a refusal, not a bypass.
    */
   mfa?: OwnerMfa;
+  /**
+   * The owner's session, by its token, and who answers for it. A session
+   * opened with a device is the second factor for a tier 3 approval and for
+   * a yes given for a while: asked here, at the moment of deciding, so that a
+   * session ended a moment ago -- a revoked device's -- does not count, and so
+   * that a caller cannot say it is one. Absent for a chat, which has none.
+   */
+  sessions?: OwnerSessions;
+  sessionToken?: string;
   /** The batch this decision was one of, written on its record (`decideMany`). */
   batch?: string;
   /**
@@ -1549,6 +1709,8 @@ export interface DecideOptions {
    * written on the item and its record.
    */
   seat?: { id: string; name: string } | null;
+  /** The files an answer to a run's question carried, already kept (`keepAnswerFiles`): recorded with the answer in the same step. */
+  answerFiles?: AnswerFile[];
 }
 
 /** The longest the owner may allow a capability for without being asked: a week. */
@@ -1569,6 +1731,17 @@ export interface StandingApproval {
   lastUsedAt: Date | null;
 }
 
+/**
+ * The device that opened the owner's session, when `options` names a session
+ * that is still live and was opened with one; nothing for a chat, a staff
+ * seat, a session signed in with a recovery code, or no session at all.
+ */
+async function signedInWithDevice(options: DecideOptions): Promise<VerifiedFactor | null> {
+  if (!options.sessions || !options.sessionToken || options.seat) return null;
+  const session = await options.sessions.verify(options.sessionToken);
+  return session?.provedAt ? session.factor : null;
+}
+
 export async function decide(
   companyId: string,
   itemId: string,
@@ -1580,14 +1753,19 @@ export async function decide(
   // Defaulted to the weakest, so a caller that says nothing cannot approve a
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
+  // Whether the owner's session was opened with a device: asked of the
+  // sessions, which answer for it, and not taken from the caller.
+  const login = await signedInWithDevice(options);
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule } = await withTenant(companyId, async (tx) => {
+  const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule, addressee } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
       schedule_id: string | null; action_fingerprint: string | null; proposes_schedule: boolean;
+      addressee_seat: string | null; addressee_name: string | null;
     }>(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
+              i.addressee_seat, i.payload->'addressee'->>'name' AS addressee_name,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
               (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id,
@@ -1611,11 +1789,18 @@ export async function decide(
         ? { ...schedule, capabilityName: row.capability_name, fingerprint: row.action_fingerprint }
         : null,
       proposesSchedule: row?.proposes_schedule ?? false,
+      addressee: row?.addressee_seat ? { seatId: row.addressee_seat, name: row.addressee_name ?? 'someone else' } : null,
     };
   });
   // A seat beside the owner (0110): tier 3 is the owner's whichever way it
   // is answered, and a yes for a while loosens a control, which is too.
   if (options.seat) {
+    // A question put to one person is theirs and the owner's: another seat
+    // cannot see it in its inbox, and cannot reach it by its id either.
+    if (addressee && addressee.seatId !== options.seat.id) {
+      throw new PalugadaError('staff.forbidden',
+        `this question is for ${addressee.name}: only they and the owner can answer it`, { inboxItemId: itemId });
+    }
     if ((tier ?? 0) >= 3) {
       throw new PalugadaError('staff.forbidden',
         'tier 3 is the owner\'s to decide, yes or no: it stays in their inbox', { inboxItemId: itemId });
@@ -1677,7 +1862,7 @@ export async function decide(
       throw new PalugadaError('approval.channel_forbidden',
         `allowing ${standing.capabilityName} for a while happens in the app, not over ${channel}`, { inboxItemId: itemId, channel });
     }
-    if (!options.mfa || !options.proof) {
+    if (!login && (!options.mfa || !options.proof)) {
       throw new PalugadaError('approval.channel_forbidden',
         `allowing ${standing.capabilityName} for a while needs a second factor; none was presented (PRD F12.5)`,
         { inboxItemId: itemId, reason: options.mfa ? 'no_proof' : 'no_verifier' });
@@ -1704,7 +1889,7 @@ export async function decide(
       throw new PalugadaError('approval.channel_forbidden',
         `allowing this every time ${scheduled.slug} does it happens in the app, not over ${channel}`, { inboxItemId: itemId, channel });
     }
-    if (!options.mfa || !options.proof) {
+    if (!login && (!options.mfa || !options.proof)) {
       throw new PalugadaError('approval.channel_forbidden',
         `allowing this every time ${scheduled.slug} does it needs a second factor; none was presented (PRD F12.5)`,
         { inboxItemId: itemId, reason: options.mfa ? 'no_proof' : 'no_verifier' });
@@ -1750,45 +1935,57 @@ export async function decide(
         `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`,
       );
     }
-    // No verifier is a refusal rather than a bypass. A deployment that has not
-    // set up MFA has not met F12.5, and the consequence of not meeting it
-    // should be that irreversible actions wait -- not that they proceed.
-    if (!options.mfa) {
-      await refuse(
-        'no_verifier',
-        'a tier 3 approval needs a second factor and this deployment has no MFA '
-          + 'verifier configured (PRD F10.10, F12.5)',
-      );
-    }
-    if (!options.proof) {
-      await refuse(
-        'no_proof',
-        'a tier 3 approval needs a second factor; none was presented (PRD F10.10, F12.5)',
-      );
-    }
+    if (login) {
+      // The owner signed in with a device and is deciding in the app: that
+      // sign-in is the second factor, and the record names the device.
+      factor = login;
+      assurance = 'login';
+    } else {
+      // No verifier is a refusal rather than a bypass. A deployment that has
+      // not set up MFA has not met F12.5, and the consequence of not meeting
+      // it should be that irreversible actions wait -- not that they proceed.
+      if (!options.mfa) {
+        await refuse(
+          'no_verifier',
+          'a tier 3 approval needs a second factor and this deployment has no MFA '
+            + 'verifier configured (PRD F10.10, F12.5)',
+        );
+      }
+      if (!options.proof) {
+        await refuse(
+          'no_proof',
+          'a tier 3 approval needs a second factor; none was presented (PRD F10.10, F12.5)',
+        );
+      }
 
-    // The verification itself throws its own `mfa.*` error, which says which
-    // of the eleven ways it failed. Not flattened into this one: "that code
-    // has been used before" and "wrong code" are different stories, and only
-    // one of them is somebody trying.
-    // The company travels with the proof. A factor enrolled against one
-    // company must not approve a tier 3 action in another, which is the same
-    // isolation every other table in this schema enforces -- and the owner's
-    // own platform-scoped device answers for all of them.
-    const asking = { purpose: 'approval.tier3', subjectId: itemId, companyId };
-    factor =
-      'totp' in options.proof!
-        ? await options.mfa!.verifyTotp(options.proof.totp, asking)
-        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
-    // Derived, never taken from the caller. This is the whole fix.
-    assurance = 'mfa';
+      // The verification itself throws its own `mfa.*` error, which says which
+      // of the eleven ways it failed. Not flattened into this one: "that code
+      // has been used before" and "wrong code" are different stories, and only
+      // one of them is somebody trying.
+      // The company travels with the proof. A factor enrolled against one
+      // company must not approve a tier 3 action in another, which is the same
+      // isolation every other table in this schema enforces -- and the owner's
+      // own platform-scoped device answers for all of them.
+      const asking = { purpose: 'approval.tier3', subjectId: itemId, companyId };
+      factor =
+        'totp' in options.proof!
+          ? await options.mfa!.verifyTotp(options.proof.totp, asking)
+          : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
+      // Derived, never taken from the caller. This is the whole fix.
+      assurance = 'mfa';
+    }
   }
   if (granting || forSchedule) {
-    const asking = { purpose: granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId };
-    factor = 'totp' in options.proof!
-      ? await options.mfa!.verifyTotp(options.proof.totp, asking)
-      : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
-    assurance = 'mfa';
+    if (login) {
+      factor = login;
+      assurance = 'login';
+    } else {
+      const asking = { purpose: granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId };
+      factor = 'totp' in options.proof!
+        ? await options.mfa!.verifyTotp(options.proof.totp, asking)
+        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
+      assurance = 'mfa';
+    }
   }
 
   // One transaction for the decision and the task it releases. As two, a
@@ -1821,10 +2018,11 @@ export async function decide(
               owner_note = $3,
               decided_via = $4,
               decided_by_seat = $5,
+              answer_files = $6::jsonb,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
         WHERE id = $1 AND status = 'open' AND (expires_at IS NULL OR expires_at > now())
         RETURNING task_id, kind, payload`,
-      [itemId, decision, note, channel, options.seat?.id ?? null],
+      [itemId, decision, note, channel, options.seat?.id ?? null, JSON.stringify(options.answerFiles ?? [])],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -2299,18 +2497,34 @@ export async function answerEscalation(
   companyId: string,
   itemId: string,
   answer: string,
-  options: { channel?: DecisionChannel; seat?: { id: string; name: string } | null } = {},
+  options: {
+    channel?: DecisionChannel;
+    seat?: { id: string; name: string } | null;
+    /**
+     * Keeps the files that come with the answer, and says where they are. Called
+     * once the answerer's right to answer is settled and the question is open,
+     * so a refused or late answer writes nothing; it throws to refuse the answer.
+     * Only the answer to a question a run asked can carry files.
+     */
+    keepFiles?: () => Promise<AnswerFile[]>;
+  } = {},
 ): Promise<void> {
   const text = String(answer ?? '').trim();
   if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
-  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null }>(
-    "SELECT payload->>'askedBy' = 'agent' AS question, tier FROM inbox_items WHERE id = $1", [itemId]));
+  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null; open: boolean }>(
+    "SELECT payload->>'askedBy' = 'agent' AS question, tier, status = 'open' AS open FROM inbox_items WHERE id = $1", [itemId]));
   // A seat answers nothing at tier 3 (0110), as it decides nothing there.
   if (options.seat && (asked[0]?.tier ?? 0) >= 3) {
     throw new PalugadaError('staff.forbidden', 'tier 3 is the owner\'s to answer: it stays in their inbox', { inboxItemId: itemId });
   }
+  if (options.keepFiles && !asked[0]?.question) {
+    throw new PalugadaError('contract.violation', 'files can come with the answer to a question a run asked, not with this', { field: 'files' });
+  }
   if (asked[0]?.question) {
-    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null });
+    // Before anything is written: another person's question is not this seat's to answer with files either.
+    if (options.seat) await assertSeatMayRead(companyId, itemId, options.seat);
+    const files = options.keepFiles && asked[0].open ? await options.keepFiles() : [];
+    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null, answerFiles: files });
     return;
   }
   await withTenant(companyId, async (tx) => {
@@ -2363,6 +2577,37 @@ export async function openQuestionsFor(
     [taskId],
   );
   return rows.map((row) => ({ inboxItemId: row.id, question: row.owner_note ?? '' }));
+}
+
+/**
+ * A question put to a person that has gone unanswered past its day: the owner
+ * is told, once.
+ *
+ * Until now the owner is not told of it -- it is for someone else, and asking
+ * the owner at once would defeat asking that person (`undelivered` leaves it
+ * out) -- but a person can be away, and a run parked for ever on one is the
+ * one outcome nobody wants. So it is marked, an event says so, and the owner's
+ * channels carry it from the next dispatch. It stays the person's to answer;
+ * the owner could always answer it too. Nothing is decided by the silence.
+ * Returns how many were brought to the owner.
+ */
+export async function escalateQuestions(companyId: string, now = new Date()): Promise<number> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; task_id: string | null; name: string | null }>(
+      `UPDATE inbox_items
+          SET escalated_at = $1
+        WHERE status = 'open' AND addressee_seat IS NOT NULL AND escalated_at IS NULL AND escalate_at <= $1
+        RETURNING id, task_id, payload->'addressee'->>'name' AS name`,
+      [now],
+    );
+    for (const row of rows) {
+      await appendEvent(tx, {
+        companyId, taskId: row.task_id ?? undefined, type: 'inbox.question_escalated', actor: 'system',
+        payload: { inboxItemId: row.id, addressee: row.name },
+      });
+    }
+    return rows.length;
+  });
 }
 
 /**

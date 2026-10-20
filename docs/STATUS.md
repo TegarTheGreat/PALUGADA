@@ -3877,7 +3877,10 @@ this file had not yet answered. Each was reproduced by a test first.
      loosens every budget.
 
   models.dev is read live and only offered; nothing it says is saved
-  without the owner. `pricing.ts` still compiles in no price list. The
+  without the owner. `pricing.ts` still compiles in no price list.
+  *Superseded by 2.177: the platform now reads models.dev itself every day
+  for the models in use and keeps what it read; a price the owner typed
+  still wins.* The
   console's fill was run against the real catalogue: DeepSeek V4 Flash
   came back at $0.15 and $0.60 per million tokens, where the fallback had
   charged $15 and $75.
@@ -6058,6 +6061,8 @@ comment said a halted task "becomes an owner inbox item instead".
 - **How this reads section 6.3.** "Tidak pernah dilanjutkan otomatis": never
   resumed *automatically*. The platform still never does; the owner may. The
   history stays true, with `task.halted` then `task.continued` on the task.
+  *Superseded in part by 2.177: when the owner's own ceiling has room again the
+  platform continues the work itself, with `task.continued` by the platform.*
 - **The console.** The task drawer of a budget halt says what to do and
   offers **Continue**. Two refusals are explained as sentences:
   `budget.reservation_refused`, which other routes also answer, and
@@ -9073,6 +9078,8 @@ and the owner answers later than the hour.
 
 ## 2.143 One code opens a short window for what builds the company
 
+*Superseded by 2.175: the window and its setting are gone, because the authenticator is now asked for at sign-in only.*
+
 The owner's complaint of 6 October: "dikit dikit autentikator ... bolak balik
 hp". A second factor is single use, and every change to the structure asked
 for a fresh one, so setting up a company -- a division, its roles, its grants,
@@ -9160,7 +9167,8 @@ the audit of 3 October, which found two promises that the code did not keep.
 - **Not done:** a goal-level cadence -- the CEO looking at a goal that has no
   work under it, a metric that has not moved, a due date that passed -- is the
   rest of the audit's P1 item 1 and 2. The tickets and the failures are the two
-  things that were owed and silent.
+  things that were owed and silent. (The measures came in 2.163, a goal with no
+  work under it in 2.181.)
 - **Tested** in `ended-badly.test.ts` (a halted root task reported once,
   coordinator first and handed over; what already had a card, a child, the
   owner's own stop and one in its first minute not reported; one cause under one
@@ -9614,6 +9622,1368 @@ template.
   the code only for the raise; the room that is there, oldest first, the card staying;
   only what this account stopped, and only what its budget stopped; the Work page.
 
+## 2.156 The language the owner reads reaches the CEO and the agents (the owner's complaint of 6 October: "the language was chosen as Indonesian, and the agent still greets in English")
+
+Four places held a language, and only one of them knew what the owner was
+reading.
+
+- **The deployment was never told.** An owner whose browser is in Indonesian is
+  shown an Indonesian console without choosing anything: `console_language` stays
+  empty ("follow the browser"), which only the browser could resolve. So everything
+  the server wrote for the owner -- the CEO's first words, a push, a card, a digest
+  -- was English (`console ?? 'en'`), under a console drawn in Indonesian. Now the
+  console, signed in as the owner and finding none, says once which language it has
+  drawn itself in (`POST /api/control/languages`), and a language the owner chose is
+  never overwritten by the browser's.
+- **The agents' default was English, whatever the panel was.** `agent_language` was
+  `NOT NULL DEFAULT 'en'`, so every company without a language of its own, and
+  every run in it, wrote in English. Migration 0123 lets it be empty, and empty
+  means the panel's language (English where there is none): `languagesFor` reads
+  `COALESCE(agent_language, console_language, 'en')`. One the owner picks is kept
+  as it is, English included, and `{ agents: null }` goes back to following. The
+  Languages page has the select cleared by default, saying "Follows the panel:
+  Bahasa Indonesia"; the API says `agentsChosen` beside `agents`. The migration
+  clears the rows that say `'en'`, which cannot be told from the default they were
+  born with: an owner who had chosen English for the team on purpose, while reading
+  the panel in another language, chooses it again.
+- **The CEO spoke the panel's language, not its company's.** It opened, and was told
+  to answer, in `console_language`. It now opens and answers in the company's *talk*
+  language -- the one every other agent writes to the owner in -- and what the
+  platform itself says in that chat (no model, a key not kept) stays the panel's. A
+  talk language the platform has no sentences of its own in (`canSay`) is opened in
+  the panel's, and answered in its own.
+- **The mission was English in an Indonesian company.** The template seeds a
+  mission and two objectives, the first thing on the Overview. They are now said in
+  the company's talk language at creation (`words` of `createCompanyFromTemplate`,
+  through `say`, with a translation in each of the twenty languages), and so is the
+  mission quoted in the company's charter.
+- **Not done**: the template's division names ("Operations", "Delivery", ...) and its
+  project ("Main") stay English labels; a company already made keeps the mission it
+  was made with, and a CEO that already opened in English keeps what it said; the
+  console, which stores nothing in the browser, still draws in the browser's language
+  until its first sign-in has told the deployment.
+- **Tested**: the agents' default following the panel, going back to it and being
+  chosen over it; the rule a run reads first naming the panel's language; the CEO
+  opening and answering in the talk language, and in the panel's where the platform
+  has no sentences; the platform's own sentences staying the panel's; the mission in
+  Indonesian and in Portuguese (English, as before); and, in a real Chromium set to
+  Indonesian, the deployment learning `id` from a console it had only ever seen
+  follow the browser -- and not overwriting what the owner had chosen.
+
+## 2.157 The CEO speaks first when the owner comes back (the owner's complaint of 6 October: "the chat with the CEO is just an ordinary chatbot")
+
+A chatbot waits to be spoken to. The owner gave the company work, went away, and came
+back to a chat exactly as they left it: what finished, what stopped and what waited
+for them was something to go and ask about, one question at a time.
+
+- **`POST /api/companies/:companyId/conversation/briefing`**, which the console sends as
+  it opens the conversation, and which says whether the CEO spoke
+  (`ceoBriefsOwner`, `src/owner/ceo-briefing.ts`). When the last word in the
+  conversation is half an hour old or more and something has happened since -- work the
+  owner gave finished, root work stopped (not by the owner), something new in the
+  inbox -- the CEO says it, as one message in its own voice: *Since we last spoke*,
+  *Done: ...* (up to three, then *More finished: n*), *Stopped (n): why* by reason,
+  *Waiting for you: n*. Nothing happened, or the owner has only just left, and it says
+  nothing; a company with no conversation yet is not briefed (its CEO opens it).
+- **It is the platform's arithmetic, not a model's account**: free, exact, and in the
+  company's talk language like everything else the CEO says (2.156). Nothing an agent
+  or a stranger wrote is in it. The CEO's history is read back by the model as its own
+  words, and an agent's summary there is where a stranger's instruction would get in; so
+  only the owner's own work is named (never a webhook's or a schedule's), why work stopped
+  is said by its reason, and a task's result is one question or one click away.
+- **Once**: the message is written only if nobody has spoken in the conversation since the
+  time it was measured from, so two tabs opening at once make one briefing.
+- **Not done**: a briefing for the chats on Telegram and WhatsApp (their done notices and
+  digest already tell the owner there); cards that fix what stopped, which the Money
+  card already offers; and a live snapshot of the company in the CEO's own prompt, so its
+  first answer does not begin with reads (found, and left for the audit of 6 October).
+- **Tested** in `ceo-briefing.test.ts`: what finished, stopped and waits, said once; nothing
+  when nothing happened, when the owner has only just left, or when there is no conversation;
+  only the owner's own work named, never another company's, a webhook's or a schedule's;
+  an agent's words never repeated; the language of the company; a long list cut short.
+
+## 2.158 A deadline is for the work, not for the waiting (the audit of 6 October, S1)
+
+The audit of 3 October gave a task back the time an approval or a review took (2.142,
+P0-1). Three other waits were still held against the work, and each halted it
+`deadline_passed` for having been patient. Only delegated children and follow-ups carry a
+deadline (a delegate's is an hour by default), which is why it showed on the work that
+needs it most.
+
+- **A closed window, a vendor's limit, a replaced key.** A task parked in `waiting_window`
+  with a wake time is given the wait when it parks (`transitionWithin`), since it is known
+  then: an hour for the work, and a weekend of office hours (sixty-five) for the wait. It
+  was halted by the sweep long before the window opened, which contradicted "deferred, never
+  refused" (2.150). A parent waiting on a child (`waitReason: 'child'`) is the one wait not
+  given back here.
+- **A parent awaiting a child.** `task.await` carries the waiting parent's deadline to the
+  child's plus five minutes, and while the child waits for a person -- the owner's yes, a
+  reviewer -- to now plus five, on every look. A coordinator whose specialist waited an
+  hour for the owner was halted at its own deadline; the owner's later yes ran the action
+  with nothing left to use the answer. A parent with no deadline keeps none.
+- **Going on after a budget stop.** `continueHalted` gives back the time the task was
+  stopped, so the owner's "Raise it and continue" (2.155) is not undone by the next sweep.
+- **Not done**: the poll every two minutes of a long `task.await` (its backoff is P1); a
+  task that waits for a person *as its work* -- a contractor's -- is the audit's P1.1, and
+  this is its prerequisite.
+- **Tested** in `deadline-waits.test.ts`: a window park gives the wait back and the hour is
+  still the work's, a child wait gives nothing back at the park; a coordinator is carried
+  past its child's wait, and a task with no deadline stays without one; a continued task has
+  its stopped time back and the next sweep leaves it.
+
+## 2.159 A look that fails is not silent, and a quiet week with a number unreached is reviewed (the audit of 6 October, L1, L2)
+
+Two places where the loop to an outcome could drop out of sight.
+
+- **A follow-up that ends badly is reported.** `task.follow_up` (2.148) makes a *child*
+  task, woken later, with the run that made it long finished. `findEnded` took root tasks
+  only, so a look-again that was refused for a budget, a window or a deadline was halted
+  without a word, and the one primitive made to chase an outcome could lose it unseen. It
+  now takes a child whose key says it is a follow-up (`followup:...`) too, with the same
+  grace, once, to the coordinator first. An ordinary delegated child is still its
+  parent's to hear about.
+- **The weekly review runs when a number is unreached.** The one evaluator the company has
+  skipped a week in which nothing happened (N10), which is what a stalled company looks
+  like. `weekHadWork` is now also true when an active, unretired measure on an active goal
+  has not reached its target (direction-aware, from its latest value, verified or not). One
+  that has reached it, one the owner retired and one on a closed goal are not a reason, and
+  a company with no measure keeps the skip that N10 added for the 770 thousand tokens spent
+  on an empty week.
+- **Not done**: a sweep that makes a CEO task when a measure's state changes (reached,
+  overdue, stale) -- the audit's P1.2 -- and the review's verdict, which still reaches
+  nobody; the strategist cannot make a follow-up itself (it is at the twelve-tool limit).
+- **Tested** in `ended-badly.test.ts` (a halted follow-up is told once, an ordinary child
+  is not) and `schedule-quiet-week.test.ts` (an unreached measure is reviewed in a quiet
+  week; one reached long ago is not; raising the target makes it a reason again; retiring
+  it ends it).
+
+## 2.160 Memory is dated, bounded, and an owner's word is the owner's (the audit of 6 October, M1-M4, M7, M9)
+
+Six defects in what the company remembers, each checked in the code before it was fixed.
+
+- **Every run is told today's date (M1).** Neither the system prompt nor the task carried
+  one, so "recorded 2026-03-04" could not become an age and the one mitigation 2.146 added
+  did little for the runtime that reads the pack as written. The pack now has a `today`
+  section after the language rule ("Today is 2026-10-06 (UTC). ..."), never dropped to make
+  room, passed to out-of-process runtimes with the other notes, and `memory.search` says
+  `ageDays` beside `recordedOn`. About thirty tokens a run.
+- **The pack takes what is recent, and an outside lesson only when it is about the task
+  (M2, M3).** `recall` gained `horizonDays` and `outsideNeedsMatch`, used by the pack's
+  non-owner facts only. A fact the company taught itself is in the pack for ninety days from
+  when it was recorded or last seen again (`last_reinforced_at`, written for months and read by
+  nobody until now), and one learned from outside content reaches a run only when it shares a
+  word with the task -- each one a run is told taints the run (F8.9) and sends the owner more
+  approvals, which is how a division's runs came to ask about everything. The owner's word has
+  no horizon; procedures (approved) are not touched; everything left out stays one
+  `memory.search` away. No migration, and nothing runs when idle: it is a WHERE clause.
+- **An agent restating an owner's fact no longer turns it into outside content (M4).** `learn`
+  matched the owner's row and set `outside = outside OR $5`, so an agent that had read an
+  email and said the sentence again made the owner's own word "from outside content", wrapped
+  as data, and tainting every run told it. The owner's row is still counted and not moved;
+  its `outside` is left alone.
+- **The distiller reads a reply the way the agent loop does (M7).** A fenced answer, or one with
+  a sentence before it, left the watermark where it was and the same growing window was sent to
+  the model every hour for ever. `outputFrom` moved to `src/llm/json.ts` for both.
+- **One division that cannot be distilled does not stop the rest (M7).** The learning stage
+  went division by division with nothing around each, so one that threw ended it and the
+  divisions after it in slug order were never reached on any tick. Each is its own stage now;
+  its failure is still said on the tick, and nothing of it is consumed.
+- **The Memory page and the retro count only a candidate somebody is asked about (M9).** A
+  procedure candidate whose card expired after a fortnight (2.146) stayed `candidate`, and both
+  counted it: "waiting for your yes, open the inbox", over an empty inbox.
+- **Not done**: customer-specific lessons still enter the division's pack (the prompts should say
+  "company-wide rules only; one customer goes to `crm.note`", the audit's M5); review-decision
+  facts still compete with lessons; procedure candidates count calls, not tasks, and are written
+  without `outside` (M8); no record of which memories a run was shown, so memory cannot yet be
+  judged by what it did to the work (M10); `pg_trgm` near-duplicate linking.
+- **Tested**: the date in the pack and the age in a search; the horizon (a recent fact, an old one,
+  one reinforced lately, the owner's, and what left the pack found by a search) and the outside
+  lesson that is about the task and the one that is not; the owner's row after an agent restates it;
+  a fenced reply read and consumed; a failing division and the next one reached; the candidate
+  counts with a card and after it expired.
+
+## 2.161 A company's files exist by default, and the docs say what is bound (the audit of 6 October, W1, O5)
+
+- **A files root by default.** `PALUGADA_FILES_ROOT` was set in no compose file, Dockerfile,
+  installer or example, so on a stock install `files.list`, `files.read`, `doc.draft`,
+  `email.draft`, pictures, speech, vision and `code.compute` were all unbound: a company
+  produced nothing it could keep, and its work lived in `tasks.output.summary` alone -- which is
+  why an owner saw work that "only appears" to be done. The Compose deployment now sets it to
+  `/home/node/files`, on the `home` volume that survives an upgrade, unless the operator sets
+  another. A root that is set and not there yet is made when the deployment starts (it was an
+  error on the first draft, from a capability that said it was bound), and one that cannot be
+  made is said in the start-up notes and treated as unset, so the tools are unbound rather than
+  broken.
+- **The documents.** `features.md` said code-executing capabilities can never share a division
+  with a credential or tier 2 (false for `code.compute`, whose container has no network, 0115) and
+  that capabilities cannot reach the private network (they can, where the operator allowed it);
+  said every customer reply is a tier 2 card (it omitted the grounded answer that goes by itself,
+  2.137); filed invoices and office hours under Scheduling; and said nothing of the company's
+  records or of what is built but unbound. It now has **The company's own records** and **What a
+  stock install does not bind**, including that a person has no work of their own yet. `AGENTS.md`
+  said the platform engineer "runs `npm run check`", which its shell-less runtime cannot; CI does.
+  Two stale comments (`claude-code.ts`, `reachability.test.ts`) say what is true.
+- **Not done**: no shipped role holds `files.read` or `files.list` (the twelve-tool limit; the
+  audit's P1.3), so a draft is written and not yet read back by anyone but the owner; the owner has
+  no route to download or upload a file; inbound attachments are still "[sent a photo, which cannot
+  be read here]"; the lab analyst's `code.execute` has no adapter; a Midtrans entry named
+  `invoice.issue` replaces ledger invoicing when connected.
+- **Tested** in `files-root.test.ts`: a missing root is made with the directory above it and the
+  capabilities that need it are bound; one that cannot be made is said and unbound; the compose file
+  sets it on the persistent volume.
+
+## 2.162 Three small defects the audit of 6 October found in the claim path and the inbox (S3, S5, W6)
+
+- **An urgent task stays urgent (S5).** Priority has been in the claim path since F5.10 --
+  priority first, then age -- and nothing set it: `/assign` ignored the field, a ticket's
+  priority was dropped when it became a task, and a sub-task did not inherit its parent's,
+  so P0 work was P2 by its first hop and the urgent place could never receive anything.
+  `/assign` takes `priority` (0 to 3, refused by name outside it), a ticket given out keeps
+  its own, `task.delegate` with a ticket hands it on, and `createSubTask` inherits the
+  parent's unless told otherwise. The CEO's assign action knows the field. The console's
+  Give work form does not offer it yet.
+- **A question ends with the task that asked it (S3).** Migration 0124 extends 0036's
+  trigger: an agent's own question (`owner.ask`, `browser.handover`, a request for a key --
+  an escalation with `askedBy = 'agent'`) is withdrawn when its task ends some other way,
+  as an approval already was. It had no expiry, so a cancelled task's question stayed in
+  the inbox for ever. A coordinator's escalation is left where it is -- it is usually why
+  the task ended. The timeline says `approval.withdrawn` for both, so no new sentence in
+  twenty languages.
+- **Going on is refused when retention has cleared the record (W6).** Retention blanks a
+  finished task's model turns at ninety days; `continueHalted` (and so continue-all, 2.155)
+  had no age guard, and a replay read nothing where a reply had been and failed three times.
+  It now refuses by name, "run it again instead", and continue-all names it among the skipped.
+- **Not done**: the Give work form's priority; the questions' own expiry and escalation to
+  another seat (the audit's P1.1); the poll every two minutes of a long `task.await`.
+- **Tested**: `priority.test.ts` (assign, out-of-range, ticket, inheritance and override),
+  `question-ends.test.ts` (a cancelled task's question is withdrawn with its reason and event;
+  an escalation stays) and `budget-resume.test.ts` (a cleared record is refused, the rest
+  continued).
+
+## 2.163 What the learning step proposes, and what a fresh install says it cannot do (the audit of 6 October, M5, M8, O2)
+
+- **Lessons are company-wide rules (M5).** Both lesson prompts asked for "how a customer or a
+  supplier likes to be dealt with", and lessons are division-scoped, so what one customer liked
+  was told to every run for every other customer in the division -- noise, and a disclosure
+  risk for a responder. They now ask for how customers or suppliers *in general* like to be dealt
+  with, as a rule for the next one, and nothing about one named person, whose notes belong in
+  their customer record (`crm.note`, 2.138).
+- **A pattern is counted in tasks, and answered from when the owner said no (M8).** The
+  recurrence signal counted `tool.called` events, so three calls in one task proposed a
+  procedure against a card that says "observed in 3 completed tasks"; it now counts distinct
+  tasks. A rejection was answered from when the candidate was *written*, so whatever happened
+  while its card waited counted as new evidence the moment it was turned down; it is answered from
+  the card's `decided_at`. Not done: the candidate is still written without `outside` when the
+  work it came from read outside content, and its card says nothing of that.
+- **A fresh install says what it cannot do (O2).** The shipped Midtrans example is named
+  `invoice.issue`, and the books-backed one is a `fallback` a service may take: connecting it
+  stopped invoices being written to the books with nothing to say so. It is allowed -- a company
+  may want exactly that -- and said at start ("invoice.issue is bound to a service (midtrans), no
+  longer to the platform's own (the company's books): an invoice it issues is not written to the
+  books"), for any platform name a service takes. And the lab's analyst holds `code.execute`, which
+  no capability binds (the local sandbox exists and nothing wraps it): a start-up note says so.
+- **Tested** in `memory-learning.test.ts` (the prompts), `distillation.test.ts` (five calls in one
+  task are not a pattern; what happened while a proposal waited is not evidence against its
+  rejection, what happens after is) and `vendor-replaces-platform.test.ts`.
+
+## 2.164 The company looks at its numbers (the audit of 6 October, P1.2, L1)
+
+A measure the owner set was read back only when the owner looked, or when the Monday review
+happened to run: a figure could pass its target, pass its date, or go a month unread, and no one
+was woken. `src/engine/outcomes.ts` now makes one task for the CEO, from the worker, when a measure
+
+- **reached** its target (the latest *checked* reading is at or past it, in the direction the
+  measure says; the target itself counts),
+- is **overdue** (its due date has passed in the owner's own day -- `platform_control.owner_timezone`
+  -- and the target is short; no reading at all is allowed), or
+- is **stale** (it has a source and nothing checked was read from it for seven days, counted from the
+  day the measure was made when nothing has been read yet, so naming a source does not wake the CEO
+  before the source is bound or a role hired to read it).
+
+One state per measure, most pressing first (reached, overdue, stale), one task per company every
+ten minutes, and only on a company that is not winding down, with an unfrozen CEO, a month with money
+in it, and a goal whose whole chain is open (a key result whose own row says *active* under an
+abandoned objective starts nothing).
+
+- **Each milestone once, by construction.** The key is `outcome:` plus a hash made in the same SQL
+  statement that picks the measure, from the measure, the state and the *owner's own definition of
+  the milestone*: the direction and target for a reached measure, the date for an overdue one, the
+  latest checked reading and the source for a stale one. A figure that hovers round its target is
+  one look, not one per crossing. So the number of tasks a measure can cost is bounded by what the
+  owner edits (target, date, source) and by weeks that pass with a checked reading in them -- no
+  cap, cooldown or open-task limit is needed, and none was added. Measures that already have a task
+  are dropped *before* the limit, so a backlog of looked-at milestones cannot hide a later one. The
+  key outlives its task, so a look that came to nothing is not repeated every ten minutes; it lives
+  as long as the task row, which the retention clean-up removes 400 days after it finished by
+  default, after which a state still standing is looked at once more. Two workers that find the same change make one task between
+  them: the unique index on the key settles it and the loser gives its reservation back.
+- **Only checked readings count.** An agent's typed number is not a reading: it cannot reach a target,
+  hide a missed date, or keep a source looking fresh. Every state is judged from the latest verified
+  observation.
+- **What the CEO is told** is the platform's numbers and dates, the owner's own name for the measure
+  (one line, cut at 100 characters, quotes and chat-template tokens taken out), and words of the
+  platform's own. Never an observation's note, a goal's statement, a role's text, a ticket or a task's
+  words; a source is repeated only if it is shaped like a capability name, and roles only by slug.
+  The brief names the roles that can read the figure again (those that hold the source and
+  `metric.record`, in a division granted both -- a reading is checked only when the same task read
+  it), says plainly when none can, writes the language the company talks in, and names only tools the
+  stock CEO holds. At *reached* the question is informational: the CEO cannot close a goal (the
+  strategist holds `goal.propose`, the CEO's twelve places are full) and closing stays the owner's, on
+  the Goals page.
+- **Wiring.** The stage is not behind `runs`: it makes a task and runs none, and a worker with places
+  above one (the default is four) ticks its housekeeping with `runs` false. Triage had the same
+  defect -- it sat behind `runs`, so in the default deployment no triage task was ever made and
+  tickets waited for the owner as they did before 2.144 -- and is fixed beside it, with its own test
+  (`ticket-triage.test.ts`). An outcome task that ends
+  badly goes to the owner and not back to the CEO that failed it (`HANDLED_KEYS`); closing a goal
+  cancels the outcome tasks under it that have not started, as it does follow-ups.
+- **Deviations from the audit's sketch (8.1), stated.** (1) It re-fires when the owner's definition of
+  the milestone changes, not on every crossing -- the sketch's own claim that the key bounds the cost is
+  false for a key that follows crossings. (2) A measure with a source and no reading is stale a week
+  after it was made, not at once. (3) *Verified* is the rule for all three states, not for reached
+  alone. (4) "Stop when the goal closes" held only for follow-ups; it now holds here too (one
+  predicate in `applyGoalChangeWithin`). (5) "Readings come through `metric.record`'s verification" is
+  not a defence on its own -- any number anywhere in a same-task source result verifies -- so the brief
+  carries no text from outside at all. (6) No sentence was added to the CEO's charter: a charter edit
+  changes every company's role version, and the brief says what is needed.
+- **What it costs.** One CEO run (and a delegated read) per milestone; on an upgrade, every measure
+  already in one of these states gets one look, at most one every ten minutes, and each reached or
+  overdue one puts a question in the inbox. A source-backed measure short of its target with no date
+  is read again about every week for as long as it stands -- platform-clocked, ending at its date, at
+  reached, when the owner retires it or removes its source, when the goal is closed, or when the
+  month's money runs out.
+- **Not done:** look-again rights for roles other than the coordinator (L3); the closure gate rolled up
+  through key results, and dated (L5); validating `sourceCapability`, and refusing a source that reads
+  outside content (L6 -- it can make a stranger's number *verified*, bounded here by the key and the
+  spacing and by the brief carrying only a number); a measures line in the CEO's briefing and the
+  digest (L7); a sentence in the first hour; the platform raising the owner's *goal met* card itself at
+  reached (it needs a sentence in every dictionary). A look whose run ends without reading or asking
+  leaves the measure quiet; its card for a failed task, the Monday review and the *unchecked* label
+  are the backstops.
+- **Tested** in `outcome-sweep.test.ts` (each state once, direction and equality, agent claims, the
+  owner's day, seven days, ordering and spacing, every exclusion and its lift, the race, the brief's
+  content and what it leaves out, the closure cancel, a worker's tick with and without `runs`),
+  `ended-badly.test.ts` and `worker.test.ts`.
+
+## 2.165 A task says where it stands, a follow-up is given the work it follows up, and a long run is bounded (the audit of 6 October, W3, W4, W5)
+
+What a run is told of its own task was a copy of its journal, and a task that had finished its
+work told nobody which files it made. Six changes, in one commit, none a new table,
+migration, capability or model call; every one derived from the journal (`task_steps`), the task
+tables and the catalogue, never from a role's own account of itself.
+
+- **A long run is told its turns, and is not sent every page it ever read.** The loop's system
+  prompt says it has at most 40 turns, counting those of earlier runs of the task; in its last five
+  it is told which turn it is on, and on the last that a tool call now ends the task unfinished. And
+  the answers of old *read-only* calls (tier 0) that ran past 600 characters, all but the newest
+  eight to eleven, are sent as a line that names the step and its size and says the journal keeps
+  it and the call may be made again -- so a done-report that cites `step:N` still verifies. Writes,
+  refusals, small answers and everything the model said are never touched, and every call keeps an
+  answer. It is a function of the conversation alone, applied to the copy a fresh turn is sent and
+  not to the conversation, the journal or a step's identity, and it moves in steps of four so most
+  of what is sent is the same from one turn to the next. `llm_traces` records what was sent. A run
+  that was stopped and went on is sent the same answers left out and the same turn notices as one that was not
+  (the journal keeps an object's keys in its own order, which may differ from the live call's, so the bytes of
+  a replayed result are not promised). What the model has just been given is never left out, however many calls
+  the turn made, and an answer is paired with the call before it, so a server that numbers calls `call_0` from
+  every reply cannot make a write's answer look like a read's.
+- **An in-process run is not handed its journal twice.** The loop replays every committed step as its
+  own conversation, tool results included, and `renderTask` listed the same steps again, each cut at
+  4,000 characters and unfenced: so each was paid for twice, and because working memory is the last
+  section the pack gives up, the copy pushed semantic memory, skills and the goal chain out of the 40k
+  pack first and printed *"This context is incomplete"* when nothing was missing. A runtime that
+  replays (`stepsReplayed`, keyed on the runtime being `in-process`, as the journal's own placing is) is
+  handed none. Every other runtime sees each call *with what it was asked*, bounded at 600 characters,
+  beside what it answered: "the invoice is paid" with no word of which invoice was half a record. The
+  owner's *what this run was told* view of an in-process run no longer lists steps; the journal and the
+  traces still do.
+- **One derivation of "the files a task made", and `task.await` returns them.** `taskDetailOf`'s
+  deliverables matched any committed call answering with a `path` and some `text`, which `files.read`,
+  `image.describe` and `speech.transcribe` all do, so a file a role only *read* was listed as produced
+  on the owner's page and in the gallery; and it missed pictures, speech and computed files, which
+  answer with a path and no text, or `files[]`. `madeFiles` (in `engine/journal.ts`) takes the paths of
+  committed calls to a capability the catalogue does not hold at tier 0 (a capability it does not know
+  counts as one that made, the safe direction), controls characters taken out, cut at 200. `task.await`
+  names them (`files`, the last twenty) beside the result, for a finished child and for one that ended
+  without a result after drafting something. They are references: until a role holds `files.read` (the
+  twelve-tool decision of 2.161) a role can name a path or hand it on, not open it. `artefacts`, which
+  the shipped output schemas offered for a model to type by hand, is no longer offered (stored schemas
+  keep it).
+- **Where this task stands.** For a runtime that does not replay: the steps committed, the plan the
+  task recorded and which of it is done (the k-th step naming a capability is done when k calls of it
+  committed, as the owner's page counts), the files its writes made, and the work it handed on with
+  whole ids, as a note before it starts and a section the pack gives up last -- it is the short form of
+  working memory, which goes oldest first. The platform's counts are outside the fence; everything a
+  model or a tool wrote (an intent, a path, a brief) is inside one. A task with nothing to say gets
+  nothing.
+- **A follow-up is given the work it follows up.** `task.follow_up` made its task a child of the one
+  that asked, with its id in `followUpOf`, and nothing read it back: a role woken thirty days later to
+  look again at an invoice had only its brief. It is now told what the work was asked, what it returned
+  (held to the same ceiling and cuts as a parent given a child's result, F6.7), how it ended, and the
+  files it made, as data, with the instruction to check the account against the record. Only for a task
+  that is the child it names: a delegated child still gets its brief and nothing of its parent's work, and
+  an input that merely says another task's id is not a follow-up of it. A follow-up also carries outside
+  content the work it follows up came to read after the follow-up was made (a sibling's read is not in
+  its own chain), recorded once as `content.read_outside`, so what it does at tier 2 asks the owner as the
+  work's did. `task.follow_up`'s input, key and replay are unchanged. A follow-up the owner runs again is a root task with the
+  same input and no parent of its own; it is given the work its original followed up, found along the `rerun:` keys.
+- **A conversation too long for its model fails once.** A 400 or 413 whose body says so ("prompt is too
+  long", "maximum context length", `context_length_exceeded`) is `model.context_too_long`: the task fails
+  with the provider's words and is not run three times, each retry replaying the same journal and asking
+  the same turn. The bound on the window above makes it the exception, chiefly a small local model.
+- **Found on the way:** the in-process pack duplicated the journal and pushed memory out (above); the
+  deliverables derivation listed reads and missed writes (above); a follow-up's link to its parent was
+  written and read by nothing; a delegating agent's `context` reaches the child raw, in its input, for the
+  child's life.
+- **Not done:** the last lines of a run's narration in the pack (narration is not the journal, nothing
+  replays it, and it is model text written right after the model read whatever it read -- a memory-poisoning
+  channel); a halt reason of its own for a context too long, and a retry within the turn that elides harder;
+  the file tools on the roles that need them (2.161's twelve-tool decision); the owner's verdict on the work
+  in a follow-up's section; fencing the outputs of out-of-process working memory (a page a capability that
+  reads outside fetched was fenced when first shown and is unfenced on resume -- unchanged, and the default
+  runtime no longer has it); a second prompt-cache breakpoint on the first message (probably the largest
+  remaining saving); a context window per model; wrapping `context` at `task.delegate` and `task.follow_up`
+  creation (it would change the call's hash and so its key, so a replayed parent would make a duplicate); a
+  console surface for the standing and the follow-up.
+- **Tested** in `loop-context.test.ts` (pure: elision is a function of the conversation, the window moves in
+  fours, only large reads, stubs are stable and keep their step, the notice), `model-runtime.test.ts` (the
+  budget, a long run, a resumed run sent what an uninterrupted one was, no step's identity moved, a refusal
+  that says too long), `charter-context.test.ts`, `runtime-adapter.test.ts` and `workspace-linkage.test.ts`
+  (what a task made and not what it read, `task.await`'s files, where a task stands and that it is data and
+  goes last, the follow-up and its taint), with `deliverables.test.ts` for the reads
+  that are no longer produced.
+
+## 2.166 The owner hands the company a file and takes one out (the audit of 6 October, O3, W2; P1.4, part 1)
+
+The company's files folder was something roles wrote into and the owner could not see: a contract, a
+price list or a photo could reach a role only if a person with a shell put it there, and a draft a role
+wrote could be read only as text on a task page. Designed by three lenses and a judge (smallest, security
+and taint, the owner's flow); built in six parts, of which this is the first. No table and no migration: the
+folder is the store, the journal's `madeFiles` (2.165) says which task made what, and a `file.uploaded` or
+`file.deleted` event says what the owner did.
+
+- **In, out, listed, removed.** **Memory > Files** (not Work: `console-phone.test.ts` draws Work at 390
+  pixels) lists the company's folders a level at a time, folders first; uploads a file of at most 10 MB
+  (base64 in JSON through `api()`, as the tool tests already send a recording, so a download is JSON and is
+  never a page drawn from the API's origin); downloads any regular file of at most 25 MB, saved as an octet
+  stream whatever it is; and removes what the owner uploaded and nothing else. Four session-only routes
+  (`GET .../files`, `GET .../files/download`, `POST .../files`, `POST .../files/delete`): nothing is granted
+  or spent, so no second factor. A staff seat reaches none of them.
+- **A name chooses nothing.** `plainFileName`: NFC; everything up to the last slash or backslash dropped;
+  control, invisible and direction-changing characters (`U+202E`, zero-width) taken out; whitespace and the
+  characters `< > : " | ? *` turned to a hyphen; no leading dot; an extension only of one to eight letters and
+  digits; a stem of at most 120 bytes cut between characters; `file` for an empty one; `CON`, `NUL` and the
+  other reserved names given a leading underscore. The file is created and not overwritten (`O_EXCL`), and not
+  through a link that has the name (`O_NOFOLLOW`): a name taken is `name-2`, up to `name-20`. The folder must be
+  where it should be (`realpath`): a link put where `uploads` goes, to somewhere outside the company's files,
+  is refused and nothing is written. At most 500 files and 512 MB in `uploads`. A made-up company id makes no
+  folder (`companyRoot` makes the one it is given, so the company is checked first).
+- **What an upload is, to the platform.** Bytes the owner chose, never opened, run or unpacked here;
+  conversion stays in the sandboxed browser. It is not trusted for being the owner's: `files.read` is a read of
+  outside content for every file whoever put it there, an uploaded counterparty's contract being the classic
+  carrier of an injection, and a role reads it wrapped. Listing is sorted (folders first, then by name without
+  regard to case) before it is cut, so `files.list` too gives the same files in the same order wherever they are
+  read, where it gave the disk's order (W7).
+- **Not done (this part):** an owner download or upload for a person who is not the owner (P1.1: it would add
+  its own folder and a seat-scoped route by row id, so the owner-only path routes never touch a contractor's
+  evidence; `keepCompanyFile` takes the folder); a streaming binary route, multipart, ranges and a limit above
+  25 MB (JSON with base64 costs a third more and several copies in memory: accepted for an owner-only route
+  taken on demand); retention of what is uploaded (it stays until the owner removes it or the company is
+  erased, and the export archive does not hold the files); virus scanning; previews of files in the console (a
+  preview decodes attacker bytes in the owner's browser); Telegram, WhatsApp and mail attachments in and out,
+  invoice PDFs and the files on a task's page (parts 2 to 6 of this change). An upload helps a role only if
+  some role holds `files.read` (2.161's twelve-tool decision: the standard company grants it to operations and
+  delivery); the page says so.
+- **Tested** in `owner-files.test.ts` (byte-for-byte in and out, hostile names, a second file of one name, a
+  planted link, one company and another, the limits and the sentences they say, no root, a made-up company,
+  only uploads removed, a staff seat, sorting), with `staff-routes`, `console-routes`, `console-i18n` and
+  `console-events` holding the surface.
+
+## 2.167 A letter carries the company's files (the audit of 6 October, O3; P1.4, part 2)
+
+`email.send` could say what a company thought and could not send what it had made: the quotation a role
+drafted, the invoice it issued, the price list the owner uploaded stayed in the company's folder while the
+letter that was meant to carry them went without. No table and no migration; the files are the ones
+2.166 lets the owner see.
+
+- **Named, asked about, sent.** `email.send` takes `attachments`: up to five paths in the company's files, as
+  `files.list` names them, ten megabytes together. The owner's card names every one, before the subject so
+  that the card's cut at 240 characters takes the subject and not a file (the whole input is on the card too),
+  as a paperclip and the paths, which no dictionary has to translate: `email.send: budi@kantor.example 📎
+  drafts/offer.md, generated/logo.png — Penawaran kopi`. A yes is for that exact list (the action's
+  fingerprint covers it): one file more or fewer is another question. The result carries each file's path,
+  size and SHA-256 as they were at the moment the letter left, so the journal says what went, and the read-back
+  holds the letter to its files as it holds it to its recipients.
+- **What may leave.** The file is read as `files.read` reads one (`readCompanyFile`: inside this company's
+  directory, a link followed only to see where it goes, opened without following one), and then the folder it is
+  *really* in is checked against an allow-list: `uploads`, `drafts`, `generated`, `computed`, `invoices`. What a
+  stranger sent (the `received` folder of part 5) is never sent on, by name or by a link that leads to it, and a
+  folder added later is not sendable until someone decides it is: the list is of what may, not of what may not.
+  A file at the top of the company's files, another company's file, a link out, a folder, a file named twice
+  (however spelled), a sixth file, more than ten megabytes, and a path with a line break in it are each refused
+  as an input that is wrong, naming what is accepted. A deployment with no `PALUGADA_FILES_ROOT` says so.
+- **The message.** `multipart/mixed`: the letter first, as it was, then each file in base64 in lines of 76,
+  `Content-Disposition: attachment` with a plain `filename` and the real one as `filename*` (RFC 2231) for a
+  name beyond ASCII. The name is `plainFileName` of the file's own, so nothing a person typed ends a header; two
+  files of one name arrive as `offer.md` and `offer-2.md`; a name that would still carry a line break, a quote or
+  a backslash into a header is refused by `composeMail` itself, whoever calls it. A `message/*` kind is sent as
+  plain bytes (a part of that kind may not be encoded, and a file is not a message here). The boundary is made
+  from the message's own id, so a letter made again after a crash is the same bytes. A letter with no files is
+  byte-for-byte the letter it was.
+- **A server that says how much it takes** (`SIZE`, RFC 1870) is not sent more: the letter is refused before
+  `MAIL FROM` with "the mail server takes messages up to 1.0 MB; this one is 2.0 MB", not after the whole of it
+  has gone. A message over a megabyte is given a minute of silence to be answered in, so a slow acceptance is not
+  a timeout that invites a second send of the same letter.
+- **Not done (this part):** the card names a file by its path, not by its contents: a role that rewrites
+  `drafts/offer.md` between the yes and the send sends the new text, and the SHA-256 in the journal is what says
+  so afterwards (a hash on the card would need the file read before the owner is asked; `describe` and
+  `summarize` are synchronous, and the bytes may change again before the send); a file larger than ten megabytes
+  or a link to one (a download link is a public address and a new unauthenticated surface); a file the owner
+  chose on the card rather than one a role named; inline images and HTML mail (a letter is plain text, as it was);
+  attachments for a vendor's `email.send` (the vendor file's own body); the other five parts of P1.4.
+- **Also found.** `test/helpers/browser.ts` removed a browser's profile once, and a Chromium helper still
+  writing into it made `rm` fail with `ENOTEMPTY`, which failed a test of something else and left its console
+  open, so the whole suite waited on a process that would never end: the removal is tried again, and a profile
+  that cannot be removed is a temporary directory left, not a failed test. The assistant's own test caught
+  that the two POST routes of 2.166 had no word on whether the assistant may propose them (it may not, with a
+  reason each).
+- **Tested** in `mail-attachments.test.ts` (the card, the exact bytes and names, a yes that covers these files and
+  no others, each refusal and that nothing was said to the mail server, no files root, a server's size, a
+  message over a megabyte to the byte, names, the tool's own description, the read-back), each safeguard seen to
+  fail when taken out.
+
+## 2.168 The installer shows it is working, and says where to open the console on a server (the owner's report of 7 October)
+
+The owner installed PALUGADA on a VPS with the one command and reported two things: the wait showed nothing
+("the loading never shows"), and the address it printed was a local one although the machine was a server.
+Both were true. After `docker compose up`, `install.sh` printed one line and then waited, silent, for up to ten
+minutes; and the link it ended with was `http://localhost:8787/...` (and, with no owner link to print,
+`http://127.0.0.1:...`), which on a server is the server's own address, not one the owner's browser can reach.
+No code of the platform changed: `install.sh`, `docker-compose.yml`, one new file `deploy/docker/Caddyfile`.
+
+- **Progress.** Four numbered steps (`[1/4]` fetching, preparing the settings, building and starting, waiting),
+  the third saying that the first time builds the image and takes a few minutes. While the console does not
+  answer, a line every other poll (ten seconds by default; `PALUGADA_POLL_SECONDS`): how long it has been, which
+  services are running, and the last line the platform printed. The archive is downloaded with curl's own
+  progress bar when there is a terminal to draw it on. A platform that has *stopped* (`exited` or `restarting`
+  in `compose ps`) ends the wait at once with its last forty lines and the command for more, where it was waited
+  for to the end of the ten minutes; and a `compose up` that fails shows the last lines of the migration and
+  the platform, where it showed Docker's one line.
+- **The address.** The console stays on the server's loopback by default: it holds the owner's second factor and
+  spends money, and putting it on the internet unasked in plain HTTP is not a default this project takes. On a
+  server -- over SSH (`SSH_CONNECTION` or `SSH_CLIENT` set), or, when neither is, any machine that is not macOS and
+  has no screen (`DISPLAY`, `WAYLAND_DISPLAY`), since `sudo`, a provider's web console and cloud-init all drop the
+  SSH variables (found in the review of 2.172: the first version said nothing under `sudo`, which is the
+  complaint it was written for) -- the installer says so, and prints the tunnel with the server's own
+  public address in it (`ssh -N -L 8787:127.0.0.1:8787 -p <port> user@203.0.113.7`, the user being `SUDO_USER`
+  when there is one) and the two ways to open it to others. The address is looked up (`api.ipify.org`, then
+  `ifconfig.me`, then `icanhazip.com`, four seconds each) only when it is needed -- on a server, or to compare a
+  domain with it, and never on a machine the owner sits at, nor when an address was given --
+  and an answer that is a private or shared address is not used; failing that, the address the client connected to
+  if the world can reach it; failing that, `<this server's address>`, not one made up.
+- **Opening it.** `PALUGADA_PUBLIC_HOST`: a **domain name** turns on the `https` profile of Compose (`caddy:2`,
+  ports 80 and 443, certificates made and renewed by Caddy from Let's Encrypt, the name passed on as it came so
+  that the console's host check holds, the caller's address in `X-Forwarded-For`) and writes
+  `COMPOSE_PROFILES=https`, `PALUGADA_DOMAIN`, `PALUGADA_ALLOWED_HOSTS`, `PALUGADA_APP_URL_PUBLIC=https://...` and
+  `PALUGADA_BEHIND_PROXY=1`, leaving the platform itself on the loopback; an **IPv4 address** publishes the
+  console on every interface over plain HTTP and says in a warning that nothing on the way is encrypted and which
+  port to open in the firewall; `private` takes either back. The name is checked before anything is written, to
+  the characters of a name or an address (it goes into `.env`, a URL and Caddy's configuration), refusing a
+  loopback, `0.` or `255.` address, a name with no dot, a last label that is only digits, and everything else.
+  Each choice removes what the one before wrote, and what was chosen stays through an update. The claim link
+  is printed as the platform printed it for the public address, and a domain is compared with this server's
+  public address (it points here, points elsewhere, or points nowhere yet) so that the certificate that cannot
+  be made is said before the owner waits for it. `doctor` expects Caddy when HTTPS was chosen and says where the
+  console is meant to be opened.
+- **Not run live.** The tests drive `install.sh` against stand-ins for `docker`, `curl` and `getent`, as the first
+  installer's did; Compose and Caddy are not started here (no Docker daemon in this environment), so the
+  `caddy` service, its Caddyfile and Let's Encrypt are written from the documentation and read by tests for
+  their shape alone. The first real run on a server is the acceptance test, and its outcome belongs here. Known
+  limits: IPv6 addresses are not accepted as a public host; an address in plain HTTP is a choice the owner makes,
+  warned of and not prevented; a server whose ports 80 and 443 are taken fails at `compose up` with Docker's own
+  message, shown with the logs; the public address comes from a third-party lookup, which is why it is asked
+  for only on a server or for a domain, and never stored.
+- **Also found.** The install tests left their folder of the checkout's tarball and the tree it was unpacked to
+  behind on every run (tens of megabytes each, 17 a run): together with the other tests' temporary folders they
+  filled the disk of this environment (14,000 folders in `/tmp`), which `doctor` correctly reported as "only 0 GB
+  free" and so failed its own tests. The install and mail-attachment tests now remove what they made.
+- **Tested** in `install.test.ts` (nine new tests: the steps and the wait's words, a stopped and a restarting
+  platform, a failed start, the tunnel with the public address, the port ssh is on, a private answer and the
+  address the client used, an address given, a domain with the name pointing elsewhere, here and nowhere,
+  sixteen values refused before anything is written, a choice kept, replaced and taken back, the shape of the
+  Compose service and the Caddyfile, `doctor` with and without the proxy), each behaviour seen to fail when taken out.
+
+## 2.169 A task's page offers the files it made (the audit of 6 October, W2; P1.4, part 3)
+
+The gallery and a task's deliverables show what has text to read. A picture from `image.generate`, a
+spreadsheet `code.compute` computed and any draft that is not text were produced and invisible: reachable only
+by knowing the path to type into the Files tab (2.166). No table, no migration, no new route.
+
+- **What it is.** `TaskDetail.files`, read from the journal by `madeFiles` (2.165): every committed write of the
+  task that answered with a `path` or with `files[]`, in the order it made them, without what it only read
+  (`files.read`, `image.describe`, `speech.transcribe`, as the gallery already leaves them out), without a step that
+  did not commit, at most the newest fifty. A path is a capability's answer: a control character is a space, a key
+  in it is redacted, and it is shown as text and never opened from the page.
+- **On the page.** **Files it made** under the deliverables of a task: each path, and for the owner a **Download**
+  button that is the Files tab's own (`saveCompanyFile`, an octet stream saved, never drawn). A staff seat is shown
+  the names the task's output already shows, and no button (the route refuses it); the drawer is told which it is.
+  One new sentence in all twenty dictionaries.
+- **Not done:** a file that no task journalled (the Files tab lists it), a preview, a download of a task's files as
+  one archive, and the gallery (its SQL needs text and rides index 0107).
+- **Tested** in `deliverables.test.ts` (a picture, a computed sheet and a draft are listed in order; a read, a
+  failed write and another company's task are not; a key and a line break in a path), and by `console-i18n`.
+
+## 2.170 An invoice as a PDF, drawn by the browser the deployment already runs (the audit of 6 October, P1.4 part 4)
+
+An owner could read an invoice on the Books page and copy it as text, and a customer is sent a document. No
+dependency was added: the page is drawn by the Chromium that `browser.read` and `files.read` already run on.
+
+- **What is made.** `POST /api/companies/:companyId/invoices/:invoiceId/pdf` (the session is enough: it writes a
+  file from what the owner can already read and spends nothing; a staff seat is refused because the route is on no
+  list). The invoice is read as the Books page reads it, drawn by `Browsers.print`, and kept in the company's
+  `invoices` folder as `inv-0001.pdf` (the number, lowercased). Asked again, it answers the page that is there;
+  two presses at once draw one. The page is a function of the invoice as issued (`src/records/invoice-document.ts`):
+  the company's name, the customer, the dates, the lines, the tax and the total in the invoice's own currency, in
+  Indonesian when the company's work language is `id` and in English for every other, with no "paid" mark, so
+  what a customer is sent does not depend on when it was drawn. A voided invoice has no page.
+- **What it takes.** Chromium (`PALUGADA_CHROMIUM`) and a files root, each said in a sentence when it is missing,
+  and nothing is kept then. The console's **Download PDF** (owner only) makes the page if it is not there and saves
+  it as the Files tab does; `email.send` attaches `invoices/inv-0001.pdf` by path, since 2.167 allows the folder.
+- **The page is not trusted.** The customer's name, the lines and the note were typed by someone, often outside
+  the company. Every value is escaped, the characters that reorder or hide text are dropped, and three walls stand
+  behind that: the page's own policy (`default-src 'none'`), scripts switched off in the page, and a context that is
+  offline behind the proxy that refuses what it is asked for, in a window it cannot open, with downloads refused,
+  thrown away after. `Browsers.print` is two at a time, thirty seconds, five megabytes. The tests draw hostile
+  markup raw, with and without the policy, and see nothing run and nothing asked of a local listener; the offline
+  wall cannot be told apart from the proxy's refusal of loopback, so they are seen to hold together and not alone.
+- **Not done, and said.** No letterhead, address, tax number or bank details (they are not kept anywhere yet): it
+  is a usable invoice and not a Faktur Pajak. Labels exist in Indonesian and English only. The image ships
+  `fonts-liberation`, which covers Latin and Cyrillic: a name in Thai, Arabic, Javanese script or CJK prints as
+  boxes until a font package is added to the image. A role cannot ask for the page (an `invoice.render` capability
+  would take a catalogue entry, a grant and a tool slot); the owner presses the button. No event is written: it
+  grants and spends nothing and the file is on the Files tab. Two replicas pressing at the same moment can each
+  draw a page (`inv-0001-2.pdf`): the in-flight guard is per process.
+- **Run for real.** Against the Chromium of this environment, not a stand-in (the sandbox off, as in the other
+  browser tests): the page is drawn, read back through `files.read`'s own PDF reader, and says the number, the
+  customer, every line, the total and the tax. Not run: inside the Compose image with its sandbox on.
+- **Tested** in `invoice-pdf.test.ts` (eleven tests). Ten mutations of the code: eight fail the tests at once
+  (no escaping, bidi characters kept, no policy, a voided invoice printed, the page always redrawn, no guard on two
+  presses, the language ignored, a "paid" mark added); scripts left on failed them only once the page was also drawn
+  without its policy; taking the offline wall out alone is not seen, for the reason above.
+
+## 2.171 A mailed attachment is kept, and the role that answers can read it (the audit of 6 October, P1.4 part 5)
+
+A purchase order or a price list that arrived by email was thrown away with "which cannot be read here". Migration
+0125 adds `chat_messages.files` (a jsonb array of at most five, 8 KB); no other table: the company's files
+folder is the store.
+
+- **What is kept.** A mail's attachments are read from the message (`readMail(raw, { keep: true })`: RFC 2231 and
+  2047 file names, a quoted name with a `;`, at most 200 parts walked, five files, a signature logo or tracking
+  pixel under 30 KB skipped, a forwarded message, a calendar invitation and a delivery report not counted as files),
+  and once the message is claimed, before its work is made, each is written to
+  `received/mail/<yyyy-mm>/<first eight of the message's id>-<n>.<ext>`. The IMAP fetch asks for `RFC822.SIZE`; a
+  message whose first 256 KB window shows files is fetched whole when it is no more than 15 MiB (the socket's chunks
+  are now joined once, not on every arrival), and over that its text is read and its files are said not to be
+  fetched. A message that joins work already waiting keeps its files too; one held by the hour's limit keeps
+  none. A retry after a crash finds the files it wrote: the same bytes under the same name are the same file.
+- **The sender chooses nothing.** The path is the platform's; the extension is the kind the bytes are, never the
+  claimed one; the name they gave is kept apart as a display name, NFC, no folder, no control, invisible or
+  direction-changing character, at most 100 characters, and shown as text. What is kept is told by how the bytes
+  begin (`sniffReceived`): PDF, Word and Excel (a ZIP that holds `word/document.xml` or `xl/workbook.xml` and was
+  called `.docx` or `.xlsx`), a picture, a recording, text (strict UTF-8 without a NUL, up to 5 MB; markup is kept
+  only as the text it is). A program or script, an archive, an SVG, an Office file from before 2007 or with macros,
+  a video and anything unrecognised is not, and the reason is a sentence. Written once, never over another file, never
+  through a link; a link where `received` goes is found before anything is made beyond it.
+- **Bounded.** Five files a message, ten megabytes a file, fifteen a message, 2 GB a company and 500 MB a day
+  (counted from the messages' own records, not the disk): a stranger cannot fill it. Past any of these the
+  file is a note and the message still starts its work.
+- **What the role reads.** `chat.read` returns each customer message's `files` (kind, name, path, bytes, why
+  not) and, for the documents of the latest five customer messages, at most three at once, what they say (12,000
+  characters each): PDF, Word and Excel in the sandboxed browser through the same reader `files.read` uses (one cache),
+  text as it is; without a browser or when it is busy the file has a `textNote`, never a failure of `chat.read`.
+  The conversion happens outside the database transaction. The customer-facing role holds `chat.read`, `chat.send`
+  and `memory.search` and needs no `files.read`, which would read every file of the company. The task text names
+  the kept path and never the sender's name; everything is a read of outside content, so work that read it asks
+  the owner at tier 2, as before.
+- **The owner sees it.** The thread shows each file under its message -- its name as text, its kind, its size, a
+  **Download** button for the owner (the Files tab's own route; a seat has none), and for a file that was not
+  kept the reason in the owner's language -- with the line that it came from outside. Two event kinds
+  (`chat.attachment_kept`, `chat.attachment_not_kept`: kind and size, never the name), in the twenty dictionaries.
+  An export lists each file without its path and says "not in the archive": a restored company lists no file it does not have.
+- **Not done, and said.** Telegram and WhatsApp files (part 6: the transports' own downloads and their limits
+  are not verified here) -- done in 2.183. No retention of received files: they stay until the owner removes them (the Files tab
+  removes uploads only; a received file is removed with the company), which is personal data a stranger chose to
+  send. No virus scan. A message of over 15 MiB shows only the files visible in its first window as not kept, and
+  the rest not at all. The sandboxed converter now reaches strangers' documents: a bug in Chromium's PDF or XML
+  reading inside its sandbox (no files, network or secrets there) is the residual risk, called out in the threat
+  model (2.7.1). A role that is not the channel's still needs `files.read` to read `received/` by path.
+- **Tested** in `customer-attachments.test.ts` (fifteen tests against the fake IMAP and SMTP servers, with real
+  Chromium for the documents): the whole way from a mailed PDF to `chat.read`'s text, the owner's download, the
+  events by kind and never by name; polled twice and delivered twice; what cannot be kept (over 10 MB, a program,
+  a sixth file, over 15 MB, no files root, a company at its limit) said on the message and in the task text; hostile
+  names (`../../etc/passwd`, a reversing character, `CON`, a NUL, 300 characters, NFC and NFD) leaving a path of the
+  platform's own; the kind told by the bytes for thirty cases; RFC 2231 and 2047 names; the logo, the five, the maze
+  and the forwarded message; a link where `received` goes and where the file goes; `chat.read`'s three documents
+  and its cut; the export. Thirteen mutations of the code each seen to fail them.
+
+## 2.172 What the adversarial review of 2.166 to 2.168 found, and what was done (7 October)
+
+Six readers (path containment, MIME and SMTP, the console, the tests, the documents, the installer), 37 candidate
+findings, each tried by two sceptics: 29 stood, 8 were refuted. What stood, by what it was.
+
+- **The installer, and the owner's complaint itself.** *Server detection depended on the SSH variables alone*:
+  under `sudo`, in a provider's web console and in cloud-init they are not set, so the first version printed
+  `localhost` and no tunnel exactly where the complaint came from. A machine is now a server when SSH says so or when
+  it is not macOS and has no screen; the tunnel names `SUDO_USER`, and with no link to open it says what to open.
+  *Leaving HTTPS did not stop Caddy* (Compose leaves a container whose profile is off running, `docker compose down`
+  included): `private` and an address now stop it by name, and the stop command printed is `--profile https down`.
+  *The Caddy text and the DNS check came from any `https://` address*, so an owner behind their own proxy was told
+  false things on every update: now only where `COMPOSE_PROFILES` holds `https`, with the port and path taken off the
+  name. *The DNS check* reads every IPv4 address of the name (a second address, a reserved address or a CDN is
+  not a warning) and says "the certificate is made when Caddy starts". *`.env.new` was made world-readable for a
+  moment* with the database's passwords in it: now made private as it is made. *Numbers were not checked*: a poll of
+  0 never ended, `0.5` killed the script after a good start, and a port with a space was written into `.env`.
+- **Files.** *A named pipe in the company's files held a thread of the pool for ever* when opened for reading
+  (`O_NONBLOCK` now: it is refused as not a file). *A company's id in capitals made a second folder that
+  erasure never removed*: one spelling, in `companyRoot` and `removeCompanyFiles`. *The upload quota was
+  check-then-write*: uploads of one company now go one at a time (in this process; two processes on one root can
+  still overshoot by what each has in flight, which is said, not mended). *`file.deleted` named the spelling the
+  owner typed*: it names the path as kept, like `file.uploaded`. In the console, *choosing the same file again did
+  nothing* and *a long name overflowed a phone's width*.
+- **Mail.** *The minute a large letter is given to be accepted did not apply after STARTTLS*, the plain socket
+  under the TLS one kept its short timer and ended the session first, which invites a second send: each socket of the
+  conversation is given it. *A name beyond ASCII* is now given first, as `filename*=`, then the plain fallback, and
+  in the content type too. *The approval card could push the files off its 240 characters when the letter had many
+  recipients*: the people give way (counted as "+N more"), never the files.
+- **Tests.** The request-ceiling assertion could not fail and could be reset by the server: it sends a body that is
+  small once decoded and accepts the 400 or the reset. The made-up company is tried on all four routes with exact
+  answers; the 500th file, the twenty-name cap, the 512 MB total, the largest upload and download, and the types
+  given no kind are tried at their edges; the alias through a link, `SIZE 0`, an invoice attached, a delayed
+  acceptance after STARTTLS, a normally exited `migrate`, the wait's timeout, `SSH_CLIENT`, and the mode of `.env.new`
+  as it is made. The fake SMTP server can now delay its acceptance. Each of the new behaviours was seen to fail when
+  taken out (seventeen mutations); the named pipe was not, because the test would hang rather than fail.
+- **Documents.** 2.168 said the address was looked up only over SSH (also for a domain, and now on a server by
+  any means) and that eighteen values were refused (sixteen); the troubleshooting entry listed causes the message
+  cannot have. Corrected.
+- **Not done.** A server that answers before it has read a request body past the ceiling makes the client see a
+  reset and not the 400 (`readBody` destroys the request first): the console shows "failed" and not the
+  sentence. The upload count and total are not a lock across processes. `valid_host` and the DNS wording are not
+  tried against every spelling. The 8 refuted findings are in the workflow's journal, with the sceptics' reasons.
+
+## 2.173 A person is an actor (the audit of 6 October, P1.1, in four steps)
+
+The platform could ask one person, the owner. A staff seat saw the whole inbox and any approver could answer
+anything, so a question for the bookkeeper was answerable by the cashier, and "who is meant to answer this" was
+not a thing the platform knew. It is built in four steps, each one a commit with its test.
+
+- **a. An addressee on a question (done).** `owner.ask` takes `to`, the name of a seat (migration 0126 adds
+  `inbox_items.addressee_seat`). The name is resolved on the control plane to a seat that is joined, not
+  revoked and an approver, in any case; a viewer, a revoked seat, an unknown name and a name two seats share
+  are each refused with the people who can answer, so the run asks again of someone real. The question is
+  then that seat's and the owner's: it is not in another seat's inbox (`GET /inbox`), and `decide` and
+  `answerEscalation` refuse another seat by id with "this question is for Budi". `?mine=1` lists a seat's own.
+  A question that names nobody is exactly as it was. The card says "For Budi" (a seat sees "For you") and a
+  seat's inbox gets a "For me" segment. Tests: `person-addressee.test.ts`; seven mutations, one of which
+  (a revoked seat) survived the first test and made it name one.
+  *Not done here:* the brief does not list the people (a run learns the names from the refusal); a name is
+  matched on the seat's name, which the owner chose and which two seats can share. A seat also cannot read the
+  trace behind another seat's question by its id (`assertSeatMayRead`); that was found while writing the test.
+- **c. A question nobody answers is brought to the owner, once (done).** The owner's channels do not carry a
+  question that is for someone else (`undelivered` leaves out an addressed question that has not been
+  escalated): their phone is not for it. A day after it was put (`QUESTION_ESCALATES_AFTER_HOURS`, 24) the
+  worker marks it (`escalateQuestions`, in the `settle` stage, before `notify`), an event
+  `inbox.question_escalated` says so in words, and the next dispatch carries it to the owner's channels; the
+  card says "Unanswered for a day" to the owner and to the seat. It stays the seat's to answer, and the
+  owner could always answer it too. Nothing is decided by the silence: the question's own expiry is what it
+  was. Tests: `person-escalation.test.ts` (once, not before the day, not answered ones, not unaddressed ones,
+  and by the worker's own tick); six mutations, all seen to fail.
+  *Not done:* the day is a constant, not a setting; a seat that is revoked while a question waits is not
+  looked for (the day passes and the owner is told, which is the same outcome a day later); the message the
+  owner receives is the question's own, without saying it was first put to someone else.
+- **b. An answer carries files (done).** `POST .../inbox/:id/answer` takes `files: [{ name, data }]` (the file
+  in base64, at most five, 10 MB each and 15 MB together; migration 0126's `answer_files`). They are kept under
+  `received/answers/<month>/<item>-<n>.<ext>` by `keepAnswerFiles`, which is `keepReceivedFile` as a customer's
+  attachment is kept: the path and the extension are made here from what the bytes are, a program, an archive,
+  a macro document or an unrecognised kind is not kept, and the name the person gave is shown plain and short.
+  Every file is looked at before any is written, so a refused file refuses the answer and leaves nothing
+  behind; the files are kept only once the answerer's right to answer is settled (an approver answering
+  another seat's question writes nothing), only for the answer to a question a run asked (an escalation about
+  live work refuses them), and the file and the decision are recorded in one step. The run that asked is
+  given the answer and the paths (`owner.ask` returns `files` and says them in the answer; the context says
+  them in "The owner answered your question", and says *who* answered -- "Budi answered:" when a seat did --
+  because a person's word is not the owner's). The console's question card has "Attach a file". Tests:
+  `person-answer-file.test.ts`; eight mutations, one of which (files on a non-question) survived the first test
+  and made it name one.
+  *Not done:* what a seat attaches is not counted against the received-files quota that customers' files are
+  held to (a seat is staff, and an answer carries at most 15 MB); the card of a decided question does not yet
+  list the files it carried; the owner's assistant cannot attach one.
+- **d. A role that is a person (done).** A role can run on `person` (migration 0127 adds `roles.person_seat` and
+  `person_name`): a contractor the company employs through a staff seat. `PersonAdapter` (`src/runtime/person.ts`)
+  runs nothing: the task's goal is put to the person as a question, in the words it was given in (the context is
+  what depends on it), addressed to the seat, so the task waits as it waits for any answer, the person sees it in
+  their own inbox and nobody else's, the owner is told if it goes a day unanswered, and asking again is the same
+  question. The answer is the role's output (`summary`, `answeredBy`, and `files` when it carried some), written
+  by code and not reported on against done criteria, as it is no model's report. A person no longer seated is
+  not replaced by a model: the task halts (`policy_denied`, with the sentence in the halt's detail) and the
+  owner is told by the halt. Hiring takes `person: "<name>"` (the same name resolution as a question: a seated
+  approver, in any case, refused saying who there is), refuses tools, and does not make the next hire that is
+  not a person inherit the runtime; the console's hire form has "A person, not an agent". The adapter is
+  registered in every deployment and does not count as a runtime (a deployment with only it still says it has none).
+  An archive carries the name and not the seat, so a restored person role refuses work until it is seated again.
+  Tests: `person-adapter.test.ts`; nine mutations, one of which (a hire inheriting a person's runtime) survived
+  the first test and made it name one.
+  *Not done:* a person role cannot be re-seated (hire it again); the console does not show a role's person on its
+  drawer; a task is not given to a person's role by anything that reads who is free or how fast they answer; the
+  halt for a person who has gone says `policy_denied` in the owner's language, not that someone has left (the
+  sentence is in the detail, in English).
+
+## 2.174 A company starts with its CEO, and starting one is a name and a sentence (the owner's report of 7 October)
+
+The owner's words: the onboarding was still ugly, "not like Paperclip"; why is there a built-in team template when
+the CEO can arrange everything; and the CEO is still an ornament who can do nothing. Three of the four parts of that
+report are answered here; the fourth, and the one the CEO's helplessness depends on, is not, and is said below.
+
+- **A company starts with one division, one role and one goal (done).** `src/templates/founding.ts` is the template a
+  company starts from now: a `management` division, the CEO (`coordinator`, with the twelve tools a role may hold:
+  the platform's own, `task.delegate`, `task.await`, `task.follow_up`, `ticket.create`, `ticket.list`,
+  `schedule.propose` and `doc.draft`), a mission, one project and a budget, and nothing the owner did not ask for.
+  `src/templates/standard.ts`, seven divisions and eight roles, is deleted; what every role of every team is built
+  from (the input and output schemas, the platform's tools) moved to `src/templates/work.ts`, and the old team is
+  kept as a test fixture (`test/helpers/standard-team.ts`) so the tests of the machinery that need a full company
+  still have one. `POST /api/companies` names no template unless an operator stored one (`templateSlug` is
+  optional and defaults to the founding company); `seed` stores the founding template and no other.
+  The CEO's prompt says what to do when there is no role for the work: do it as far as its own tools reach, and
+  file a ticket that begins "Hire:" so the owner sees what is missing from work that was really asked for.
+  *Not done:* a CEO that cannot yet *hire* that role without the owner's device (below); the old template's
+  comments in `src/main.ts`, `src/capabilities/` and `scripts/smoke.ts` still say "the standard template" where
+  they describe what a capability is granted to in the fixture.
+- **What the company is for is the owner's own sentence (done).** `POST /api/companies` takes `mission` (a sentence
+  or two, at most 2000 characters; blank is none). It replaces the default mission, in the owner's words and not
+  translated, in the goal and in the company's charter, and the CEO's first message (`firstHourOpener`) says it
+  back and asks the two things it cannot know -- the monthly ceiling and the first piece of work -- and offers to
+  suggest one with the team it would take; without a mission it asks the three questions it asked before. A
+  template that states its own mission leaves no place for the sentence, and the CEO does not then claim to have
+  read it. The sentence is twenty languages' worth (`src/owner/sentences/`). Tests: `founding-company.test.ts`.
+- **The first screen is one short form, not a tour over an empty page (done).** `console/src/pages/Onboarding.tsx`:
+  a name, what it is for, "More options" (short name, work and talk language), and a button. When the deployment
+  has no model yet, a second step is the model's own form, so the CEO is not started mute. Starting it opens the
+  CEO's chat. The eight-step tour no longer opens by itself; the menu carries a "new" badge and the tour is one
+  press away. The Overview's empty state and the tour's last stop now describe a company that starts with its CEO.
+  The six boxes of the authenticator dialog, which on a phone ran past their dialog on both sides, are smaller on
+  a narrow screen. Tests: `console-onboarding.test.ts` (Chromium at 390 pixels: nothing over the first screen,
+  nothing sideways, no start without a name, the CEO speaks the owner's sentence back, one company with one role,
+  and the code's boxes inside their dialog; the last was seen to fail first).
+- **The authenticator at sign-in only, and a CEO that acts, are 2.175.** They loosen what F10.10, F12.5 and the
+  threat model required, so they were the owner's decision to make and were made there.
+
+## 2.175 The authenticator is for signing in, and the CEO builds the company (the owner's decision of 7 October)
+
+The owner's words: "buat agar autentikator saat login saja". Asked what that was to mean for a tier 3 approval, the
+owner chose the whole of it: **sign-in only, approvals of what cannot be undone included.** This is a deliberate
+deviation from F10.10 ("tier 3 approvals with MFA") and F12.5, and it is the second time the rule is loosened for
+the same reason (2.143 was the first, with a window). The threat model's item 4b says what it costs.
+
+- **A session opened with a device is the second factor for what the owner does in it (done).** Sign-in asks for the
+  authenticator's code or a passkey, as it always did. `OwnerApi.#requireFactor` now passes at once for a session
+  whose `provedAt` is set -- every one opened with a device -- so a division, a role, a grant, a goal, the spend
+  ceiling, the model and its key, a channel, a browser takeover, a company's closing, and every approval of a tier 3
+  item no longer ask for a code. The console tries the action first and shows the code dialog only when the server
+  refuses (`approval.channel_forbidden`), as it did in the window; it now refuses only in the cases below.
+- **What still takes a code, at the moment it is done (done).** Only what changes *who the owner is*, because a
+  stolen session must not be able to lock the owner out or enrol its own device: revoking an authenticator, making
+  new recovery codes, adding a passkey, and vouching for a device (`fresh` in `#requireFactor`). And a session
+  opened with a **recovery code**, which proves less than a device (`provedAt` is null): it asks for a code each
+  time until a device's code is shown in it, which then makes it a device session (`OwnerSessions.prove`).
+- **A tier 3 decision takes the signed-in session (done).** `inbox.decide()` accepts the owner's session as the
+  assurance (`OwnerAssurance` 'login') where it took a fresh code. A chat, a staff seat and a recovery-code session
+  still cannot approve one: a chat has no session, a seat is on a strict allowlist that never held tier 3, and a
+  recovery-code session is the one case above. The decision's journal says which assurance stood behind it.
+- **The window is gone (done).** `step_up_minutes`, its setting under Settings, Security, `src/owner/step-up.ts`
+  and `/api/me`'s `step_up` are removed (0128). `owner_sessions.proved_at` stays with the plainer meaning above.
+  Staff are told apart in `/api/me` as before.
+- **The CEO does what it is told, and builds (done).** The assistant's cards for building the company were
+  `factor: 'always'`, so the CEO could only ever put a card in front of the owner and wait for their device.
+  They are now `auto`: a division, a project, a goal, a role and its tools, and a grant are done in the
+  conversation and the CEO says what it did. Two cases remain a card, and the console's Apply button still works
+  for it: when the CEO has read what agents wrote in the same turn (`heard.readOthersWords`: an instruction hidden
+  in a page must not hire someone), and when the owner's session was opened with a recovery code. The CEO's prompt no
+  longer says a card takes the owner's device; in the first hour it is told to hire the role the first piece of
+  work needs, and to say so in one line.
+- **Tested.** `login-only-factor.test.ts`: a division, a role, a goal, the ceiling and a tier 3 approval with no
+  code after signing in; revoking an authenticator, new recovery codes and a passkey still refused without a code;
+  a recovery-code session asking until a device's code, and then not; a chat and a seat not approving tier 3; no
+  setting left to lengthen. `ceo-builds-team.test.ts`: the CEO opens a division and hires a role from one
+  sentence, with no card and no code; after reading agents' words the same hire is a card; in a recovery-code
+  session it is a card; and its prompt. Every earlier test that asked for a code for something that no longer
+  asks was changed to say what it now guards, and the Chromium tests at 390 pixels of the factor's dialog and
+  the sign-in page still hold.
+- **The trade-off, said plainly.** A stolen, signed-in tab can now spend, change the model, open channels and
+  approve what cannot be undone, for as long as the session lives (eight hours). It cannot lock the owner out or add
+  its own device. What the owner has against it: sign out, freeze the company, short sessions, and the audit
+  trail, which names the session behind every decision.
+
+## 2.176 The role loop notices when it goes round in circles, and writes its work down when it outgrows its model (the owner's challenge of 7 October)
+
+The owner's words: how many kinds of agent does the loop have, had it been thought through, and "everything put in
+must be mature, not only look complete". Counting them (below) showed the list was longer than the depth: twelve
+runtimes are registered, but the loop every role runs by default (`src/runtime/agent-loop.ts`, 40 turns, every turn
+journalled) was sound about durability and thin about behaviour. Two of its gaps were checked in the code and are
+closed here, after reading how OpenHands, Codex, OpenCode and Hermes close them.
+
+**What there is to run an agent on (counted, 7 October).** Registered by `assemble.ts`: `in-process` (a model
+through the broker, or a handler written in code), `claude-code`, five known CLIs (`codex`, `gemini-cli`,
+`opencode`, `hermes`, `openclaw`), any other CLI by a spec, including any agent that speaks ACP, `http`,
+`container` (docker, no network), `remote_sandbox`, and `person`. `script` is the transport `container` uses and is
+not registered by itself. Two loops talk to a model and use tools: the role's (`agent-loop.ts`) and the owner's CEO
+chat (`owner/assistant.ts`, ten turns, not journalled). How far each is *verified* is in the comments that say it:
+`codex`, `gemini-cli` and `opencode` were run against a stand-in model, `hermes` and `openclaw` were read from their
+source and never run, ACP was written from its schema, the remote sandbox has never met a vendor.
+
+- **A run going round in circles is told, then asked to finish (done).** `src/runtime/loop-health.ts`, from
+  OpenHands' stuck detector: the same call with the same answer four times running, the same call refused three
+  times (whatever words the refusal used), two calls taking turns for six. It is a function of the conversation
+  alone, so a run rebuilt from the journal is told what an uninterrupted one was. The first rung is a notice on a
+  copy of the last message (which call, how often, what to do instead, including that finishing and saying what is
+  blocked is allowed). When the model goes on for three more, its next turn is sent with **no tools** and asked for
+  the task's output saying what is done and what is not (`notDone` ends the task as work that did not happen, as
+  N9 made it). A model that calls a tool anyway ends the task once, with why (`run.stuck`), and the engine does not
+  run the same journal again (the same rule as `model.context_too_long`).
+- **A conversation that outgrows its model is written down, not failed (done).** `src/runtime/compaction.ts`. The
+  loop already left out old reads (`elideOldResults`) and that was all: a long conversation of another kind -- a
+  model writing long drafts, a local model that reads eight thousand tokens -- was refused by the provider and the
+  task failed, "too long", however much was done. Now, inside the turn that needs it: past an estimated 80,000
+  tokens the work is written down before the provider has to refuse; and when the provider says "too long" anyway,
+  it is written down with a smaller share kept whole and the turn is asked again once. The newest turns are kept
+  whole from an assistant message, never less than the last turn with its answers; the rest becomes a summary the
+  model writes in a fixed shape (goal, done with the step each fact came from, refused or failed, open, next).
+  When the model cannot be asked (the budget could not pay for it, the provider is down, it said nothing, the
+  transcript was itself too long) the turns are listed by what they called and how it came out, so a compaction
+  always happens. The summary is **fenced as data** when the model reads it, because it is written from what tools
+  returned. A second compaction is given the first summary to build on, so there is one account in the task, not
+  a stack. The compaction is kept in the turn's own journal step, so a run rebuilt from the journal is compacted at
+  the same turn and the model is **not asked to write it again**; the writing is a call like any other, charged to
+  the run and in its traces.
+- **Tested.** `loop-health.test.ts` (pure: each pattern and its near misses, the step number not making one call
+  another, the ladder, rebuilt-is-the-same), `loop-compaction.test.ts` (pure: where to cut, a conversation a
+  provider accepts, the summary fenced and replaced not stacked, the transcript bounded, the list of calls),
+  `loop-resilience.test.ts` (through the engine, broker and journal: a run told and recovering; a run asked to
+  finish with no tools and ending `not_done`; a defiant run ending once, shown to fail when the engine's exception
+  is taken away; a resumed run told what an uninterrupted one was; a provider that refuses and a run that goes on
+  after writing; a run killed after writing resumed from the journal with no second writing; no writer, the list
+  of calls; compaction before any refusal, against a provider that really refuses past its window). Each of these
+  was run against the code without the change first and seen to fail for the reason it names.
+- **Not done, and said plainly.**
+  - *Tool calls in one turn still run one after another.* Doing them together is possible -- Restate journals the
+    order of completion -- but the step numbers a run cites as evidence are given in call order, and making that
+    survive a replay is a design of its own, not a flag.
+  - *The CEO's chat loop is the thinner copy.* It has ten turns, no journal, no stuck detection and no compaction;
+    a chat that outgrows its model fails. It and the role loop should be one engine.
+  - *Nothing here reaches the CLI, ACP, `http`, container or sandbox runtimes.* They are black boxes to the engine,
+    one journalled step per round trip, and what their agents do inside a run is theirs.
+  - *The thresholds are constants*, not per role or per model: four, three and six repeats, three more before the
+    wrap-up, 80,000 tokens, 12,000 kept. The turn limit is 40 for every role; a CEO coordinating a team and a
+    researcher get the same.
+  - *A run that ends `run.stuck` says so in English*, like every `failed` task that is not a halt; it has no
+    sentence of its own in the owner's twenty languages. The usual way out -- the model's own `notDone` -- is in the
+    model's language.
+  - *A turn that wrote its work down and then failed* (the provider erred on the retry) is not journalled, so the
+    next attempt writes again: one extra call, not a wrong answer.
+  - *A summary is as good as the model that wrote it*, and nothing scores it.
+
+## 2.177 The budget is counted as the provider counts it, and runs out without the owner pressing anything (the owner's report of 7 October)
+
+The owner's words: the prices do not match the official ones, so the figures are wrong; the budget sometimes runs out
+suddenly and "I have to start the agents again one by one"; the owner ends up doing the heavier work -- checking,
+pressing this and that -- "when a 24/7 company should handle it itself". Three separate causes were found in the
+code, and each is closed here.
+
+**1. The figures were wrong, in four ways.**
+
+- *Every call was rounded up to a whole cent* (`estimateCents`, `Math.ceil`). A call of a tenth of a cent was
+  charged a cent: ten times its price on the cheap models a company runs for hours. A call is now priced to the
+  fraction of a cent (`Cost.cents`), and the **budget is charged in whole cents from a carry**: what is left over
+  below a cent is kept per company (`CostCarry`, in micro-cents, in the process) and added to the next call, so the
+  sum charged is the sum owed to the fraction. A run that settles at its total gives back what the rounding took
+  (`forgive`).
+- *A cached token was priced as a fresh one.* The providers bill the cache apart (Anthropic: a read at a tenth of
+  the input price, a write above it; OpenAI and DeepSeek: a cached share at a fraction). The clients now read the
+  usage the provider reports for the cache (`cache_read_input_tokens`, `cache_creation_input_tokens`,
+  `prompt_tokens_details.cached_tokens`, `prompt_cache_hit_tokens`) and `costOf` prices each at its own rate; a
+  rate the catalogue does not give falls back to the input price, never to zero. The Anthropic client now marks
+  its conversation's last block as a cache breakpoint, so the cache that is billed apart is also used.
+- *The price list was typed once and never moved.* The platform now reads models.dev itself, **every day**, for the
+  models the deployment runs on and no others (`src/engine/price-sync.ts`), and keeps what it read as a deployment
+  setting (written quietly: it does not restart a replica). The prices a call is charged at are layered, in this
+  order: **what the owner typed in the console, the operator's file, the catalogue, and a conservative fallback**
+  ($15 and $75 per million tokens) for a model nobody knows. A model the catalogue does not list, or lists as
+  free, stays unpriced and is charged at the fallback, and the console says so; the platform never prices anything
+  at nothing on a catalogue's word. A catalogue that cannot be read leaves the prices as they were, keeps the
+  failure beside them and tries again in an hour; it never stops a company. `PALUGADA_PRICE_SYNC=off` turns it off.
+- *The owner could not see which price was in force.* **What it costs** (Model page) shows each model's price and
+  who set it (console, file, catalogue, fallback), when models.dev was last read, what changed, and a button that
+  reads it now. A saved price takes effect in the running process (`PriceBook.refresh`), not at the next start.
+
+**2. The budget ran out and waited for a person (`src/engine/self-heal.ts`).** The owner's way back from a halt was
+three decisions: raise a ceiling, lift the month's pause, press Continue on each account's work. What the owner
+decides is the ceiling; the rest is its consequence. Now, every tick, when the owner's own ceiling has room, the work
+it stopped goes on by itself:
+
+- the month's pause is lifted when the ceiling is raised above what is spent (`budget.pause_lifted`, by the
+  platform, its card withdrawn), as a new month already did (M6);
+- work halted for want of tokens or money continues (`task.continued`, by the platform, `by: budget_room`, its
+  card withdrawn "the budget had room again") when the account has room beyond a reservation -- twenty reservations'
+  worth of tokens and a dollar -- so a task is not started again to stop in a minute;
+- oldest first, as many as the room carries, at most twenty-five a look; never while the month is paused, never for
+  a role the owner paused; and a task that has gone on by itself three times in a day and stopped again is left to
+  the owner with its card, because it has told them something.
+- **What stays the owner's is the ceiling, and nothing here moves one.** The platform does not raise a limit, lift a
+  limit's meaning or spend past it.
+
+**3. A role that spent fast was stopped for the owner to restart (`governance/spend-guard.ts`, `role-freeze.ts`,
+migration 0129).** F1.8 freezes a role spending three times its week's rate. Every such freeze waited for the owner,
+one role at a time. A frozen role now says who froze it (`roles.frozen_by`: `owner`, `denials`, `spend`,
+`spend_held`), and:
+
+- a `spend` freeze is lifted by the platform when the burst is out of the last hour and the role would not trip the
+  breaker now (`thawCooledRoles`, run each tick; the event `role.unfrozen` by the platform, `by: cooled`);
+- the **first two stops in a day are silent**: a journalled `budget.circuit_open` and the reason on the role, and no
+  card; the **third** is a role whose usual is wrong, and it is held (`spend_held`) with the incident F1.8 asks for;
+- what the owner paused and what F3.7's denials froze are never lifted by a clock (the condition does not change
+  by waiting), and a freeze from before the column is read from its reason, a breaker stop being held, so nobody is
+  surprised by a role going back to work;
+- **work does not fail for a stopped role, it waits.** A task whose role is stopped parks (`role_paused`, looking
+  again after a minute, growing to an hour) before its run starts, so no model call is made to find out, and a
+  role stopped in the middle of a run parks the run; the task is called back at once when the role goes back to
+  work, by the owner or by the platform. Before this a paused role's tasks ran on and only their tool calls were
+  refused.
+
+- **Tested.** `cost-accuracy.test.ts` (fractions carried and settled, cache rates for each provider, the carry per
+  company), `price-sync.test.ts` (layers, a catalogue that fails, zero and unlisted prices, quiet writes, the book
+  refreshed, the staleness clock), `self-heal-budget.test.ts` (room, thin room, oldest first, the pause, a paused
+  role, three in a day, another company), `self-heal-roles.test.ts` (cooling, still spending, the third stop,
+  owner and denial freezes, the constraint, work parking before and during a run and called back by either end of
+  the freeze, another company), and the worker tick for the resume and the thaw. Each was seen to fail for the reason
+  it names before the change.
+- **Deviations from the PRD, said plainly.** Section 6.3's "never resumed automatically" is now conditional on the
+  owner's ceiling having no room; F1.8's incident is raised on the third stop in a day, not the first; the
+  price list is applied from models.dev without the owner's device where the previous design only offered it (section
+  2.26's note on L12 is superseded) -- a price typed in the console still wins, and a price the platform wrote is
+  shown as the catalogue's.
+- **Not done, and said plainly.**
+  - *No forecast.* Nothing says "at this rate the ceiling runs out on the 23rd"; the owner still finds out when the
+    80% warning fires. A forecast from the week's rate is a card of its own and was left.
+  - *The carry is in the process.* After a restart the sub-cent remainder (under a cent per company) starts again;
+    the journal holds the exact cost of every call, so the books can be redone, but the running counter is not.
+  - *Prices above a context size* (a model priced twice over 200,000 tokens) are not modelled: one rate per model.
+  - *Waiting on a paused role has no end.* A task the owner's pause holds waits, looking an hour apart, until the
+    owner resumes; nothing tells the owner that work has waited a week.
+  - *The breaker's own numbers are unchanged:* three times the week, a hundred-cent floor, the hour. A role whose
+    week was empty cannot trip it (the period ceiling covers that).
+
+## 2.178 The company collects what it is owed, without being asked (the owner's request of 7 October: white-collar work handled, and automatically)
+
+The owner's words: "just think how white-collar jobs can be handled, and automatically." The audit of 6 October
+(`docs/AUDIT-2026-10-06-REPLACING-THE-OFFICE.md`) had already said where the office is thin; its P1 list still had
+**deterministic clearance beyond chat** (item 8: "ledger-grounded sends -- reminders, statements -- with exact
+figures, cleared the way a grounded chat reply is") and the data-driven wake-ups the company lacked ("nothing
+chases an outcome": an unpaid invoice was read for display and by nothing that wakes up). This is the first office
+job built end to end that way, and the pattern for the next.
+
+**What makes a white-collar job automatic, found in the code, not assumed.** Five things have to be true, and for
+most routine office work only the first two were missing: (1) *something wakes the work* from the company's own
+records, not from the owner; (2) *the letter or the entry is not a model's to write*, so no owner's yes is needed
+and no injection can ride in; (3) the tool for the effect exists; (4) the result is checked; (5) what a machine
+cannot settle goes to a person, once. Tools (3), checks (4) and the person (5) were there (mailbox, books, invoices,
+`inbox`, person roles). The two missing pieces are below.
+
+- **A duty: office work the platform does itself (`src/duties/duties.ts`).** A task whose key starts `duty:` is run
+  by a procedure the platform wrote, with no model, **under a role's grants** -- so the credential, the tier, the
+  plan (F8.11), the journal, the budget and the audit apply exactly as they do to any role. The in-process runtime
+  looks the key up before it looks for a role's handler or a model. An agent cannot make such a task (the keys a
+  delegate derives are hashes), and one that writes `duty` into its input only writes a field.
+- **`invoice.remind` (`src/capabilities/collections.ts`), tier 2.** It takes the invoice and **nothing else**
+  (`additionalProperties: false`): who it goes to (the invoice's address), what it says (`reminderLetter`, from the
+  books: the customer's name cut to a line, the outstanding amount, the due date, the company's name, the owner's
+  own words on how to pay), in which language (Indonesian, or English for every other, as the invoice's page is)
+  and whether it may go (`whatIsNext`) are the books'. Because nothing in the letter is from outside, the capability
+  declares `clearsOutside`: **work that read content from outside sends it without the owner's yes**, where
+  `email.send` in the same work still asks (tested both ways, and shown to depend on the clearance). It goes from the
+  division's own mailbox key (no new credential) through the same delivery as `email.send` (`deliver`, now shared).
+- **When (`whatIsNext`, pure).** Three days past the due date, then ten, then twenty-four (the company may set one
+  to five days of its own); never two letters within a week; **an invoice more than sixty days overdue that was never
+  reminded is not sent a form letter by a platform just switched on** -- it is a person's; a week after the last
+  letter, still unpaid, it is a person's too.
+- **A step is written once.** The invoice is locked (`pg_advisory_xact_lock`) from reading what was sent to writing
+  what is, so two callers at once send one letter; a letter the mail server did not accept writes nothing, so the
+  next try is a first. `invoice_reminders` is insert-only for the application role. (2.180 makes it *at most once*
+  across a crash too: the step is taken before the letter goes.)
+- **The look (`ensureCollections`, in the worker's tick, at most every half hour for a company).** It reads the books
+  and makes **one task** for the role that holds `invoice.remind` (key `duty:collections:<hash of the day and the
+  invoices>`, so two workers make one), whose handler calls the capability once for each invoice named. The
+  capability decides again from the books at that moment: an invoice paid between the look and the work is not
+  written to (tested). The handler's summary is in the owner's language.
+- **What a letter will not mend goes to the owner, once for each invoice, in their language.** Unpaid after the last
+  letter, overdue for months and never reminded, or no address to write to: one escalation card (`invoiceUnpaidCard`),
+  noted in `invoice_collections` in the same transaction that raises it.
+- **A mailbox that is missing is asked for like any role asks for a key.** The procedure calls `owner.ask` with the
+  key `mailbox` (the question in the owner's language) and the task waits for the owner, then tries again; nothing
+  fails quietly. Its plan is written in the company's work language (`say`), because the platform's own wording in
+  the wrong language would be noted as a slip by the check that watches agents' words.
+- **Nobody to give it to is said, not guessed.** With no role holding the tool, the owner is told once, while the
+  card is open, where to switch it on (`nobodyRemindsCard`). Giving a role a tool is the owner's (F2.9).
+- **The owner's switch (Books, Invoices; `POST /api/companies/:companyId/collections`).** On by default as policy; the
+  switch is the owner's decision to *let* the company do it: it gives `invoice.remind`, with its division's grant, to
+  the roles that already bill customers with `invoice.issue` (the authority to remind is a part of the authority to
+  issue), keeps a role that already holds it, and **hires a bookkeeper when no role does** (the CEO holds the twelve
+  tools a role may and cannot carry a thirteenth). The bookkeeper reads the books and holds the tool; it does not issue
+  invoices or record entries unless the owner gives it those. A role that cannot take another tool is named and left.
+  The days, the owner's words on how to pay, and an invoice left alone (`POST .../invoices/:invoiceId/reminders`) are
+  kept; the list says what was done about each invoice. The assistant may propose the switch (a card for the app) and
+  may leave an invoice alone at the owner's word (a tightening).
+- **It travels with the company.** The policy, each letter sent and the invoices left alone are exported and
+  imported (`audit/export.ts`, `import.ts`); a restore without them would write to every customer from the first
+  letter again.
+- **Tested.** `collections-logic.test.ts` (pure: every step, gap, stale and escalation rule; the letters in both
+  languages, the fallback, and a hostile name), `collections.test.ts` (against real SMTP and IMAP servers: the letter
+  exactly, the reasons it is not sent, the closed input, the clearance and its control, a server that is down, two
+  callers at once), `collections-duty.test.ts` (the look, the task run by the engine with a model that is never
+  asked, the paid-between case, the week after the last letter, the stale invoice, nobody, one company's books not
+  another's, and the worker's tick), `collections-api.test.ts` (the switch and who it gives to, the hire, a full role,
+  the policy and its refusals, the hold, the travel). The new tests were seen to fail first.
+- **Deviations from the PRD.** F8.9's rule that an action at tier 2 is never taken on content from outside
+  alone is kept for every capability but this one, whose letter has no content from outside; a first-party
+  capability may declare that (`clearsOutside`, 2.137), and the clearance is recorded on the event.
+- **Not done, and said plainly.**
+  - *Only collections is a duty so far.* Stale deals, unanswered customers, bills to pay, a quote to chase and a
+    payment received are the next ones, and the pattern (a look that makes a task, a procedure, a capability that
+    writes from the records) is the same for each. Payables and the bank statement are not started.
+  - *Letters are in Indonesian or English.* Every other language is written in English, as the invoice's own page
+    is. The cards to the owner are in their language.
+  - *No invoice PDF is attached.* The invoice page can be drawn (2.170), but a reminder carries the figures in its text.
+  - *The look is every half hour per process*, kept in memory; a restart looks at once. The letters themselves are
+    never repeated (the unique step).
+  - *Whether it works on a real mailbox* is as verified as `email.send`: against a mail server written for the test.
+
+## 2.179 CI is green where it runs, not only where it was written (found 20 October)
+
+PR #16's CI had been red since 7 October, and a nightly run or two a week had hung until GitHub stopped it at six
+hours, while `npm run check` was green on the machine the work was done on. Each cause was reproduced before it was
+mended, in a copy of CI's environment -- its Node (22.23.3, ICU 78) and a database cluster made with `en_US.UTF-8`
+-- not argued from the log.
+
+- **Chromium's first start.** The first browser test of a run (`browser-live`, first by name) waited fifteen seconds
+  for Chromium to answer; a Chromium that has never run builds its font cache first, which took twelve seconds here
+  and more on a runner. The wait for a starting browser is a minute (`LAUNCH_WAIT_MS`, `src/browser/cdp.ts`) -- a
+  deployment's first start on a fresh server is the same case -- and a browser that exits still ends the wait at once.
+  "Failed to connect to the bus", which Chromium writes on every start on a server, is no longer quoted as the reason.
+- **The hangs.** A console test opened its server, then its browser, and only then entered `try`: a browser that
+  failed to start left the server open, and the test file never ended. The helper now stops a browser that could not
+  be driven, waits for the page target instead of reading the list too early, kills one that will not stop, and fails
+  a command on a closed connection instead of waiting for ever; each console test closes what it opened when the
+  browser fails. CI's test job has a limit of 45 minutes, and every test one of ten.
+- **Money was written as the runtime's data said.** `toLocaleString` with no fewest places takes a currency's places
+  from ICU, and ICU 78 writes the rupiah with none: the same invoice read `Rp 25.000,00` on one Node and `Rp 25.000`
+  on the next, and `Rp 25.000,50` would have been rounded. The books keep hundredths, so the invoice, the letters,
+  the cards and the console write two places, always.
+- **Order under a collation.** A test compared titles in `ORDER BY` order, which is byte order in a `C` database and
+  not in an `en_US` one. It orders by bytes now.
+- **A test that relied on the one before it.** Two files started companies from the standard template without storing
+  it, and passed only when an earlier file had.
+- **Tested.** The four failing tests failed in the copy of CI's environment, and pass there and here; the browser test
+  passed from a cold font cache.
+
+## 2.180 A write is made once, a letter goes at most once, and every model call is paid for (the audit of 10 October)
+
+The audit that asked whether PALUGADA is a chatbot or an operating system for a company
+(`chatbot-or-company-os`, eight auditors, a skeptic for each and a debate) found, beside its verdict, defects in what
+is built. These are the ones about correctness and money.
+
+- **A write the platform keeps itself is made once for each call (`src/broker/once.ts`, 0131).** The engine keys a
+  tool call by what it does (`callKey`) and journals it when the broker answers; a worker that died between a
+  capability committing and that answer being kept ran the step again, and `ledger.record` posted the entry twice,
+  `invoice.issue` billed the customer twice, `crm.record` kept two of one person. The books, the invoices and the
+  customer records now keep their answer under the call's key, in the transaction that writes (`call_answers`), and a
+  call they have answered is answered the same way. The key is the call's, not the words': the same entry asked in
+  another call is another entry (tested), and a key in one company writes nothing in another.
+- **A reminder goes at most once (`invoice_reminder_attempts`, 0131).** The step is taken and committed *before* the
+  letter goes to the mail server. The server says it took it: the letter is written as sent. The server refuses, or is
+  not there: the step is given back. The SMTP client now says when it handed the whole letter over and the connection
+  failed before the server's answer -- the one moment a sender cannot know whether a letter went -- and then the step
+  stays taken: it counts as sent, is shown on the invoice as *not confirmed by the mail server*, and once it is a
+  quarter of an hour old the owner is told, once, in their language, that it may not have arrived and will not be sent
+  again. A letter written twice to a customer is worse than one the owner is told about.
+- **`image.describe` was free.** Its `describe()` said it cost nothing, which wins over the provider's figure, so every
+  picture read was charged nothing and traced nowhere. The estimate is the provider's again, and the charge is what
+  the provider says it used -- each provider's answer read where its reference puts the count, a thinking model's
+  thoughts as output -- at the model's price in the deployment's list, in whole cents as they fall due.
+- **Embeddings were free.** Every passage the worker gives a vector to, and every question a role asks the documents,
+  is now traced to its company like the CEO's chat (N8), so the month's ceiling, the alerts and the Money page count
+  it: the tokens the provider says, or a quarter of the characters from one that does not, at the deployment's price
+  when it knows the model and otherwise at the provider's published figure (checked in October: OpenAI's small model
+  2 cents a million, Gemini 15, Mistral 10, Voyage 6, Jina 1.8, one's own server nothing).
+- **Money is looked at before a model is asked.** The room a turn is checked against was tokens alone; a month whose
+  money was spent let every running task ask the model once more. An account with no money left -- at a ceiling above
+  nothing, or past one -- now leaves no room. An account allowed nothing still lets a call that costs nothing go.
+- **A call the budget refused is still on the books.** When the charge after a call was refused, the trace was
+  written and the account was not, so the Money page and the next check were short by what the provider billed. The
+  bill now reaches every account the charge would have, above the ceiling (`budget_settle`).
+- **Tested.** `writes-once.test.ts` (the entry, the invoice and its payment, the contact, deal and note, a key in two
+  companies), `collections.test.ts` (a server that hangs up after the letter, and one that refuses the address),
+  `vision.test.ts` (every provider's count, the estimate, the price, no price list), `meaning.test.ts` (passages,
+  questions, the price list over the provider's figure, the carried fraction) and `money-before-the-call.test.ts`
+  (no call with the money spent, a refused call's bill). Each was seen to fail first.
+- **Not done.** Money is still checked against what is spent, not reserved before a call: a call can overshoot a
+  ceiling by its own cost, which is recorded. `metric.record`, `ticket.create` and the platform's other writers either
+  write what is the same however often they are called or are not money; they are not keyed.
+
+## 2.181 A goal nobody works on wakes the CEO, and the CEO proposes the hires the company lacks (the audit of 10 October)
+
+The audit's verdict on autonomy was that the platform keeps work moving once something starts it, and starts
+nothing itself: a company with one CEO and one mission goal, left for a day, made six idle wakes and no task, because
+every source of self-started work -- a schedule, a ticket, a measure, an invoice -- is a record somebody made. And the
+company could not grow: the CEO was told to file a ticket beginning "Hire:", and nothing read the prefix. The
+goal-level cadence was listed here as not done since the audit of 3 October (P1 items 1 and 2).
+
+- **A goal with no work under it wakes the CEO (`src/engine/goal-review.ts`).** A goal at the end of the company's
+  ladder -- active, with no active goal below it -- whose own work and the work below it is all finished, and none of
+  it, nor the goal, newer than three days, makes one task for the CEO: decide the next useful piece of work toward it
+  and see that it is done (hand it on with `task.delegate`, or do it), propose a schedule for work owed again and
+  again, propose the role the company lacks, or, when the goal waits on the owner, a customer or time, say so in one
+  line and stop -- *do not invent work to look busy*. The brief is the platform's words, the goal's own statement cut
+  to a line, and numbers; the CEO may ask the owner at most once, in their language.
+- **What keeps it from becoming a meter.** One read when nothing is owed; a goal at most once a week (the look is
+  itself work under the goal, so it is not idle again for three days, and a second look waits seven); one look at a
+  time for a company and one an hour, the goal idle longest first; not while the company winds down; nothing for a
+  frozen CEO; lower priority than work somebody asked for; and **only where the deployment has a model**
+  (`reviewsGoals`, set in `main.ts`): a task no runtime can take would halt every week and be reported every week. A
+  goal the owner closes takes its look with it if it had not started, as an outcome look does.
+- **A ticket says what it is (`tickets.kind`, 0132).** `ticket.create` takes `kind: "hire"` for a role the company
+  lacks: the title is the role, the body the work it would take over. The owner is shown it the moment it is filed,
+  once, as a card in their language (`hireProposedCard`), not tied to the run that filed it; it is never offered to
+  the CEO's triage as work to hand on to nobody; and the board marks it **A hire**. The CEO's charter now says to
+  propose a hire so, and not to ask again while one is open.
+- **The owner hires it with the CEO in a word.** The card and the board offer *Hire it with the CEO*, which opens
+  the conversation with the CEO with the proposal waiting in the box, in the owner's language: the owner sends it,
+  or changes it, and the CEO builds the role there (2.175), where building the team needs no card. *Not needed now*
+  closes the ticket, and a hire closed on the board withdraws its card (`ticket_closed`).
+- **Tested.** `goal-review.test.ts` (the look and its brief; a busy goal, a young one, open work, work below it; a
+  week after a look and not before; the oldest first, one an hour, winding down; the worker only with a model; a
+  closed goal) and `hire-proposals.test.ts` (the card in the owner's language, once; an ordinary ticket raises none;
+  never triaged; the board and the inbox say it is a hire; the charter; a closed hire takes its card). Each was seen
+  to fail first.
+- **Not done.** Whether a real model, woken this way, does useful work rather than busy work is the next live run's
+  to show (2.24 is the last). Hiring still takes the owner's word, by design (F2.9).
+
+## 2.182 What a review of the whole pull request found, and what it changed (20 October)
+
+A review of everything this branch adds -- ten reviewers, each over one area of the diff, then two skeptics for each
+finding, one trying to reproduce it and one looking for what already guards it -- found sixty-one defects. Three were
+refuted: one about invoice.remind sending twice, which 2.180 had already fixed, one about a ceiling the product cannot
+create, and one about prompt caching that is a cost choice, not a fault (it is taken up below anyway). Every other one
+was given a test that failed for the reason found before its fix. Two helpers worked on the console, files, mail and
+the collections duty in worktrees with databases of their own, and a second review of the fixes found five more, also
+fixed; a review of the helpers' own commits found five more again, the last bullet but one. None needed a migration.
+
+- **Work the budget stopped goes on only when somebody still waits for it, within the room of every account above
+  it (`src/engine/self-heal.ts`).** The platform went on with a task the owner had already run again -- the same work
+  twice, an email sent twice -- and with a child whose parent had failed or been cancelled. It took the 25 oldest
+  stopped tasks before asking which could go on, so a paused role's backlog kept every newer task waiting for good.
+  It counted room per account while room is the whole chain's, so two divisions under one company account each
+  spent the company's room. Now a task run again (by its event, or in the moment before, by the new task's key) and a
+  child whose parent was given up are left for the owner; a parent that *completed* abandons nothing (a follow-up, a
+  hand-off's successor, work handed down -- the second review's find); those that cannot go on are sorted after the
+  rest; every account in a chain gives up a run's worth for each task that goes on; and one look at a time runs for
+  a company, under a session advisory lock.
+- **The owner's pause is the owner's.** Pausing a role the spend breaker had already stopped was accepted and
+  dropped, and the role went back to work when the burst cooled. The pause now takes the freeze over.
+- **Work handed to a paused role is refused to the run that handed it.** The refusal for the child's role was read as
+  the parent's own role being paused, and the parent waited, woken hourly, for good. The model is now told, and can
+  hand it elsewhere.
+- **Money below a cent is carried for the account it is charged to.** One carry for the company turned one
+  division's fractions into another's whole cent; a fallback model's bill forgave what the first model's calls still
+  owed. A run, the guardian and `image.describe` now carry per account, and a fallback starts its own count.
+- **A provider's dated snapshot is priced as the model asked for.** "gpt-5" answered as "gpt-5-2025-08-07" matched no
+  price and was charged the fallback, about twelve times its input price. A name's price covers its dated snapshots,
+  and only those. A catalogue that could not be read is tried again an hour later, not every five minutes.
+- **A run's last turn after going round in circles no longer fails on Anthropic.** It was sent with no tools and its
+  tool calls, which Anthropic and Bedrock refuse with a 400. The calls are told in words for that turn.
+- **A person's answer is the work done**, though the person was unseated before the task went on, and the output says
+  who answered -- the person, or the owner in their place.
+- **What lets someone new in for good takes a code at the moment.** Seating a person and connecting a channel the
+  owner is reached and answered on (Telegram, WhatsApp, push, Slack, Discord, email) ask for the device when they are
+  done, as enrolling a device does: a stolen session could otherwise keep access after "sign out everywhere"
+  (`docs/THREAT-MODEL.md`). Nothing else asks again.
+- **The assistant.** A check's answer (an MCP server's own tool descriptions) counts as an outsider's words, so the
+  action after it is a card. "Start a company" no longer names the removed `standard-company` template. Two tabs make
+  one CEO briefing between them (a lock; the test holds the table so the two writes meet).
+- **What a seat reads.** The decisions' history leaves out questions put to another seat, as the queue does.
+- **Roles.** A role is not moved onto a person, nor a person's role onto a runtime, with the reason said; the console
+  offers neither, and on a deployment that runs only people it says no runtime runs here.
+- **Anthropic's cache.** A single question no longer marks its message for a cache nothing will read (a quarter more
+  than its price); a run's turns and every system prompt still are.
+- **Mail and received files.** Whether a mail was cut short is decided by the bytes the server sent, not by
+  RFC822.SIZE, which Exchange only estimates; a file's size is counted from its base64 alphabet; a file of one to three
+  bytes no longer fails, and "SELF..." is not a program; a mail that is only a forwarded letter or an invitation starts
+  work again; two writers making the same folder no longer lose a file. The owner can remove what strangers sent
+  (`received/`), which frees the company's room for it -- before, it could never be freed -- and what `code.compute`
+  makes from such a file stays under `received/`, where no letter takes it from.
+- **Invoices.** PDFs print after the 500th (the uploads' limit no longer holds the invoices folder), and a PDF a crash
+  cut short is drawn again. The export writes date columns as days, so an archive made east of UTC restores its dates.
+- **Collections (2.178).** The duty runs as its procedure whatever its role's runtime, and when run again: the engine
+  resolves a duty before it chooses a runtime. Switching reminders on grants only what reminding takes, never hires a
+  second bookkeeper (a paused one is given the tool, a person keeps the job, and the console says who cannot send),
+  and asks a recovery session for the device. The look uses an open project, reads every overdue invoice oldest
+  first, counts days on the company's time zone, makes no second task while one is live, sends to the address added
+  to the customer after the "no email" card, says the "nobody reminds" card once, and counts staleness from the first
+  letter's day, so a first step past sixty days is sent. A payment note longer than a letter carries is refused, not
+  cut, and an empty one is no longer saved as the word "undefined".
+- **The console.** "Check the prices now" no longer leaves the old prices in the boxes for Save to pin as the owner's
+  own; a company named in another script can be started; the console lands on a new company's overview; an offered
+  answer sends its files, and a removed file can be chosen again; file sizes are in the owner's language and in the
+  megabytes the limits use.
+- **What the review of the helpers' commits found.** Drawing an invoice's PDF again removed the entry it found by
+  name, and a link put there in its place took whatever it pointed at: only the file's own entry is removed now, and a
+  link there is refused. A reminder for an invoice issued to an address no letter can go to went nowhere, though the
+  look had counted the customer's address as where it would go: it now goes there. Reminders waiting for a paused
+  sender counted as the live task and kept another sender from sending them. A payment note of a few hundred thousand
+  spaces held the owner API for most of a minute (its trailing blanks were cut by a pattern that backtracked): it is
+  cleaned in one pass, and a note far too long is refused before it is cleaned. And saving the days asked a recovery
+  session for the device, because the form sends the note back untouched: only a note that says something new asks
+  now, and two saves at once no longer undo each other. Each was seen to fail first.
+- **Not done.** Saving the reminders' policy and giving the tool are still two transactions: an unexpected error
+  between them leaves reminders on with nobody to send them, which the look then says on its card. A rerun pressed in
+  the same instant the platform goes on with the task can still run both. Telegram and WhatsApp media were kept next,
+  in 2.183.
+
+## 2.183 A customer's photo or document on Telegram or WhatsApp is kept, as a mailed one is (P1.4 part 6)
+
+A receipt photographed on WhatsApp reached the run as "[sent a photo, which cannot be read here]", while the same
+receipt mailed was kept and read (2.16x). Part 6 of P1.4 had been left with the transports' downloads unverified.
+
+- **Fetched with the channel's own token, once the message is claimed (`src/chats/hook.ts`).** The parsers say what
+  a message carries -- Telegram's largest photo size, a document with its name and type, a voice note, a video; on
+  WhatsApp an image, a video, a document or audio -- and fetch it only when the platform keeps it: a duplicate, or a
+  message past the hour's limit, fetches nothing. A sticker, a place or a contact card is said, not kept. Telegram is
+  asked where the file is (`getFile`) and it is read from there (`telegramFile`); WhatsApp's Graph API is asked for the
+  file's address, which lasts five minutes, and it is read with the same token (`whatsappMedia`).
+- **The same path, the same limits.** What is fetched goes through `keepReceivedFile` under `received/telegram/` or
+  `received/whatsapp/`, with the mailboxes' limits per file, per message, per day and per company, the same refusal of
+  programs and the same notes; the run is told where each file is, and `chat.read` reads it. A size Telegram states
+  over the limit is never fetched, and every download is read to at most the limit whatever was stated
+  (`readReceived`), so a file that says it is small cannot fill memory.
+- **The token goes to Meta and nowhere else.** A download address the Graph API gives is fetched with the number's
+  token only when it is on one of Meta's own hosts (or the Graph API's, when a deployment points that elsewhere): one
+  that is not is refused, with the reason on the file, and never handed the token. The bot's token is given to the
+  redactor before any address that carries it is used.
+- **Tested** in `chat-media.test.ts` (a Telegram photo's largest size and a PDF kept whole, a file Telegram says is
+  too big not fetched, a download that fails said so, the token in nothing kept; a WhatsApp photo and PDF kept, an
+  address that is not Meta's never asked) and `customer-whatsapp.test.ts`, whose photo is now a file with its note.
+  Both were seen to fail first.
+- **Not verified here.** Telegram hands a bot files of at most 20 MB and Meta's media addresses expire in five
+  minutes, by their documentation; neither was tried against the real services from this environment. A large file
+  is fetched while Telegram or Meta waits for the delivery's answer: a slow download can make them deliver it again,
+  which the message's key turns into nothing more than a duplicate.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -9656,7 +11026,7 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-five of the fifty-nine catalogued capabilities are unbound on a bare
+**Thirty-five of the sixty catalogued capabilities are unbound on a bare
 boot -- thirty-one on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and

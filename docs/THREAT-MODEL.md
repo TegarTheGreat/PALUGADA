@@ -301,17 +301,34 @@ binds it to an outside tracker), and any task a hook starts.
    tell a stranger the page was opened); a link goes out only if it is http,
    https or mail, in a tab told nothing of this one; and the reader is bounded
    in length, lines, nesting and reach. The owner's assistant proposes
-   cards the owner applies (`src/owner/assistant.ts`), with one exception: the
-   everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
-   telling, stopping or rerunning a task, remembering what the owner says to
-   remember and recording a figure they give; no device, no key -- is done as it is
-   proposed, **only in an answer that has read nothing an agent or a stranger
-   wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
-   settings). After a read of a task, an inbox item, a ticket, a message, a
-   memory or a document, the same action is a card, so text from outside cannot
-   have the assistant start work as the owner in the answer that read it (what
-   a later answer carries of it is under Residual risk). A test names the
-   actions, so adding one is a decision.
+   cards the owner applies (`src/owner/assistant.ts`), with one exception:
+   what is marked `auto` in `assistant-actions.ts` is done as it is proposed.
+   Anywhere, the owner's chats included, that is everyday work: giving work;
+   filing a ticket, closing or opening one again, and handing one to a role;
+   telling, stopping or running a task again; going on with a task its budget
+   stopped, which spends what its raised ceiling allows; leaving an invoice
+   out of the automatic reminders or putting it back; remembering what the
+   owner says to remember; and recording a figure they give. In the console
+   only, it is also building the team: opening a division, starting a
+   project, adding a goal, rewording one or closing it as met or abandoned
+   (which pauses the schedules and triggers under it), hiring a role or
+   changing one (its charter, done criteria, tools, model, runtime, run length
+   and who it is, and with `grantTools` letting its division use the tools it
+   names, except those that cannot be undone), and letting a division use a
+   capability at a tier or taking it away. None of it takes a key, loosens
+   money or decides an inbox item. Opening a division, rewording or closing a
+   goal, hiring or changing a role and granting a capability are done at once
+   only because the console session was signed in with the owner's device; in
+   a session signed in with a recovery code each is a card that asks for a
+   code. All of it is done **only in an answer that has read nothing an agent
+   or a stranger wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's
+   structure, money and settings). After a read of a task, an inbox item, a
+   ticket, a message, a memory or a document, the same action is a card, so
+   text from outside cannot have the assistant start work, or change the
+   team, as the owner in the answer that read it (what a later answer carries
+   of it is under Residual risk). A test in `test/acceptance/assistant.test.ts`
+   ("only everyday work, and building the team in the app, is done at once")
+   names the actions, so adding one is a decision.
 
 **Residual risk.**
 

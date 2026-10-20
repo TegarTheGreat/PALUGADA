@@ -190,10 +190,14 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
     // One at a time: a task still waiting -- for the owner's mailbox, a
     // window, its turn -- has the reminders in hand. The next day's look sees
     // another day, so another task, which asked the owner for the same
-    // mailbox again, each day, until they gave it.
+    // mailbox again, each day, until they gave it. Not one whose sender is
+    // paused: it waits as long as the pause, and another sender may send
+    // meanwhile (a letter's step is taken under the invoice's lock, so the
+    // two never write the same one).
     const { rows: live } = await tx.query(
-      `SELECT 1 FROM tasks WHERE idempotency_key LIKE 'duty:collections:%'
-          AND status NOT IN ('completed', 'failed', 'halted', 'cancelled') LIMIT 1`);
+      `SELECT 1 FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.idempotency_key LIKE 'duty:collections:%' AND r.frozen_at IS NULL
+          AND t.status NOT IN ('completed', 'failed', 'halted', 'cancelled') LIMIT 1`);
     return { role: rows[0] ?? null, projectId: project[0]?.id ?? null, goalId: goal[0]?.id ?? null, busy: live.length > 0 };
   });
 

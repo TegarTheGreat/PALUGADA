@@ -30,7 +30,8 @@ import { addContact, changeContact } from '../../src/records/contacts.ts';
 import { issueInvoice, payInvoice } from '../../src/records/invoices.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { ScriptedModel } from '../helpers/scripted-model.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { addRole, createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { pauseRole } from '../../src/governance/role-freeze.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { certificate, imapServer, smtpServer } from '../helpers/mail-servers.ts';
@@ -256,6 +257,27 @@ test('an invoice issued to an address no letter can go to is sent to the one the
     const outcome = await engine.runTask(fixture.companyId, look.task!, 'worker');
     assert.equal(outcome.status, 'completed', outcome.reason);
     assert.deepEqual(smtp.sent.map((one) => one.to), [['jose@hotel.example']]);
+  } finally {
+    await close();
+  }
+});
+
+test('reminders that wait on a paused sender do not keep another sender from sending', { skip: SKIP }, async () => {
+  // Found reviewing "no new task while one is waiting": the task of a sender
+  // the owner paused waits as long as the pause, and counted as the one in
+  // hand, so nobody reminded anyone though another role could.
+  const fixture = await createCompany('duty-paused-sender');
+  const { close } = await office(fixture);
+  try {
+    const other = await addRole(fixture, 'billing');
+    await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET tools = ARRAY['invoice.remind', 'plan.record', 'owner.ask'] WHERE id = $1", [other]));
+    await overdue(fixture, 5);
+    const first = await ensureCollections(fixture.companyId, later());
+    assert.equal((await statusOf(fixture, first.task!)).roleId, fixture.roleId, 'the oldest sender has it');
+    await pauseRole(fixture.companyId, fixture.roleId, 'on leave');
+    const next = await ensureCollections(fixture.companyId, new Date(later().getTime() + 86_400_000));
+    assert.ok(next.task, 'another sender takes it up');
+    assert.equal((await statusOf(fixture, next.task!)).roleId, other);
   } finally {
     await close();
   }

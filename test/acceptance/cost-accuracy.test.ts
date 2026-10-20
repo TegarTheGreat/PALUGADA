@@ -33,6 +33,9 @@ import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
+import { createAccount } from '../../src/engine/budget.ts';
+import { AdapterRegistry, type RunRequest, type RunServices } from '../../src/runtime/protocol.ts';
+import { ProviderFailure } from '../../src/runtime/wire.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { answering } from '../helpers/done.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -167,8 +170,84 @@ test('a run of small turns is charged what they cost, to the account and to the 
   assert.equal(spent.calls, 12);
   assert.equal(spent.account, 3, 'twelve turns of a quarter of a cent are three cents, not twelve');
   assert.equal(spent.traced, 3, 'and the traces, which every report adds up, say the same');
-  // What was left below a cent goes with the next call, wherever it is made.
-  near(carryFor(fixture.companyId).pending, 0);
+  // What was left below a cent goes with the account's next call.
+  near(carryFor(fixture.budgetAccountId).pending, 0);
+});
+
+/** A runtime whose run reports what `report` says, in the order given, and can fail the way a provider does. */
+function reporting(report: (request: RunRequest, services: RunServices) => Promise<void>) {
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'reporting', backends: ['local'],
+    async health() { return { ok: true, detail: 'test' }; },
+    async run(request, services) {
+      await report(request, services);
+      return { output: { summary: 'done', done: [{ criterion: 'the run returns an output matching its schema', met: true, evidence: 'this output' }] } };
+    },
+  });
+  return adapters;
+}
+
+test('what one account owes below a cent is charged to that account, not to the next account to make a call', async () => {
+  const fixture = await createCompany('cost-two-accounts');
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET runtime = 'reporting', backend = 'local' WHERE id = $1", [fixture.roleId]));
+  const leaf = (label: string) => withTenant(fixture.companyId, (tx) => createAccount(tx, {
+    companyId: fixture.companyId, label, tokensMax: 1_000_000, moneyMaxCents: 10_000,
+    scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+  }));
+  const sales = await leaf('Sales');
+  const ops = await leaf('Operations');
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'cost-accounts',
+    adapters: reporting(async (_request, services) => {
+      await services.reportUsage({ model: 'test-model', inputTokens: 100, outputTokens: 10, costCents: 0.6 });
+    }),
+  });
+  const run = async (budgetAccountId: string) => {
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId, goalId: fixture.goalId, input: { goal: `a small call (${budgetAccountId})` }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  };
+  await run(sales);
+  await run(ops);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string; spent: string }>(
+    'SELECT id, money_spent_cents::text AS spent FROM budget_accounts WHERE id = ANY($1::uuid[])', [[sales, ops]]));
+  // Each spent six tenths of a cent: neither has spent a cent yet. One
+  // carry for the company charged Operations a whole cent for Sales' call.
+  assert.deepEqual(Object.fromEntries(rows.map((row) => [row.id, Number(row.spent)])), { [sales]: 0, [ops]: 0 });
+  near(carryFor(sales).pending, 0.6);
+  near(carryFor(ops).pending, 0.6);
+});
+
+test('a fallback model\'s bill replaces what its own calls were estimated at, not what the model before it spent', async () => {
+  const fixture = await createCompany('cost-fallback');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET runtime = 'reporting', backend = 'local', model = 'first-model', model_fallback = ARRAY['second-model'] WHERE id = $1",
+    [fixture.roleId]));
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'cost-fallback',
+    adapters: reporting(async (request, services) => {
+      if (request.modelRouting.primary === 'first-model') {
+        // The first model's call is billed, then the provider goes down.
+        await services.reportUsage({ model: 'first-model', inputTokens: 100, outputTokens: 10, costCents: 0.3 });
+        throw new ProviderFailure('first-model', 'provider returned 503');
+      }
+      // The second model makes a call and then reports its own total.
+      await services.reportUsage({ model: 'second-model', inputTokens: 100, outputTokens: 10, costCents: 0.2 });
+      await services.reportUsage({ model: 'second-model', inputTokens: 100, outputTokens: 10, costCents: 0.2, runTotal: true });
+    }),
+  });
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'one call on each model' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  // The first model's three tenths are still owed: the second model's bill
+  // does not cover them, and forgiving them lost them.
+  near(carryFor(fixture.budgetAccountId).pending, 0.3);
 });
 
 /**

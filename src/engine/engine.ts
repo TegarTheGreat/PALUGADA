@@ -1129,7 +1129,7 @@ export class Engine {
             payload: { model: usage.model, chargedCents, actualCents: actual, deltaCents: delta },
           });
         });
-        carryFor(companyId).forgive(exactRunCents - chargedCents);
+        carryFor(task.budgetAccountId).forgive(exactRunCents - chargedCents);
         chargedCents = actual;
         exactRunCents = actual;
         return;
@@ -1153,8 +1153,12 @@ export class Engine {
       // a company owes below a cent is carried to its next call instead and
       // charged when it adds up to one: the total is right, and the ceiling is
       // reached under a cent late, never early (pricing.ts, `CostCarry`).
+      // Carried for the account the run draws on: what is charged is charged
+      // to that account's chain, and one carry for the company turned one
+      // division's fractions into another's whole cent (the review of 20
+      // October).
       const exactCents = usage.costCents === null ? estimate!.cents : usage.costCents;
-      const costCents = carryFor(companyId).charge(exactCents);
+      const costCents = carryFor(task.budgetAccountId).charge(exactCents);
       exactRunCents += exactCents;
 
       // Drawn from this task's own reservation, by what is left of it, in the
@@ -1311,7 +1315,11 @@ export class Engine {
             stepIndex = 0;
             recorded = null;
             taken = new Set();
+            // A fallback model's bill replaces its own calls' estimates, not
+            // what the model before it spent: those stay charged, and what
+            // they left below a cent stays owed.
             chargedCents = 0;
+            exactRunCents = 0;
           },
         },
         services,

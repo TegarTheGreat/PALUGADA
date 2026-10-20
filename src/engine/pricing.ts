@@ -150,7 +150,13 @@ export class CostCarry {
 
 const carries = new Map<string, CostCarry>();
 
-/** A company's carry: one for the process, so every call it makes, wherever it is made, is counted into the same cent. */
+/**
+ * The carry for what is charged to one place: a budget account, for a run's
+ * calls, so what one account owes below a cent is charged to it and not to
+ * another's next call; a company, for its calls made outside any task. One
+ * for the process, so every call charged there, wherever it is made, is
+ * counted into the same cent.
+ */
 export function carryFor(companyId: string): CostCarry {
   let carry = carries.get(companyId);
   if (!carry) {

@@ -2735,7 +2735,7 @@ test('a CLI\'s own total replaces the estimates it was charged (F13.7)', async (
   // not yet charged; then the bill of 42 replaces it -- and the owed part with
   // it, so it is not charged again with the next call: 42, not 43.
   assert.equal(await spentBy(fixture), 42);
-  assert.equal(carryFor(fixture.companyId).pending, 0);
+  assert.equal(carryFor(fixture.budgetAccountId).pending, 0);
   const settled = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
       "SELECT payload FROM events WHERE type = 'cost.settled'",
@@ -2792,7 +2792,7 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
     assert.equal(outcome.status, 'completed', `${what}: ${outcome.reason}`);
     assert.equal(await spentBy(fixture), cents, what);
     // A price Hermes does not know is estimated, not free: what the estimate comes to is owed.
-    if (what === 'not known') assert.ok(Math.abs(carryFor(fixture.companyId).pending - 0.435) < 1e-9, String(carryFor(fixture.companyId).pending));
+    if (what === 'not known') assert.ok(Math.abs(carryFor(fixture.budgetAccountId).pending - 0.435) < 1e-9, String(carryFor(fixture.budgetAccountId).pending));
   }
   assert.deepEqual(knownCli('hermes').costArgs, ['sessions', 'export', '-', '--session-id', '{sessionId}']);
   assert.throws(() => runtimeSpecsFrom([{ name: 'hermes', command: 'h', args: ['{mcpConfig}'], costArgs: 'sessions' }]),
@@ -2834,7 +2834,7 @@ test('a call priced at a fraction of a cent is owed, and charged when it comes t
   assert.equal(outcome.status, 'completed', outcome.reason);
   // 0.4 and 0.7 are 1.1 cents in all: one charged, the tenth owed.
   assert.equal(await spentBy(fixture), 1);
-  assert.ok(Math.abs(carryFor(fixture.companyId).pending - 0.1) < 1e-9);
+  assert.ok(Math.abs(carryFor(fixture.budgetAccountId).pending - 0.1) < 1e-9);
 });
 
 /** The wire's own half of it, for every runtime that is not this process. */

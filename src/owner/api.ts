@@ -5221,6 +5221,24 @@ export class OwnerApi {
                 `no runtime named ${runtime} runs here; this deployment runs ${here.join(', ') || 'none'}`,
                 { runtime });
             }
+            // A person is not a runtime a role is moved onto, nor one it is
+            // moved off: a person is seated, then hired as a role of their own,
+            // and an agent does a person's work as a role of its own. Moved
+            // either way, the role ended in the database's own refusal
+            // (roles_person_is_named), in its words (the review of 20 October).
+            const { rows: was } = await withControlPlane((tx) => tx.query<{ runtime: string | null; person_name: string | null }>(
+              'SELECT runtime, person_name FROM roles WHERE id = $1 AND company_id = $2', [params.roleId, params.companyId]));
+            const isPerson = was[0]?.runtime === 'person';
+            if (runtime === 'person' && !isPerson) {
+              throw new PalugadaError('contract.violation',
+                'a person is hired as a role of their own: seat them under People, then hire them, rather than moving a role onto them',
+                { field: 'runtime' });
+            }
+            if (isPerson && runtime !== 'person') {
+              throw new PalugadaError('contract.violation',
+                `${was[0]!.person_name ?? 'a person'} does this role's work; to have an agent do it, hire an agent role for it`,
+                { field: 'runtime' });
+            }
             fields.runtime = runtime;
           }
           Object.assign(fields, whoFrom(body));

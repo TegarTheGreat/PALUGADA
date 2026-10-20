@@ -173,6 +173,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "บอตใหม่ยังไม่มีรูปโปรไฟล์ ใช้รูปของ PALUGADA หรือเลือกรูปของคุณเองใน @BotFather",
   "A new month began, and spending resumed": "เริ่มเดือนใหม่ และกลับมาใช้จ่ายได้แล้ว",
   "A percentage": "เปอร์เซ็นต์",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "งานของบทบาทนี้ทำโดยคน หากต้องการให้เอเจนต์ทำ ให้จ้างบทบาทเอเจนต์สำหรับงานนี้",
   "A personal API key.": "คีย์ API ส่วนตัว",
   "A personal API token, from the Developers section of your profile.": "โทเค็น API ส่วนตัว จากส่วน Developers ในโปรไฟล์ของคุณ",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "นโยบายหรือการตรวจสอบปฏิเสธขั้นตอนที่งานนี้ต้องใช้ หากขั้นตอนนั้นควรได้รับอนุญาต ให้แก้นโยบายที่ ทีม > นโยบาย แล้วกดทำอีกครั้ง",

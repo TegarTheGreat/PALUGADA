@@ -151,6 +151,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "새 봇에는 프로필 사진이 없어요. PALUGADA의 사진을 쓰거나 @BotFather에서 직접 고르세요.",
   "A new month began, and spending resumed": "새 달이 시작되어 지출이 재개됨",
   "A percentage": "백분율",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "이 역할의 일은 사람이 합니다. 에이전트에게 맡기려면 그 일을 할 에이전트 역할을 채용하세요.",
   "A personal API key.": "개인 API 키.",
   "A personal API token, from the Developers section of your profile.": "프로필의 Developers 섹션에서 발급하는 개인 API 토큰.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "정책이나 검사가 필요한 단계를 거부했어요. 그 단계를 허용해야 한다면 '팀 > 정책'에서 정책을 바꾼 다음 다시 실행하세요.",

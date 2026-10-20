@@ -179,6 +179,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Bot énggal teu acan gaduh gambar. Pasihan gambar PALUGADA, atanapi pilih nyalira di @BotFather.",
   "A new month began, and spending resumed": "Bulan énggal parantos dimimitian, sareng waragad diteraskeun deui",
   "A percentage": "Perséntase",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Aya jalma anu ngalakukeun pagawéan role ieu. Sangkan agén anu ngalakukeunana, rékrut role agén pikeun éta.",
   "A personal API key.": "Konci API pribados.",
   "A personal API token, from the Developers section of your profile.": "Token API pribados, ti bagian Developers dina profil anjeun.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Hiji kawijakan atanapi pamariksaan nolak léngkah anu diperyogikeun ku tugas ieu. Upami léngkah éta kedah diidinan, robih kawijakanana di Tim, Kawijakan, teras laksanakeun deui.",

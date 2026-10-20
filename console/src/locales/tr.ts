@@ -180,6 +180,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Yeni bir botun resmi yoktur. PALUGADA'nın resmini verin ya da @BotFather'da kendi resminizi seçin.",
   "A new month began, and spending resumed": "Yeni ay başladı ve harcama yeniden başladı",
   "A percentage": "Yüzde",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Bu rolün işini bir kişi yapıyor. Bir ajanın yapması için, bunun için bir ajan rolü işe alın.",
   "A personal API key.": "Kişisel bir API anahtarı.",
   "A personal API token, from the Developers section of your profile.": "Profilinizin Developers bölümünden alınan kişisel bir API token'ı.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Bir ilke ya da bir denetim, ihtiyaç duyduğu bir adımı reddetti. Bu adıma izin verilmesi gerekiyorsa ilkeyi Ekip sayfasında, İlkeler sekmesinde değiştirin, sonra yeniden yapın.",

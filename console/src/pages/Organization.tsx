@@ -457,7 +457,10 @@ function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Ro
             : t('{runtime} does its work, and is not answering: {detail}', { runtime: current.name, detail: current.detail ?? t('no detail') })
           : t('Its runtime, {runtime}, does not run here, so it cannot work until it is moved to one that does.', { runtime: role.runtime ?? t('none') })}
       </Text>
-      {runtimes.data.length === 0 ? (
+      {role.runtime === 'person' ? (
+        // A person is not moved onto a runtime: an agent does their work as a role of its own.
+        <Text size="sm" c="dimmed">{t('A person does this role\'s work. To have an agent do it, hire an agent role for it.')}</Text>
+      ) : runtimes.data.length === 0 ? (
         <Text size="sm" c="dimmed">{t('No runtime runs here yet. Setting a model key in the deployment gives every role one.')}</Text>
       ) : (
         <ActionForm
@@ -468,7 +471,8 @@ function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Ro
             type: 'select',
             required: true,
             initial: role.runtime,
-            options: runtimes.data.map((runtime) => ({
+            // A person is seated and hired as a role of their own, not a runtime a role is moved onto.
+            options: runtimes.data.filter((runtime) => runtime.name !== 'person').map((runtime) => ({
               value: runtime.name,
               label: runtime.ok ? runtime.name : t('{runtime} (not answering)', { runtime: runtime.name }),
             })),

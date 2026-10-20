@@ -175,6 +175,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Un bot nuovo non ha un'immagine. Usa quella di PALUGADA o scegline una tua in @BotFather.",
   "A new month began, and spending resumed": "È iniziato un nuovo mese e le spese sono riprese",
   "A percentage": "Percentuale",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Il lavoro di questo ruolo lo fa una persona. Perché lo faccia un agente, assumi un ruolo di agente per questo.",
   "A personal API key.": "Una chiave API personale.",
   "A personal API token, from the Developers section of your profile.": "Un token API personale, dalla sezione Developers del tuo profilo.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Una policy o un controllo ha rifiutato un passaggio di cui aveva bisogno. Se quel passaggio deve essere consentito, modifica la policy in Organizzazione, Policy, poi rifalla.",

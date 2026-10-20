@@ -134,6 +134,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Walang larawan ang bagong bot. Ibigay rito ang larawan ng PALUGADA, o pumili ng sarili mo sa @BotFather.",
   "A new month began, and spending resumed": "Nagsimula ang bagong buwan, at itinuloy ang paggastos",
   "A percentage": "Porsiyento",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Isang tao ang gumagawa ng trabaho ng role na ito. Para isang agent ang gumawa nito, kumuha ng agent na role para rito.",
   "A personal API key.": "Isang personal na API key.",
   "A personal API token, from the Developers section of your profile.": "Isang personal na API token, mula sa Developers section ng iyong profile.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Tinanggihan ng isang patakaran o pagsusuri ang isang hakbang na kailangan nito. Kung dapat payagan ang hakbang na iyon, baguhin ang patakaran sa “Koponan”, “Mga patakaran”, pagkatapos ay gawin ulit.",

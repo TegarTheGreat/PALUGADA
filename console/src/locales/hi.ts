@@ -124,6 +124,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "नए बॉट की कोई तस्वीर नहीं होती। उसे PALUGADA की तस्वीर दें, या @BotFather में अपनी पसंद की तस्वीर चुनें।",
   "A new month began, and spending resumed": "नया महीना शुरू हुआ, और खर्च फिर से चालू हुआ",
   "A percentage": "प्रतिशत",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "इस भूमिका का काम एक व्यक्ति करता है। इसे किसी एजेंट से करवाने के लिए, उसके लिए एक एजेंट भूमिका भर्ती करें।",
   "A personal API key.": "एक निजी API कुंजी।",
   "A personal API token, from the Developers section of your profile.": "एक निजी API टोकन, आपकी प्रोफ़ाइल के Developers सेक्शन से।",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "किसी नीति या जाँच ने इसके एक ज़रूरी कदम को अस्वीकार कर दिया। अगर वह कदम अनुमत होना चाहिए, तो टीम पेज पर “नीतियाँ” में नीति बदलें, उसके बाद इसे फिर से करें।",

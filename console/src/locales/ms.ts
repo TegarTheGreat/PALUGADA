@@ -173,6 +173,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Bot baharu tiada gambar. Gunakan gambar PALUGADA, atau pilih sendiri dalam @BotFather.",
   "A new month began, and spending resumed": "Bulan baharu bermula, dan perbelanjaan disambung semula",
   "A percentage": "Peratusan",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Seorang manusia melakukan kerja peranan ini. Untuk ejen melakukannya, ambil peranan ejen untuknya.",
   "A personal API key.": "Kunci API peribadi.",
   "A personal API token, from the Developers section of your profile.": "Token API peribadi, daripada bahagian Developers dalam profil anda.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Satu dasar atau semakan menolak langkah yang diperlukannya. Jika langkah itu patut dibenarkan, tukar dasar itu di bawah Pasukan, Dasar, kemudian buat semula.",

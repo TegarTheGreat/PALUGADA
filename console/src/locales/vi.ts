@@ -178,6 +178,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Bot mới chưa có ảnh đại diện. Dùng ảnh của PALUGADA, hoặc tự chọn ảnh trong @BotFather.",
   "A new month began, and spending resumed": "Tháng mới đã bắt đầu, chi tiêu được tiếp tục",
   "A percentage": "Tỷ lệ phần trăm",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Một người đang làm công việc của vai trò này. Để một agent làm, hãy tuyển một vai trò agent cho việc đó.",
   "A personal API key.": "Khóa API cá nhân.",
   "A personal API token, from the Developers section of your profile.": "Token API cá nhân, lấy trong mục Developers của hồ sơ của bạn.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Một chính sách hoặc một bước kiểm tra đã từ chối một bước mà nhiệm vụ cần. Nếu bước đó nên được phép, hãy sửa chính sách tại Đội ngũ > Chính sách, rồi làm lại.",

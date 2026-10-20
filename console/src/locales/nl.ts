@@ -155,6 +155,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Een nieuwe bot heeft geen afbeelding. Geef hem die van PALUGADA, of kies zelf een in @BotFather.",
   "A new month began, and spending resumed": "Een nieuwe maand is begonnen en de uitgaven zijn hervat",
   "A percentage": "Percentage",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Een persoon doet het werk van deze rol. Laat een agent het doen door er een agentrol voor aan te nemen.",
   "A personal API key.": "Een persoonlijke API-sleutel.",
   "A personal API token, from the Developers section of your profile.": "Een persoonlijk API-token, uit het onderdeel Developers van je profiel.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Een beleidsregel of een controle weigerde een stap die ze nodig had. Moet die stap toegestaan zijn, pas dan de beleidsregel aan onder “Team, Beleidsregels” en voer de taak daarna opnieuw uit.",

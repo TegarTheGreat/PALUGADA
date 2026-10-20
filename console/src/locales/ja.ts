@@ -149,6 +149,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "新しいボットにはアイコンがありません。PALUGADA のアイコンを設定するか、@BotFather で自分で選んでください。",
   "A new month began, and spending resumed": "新しい月が始まり、支出を再開しました",
   "A percentage": "パーセント",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "このロールの仕事は人が行っています。エージェントに任せるには、そのためのエージェントのロールを採用してください。",
   "A personal API key.": "個人用の API キー。",
   "A personal API token, from the Developers section of your profile.": "プロフィールの Developers セクションで発行する個人用 API トークン。",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "必要なステップがポリシーまたはチェックによって拒否されました。そのステップを許可すべき場合は、「チーム > ポリシー」でポリシーを変更してから、もう一度実行してください。",

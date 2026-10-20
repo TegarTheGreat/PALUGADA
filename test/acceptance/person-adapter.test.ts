@@ -182,6 +182,41 @@ test('an answer already given is the work done, though the person was unseated b
   }
 });
 
+test('a role is not moved onto a person, nor a person onto a runtime: each is hired as what it is', async () => {
+  // The review of 20 October: the role sheet offered "person" as a runtime
+  // for every role, and an agent's runtime for a person's, and every such move
+  // ended in the database's own refusal (roles_person_is_named) in its words.
+  const fixture = await createCompany('person-move');
+  const runtimes = new AdapterRegistry();
+  runtimes.register(new PersonAdapter());
+  runtimes.register({
+    name: 'in-process', backends: ['local'],
+    async health() { return { ok: true, detail: 'test' }; },
+    async run() { return { output: { summary: 'done' } }; },
+  });
+  const api = await consoleWithSettings({ runtimes });
+  try {
+    const owner = await api.signIn();
+    const move = (runtime: string) => api.call('POST', `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`, owner, { runtime });
+    const onto = await move('person');
+    assert.equal(onto.status, 400, JSON.stringify(onto.body));
+    assert.match(String(onto.body.error), /a person is hired as a role of their own/);
+
+    const budi = await seat(api, owner, fixture, 'Budi');
+    await bind(fixture, budi.seatId, 'Budi');
+    const off = await move('in-process');
+    assert.equal(off.status, 400, JSON.stringify(off.body));
+    assert.match(String(off.body.error), /Budi does this role's work/);
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ runtime: string; person_name: string }>(
+      'SELECT runtime, person_name FROM roles WHERE id = $1', [fixture.roleId]));
+    assert.deepEqual(rows[0], { runtime: 'person', person_name: 'Budi' }, 'and nothing was changed');
+    // Moving a person's role to where it is is no move, and refuses nothing.
+    assert.equal((await move('person')).status, 200);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a coordinator is told which of the roles it can hand work to are people, because they answer slowly', async () => {
   const fixture = await createCompany('person-team');
   const { addRole } = await import('../../src/governance/structure.ts');

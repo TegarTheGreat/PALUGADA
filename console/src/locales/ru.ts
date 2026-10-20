@@ -158,6 +158,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "У нового бота нет аватара. Поставьте ему аватар PALUGADA или выберите свой в @BotFather.",
   "A new month began, and spending resumed": "Начался новый месяц, и расходы возобновлены",
   "A percentage": "Процент",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Работу этой роли выполняет человек. Чтобы её делал агент, наймите для этого роль агента.",
   "A personal API key.": "Личный API-ключ.",
   "A personal API token, from the Developers section of your profile.": "Личный API-токен из раздела Developers вашего профиля.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Политика или проверка отклонила нужный ей шаг. Если этот шаг должен быть разрешён, измените политику на странице «Команда», на вкладке «Политики», затем повторите задачу.",

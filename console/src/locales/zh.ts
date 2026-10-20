@@ -140,6 +140,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "新机器人没有头像。可以使用 PALUGADA 的头像，或在 @BotFather 中自行选择。",
   "A new month began, and spending resumed": "新的一个月开始，支出已恢复",
   "A percentage": "百分比",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "此角色的工作由一个人完成。若要由代理来做，请为此招聘一个代理角色。",
   "A personal API key.": "个人 API 密钥。",
   "A personal API token, from the Developers section of your profile.": "个人 API 令牌，在您个人资料的 Developers 部分获取。",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "某项策略或检查拒绝了它需要的一个步骤。如果该步骤应当允许，请在“团队 > 策略”中修改策略，然后重新执行。",

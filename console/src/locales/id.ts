@@ -74,6 +74,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "Bot baru belum punya gambar. Pakai gambar PALUGADA, atau pilih sendiri di @BotFather.",
   "A new month began, and spending resumed": "Bulan baru dimulai, dan pengeluaran berjalan lagi",
   "A percentage": "Persentase",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "Seorang manusia mengerjakan pekerjaan role ini. Agar agen yang mengerjakannya, rekrut role agen untuk itu.",
   "A personal API key.": "API key pribadi.",
   "A personal API token, from the Developers section of your profile.": "Token API pribadi, dari bagian Developers di profil Anda.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "Sebuah kebijakan atau pemeriksaan menolak langkah yang dibutuhkannya. Jika langkah itu seharusnya diizinkan, ubah kebijakannya di Tim, Kebijakan, lalu kerjakan lagi.",

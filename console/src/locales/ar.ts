@@ -151,6 +151,7 @@ export const DICTIONARY: Dictionary = {
   "A new bot has no picture. Give it PALUGADA's, or choose your own in @BotFather.": "البوت الجديد بلا صورة. يمكن إعطاؤه صورة PALUGADA، أو اختيار صورة أخرى في @BotFather.",
   "A new month began, and spending resumed": "بدأ شهر جديد، واستُؤنف الإنفاق",
   "A percentage": "نسبة مئوية",
+  "A person does this role's work. To have an agent do it, hire an agent role for it.": "يقوم شخص بعمل هذا الدور. ليقوم به وكيل، وظّف دور وكيل لذلك.",
   "A personal API key.": "مفتاح API شخصي.",
   "A personal API token, from the Developers section of your profile.": "رمز API شخصي، من قسم Developers في ملفك الشخصي.",
   "A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.": "رفضت سياسةٌ أو فحصٌ خطوةً كانت تحتاجها. إن كان ينبغي السماح بتلك الخطوة، فيمكنك تعديل السياسة من «الفريق»، «السياسات»، ثم إعادة تنفيذها.",

@@ -31,7 +31,7 @@ import { chatCapabilities } from '../../src/capabilities/chat.ts';
 import { fileTextReader } from '../../src/capabilities/files.ts';
 import { pollMailboxes } from '../../src/chats/mail.ts';
 import { readMail } from '../../src/chats/mime.ts';
-import { displayName, keepReceivedFile, sniffReceived } from '../../src/chats/attachments.ts';
+import { displayName, keepAnswerFiles, keepReceivedFile, sniffReceived } from '../../src/chats/attachments.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { Browsers } from '../../src/browser/browsers.ts';
@@ -503,6 +503,27 @@ test('the bytes decide the kind, and the name a sender gave decides nothing', as
   // A PDF with its header past the first kilobyte is not told as one: a reader would not find it either.
   assert.match(kept(Buffer.concat([Buffer.alloc(600 * 1024, 0x20), ORDER]), 'x.pdf'), /refused|text/, 'junk before %PDF- is not a PDF');
   assert.doesNotMatch(kept(Buffer.concat([Buffer.alloc(600 * 1024, 0x20), ORDER]), 'x.pdf'), /^pdf/);
+});
+
+/**
+ * A program was told by four bytes read at the start of any file, and a file
+ * shorter than that threw where it was read: an answer of "ok" with a file
+ * was a server error. And ELF was looked for at the second byte without the
+ * first, so a CSV whose first line began SELF-ASSESSMENT was a program.
+ */
+test('a file of a few bytes is the text it is, and text that begins with SELF is not a program', async () => {
+  for (const tiny of ['a', 'ok', 'yes', 'ok\n']) {
+    assert.deepEqual(sniffReceived(Buffer.from(tiny), 'jawab.txt'), { kind: 'text', ext: 'txt' }, JSON.stringify(tiny));
+  }
+  assert.deepEqual(sniffReceived(Buffer.from('SELF-ASSESSMENT 2026\nnama,nilai\nSari,90\n'), 'self.csv'), { kind: 'text', ext: 'csv' });
+  assert.match(JSON.stringify(sniffReceived(Buffer.from('\u007fELF'), null)), /program or a script/, 'the real mark of a program, four bytes long, is still one');
+
+  const root = await mkdtemp(join(tmpdir(), 'palugada-attachments-tiny-'));
+  roots.push(root);
+  const fixture = await createCompany('attachments-tiny');
+  const kept = await keepAnswerFiles(root, fixture.companyId, 'a1b2c3d4-0000-4000-8000-000000000000', [{ name: 'ok.txt', data: Buffer.from('ok').toString('base64') }]);
+  assert.deepEqual(kept.map((one) => [one.kind, one.bytes]), [['text', 2]]);
+  assert.equal(await readFile(join(root, fixture.companyId, kept[0]!.path), 'utf8'), 'ok');
 });
 
 test('a link where received files go does not carry the write out, and an earlier file is not replaced', async () => {

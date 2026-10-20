@@ -72,8 +72,10 @@ export function sniffReceived(bytes: Buffer, claimedName: string | null): { kind
   const head = bytes.subarray(0, 1024);
   if (head.includes('%PDF-')) return { kind: 'pdf', ext: 'pdf' };
 
-  if (text(bytes, 0, 2) === 'MZ' || text(bytes, 1, 3) === 'ELF' || text(bytes, 0, 2) === '#!'
-    || [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe].includes(bytes.readUInt32BE(0))) {
+  // A mark read at a fixed place is read only where the file reaches: "ok" is a whole answer, and too short for one.
+  // ELF's mark is four bytes, 0x7f and then the letters: the letters alone begin a word such as SELF.
+  if (text(bytes, 0, 2) === 'MZ' || (bytes[0] === 0x7f && text(bytes, 1, 3) === 'ELF') || text(bytes, 0, 2) === '#!'
+    || (bytes.length >= 4 && [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe].includes(bytes.readUInt32BE(0)))) {
     return { refused: 'it is a program or a script, which is never kept' };
   }
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))) {

@@ -218,12 +218,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” está esperando desde {since}. {why} Aprovar executa a tarefa de novo a partir de onde ela parou; Recusar a cancela.',
   'A task keeps stopping the worker running it': 'Uma tarefa continua derrubando o executor que a processa',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” perdeu o executor {lost} vezes: em cada uma, o executor que a processava parou de responder antes de o trabalho terminar. O que ela já tinha feito foi mantido. Ela foi interrompida para não derrubar outro executor; execute-a de novo quando a causa for encontrada, ou cancele-a.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} continuou fora do ar, e o trabalho que depende disso parou',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'A tarefa esperou cerca de {minutes} minutos, verificando de novo a cada tentativa, e parou. Quando o serviço responder, execute-a de novo.',
   'It was tried {tries} times over about {minutes} minutes.': 'Foram {tries} tentativas em cerca de {minutes} minutos.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Este cargo pode tomar ações que não podem ser desfeitas, então a execução não foi transferida em silêncio para outro modelo.',
   'No fallback model is left for this role.': 'Não resta nenhum modelo alternativo para este cargo.',
-  'Model {model} failed and the run was not moved': 'O modelo {model} falhou e a execução não foi transferida',
   'External write failed verification': 'Uma gravação externa não passou na conferência',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'A tarefa gravou em um serviço externo e conferiu o resultado, e o que leu não bateu. Verifique o lugar onde ela gravou antes de executá-la de novo: a gravação pode ter acontecido.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Revisão travada após {rounds} rodadas de correção: {capability}',
@@ -248,7 +245,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'O agendamento “{schedule}” continua produzindo o mesmo resultado',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'As últimas {runs} execuções terminaram todas com o mesmo resultado. Às vezes isso é exatamente o certo — um relatório sem nada de novo a dizer — e muitas vezes é um agendamento que deixou de fazer algo útil e continua sendo pago. Recusar desativa o agendamento; Aprovar o mantém em execução, sem novas perguntas sobre este resultado.',
   'Capability {capability} failed preflight': 'A capacidade {capability} não passou na verificação prévia',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'O trabalho que precisa dela é interrompido em vez de iniciado: corrija a causa e depois execute esse trabalho de novo. As causas mais comuns são uma credencial expirada ou com escopo errado, uma cota esgotada ou um endereço errado.',
   'Batch guard stopped {capability}': 'O controle de lote barrou {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Não correspondia ao plano que a execução registrou. Nada foi enviado e nenhum serviço foi chamado.',
   '{role} was asked first and has had {minutes} minutes.': 'Isto foi passado primeiro para {role}, que já teve {minutes} minutos.',
@@ -336,8 +332,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} recusou a chave do modelo ({status}), então nenhum trabalho que dependa do modelo consegue rodar. Abra Configurações, Esta instância, Modelo, cole uma chave que funcione, teste e salve.',
   '{host} refused the model key, and work is waiting': '{host} recusou a chave do modelo e o trabalho está em espera',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'O trabalho que espera o modelo continua sozinho assim que uma chave que funcione estiver em uso.',
   'A task ended before it was done: {task}':
     'Uma tarefa terminou antes de ficar pronta: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -413,4 +407,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Retirado: o dia a que se referia terminou.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Retirado: o teto do mês foi atingido, e o cartão que diz que a empresa está pausada toma o seu lugar.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'O trabalho que ainda estiver esperando depois de cerca de {hours} horas para, e este cartão fica então aberto para você executá-lo de novo.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} não está respondendo, e o trabalho que depende disso está esperando',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'O trabalho esperou cerca de {minutes} minutos, verificando de novo a cada tentativa, e continua esperando: ele segue sozinho assim que o serviço responder, e este cartão então se fecha sozinho.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'O trabalho espera e segue sozinho assim que o modelo responder, e este cartão então se fecha sozinho.',
+  'Model {model} is not answering, and work is waiting for it':
+    'O modelo {model} não está respondendo, e há trabalho esperando por ele',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'O trabalho que espera o modelo continua sozinho assim que uma chave que funcione estiver em uso, e este cartão então se fecha sozinho.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'O trabalho que precisa dela espera em vez de ser iniciado, e segue sozinho assim que a verificação passar; este cartão então se fecha sozinho. As causas mais comuns são uma credencial expirada ou com escopo errado, uma cota esgotada ou um endereço errado.',
 };

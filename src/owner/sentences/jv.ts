@@ -217,12 +217,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” sampun ngentosi wiwit {since}. {why} Setujoni kangge nglampahaken malih saking papan kendelipun, utawi Tolak kangge mbatalaken.',
   'A task keeps stopping the worker running it': 'Setunggal tugas bola-bali ndadosaken pekerja ingkang nglampahaken kendel',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” kecalan pekerjanipun ping {lost}: saben-saben, pekerja ingkang nglampahaken kendel mangsuli saderengipun pakaryan rampung. Punapa ingkang sampun dipuntindakaken tetep dipunsimpen. Tugas punika dipunkandhegaken supados mboten ndadosaken pekerja sanes ambruk; lampahaken malih sasampunipun sababipun kapanggih, utawi batalaken.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} tetep mboten saged dipunhubungi, lan pakaryan ingkang mbetahaken kendel',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Tugas punika ngentosi kinten-kinten {minutes} menit, mriksa malih saben wekdal, lan sapunika kendel. Sasampunipun layanan punika mangsuli, lampahaken malih.',
   'It was tried {tries} times over about {minutes} minutes.': 'Sampun dipuncobi ping {tries} salebeting kinten-kinten {minutes} menit.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Peran punika saged nindakaken tumindak ingkang mboten saged dipunwangsulaken, pramila lampahan punika mboten dipunpindhah kanthi meneng dhateng model sanes.',
   'No fallback model is left for this role.': 'Sampun mboten wonten model cadhangan kangge peran punika.',
-  'Model {model} failed and the run was not moved': 'Model {model} gagal lan lampahanipun mboten dipunpindhah',
   'External write failed verification': 'Panyeratan ing njawi mboten lulus verifikasi',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Tugas punika nyerat dhateng layanan ing njawi lajeng maos malih, lan ingkang kawaos mboten cocog. Pirsani papan ingkang dipunserati saderengipun panjenengan nglampahaken malih: seratan punika saged ugi sampun kelampahan.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Panliten buntu sasampunipun {rounds} revisi: {capability}',
@@ -247,7 +244,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Jadwal “{schedule}” tansah ngasilaken asil ingkang sami',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '{runs} lampahan pungkasanipun sedaya rampung kanthi asil ingkang sami. Kadhangkala punika pancen leres — laporan ingkang mboten wonten kabar enggal — lan asring punika jadwal ingkang sampun mboten nindakaken punapa-punapa ingkang migunani nanging taksih dipunbayar. Tolak kangge mejahi jadwal punika; Setujoni kangge tetep nglampahaken lan panjenengan mboten badhe dipuntakeni malih bab asil punika.',
   'Capability {capability} failed preflight': 'Kasagedan {capability} mboten lulus pamriksan wiwitan',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Pakaryan ingkang mbetahaken kasagedan punika dipunkendelaken, mboten dipunwiwiti: leresaken sababipun, lajeng lampahaken malih pakaryan punika. Sabab ingkang limrah: kredensial ingkang kadaluwarsa utawi wewenangipun lepat, kuota ingkang sampun telas, utawi alamat ingkang lepat.',
   'Batch guard stopped {capability}': 'Pangaman tumindak massal ngendelaken {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Punika mboten cocog kaliyan rancangan ingkang dipuncathet dening lampahanipun. Mboten wonten ingkang dipunkintun, lan mboten wonten layanan ingkang dipunpanggil.',
   '{role} was asked first and has had {minutes} minutes.': '{role} dipuntakeni rumiyin lan sampun pikantuk {minutes} menit.',
@@ -335,8 +331,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} mboten purun nampi kunci model ({status}), dados mboten wonten padamelan ingkang mbetahaken model saged mlampah. Bikak Setelan, Pamasangan punika, Model AI, tempelaken kunci ingkang saged dipunginakaken, ujia lajeng simpen.',
   '{host} refused the model key, and work is waiting': '{host} mboten purun nampi kunci model, lan padamelan nengga',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Padamelan ingkang nengga model badhé nglajengaken piyambak menawi kunci ingkang saged dipunginakaken sampun dipunginakaken.',
   'A task ended before it was done: {task}':
     'Satunggal tugas mandheg sadèrèng rampung: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -412,4 +406,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Dipunwangsulaken: dinten ingkang dipunrembag sampun rampung.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Dipunwangsulaken: wates sasi punika sampun kadugèn, lan kertu ingkang ngandharaken bilih perusahaan dipunendheg nggantosaken.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Pakaryan ingkang taksih ngentosi sasampunipun kinten-kinten {hours} jam badhé kendel, lajeng kertu punika tetep kabuka supados panjenengan saged nglampahaken malih.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} mboten mangsuli, lan pakaryan ingkang mbetahaken saweg ngentosi',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Pakaryan punika sampun ngentosi kinten-kinten {minutes} menit, mriksa malih saben wekdal, lan taksih ngentosi: badhé nglajengaken piyambak menawi layanan punika sampun mangsuli, lajeng kertu punika nutup piyambak.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Pakaryan punika ngentosi lan badhé nglajengaken piyambak menawi model sampun mangsuli, lajeng kertu punika nutup piyambak.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Model {model} mboten mangsuli, lan wonten pakaryan ingkang ngentosi',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Padamelan ingkang nengga model badhé nglajengaken piyambak menawi kunci ingkang saged dipunginakaken sampun dipunginakaken, lajeng kertu punika nutup piyambak.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Pakaryan ingkang mbetahaken kasagedan punika ngentosi, mboten dipunwiwiti, lan badhé nglajengaken piyambak menawi pamriksanipun sampun lulus; lajeng kertu punika nutup piyambak. Sabab ingkang limrah: kredensial ingkang kadaluwarsa utawi wewenangipun lepat, kuota ingkang sampun telas, utawi alamat ingkang lepat.',
 };

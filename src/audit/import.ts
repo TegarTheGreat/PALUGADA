@@ -64,7 +64,7 @@ interface ImportSection {
    * JSON columns whose values may carry ids from the archive -- an inbox
    * item's payload names the memory, skill or schedule its answer acts on.
    * Any string in them that is an id this import has mapped is replaced by
-   * the id it has here.
+   * the id it has here, and so is each id inside a card's name (`once`).
    */
   remapJson?: readonly string[];
 }
@@ -681,16 +681,34 @@ async function requireLocalVouching(tx: TenantClient, companyId: string): Promis
  * Only whole strings, and only ids this import itself assigned: text that
  * merely contains an id is left alone, and a string that happens to look
  * like one but was never in the archive is not rewritten into something else.
+ * A card's name is the one exception (`remapOnce`).
  */
 function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
   if (typeof value === 'string') return remap.get(value) ?? value;
   if (Array.isArray(value)) return value.map((item) => remapIds(item, remap));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, remapIds(item, remap)]),
+      Object.entries(value).map(([key, item]) => [
+        key,
+        key === 'once' && typeof item === 'string' ? remapOnce(item, remap) : remapIds(item, remap),
+      ]),
     );
   }
   return value;
+}
+
+/**
+ * A card's name for what it is about (`once`), with each id in it mapped.
+ * The one string whose ids are inside it: `capability:<division>:<name>`,
+ * `reminder_unconfirmed:<attempt>` (src/engine/recovered.ts, the collections
+ * duty). Restored as it was, a card about a division's credential was about
+ * a division the restored company does not have: it never closed itself,
+ * and the next failure raised a second card beside it. Split where the names
+ * are joined, and only a part that is an id this import assigned is
+ * replaced, so a model's name with a colon in it is left as it is.
+ */
+function remapOnce(once: string, remap: ReadonlyMap<string, string>): string {
+  return once.split(':').map((part) => remap.get(part) ?? part).join(':');
 }
 
 function normalise(value: unknown, isJson: boolean): unknown {

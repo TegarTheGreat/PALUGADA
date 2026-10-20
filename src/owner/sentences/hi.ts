@@ -219,12 +219,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” {since} से इंतज़ार कर रहा है। {why} जहाँ यह रुका था, वहीं से इसे फिर चलाने के लिए स्वीकृत करें, या रद्द करने के लिए अस्वीकार करें।',
   'A task keeps stopping the worker running it': 'एक कार्य की वजह से उसे चलाने वाला वर्कर बार-बार रुक रहा है',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” ने अपना वर्कर {lost} बार खोया: हर बार इसे चलाने वाले वर्कर ने काम पूरा होने से पहले जवाब देना बंद कर दिया। इसने जो कर लिया था, वह सुरक्षित है। इसे रोक दिया गया है ताकि यह किसी और वर्कर को न गिराए; कारण मिल जाने पर इसे फिर चलाएँ, या रद्द करें।',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} तक पहुँच नहीं हो पाई, और उस पर निर्भर काम रुक गया',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'कार्य ने लगभग {minutes} मिनट इंतज़ार किया, हर बार दोबारा जाँचते हुए, और अब रुक गया है। सेवा जवाब देने लगे, तो इसे फिर चलाएँ।',
   'It was tried {tries} times over about {minutes} minutes.': 'लगभग {minutes} मिनट में {tries} बार प्रयास किया गया।',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'यह भूमिका ऐसी कार्रवाइयाँ कर सकती है जिन्हें पलटा न जा सके, इसलिए रन को चुपचाप किसी दूसरे मॉडल पर नहीं ले जाया गया।',
   'No fallback model is left for this role.': 'इस भूमिका के लिए कोई वैकल्पिक मॉडल नहीं बचा है।',
-  'Model {model} failed and the run was not moved': 'मॉडल {model} विफल हुआ और रन को दूसरे मॉडल पर नहीं ले जाया गया',
   'External write failed verification': 'बाहर लिखा गया बदलाव जाँच में विफल',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'कार्य ने एक बाहरी सेवा में लिखा और उसे वापस पढ़ा, और जो पढ़ा वह मेल नहीं खाया। इसे फिर चलाने से पहले वह जगह देखें जहाँ इसने लिखा था: हो सकता है कि लिखा जा चुका हो।',
   'Review deadlocked after {rounds} revisions: {capability}': '{rounds} संशोधनों के बाद समीक्षा अटक गई: {capability}',
@@ -249,7 +246,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'शेड्यूल “{schedule}” बार-बार एक ही नतीजा दे रहा है',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'इसके पिछले {runs} रन एक ही आउटपुट के साथ खत्म हुए। कभी-कभी यह बिल्कुल सही होता है — जैसे कोई रिपोर्ट जिसमें कहने को कुछ नया नहीं — और अक्सर यह ऐसा शेड्यूल होता है जो कुछ भी काम का करना बंद कर चुका है, पर जिसका भुगतान अब भी हो रहा है। इसे बंद करने के लिए अस्वीकार करें; इसे चलने देने और इस नतीजे के बारे में फिर न पूछे जाने के लिए स्वीकृत करें।',
   'Capability {capability} failed preflight': 'क्षमता {capability} शुरुआती जाँच में विफल रही',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'जिस काम को इसकी ज़रूरत है, उसे शुरू करने के बजाय रोका गया है: कारण ठीक करें, फिर वह काम दोबारा चलाएँ। आम कारण होते हैं: समाप्त या गलत दायरे वाला क्रेडेंशियल, खत्म हो चुका कोटा, या गलत पता।',
   'Batch guard stopped {capability}': 'बैच गार्ड ने {capability} को रोका',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'यह उस योजना से मेल नहीं खाया जो इसके रन ने दर्ज की थी। कुछ भी नहीं भेजा गया, और किसी सेवा को कॉल नहीं किया गया।',
   '{role} was asked first and has had {minutes} minutes.': 'पहले {role} से कहा गया था, और उसे {minutes} मिनट मिल चुके हैं।',
@@ -337,8 +333,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} ने मॉडल की कुंजी अस्वीकार कर दी ({status}), इसलिए मॉडल पर निर्भर कोई भी काम नहीं चल सकता। सेटिंग्स, यह डिप्लॉयमेंट, मॉडल खोलें, काम करने वाली कुंजी चिपकाएँ, उसे जाँचें और सहेजें।',
   '{host} refused the model key, and work is waiting': '{host} ने मॉडल की कुंजी अस्वीकार कर दी, और काम प्रतीक्षा में है',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'मॉडल की प्रतीक्षा कर रहा काम, काम करने वाली कुंजी इस्तेमाल होते ही अपने-आप आगे बढ़ जाएगा।',
   'A task ended before it was done: {task}':
     'एक काम पूरा होने से पहले ही खत्म हो गया: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -414,4 +408,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस दिन के बारे में था, वह बीत गया।',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'वापस लिया गया: महीने की सीमा पूरी हो गई, और इसकी जगह वह कार्ड है जो बताता है कि कंपनी रोक दी गई है।',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'लगभग {hours} घंटे बाद भी इंतज़ार कर रहा काम रुक जाता है, और तब यह कार्ड खुला रहता है ताकि आप उसे फिर चला सकें।',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} से जवाब नहीं मिल रहा है, और उस पर निर्भर काम इंतज़ार कर रहा है',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'काम ने लगभग {minutes} मिनट इंतज़ार किया, हर बार दोबारा जाँचते हुए, और अब भी इंतज़ार कर रहा है: सेवा के जवाब देते ही यह अपने-आप आगे बढ़ जाएगा, और तब यह कार्ड अपने-आप बंद हो जाएगा।',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'काम इंतज़ार करता है और मॉडल के जवाब देते ही अपने-आप आगे बढ़ जाता है, और तब यह कार्ड अपने-आप बंद हो जाता है।',
+  'Model {model} is not answering, and work is waiting for it':
+    'मॉडल {model} से जवाब नहीं मिल रहा है, और काम उसका इंतज़ार कर रहा है',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'मॉडल की प्रतीक्षा कर रहा काम, काम करने वाली कुंजी इस्तेमाल होते ही अपने-आप आगे बढ़ जाएगा, और तब यह कार्ड अपने-आप बंद हो जाएगा।',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'जिस काम को इसकी ज़रूरत है, वह शुरू होने के बजाय इंतज़ार करता है, और जाँच पास होते ही अपने-आप आगे बढ़ जाता है; तब यह कार्ड अपने-आप बंद हो जाता है। आम कारण होते हैं: समाप्त या गलत दायरे वाला क्रेडेंशियल, खत्म हो चुका कोटा, या गलत पता।',
 };

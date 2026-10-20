@@ -64,6 +64,8 @@ export interface InboxItem {
   key?: { alias: string; divisionId: string; capabilities: string[] };
   /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
   budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
+  /** Work that stopped and is told on this card, not one of its own (a cause's card has no task), with whose it was. */
+  stopped?: WaitingRole[];
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;

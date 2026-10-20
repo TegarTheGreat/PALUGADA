@@ -184,6 +184,26 @@ export async function grantRoleTools(
   });
 }
 
+/**
+ * Grants a division the tools named that it lacks, and nothing else: for a
+ * change the owner approved that needs those tools and no others. A role's
+ * list can name tools the owner took from its division -- revoking a grant
+ * leaves the list as it was -- so `grantRoleTools` would give those back too.
+ */
+export async function grantDivisionTools(
+  companyId: string,
+  divisionId: string,
+  tools: readonly string[],
+  options: { ownerApproved: boolean },
+): Promise<{ granted: string[]; ungranted: string[] }> {
+  assertOwnerApproved(options.ownerApproved, { kind: 'change_grant', divisionId, capabilityName: tools.join(', '), tierOverride: null });
+  return withTenant(companyId, async (tx) => {
+    const { rows: held } = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [divisionId]);
+    return grantMissingWithin(tx, companyId, divisionId, tools.filter((tool) => !held.some((row) => row.capability_name === tool)));
+  });
+}
+
 /** The grant itself, its version and its event, in the caller's transaction. */
 async function changeGrantWithin(
   tx: TenantClient,

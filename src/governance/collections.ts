@@ -17,7 +17,7 @@
  */
 import { withTenant } from '../db/tenant.ts';
 import { PLATFORM_TOOLS } from '../templates/work.ts';
-import { addRole, applyRoleChange, grantRoleTools } from './structure.ts';
+import { addRole, applyRoleChange, grantDivisionTools } from './structure.ts';
 
 export interface GivenReminders {
   /** Roles that now hold the tool. */
@@ -35,6 +35,14 @@ const BOOKKEEPER_CHARTER =
   'set, with invoice.remind under your name; you never write a reminder yourself. You do not issue invoices or record entries unless the owner ' +
   'gives you those tools. When an invoice needs a person -- a customer who will not pay, an address that is missing -- say so plainly and leave it to ' +
   'the owner.';
+
+/**
+ * What the switch grants a sender's division, where it lacks them: the tool,
+ * and the plan and the question its procedure makes (src/duties/collections.ts).
+ * Nothing else the role names: the owner switched reminders on, and a tool
+ * they took from the division is not given back by that.
+ */
+const REMINDING = ['invoice.remind', 'plan.record', 'owner.ask'];
 
 export async function giveReminders(companyId: string): Promise<GivenReminders> {
   const holders = await withTenant(companyId, async (tx) => {
@@ -57,7 +65,7 @@ export async function giveReminders(companyId: string): Promise<GivenReminders> 
   for (const role of chosen) {
     if (role.tools.includes('invoice.remind')) {
       // The tool is there; its division's grant may not be.
-      const granting = await grantRoleTools(companyId, role.id, { ownerApproved: true });
+      const granting = await grantDivisionTools(companyId, role.division_id, REMINDING, { ownerApproved: true });
       if (granting.ungranted.includes('invoice.remind')) ungranted.push(role.called);
       continue;
     }
@@ -65,7 +73,7 @@ export async function giveReminders(companyId: string): Promise<GivenReminders> 
     await applyRoleChange(companyId, role.id, { tools: [...role.tools, 'invoice.remind'] }, {
       ownerApproved: true, summary: 'The owner switched on reminders for overdue invoices',
     });
-    const granting = await grantRoleTools(companyId, role.id, { ownerApproved: true });
+    const granting = await grantDivisionTools(companyId, role.division_id, REMINDING, { ownerApproved: true });
     if (granting.ungranted.includes('invoice.remind')) ungranted.push(role.called);
     given.push(role.called);
   }

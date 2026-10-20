@@ -85,6 +85,30 @@ test('switching reminders on gives the tool to the roles that bill customers, wi
   }
 });
 
+test('switching reminders on grants the division what reminding takes, and nothing the owner held back', async () => {
+  const fixture = await createCompany('collect-narrow');
+  // Two roles that bill customers and still name email.send, which the owner
+  // never let this division use (or took away): a revoked grant leaves a
+  // role's list as it was. One already names invoice.remind too.
+  const biller = await addRole(fixture, 'sales');
+  const reminder = await addRole(fixture, 'accounts');
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query("UPDATE roles SET tools = ARRAY['invoice.issue', 'email.send', 'ledger.record'] WHERE id = $1", [biller]);
+    await tx.query("UPDATE roles SET tools = ARRAY['invoice.issue', 'invoice.remind', 'email.send'] WHERE id = $1", [reminder]);
+  });
+  const { api, token } = await open();
+  try {
+    const on = await api.call('POST', `/api/companies/${fixture.companyId}/collections`, token, { enabled: true });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1 ORDER BY capability_name', [fixture.divisionId]));
+    assert.deepEqual(rows.map((row) => row.capability_name), ['invoice.remind', 'owner.ask', 'plan.record'],
+      'the reminder, and the plan and the question its procedure makes: not invoice.issue, email.send or ledger.record');
+  } finally {
+    await api.close();
+  }
+});
+
 test('with no role that bills customers, a bookkeeper is hired for it, so a company of an owner and a CEO collects too', async () => {
   const fixture = await createCompany('collect-hire');
   const { api, token } = await open();

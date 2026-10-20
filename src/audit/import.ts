@@ -64,7 +64,8 @@ interface ImportSection {
    * JSON columns whose values may carry ids from the archive -- an inbox
    * item's payload names the memory, skill or schedule its answer acts on.
    * Any string in them that is an id this import has mapped is replaced by
-   * the id it has here, and so is each id inside a card's name (`once`).
+   * the id it has here, and so is each id inside a card's name (`once`) and
+   * inside the key an ended-work card is found again by (`endedKey`).
    */
   remapJson?: readonly string[];
 }
@@ -706,7 +707,7 @@ async function requireLocalVouching(tx: TenantClient, companyId: string): Promis
  * Only whole strings, and only ids this import itself assigned: text that
  * merely contains an id is left alone, and a string that happens to look
  * like one but was never in the archive is not rewritten into something else.
- * A card's name is the one exception (`remapOnce`).
+ * The keys a card is found again by are the exception (`JOINED_KEYS`).
  */
 function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
   if (typeof value === 'string') return remap.get(value) ?? value;
@@ -715,7 +716,7 @@ function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        key === 'once' && typeof item === 'string' ? remapOnce(item, remap) : remapIds(item, remap),
+        JOINED_KEYS.has(key) && typeof item === 'string' ? remapJoined(item, remap) : remapIds(item, remap),
       ]),
     );
   }
@@ -723,17 +724,28 @@ function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
 }
 
 /**
- * A card's name for what it is about (`once`), with each id in it mapped.
- * The one string whose ids are inside it: `capability:<division>:<name>`,
- * `reminder_unconfirmed:<attempt>` (src/engine/recovered.ts, the collections
- * duty). Restored as it was, a card about a division's credential was about
- * a division the restored company does not have: it never closed itself,
- * and the next failure raised a second card beside it. Split where the names
- * are joined, and only a part that is an id this import assigned is
- * replaced, so a model's name with a colon in it is left as it is.
+ * The payload keys whose strings have ids inside them, joined by colons, and
+ * by which a card is found again:
+ *
+ * - a card's name for what it is about (`once`): `capability:<division>:<name>`,
+ *   `service_down:<division>:<name>`, `reminder_unconfirmed:<attempt>`
+ *   (src/engine/recovered.ts, the collections duty);
+ * - the cause under a goal an ended-work card groups by (`endedKey`):
+ *   `<goal or none>:<halt reason>` (src/engine/ended.ts).
+ *
+ * Restored as it was, each named a division or a goal the restored company
+ * does not have: a credential's card never closed itself, and the next
+ * failure of the same cause raised a second card beside the restored one.
  */
-function remapOnce(once: string, remap: ReadonlyMap<string, string>): string {
-  return once.split(':').map((part) => remap.get(part) ?? part).join(':');
+const JOINED_KEYS: ReadonlySet<string> = new Set(['once', 'endedKey']);
+
+/**
+ * One of those strings with each id in it mapped. Split where the parts are
+ * joined, and only a part that is an id this import assigned is replaced, so
+ * a model's name with a colon in it is left as it is.
+ */
+function remapJoined(joined: string, remap: ReadonlyMap<string, string>): string {
+  return joined.split(':').map((part) => remap.get(part) ?? part).join(':');
 }
 
 function normalise(value: unknown, isJson: boolean): unknown {

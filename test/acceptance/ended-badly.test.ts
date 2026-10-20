@@ -27,6 +27,7 @@ import { structureOf } from '../../src/owner/views.ts';
 import { createCompanyFromTemplate, type CreatedCompany } from '../../src/templates/company.ts';
 import { FOUNDING_TEMPLATE_SLUG, installFoundingTemplate } from '../../src/templates/founding.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
+import type { ArchiveLine } from '../../src/audit/export.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -122,6 +123,43 @@ test('one cause under one goal is one card while it is open; another cause is an
   const hop = items.find((item) => item.task_id === first.id)!;
   assert.deepEqual(hop.payload.endedTaskIds, [first.id, second.id], 'the second is on the first\'s card');
   assert.equal(await reportEndedBadly(fixture.companyId, later()), 0, 'and is not found again');
+});
+
+/**
+ * A card is found again by its cause under its goal (`endedKey`), and a
+ * company restored from its archive has new goal ids. Restored as it was,
+ * the key named a goal the restored company does not have, and the next task
+ * to end the same way under that goal raised a second card beside it.
+ */
+test('a card restored from an archive still takes the next failure of its cause under its goal (F11.6)', async () => {
+  const fixture = await createCompany('ended-restored');
+  const first = await root(fixture, 'first');
+  await halt(fixture, first.id, 'hop_limit');
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+
+  const { exportCompany } = await import('../../src/audit/export.ts');
+  const { importCompany } = await import('../../src/audit/import.ts');
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: 'ended-restored-copy' });
+  const { rows: [was] } = await withTenant(restored.companyId, (tx) => tx.query<{
+    project_id: string; division_id: string; role_id: string; budget_account_id: string; goal_id: string;
+  }>(`SELECT t.project_id, t.division_id, t.role_id, t.budget_account_id, t.goal_id
+        FROM inbox_items i JOIN tasks t ON t.id = i.task_id WHERE i.kind = 'escalation'`));
+  const again = await createRootTask({
+    companyId: restored.companyId, projectId: was!.project_id, divisionId: was!.division_id, roleId: was!.role_id,
+    budgetAccountId: was!.budget_account_id, goalId: was!.goal_id, input: { goal: 'again' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(restored.companyId, again.id, 'running');
+  await transition(restored.companyId, again.id, 'halted', { haltReason: 'hop_limit', detail: 'it was refused' });
+
+  assert.equal(await reportEndedBadly(restored.companyId, later()), 0, 'no second card for the same cause under the same goal');
+  const cards = await withTenant(restored.companyId, (tx) => tx.query<{ ended: string[]; key: string }>(
+    "SELECT payload->'endedTaskIds' AS ended, payload->>'endedKey' AS key FROM inbox_items WHERE kind = 'escalation'"));
+  assert.equal(cards.rows.length, 1);
+  assert.equal(cards.rows[0]!.key, `${was!.goal_id}:hop_limit`, 'the key names the restored goal');
+  assert.equal(cards.rows[0]!.ended.length, 2);
+  assert.equal(cards.rows[0]!.ended[1], again.id, 'the next failure is on the restored card');
 });
 
 test('work the coordinator was handed that ends badly goes to the owner, not back to the coordinator', async () => {

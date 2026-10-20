@@ -18,9 +18,10 @@
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
-import { createSubTask, getTask, transition } from '../engine/tasks.ts';
-import { LEARNED_CONFIDENCE, remember } from '../memory/store.ts';
+import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
+import { LEARNED_CONFIDENCE, MEMORY_BODY_MAX, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ownerReadingWithin, reviewDeadlockedCard, reviewUnreadableCard, stageMoveStoppedCard } from '../owner/platform-cards.ts';
 import { stageOf } from '../domain/stage.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from '../domain/language.ts';
@@ -175,15 +176,10 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
       return rows[0]!.id;
     });
 
-    await inbox.raiseEscalation({
-      companyId: input.companyId,
-      taskId: input.proposerTaskId,
-      title: `Review deadlocked after ${MAX_REVISIONS} revisions: ${input.capabilityName}`,
-      detail:
-        `Proposer and reviewer did not converge on ${input.capabilityName}. ` +
-        `Last reviewer note: ${existing?.reason ?? 'none recorded'}. ` +
-        `Criteria: ${input.criteria}`,
+    const card = reviewDeadlockedCard(await withTenant(input.companyId, ownerReadingWithin), {
+      capability: input.capabilityName, rounds: MAX_REVISIONS, note: existing?.reason ?? null, criteria: input.criteria,
     });
+    await inbox.raiseEscalation({ companyId: input.companyId, taskId: input.proposerTaskId, title: card.title, detail: card.detail });
 
     return { outcome: 'escalated', reviewRequestId: escalatedId };
   }
@@ -408,11 +404,13 @@ export async function recordVerdict(
       scopeType: 'division',
       scopeId: review.division_id,
       factKind: 'decision',
-      body:
-        `Review of ${review.capability_name}: ${verdict.decision}. ` +
-        `Criteria: ${review.criteria}. Reviewer: ${verdict.reason}`,
+      body: decisionFactBody(review.capability_name, verdict, review.criteria),
       source: 'adversarial_review',
       sourceEventId: eventId,
+      // The reviewer's reasons are about a proposal that work reading outside
+      // content made: a stranger's words may be in them, and a later run is
+      // shown them as data (0071). The decision record keeps what was said.
+      outside: (await outsideContentIn(tx, review.proposer_task_id)) !== null,
       // The decision is certain; the reviewer's reasons are a run's words,
       // which read the proposal it judged. Below the line of a known fact.
       confidence: LEARNED_CONFIDENCE.first,
@@ -454,7 +452,7 @@ export async function recordVerdict(
 /** The reviewing role, by the name the owner knows it by and by its slug. */
 async function reviewerOf(tx: TenantClient, roleId: string): Promise<{ slug: string; name: string }> {
   const { rows } = await tx.query<{ slug: string; name: string }>(
-    'SELECT slug, coalesce(display_name, slug) AS name FROM roles WHERE id = $1', [roleId]);
+    'SELECT slug, coalesce(display_name, title, slug) AS name FROM roles WHERE id = $1', [roleId]);
   return rows[0] ?? { slug: 'reviewer', name: 'the reviewer' };
 }
 
@@ -475,28 +473,22 @@ async function tellOwnerOfStoppedStageMove(
   const proposed = (review.proposal.input ?? {}) as Record<string, unknown>;
   const said = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
   const from = await stageOf(tx, companyId);
-  const to = said(proposed.to) || 'another stage';
+  const to = said(proposed.to) || null;
   const reviewer = await reviewerOf(tx, review.reviewer_role_id);
+  const card = stageMoveStoppedCard(await ownerReadingWithin(tx), {
+    reviewer: reviewer.name, from, to, reason: said(reason), evidence: said(proposed.evidence), why: said(proposed.why),
+  });
   await inbox.raiseEscalationWithin(tx, {
     companyId,
-    title: `${reviewer.name} stopped a proposal to move the company from ${from ?? 'no stage'} to ${to}`,
-    detail: [
-      `${reviewer.name} reviewed it before you and stopped it:`,
-      said(reason) || 'No reason was given.',
-      '',
-      'What was proposed:',
-      said(proposed.evidence),
-      ...(said(proposed.why) ? ['', said(proposed.why)] : []),
-    ].join('\n'),
+    title: card.title,
+    detail: card.detail,
     payload: {
-      stoppedStageChange: { from, to },
+      stoppedStageChange: { from, to: to ?? 'another stage' },
       reviewRequestId: review.id,
       reviewer: reviewer.slug,
       proposedByTask: review.proposer_task_id,
     },
-    consequenceIfDenied:
-      `Either answer only closes this: the company stays ${from ? `in the ${from} stage` : 'without a stage'}. ` +
-      'To move it anyway, set the stage on the Overview.',
+    consequenceIfDenied: card.consequence,
   });
 }
 
@@ -571,23 +563,50 @@ export async function settleCompletedReviews(companyId: string): Promise<
           [row.id],
         );
       });
-      await inbox.raiseEscalation({
-        companyId,
-        taskId: row.proposer_task_id,
-        title: `Review produced no usable verdict: ${row.capability_name}`,
-        detail:
-          `The reviewer task ended as ${row.task_status} without a readable decision. ` +
-          'The proposed action is still blocked and needs your judgement.',
-      });
+      const card = reviewUnreadableCard(await withTenant(companyId, ownerReadingWithin), { capability: row.capability_name });
+      await inbox.raiseEscalation({ companyId, taskId: row.proposer_task_id, title: card.title, detail: card.detail });
       settled.push({ reviewRequestId: row.id, decision: 'unreadable' });
       continue;
     }
 
-    await recordVerdict(companyId, row.id, verdict);
-    settled.push({ reviewRequestId: row.id, decision: verdict.decision });
+    try {
+      await recordVerdict(companyId, row.id, verdict);
+      settled.push({ reviewRequestId: row.id, decision: verdict.decision });
+    } catch (failure) {
+      // One review that cannot be recorded does not stop the ones behind it,
+      // and is not tried again every tick: it is the owner's, as one whose
+      // verdict could not be read is. recordVerdict ran in a transaction, so
+      // nothing of it was kept.
+      await withTenant(companyId, async (tx) => {
+        await tx.query(`UPDATE review_requests SET status = 'escalated', decided_at = now() WHERE id = $1 AND status = 'pending'`, [row.id]);
+      });
+      const card = reviewUnreadableCard(await withTenant(companyId, ownerReadingWithin), {
+        capability: row.capability_name, record: (failure as Error).message.slice(0, 300),
+      });
+      await inbox.raiseEscalation({ companyId, taskId: row.proposer_task_id, title: card.title, detail: card.detail });
+      settled.push({ reviewRequestId: row.id, decision: 'unreadable' });
+    }
   }
 
   return settled;
+}
+
+/** The most of the criteria a decision fact carries: they are the owner's or the policy's, and short. */
+const FACT_CRITERIA_MAX = 600;
+const CLIPPED = '… [shortened; the decision record has the whole]';
+
+/**
+ * What a division recalls of a verdict: the decision, the criteria and the
+ * reviewer's reason, within what a memory may hold. The reason was unbounded,
+ * a memory is not, and the insert that refused a long one rolled the whole
+ * verdict back and stopped every review behind it (the audit of 3 October).
+ * The decision record keeps the reviewer's words whole; this is the line a
+ * later run recalls, and the start of a reason is where the verdict is.
+ */
+function decisionFactBody(capability: string, verdict: ReviewVerdict, criteria: string): string {
+  const clip = (text: string, room: number) => (text.length <= room ? text : `${text.slice(0, Math.max(0, room - CLIPPED.length))}${CLIPPED}`);
+  const head = `Review of ${capability}: ${verdict.decision}. Criteria: ${clip(criteria, FACT_CRITERIA_MAX)}. Reviewer: `;
+  return `${head}${clip(verdict.reason, MEMORY_BODY_MAX - head.length)}`;
 }
 
 function readVerdict(
@@ -603,15 +622,16 @@ function readVerdict(
 
 /** Reviews still waiting on a reviewer, for a worker to pick up. */
 export async function pendingReviews(companyId: string): Promise<
-  Array<{ reviewRequestId: string; reviewTaskId: string; reviewerRoleSlug: string }>
+  Array<{ reviewRequestId: string; reviewTaskId: string; reviewerRoleSlug: string; reviewerRoleName: string | null }>
 > {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string;
       review_task_id: string;
       slug: string;
+      display_name: string | null;
     }>(
-      `SELECT r.id, r.review_task_id, ro.slug
+      `SELECT r.id, r.review_task_id, ro.slug, ro.display_name
          FROM review_requests r
          JOIN roles ro ON ro.id = r.reviewer_role_id
         WHERE r.status = 'pending' AND r.review_task_id IS NOT NULL
@@ -621,6 +641,8 @@ export async function pendingReviews(companyId: string): Promise<
       reviewRequestId: row.id,
       reviewTaskId: row.review_task_id,
       reviewerRoleSlug: row.slug,
+      // The name the owner gave the reviewer, shown in place of its code.
+      reviewerRoleName: row.display_name,
     }));
   });
 }

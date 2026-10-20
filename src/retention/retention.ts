@@ -48,6 +48,7 @@ export interface RetentionOutcome {
   tracesPurged: number;
   eventsPurged: number;
   bookkeepingPurged: number;
+  workPurged: number;
 }
 
 export async function retentionFor(companyId: string): Promise<RetentionPolicy> {
@@ -91,10 +92,10 @@ export async function setRetention(
   });
 }
 
-/** What a retention pass did, as `retention_action_known` names it (0046). */
+/** What a retention pass did, as `retention_action_known` names it (0046, 0105). */
 type RetentionAction =
   | 'events_purged' | 'traces_purged' | 'prompts_scrubbed'
-  | 'journal_scrubbed' | 'bookkeeping_purged';
+  | 'journal_scrubbed' | 'bookkeeping_purged' | 'work_purged';
 
 async function recordRetention(
   tx: TenantClient,
@@ -266,6 +267,88 @@ export async function purgeExpiredBookkeeping(companyId: string, now = new Date(
 }
 
 /**
+ * Removes finished work past both windows, and closed cards that belonged to
+ * no task past the event window (M10).
+ *
+ * The rest of retention removed what was said about the work and kept the
+ * work: every task, every step of it with what it was given and what it
+ * returned, every run and every card, for ever. A task goes with what hangs
+ * from it -- its steps, runs, cards, notes and the events and traces still
+ * about it -- so it waits for the later of the two windows that keep those.
+ *
+ * Work something still points at stays, however old, and so does what it
+ * points at in turn:
+ *
+ *   - anything said about it since the cutoff (an event: the owner's word on
+ *     it, a rerun asked for), which also keeps every event a removal would
+ *     take inside the window the database holds events to;
+ *   - a card about it still open in the owner's inbox, which is the owner's
+ *     to close and not retention's;
+ *   - a parent of work that stays, since removing a task removes the tasks
+ *     under it;
+ *   - work a task that stays was asked for again in place of, whose answers
+ *     and notes that task still reads (L6);
+ *   - work that handed on to a task that stays.
+ *
+ * Removed from the top of what goes: the database removes what is under it.
+ */
+export async function purgeExpiredWork(companyId: string, now = new Date()): Promise<number> {
+  const policy = await retentionFor(companyId);
+  const cutoff = new Date(now.getTime() - Math.max(policy.eventDays, policy.traceDays) * 86_400_000);
+  const cardCutoff = new Date(now.getTime() - policy.eventDays * 86_400_000);
+
+  return withControlPlane(async (tx) => {
+    // The events a removed task takes with it are removed under the same
+    // rule as any purged event, and the database checks each against it.
+    await tx.query('SELECT set_config($1, $2, true)', ['app.retention_purge', 'on']);
+    const { rows } = await tx.query<{ removed: number }>(
+      `WITH RECURSIVE kept AS (
+         SELECT t.id, t.parent_task_id FROM tasks t
+          WHERE t.company_id = $1
+            AND (t.finished_at IS NULL OR t.finished_at >= $2
+                 OR EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.occurred_at >= $2)
+                 OR EXISTS (SELECT 1 FROM inbox_items i WHERE i.task_id = t.id AND i.status = 'open'))
+         UNION
+         SELECT held.id, held.parent_task_id
+           FROM kept k
+           CROSS JOIN LATERAL (
+             SELECT p.id, p.parent_task_id FROM tasks p WHERE p.id = k.parent_task_id
+             UNION ALL
+             SELECT r.id, r.parent_task_id FROM events e
+               JOIN tasks r ON r.id = CASE WHEN e.payload->>'rerunOf' ~ '^[0-9a-f-]{36}$'
+                                           THEN (e.payload->>'rerunOf')::uuid END
+              WHERE e.task_id = k.id AND e.type = 'owner.instructed'
+             UNION ALL
+             SELECT f.id, f.parent_task_id FROM task_handoffs h JOIN tasks f ON f.id = h.from_task_id
+              WHERE h.to_task_id = k.id
+           ) held
+       ),
+       gone AS (
+         SELECT t.id, t.parent_task_id FROM tasks t
+          WHERE t.company_id = $1 AND t.finished_at < $2
+            AND NOT EXISTS (SELECT 1 FROM kept WHERE kept.id = t.id)
+       ),
+       removed AS (
+         DELETE FROM tasks t
+          WHERE t.id IN (SELECT id FROM gone)
+            AND (t.parent_task_id IS NULL OR t.parent_task_id NOT IN (SELECT id FROM gone))
+       )
+       SELECT count(*)::int AS removed FROM gone`,
+      [companyId, cutoff],
+    );
+    const cards = await tx.query(
+      `DELETE FROM inbox_items
+        WHERE company_id = $1 AND task_id IS NULL AND status <> 'open'
+          AND coalesce(decided_at, created_at) < $2`,
+      [companyId, cardCutoff],
+    );
+    const removed = rows[0]!.removed + (cards.rowCount ?? 0);
+    await recordRetention(tx, companyId, 'work_purged', removed, cutoff);
+    return removed;
+  });
+}
+
+/**
  * Applies the whole policy, oldest-risk first.
  *
  * Prompts are scrubbed before traces are purged so that a trace passing both
@@ -280,7 +363,8 @@ export async function runRetention(
   const tracesPurged = await purgeExpiredTraces(companyId, now);
   const eventsPurged = await purgeExpiredEvents(companyId, now);
   const bookkeepingPurged = await purgeExpiredBookkeeping(companyId, now);
-  return { promptsScrubbed, journalScrubbed, tracesPurged, eventsPurged, bookkeepingPurged };
+  const workPurged = await purgeExpiredWork(companyId, now);
+  return { promptsScrubbed, journalScrubbed, tracesPurged, eventsPurged, bookkeepingPurged, workPurged };
 }
 
 export interface RetentionRecord {

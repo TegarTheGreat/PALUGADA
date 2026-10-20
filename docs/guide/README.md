@@ -52,12 +52,26 @@ along the bottom and under **More**.
 
 3. **Start a company.** On **Home**, press **Start a company**. Give it a
    **Name**; the **Short name** fills itself in and is used in links and
-   exports. Leave **Let it run itself** on if you want a strategist that
+   exports. Its **Work language** and **Talk language** start in the
+   language the console is in; change them if it should sell or report in
+   another. Leave **Let it run itself** on if you want a strategist that
    reviews the week every Monday and proposes what to do next. Press
    **Start it** and confirm with a code, because creating a company writes
-   divisions, roles, grants and budgets. You land on the company's
-   **Overview**. Look at the stage card (no stage is set yet), the goal
-   ladder under **Goals**, and the budget for the period.
+   divisions, roles, grants and budgets. Its schedules run on your browser's
+   time zone. You land on the company's **Overview**, and the conversation
+   with its CEO opens: the CEO has already asked what the company sells and
+   to whom, how much it may spend in a month, and what its first piece of
+   work should be. Answer in a sentence or two; it asks at most three
+   questions, then puts the mission in your words, the monthly ceiling and
+   a first piece of work in front of you as cards to apply.
+
+   On the **Overview**, **Your first hour with** the company lists four
+   steps -- tell the CEO what it sells, set how much it may spend in a
+   month, give it its first piece of work, read its first result -- each
+   ticked off when you have done it, with the button that does it. It goes
+   when all four are done, or when you close it. Look also at the stage
+   card (no stage is set yet), the goal ladder under **Goals**, and the
+   budget for the period.
 
    While you are there, look at the foot of the sidebar. If the deployment
    is missing something optional, a **Finish setting up** card lists what it
@@ -77,8 +91,10 @@ along the bottom and under **More**.
    progress from its own journal, the step it is on, when its worker last
    checked in, **What it did** (its events) and **What it said** (what its
    runs wrote as they worked). To steer it while it runs, write a note under
-   **Steer it** and press **Tell it**; its next run reads it. **Home** shows
-   the same thing across every company under **Happening now**.
+   **Steer it** and press **Tell it**; its next run reads it. The page moves
+   as the work does, the moment it does. **Home** shows the same thing
+   across every company under **Happening now**, and each task under
+   **Running now** on a company's **Overview** has a stop button.
 
 6. **Answer the inbox.** When something needs you, it appears in the
    company's **Inbox** and in **Needs you** on **Home**, and on your phone if
@@ -93,7 +109,9 @@ along the bottom and under **More**.
 7. **See what it delivered.** Finished tasks move to **Done** on the
    **Work** page and to **Just delivered** on **Home**. Open one to read
    **What it produced**: its summary, drafts and emails, each readable in
-   full. Under **Your word on it**, press **Good** or **Needs work** and say
+   full. **Work**, **Results** shows every draft and email the company
+   produced, newest first, with who wrote it, each a press away from its
+   whole text and its task. Under **Your word on it**, press **Good** or **Needs work** and say
    why; the division reads your note on its next run, and it is placed first
    in what the company knows. Your decisions, with your notes, are kept in
    **History**, and what the company has learned is in **Memory**.

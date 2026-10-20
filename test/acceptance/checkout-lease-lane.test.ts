@@ -223,10 +223,12 @@ test('a task held by a worker that has gone quiet is returned without waiting ou
   await beat('worker-dead');
   await beat('worker-alive');
   await beat('worker-me');
-  // The dead one's last word was long ago; so was mine, as after the
-  // database was away -- and I am the one sweeping, so I know I am alive.
-  await withControlPlane((tx) => tx.query(
-    "UPDATE worker_heartbeats SET beat_at = now() - interval '5 minutes' WHERE worker_id IN ('worker-dead', 'worker-me')"));
+  // The dead one's last word was long ago. I have been saying mine without a
+  // break for longer than a holder may be quiet, so its silence is its own.
+  await withControlPlane(async (tx) => {
+    await tx.query("UPDATE worker_heartbeats SET beat_at = now() - interval '5 minutes' WHERE worker_id = 'worker-dead'");
+    await tx.query("UPDATE worker_heartbeats SET beating_since = now() - interval '2 minutes' WHERE worker_id = 'worker-me'");
+  });
 
   const quiet = await silentHolders('worker-me');
   assert.deepEqual(quiet, ['worker-dead']);
@@ -243,6 +245,45 @@ test('a task held by a worker that has gone quiet is returned without waiting ou
   assert.deepEqual(await silentHolders('worker-me'), ['worker-dead']);
   const beats = await withControlPlane((tx) => tx.query<{ worker_id: string }>('SELECT worker_id FROM worker_heartbeats ORDER BY worker_id'));
   assert.deepEqual(beats.rows.map((row) => row.worker_id), ['worker-dead', 'worker-me']);
+});
+
+/**
+ * B5 (the audit of 30 September, open on 2 October). A worker that had been
+ * away itself -- the database gone for a minute, its own loop stalled --
+ * came back to find every other worker's last word as old as its own, and
+ * took back their running tasks: work going on was stopped, and each time
+ * counted towards the three losses that halt a task as a crash loop. Who is
+ * quiet is judged only by a worker that has been saying it is alive without
+ * a break for longer than a holder may be quiet; the others had the same
+ * time to speak again.
+ */
+test('a worker that was away itself judges nobody until it has been back for as long as a holder may be quiet (B5)', async () => {
+  const fixture = await createCompany('lease-away');
+  const elsewhere = await newTask(fixture);
+  await claimTask(fixture.companyId, { holder: 'worker-elsewhere', taskId: elsewhere.id });
+  const dead = await newTask(fixture);
+  await claimTask(fixture.companyId, { holder: 'worker-dead', taskId: dead.id });
+  for (const worker of ['worker-elsewhere', 'worker-dead', 'worker-me']) await beat(worker);
+
+  // The database is away for five minutes: nobody's word arrives.
+  await withControlPlane((tx) => tx.query("UPDATE worker_heartbeats SET beat_at = now() - interval '5 minutes', beating_since = now() - interval '1 hour'"));
+  // Back: this worker speaks first, and finds every other word old.
+  await beat('worker-me');
+  assert.deepEqual(await silentHolders('worker-me'), [], 'it was away too, so it judges nobody yet');
+  assert.deepEqual(await reclaimExpiredLeases(fixture.companyId, new Date(), { silent: await silentHolders('worker-me') }), []);
+
+  // The live one speaks again within its interval; a holder-quiet window later,
+  // only the one that never came back is quiet.
+  await beat('worker-elsewhere');
+  await withControlPlane((tx) => tx.query(
+    "UPDATE worker_heartbeats SET beating_since = beating_since - interval '61 seconds' WHERE worker_id = 'worker-me'"));
+  assert.deepEqual(await silentHolders('worker-me'), ['worker-dead']);
+
+  // A worker whose own last word is stale -- its loop stalled -- judges nobody either.
+  await withControlPlane((tx) => tx.query("UPDATE worker_heartbeats SET beat_at = now() - interval '45 seconds' WHERE worker_id = 'worker-me'"));
+  assert.deepEqual(await silentHolders('worker-me'), []);
+  // Nor does one that never said anything.
+  assert.deepEqual(await silentHolders('worker-unknown'), []);
 });
 
 test('only the holder may renew, and only what it still holds (F5.12)', async () => {

@@ -157,10 +157,41 @@ const SECTIONS: ImportSection[] = [
     force: { enabled: false },
   },
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
-  { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
-  { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'documents', table: 'documents', references: ['division_id'] },
   { name: 'document_passages', table: 'document_passages', references: ['document_id'] },
+  // The books (0119): an entry that reverses another after it, and the lines
+  // with their entries in this one transaction, which is when they balance.
+  { name: 'ledger_accounts', table: 'ledger_accounts', references: [] },
+  { name: 'journal_entries', table: 'journal_entries', references: ['task_id', 'reverses'] },
+  { name: 'journal_lines', table: 'journal_lines', references: ['entry_id', 'account_id'] },
+  // The customer records (0118), before the conversations that name them.
+  { name: 'contacts', table: 'contacts', references: [] },
+  { name: 'contact_notes', table: 'contact_notes', references: ['contact_id', 'task_id'] },
+  { name: 'deals', table: 'deals', references: ['contact_id'] },
+  // The invoices (0122), after the entries and the contacts they name.
+  { name: 'invoice_numbers', table: 'invoice_numbers', references: [] },
+  { name: 'invoices', table: 'invoices', references: ['contact_id', 'entry_id', 'task_id'] },
+  { name: 'invoice_lines', table: 'invoice_lines', references: ['invoice_id'] },
+  { name: 'invoice_payments', table: 'invoice_payments', references: ['invoice_id', 'entry_id', 'task_id'] },
+  // Reminding customers (0130), after the invoices and the tasks that wrote to them.
+  { name: 'collections_policy', table: 'collections_policy', references: [] },
+  { name: 'invoice_reminders', table: 'invoice_reminders', references: ['invoice_id', 'task_id'] },
+  { name: 'invoice_reminder_attempts', table: 'invoice_reminder_attempts', references: ['invoice_id', 'task_id'] },
+  { name: 'invoice_collections', table: 'invoice_collections', references: ['invoice_id'] },
+  {
+    // A customer channel is not left open by a restore: it arrives closed,
+    // at a new address, with no token, and the owner connects the bot again
+    // (0111). What its customers said comes with it.
+    name: 'chat_channels',
+    table: 'chat_channels',
+    references: ['project_id', 'division_id', 'role_id', 'goal_id'],
+    force: { enabled: false },
+  },
+  { name: 'chats', table: 'chats', references: ['channel_id', 'contact_id'] },
+  // A reply that went on its own names the documents it answered from (0117).
+  { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'], remapJson: ['grounds'] },
+  { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
+  { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   {
     name: 'tickets',
     table: 'tickets',
@@ -250,6 +281,7 @@ const SECTIONS: ImportSection[] = [
   { name: 'alert_thresholds', table: 'alert_thresholds', references: [] },
   { name: 'retention_policies', table: 'retention_policies', references: [] },
   { name: 'batch_windows', table: 'batch_windows', references: [] },
+  { name: 'office_hours', table: 'office_hours', references: [] },
   { name: 'capability_windows', table: 'capability_windows', references: ['division_id'] },
   // Last, because a version's subject can be anything above: a role, a
   // charter, a policy. Before `policies`, a policy's history had nothing to
@@ -432,8 +464,9 @@ export async function importCompany(
     let rows: Array<{ id: string }>;
     try {
       ({ rows } = await tx.query<{ id: string }>(
-        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        // A restored company is not a new one: its first hour (0109) is over.
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from

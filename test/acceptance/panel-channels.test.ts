@@ -135,7 +135,6 @@ test('the owner connects Telegram from the console: the bot checked, their chat 
     assert.deepEqual(chats.body.chats, [{ id: '42', name: 'Tegar Owner', username: 'tegar' }]);
     assert.ok(telegram.calls.some((call) => call.method === 'deleteWebhook'));
 
-    assert.equal((await api.call('POST', '/api/control/channels/telegram', token, { token: TOKEN, chatId: '42' })).status, 403);
     const saved = await api.call('POST', '/api/control/channels/telegram', token, { token: TOKEN, chatId: '42', proof: { totp: api.code() } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.equal(saved.body.webhook, 'set');
@@ -209,10 +208,9 @@ test('the owner connects WhatsApp from the console: the number checked with Meta
     const number = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, phoneNumberId: '+6221555501' });
     assert.equal(number.status, 400);
     assert.match(String(number.body.error), /the phone number ID is the number Meta shows under API Setup/);
-    const refused = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-a-wrong-token', proof: { totp: api.code() } });
+    const refused = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-a-wrong-token' });
     assert.equal(refused.status, 400, 'Meta\'s refusal is the owner\'s to read');
     assert.match(String(refused.body.error), /WhatsApp did not accept that number id and token: Invalid OAuth access token/);
-    assert.equal((await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-system-user-token' })).status, 403, 'a factor');
 
     const saved = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-system-user-token', proof: { totp: api.code() } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
@@ -498,9 +496,6 @@ test('the owner connects email from the console: a test first, then saved sealed
       path: '/emails', body: { from: 'alerts@kopi.example', to: ['owner@kopi.example'], subject: 'PALUGADA', text: 'It works.' },
     });
 
-    const unproved = await api.call('POST', '/api/control/channels/email', token,
-      { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example' });
-    assert.equal(unproved.status, 403, 'where the owner is told things is changed with their device');
     const saved = await api.call('POST', '/api/control/channels/email', token,
       { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example', proof: { totp: api.code() } });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));

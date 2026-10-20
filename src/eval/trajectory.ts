@@ -31,6 +31,8 @@ export interface Trajectory {
   taskId: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role, which a trace shows in place of its code. */
+  roleName: string | null;
   status: string;
   attempt: number;
   startedAt: string;
@@ -82,6 +84,7 @@ export async function exportTrajectory(
       task_id: string;
       role_id: string;
       role_slug: string;
+      role_name: string | null;
       status: string;
       attempt: number;
       started_at: Date;
@@ -90,7 +93,7 @@ export async function exportTrajectory(
       output: Record<string, unknown> | null;
       halt_reason: string | null;
     }>(
-      `SELECT r.id, r.task_id, r.role_id, ro.slug AS role_slug, r.status, r.attempt,
+      `SELECT r.id, r.task_id, r.role_id, ro.slug AS role_slug, ro.display_name AS role_name, r.status, r.attempt,
               r.started_at, r.finished_at, t.input, t.output, t.halt_reason
          FROM agent_runs r
          JOIN tasks t ON t.id = r.task_id
@@ -217,6 +220,7 @@ export async function exportTrajectory(
       taskId: run.task_id,
       roleId: run.role_id,
       roleSlug: run.role_slug,
+      roleName: run.role_name,
       status: run.status,
       attempt: run.attempt,
       startedAt: run.started_at.toISOString(),

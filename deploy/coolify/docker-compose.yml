@@ -71,6 +71,10 @@ services:
     volumes:
       # Agent CLIs' settings, and the charters' git repository.
       - home:/home/node
+    # Docker's own seccomp profile, with what Chromium's sandbox needs
+    # (scripts/seccomp-chromium.ts); relative to the repository, where this file is built from.
+    security_opt:
+      - seccomp=./deploy/docker/seccomp-chromium.json
     depends_on:
       db:
         condition: service_healthy

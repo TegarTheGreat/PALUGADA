@@ -69,6 +69,59 @@ export async function api<T = any>(method: 'GET' | 'POST', path: string, body?: 
   return answer as T;
 }
 
+/** One event as the live stream sends it (`LiveEvent`, src/owner/views.ts). */
+export interface LiveEvent {
+  id: string;
+  type: string;
+  taskId: string | null;
+  actor: string;
+  at: string;
+}
+
+/**
+ * Listens to a live stream of events (`text/event-stream`) until `signal`
+ * aborts. Read with fetch rather than an EventSource, which cannot carry the
+ * session's token; a dropped stream is opened again, a little later each
+ * time, and signing out ends it.
+ */
+export async function live(method: 'GET', path: string, heard: (event: LiveEvent) => void, signal: AbortSignal): Promise<void> {
+  let wait = 1_000;
+  while (!signal.aborted && token) {
+    try {
+      const response = await fetch(path, { method, headers: { authorization: `Bearer ${token}` }, signal });
+      if (response.status === 401) {
+        token = null;
+        onSignedOut?.();
+        return;
+      }
+      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      wait = 1_000;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let end: number;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const message = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const data = message.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n');
+          if (data) heard(JSON.parse(data) as LiveEvent);
+        }
+      }
+    } catch {
+      if (signal.aborted) return;
+    }
+    await new Promise<void>((resolve) => {
+      const later = window.setTimeout(resolve, wait);
+      signal.addEventListener('abort', () => { window.clearTimeout(later); resolve(); }, { once: true });
+    });
+    wait = Math.min(wait * 2, 30_000);
+  }
+}
+
 /**
  * A second factor, as the API takes it: a code, a passkey's signature, or one
  * of the owner's recovery codes -- which the API takes only to sign in and to
@@ -102,6 +155,9 @@ const EXPLAINED: Record<string, string> = {
   'role.frozen': N('This role is frozen until you resume it.'),
   'spend.paused': N('Spending is paused for this company.'),
   'budget.exceeded': N('That would go over the budget.'),
+  'budget.reservation_refused': N('The budget account cannot fund this work yet: its tokens are spent or held. Raise its ceiling under Money, then try again.'),
+  'task.not_continuable': N('Only work its budget stopped can be continued. Do anything else again.'),
+  'task.record_cleared': N('Retention has cleared what this task\'s run said, so it cannot go on from where it stopped. Run it again instead.'),
   'gateway.key_mismatch': N('That fingerprint is not the key this device holds.'),
   'gateway.not_pairable': N('This device cannot be paired in its current state.'),
   'bundle.bad_signature': N('The bundle signature does not check out.'),

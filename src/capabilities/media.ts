@@ -16,7 +16,7 @@
  * out. Edge TTS is not here: it is not an API but a browser's endpoint used
  * without permission.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import type { Capability } from '../broker/registry.ts';
 import { companyRoot } from './files.ts';
@@ -34,6 +34,8 @@ interface MediaProviderBase {
   defaultModel?: string;
   defaultVoice?: string;
   reserveCents: number;
+  /** What a refusal's body says, in words the owner can act on; null to say it as it came. */
+  explain?(body: string): string | null;
 }
 
 interface Call {
@@ -49,10 +51,24 @@ export interface Made {
 
 export type ImageShape = 'square' | 'landscape' | 'portrait';
 
+/** What a provider that makes its picture later is given to wait for it. */
+export interface Waiting {
+  /** The server the owner gave, for a provider of their own. */
+  base: string | null;
+  /** Waits between two looks; ends early, failing, when the run is stopped. */
+  pause(): Promise<void>;
+  /** When to stop looking. */
+  deadline: number;
+}
+
 export interface ImageProvider extends MediaProviderBase {
   request(prompt: string, shape: ImageShape, key: string | null, model: string, base: string | null): Call;
-  /** The picture, from the answer: base64 in it, or an address fetched at once, before it expires. */
-  image(answer: unknown, download: (url: string) => Promise<Made>): Promise<Made>;
+  /**
+   * The picture, from the answer: base64 in it, an address fetched at once
+   * before it expires, or -- for a server that makes it later -- looked for
+   * until it is there.
+   */
+  image(answer: unknown, download: (url: string) => Promise<Made>, waiting: Waiting): Promise<Made>;
 }
 
 export interface SpeechProvider extends MediaProviderBase {
@@ -156,7 +172,101 @@ export const IMAGE_PROVIDERS: readonly ImageProvider[] = [
       return fromBase64(output.data, String(output.mime ?? 'image/png'), 'Gemini');
     },
   },
+  {
+    // The owner's own GPU (the tools research, gap #10), through the routes in
+    // ComfyUI's server.py: the workflow posted to /prompt, its history polled
+    // until the picture is there, the picture fetched from /view. ComfyUI is
+    // GPL-3.0; PALUGADA only speaks to it over HTTP. It takes no key, so it
+    // belongs on a private network.
+    id: 'comfyui', name: 'ComfyUI', about: 'Your own GPU, any checkpoint you have', key: 'none',
+    urlExample: 'http://127.0.0.1:8188', defaultModel: 'sd_xl_base_1.0.safetensors', reserveCents: 0,
+    request: (prompt, shape, _key, model, base) => ({
+      url: `${(base ?? '').replace(/\/+$/, '')}/prompt`, headers: json,
+      body: { prompt: comfyWorkflow(prompt, shape, model), client_id: 'palugada' },
+    }),
+    image: async (answer, download, waiting) => {
+      const id = at(answer, ['prompt_id']);
+      if (typeof id !== 'string' || !id) throw new PalugadaError('capability.unreachable', 'ComfyUI answered without the id of the picture it queued', {});
+      const server = (waiting.base ?? '').replace(/\/+$/, '');
+      for (;;) {
+        const history = JSON.parse((await download(`${server}/history/${encodeURIComponent(id)}`)).bytes.toString('utf8')) as unknown;
+        const entry = at(history, [id]);
+        if (at(entry, ['status', 'status_str']) === 'error') {
+          throw new PalugadaError('capability.unreachable', `ComfyUI could not make the picture: ${comfyFailure(at(entry, ['status', 'messages']))}`, {});
+        }
+        const outputs = at(entry, ['outputs']);
+        const picture = outputs && typeof outputs === 'object'
+          ? Object.values(outputs as Record<string, unknown>).flatMap((output) => {
+            const images = at(output, ['images']);
+            return Array.isArray(images) ? images : [];
+          })[0] as { filename?: unknown; subfolder?: unknown; type?: unknown } | undefined
+          : undefined;
+        if (picture && typeof picture.filename === 'string') {
+          const where = new URLSearchParams({ filename: picture.filename, subfolder: String(picture.subfolder ?? ''), type: String(picture.type ?? 'temp') });
+          return download(`${server}/view?${where}`);
+        }
+        if (Date.now() > waiting.deadline) throw new PalugadaError('capability.unreachable', 'ComfyUI did not finish the picture in time; it may still be busy with another', {});
+        await waiting.pause();
+      }
+    },
+    explain: (body) => {
+      // A workflow refused before it ran: most often a checkpoint this ComfyUI does not have.
+      let refused: unknown;
+      try {
+        refused = JSON.parse(body);
+      } catch {
+        return null;
+      }
+      const nodes = at(refused, ['node_errors']);
+      const details = nodes && typeof nodes === 'object'
+        ? Object.values(nodes as Record<string, unknown>).flatMap((node) => {
+          const errors = at(node, ['errors']);
+          return Array.isArray(errors) ? errors.map((error) => String(at(error, ['details']) || at(error, ['message']) || '')).filter(Boolean) : [];
+        })
+        : [];
+      const said = details.join('; ') || String(at(refused, ['error', 'message']) ?? '');
+      if (!said) return null;
+      return `ComfyUI refused the workflow: ${said}${/ckpt_name/.test(said) ? '; under Tools, set the model to a checkpoint this ComfyUI has' : ''}`;
+    },
+  },
 ];
+
+/**
+ * ComfyUI's own default workflow, in the API's form: a checkpoint, the
+ * prompt and its negative, an empty canvas of the shape asked for, twenty
+ * steps of Euler, decoded and previewed -- previewed rather than saved, so
+ * nothing piles up in the owner's output folder; the picture is kept in the
+ * company's files. Sized for SDXL, which most checkpoints are.
+ */
+function comfyWorkflow(prompt: string, shape: ImageShape, model: string): Record<string, unknown> {
+  const [width, height] = shape === 'landscape' ? [1344, 768] : shape === 'portrait' ? [768, 1344] : [1024, 1024];
+  return {
+    1: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: model } },
+    2: { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
+    3: { class_type: 'CLIPTextEncode', inputs: { text: 'text, watermark', clip: ['1', 1] } },
+    4: { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
+    5: {
+      class_type: 'KSampler',
+      inputs: {
+        model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0],
+        seed: randomInt(0, 2 ** 32), steps: 20, cfg: 8, sampler_name: 'euler', scheduler: 'normal', denoise: 1,
+      },
+    },
+    6: { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
+    7: { class_type: 'PreviewImage', inputs: { images: ['6', 0] } },
+  };
+}
+
+/** What ComfyUI's history says went wrong: the exception of its execution_error, else its messages. */
+function comfyFailure(messages: unknown): string {
+  if (Array.isArray(messages)) {
+    for (const message of messages) {
+      const said = Array.isArray(message) ? at(message[1], ['exception_message']) : undefined;
+      if (typeof said === 'string' && said.trim()) return said.trim();
+    }
+  }
+  return 'its history says the run failed';
+}
 
 export const SPEECH_PROVIDERS: readonly SpeechProvider[] = [
   {
@@ -237,6 +347,8 @@ export interface MediaBinding<P> {
   root: string;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
+  /** Between two looks for a picture made later; a second. */
+  pollMs?: number;
 }
 
 /** A picture or a clip over this is a provider misbehaving, not a file a company needs. */
@@ -256,7 +368,10 @@ async function post(call: Call, binding: MediaBinding<MediaProviderBase>, signal
     throw new PalugadaError('capability.unreachable', `${binding.provider.name} could not be reached: ${(failure as Error).message}`, {});
   }
   if (!response.ok) {
-    const detail = (await response.text().catch(() => '')).slice(0, 300);
+    const body = await response.text().catch(() => '');
+    const explained = binding.provider.explain?.(body) ?? null;
+    if (explained) throw new PalugadaError('capability.unreachable', explained, { status: response.status });
+    const detail = body.slice(0, 300);
     const refused = response.status === 401 || response.status === 403;
     throw new PalugadaError(refused ? 'credential.unavailable' : 'capability.unreachable',
       refused
@@ -320,11 +435,23 @@ export async function makeImage(binding: MediaBinding<ImageProvider>, input: Ima
   const model = binding.model ?? binding.provider.defaultModel ?? '';
   const response = await post(binding.provider.request(prompt.slice(0, 4_000), shape, await binding.key(), model, binding.url), binding, signal);
   const answer: unknown = await response.json();
+  const pollMs = binding.pollMs ?? 1_000;
   return binding.provider.image(answer, async (url) => {
     // An address the provider made for this picture, fetched at once: it expires.
     const file = await (binding.fetch ?? fetch)(url, { signal: AbortSignal.timeout(60_000) });
     if (!file.ok) throw new PalugadaError('capability.unreachable', `${binding.provider.name}'s picture could not be fetched (${file.status})`, {});
     return { bytes: await bytesOf(file, binding.provider.name), mime: (file.headers.get('content-type') ?? 'image/png').split(';')[0]! };
+  }, {
+    base: binding.url,
+    deadline: Date.now() + (binding.timeoutMs ?? 180_000),
+    pause: () => new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) return reject(new PalugadaError('capability.unreachable', `${binding.provider.name}'s picture was not waited for: the run was stopped`, {}));
+      const timer = setTimeout(resolve, pollMs);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new PalugadaError('capability.unreachable', `${binding.provider.name}'s picture was not waited for: the run was stopped`, {}));
+      }, { once: true });
+    }),
   });
 }
 

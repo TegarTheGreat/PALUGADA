@@ -14,12 +14,13 @@ import {
   IconArrowUp, IconCheck, IconKey, IconMicrophone, IconPlayerStopFilled, IconRefresh, IconSparkles, IconVolume, IconVolumeOff, IconX,
 } from '@tabler/icons-react';
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, api, explain } from '../api.ts';
+import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { N, t } from '../i18n.ts';
 import { go } from '../router.ts';
 import { play, recordingSupported, useRecorder } from '../recorder.ts';
 import { rolePicture } from '../images.ts';
+import { Prose } from './Prose.tsx';
 import type { Company, RolePersona } from '../types.ts';
 
 /** Whether applying a card takes the owner's device: always, only when its route says so, or never. */
@@ -85,7 +86,11 @@ const SECRET_LABELS = [
 ];
 void SECRET_LABELS;
 
-export function Assistant({ opened, onClose, company = null }: { opened: boolean; onClose: () => void; company?: Company | null }) {
+export function Assistant({ opened, onClose, company = null, draft = null }: {
+  opened: boolean; onClose: () => void; company?: Company | null;
+  /** Words put in the box when it opens, for the owner to send or change: a card's "hire it with the CEO". */
+  draft?: string | null;
+}) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [text, setText] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -112,8 +117,20 @@ export function Assistant({ opened, onClose, company = null }: { opened: boolean
   };
 
   useEffect(() => {
-    if (opened) void load();
-    else setConversation(null);
+    if (opened && draft) setText(draft);
+  }, [opened, draft]);
+
+  useEffect(() => {
+    if (!opened) {
+      setConversation(null);
+      return;
+    }
+    // A CEO whose owner has been away and who has news says it first; most
+    // times there is nothing to say, and the conversation is as it was.
+    void (async () => {
+      if (companyId) await api('POST', `/api/companies/${companyId}/conversation/briefing`, {}).catch(() => undefined);
+      await load();
+    })();
   }, [opened, companyId]);
 
   useEffect(() => {
@@ -333,12 +350,60 @@ function Line({ message, reload, speaker }: {
         bg={mine ? 'var(--mantine-primary-color-light)' : 'var(--mantine-color-default)'}
         withBorder={!mine}
       >
-        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.body}</Text>
+        {mine
+          ? <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.body}</Text>
+          : <Prose text={message.body} />}
         {message.channel === 'telegram' && <Text size="xs" c="dimmed" mt={2}>{t('via Telegram')}</Text>}
       </Paper>
       {message.proposals.map((proposal) => <Card key={proposal.id} proposal={proposal} reload={reload} />)}
+      <ApplyAll proposals={message.proposals} reload={reload} />
     </Stack>
   );
+}
+
+/**
+ * Several cards open at once, applied in the order they were written, for the
+ * owner who has read them and agrees. A card that wants a key typed is left
+ * for its own field; the first refusal stops the rest.
+ */
+function ApplyAll({ proposals, reload }: { proposals: Proposal[]; reload: () => Promise<void> }) {
+  const requireFactor = useFactor();
+  const [busy, setBusy] = useState(false);
+  const ready = proposals.filter((one) => one.status === 'open' && Object.keys(one.secrets).length === 0);
+  if (ready.length < 2) return null;
+  const run = async () => {
+    setBusy(true);
+    try {
+      for (const proposal of ready) {
+        if (!(await applyCard(proposal, {}, requireFactor))) break;
+        notifications.show({ color: 'teal', message: t('Done: {what}', { what: proposal.summary }) });
+      }
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+      await reload();
+    }
+  };
+  return (
+    <Button size="compact-sm" variant="light" leftSection={<IconCheck size={14} />} loading={busy} onClick={() => void run()}>
+      {t('Apply all')}
+    </Button>
+  );
+}
+
+type FactorAsker = ReturnType<typeof useFactor>;
+
+/**
+ * One card applied, with no code: the owner's sign-in is the second factor
+ * (STATUS 2.175). The device is asked for only when the route says it needs it
+ * of this session -- one signed in with a recovery code, or a change to the
+ * owner's own authenticators. True when it was applied, false when the owner
+ * backed out or the route refused, which `requireFactor` has said.
+ */
+function applyCard(proposal: Proposal, secrets: Record<string, string>, requireFactor: FactorAsker): Promise<boolean> {
+  return requireFactor(proposal.summary, (proof) =>
+    api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { secrets, ...(proof ? { proof } : {}) }));
 }
 
 function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<void> }) {
@@ -353,24 +418,8 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
 
   const apply = async () => {
     setBusy(true);
-    const payload = { secrets: typed };
     try {
-      // A change that takes the device asks for it first; one that may take it
-      // is tried, and asked for it when the route says so.
-      if (proposal.factor === 'always') {
-        const done = await requireFactor(proposal.summary, (proof) =>
-          api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
-        if (!done) return;
-      } else {
-        try {
-          await api('POST', `/api/assistant/proposals/${proposal.id}/apply`, payload);
-        } catch (failure) {
-          if (!(failure instanceof ApiError && failure.code === 'approval.channel_forbidden')) throw failure;
-          const done = await requireFactor(proposal.summary, (proof) =>
-            api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
-          if (!done) return;
-        }
-      }
+      if (!(await applyCard(proposal, typed, requireFactor))) return;
       notifications.show({ color: 'teal', message: t('Done: {what}', { what: proposal.summary }) });
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
@@ -432,7 +481,7 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
           <Group justify="flex-end" gap="xs">
             <Button size="compact-sm" variant="subtle" color="gray" leftSection={<IconX size={14} />} onClick={() => void dismiss()} disabled={busy}>{t('Dismiss')}</Button>
             <Button size="compact-sm" leftSection={<IconCheck size={14} />} loading={busy} onClick={() => void apply()}>
-              {proposal.factor === 'always' ? t('Apply with a code') : t('Apply')}
+              {t('Apply')}
             </Button>
           </Group>
         )}

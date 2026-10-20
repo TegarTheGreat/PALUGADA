@@ -19,29 +19,36 @@
  * way -- the confirmation says which of the chosen stay, and the server
  * leaves them whatever the page sends.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, Paper,
-  ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
+  ActionIcon, Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, FileButton, Grid, Group, Kbd, Menu, Modal, NumberInput,
+  Paper, ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconPaperclip, IconRepeat, IconRoute,
+  IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
+import { readForUpload } from '../files.ts';
 import { useFactor } from '../factor.tsx';
-import { useLoad } from '../hooks.ts';
+import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Digest, InboxItem, StandingApproval, Trace } from '../types.ts';
-import { dateTime, goalKind, money, relative } from '../format.ts';
-import { t, tp } from '../i18n.ts';
+import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
+import { capabilitySaid, dateTime, goalKind, hireDraft, megabytes, money, numberSeparators, relative } from '../format.ts';
+import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
+import { ConversationOfTask } from '../components/ChatThread.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
-type Filter = 'all' | 'approval' | 'incident' | 'escalation';
+type Filter = 'all' | 'approval' | 'incident' | 'escalation' | 'mine';
+
+/** What an answer may carry: the server holds the same limits and has the last word. */
+const ANSWER_FILES_MAX = 5;
+const ANSWER_FILE_MAX_MB = 10;
 
 const KIND_COLOR: Record<string, string> = {
   approval: 'var(--mantine-color-orange-6)',
@@ -52,6 +59,32 @@ const KIND_COLOR: Record<string, string> = {
 /** Whether a batch may approve it: the server holds the same rule and has the last word. */
 const batchApprovable = (item: InboxItem) => item.tier !== 3 && !item.question && item.kind !== 'incident';
 
+/**
+ * What a card is about, in a line. A run's question is its question: the
+ * title made from it said "bookkeeper asks: ..." in English, whatever the
+ * owner reads (the analysis of 3 October, §2.3 item 7).
+ */
+const headline = (item: InboxItem) => {
+  if (item.question) return item.question;
+  // An action the broker asks about is titled by its code and its arguments
+  // ("record.delete: recordId cust-042"): it is named for what it does, and
+  // its arguments follow; the card lists them whole.
+  const action = described(item);
+  if (action !== null) return action ? `${capabilitySaid(item.capabilityName!)}: ${action}` : capabilitySaid(item.capabilityName!);
+  return item.title;
+};
+
+/** The arguments of a title the broker wrote as `capability: arguments`, or null when it is not one. */
+const described = (item: InboxItem): string | null => {
+  const name = item.capabilityName;
+  if (!name) return null;
+  if (item.title === name) return '';
+  return item.title.startsWith(`${name}:`) ? item.title.slice(name.length + 1).trim() : null;
+};
+
+/** Who is asking, by the name the owner gave the role; its short name is the platform's. */
+const whoAsks = (item: InboxItem) => item.roleName ?? item.roleSlug;
+
 /** Tier 3 first, then incidents, then oldest: what costs most to leave waiting. */
 function urgency(item: InboxItem): number {
   return item.tier === 3 ? 0 : item.kind === 'incident' ? 1 : 2;
@@ -59,17 +92,19 @@ function urgency(item: InboxItem): number {
 
 export function Decisions({ ctx, route }: PageProps) {
   const { companyId } = ctx;
+  // An item asked or withdrawn shows the moment it is.
+  const pulse = useLivePulse(companyId);
   const queue = useLoad(async () => {
-    const [{ items }, digest, later, { standing }]: [
-      { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[] },
+    const [{ items }, digest, later, { standing, schedules }]: [
+      { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[]; schedules: ScheduleApproval[] },
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/inbox`),
       api('GET', `/api/companies/${companyId}/digest`),
       api('GET', `/api/companies/${companyId}/inbox?snoozed=1`),
       api('GET', `/api/companies/${companyId}/standing-approvals`),
     ]);
-    return { items, digest, later: later.items, standing };
-  }, [companyId], { every: 15_000 });
+    return { items, digest, later: later.items, standing, schedules };
+  }, [companyId], { every: 15_000, pulse });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -86,7 +121,9 @@ export function Decisions({ ctx, route }: PageProps) {
   const select = (id: string | null) => go({ ...route, item: id }, { replace: true });
 
   const items = useMemo(() => (queue.data?.items ?? [])
-    .filter((item) => filter === 'all' || item.kind === filter)
+    // A seat is sent only the questions put to it and those put to no one, so
+    // an item with an addressee is its own.
+    .filter((item) => filter === 'all' || (filter === 'mine' ? item.addressee !== undefined : item.kind === filter))
     .sort((a, b) => urgency(a) - urgency(b) || a.createdAt.localeCompare(b.createdAt)), [queue.data, filter]);
 
   useEffect(() => {
@@ -173,6 +210,9 @@ export function Decisions({ ctx, route }: PageProps) {
       {queue.data.standing.length > 0 && !(narrow && current) && (
         <Standing companyId={companyId} standing={queue.data.standing} changed={queue.reload} />
       )}
+      {queue.data.schedules.length > 0 && !(narrow && current) && (
+        <ForSchedules companyId={companyId} schedules={queue.data.schedules} changed={queue.reload} />
+      )}
 
       {queue.data.items.length === 0 ? (
         <Paper withBorder radius="lg">
@@ -199,11 +239,14 @@ export function Decisions({ ctx, route }: PageProps) {
                       { value: 'approval', label: t('Approvals') },
                       { value: 'incident', label: t('Incidents') },
                       { value: 'escalation', label: t('Questions') },
+                      ...(ctx.staff && (filter === 'mine' || queue.data.items.some((item) => item.addressee)) ? [{ value: 'mine', label: t('For me') }] : []),
                     ]}
                   />
-                  <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
-                    {choosing ? t('Finish choosing') : t('Choose several')}
-                  </Button>
+                  {ctx.staff?.kind !== 'viewer' && (
+                    <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
+                      {choosing ? t('Finish choosing') : t('Choose several')}
+                    </Button>
+                  )}
                 </Group>
                 {choosing && (
                   <Group justify="space-between" gap={6} mb="xs" px={4} wrap="nowrap">
@@ -241,7 +284,7 @@ export function Decisions({ ctx, route }: PageProps) {
                             <Checkbox checked={chosen.has(item.id)} readOnly tabIndex={-1} mt={2} style={{ pointerEvents: 'none' }} />
                           )}
                           <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Text fw={600} size="sm" lineClamp={2}>{item.title}</Text>
+                            <Text fw={600} size="sm" lineClamp={2}>{headline(item)}</Text>
                             <Group gap={6} mt={6}>
                               <TierBadge tier={item.tier} />
                               <KindBadge kind={item.kind} />
@@ -262,7 +305,7 @@ export function Decisions({ ctx, route }: PageProps) {
                       {queue.data.later.map((item) => (
                         <Group key={item.id} justify="space-between" wrap="nowrap" gap="xs">
                           <Box style={{ minWidth: 0 }}>
-                            <Text size="sm" lineClamp={1}>{item.title}</Text>
+                            <Text size="sm" lineClamp={1}>{headline(item)}</Text>
                             <Text size="xs" c="dimmed">{t('Back {when}', { when: relative(item.snoozedUntil!) })}</Text>
                           </Box>
                           <Button size="compact-xs" variant="subtle" onClick={() => {
@@ -288,8 +331,10 @@ export function Decisions({ ctx, route }: PageProps) {
                   position={t('{index} of {total}', { index: items.indexOf(current) + 1, total: items.length })}
                   back={narrow ? () => select(null) : undefined}
                   decided={() => decided(current.id)}
+                  talk={(draft) => ctx.talk(draft)}
                   openTask={() => ctx.open('work', { item: current.taskId })}
                   openSkills={() => ctx.open('settings', { section: 'skills' })}
+                  seat={ctx.staff}
                 />
               ) : (
                 <Paper withBorder radius="lg" p="xl"><Text c="dimmed" ta="center">{t('Choose an item.')}</Text></Paper>
@@ -375,7 +420,7 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
           <Stack gap={6}>
             {targets.map((item) => (
               <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
-                <Text size="sm" lineClamp={1}>{item.title}</Text>
+                <Text size="sm" lineClamp={1}>{headline(item)}</Text>
                 <TierBadge tier={item.tier} />
               </Group>
             ))}
@@ -401,10 +446,75 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
   );
 }
 
+/**
+ * A budget card's one press (STATUS 2.155): raise the account's token ceiling
+ * and go on with every task it stopped. Raising asks for the owner's code, as
+ * raising a ceiling always does; going on with what room there already is does
+ * not.
+ */
+function BudgetResume({ companyId, halt, done }: {
+  companyId: string; halt: NonNullable<InboxItem['budgetHalt']>; done: () => void;
+}) {
+  const requireFactor = useFactor();
+  const [ceiling, setCeiling] = useState<number | ''>(Math.max(halt.tokensMax * 10, 1_000_000));
+  const [busy, setBusy] = useState(false);
+  const account = halt.account ?? t('The company');
+  const hasRoom = halt.tokensSpent + 1_000 <= halt.tokensMax;
+
+  const go_ = async (raise: boolean) => {
+    setBusy(true);
+    try {
+      const press = (proof?: Proof) => api('POST', `/api/companies/${companyId}/budget-accounts/${halt.accountId}/continue`, {
+        ...(raise && ceiling !== '' ? { tokensMax: ceiling } : {}), ...(proof ? { proof } : {}),
+      });
+      let result: { continued: number; skipped: unknown[] } | undefined;
+      const ok = raise
+        ? await requireFactor(t('Raise the ceilings of {account}', { account }), async (proof) => { result = await press(proof) as typeof result; })
+        : (result = await press() as typeof result, true);
+      if (ok && result) {
+        notifications.show({
+          color: result.skipped.length > 0 ? 'orange' : 'teal',
+          message: result.skipped.length > 0
+            ? t('Continued {continued}; {waiting} still waiting for room.', { continued: result.continued, waiting: result.skipped.length })
+            : t('Continued {continued}.', { continued: result.continued }),
+        });
+        done();
+      }
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper withBorder radius="md" p="md" bg="var(--mantine-color-yellow-light)">
+      <Stack gap="sm">
+        <Text size="sm">
+          {t('{account} has used {spent} of {max} tokens this month. Tokens are not dollars; money has its own ceiling under Money.', {
+            account, spent: halt.tokensSpent.toLocaleString(locale()), max: halt.tokensMax.toLocaleString(locale()),
+          })}
+        </Text>
+        <Group align="flex-end" wrap="wrap">
+          <NumberInput label={t('New token ceiling for the month')} min={halt.tokensMax} step={1_000_000} value={ceiling}
+            onChange={(next) => setCeiling(typeof next === 'number' ? next : '')} allowDecimal={false} {...numberSeparators()} style={{ minWidth: 200 }} />
+          <Button loading={busy} disabled={ceiling === '' || ceiling <= halt.tokensMax} onClick={() => void go_(true)}>{t('Raise it and continue')}</Button>
+          {hasRoom && <Button variant="default" loading={busy} onClick={() => void go_(false)}>{t('Continue without raising')}</Button>}
+        </Group>
+        <Text size="xs" c="dimmed">{t('Stopped by it: {count}', { count: halt.stopped })}</Text>
+      </Stack>
+    </Paper>
+  );
+}
+
 function Detail({
-  item, companyId, position, back, decided, openTask, openSkills,
+  item, companyId, position, back, decided, openTask, openSkills, seat, talk,
 }: {
   item: InboxItem;
+  /** Opens the conversation with the CEO, with words waiting in the box. */
+  talk: (draft: string) => void;
+  /** A staff seat reading the inbox (0110): a viewer decides nothing, and nobody but the owner decides tier 3. */
+  seat: Staff | null;
   companyId: string;
   position: string;
   back: (() => void) | undefined;
@@ -414,17 +524,63 @@ function Detail({
   openSkills: () => void;
 }) {
   const requireFactor = useFactor();
+  const decides = seat === null || (seat.kind === 'approver' && (item.tier ?? 0) < 3);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [answer, setAnswer] = useState('');
+  // Files that go with the answer to a run's question: read when chosen, sent with the answer, kept nowhere here.
+  const [attached, setAttached] = useState<Array<{ name: string; data: string }>>([]);
+  // The button keeps the files it was given until it is told to forget them, and a browser says nothing when the
+  // same one is chosen again -- after it was taken off, or refused as too big.
+  const forget = useRef<() => void>(null);
+  const attach = async (chosen: File[]) => {
+    forget.current?.();
+    const room = ANSWER_FILES_MAX - attached.length;
+    if (chosen.length > room) {
+      setError(t('At most five files can come with an answer.'));
+      return;
+    }
+    const tooBig = chosen.find((file) => file.size > ANSWER_FILE_MAX_MB * 1_048_576);
+    if (tooBig) {
+      setError(t('That file is {size} MB; at most {max} MB can be uploaded.', { size: megabytes(tooBig.size), max: ANSWER_FILE_MAX_MB }));
+      return;
+    }
+    setError(null);
+    try {
+      const read = await Promise.all(chosen.map((file) => readForUpload(file)));
+      setAttached((current) => [...current, ...read]);
+    } catch (failure) {
+      setError(explain(failure));
+    }
+  };
 
-  const send = (decision: string, proof?: Proof, allowForHours?: number) =>
+  const send = (decision: string, proof?: Proof, allowForHours?: number, forSchedule?: boolean) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
-      decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}),
+      decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}), ...(forSchedule ? { forSchedule } : {}),
     });
+
+  // 0116: yes, and every time this schedule does exactly this. It loosens a
+  // control for months, so it always takes the owner's device.
+  const approveForSchedule = async (schedule: string) => {
+    setBusy('approve');
+    setError(null);
+    try {
+      const done = await requireFactor(
+        t('{capability}, every time {schedule} does exactly this', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', schedule }),
+        (proof) => send('approve', proof, undefined, true),
+      );
+      if (!done) return;
+      notifications.show({ color: 'teal', message: t('Approved, and allowed every time {schedule} does exactly this, for ninety days.', { schedule }) });
+      decided();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // 0083: yes, and the same to this role for a while. It loosens a rule, so
   // it always takes the owner's device; the dialog opens straight away.
@@ -433,7 +589,7 @@ function Detail({
     setError(null);
     try {
       const done = await requireFactor(
-        t('{capability} for {role}, {period}', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '', period: label }),
+        t('{capability} for {role}, {period}', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '', period: label }),
         (proof) => send('approve', proof, hours),
       );
       if (!done) return;
@@ -458,7 +614,13 @@ function Detail({
       // tier to decide whether one is needed -- `decide` decides, and asking it
       // is how the console stays out of the business of implementing F10.10.
       try {
-        await send(decision);
+        // An answer with files goes by the answer route, which keeps them; a
+        // question answered in words is decided as it always was.
+        if (decision === 'approve' && item.question && attached.length > 0) {
+          await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer: note, files: attached });
+        } else {
+          await send(decision);
+        }
       } catch (failure) {
         if (failure instanceof ApiError && failure.code === 'approval.channel_forbidden') {
           const done = await requireFactor(item.title, (proof) => send(decision, proof));
@@ -482,12 +644,17 @@ function Detail({
   };
 
   // One of the answers the agent offered, pressed: the answer is its text,
-  // on a yes, exactly as if it had been typed.
+  // on a yes, exactly as if it had been typed -- with the files attached, by
+  // the route that keeps them, as a typed answer goes.
   const choose = async (option: string) => {
     setBusy(`choose:${option}`);
     setError(null);
     try {
-      await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      if (attached.length > 0) {
+        await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer: option, files: attached });
+      } else {
+        await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      }
       notifications.show({ color: 'teal', message: t('Answer sent. The task carries on with it.') });
       decided();
     } catch (failure) {
@@ -526,8 +693,9 @@ function Detail({
 
   const expires = item.expiresAt ? new Date(item.expiresAt) : null;
   const soon = expires !== null && expires.getTime() - Date.now() < 6 * 3_600_000;
-  const asker = item.roleSlug
-    ? item.divisionName ? t('Asked by {role} in {division}', { role: item.roleSlug, division: item.divisionName }) : t('Asked by {role}', { role: item.roleSlug })
+  const who = whoAsks(item);
+  const asker = who
+    ? item.divisionName ? t('Asked by {role} in {division}', { role: who, division: item.divisionName }) : t('Asked by {role}', { role: who })
     : t('Raised by the platform');
 
   return (
@@ -547,6 +715,16 @@ function Detail({
         <Group gap="xs" mb="xs">
           <TierBadge tier={item.tier} />
           <KindBadge kind={item.kind} />
+          {item.addressee && (
+            <Badge color="grape" variant="light">
+              {seat ? t('For you') : t('For {name}', { name: item.addressee.name })}
+            </Badge>
+          )}
+          {item.escalated && (
+            <Tooltip label={t('Not answered within a day: the owner has been told, and can answer it too.')}>
+              <Badge color="orange" variant="light" leftSection={<IconClock size={12} />}>{t('Unanswered for a day')}</Badge>
+            </Tooltip>
+          )}
           {expires && (
             <Tooltip label={t('Unanswered, it is cancelled {when}. Silence never executes anything.', { when: dateTime(item.expiresAt) })}>
               <Badge color={soon ? 'red' : 'gray'} variant="light" leftSection={<IconClock size={12} />}>
@@ -555,7 +733,7 @@ function Detail({
             </Tooltip>
           )}
         </Group>
-        <Title order={3} fz={20} lh={1.3}>{item.title}</Title>
+        <Title order={3} fz={20} lh={1.3}>{item.question && who ? t('A question from {role}', { role: who }) : headline(item)}</Title>
         <Group gap={8} mt={8} wrap="nowrap">
           <Avatar size={26} radius="xl" src={item.roleSlug ? rolePicture(item.roleSlug) : '/brand/palugada-app-icon.svg'} alt="" />
           <Text size="sm" c="dimmed">{asker} · {relative(item.createdAt)}</Text>
@@ -563,9 +741,13 @@ function Detail({
       </Box>
       <Divider />
       <Stack p="lg" gap="md">
-        {item.actionSummary && item.actionSummary !== item.title && (
+        {/* The broker's line of arguments is not shown again: they are listed whole below. */}
+        {item.actionSummary && item.actionSummary !== item.title
+          && !(item.capabilityName && item.actionSummary.startsWith(`${item.capabilityName}:`) && argumentsOf(item.input).length > 0) && (
           <Block label={t('What will happen')}>{item.actionSummary}</Block>
         )}
+        {/* A reply to a customer, beside what the customer wrote (0111). */}
+        {item.capabilityName === 'chat.send' && item.taskId && <ConversationOfTask companyId={companyId} taskId={item.taskId} />}
         {/* Every argument, whole: the line above is cut to fit, and what is
             approved is what the action is given, not its name. */}
         {argumentsOf(item.input).length > 0 && (
@@ -583,6 +765,17 @@ function Detail({
         )}
         {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
         {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
+        {/* What the owner asked here, and what the agent answered (N6). */}
+        {(item.asked ?? []).map((exchange, index) => (
+          <Paper key={index} withBorder radius="md" p="sm">
+            <Text size="xs" c="dimmed">{t('You asked')}</Text>
+            <Text size="sm" mb={6} style={{ whiteSpace: 'pre-wrap' }}>{exchange.question}</Text>
+            <Text size="xs" c="dimmed">{t('The agent answered')}</Text>
+            {exchange.answer === null
+              ? <Text size="sm" c="dimmed" fs="italic">{t('Not yet: the agent is reading your question.')}</Text>
+              : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{exchange.answer}</Text>}
+          </Paper>
+        ))}
 
         {item.goalChain.length > 0 && (
           <div>
@@ -602,7 +795,7 @@ function Detail({
 
         {!item.question && (
           <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-            {item.capabilityName && <Fact label={t('Capability')} value={item.capabilityName} />}
+            {item.capabilityName && <Fact label={t('Capability')} value={capabilitySaid(item.capabilityName)} />}
             <Fact label={t('Estimated cost')} value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : t('None declared')} />
           </SimpleGrid>
         )}
@@ -612,11 +805,17 @@ function Detail({
             <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
           {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
-          {item.kind === 'skill_candidate' && <Anchor component="button" size="sm" onClick={openSkills}>{t('Read the skill')}</Anchor>}
+          {item.kind === 'skill_candidate' && !seat && (
+            <Anchor component="button" size="sm" onClick={openSkills}>
+              {(item.skillCount ?? 1) > 1 ? t('Read the skills') : t('Read the skill')}
+            </Anchor>
+          )}
         </Group>
         <Collapse expanded={traceOpen}>
           <Box>{trace ? <TraceView trace={trace} companyId={companyId} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
         </Collapse>
+
+        {item.budgetHalt && seat === null && <BudgetResume companyId={companyId} halt={item.budgetHalt} done={decided} />}
 
         {item.question ? (
           // An agent asked with `owner.ask` and its task is parked on the
@@ -625,6 +824,26 @@ function Detail({
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-blue-light)">
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('The agent asks')}</Text>
             <Text size="sm" fw={600} mb="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.question}</Text>
+            {/* Asked to be done at the company's browser (browser.handover): there, and giving it back answers this. */}
+            {item.browser && !seat && item.taskId && (
+              <Stack gap={4} mb="sm" align="flex-start">
+                <Button leftSection={<IconWorldWww size={16} />}
+                  onClick={() => go({ kind: 'company', companyId, page: 'browser', section: 'company', item: item.taskId })}>
+                  {t('Open the browser')}
+                </Button>
+                <Text size="xs" c="dimmed">{t('Take it over there, do what it asks, and give it back: that answers this.')}</Text>
+              </Stack>
+            )}
+            {/* Asked for a key (owner.ask with key): given in the division's keys, and saving it answers this. */}
+            {item.key && !seat && (
+              <Stack gap={4} mb="sm" align="flex-start">
+                <Button leftSection={<IconKey size={16} />}
+                  onClick={() => go({ kind: 'company', companyId, page: 'team', section: 'company', item: item.key!.divisionId })}>
+                  {t('Give the {alias} key', { alias: item.key.alias })}
+                </Button>
+                <Text size="xs" c="dimmed">{t('It is sealed as you save it; the role is told it is there, never what it is.')}</Text>
+              </Stack>
+            )}
             {item.options && item.options.length > 0 && (
               <Stack gap={6} mb="sm">
                 {item.options.map((option) => (
@@ -643,6 +862,26 @@ function Detail({
               value={note}
               onChange={(event) => setNote(event.currentTarget.value)}
             />
+            {decides && (
+              <Stack gap={6} mt="sm" align="flex-start">
+                {attached.map((file, index) => (
+                  <Group key={`${file.name}:${index}`} gap={6} wrap="nowrap">
+                    <IconPaperclip size={14} />
+                    <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{file.name}</Text>
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('Remove {name}', { name: file.name })}
+                      onClick={() => setAttached((current) => current.filter((_, at) => at !== index))}>
+                      <IconX size={14} />
+                    </ActionIcon>
+                  </Group>
+                ))}
+                {attached.length < ANSWER_FILES_MAX && (
+                  <FileButton multiple resetRef={forget} onChange={(chosen) => void attach(chosen)}>
+                    {(props) => <Button {...props} size="xs" variant="light" leftSection={<IconPaperclip size={14} />}>{t('Attach a file')}</Button>}
+                  </FileButton>
+                )}
+                <Text size="xs" c="dimmed">{t("Kept in the company's files; the role that asked is told where each one is.")}</Text>
+              </Stack>
+            )}
           </Paper>
         ) : (
           <Textarea
@@ -655,7 +894,14 @@ function Detail({
           />
         )}
 
-        {item.kind === 'escalation' && !item.question && (
+        {item.hire && seat === null && (
+          <HireCard companyId={companyId} hire={item.hire} talk={talk} settled={async (decision) => {
+            await send(decision);
+            decided();
+          }} />
+        )}
+
+        {decides && item.kind === 'escalation' && !item.question && !item.hire && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
               label={t('Answer the agent instead')}
@@ -676,7 +922,13 @@ function Detail({
         {error && <Alert color="red" variant="light">{error}</Alert>}
       </Stack>
       <Divider />
-      {item.question ? (
+      {!decides ? (
+        <Text p="md" size="sm" c="dimmed" bg="var(--mantine-color-default-hover)">
+          {seat?.kind === 'approver'
+            ? t('Tier 3 is the owner\'s to decide: it stays in their inbox.')
+            : t('You can read this; deciding it is for the owner or an approver.')}
+        </Text>
+      ) : item.question ? (
         <Group p="md" justify="flex-end" wrap="wrap" gap="xs" bg="var(--mantine-color-default-hover)">
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Stop the task')}
@@ -694,7 +946,7 @@ function Detail({
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Deny')}
           </Button>
-          {item.allowFor ? (
+          {(item.allowFor || item.forSchedule) && !seat ? (
             <Group gap={0} wrap="nowrap">
               <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
                 onClick={() => void decide('approve')} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
@@ -702,16 +954,30 @@ function Detail({
               </Button>
               <Menu position="top-end" withinPortal>
                 <Menu.Target>
-                  <Button variant="outline" color="teal" px={8} aria-label={t('Approve for a while')}
+                  <Button variant="outline" color="teal" px={8}
+                    aria-label={item.allowFor ? t('Approve for a while') : t('Approve every time its schedule does it')}
                     style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeftWidth: 0 }}>
-                    <IconHourglass size={16} />
+                    {item.allowFor ? <IconHourglass size={16} /> : <IconRepeat size={16} />}
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '' })}</Menu.Label>
-                  {ALLOW_FOR.map((choice) => (
-                    <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
-                  ))}
+                  {item.allowFor && (
+                    <>
+                      <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
+                      {ALLOW_FOR.map((choice) => (
+                        <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
+                      ))}
+                    </>
+                  )}
+                  {item.allowFor && item.forSchedule && <Menu.Divider />}
+                  {item.forSchedule && (
+                    <>
+                      <Menu.Label>{t('Approve, and allow exactly this without asking')}</Menu.Label>
+                      <Menu.Item leftSection={<IconRepeat size={14} />} onClick={() => void approveForSchedule(item.forSchedule!.slug)}>
+                        {t('Every time {schedule} does it', { schedule: item.forSchedule.slug })}
+                      </Menu.Item>
+                    </>
+                  )}
                 </Menu.Dropdown>
               </Menu>
             </Group>
@@ -723,6 +989,55 @@ function Detail({
         </Group>
       </Group>
       )}
+    </Paper>
+  );
+}
+
+/**
+ * A role the CEO proposes hiring (0132). Hiring is the owner's (F2.9), and is
+ * done with the CEO in conversation, which writes the role: this card opens it
+ * with the proposal waiting in the box, or closes the ticket when the company
+ * does not need it.
+ */
+function HireCard({ companyId, hire, talk, settled }: {
+  companyId: string;
+  hire: NonNullable<InboxItem['hire']>;
+  talk: (draft: string) => void;
+  settled: (decision: 'approve' | 'deny') => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<'hire' | 'close' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (which: 'hire' | 'close') => {
+    setBusy(which);
+    setError(null);
+    try {
+      if (which === 'hire') {
+        talk(hireDraft(hire.role, hire.why));
+        await settled('approve');
+      } else {
+        await api('POST', `/api/companies/${companyId}/tickets/${hire.ticketId}`, { status: 'closed', reason: t('Not needed now') });
+        await settled('deny');
+      }
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
+      <Stack gap="xs">
+        <Text size="sm">{t('Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.')}</Text>
+        {error && <Alert color="red" variant="light">{error}</Alert>}
+        <Group justify="flex-end" gap="xs" wrap="wrap">
+          <Button size="xs" variant="default" leftSection={<IconX size={14} />} loading={busy === 'close'} onClick={() => void act('close')}>
+            {t('Not needed now')}
+          </Button>
+          <Button size="xs" leftSection={<IconCheck size={14} />} loading={busy === 'hire'} onClick={() => void act('hire')}>
+            {t('Hire it with the CEO')}
+          </Button>
+        </Group>
+      </Stack>
     </Paper>
   );
 }
@@ -747,7 +1062,7 @@ function Standing({ companyId, standing, changed }: {
     setBusy(entry.id);
     try {
       await api('POST', `/api/companies/${companyId}/standing-approvals/${entry.id}/revoke`);
-      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: entry.capabilityName, role: entry.roleSlug }) });
+      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: capabilitySaid(entry.capabilityName), role: entry.roleName ?? entry.roleSlug }) });
       changed();
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
@@ -769,8 +1084,59 @@ function Standing({ companyId, standing, changed }: {
           <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
             <Box style={{ minWidth: 0 }}>
               <Text size="sm" truncate>
-                <Text span fw={600}>{entry.capabilityName}</Text>{' · '}{entry.roleSlug}
+                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.roleName ?? entry.roleSlug}
               </Text>
+              <Text size="xs" c="dimmed">
+                {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}
+              </Text>
+            </Box>
+            <Button size="compact-sm" variant="default" loading={busy === entry.id} onClick={() => void revoke(entry)}>
+              {t('Take back')}
+            </Button>
+          </Group>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+/**
+ * The yeses the owner gave a schedule for one exact action (0116), each taken
+ * back with one press: a tightening, so no device is asked for.
+ */
+function ForSchedules({ companyId, schedules, changed }: {
+  companyId: string; schedules: ScheduleApproval[]; changed: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const revoke = async (entry: ScheduleApproval) => {
+    setBusy(entry.id);
+    try {
+      await api('POST', `/api/companies/${companyId}/schedule-approvals/${entry.id}/revoke`);
+      notifications.show({ message: t('Taken back. The next time {schedule} does it, you are asked again.', { schedule: entry.scheduleSlug }) });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Paper withBorder radius="lg" p="md">
+      <Group gap="xs" mb="xs">
+        <IconRepeat size={18} />
+        <Text fw={600}>{t('Allowed for a schedule')}</Text>
+      </Group>
+      <Text size="xs" c="dimmed" mb="sm">
+        {t('Each runs without a card when its schedule, as it is now, does exactly that action again. Anything else, a schedule that was changed, and tier 3 still ask.')}
+      </Text>
+      <Stack gap={6}>
+        {schedules.map((entry) => (
+          <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
+            <Box style={{ minWidth: 0 }}>
+              <Text size="sm" truncate>
+                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.scheduleSlug}
+              </Text>
+              <Text size="xs" truncate>{entry.actionSummary}</Text>
               <Text size="xs" c="dimmed">
                 {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}
               </Text>

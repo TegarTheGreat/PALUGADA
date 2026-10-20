@@ -33,7 +33,7 @@ import {
   saveTemplate,
   type CompanyTemplate,
 } from '../src/templates/company.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../src/templates/standard.ts';
+import { FOUNDING_TEMPLATE } from '../src/templates/founding.ts';
 import { createRootTask, getTask } from '../src/engine/tasks.ts';
 import { withTenant } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
@@ -126,7 +126,7 @@ const SMOKE_TEMPLATE_SLUG = 'smoke-company';
  */
 function unboundStandardGrants(registry: CapabilityRegistry): string[] {
   const wanted = [...new Set(
-    (STANDARD_COMPANY_TEMPLATE.grants ?? []).map((grant) => grant.capability),
+    (FOUNDING_TEMPLATE.grants ?? []).map((grant) => grant.capability),
   )];
   return wanted.filter((name) => registry.get(name) === undefined);
 }
@@ -199,9 +199,9 @@ async function main(): Promise<number> {
 
   // The example price list too, for the same reason: it is what an operator
   // copies, and a broken one would refuse the deployment that copied it.
-  const { loadPriceTable, estimateCents } = await import('../src/engine/pricing.ts');
+  const { loadPriceTable, costOf } = await import('../src/engine/pricing.ts');
   const prices = await loadPriceTable('config/prices.example.json');
-  const unknown = estimateCents(prices, 'a-model-nobody-listed', 1_000_000, 0);
+  const unknown = costOf(prices, 'a-model-nobody-listed', { input: 1_000_000, output: 0 });
   log(
     'price list',
     `config/prices.example.json prices ${prices.rates.length} pattern(s); `

@@ -206,6 +206,11 @@ export const SEARCH_PROVIDERS: readonly SearchProvider[] = [
   },
 ];
 
+function firecrawlPage(answer: unknown, url: string): { url: string; title: string | null; text: string } {
+  const data = (answer as { data?: { markdown?: unknown; metadata?: Record<string, unknown> } }).data ?? {};
+  return { url: text(data.metadata?.sourceURL) || url, title: text(data.metadata?.title) || null, text: text(data.markdown) };
+}
+
 export const EXTRACT_PROVIDERS: readonly ExtractProvider[] = [
   {
     id: 'jina', name: 'Jina Reader', about: 'Any page as clean text; 20 a minute without a key', key: 'optional',
@@ -223,10 +228,7 @@ export const EXTRACT_PROVIDERS: readonly ExtractProvider[] = [
       method: 'POST', url: 'https://api.firecrawl.dev/v2/scrape', headers: { ...json, ...bearer(key) },
       body: { url, formats: ['markdown'], onlyMainContent: true },
     }),
-    page: (answer, url) => {
-      const data = (answer as { data?: { markdown?: unknown; metadata?: Record<string, unknown> } }).data ?? {};
-      return { url: text(data.metadata?.sourceURL) || url, title: text(data.metadata?.title) || null, text: text(data.markdown) };
-    },
+    page: firecrawlPage,
   },
   {
     id: 'tavily', name: 'Tavily Extract', about: 'A free tier without a key', key: 'optional',
@@ -275,6 +277,17 @@ export const EXTRACT_PROVIDERS: readonly ExtractProvider[] = [
       return { url: text(data.url) || url, title: text(data.title) || null, text: text(data.content) };
     },
   },
+  {
+    // The same scrape, on a Firecrawl the owner runs: the address it reads
+    // goes to their own server and no further.
+    id: 'firecrawl-self-hosted', name: 'Firecrawl, your own', about: 'A Firecrawl you run', key: 'optional',
+    urlExample: 'http://localhost:3002', reserveCents: 0,
+    request: (url, key, own) => ({
+      method: 'POST', url: `${base(own, 'firecrawl-self-hosted')}/v2/scrape`, headers: { ...json, ...bearer(key) },
+      body: { url, formats: ['markdown'], onlyMainContent: true },
+    }),
+    page: firecrawlPage,
+  },
 ];
 
 export function searchProvider(id: string): SearchProvider | undefined {
@@ -296,7 +309,7 @@ export interface ToolBinding<P> {
 
 const MAX_RESULTS = 10;
 /** A page is for reading, not for filling a context window. */
-const MAX_PAGE_CHARS = 60_000;
+export const MAX_PAGE_CHARS = 60_000;
 
 async function send(call: Call, binding: ToolBinding<ProviderBase>, signal: AbortSignal | undefined): Promise<unknown> {
   const timeout = AbortSignal.timeout(binding.timeoutMs ?? 30_000);
@@ -375,6 +388,20 @@ export interface ExtractOutput {
   truncated: boolean;
 }
 
+export const EXTRACT_SCHEMA = {
+  type: 'object',
+  required: ['url'],
+  properties: { url: { type: 'string', pattern: '^https?://', description: 'The page to read, http or https.' } },
+};
+
+export function extractDescribed(input: ExtractInput): { urlHost: string | null } {
+  try {
+    return { urlHost: new URL(String(input.url ?? '')).hostname };
+  } catch {
+    return { urlHost: null };
+  }
+}
+
 /**
  * `web.extract` -- one page as readable text, fetched by the provider. Unlike
  * `web.fetch`, the page is fetched from the provider's network, so it reaches
@@ -383,11 +410,7 @@ export interface ExtractOutput {
 export function webExtract(binding: ToolBinding<ExtractProvider>): Capability<ExtractInput, ExtractOutput> {
   return {
     name: 'web.extract',
-    inputSchema: {
-      type: 'object',
-      required: ['url'],
-      properties: { url: { type: 'string', pattern: '^https?://', description: 'The page to read, http or https.' } },
-    },
+    inputSchema: EXTRACT_SCHEMA,
     adapter: `extract:${binding.provider.id}`,
     defaultTier: 0,
     estimatedCostCents: binding.provider.reserveCents,
@@ -407,12 +430,6 @@ export function webExtract(binding: ToolBinding<ExtractProvider>): Capability<Ex
         truncated: page.text.length > MAX_PAGE_CHARS,
       };
     },
-    describe(input) {
-      try {
-        return { urlHost: new URL(String(input.url ?? '')).hostname };
-      } catch {
-        return { urlHost: null };
-      }
-    },
+    describe: extractDescribed,
   };
 }

@@ -172,18 +172,19 @@ export class WebhookPush implements OwnerChannel {
    * a digest to send: the worker only asks channels that implement this.
    */
   async deliverDigest(digest: { companyId: string; day: string; text: string }): Promise<void> {
+    // Headed by the digest's own first line, which is already in the owner's
+    // language, as the e-mail's subject is; the rest is the body.
+    const lines = digest.text.split('\n');
+    const first = lines.findIndex((line) => line.trim());
+    const title = first >= 0 ? lines[first]!.replace(/[*_#`]/g, '').trim().slice(0, 200) : digest.day;
+    const rest = first >= 0 ? lines.slice(first + 1).join('\n').trim() : '';
+    const body = rest || digest.text;
     if (this.#options.body) {
       // A provider with its own shape gets the digest in that shape, quietly.
-      await this.send({ title: `Digest for ${digest.day}`, body: digest.text, url: null, urgent: false, quiet: true, tag: `digest-${digest.day}` });
+      await this.send({ title, body, url: null, urgent: false, quiet: true, tag: `digest-${digest.day}` });
       return;
     }
-    await this.#post({
-      kind: 'digest',
-      companyId: digest.companyId,
-      day: digest.day,
-      title: `Digest for ${digest.day}`,
-      body: digest.text,
-    });
+    await this.#post({ kind: 'digest', companyId: digest.companyId, day: digest.day, title, body });
   }
 }
 

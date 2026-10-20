@@ -62,7 +62,23 @@ It is **not** for you if you need many people working in it (there is one owner,
 
 ## Quickstart
 
-**With Docker** (Docker Compose, and Node 22.18+ for the setup):
+**In one command**, with nothing on the machine but Docker:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh
+```
+
+It fetches PALUGADA into `~/palugada`, writes the database's passwords to
+its `.env`, starts it with Docker Compose, waits until the console answers,
+and prints a link: whoever opens it first becomes the owner, adds PALUGADA to
+their authenticator app there, and chooses the model in the console. Run the
+same command again to update; the passwords and the data stay, and the
+database is copied to `~/palugada/backups` first. On a server it also says how
+to open the console from your own computer, and
+`PALUGADA_PUBLIC_HOST=console.example.com` puts HTTPS in front of it
+([getting started](docs/guide/getting-started.md#on-a-server-a-vps)).
+
+**With Docker, step by step** (Docker Compose, and Node 22.18+ for the setup):
 
 ```sh
 git clone https://github.com/TegarTheGreat/PALUGADA.git && cd PALUGADA
@@ -352,10 +368,16 @@ without you merging it.
 - [docs/configuration.md](docs/configuration.md): installing, production and every setting.
 - [docs/STATUS.md](docs/STATUS.md): every requirement graded, with the defects found and fixed.
 - [CHANGELOG.md](CHANGELOG.md): what each version changed, for an owner or an operator.
+- [docs/RELEASING.md](docs/RELEASING.md): how a version is released, installed and rolled back, and the merge queue that keeps main green.
 - [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md): who can attack a deployment, what stops each in order, the test for each defence, and what is left.
 - [docs/PRD.md](docs/PRD.md): the specification (v2, in Indonesian); `F5.4` in the code refers to it.
 - [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md) and [docs/COMPETITIVE-ANALYSIS-2026-09-30.md](docs/COMPETITIVE-ANALYSIS-2026-09-30.md): the comparisons with Slack, Buzz, auto-company, Paperclip and newer projects.
 - [docs/AUDIT-2026-09-28.md](docs/AUDIT-2026-09-28.md): an outside audit's thirty-one items, each verified, and what was fixed or proposed.
+- [docs/MATURITY-RECHECK-2026-09-30.md](docs/MATURITY-RECHECK-2026-09-30.md): the same checks run again two days later -- which of those defects the live run no longer finds, which remain, and what the new code brought (in Indonesian).
+- [docs/FEATURE-COMPARISON-2026-09-30.md](docs/FEATURE-COMPARISON-2026-09-30.md): sixteen areas scored from each project's code, and what a task really costs on DeepSeek (in Indonesian).
+- [docs/NEEDS-VS-FEATURES-2026-09-30.md](docs/NEEDS-VS-FEATURES-2026-09-30.md): what owners running a business on agents actually need, from surveys, competitors' users and Indonesian small businesses, matched against the code (in Indonesian).
+- [docs/MATURE-COMPETITORS-2026-10-01.md](docs/MATURE-COMPETITORS-2026-10-01.md): why people use the mature competitors, whether each is overrated or underrated, and which of their lessons PALUGADA already meets (in Indonesian).
+- [docs/GAPS-VS-PAPERCLIP-BUZZ-2026-10-03.md](docs/GAPS-VS-PAPERCLIP-BUZZ-2026-10-03.md): what is not yet reliable or mature next to Paperclip and Buzz, from a live run of the owner's flows on a real model, a code audit and both competitors' code (in Indonesian).
 - [brand/](brand/README.md): the logo, the banners and the console's pictures.
 
 ## Contributing

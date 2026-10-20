@@ -89,6 +89,8 @@ export class InProcessAdapter implements Adapter {
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
+    // A task the platform made to do a duty never comes here: the engine runs
+    // it on its own runtime, whatever the role's (src/duties).
     const handler = this.#handlers.get(request.roleSlug);
     if (!handler) {
       if (usesTools(this.#llm)) return { output: await runAgentLoop(request, services, this.#llm) };

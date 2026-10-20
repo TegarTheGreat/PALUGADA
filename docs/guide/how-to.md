@@ -19,10 +19,17 @@ for me?".
 
 The assistant thinks with this deployment's own model, so choose one first
 (**This deployment**, **Model**). It reads what the console can read, and
-puts every change in front of you as a card: what it does, the route it
-calls, and the values it sends. Nothing changes until you press **Apply**;
-a change that takes your authenticator on its own page takes it on the card
-too (**Apply with a code**). A key goes in the sealed field on the card and
+puts a change in front of you as a card: what it does, the route it calls,
+and the values it sends. Nothing changes until you press **Apply** --
+**Apply all** when several are waiting -- and a change that takes your
+authenticator on its own page takes it on the card too (**Apply with a
+code**; inside the window a code just shown opens, it needs none for what
+builds the company). The exception is everyday work you asked for in a
+conversation with a company's CEO: giving the team work, filing and handing
+on a ticket, telling a task something, stopping it or running it again. That
+is done as the CEO proposes it, and the card is already marked applied --
+unless that answer has read what agents or customers wrote, when it is a card
+again, for you. A key goes in the sealed field on the card and
 from there straight to where it is kept: the assistant never sees it, and a
 key typed into the conversation is refused, not kept, and not sent to the
 model. **Dismiss** a card you do not want; **Start again** forgets the
@@ -51,10 +58,11 @@ want done: "sales need to go up next month, what is your plan?".
 The CEO answers in its own name and in the persona you chose for it, from
 what it reads about its own company and nothing else; for models, keys,
 channels or other companies it sends you to **Ask PALUGADA**. Work you want
-done comes back as a card that gives it to the CEO's own role, which hands
-it to the right people when it runs. As everywhere, nothing changes until
-you press **Apply**. **Show what it sends** on a card shows the route and
-every value it sends, ids included. Each company's conversation is its own,
+done is given to the CEO's own role at once, which hands it to the right
+people when it runs, and the CEO tells you it did. Anything else it proposes
+-- hiring, a goal, a limit -- is a card, and nothing changes until you press
+**Apply**. **Show what it sends** on a card shows the route and every value
+it sends, ids included. Each company's conversation is its own,
 and **Start again** forgets only that one.
 
 The CEO thinks with the deployment's model, like **Ask PALUGADA**; it works
@@ -166,7 +174,9 @@ every role already has -- returns the passages its question points at, so a
 run quoting a cafe reads the payment terms rather than guessing them. What
 it reads there is shown to it as data, never as instructions. **Archive**
 takes a document out of every search and keeps its text; **Put it back**
-returns it.
+returns it. **Customers may be told this** marks a document a customer
+channel may answer from on its own
+([Let a channel answer on its own](#let-a-channel-answer-on-its-own)).
 
 **Found by meaning, too.** By default a passage is found by the words it
 shares with the question: "refund policy" does not find a document that
@@ -217,7 +227,11 @@ never asked to be it.
    **History** and searched with it.
 4. Press **Approve** or **Deny**. To send a question back instead, write it
    in the note and press **Ask a question**. The item stays open, and the
-   task reads your question on its next run before it proposes again.
+   agent is asked again with your question in front of it. Its answer
+   appears on the same card under **The agent answered**, beside **You
+   asked**, and the card waits for your decision again; if the question
+   changed what it proposes, the card is replaced by one for the new
+   action, carrying the question and answer with it.
 
 A tier 3 action asks for a code after you press **Approve**, every time. The
 code covers that one action: if the agent comes back with a different amount
@@ -282,6 +296,14 @@ For an escalation that is not a question, such as a stuck division,
 **Answer the agent instead** sends your reply and puts the task back on the
 queue without deciding the item.
 
+A role whose capability needs a key its division does not hold -- a
+mailbox, a CRM's key -- asks for it the same way, naming the key. The item
+then shows **Give the … key**: it opens the division on **Team**, at
+**Keys for services**, where you give it as any key is given, with a code.
+Saving it answers the question and the task goes on; the role is told the
+key is there, never what it is. A role can ask only for a key one of its
+own division's capabilities signs in with.
+
 ## Steer, stop or rerun a task
 
 Open the task from **Work** (or **Open the task** on an inbox item).
@@ -292,13 +314,24 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Stop and redo with this note** cancels it and starts it again with the
   note.
 - **Cancel this task** cancels it and everything it started.
+- Stopped because its budget ran out, it shows **Continue**: raise the
+  account's ceiling on **Money** first, and the same task goes on from where
+  it stopped, without doing again what it already did. Many tasks stopped by
+  one account have one card in the inbox, which raises the ceiling and goes
+  on with all of them at once (see "Set budgets and alert thresholds").
 - Once it has ended, **Do it again** starts a new task with the same work
   and your optional note. A halted task is never retried by itself; this is
   how you retry it. The new task is told everything you said to the tasks
   it replaces: your notes, and your answers to their questions, however
-  many times the work was done again.
+  many times the work was done again. When the task it replaces did not
+  finish, the new one carries on from it: it is told what that one wrote
+  or sent, and the same write is answered from that record rather than
+  made twice. Work that finished, done again, is done again in full.
 - **Replay against the journal** runs the handler again with every side
-  effect answered from the record. Nothing leaves.
+  effect answered from the record. Nothing leaves. It is offered only for a
+  role this deployment runs as code in its own process; a role run by a
+  model, an agent CLI or a container is not replayed here, and the button
+  is not shown for it.
 
 To see how it was done, open **Every step**: each capability it called, by
 name, with its tier, the policies that applied and who approved it; **What
@@ -336,8 +369,10 @@ All three are on **Team**, **Divisions & roles**.
   **Name** and **Title**, write **What the role is for** (its charter), list
   its **Tools** (capabilities, separated by commas, at most twelve) and
   **How to know it is done** (one criterion per line). Press **Hire** and
-  confirm with a code. If its division is not granted a tool yet, you are
-  told which; grant it next. A hire is never titled CEO while the company
+  confirm with a code. The hire also grants its division the tools it lacks,
+  at the tier the platform gives them, and says which; the exception is a
+  tool whose use cannot be undone (tier 3), which stays for you to grant on its
+  own, with **Change a grant**. A hire is never titled CEO while the company
   has one; the first role of a company with none becomes its CEO.
 - **New division**: a **Name**, a **Short name**, optionally the division it
   sits **Inside** (two levels deep at most), and **Runs at once, at most**.
@@ -375,10 +410,54 @@ what counts when that vendor is not connected: a run is told which of its
 role's tools are not connected, and cannot meet a criterion that only one of
 them could.
 
+## Let roles read the company's files
+
+With `PALUGADA_FILES_ROOT` set, each company has a folder of its own
+beneath it, named by its id: what its roles draft and make is kept there,
+and you can put files there yourself. A role lists it with `files.list` and
+reads a file with `files.read`, as text -- a draft another role wrote, a
+price list, a CSV of orders -- a long one a page at a time. It reads this
+company's folder and nothing beside it: a link that leads out is refused.
+What a file says is treated as written outside the company, since nothing
+records where it came from, so work that read one asks you before its next
+action at tier 2 or above. The standard template grants both to Operations
+and Delivery; give them to another division on **Team**. A file that is not
+text is read as it is; a PDF, a Word document or an Excel workbook is read
+as text in the deployment's own browser, sheet by sheet with dates as dates,
+when it has one (the image does). A picture or a recording is not read. A
+scan is a picture of a page and has no text to read: give its text to the
+company on **Documents** instead.
+
+## Give a division its mailbox
+
+A division reads its mail with `mailbox.read` and sends with `email.send`
+from a mailbox it is given: Gmail, Google Workspace, Microsoft 365, the one
+that came with a website, or your own server. Each division has its own, so
+Growth can send from sales@ and Support read support@.
+
+1. Where the provider asks for one, make an app password: in Gmail, turn
+   on 2-Step Verification, then Security, App passwords.
+2. Open the division on **Team**. Under **Keys for services**, the
+   capabilities that need it say they need the `mailbox` key.
+3. Give **The mailbox's address**, **The mailbox's password**, the **IMAP
+   server** and the **SMTP server** with their ports (Gmail:
+   `imap.gmail.com` 993 and `smtp.gmail.com` 587), press **Save** and
+   confirm with a code. Both servers are signed in to first, so a wrong
+   password is said there and then; nothing is kept until they take it.
+   **Change the mailbox** gives it another, the same way.
+
+Reading a message does not mark it read in your own mail app, and nothing
+a role does can move, flag or delete one. A letter is sent from the
+mailbox's address, named for the company; one that answers mail a role read
+waits for your yes, with who it is to and what it is about on the card. A
+copy in Sent is the provider's to keep: Gmail keeps one, many hosts do not.
+The standard template grants both to Support, and `email.send` to Growth.
+A vendor entry for `email.send`, below, is used instead of the mailbox.
+
 ## Connect a vendor
 
-Capabilities that need somebody's account, such as `email.send`,
-`invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
+Capabilities that need somebody's account, such as `email.send` on a
+sending service, `invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
 method, a URL, headers and a body template, where the result is found, how
 to read it back, and which credential it uses. No code. The entries in
 [config/vendors.example.json](../../config/vendors.example.json) are offered
@@ -530,9 +609,13 @@ only the ones you allow, at the tier you choose.
 
    A server that signs in with OAuth says **It asks you to sign in**
    instead.
-   Give it a **Name**, press **Sign in**, then **Open the sign-in page**, and
-   sign in there in the new tab; the tab says when it is done, and the
-   console lists the server's tools with what the sign-in gave. PALUGADA
+   Give it a **Name**, press **Sign in**, confirm with a code, then **Open
+   the sign-in page**, and sign in there in the new tab; the tab says when it
+   is done, and the
+   console lists the server's tools with what the sign-in gave. The code is
+   asked because a saved server of that name signs in with what this sign-in
+   gives from then on; a server that cannot be signed in to says so first,
+   and no code is spent on it. PALUGADA
    registers itself with the server's authorization server when it allows
    that. One that does not, such as GitHub's, asks for the **Client ID** (and
    **Client secret**) of an app you register with it, coming back to the
@@ -594,8 +677,58 @@ that used it asks you before its next tier 2 action.
 
 ## Give roles a browser
 
-A role that must use a website -- sign in to a supplier's portal, fill a
-form -- needs a browser, not a page reader. It comes from an MCP server:
+A role that must use a website with no API you can get -- a marketplace's
+seller centre, a tax or licensing portal, a supplier's ordering page --
+needs a browser, not a page reader. Each company has one of its own.
+
+1. **A Chromium.** The image has one, and the compose files give it what
+   it needs to run sandboxed. Running PALUGADA on a machine without
+   Docker, it finds one where a package manager puts it
+   (`apt install chromium` on Debian and Ubuntu), or uses the one
+   `PALUGADA_CHROMIUM` names. The boot says which, or that there is none
+   ([configuration](../configuration.md)).
+2. **Grant it.** On **Team**, **Divisions & roles**, open the division and
+   use **Change a grant**: `browser.read` at tier 0, and `browser.act` at
+   tier 2 if its roles should fill in forms. Add both to the role's
+   **Tools**.
+3. **Give it work** that names the site: "Check today's orders on the
+   seller centre at https://seller.example.co.id and list the unpaid ones".
+
+What the role does, you can follow:
+
+- **Reading a page** (*Read a page in the browser*) opens it, or follows a
+  link from the last page, and reads its text and every link, button,
+  field, list and box on it. Nothing it reads is acted on without you: a
+  page is somebody else's words.
+- **Filling in a page** (*Fill in a page in the browser*) is a card in your
+  inbox for every form, with each step on it: `Nama: "Sari"` is what goes
+  in the field called Nama, `Kota → Bandung` a choice, `☑ Setuju` a box
+  ticked, `▸ Kirim` the button pressed, and `✓ OK` that the page's "Are you
+  sure?" is answered yes. Approve, and the steps are done on the page the
+  role read -- if it has changed, or an element is not the one named,
+  nothing is done.
+- **Signing in** is yours: a role never types a password. A role that
+  meets a sign-in asks you with a card -- *Ask you to take over the
+  browser* -- saying what to do. **Open the browser** on it shows that
+  work's page on **Browser**; **Take it over** with a code, and the
+  company's work waits while you hold it. Press on the picture to click,
+  type into the field the page selected, use the buttons for Enter, Tab
+  and the arrows, or open an address. **Give it back** when you are done:
+  the role goes on, signed in. What you type goes to the site and is kept
+  nowhere else; a hold you forget lapses after fifteen minutes.
+- The company's browser keeps what a site sets when you sign in (its
+  cookies), sealed like any secret, for every later task, across
+  restarts. Closing the company deletes them.
+- **Browser** also shows each piece of work's page while it runs, so you
+  can watch what a role is doing. It is yours alone: a staff seat does not
+  see it.
+
+Every request the browser makes goes through PALUGADA, under the same rules
+as `web.fetch`: nothing on this machine's network or the cloud's metadata
+service is reached, whatever a page links to or a role names. An internal
+site you want reachable is named in `PALUGADA_ALLOW_PRIVATE_HOSTS`.
+
+**Or a browser from an MCP server**, where the platform's is not wanted:
 
 - **Playwright**, on a machine of yours. Run
   `npx @playwright/mcp@0.0.82 --port 8931 --headless` where this deployment
@@ -609,18 +742,17 @@ form -- needs a browser, not a page reader. It comes from an MCP server:
 Each of a task's calls to the server share one session, so the page a role
 opened is still open for its next step, and for the read-back that checks
 it. The session ends when the task has been quiet for five minutes.
-
 Playwright says that navigating, clicking and typing are destructive, so
 each is tier 3 and asks you every time; reading the page
-(`browser_snapshot`) only reads, and can be tier 0. That is the price of a
-browser that can do anything a person can. To read pages without asking,
-use **Reading pages** under **Tools** instead.
+(`browser_snapshot`) only reads, and can be tier 0.
 
 ## Let roles search the web
 
 A role finds pages with `web.search` and reads one as clean text with
 `web.extract`. Both go to a provider you choose: its index, its price, and
-where the queries go.
+where the queries go. Until you choose one for reading pages, a deployment
+with a Chromium reads them in its own browser, and the address goes to
+nobody else.
 
 1. Open **This deployment**, **Tools**.
 2. Under **Web search**, choose a **Provider**. Those under **Free to start,
@@ -632,8 +764,9 @@ where the queries go.
    it would give a role are shown, and nothing is saved.
 4. Press **Save** and confirm with a code. PALUGADA starts itself again, and
    `web.search` is bound.
-5. Do the same under **Reading pages** for `web.extract`. Jina Reader reads
-   twenty pages a minute without a key.
+5. Do the same under **Reading pages** for `web.extract`, or leave it for
+   the deployment's browser to read them. Jina Reader reads twenty pages a
+   minute without a key; a Firecrawl of your own is **Your own server**.
 
 The standard template grants both to Delivery and Growth, and the planner
 searches before it plans; give them to another role on **Team**. What a
@@ -669,6 +802,16 @@ The standard template grants both to Growth. Its marketer's twelve tools
 are full, so add `image.generate` or `speech.synthesize` to a role on
 **Team** in place of one it uses less. Each call reserves the provider's
 price for one picture or one clip before it runs.
+
+**Reading pictures** lets a role granted `image.describe` read a picture in
+the company's files -- a receipt a customer photographed, a supplier's
+invoice, a screenshot -- and copy its words. Choose a provider the same way:
+Google Gemini has a generous free tier, and a vision model of your own
+(Ollama with `qwen2.5vl`, llama.cpp, vLLM) keeps the pictures on your
+machine. **Picture** and **Ask about it** try it on a picture you choose,
+kept nowhere. The standard template grants it to Finance and Support; add
+it to a role's tools on **Team**. A picture is sent whole to the provider,
+up to 5 MB, and what it says is treated as written outside the company.
 
 ## Choose or change the model
 
@@ -875,8 +1018,14 @@ A remote sandbox is the same idea on a provider's machines:
 
 On **Team**, **Schedules**, press **New schedule**, choose the **Role** and
 **Project**, the goal it **Serves**, **What each run is asked to do**, a
-**Short name**, the **Cron** expression (minute, hour, day, month,
-weekday), the **Time zone** and the **Priority**, and press **Schedule it**.
+**Short name**, how often it **Repeats** -- every day, every weekday, one
+day of the week, or every hour -- and **At** what time, the **Time zone**
+(the one your browser is in to begin with, such as Asia/Jakarta, shown as
+WIB) and the **Priority**, and press **Schedule it**. For anything those
+cannot say, choose **Custom, as cron** and type the cron expression (minute,
+hour, day, month, weekday). A short name another schedule has is refused,
+rather than that schedule overwritten. The table says when each runs in
+words, such as "Every weekday at 07:00", with the cron in its tooltip.
 Each occurrence creates one task, in the schedule's own time zone. On the
 nights the clock changes, a schedule at fixed hours still runs once: at the
 first 01:30 when the clock goes back and shows 01:30 twice, and at the moment
@@ -905,14 +1054,20 @@ Two more choices say what happens when a run cannot go at its time:
   the last one finishes** that waits past this is dropped too.
 
 Under **Next**, the table says when the last run did not happen and why,
-and how many were dropped. Saving a schedule again under the same short name
-replaces it, these two choices included; through the API they are
-`overlap` (`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600,
-or `null`).
+and how many were dropped. Through the API these two choices are `overlap`
+(`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600, or `null`);
+saving a schedule again under its short name, without `create`, edits it,
+and leaves it off if it was off.
+
+The switch on a schedule's row turns it off and on again. Turned on, its
+next run is its next time: the runs it would have made while off are not
+made all at once. The bin icon removes it, after asking; the work it
+already made stays, as work you can open.
 
 To see what a schedule does without waiting for its next occurrence, press
 **Run now** on its row. The dialog says how many tokens the run reserves from
-the schedule's budget account; **Run it now** makes the same task an
+the schedule's budget account, and the most one run may spend -- its role's
+ceiling for a run, and more for work it hands to other roles; **Run it now** makes the same task an
 occurrence would -- the same role, project, goal, brief, priority and budget
 account, and for the weekly business review the week read from the company's
 records -- and the notification links to it. The schedule's **Next** does not
@@ -950,6 +1105,247 @@ work takes no tier 2 or higher action without you. **Close** refuses further
 events; opening it again takes a code. The trigger URL must be reachable by
 the sender, so it needs the HTTPS set-up in [operations](operations.md).
 
+## Let customers write to the company: Telegram
+
+A company can have a Telegram bot of its own that customers write to. Each
+message starts work for the role you choose, and every reply waits for your
+yes -- unless you let the channel answer on its own from the documents you
+publish for customers ([below](#let-a-channel-answer-on-its-own)).
+
+1. In Telegram, open @BotFather, send `/newbot`, choose the bot's name and
+   username, and copy the token it gives you.
+2. On **Customers**, under **Connect a Telegram bot**, paste **The bot's
+   token**, choose **Who answers** and the goal it **Serves**, write **What
+   to do with each message**, and set **New conversations, at most, per
+   hour**.
+3. Press **Connect** and confirm with a code. The token is checked with
+   Telegram, sealed, and never shown again. The role is given what it needs
+   to read a conversation and reply: `chat.read` and `chat.send` on its
+   division, and both among its tools.
+4. Share the bot's link, `t.me/<username>`, with your customers.
+
+Telegram sends what customers write to `/api/chat-hooks/<id>` at this
+deployment's public address (`PALUGADA_APP_URL_PUBLIC`, with the HTTPS
+set-up in [operations](operations.md)), with a secret only it was given.
+Without a public address the bot is kept and cannot hear; set one and connect
+the bot again. Only a customer in their own chat with the bot is heard: a
+group the bot was added to, and other bots, start nothing.
+
+A message starts one piece of work, however often Telegram sends it, and a
+message written before anyone picked that work up joins it, so a customer
+who says hello and then asks in a second message gets one answer. Past the
+hour's limit a message is kept, shown with **Past the hour's limit**, and
+starts no work. What a customer writes reaches the role as data. The work
+began with a stranger's words, so each `chat.send` is a card in your inbox
+showing the conversation beside the reply; an approver seat can decide it
+too. A standing yes does not cover it.
+
+**Customers** lists the conversations, latest first, marked **Waiting for an
+answer** when the customer spoke last; open one to read it. **Close** takes
+the bot's webhook off and forgets its token, and what was said stays.
+Connecting the same bot again opens the same channel at a new address. A
+bot answers for one company at a time.
+
+## Let customers write to the company: WhatsApp
+
+A company's WhatsApp Business number can take customers' messages the same
+way, through Meta's Cloud API. It needs this deployment's public address
+(`PALUGADA_APP_URL_PUBLIC`), since Meta delivers there.
+
+1. In Meta for Developers, make an app with WhatsApp, add the business
+   number, and make a system user with a permanent token that may send for
+   it. Use an app of the company's own: Meta sends every number of an app to
+   one address, so the number PALUGADA reaches you on needs another app.
+2. On **Customers**, choose **WhatsApp**, and give the **Phone number ID**
+   (under WhatsApp, API Setup; not the number itself), the **Access token**
+   and the **App secret** (App settings, Basic), then who answers, the goal,
+   what to do with each message and the hour's limit.
+3. Press **Connect** and confirm with a code. The number is checked with
+   Meta, and the token and the app secret are sealed.
+4. Copy the **Callback URL** and the **Verify token** that appear -- the
+   verify token is shown only then -- into the app's WhatsApp,
+   Configuration, webhook, and subscribe to `messages`.
+5. Share the number's link, `wa.me/<number>`, with your customers.
+
+Only what Meta signed with the app secret is heard, and only messages to this
+number; a reaction or a status starts nothing. A picture, a voice note or a
+file is kept as what it was, with its caption. WhatsApp lets a business reply
+only within 24 hours of the customer's last message: a reply approved after
+that is refused, with the reason, before anything is sent, and waits for the
+customer to write again. **Close** forgets the token and the app secret;
+remove the webhook in the Meta app too.
+
+## Let customers write to the company: its mailbox
+
+The company's own mailbox -- Gmail, Google Workspace, Microsoft 365, or the
+one that came with a website -- can take customers' mail the same way. A
+worker reads it about once a minute over IMAP, and a reply goes out over
+SMTP from the same address, in the customer's thread and in the mailbox's
+own Sent mail.
+
+1. Where the provider asks for one, make an app password: in Gmail, turn
+   on 2-Step Verification, then Security, App passwords.
+2. On **Customers**, choose **Email**, and give **The mailbox's address**,
+   **The mailbox's password**, the **IMAP server** and the **SMTP server**
+   with their ports (Gmail: `imap.gmail.com` 993 and `smtp.gmail.com` 587),
+   then who answers, the goal, what to do with each message and the hour's
+   limit.
+3. Press **Connect** and confirm with a code. Both servers are signed in to
+   first, so a wrong password is said there and then; the password is
+   sealed.
+
+Only TLS is used: IMAP on its TLS port, SMTP on 465 or upgraded with
+STARTTLS (587), and a server that offers neither is refused. The mailbox is
+read from the moment it is connected: the mail it already holds is never
+taken for work. An auto-reply, a bounce, a mailing list and the mailbox's
+own mail start nothing, and a reply's quoted history is left out of what
+the role reads. What the customer attaches is kept (up to five files, ten
+megabytes each, fifteen a letter) in the company's files under `received/mail`,
+shown in the conversation with a **Download** button, and offered to the role by
+`chat.read` with what a PDF, a Word or Excel document or a text file says; a
+program, a script, an archive, an SVG and a file from an old Office version are
+not kept, and the conversation says so. Open a customer's file only if you trust
+the sender: it came from outside. Reading a message does not mark it read in your own mail
+app. When the mailbox cannot be read -- the password changed, the server is
+down -- **Customers** says why under the channel, and the mail waits on the
+server until it can be. A server with a private certificate is trusted with
+`PALUGADA_MAIL_CA`.
+
+## Keep the customer records
+
+**Customers**, **Contacts** lists everyone the company deals with. A customer
+who writes on a channel is kept there the first time they write: found by
+their address when the owner already keeps it (whatever its case), or by
+their number -- written with its country code, every digit must match;
+written for its own country, `0812 3456 7890` is the same as a WhatsApp from
+`62 812 3456 7890` -- and otherwise kept as a new person, named as they named
+themselves. A Telegram customer is kept anew for each bot, since Telegram
+gives nothing you would have written down.
+
+**Add a person** keeps anyone else: a supplier, a lead. Open someone to
+change their details, **Archive** them (they leave the list and what runs
+find, and their conversations keep them), add a **Note**, or open a **Deal**
+-- what is being sold, its stage (**Lead**, **Qualified**, **Proposal**,
+**Won**, **Lost**), what it is worth in any currency, and when it is expected
+to close; change the stage from the list. Their conversations are listed
+under them, and open where the conversations do.
+
+The agents keep the same records: `crm.read` reads what the company knows of
+the customer a piece of work answers, or finds people by name, organisation,
+address or number; `crm.note` adds what they were told; `crm.record` keeps
+their details, someone new, or a deal. The standard company's responder
+holds all three, and Support and Growth are granted them. A note is kept as
+written: it is added, never rewritten. What is in a record is partly what a
+customer said, so work that reads it asks you before anything at tier 2, as
+work that read their message does.
+
+These are the company's own tables. Connect a CRM of your own under
+**Services** or in a vendor file and it takes `crm.read`, `crm.note` and
+`crm.record` over; the records kept here stay, and travel with an export.
+
+## Keep the books
+
+**Books** holds the company's own books, by double entry. They open the
+first time you look, with seven accounts: Cash and bank (1100), Accounts
+receivable (1200), Accounts payable (2100), Taxes owed (2200), Owner's
+equity (3100), Sales (4100) and Expenses (5100). **Add an account** adds
+your own -- a code of up to eight digits no other account has, a name, and
+whether it is an asset, a liability, equity, income or an expense.
+
+**Record an entry** takes a date, a memo, a currency and two lines or more,
+each a debit or a credit on an account; it is kept only when the debits
+equal the credits, and the database refuses one that does not, whatever
+wrote it. An entry is never changed: **Reverse** undoes a mistake with an
+entry the other way round, dated today, and both stay -- once per entry.
+Each account shows what it holds on its natural side (an asset or an
+expense by its debits, the rest by their credits), per currency, and the
+top of the page this month's income, expenses and profit.
+
+The bookkeeper keeps the same books: `ledger.read` reads the balances, the
+entries or the profit between two days, and `ledger.record` records an
+entry, refused with what is wrong when it does not balance or names an
+account the books do not have. An entry written by work that read
+something from outside -- a customer's mail, a receipt a stranger sent --
+is read back as data. Connect an accounting service under **Services** or
+in a vendor file and it takes both names over; the books kept here stay,
+and travel with an export.
+
+## Invoice a customer
+
+On **Books**, the **Invoices** tab keeps what the company bills. **Issue an
+invoice** takes the customer -- one of your contacts, or a name and an email
+address -- a currency, the days it is due in (fourteen unless you say), a tax
+rate if there is one, one line or more (what was sold, how many, at what
+price) and a note. It is numbered INV-0001 on, without gaps, and written in the
+books at the same moment: what the customer owes goes on Accounts receivable,
+the sale on Sales and any tax on Taxes owed. It is not sent to anyone; **Copy as
+text** gives you what to paste into a message, and **Download PDF** gives you
+the page to send: the company's name, the customer, the lines, the tax and the
+total, in Indonesian when your company works in it and in English otherwise. The
+page is drawn once, when you first ask, and kept in the Files tab under
+`invoices` as `inv-0001.pdf`, so a role can attach it to a letter by that path.
+It needs Chromium on the machine and a files root, and it has no address, tax
+number or bank details yet: it is a usable invoice, not a Faktur Pajak. A
+voided invoice has no page. An invoice is never edited.
+
+Open an invoice to **Record a payment** -- an amount no more than is owed, a date,
+and the account the money came into, Cash and bank unless you choose another --
+as often as it is paid in part. It shows Open, Part paid or Paid, and Overdue
+when it is past its day. What is owed is read from the books, so reversing a
+payment's entry on the **Ledger** tab puts the debt back. **Void the invoice**
+reverses the entry that issued it, once, and only while nothing stands paid on
+it; its number is not used again. The top of the tab shows what is owed to you,
+and how much of it is late.
+
+The bookkeeper uses the same invoices: `invoice.issue` issues one (at tier 2,
+as the catalogue gives it, so the owner is asked when the work read something
+from outside), `ledger.read` with `report: invoices` lists them with what is
+owed, or reads one with its lines and payments, and `ledger.record` with an
+`invoice` number records a payment against it -- an entry that debits cash or a
+bank account and credits Accounts receivable, for no more than is owed, in the
+invoice's currency. What a run wrote for a customer, a line or a note is read
+back as data when the work had read content from outside. Connect an accounting
+service and it takes `invoice.issue` over; the invoices kept here stay, and
+travel with an export.
+
+## Let a channel answer on its own
+
+A shop answers the same questions all day: what a coffee costs, when it
+opens, whether it delivers. A channel can answer those without you, from
+documents you mark for customers, while everything else still waits for
+your yes.
+
+1. On **Memory**, **Documents**, open the menu, the price list, the opening
+   hours, and press **Customers may be told this**. Leave the margins, the
+   supplier's terms and anything internal unmarked: a reply on its own
+   answers only from marked documents. **Keep it from customers** takes the
+   mark off.
+2. On **Customers**, under the channel, turn on **Answers on its own** and
+   confirm with a code. The role that answers is given `memory.search`, and
+   each message's work is told to find the passages and name them.
+
+A reply then goes without a card only when all of this holds, and otherwise
+it is your card as before, saying why it did not go on its own:
+
+- it answers the customer whose message started the work;
+- it names passages of documents marked for customers, which are read again
+  from the company's own records;
+- every figure, address and link in it is in those passages or in what the
+  customer wrote -- a price of its own is refused before any model is asked;
+- that conversation has had fewer than six answers on its own in the hour;
+- a model shown the passages, the customer's words and the reply finds every
+  statement in the passages, and nothing that is yours to decide: money
+  back, a price or terms of its own, a serious complaint, the law, anyone's
+  personal data, a promise. A model that cannot answer is a no, and without
+  a model nothing goes on its own.
+
+A policy that asks you about `chat.send` is still asked, however well a reply
+is grounded. Each check is a model call charged to the work's budget, on
+the work's timeline as **A reply to a customer was checked against documents
+for customers**. In the conversation, a reply that went on its own says
+**Sent on its own, from** and the documents. Turning **Answers on its own**
+off needs no code.
+
 ## Install a bundle
 
 1. Under **Settings**, **Bundles**, **Install a bundle**, type the
@@ -978,9 +1374,12 @@ To bring an installed bundle up to date, install the version this deployment
 ships over it. For `company-os`, 1.4.0 adds a critic in its own Strategy
 review division: it reads every stage proposal before you do, holds nothing
 that acts, and what it said reaches you whether it supports the move or
-stops it. What the bundle brings is updated or added in place. Roles,
-schedules, work in flight, and any grant an earlier version made stay; its
-skills arrive again as candidates.
+stops it. 1.5.0 gives the strategist and the critic a name and a title,
+Bayu, Chief Strategy Officer, and Citra, Strategy Critic, as every built-in
+bundle now does for its roles. What the bundle brings is updated or added
+in place. Roles, schedules, work in flight, and any grant an earlier
+version made stay, and so does a name or title you gave a role; its skills
+arrive again as candidates.
 
 The built-in bundles install as written when they are exactly what this
 version of PALUGADA ships: they are part of the platform, as trusted as its
@@ -1003,7 +1402,11 @@ Under **Settings**, **Languages**:
   Korean, Hindi, Arabic (the console turns right to left), Spanish,
   Brazilian Portuguese, French, German, Dutch, Italian, Turkish or Russian.
 - **Agents, by default** is the language every company's agents use unless
-  the company sets its own. Press **Save**.
+  the company sets its own. Left empty it follows the panel language, so
+  choosing Indonesian for the panel is enough for a CEO and a team that
+  speak it. Choose one to keep them in another (English, say, with the
+  panel in Indonesian), and press **Save**; clear it to follow the panel
+  again.
 - Under the company's own section, **Work language** is what it produces for
   customers and **Talk language** is what its agents write to you and to
   each other. Empty means the default. Press **Save**; agents follow it from
@@ -1053,18 +1456,31 @@ the reason.
 - When the company is paused at 100%, **Lift the pause**, or give a time
   under **Or override until** and press **Override**. Both take a code.
 - **Open an account** adds a budget account for a project, a division or a
-  role: a **Name**, a **Token ceiling**, optionally a
-  **Money ceiling (cents)**, what it is **For**, **Which one**, and
-  **The account above it**. It takes a code.
-- An account's ceilings are for its whole life: tokens spent stay spent.
-  When one runs out -- its bar turns red and work is refused with "raise its
-  ceiling under Money" -- press **Ceilings** on its row and raise the
-  **Token ceiling** or the **Money ceiling**. Raising takes a code; lowering
-  does not.
+  role: a **Name**, a **Token ceiling**, optionally a **Money ceiling** in
+  US dollars (or the currency you read money in), what it is **For**,
+  **Which one**, and **The account above it**. It takes a code.
+- An account's ceilings are for a calendar month in UTC: on the first, what
+  it has spent starts again from nothing. When one runs out before then --
+  its bar turns red and work is refused with "raise its ceiling under
+  Money" -- press **Ceilings** on its row and raise the **Token ceiling** or
+  the **Money ceiling**. Raising takes a code; lowering does not.
+- When tasks stop because an account has no tokens left, one card in the
+  inbox names the account, what it has used this month, and how many tasks it
+  stopped. Its **New token ceiling for the month** is filled in ten times
+  higher; **Raise it and continue** raises the ceiling (with a code, as raising
+  one always takes) and goes on, oldest first, with every task it stopped, for
+  as many as the account can then fund -- the rest stay stopped and the card
+  with them. **Continue without raising** goes on with what room the account
+  already has, which needs no code. The Work page says why a task stopped in
+  tokens ("Out of tokens: Growth has used 300,000 of 300,000 this month"),
+  not as a bare "out of budget" beside a cost of nothing. Tokens are counted
+  apart from money: a model with no price costs nothing and still uses tokens.
+  New companies start with token ceilings sized against their money ceilings,
+  so tokens do not run out first.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
-  told something is going wrong: **Daily cost, cents**,
-  **Failure rate, 0 to 1** and **Policy denials a day**. Each fires once per
-  condition per day.
+  told something is going wrong: **Daily cost** in US dollars (or the
+  currency you read money in), **Failure rate, 0 to 1** and **Policy denials
+  a day**. Each fires once per condition per day.
 
 ## Push notifications, Telegram, WhatsApp and email
 
@@ -1113,9 +1529,9 @@ CEO** in the console. With several companies, send `/ceo` and choose whom
 you talk to; `/palugada` talks to PALUGADA's assistant about the whole
 deployment. A voice note needs a provider under **Tools**, **Listening**;
 the answer shows what was heard, and is also said aloud when one is chosen
-under **Speaking**. What the CEO proposes arrives as cards: giving work,
-filing a ticket, telling or cancelling a task, a fact to remember or a
-measured value is one press in the chat; anything that takes your device,
+under **Speaking**. Giving work, filing a ticket and telling or cancelling a
+task are done as the CEO says so; a fact to remember or a measured value is
+a card with one press in the chat; anything that takes your device,
 such as a spending limit, has a button that opens the conversation in the
 console. Only you, in your own chat with the bot, are heard; what you say
 in a group is not sent to anyone.

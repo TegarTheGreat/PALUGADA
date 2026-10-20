@@ -22,7 +22,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { bindMcpServers, closeMcpSessions } from '../../src/capabilities/mcp.ts';
 import { refreshMcpAccess } from '../../src/capabilities/mcp-oauth.ts';
-import { readSettings } from '../../src/settings/store.ts';
+import { readSettings, settingsVersion } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -49,7 +49,7 @@ test('an MCP server that asks for OAuth is signed in to from the console: discov
     assert.match(String(bare.body.problem), /asks you to sign in/);
     assert.equal(bare.body.signIn, provider.issuer);
 
-    const started = await api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url: provider.mcpUrl });
+    const started = await api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url: provider.mcpUrl, proof: { totp: api.code() } });
     assert.equal(started.status, 200, JSON.stringify(started.body));
     assert.equal(started.body.issuer, provider.issuer);
     const authorize = new URL(started.body.authorizeUrl as string);
@@ -129,8 +129,12 @@ test('a token that has run out is refreshed when the server says so, and the cal
   const api = await consoleWithSettings();
   try {
     const token = await api.signIn();
-    const started = await api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url: provider.mcpUrl });
+    const beforeSignIn = await settingsVersion();
+    const started = await api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url: provider.mcpUrl, proof: { totp: api.code() } });
     await followSignIn(started.body.authorizeUrl as string);
+    // Signing in is the owner's change: a replica binds the server's tools at
+    // start, so the version moves and replicas start again to take it.
+    assert.notEqual(await settingsVersion(), beforeSignIn, 'a sign-in is a change of settings');
     assert.equal((await api.call('POST', '/api/control/mcp/servers', token, {
       name: 'tracker', url: provider.mcpUrl, tools: { lookup: { tier: 0 } }, proof: { totp: api.code() },
     })).status, 200);
@@ -146,6 +150,7 @@ test('a token that has run out is refreshed when the server says so, and the cal
 
     // The provider ends the first token; the next call is refused with 401,
     // the token refreshed with the resource, and the call made again.
+    const bound = await settingsVersion();
     provider.expire('access-1');
     const answer = await lookup.execute({ q: 'kopi' }, context());
     assert.deepEqual(answer, { found: 'kopi' });
@@ -156,6 +161,9 @@ test('a token that has run out is refreshed when the server says so, and the cal
     assert.equal(provider.bearers.at(-1), 'Bearer access-2');
     // The new refresh token replaces the old, which the provider has spent.
     assert.equal(await api.secrets.resolve('db://mcp-tracker-refresh'), 'refresh-2');
+    // N4: and the refresh is not a change of settings, or every replica would
+    // restart each time a token runs out.
+    assert.equal(await settingsVersion(), bound, 'the refresh restarts nothing');
 
     // A sign-in the provider has ended cannot be refreshed: said as such.
     provider.expire('access-2');
@@ -166,11 +174,51 @@ test('a token that has run out is refreshed when the server says so, and the cal
   }
 });
 
+/**
+ * B4 (the audit of 30 September, open on 2 October). A sign-in's tokens
+ * replace the ones a saved server signs in with, at the callback, and the
+ * start asked for no device -- while the same sign-in for a division's key
+ * did. Anyone holding the owner's session could sign a saved server in as an
+ * account of their own, and every role using its tools would then read and
+ * write there.
+ *
+ * The owner's report of 7 October made the sign-in the second factor for what
+ * the owner does in the session (STATUS 2.175), so the start asks for no code
+ * of its own from a session opened with a device; one signed in with a
+ * recovery code still has none to give, and cannot start it.
+ */
+test('signing in to an MCP server takes the owner\'s session, which a recovery code does not open', async () => {
+  const provider = await oauthProvider();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const start = (as: string) => api.call('POST', '/api/control/mcp/oauth/start', as, { name: 'tracker', url: provider.mcpUrl });
+    const owners = await start(token);
+    assert.equal(owners.status, 200, JSON.stringify(owners.body));
+    await followSignIn(owners.body.authorizeUrl as string);
+    const before = (await readSettings()).mcp_oauth;
+
+    const made = await api.call('POST', '/api/mfa/recovery-codes', token, { proof: { totp: api.code() } });
+    const response = await fetch(`${api.url}/api/auth/sign-in`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recovery: made.body.codes[0] }),
+    });
+    const recovered = String(((await response.json()) as { token: string }).token);
+    const bare = await start(recovered);
+    assert.equal(bare.body.code, 'approval.channel_forbidden', JSON.stringify(bare.body));
+    assert.equal(bare.body.authorizeUrl, undefined, 'no page to sign in on');
+    assert.deepEqual((await readSettings()).mcp_oauth, before, 'the server still signs in as the owner did');
+    assert.equal(provider.tokenRequests.length, 1, 'and nothing else was redeemed');
+  } finally {
+    await api.close();
+  }
+});
+
 test('a sign-in is refused where the metadata does not say who it is: another resource, no PKCE, another issuer, a wrong issuer on the answer', async () => {
   const api = await consoleWithSettings();
   try {
     const token = await api.signIn();
-    const start = (url: string) => api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url });
+    // Refused before the device is asked: these never reach it, so no code is spent on them.
+    const start = (url: string, proof?: unknown) => api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url, proof });
 
     const elsewhere = await oauthProvider({ resource: 'https://other.example/mcp' });
     const refused = await start(elsewhere.mcpUrl);
@@ -184,7 +232,7 @@ test('a sign-in is refused where the metadata does not say who it is: another re
     assert.match(String((await start(impostor.mcpUrl)).body.error), /calls itself https:\/\/impostor\.example/);
 
     const mixed = await oauthProvider({ answerIssuer: 'https://attacker.example' });
-    const started = await start(mixed.mcpUrl);
+    const started = await start(mixed.mcpUrl, { totp: api.code() });
     assert.equal(started.status, 200, JSON.stringify(started.body));
     const landed = await followSignIn(started.body.authorizeUrl as string);
     assert.equal(landed.status, 400);
@@ -197,7 +245,7 @@ test('a sign-in is refused where the metadata does not say who it is: another re
     assert.equal(asked.status, 400);
     assert.match(String(asked.body.error), /registers no client itself: register PALUGADA with .* and give its client ID/);
     const given = await api.call('POST', '/api/control/mcp/oauth/start', token,
-      { name: 'tracker', url: registered.mcpUrl, clientId: 'owner-app', clientSecret: 'owner-app-secret-0123456789' });
+      { name: 'tracker', url: registered.mcpUrl, clientId: 'owner-app', clientSecret: 'owner-app-secret-0123456789', proof: { totp: api.code() } });
     assert.equal(given.status, 200, JSON.stringify(given.body));
     await followSignIn(given.body.authorizeUrl as string);
     assert.equal(registered.tokenAuth.at(-1), `Basic ${Buffer.from('owner-app:owner-app-secret-0123456789').toString('base64')}`);

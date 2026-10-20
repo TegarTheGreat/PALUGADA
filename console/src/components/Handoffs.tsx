@@ -14,6 +14,7 @@ import { IconArrowRight, IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { t } from '../i18n.ts';
+import { roleLabel } from '../format.ts';
 import type { HandoffRule, Structure } from '../types.ts';
 import { LoadFailed, Loading, Section } from './ui.tsx';
 import { ActionButton, ActionForm } from './ActionForm.tsx';
@@ -25,7 +26,7 @@ export function Handoffs({ companyId, structure }: { companyId: string; structur
   }, [companyId], { every: 30_000 });
   const [adding, setAdding] = useState(false);
   const roles = structure.roles.map((role) => ({
-    value: role.id, label: `${role.slug} · ${structure.divisions.find((division) => division.id === role.divisionId)?.name ?? ''}`,
+    value: role.id, label: `${roleLabel(role)} · ${structure.divisions.find((division) => division.id === role.divisionId)?.name ?? ''}`,
   }));
 
   return (
@@ -45,9 +46,9 @@ export function Handoffs({ companyId, structure }: { companyId: string; structur
                 <Table.Tr key={rule.id}>
                   <Table.Td>
                     <Group gap={6} wrap="nowrap">
-                      <Text size="sm" fw={600}>{rule.fromRoleSlug}</Text>
+                      <Text size="sm" fw={600}>{rule.fromRoleName ?? rule.fromRoleSlug}</Text>
                       <IconArrowRight size={14} />
-                      <Text size="sm" fw={600}>{rule.toRoleSlug}</Text>
+                      <Text size="sm" fw={600}>{rule.toRoleName ?? rule.toRoleSlug}</Text>
                     </Group>
                     <Text size="xs" c="dimmed" lineClamp={2}>{rule.brief}</Text>
                   </Table.Td>
@@ -65,7 +66,7 @@ export function Handoffs({ companyId, structure }: { companyId: string; structur
                       ) : (
                         <ActionButton
                           size="xs" variant="subtle" label={t('Switch on')}
-                          factor={t('Switch the handoff to {role} back on', { role: rule.toRoleSlug })}
+                          factor={t('Switch the handoff to {role} back on', { role: rule.toRoleName ?? rule.toRoleSlug })}
                           run={(proof) => api('POST', `/api/companies/${companyId}/handoffs/${rule.id}`, { enabled: true, proof })}
                           done={view.reload}
                         />

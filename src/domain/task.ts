@@ -30,6 +30,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
  * `halted` is deliberately terminal. The PRD is explicit that a task stopped
  * by budget, hop, deadline or a failed read-back is never resumed
  * automatically (section 6.3): it becomes an owner inbox item instead.
+ *
+ * Nothing here leads out of it. The owner may go on with a task its budget
+ * stopped, once they have raised the ceiling: that is `continueHalted`
+ * (engine/owner-control.ts), a door of its own with its own checks, so no
+ * path through `transition` can take a halted task back to work.
  */
 const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   // `pending -> halted` is not drawn in the PRD's diagram, which offers a
@@ -111,4 +116,6 @@ export type HaltReason =
   /** F5.1: the journal holds a different step where this one should be. */
   | 'journal_divergence'
   /** F5.14: the task lost its worker too many times; its work may be what kills it. */
-  | 'crash_loop';
+  | 'crash_loop'
+  /** Its run said it did not do what was asked, and why (`notDone`, N9). Ends `failed`. */
+  | 'not_done';

@@ -6,17 +6,19 @@
  * Each is a section of the settings page (SettingsHub), not a page of its
  * own: an owner changes these rarely and should find them all in one place.
  */
-import { Alert, Badge, Button, Code, CopyButton, Grid, Group, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { day } from '../format.ts';
+import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
 import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
-import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
+import { chooseLanguage, type ConsoleContext } from '../App.tsx';
+import type { Languages } from '../types.ts';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { OfficeHoursForm, type Hours } from '../components/OfficeHours.tsx';
 import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
@@ -25,14 +27,16 @@ const zoneOptions = ZONES.map((zone) => ({ value: zone, label: zone }));
 export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
-    const [window_, retention]: [
+    const [window_, retention, office]: [
       { timezone: string; startHour: number; endHour: number },
       { policy: { eventDays: number; traceDays: number; promptDays: number }; log: Array<{ action: string; rowsAffected: number; throughAt: string }> },
+      { hours: Hours | null },
     ] = await Promise.all([
       api('GET', '/api/control/owner-window'),
       api('GET', `/api/companies/${companyId}/retention`),
+      api('GET', `/api/companies/${companyId}/office-hours`),
     ]);
-    return { window: window_, retention };
+    return { window: window_, retention, office: office.hours };
   }, [companyId]);
 
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
@@ -69,6 +73,20 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
             />
           </Section>
         </Grid.Col>
+        <Grid.Col span={12}>
+          <Section
+            title={t('Office hours')}
+            description={t('When emails, posts and replies may go out. Outside them they wait for the next opening; reading, writing and planning carry on at any hour.')}
+          >
+            <OfficeHoursForm
+              companyId={companyId}
+              hours={view.data.office}
+              zones={ZONES}
+              ownerZone={view.data.window.timezone}
+              reload={view.reload}
+            />
+          </Section>
+        </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Section title={t('Cheap hours')} description={t('Work marked non-urgent, that only reads, waits for this window.')}>
             <ActionForm
@@ -99,7 +117,7 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
             <Table.Tbody>
               {retention.log.map((row, index) => (
                 <Table.Tr key={index}>
-                  <Table.Td>{row.action}</Table.Td>
+                  <Table.Td>{retentionSaid(row.action)}</Table.Td>
                   <Table.Td>{t('{count} rows', { count: row.rowsAffected })}</Table.Td>
                   <Table.Td>{t('through {day}', { day: day(row.throughAt) })}</Table.Td>
                 </Table.Tr>
@@ -113,17 +131,21 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
         <ActionForm
           columns={3}
           fields={[
-            { name: 'dailyCostCents', label: t('Daily cost, cents'), type: 'number' },
+            { name: 'dailyCost', label: t('Daily cost'), type: 'money' },
             { name: 'taskFailureRate', label: t('Failure rate, 0 to 1'), type: 'number' },
             { name: 'policyDenialsPerDay', label: t('Policy denials a day'), type: 'number' },
           ]}
-          submit={(values) => api('POST', `/api/companies/${companyId}/alert-thresholds`, values)}
+          submit={({ dailyCost, ...values }) => api('POST', `/api/companies/${companyId}/alert-thresholds`, {
+            ...values,
+            // Typed in dollars; kept, like every amount, in cents.
+            ...(dailyCost === undefined || dailyCost === '' ? {} : { dailyCostCents: centsFrom(dailyCost) }),
+          })}
         />
       </Section>
 
       <Grid gap="lg">
         <Grid.Col span={{ base: 12, md: 6 }}>
-          <Section title={t('Freeze this company')} description={t('Nothing of theirs starts while it is frozen; work in progress stops at its next step. Unfreezing takes your authenticator.')}>
+          <Section title={t('Freeze this company')} description={t('Nothing of theirs starts while it is frozen; work in progress stops at its next step.')}>
             <Group>
               <ActionButton label={t('Freeze')} color="red" variant="light" leftSection={<IconSnowflake size={16} />}
                 run={() => api('POST', `/api/control/company/${companyId}/freeze`, { on: true })}
@@ -223,7 +245,7 @@ export function SecuritySettings() {
   const recovery = view.data.authenticators.find((one) => one.kind === 'recovery') ?? null;
   return (
     <Stack gap="lg">
-      <Section title={t('Your authenticators')} description={t('What can approve a tier 3 action in your name. Revoking takes a code from a device that is staying, and ends every session the revoked one signed in.')}>
+      <Section title={t('Your authenticators')} description={t('What can sign you in, and so approve a tier 3 action in your name. Revoking takes a code from a device that is staying, and ends every session the revoked one signed in.')}>
         {authenticators.length === 0 ? <Text size="sm" c="red">{t('None enrolled. No tier 3 action can be approved until one is.')}</Text> : (
           <Table verticalSpacing="sm">
             <Table.Tbody>
@@ -389,7 +411,8 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
     const answer: Languages = await api('GET', '/api/control/languages');
     return answer;
   }, []);
-  const [agents, setAgents] = useState<string | null>(null);
+  // Undefined until the owner touches it; null is an answer: follow the panel.
+  const [agents, setAgents] = useState<string | null | undefined>(undefined);
   const [work, setWork] = useState<string | null>(ctx.company.workLanguage);
   const [talk, setTalk] = useState<string | null>(ctx.company.talkLanguage);
   const [busy, setBusy] = useState<string | null>(null);
@@ -398,7 +421,8 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
   if (!view.data) return <Loading rows={3} />;
   const supported = view.data.supported.map((one) => ({ value: one.code, label: one.native === one.name ? one.name : `${one.native} · ${one.name}` }));
   const nameOf = (code: string) => view.data?.supported.find((one) => one.code === code)?.native ?? code;
-  const fallback = agents ?? view.data.agents;
+  const chosenAgents = view.data.agentsChosen ? view.data.agents : null;
+  const fallback = agents === undefined ? chosenAgents : agents;
 
   const save = async (what: string, run: () => Promise<unknown>) => {
     setBusy(what);
@@ -431,10 +455,15 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
         </Group>
       </Section>
 
+      <Section title={t('How you read money')} description={t('PALUGADA counts in US dollars, as providers price in them. You may read every amount in your own currency, at a rate you set; nothing is charged in it.')}>
+        <MoneyDisplayForm />
+      </Section>
+
       <Section title={t('Agents, by default')} description={t('The language every company’s agents use unless the company sets its own below.')}>
         <Group align="flex-end" gap="sm">
-          <Select data={supported} value={fallback} onChange={setAgents} searchable w={320} allowDeselect={false} />
-          <Button loading={busy === 'agents'} disabled={!agents || agents === view.data.agents}
+          <Select data={supported} value={fallback} onChange={setAgents} searchable clearable w={320}
+            placeholder={t('Follows the panel: {language}', { language: nameOf(view.data.console ?? 'en') })} />
+          <Button loading={busy === 'agents'} disabled={agents === undefined || agents === chosenAgents}
             onClick={() => void save('agents', () => api('POST', '/api/control/languages', { agents }))}>
             {t('Save')}
           </Button>
@@ -486,5 +515,58 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
         <Text size="xs" c="dimmed">{t('The panel follows your browser until you choose a language.')}</Text>
       )}
     </Stack>
+  );
+}
+
+/**
+ * The currency the owner reads money in, and the rate (0106). US dollars
+ * are what PALUGADA counts in; any other is only how amounts are shown and
+ * typed, at the owner's own rate, which the platform never fetches.
+ */
+function MoneyDisplayForm() {
+  const view = useLoad(async (): Promise<{ currency: string | null; rate: number | null }> =>
+    api('GET', '/api/control/money-display'), []);
+  const [currency, setCurrency] = useState<string | null>(null);
+  const [rate, setRate] = useState<number | string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={1} />;
+  const chosen = currency ?? view.data.currency ?? 'USD';
+  const typed = rate ?? view.data.rate ?? '';
+  const options = [
+    { value: 'USD', label: t('US dollars, as PALUGADA counts') },
+    ...Intl.supportedValuesOf('currency').filter((code) => code !== 'USD')
+      .map((code) => ({ value: code, label: `${currencyName(code)} (${code})` })),
+  ];
+  const unchanged = chosen === (view.data.currency ?? 'USD') && (chosen === 'USD' || Number(typed) === view.data.rate);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const saved: { currency: string | null; rate: number | null } = await api('POST', '/api/control/money-display',
+        chosen === 'USD' ? { currency: null } : { currency: chosen, rate: Number(typed) });
+      setMoneyDisplay(saved.currency && saved.rate ? { currency: saved.currency, rate: saved.rate } as MoneyDisplay : null);
+      notifications.show({ color: 'teal', message: t('Saved. Every amount is shown this way now.') });
+      view.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Group align="flex-end" gap="sm" wrap="wrap">
+      <Select label={t('Show amounts in')} data={options} value={chosen} onChange={(next) => { setCurrency(next ?? 'USD'); setRate(null); }}
+        searchable allowDeselect={false} w={{ base: '100%', sm: 320 }} />
+      {chosen !== 'USD' && (
+        <NumberInput label={t('{currency} for one US dollar', { currency: chosen })} value={typed} onChange={setRate}
+          min={0} decimalScale={6} {...numberSeparators()} w={{ base: '100%', sm: 220 }} />
+      )}
+      <Button loading={busy} disabled={unchanged || (chosen !== 'USD' && !(Number(typed) > 0))} onClick={() => void save()}>
+        {t('Save')}
+      </Button>
+    </Group>
   );
 }

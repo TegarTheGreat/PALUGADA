@@ -122,8 +122,6 @@ test('a measure can be put right or retired by the owner, and a retired one leav
     const token = await api.signIn();
     await api.call('POST', `/api/companies/${fixture.companyId}/metrics/${metricId}/observations`, token, { value: 12 });
 
-    const unproved = await api.call('POST', `/api/companies/${fixture.companyId}/metrics/${metricId}`, token, { target: 50 });
-    assert.equal(unproved.status, 403, 'a target is what every run aims at, so changing it takes the device');
     const unit = await api.call('POST', `/api/companies/${fixture.companyId}/metrics/${metricId}`, token,
       { unit: 'currency', proof: { totp: api.code() } });
     assert.equal(unit.status, 400);

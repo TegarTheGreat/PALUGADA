@@ -134,7 +134,9 @@ test('npm start with no owner prints a link that makes whoever opens it the owne
     const offered = await post(url, '/api/auth/claim', { code });
     assert.equal(offered.status, 200, JSON.stringify(offered.body));
     const secret = String(offered.body.secret);
-    const confirmed = await post(url, '/api/auth/claim/confirm', { code, totp: totpCode(decodeBase32(secret), stepFor(new Date())) });
+    const confirmed = await post(url, '/api/auth/claim/confirm', {
+      code, offer: offered.body.offer, totp: totpCode(decodeBase32(secret), stepFor(new Date())),
+    });
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
     const control = await fetch(`${url}/api/control`, { headers: { authorization: `Bearer ${String(confirmed.body.token)}` } });
     assert.equal(control.status, 200);
@@ -503,7 +505,9 @@ test('the container entrypoint sets the database up, then starts the platform wi
   const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
   assert.equal(code, 0, err);
   const lines = out.trim().split('\n');
-  assert.match(out, /database palugada: already as PALUGADA needs it/, 'provisioned, and nothing to change');
+  // The database the suite runs on, which is not always called palugada.
+  const database = new URL(connectionString('owner')).pathname.slice(1);
+  assert.ok(out.includes(`database ${database}: already as PALUGADA needs it`), `provisioned, and nothing to change: ${out}`);
   assert.match(out, /already up to date/, 'migrated');
   const seen = JSON.parse(lines.at(-1)!) as string[];
   for (const gone of [

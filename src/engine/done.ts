@@ -188,6 +188,31 @@ export const FAILED_INSTRUCTION =
   'out does not count as done.';
 
 /**
+ * What a run is told about work it did not do (N9, the live run of
+ * 2 October). Asked to delete a customer's data, a run judged it had no
+ * authority, deleted nothing, said so in its summary -- and the task showed
+ * "Done", because its criteria were about answering customers and a ticket
+ * met them. Whether what was asked happened was nobody's question.
+ */
+export const NOT_DONE_INSTRUCTION =
+  'If what the task asked for was not done -- you could not do it, or it needs a decision that is not ' +
+  'yours and you could not get one -- add "notDone": why, in a sentence or two for the owner. The task ' +
+  'then ends as not done, with your reason, instead of counting as finished, and it is not tried again. ' +
+  'When an answer from the owner would let you do it and you can ask them, ask first.';
+
+/**
+ * What an output says about work it did not do: its reason, or null when it
+ * says nothing. `true` with no reason is still not done, and the summary is
+ * the nearest thing to a reason it gave.
+ */
+export function saidNotDone(output: Record<string, unknown>): string | null {
+  const said = output.notDone;
+  if (typeof said === 'string') return said.trim() ? said.trim().slice(0, 2_000) : null;
+  if (said === true) return typeof output.summary === 'string' ? output.summary.trim().slice(0, 2_000) : '';
+  return null;
+}
+
+/**
  * Holds an output to the writes that failed in its run: each one never put
  * right by a later call is named under `failed`, with why, or the work is
  * not done. Named, it is done -- the run may have had a way round the

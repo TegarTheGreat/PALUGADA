@@ -23,6 +23,7 @@
  * reported success would be the most dangerous number in the system.
  */
 import { withTenant } from '../db/tenant.ts';
+import { ownerReadingWithin, roleChangeSaid } from '../owner/platform-cards.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { exportTrajectory, type Trajectory } from './trajectory.ts';
@@ -330,16 +331,8 @@ export async function requestRoleChange(input: {
   const score = await scoreRoleChange(input);
 
   const inbox = await import('../inbox/inbox.ts');
-  const rendered = score.scored
-    ? `Eval: ${score.passed} passed, ${score.failed} failed of ${
-      score.passed + score.failed
-    } reference trajectories.\n` +
-      score.cases
-        .filter((outcome) => !outcome.passed)
-        .map((outcome) => `  - ${outcome.name}: ${outcome.detail}`)
-        .join('\n')
-    : `This role has fewer than ${MINIMUM_EVAL_CASES} accepted reference trajectories, so ` +
-      'the change is unscored. That is not the same as passing.';
+  const said = roleChangeSaid(await withTenant(input.companyId, ownerReadingWithin),
+    { summary: input.summary, minimum: MINIMUM_EVAL_CASES, score });
 
   const inboxItemId = await inbox.requestApproval({
     companyId: input.companyId,
@@ -347,8 +340,8 @@ export async function requestRoleChange(input: {
     // F2.9: changing what a role is, is a structural change.
     tier: 3,
     actionSummary: input.summary,
-    rationale: `${input.summary}\n\n${rendered}`,
-    consequenceIfDenied: 'The role keeps working exactly as it does now.',
+    rationale: said.rationale,
+    consequenceIfDenied: said.consequence,
     estimatedCostCents: 0,
     payload: { change: input.change, score },
   });

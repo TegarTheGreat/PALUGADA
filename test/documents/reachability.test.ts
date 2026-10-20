@@ -60,7 +60,6 @@ const UNREACHABLE: Record<string, string> = {
   NOT_RESTORED: 'helper: what an import deliberately drops, asserted directly',
 
   // F8: the catalogue and preflight.
-  catalogueNames: 'helper: the catalogue as names, asserted directly',
 
   // F16: bundles.
   forgetBundleHooks: 'helper: a cache reset a test needs between installs',
@@ -89,6 +88,7 @@ const UNREACHABLE: Record<string, string> = {
   proposeStructuralChange: 'console: F3.9 a change cannot be proposed',
 
   // F10: the owner surface itself.
+  STAFF_HIDDEN: 'helper: the reads kept from a staff seat, with why, for the test that asks every read was decided',
 
   // F4: memory.
 
@@ -102,8 +102,10 @@ const UNREACHABLE: Record<string, string> = {
   // F13, F12.9.
   knownClis: 'helper: all five entries at once, asserted directly; a deployment '
     + 'names the ones it has in PALUGADA_AGENT_CLIS',
-  runSandboxed: 'worker: F12.9 nothing here executes untrusted code; '
-    + '`code.execute` needs somebody\'s account',
+  runSandboxed: 'worker: F12.9 the local sandbox exists, and no capability wraps it: '
+    + '`code.execute` is catalogued and unbound (the audit of 6 October, O2)',
+  SANDBOX_GUARANTEES: 'helper: what the sandbox does and does not isolate, asserted directly; '
+    + 'a comment in the standard template named it, and a company no longer starts from that template',
 
   // F9: the scheduler.
   coalescedCount: 'helper: how many wakes merged, asserted directly',
@@ -114,8 +116,7 @@ const UNREACHABLE: Record<string, string> = {
   // F15: skills.
   renderSkillDocument: 'helper: the document form, asserted directly',
 
-  // Entry points and templates.
-  installStandardTemplate: 'entry: a deployment builds its first company with it',
+  // Entry points.
   runWorker: 'entry: the worker as a process, for a deployment that wants one',
 };
 

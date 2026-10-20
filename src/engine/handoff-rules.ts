@@ -29,6 +29,9 @@ export interface HandoffRuleView {
   fromRoleSlug: string;
   toRoleId: string;
   toRoleSlug: string;
+  /** The names the owner gave the two roles, shown in place of their codes. */
+  fromRoleName: string | null;
+  toRoleName: string | null;
   brief: string;
   enabled: boolean;
   createdAt: Date;
@@ -88,16 +91,17 @@ export async function handoffRulesOf(companyId: string): Promise<HandoffRuleView
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; from_role_id: string; from_slug: string; to_role_id: string; to_slug: string;
-      brief: string; enabled: boolean; created_at: Date;
+      from_name: string | null; to_name: string | null; brief: string; enabled: boolean; created_at: Date;
     }>(
-      `SELECT h.id, h.from_role_id, f.slug AS from_slug, h.to_role_id, t.slug AS to_slug, h.brief, h.enabled,
+      `SELECT h.id, h.from_role_id, f.slug AS from_slug, h.to_role_id, t.slug AS to_slug,
+              f.display_name AS from_name, t.display_name AS to_name, h.brief, h.enabled,
               h.created_at
          FROM handoff_rules h JOIN roles f ON f.id = h.from_role_id JOIN roles t ON t.id = h.to_role_id
         ORDER BY h.created_at`,
     );
     return rows.map((row) => ({
       id: row.id, fromRoleId: row.from_role_id, fromRoleSlug: row.from_slug, toRoleId: row.to_role_id,
-      toRoleSlug: row.to_slug, brief: row.brief, enabled: row.enabled, createdAt: row.created_at,
+      toRoleSlug: row.to_slug, fromRoleName: row.from_name, toRoleName: row.to_name, brief: row.brief, enabled: row.enabled, createdAt: row.created_at,
     }));
   });
 }

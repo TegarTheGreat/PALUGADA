@@ -540,6 +540,8 @@ test('the application role may write what the platform writes, and no more (F12,
   assert.equal(await may(`has_table_privilege(${app}, 'capability_grants', 'DELETE')`), true,
     'revoking a grant is a delete');
   assert.equal(await may(`has_table_privilege(${app}, 'tasks', 'UPDATE')`), true);
+  assert.equal(await may(`has_column_privilege(${app}, 'documents', 'archived_at', 'UPDATE')`), true,
+    'the owner archives a document through it');
 
   // What it does not.
   for (const [check, why] of [
@@ -553,6 +555,8 @@ test('the application role may write what the platform writes, and no more (F12,
     [`has_table_privilege(${app}, 'tasks', 'DELETE')`, 'deleting work'],
     [`has_table_privilege(${app}, 'task_steps', 'DELETE')`, 'or its journal'],
     [`has_table_privilege(${app}, 'inbox_items', 'DELETE')`, 'or the owner\'s questions'],
+    [`has_column_privilege(${app}, 'documents', 'for_customers', 'UPDATE')`, 'marking what customers may be told on its own (0117)'],
+    [`has_table_privilege(${app}, 'chat_channels', 'UPDATE')`, 'or letting a channel answer on its own'],
   ] as const) {
     assert.equal(await may(check), false, why);
   }

@@ -17,6 +17,7 @@
 import { withTenant, withControlPlane } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { alertCard, ownerReadingWithin, type AlertFacts } from '../owner/platform-cards.ts';
 
 export type AlertKind =
   | 'daily_cost'
@@ -236,7 +237,9 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
     metricsForDay(companyId, now),
   ]);
 
-  const breaches: Array<{ kind: AlertKind; summary: string; observed: number; threshold: number }> = [];
+  // The summary is the record, kept in English; `facts` is what the owner's
+  // card says, in their language (platform-cards.ts).
+  const breaches: Array<{ kind: AlertKind; summary: string; observed: number; threshold: number; facts: AlertFacts }> = [];
 
   if (metrics.costCents > thresholds.dailyCostCents) {
     breaches.push({
@@ -244,6 +247,7 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
       summary: `Model spend today is ${metrics.costCents} cents, over the ${thresholds.dailyCostCents} cent ceiling.`,
       observed: metrics.costCents,
       threshold: thresholds.dailyCostCents,
+      facts: { kind: 'daily_cost', costCents: metrics.costCents, limitCents: thresholds.dailyCostCents },
     });
   }
 
@@ -260,6 +264,7 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
           `(${Math.round(rate * 100)}%), over the ${Math.round(thresholds.taskFailureRate * 100)}% threshold.`,
         observed: rate,
         threshold: thresholds.taskFailureRate,
+        facts: { kind: 'task_failure_rate', failed: metrics.tasksFailed, finished: metrics.tasksFinished, rate, limit: thresholds.taskFailureRate },
       });
     }
   }
@@ -273,6 +278,7 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
         'or a policy is miscalibrated.',
       observed: metrics.policyDenials,
       threshold: thresholds.policyDenialsPerDay,
+      facts: { kind: 'policy_denials', count: metrics.policyDenials, limit: thresholds.policyDenialsPerDay },
     });
   }
 
@@ -284,6 +290,7 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
         'differently. Something is changing state other than as asked.',
       observed: metrics.verificationFailures,
       threshold: thresholds.verificationFailuresPerDay,
+      facts: { kind: 'verification_failures', count: metrics.verificationFailures },
     });
   }
 
@@ -302,6 +309,7 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
         'A credential has probably expired or a quota is exhausted.',
       observed: metrics.preflightFailures,
       threshold: 0,
+      facts: { kind: 'preflight_failures', count: metrics.preflightFailures },
     });
   }
 
@@ -314,13 +322,16 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
         'had already spent were not recovered.',
       observed: metrics.orphanedRuns,
       threshold: 0,
+      facts: { kind: 'orphaned_runs', count: metrics.orphanedRuns },
     });
   }
 
   const raised: RaisedAlert[] = [];
 
+  const reading = breaches.length > 0 ? await withTenant(companyId, ownerReadingWithin) : null;
   for (const breach of breaches) {
     if (!(await claimAlertSlot(companyId, breach.kind, now))) continue;
+    const card = alertCard(reading!, breach.facts);
 
     // A failed verification is an incident: it means the world may not match
     // what the system believes. Everything else is a budget-shaped alert that
@@ -332,16 +343,8 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
       breach.kind === 'verification_failures'
       || breach.kind === 'preflight_failures'
       || breach.kind === 'orphaned_runs'
-        ? await inbox.raiseIncident({
-            companyId,
-            title: alertTitle(breach.kind),
-            detail: breach.summary,
-          })
-        : await inbox.raiseBudgetAlert({
-            companyId,
-            title: alertTitle(breach.kind),
-            detail: breach.summary,
-          });
+        ? await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail })
+        : await inbox.raiseBudgetAlert({ companyId, title: card.title, detail: card.detail });
 
     await withTenant(companyId, async (tx) => {
       await appendEvent(tx, {
@@ -361,21 +364,4 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
   }
 
   return raised;
-}
-
-function alertTitle(kind: AlertKind): string {
-  switch (kind) {
-    case 'daily_cost':
-      return 'Daily model spend over threshold';
-    case 'task_failure_rate':
-      return 'Task failure rate over threshold';
-    case 'policy_denials':
-      return 'Unusual number of policy refusals';
-    case 'verification_failures':
-      return 'External writes failed verification';
-    case 'preflight_failures':
-      return 'A capability stopped being usable';
-    case 'orphaned_runs':
-      return 'A worker stopped reporting mid-run';
-  }
 }

@@ -23,6 +23,7 @@ import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { STANDARD_CATALOGUE } from '../../src/broker/catalogue.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { chromium } from '../helpers/browser.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -56,6 +57,7 @@ const EXTRACT_ANSWERS: Record<string, { answer: unknown; key: (call: Seen) => st
   exa: { answer: { results: [{ url: 'https://a.example/', title: 'T', text: 'Body' }] }, key: (call) => call.headers['x-api-key'] ?? null },
   parallel: { answer: { results: [{ url: 'https://a.example/', title: 'T', full_content: 'Body' }] }, key: (call) => call.headers['x-api-key'] ?? null },
   keenable: { answer: { url: 'https://a.example/', title: 'T', content: 'Body' }, key: (call) => call.headers['x-api-key'] ?? null },
+  'firecrawl-self-hosted': { answer: { success: true, data: { markdown: 'Body', metadata: { title: 'T', sourceURL: 'https://a.example/' } } }, key: bearerOf },
 };
 
 interface Seen {
@@ -129,10 +131,13 @@ test('every page reader returns the page as text, capped, and says which page it
     const { answer, key } = EXTRACT_ANSWERS[provider.id]!;
     const { fetch, seen } = providerFetch(answer);
     const typed = provider.key === 'none' ? null : 'the-key-0123';
-    const page = await webExtract({ provider, url: null, key: async () => typed, fetch }).execute({ url: 'https://a.example/' }, ctx());
+    const url = provider.urlExample ? 'http://reader.internal:3002/' : null;
+    const page = await webExtract({ provider, url, key: async () => typed, fetch }).execute({ url: 'https://a.example/' }, ctx());
     assert.equal(page.text, 'Body', provider.id);
     assert.equal(page.url, 'https://a.example/');
     assert.equal(key(seen[0]!), typed, `${provider.id} carries its key where the provider reads it`);
+    if (provider.urlExample) assert.ok(seen[0]!.url.startsWith('http://reader.internal:3002/v2/'), `${provider.id} goes to the owner's own server`);
+    else assert.ok(seen[0]!.url.startsWith('https://'), `${provider.id} is reached over HTTPS`);
   }
   const jina = EXTRACT_PROVIDERS.find((one) => one.id === 'jina')!;
   const long = providerFetch({ data: { title: 'T', url: 'https://a.example/', content: 'x'.repeat(70_000) } });
@@ -183,7 +188,7 @@ test('a tool with no provider, or one it cannot use, is a note at boot, not a si
   assert.equal(bound.extract?.provider.id, 'jina');
 });
 
-test('the owner chooses a search provider and a page reader in the console, tries them, and saves them with their device', async () => {
+test('the owner chooses a search provider and a page reader in the console, tries them, and saves them', async () => {
   const search = await searxngServer();
   const api = await consoleWithSettings();
   try {
@@ -201,8 +206,6 @@ test('the owner chooses a search provider and a page reader in the console, trie
     const keyless = await api.call('POST', '/api/control/tools/search', token, { provider: 'brave', proof: { totp: api.code() } });
     assert.equal(keyless.status, 400);
     assert.match(String(keyless.body.error), /Brave Search needs a key/);
-    const unproved = await api.call('POST', '/api/control/tools/search', token, { provider: 'searxng', url: search.url });
-    assert.equal(unproved.status, 403);
     const keyed = await api.call('POST', '/api/control/tools/search', token, { provider: 'brave', key: 'brave-key-0123', proof: { totp: api.code() } });
     assert.equal(keyed.status, 200, JSON.stringify(keyed.body));
     assert.equal(await api.secrets.resolve('db://tool-search'), 'brave-key-0123');
@@ -252,6 +255,25 @@ test('a deployment with a search provider chosen gives its roles web.search; one
     assert.match(withIt.notes.find((note) => note.startsWith('bound by the platform:')) ?? '', /web\.search/);
   } finally {
     await withIt.stop();
+  }
+});
+
+test('with no page reader chosen, the deployment\'s browser reads pages, and boot says which', { skip: chromium() ? false : 'no Chromium here' }, async () => {
+  const { start } = await import('../../src/main.ts');
+  const off = await start({ port: 0, env: { PALUGADA_BROWSER: 'off' }, worker: { idleMs: 60_000 } });
+  try {
+    assert.ok(off.notes.includes('web.extract is unbound: choose a provider in the console, under This deployment, Tools'), off.notes.join('\n'));
+  } finally {
+    await off.stop();
+  }
+  const own = await start({ port: 0, env: { PALUGADA_CHROMIUM: chromium()! }, worker: { idleMs: 60_000 } });
+  try {
+    assert.ok(!own.notes.some((note) => note.startsWith('web.extract is unbound')), own.notes.join('\n'));
+    assert.ok(own.notes.includes('web.extract reads pages in this deployment\'s browser, as no provider is bound: '
+      + 'choose a provider in the console, under This deployment, Tools'), own.notes.join('\n'));
+    assert.match(own.notes.find((note) => note.startsWith('bound by the platform:')) ?? '', /web\.extract/);
+  } finally {
+    await own.stop();
   }
 });
 

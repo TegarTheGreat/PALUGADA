@@ -6,8 +6,19 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    # Not the merge queue's own branches: those are tested as merge_group
+    # below, and as pushes too every candidate would run twice.
+    branches: ['**', '!gh-readonly-queue/**']
   pull_request:
+  # A merge queue tests each pull request on top of what main is about to
+  # become, with the ones ahead of it, before it lands: two pull requests that
+  # were each green against an older main can still break it together, and
+  # that has happened to other projects (Buzz #8036). Enabled in the
+  # repository's settings (docs/RELEASING.md); this is the half CI owns.
+  merge_group:
+  # The release workflow runs the whole of this before it builds anything
+  # from a tag (.github/workflows/release.yml).
+  workflow_call:
   # F5.11's acceptance criterion is a thousand claim races, which takes about
   # seventy seconds. Run nightly rather than on every push: the property is
   # structural, so a broken one fails in the first few rounds, and the stated
@@ -28,6 +39,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The suite takes about twenty minutes. A test file that leaves a browser
+    # or a server running after it fails never ends, and without a limit of
+    # its own the job waited GitHub's six hours for it (runs of 7 to 19
+    # October): a hang fails here, in time to be read the same morning.
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -167,6 +183,12 @@ jobs:
           docker compose run --rm --no-deps app node scripts/smoke.ts
           docker compose up -d --wait --wait-timeout 120 app
 
+      # The companies' browser starts in the image with its sandbox, under
+      # the profile the compose file gives it: a page renders in a process
+      # in a user namespace of its own (scripts/browser-check.ts).
+      - name: The browser runs sandboxed in the image
+        run: docker compose exec -T app node scripts/browser-check.ts
+
       # A process whose parent exits is handed to PID 1; tini reaps it.
       - name: An orphan is reaped, not left a zombie
         run: |
@@ -192,6 +214,12 @@ jobs:
         run: |
           npm ci --omit=dev --no-audit --no-fund
           npm run container:check
+
+      # The tools research's sixth recommendation on a real daemon: a role's
+      # Python, built into deploy/compute, sums a spreadsheet with no network,
+      # as nobody, on a read-only image, and is stopped at its time.
+      - name: A role's Python runs where it reaches nothing
+        run: npm run compute:check
 
       - name: What the containers said
         if: failure()

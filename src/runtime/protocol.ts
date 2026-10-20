@@ -30,8 +30,11 @@
  * "the adapter round-trip", so a resumed run re-enters the runtime and its
  * internal reasoning happens again. What stops that from being wasteful is
  * session continuity (F4.7): the committed steps travel in the context pack,
- * so the runtime can see what it already did. That is a weaker guarantee than
- * deterministic replay and it is the price of not being the runtime.
+ * so the runtime can see what it already did. And a call it makes again is
+ * answered from the journal wherever it comes in the run: its steps are
+ * found by what they are, not by their place (N14). That is a weaker
+ * guarantee than deterministic replay -- a call worded differently is a
+ * different call -- and it is the price of not being the runtime.
  */
 import type { StepKind } from '../engine/journal.ts';
 import type { Goal } from '../domain/goals.ts';
@@ -66,9 +69,11 @@ export interface ContextPack {
   /**
    * F4.7: what this task already did, so a resumed run continues rather than
    * starting again. Each result is bounded (`STEP_OUTPUT_LIMIT`), and only
-   * the steps the context cap kept are here.
+   * the steps the context cap kept are here. A call is shown with what it was
+   * asked, bounded, beside what it answered. Empty for a runtime that replays
+   * its own journal (the model loop), which has all of it already.
    */
-  workingMemory: Array<{ name: string; output: unknown }>;
+  workingMemory: Array<{ name: string; input?: unknown; output: unknown }>;
 }
 
 export interface ModelRouting {
@@ -177,6 +182,15 @@ export interface RunServices {
    * a line never fails the run.
    */
   narrate?(text: string): Promise<void>;
+  /**
+   * How many tokens the run could still be charged before its budget refuses
+   * a call: its task's own reservation and what every account in its chain
+   * has free. Asked before a model call, because the provider bills a call
+   * the budget then refuses to record; finding out after the call is finding
+   * out after paying. Optional: a runtime that makes no calls of its own, or
+   * cannot ask before one, goes without.
+   */
+  tokensLeft?(): Promise<number>;
   /**
    * Where the process groups a run starts are written down (0095), so that
    * a worker killed outright leaves a record the next worker on its machine

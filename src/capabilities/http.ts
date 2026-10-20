@@ -406,13 +406,23 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
           // needs it, which is the opposite of what F8.12 is for.
           headers: readHeaders(spec.headers ?? {}, placeholders),
         });
-        return answer.status < 400
-          ? { ok: true, detail: `${spec.adapter} answered ${answer.status}` }
-          : { ok: false, detail: `${spec.adapter} answered ${answer.status}` };
+        if (answer.status < 400) return { ok: true, detail: `${spec.adapter} answered ${answer.status}` };
+        // Busy or failing on its side is the vendor's moment, and passes; a
+        // refused credential or a missing page does not (H2).
+        return {
+          ok: false, detail: `${spec.adapter} answered ${answer.status}`,
+          ...(answer.status === 429 || answer.status >= 500 ? { transient: true } : {}),
+        };
       } catch (error) {
         // The failure that no retry fixes, found before a task is handed a
-        // capability that cannot work.
-        return { ok: false, detail: `${spec.adapter} is not usable: ${(error as Error).message}` };
+        // capability that cannot work -- unless nothing answered at all: a
+        // connection refused or timed out is the vendor's moment too. What
+        // this platform refused itself, or a credential it could not have,
+        // is not.
+        return {
+          ok: false, detail: `${spec.adapter} is not usable: ${(error as Error).message}`,
+          ...(error instanceof PalugadaError ? {} : { transient: true }),
+        };
       }
     };
   }

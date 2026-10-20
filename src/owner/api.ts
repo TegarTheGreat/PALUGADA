@@ -43,15 +43,17 @@
  * cost is that the console has to hold the token itself, which it does.
  */
 import { versionIn } from '../runtime/checked-versions.ts';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { PalugadaError } from '../errors.ts';
+import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
-import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
+import { addDocument, archiveDocument, listDocuments, readDocument, setForCustomers } from '../knowledge/documents.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
 import {
   clearStopAll,
@@ -63,13 +65,14 @@ import {
   unfreezeCompany,
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
-import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { cancelTask, continueAllHalted, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { VERSION } from '../version.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
+  evaluateSpendLimit,
   limitFor,
   overrideSpendPause,
   periodSpend,
@@ -77,9 +80,11 @@ import {
 } from '../governance/spend-guard.ts';
 import { readGovernanceLog } from '../governance/store.ts';
 import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
-import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
+import {
+  assertOfficeHours, clearOfficeHours, officeHours, ownerWindow, setBatchWindow, setOfficeHours, setOwnerWindow,
+} from '../scheduler/windows.ts';
 import { healthFor, preflightGrants } from '../broker/preflight.ts';
-import { costTimeline, platformCost } from '../reporting/cost.ts';
+import { assistantCost, costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import { CREDENTIAL_SECRETS, redactor, type SecretManager } from '../secrets/manager.ts';
 import { checkVendorEntry, vendorPresets, type VendorSpec } from '../capabilities/vendors.ts';
@@ -91,12 +96,14 @@ import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
-import { accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
+import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
+import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
-  LANGUAGES, deploymentLanguages, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
+  LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
+import { moneyDisplay, setMoneyDisplay } from '../domain/money-display.ts';
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 import type { AdapterRegistry } from '../runtime/protocol.ts';
@@ -105,6 +112,20 @@ import { archiveLines, importCompany, previewArchive } from '../audit/import.ts'
 import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
+import {
+  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, receivedFileRemoved, setAnswersAlone,
+} from '../chats/chats.ts';
+import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
+import { invoiceHtml } from '../records/invoice-document.ts';
+import { holdInvoice, isHeld, policyOf, remindersOf, remindingOf, sameNote, sendersOf, setPolicy } from '../records/collections.ts';
+import { giveReminders } from '../governance/collections.ts';
+import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
+import {
+  addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
+} from '../records/contacts.ts';
+import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
+import { base64Bytes, keepAnswerFiles } from '../chats/attachments.ts';
+import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
   addDivision,
@@ -113,6 +134,7 @@ import {
   addRole,
   applyGrantChange,
   applyRoleChange,
+  grantRoleTools,
   setEscalationPolicy,
   type RoleFields,
   type StructuralChange,
@@ -123,11 +145,15 @@ import { history as configHistory, type ConfigKind } from '../governance/config-
 import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
 import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
+import {
+  DOWNLOAD_MAX_BYTES, UPLOAD_FOLDER, UPLOAD_MAX_BYTES, companyRoot, keepCompanyFile, listCompanyDirectory, mimeOf, plainFileName, readCompanyFile,
+  removeCompanyFile,
+} from '../capabilities/files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
 import { pendingReviews } from '../review/review.ts';
-import { OVERLAP_POLICIES, runScheduleNow, upsertSchedule } from '../scheduler/scheduler.ts';
+import { OVERLAP_POLICIES, removeSchedule, runScheduleNow, setScheduleEnabled, upsertSchedule } from '../scheduler/scheduler.ts';
 import {
   addEvalCase,
   approveSkillVersion,
@@ -153,18 +179,26 @@ import {
   type RoleChange,
 } from '../eval/role-eval.ts';
 import { CapabilityRegistry } from '../broker/registry.ts';
+import { keysAskedFor } from '../broker/keys.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
-import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type PriceTable } from '../engine/pricing.ts';
-import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
+import { DEFAULT_PRICE_TABLE, parsePriceTable, type PriceTable } from '../engine/pricing.ts';
+import { CATALOGUE_SETTING, PriceBook } from '../engine/price-book.ts';
+import { clearCatalogueCache } from '../engine/models-dev.ts';
+import { keptInSettings, modelsInUse, syncPrices } from '../engine/price-sync.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
+import { DEFAULT_QUESTION, describePicture, pictureKind, VISION_PROVIDERS, visionProvider, type Picture, type VisionProvider } from '../capabilities/vision.ts';
 import { EMBED_PROVIDERS, embed, embedProvider, type EmbedBinding, type EmbedProvider } from '../capabilities/embed.ts';
 import {
-  chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
+  ceoOpensConversation, chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
 } from './assistant.ts';
+import { ceoBriefsOwner } from './ceo-briefing.ts';
+import { closeFirstHour, firstHourOf } from './first-hour.ts';
+import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
+import { staffMay } from './staff-policy.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
 import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
 import { appointCeo } from '../governance/ceo.ts';
@@ -211,7 +245,13 @@ import {
   structureOf,
   taskDetailOf,
   workOf,
+  galleryOf,
+  eventsAfter,
+  databaseNow,
+  summarise,
 } from './views.ts';
+import { PRINT_MAX_BYTES, type Browsers, type OwnerInput } from '../browser/browsers.ts';
+import { giveBack, holdOf, takeOver, touchHold } from '../browser/holds.ts';
 
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
@@ -245,10 +285,21 @@ export interface OwnerApiOptions {
    */
   registry?: CapabilityRegistry;
   /**
+   * The companies' browsers (`src/browser/`), which the owner watches and
+   * takes over. Absent, the console says this deployment has none.
+   */
+  browsers?: Browsers;
+  /**
    * The operator's price list, which what the owner says a model costs is
    * laid over (L12). Absent, the conservative fallback alone.
    */
   prices?: PriceTable;
+  /**
+   * The deployment's live prices: the same book its model client and its
+   * engine price calls by, so that a price saved or read here is the next
+   * call's. Absent, the console keeps a book of its own from `prices`.
+   */
+  priceBook?: PriceBook;
   /**
    * The handlers F11.4's replay re-runs (F5.9).
    *
@@ -276,6 +327,12 @@ export interface OwnerApiOptions {
    * nobody running the company from a phone will ever read.
    */
   deploymentNotes?: readonly string[];
+  /**
+   * Where the companies' files are kept (`PALUGADA_FILES_ROOT`): the folder the
+   * owner hands files into and takes them out of. Absent, the console says this
+   * deployment keeps none.
+   */
+  files?: { root: string };
   /**
    * The runtimes this deployment employs (F13.1), so the owner can see which
    * answer and move a role onto one. Absent means none can be chosen: a role
@@ -346,7 +403,10 @@ export interface OwnerApiOptions {
 interface Handler {
   (context: {
     request: IncomingMessage;
+    /** The owner's session; null for an open route, or a staff seat's request. */
     session: OwnerSession | null;
+    /** A staff seat's session (0110), already held to what its seat may reach (staff-policy.ts). */
+    staff: StaffSession | null;
     body: Record<string, unknown>;
     /** The body's bytes as they arrived, for a route that reads them itself. */
     raw: Buffer;
@@ -393,6 +453,27 @@ class HtmlPage {
   }
 }
 
+/**
+ * An answer that goes on: server-sent events, written as they come, until
+ * the owner goes or the API closes. `run` writes each one with `send` and
+ * returns when `signal` aborts.
+ */
+class EventStream {
+  readonly run: (send: (data: unknown, id?: string) => void, signal: AbortSignal) => Promise<void>;
+
+  constructor(run: EventStream['run']) {
+    this.run = run;
+  }
+}
+
+/** How often a live stream looks for new events. */
+const LIVE_POLL_MS = 1_000;
+/** How far back each look reads again, for a transaction that committed late. */
+const LIVE_LOOKBACK_MS = 30_000;
+
+/** How long a quiet stream waits before saying it is still there, inside any proxy's idle limit. */
+const STREAM_HEARTBEAT_MS = 15_000;
+
 interface Route {
   method: string;
   /** Path with `:name` segments. Matched segment by segment, never by regex. */
@@ -410,24 +491,53 @@ interface Route {
   handle: Handler;
 }
 
+/**
+ * The deployment's settings without what the platform learned by itself: the
+ * prices it read from the catalogue are kept there and change every day, and
+ * are not something the owner saved and this process has not yet taken up.
+ */
+function withoutKept(settings: Settings): Settings {
+  const { [CATALOGUE_SETTING]: _kept, ...rest } = settings;
+  return rest;
+}
+
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
+  /**
+   * The owner's session behind the request being handled, so `#requireFactor`
+   * can ask whether it was opened with a device: it is called from seventy
+   * places that were each written without a session in hand.
+   */
+  readonly #acting = new AsyncLocalStorage<OwnerSession | null>();
   readonly #claims: OwnerClaims;
+  readonly #staff: StaffSeats;
   readonly #routes: Route[];
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
   #server: Server | null = null;
+  /** The live streams open now (`EventStream`), ended when the API closes rather than waited for. */
+  readonly #streams = new Set<AbortController>();
   #allowedHosts: ReadonlySet<string> | null = null;
   /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
   readonly #answering = new Set<ServerResponse>();
+  /** The invoice pages being drawn, by company and file, so two presses of one button draw one page. */
+  readonly #drawing = new Map<string, Promise<{ path: string }>>();
   /** Set by `drain()`: readiness says 503, and every answer lets its connection go. */
   #draining = false;
   /** Whether anything has asked `/api/ready`: only then is there a balancer to wait for. */
   #readinessAsked = false;
+  /** What each model costs, by layer: the owner's, the operator's, the catalogue's (price-book.ts). */
+  readonly #book: PriceBook;
 
   constructor(options: OwnerApiOptions) {
     this.#options = options;
+    this.#book = options.priceBook ?? new PriceBook(options.prices ?? DEFAULT_PRICE_TABLE, {
+      owner: async () => (options.deploymentSettings
+        ? withSettings(options.deploymentSettings.baseEnv, await readSettings()).PALUGADA_MODEL_PRICE_SETTINGS
+        : undefined),
+      catalogue: keptInSettings.read,
+    });
     this.#sessions = options.sessions ?? new OwnerSessions({ mfa: options.mfa });
     // The first owner's claim seals their secret with the deployment's master
     // key; built without console settings, there is none, and a claim says so.
@@ -435,6 +545,11 @@ export class OwnerApi {
       mfa: options.mfa,
       sessions: this.#sessions,
       master: () => options.deploymentSettings?.master(true) ?? null,
+    });
+    // Staff seats (0110): sealed like the claim, and read by the same store.
+    this.#staff = new StaffSeats({
+      master: () => options.deploymentSettings?.master(true) ?? null,
+      secrets: () => options.deploymentSettings?.secrets ?? null,
     });
     this.#routes = this.#buildRoutes();
   }
@@ -494,6 +609,8 @@ export class OwnerApi {
     if (!server) return;
     this.#server = null;
     this.#letConnectionsGo();
+    // A stream never finishes by itself: it is told to end, not given time.
+    for (const stream of this.#streams) stream.abort();
     // Before anything is awaited, so no connection is accepted after this line.
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     server.closeIdleConnections();
@@ -569,7 +686,7 @@ export class OwnerApi {
           let session: OwnerSession;
           try {
             const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 120) : undefined;
-            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''), label);
+            session = await this.#claims.confirm(String(body.code ?? ''), String(body.offer ?? ''), String(body.totp ?? ''), label);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;
@@ -658,7 +775,16 @@ export class OwnerApi {
           this.#signInThrottle.check(address);
           let session: Awaited<ReturnType<OwnerSessions['signIn']>>;
           try {
-            session = await this.#sessions.signIn(proofFrom(body));
+            // A staff seat's code first (0110): a seat's sign-in must not be
+            // counted against the owner's factor, whose lockout is global.
+            // A code no seat's app shows goes on to the owner's.
+            const proof = proofFrom(body);
+            const seated = 'totp' in proof ? await this.#staff.signIn(proof.totp) : null;
+            if (seated) {
+              this.#signInThrottle.succeeded(address);
+              return { token: seated.token, expiresAt: seated.expiresAt.toISOString(), staff: staffOf(seated) };
+            }
+            session = await this.#sessions.signIn(proof);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;
@@ -669,6 +795,7 @@ export class OwnerApi {
             expiresAt: session.expiresAt.toISOString(),
             device: session.factor.label,
             factor: session.factor.kind,
+            staff: null,
           };
         },
       },
@@ -676,9 +803,59 @@ export class OwnerApi {
       {
         method: 'POST',
         pattern: '/api/auth/sign-out',
-        handle: async ({ session }) => {
-          await this.#sessions.signOut(session!.token);
+        handle: async ({ session, staff }) => {
+          if (staff) await this.#staff.signOut(staff.token);
+          else await this.#sessions.signOut(session!.token);
           return { ok: true };
+        },
+      },
+
+      {
+        // Who is signed in: the owner, or a staff seat and what it may do (0110).
+        method: 'GET',
+        pattern: '/api/me',
+        handle: async ({ staff }) => (staff ? { owner: false, staff: staffOf(staff) } : { owner: true, staff: null }),
+      },
+
+      {
+        // An invite to a staff seat, opened (staff.ts): open and throttled
+        // like the owner's claim, since the code in the link is the
+        // credential. Answers with a secret for the person's app.
+        method: 'POST',
+        pattern: '/api/auth/join',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          try {
+            return await this.#staff.open(String(body.code ?? ''), `staff@${hostLabel(request)}`);
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+        },
+      },
+
+      {
+        // The code the person's app then shows: the seat is theirs, and they
+        // are signed in to it.
+        method: 'POST',
+        pattern: '/api/auth/join/confirm',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          let seated: StaffSession;
+          try {
+            seated = await this.#staff.confirm(String(body.code ?? ''), String(body.offer ?? ''), String(body.totp ?? ''));
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+          this.#signInThrottle.succeeded(address);
+          return {
+            token: seated.token, expiresAt: seated.expiresAt.toISOString(), device: seated.seat.name, factor: 'totp', staff: staffOf(seated),
+          };
         },
       },
 
@@ -687,7 +864,10 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/companies',
-        handle: async () => ({ companies: await companies() }),
+        // A staff seat sees its own company and no other (0110).
+        handle: async ({ staff }) => ({
+          companies: (await companies()).filter((company) => !staff || company.id === staff.seat.companyId),
+        }),
       },
 
       {
@@ -718,8 +898,27 @@ export class OwnerApi {
             if (!version) throw new PalugadaError('contract.violation', `no bundle named ${slug} is published here`, { slug });
             bundles.push({ slug, version });
           }
-          await this.#requireFactor(body.proof, 'start a company');
-          const templateSlug = requireText(body.templateSlug, 'templateSlug');
+          // The languages it works and talks in, checked before the factor
+          // is spent like the bundles. Unsaid, both are the language the
+          // owner reads the panel in: on a live run (N7) a company started
+          // from an Indonesian console worked in English, because creation
+          // left them unset and the deployment's agent language was English.
+          const workLanguage = body.workLanguage === undefined ? undefined : languageCode(body.workLanguage, 'workLanguage');
+          const talkLanguage = body.talkLanguage === undefined ? undefined : languageCode(body.talkLanguage, 'talkLanguage');
+          // What the company is for, in the owner's own words: checked here,
+          // before the factor is spent, like the rest. Blank is no mission and
+          // leaves the default.
+          if (body.mission !== undefined && body.mission !== null && typeof body.mission !== 'string') {
+            throw new PalugadaError('contract.violation', 'mission is what the company is for, in a sentence or two', { field: 'mission' });
+          }
+          const mission = typeof body.mission === 'string' ? body.mission.trim() : '';
+          if (mission.length > MISSION_MAX) {
+            throw new PalugadaError('contract.violation', `the mission is at most ${MISSION_MAX} characters`, { field: 'mission' });
+          }
+          await this.#requireFactor(body.proof, 'start a company', null);
+          // A company starts with its CEO and builds the team as it needs it
+          // (founding.ts); a template is named only by an operator who has stored one.
+          const templateSlug = body.templateSlug === undefined ? FOUNDING_TEMPLATE_SLUG : requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
           // arriving as a plain `Error` the caller reads as a broken console.
           if (!(await readTemplate(templateSlug))) {
@@ -727,6 +926,14 @@ export class OwnerApi {
               'contract.violation', `no company template named ${templateSlug}`, { templateSlug },
             );
           }
+          const panel = (await deploymentLanguages()).console;
+          const owners = panel && isLanguageCode(panel) ? panel : null;
+          const work = workLanguage ?? owners;
+          const talk = talkLanguage ?? owners;
+          // Whether the owner's sentence became the mission: a template that
+          // states its own mission has no place for it, and the CEO must not
+          // then say it knows what the company is for.
+          const taken: { mission: string | null } = { mission: null };
           const created = await createCompanyFromTemplate({
             templateSlug,
             companySlug: requireText(body.companySlug, 'companySlug'),
@@ -734,12 +941,24 @@ export class OwnerApi {
             ...(body.timezone === undefined
               ? {}
               : { timezone: requireText(body.timezone, 'timezone') }),
+            // Its mission and objectives are what the owner reads first, so
+            // they are said in the language the company talks in -- or are the
+            // owner's own words, when they gave them for the mission.
+            words: (statement) => {
+              if (!mission || statement !== DEFAULT_MISSION) return say(talk, statement);
+              taken.mission = mission;
+              return mission;
+            },
           });
+          if (work || talk) await setCompanyLanguages(created.companyId, { work, talk });
           // One factor covers the company and what it starts with: installing
           // a bundle is the same structural change F2.9 already approved here.
           for (const bundle of bundles) {
             await installBundle({ companyId: created.companyId, slug: bundle.slug, version: bundle.version });
           }
+          // Its first hour (first-hour.ts): the CEO asks what it needs to
+          // know before the owner has said anything more than what it is for.
+          await ceoOpensConversation(created.companyId, taken.mission);
           return {
             companyId: created.companyId,
             divisions: Object.keys(created.divisionIds),
@@ -754,8 +973,14 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox',
         // `?snoozed=1` lists the items the owner put off instead (0060).
-        handle: async ({ params, query }) => ({
-          items: await inbox.listOpen(params.companyId!, { snoozed: query.get('snoozed') === '1' }),
+        // A seat is not shown a question put to someone else; `?mine=1`
+        // narrows it to the questions put to the seat itself.
+        handle: async ({ params, query, staff }) => ({
+          items: await inbox.listOpen(params.companyId!, {
+            snoozed: query.get('snoozed') === '1',
+            seat: staff ? { id: staff.seat.id } : null,
+            mine: query.get('mine') === '1',
+          }),
         }),
       },
 
@@ -772,10 +997,11 @@ export class OwnerApi {
         // waiting; this is what the owner said, and what closed without them.
         method: 'GET',
         pattern: '/api/companies/:companyId/decisions',
-        handle: async ({ params, query }) => inbox.history(params.companyId!, {
+        handle: async ({ params, query, staff }) => inbox.history(params.companyId!, {
           query: query.get('q'),
           before: query.get('before'),
           limit: query.get('limit') === null ? 25 : wholeNumber(query.get('limit'), 'limit'),
+          seat: staff ? { id: staff.seat.id } : null,
         }),
       },
 
@@ -821,6 +1047,106 @@ export class OwnerApi {
       },
 
 
+
+      {
+        // The company's events as they are written (the analysis of 3 October,
+        // §9 P1 item 11): the console reloads what each touches, rather than
+        // asking again every few seconds. From the moment the owner looks;
+        // what came before is read the ordinary way.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/live',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          return new EventStream(async (send, signal) => {
+            const looked = await databaseNow(companyId);
+            let newest = looked;
+            // Sent, by when it happened. Read again a while back on every
+            // look: a transaction that began earlier can commit its events
+            // after later ones, stamped with its own start.
+            const sent = new Map<string, number>();
+            while (!signal.aborted) {
+              try {
+                const from = new Date(Math.max(looked.getTime(), newest.getTime() - LIVE_LOOKBACK_MS));
+                for (const event of await eventsAfter(companyId, from)) {
+                  if (sent.has(event.id)) continue;
+                  sent.set(event.id, event.at.getTime());
+                  if (event.at > newest) newest = event.at;
+                  send({ id: event.id, type: event.type, taskId: event.taskId, actor: event.actor, at: event.at }, event.id);
+                }
+                for (const [id, at] of sent) if (at < newest.getTime() - 2 * LIVE_LOOKBACK_MS) sent.delete(id);
+              } catch {
+                // The database's moment: the next look tries again, and the
+                // console still has its own reloads to fall back on.
+              }
+              await new Promise<void>((resolve) => {
+                const wake = setTimeout(resolve, LIVE_POLL_MS);
+                signal.addEventListener('abort', () => { clearTimeout(wake); resolve(); }, { once: true });
+              });
+            }
+          });
+        },
+      },
+
+      {
+        // Who is seated in this company beside the owner (0110).
+        method: 'GET',
+        pattern: '/api/companies/:companyId/staff',
+        handle: async ({ params }) => ({ seats: await this.#staff.list(params.companyId!) }),
+      },
+
+      {
+        // A seat, made with the owner's device: letting another person in is
+        // the loosening of all loosenings. Answers with the invite for them.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/staff',
+        handle: async ({ params, body }) => {
+          const request = seatRequest(body);
+          await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!, true);
+          return this.#staff.create(params.companyId!, request);
+        },
+      },
+
+      {
+        // Ended at once, with its sessions: a tightening, so the session's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/staff/:seatId/revoke',
+        handle: async ({ params }) => {
+          await this.#staff.revoke(params.companyId!, params.seatId!);
+          return { ok: true };
+        },
+      },
+
+      {
+        // The owner's first hour with a new company (first-hour.ts): four
+        // steps, each done when the owner has done it.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/first-hour',
+        handle: async ({ params }) => firstHourOf(params.companyId!),
+      },
+
+      {
+        // Closed by the owner: the Overview stops listing it and the CEO
+        // stops interviewing. Nothing the owner has not done is ticked off.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/first-hour/close',
+        handle: async ({ params }) => {
+          await closeFirstHour(params.companyId!);
+          return firstHourOf(params.companyId!);
+        },
+      },
+
+      {
+        // Everything the company produced for a person to read, newest first
+        // (the analysis of 3 October, §9 P1 item 12): each task's
+        // deliverables, across every task.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/gallery',
+        handle: async ({ params, query }) => galleryOf(params.companyId!, {
+          ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
+          // The `next` of the page before: read, not trusted (views.ts galleryCursor).
+          ...(query.get('before') ? { before: query.get('before')! } : {}),
+        }),
+      },
 
       {
         method: 'GET',
@@ -978,6 +1304,10 @@ export class OwnerApi {
           return {
             notes,
             todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to |charters kept in )/.test(note)),
+            // The one note that stops every role from working, said apart from
+            // the optional rest: a company can be started without a model and
+            // then runs none of its work.
+            modelMissing: notes.some((note) => note.startsWith('no model:')),
             version: VERSION,
           };
         },
@@ -988,7 +1318,7 @@ export class OwnerApi {
       {
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/decide',
-        handle: async ({ params, body, session }) => {
+        handle: async ({ params, body, session, staff }) => {
           const decision = String(body.decision ?? '');
           if (decision !== 'approve' && decision !== 'deny' && decision !== 'ask') {
             throw new PalugadaError(
@@ -1016,26 +1346,46 @@ export class OwnerApi {
             String(body.note ?? ''),
             {
               channel: 'app',
-              // The session is possession of a tab, not of the owner's phone.
-              // Sent for the record; it is never what unlocks tier 3.
+              // Sent for the record; it is never what unlocks tier 3. What
+              // does is a session opened with a device, which `decide` asks
+              // the sessions about, or a proof for a session that was not
+              // (one signed in with a recovery code).
               assurance: 'session',
+              ...(session ? { sessions: this.#sessions, sessionToken: session.token } : {}),
               ...(proof ? { proof } : {}),
               mfa: this.#options.mfa,
               // 0083: `decide` checks it, and asks for the factor it needs.
               ...(body.allowForHours === undefined || body.allowForHours === null
                 ? {} : { allowForHours: Number(body.allowForHours) }),
+              // 0116: every time the card's schedule does exactly this.
+              ...(body.forSchedule === true ? { forSchedule: true } : {}),
+              // A staff seat's decision: `decide` holds it to tier 2 and below.
+              seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
           );
-          void session;
           return { ok: true };
         },
       },
 
       {
-        // 0083: the yeses the owner gave for a while, still in force.
+        // 0083: the yeses the owner gave for a while, still in force; and
+        // 0116's, given to a schedule for one exact action.
         method: 'GET',
         pattern: '/api/companies/:companyId/standing-approvals',
-        handle: async ({ params }) => ({ standing: await inbox.standingApprovals(params.companyId!) }),
+        handle: async ({ params }) => ({
+          standing: await inbox.standingApprovals(params.companyId!),
+          schedules: await inbox.scheduleApprovals(params.companyId!),
+        }),
+      },
+
+      {
+        // Taking one back is a tightening, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedule-approvals/:approvalId/revoke',
+        handle: async ({ params }) => {
+          await inbox.revokeScheduleApproval(params.companyId!, params.approvalId!);
+          return { ok: true };
+        },
       },
 
       {
@@ -1070,9 +1420,9 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/inbox/batch',
         // `decideMany` checks the decision and the list; checking them here too
         // would be a second rule to keep in step with the first.
-        handle: async ({ params, body }) => inbox.decideMany(
+        handle: async ({ params, body, staff }) => inbox.decideMany(
           params.companyId!, body.itemIds as string[], body.decision as 'approve' | 'deny', String(body.note ?? ''),
-          { channel: 'app', assurance: 'session' },
+          { channel: 'app', assurance: 'session', seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null },
         ),
       },
 
@@ -1083,7 +1433,8 @@ export class OwnerApi {
         // list gives an id, this gives the trace behind it.
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox/:itemId/trace',
-        handle: async ({ params, query }) => {
+        handle: async ({ params, query, staff }) => {
+          if (staff) await inbox.assertSeatMayRead(params.companyId!, params.itemId!, { id: staff.seat.id });
           const trace = await traceFromInboxItem(params.companyId!, params.itemId!, {
             includePrompts: query.get('prompts') === '1',
           });
@@ -1364,6 +1715,10 @@ export class OwnerApi {
             await this.#requireFactor(body.proof, 'raise the spend ceiling', params.companyId!);
           }
           await setSpendLimit(params.companyId!, ceiling);
+          // A ceiling raised past what is spent lifts the month's pause now,
+          // not at the worker's next look, and the work it stopped goes on
+          // with that (src/engine/self-heal.ts).
+          await evaluateSpendLimit(params.companyId!);
           return { ok: true };
         },
       },
@@ -1466,6 +1821,27 @@ export class OwnerApi {
         }),
       },
 
+      /* --------------------------------------------------- money display --- */
+
+      {
+        // The currency the owner reads money in, and the rate (0106). Kept
+        // here rather than in the browser, like the panel's language, so it
+        // follows the owner to every device. PALUGADA counts in US dollars.
+        method: 'GET',
+        pattern: '/api/control/money-display',
+        handle: async () => (await moneyDisplay()) ?? { currency: null, rate: null },
+      },
+
+      {
+        // How amounts are read, not what anything costs: no factor, since
+        // nothing is loosened. `currency: null` goes back to US dollars.
+        method: 'POST',
+        pattern: '/api/control/money-display',
+        handle: async ({ body }) => (await setMoneyDisplay(
+          body.currency === null ? null : { currency: body.currency, rate: body.rate },
+        )) ?? { currency: null, rate: null },
+      },
+
       /* ------------------------------------------- the deployment's settings --- */
 
       {
@@ -1497,12 +1873,14 @@ export class OwnerApi {
             // What each model the tiers name costs, and who said so (L12): the
             // owner here, the operator's file, or nobody -- the fallback,
             // high on purpose, which the console says in as many words.
-            prices: this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : [], stored),
+            prices: await this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : []),
+            // When the catalogue was last read, and what it could not price.
+            priceSync: this.#priceSync(),
             secrets: await secretNames(),
             masterKey: deployment.master(false)?.source ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
             // Saved, and not yet what this process runs on.
-            pending: JSON.stringify(stored) !== JSON.stringify(deployment.settings),
+            pending: JSON.stringify(withoutKept(stored)) !== JSON.stringify(withoutKept(deployment.settings)),
           };
         },
       },
@@ -1564,25 +1942,30 @@ export class OwnerApi {
       },
 
       {
-        // What models.dev says each model the tiers name costs, for the owner
-        // to look at and save (L12). Saves nothing, and sends nothing of the
-        // deployment's: the catalogue is read whole and searched here.
+        // Reads the catalogue now, rather than at its next turn: what the
+        // platform does every day on its own, for an owner who has just changed
+        // a model or wants to see it done. Sends nothing of the deployment's:
+        // the catalogue is read whole and searched here.
         method: 'POST',
-        pattern: '/api/control/settings/model/prices/lookup',
+        pattern: '/api/control/settings/model/prices/sync',
         handle: async () => {
           const deployment = this.#deploymentSettings();
-          const effective = modelSettingsFrom(deployment.env);
-          const models = effective
-            ? [...new Set(MODEL_TIERS.map((tier) => effective.aliases[tier]).filter((model): model is string => Boolean(model)))]
-            : [];
-          if (models.length === 0) return { prices: {}, missing: [], problem: 'no model is set yet' };
-          try {
-            const found = await lookupPrices(models, { url: effective?.url ?? null, provider: effective?.provider ?? null },
-              deployment.baseEnv.PALUGADA_MODELS_DEV_URL ?? MODELS_DEV_URL);
-            return { ...found, problem: null };
-          } catch (failure) {
-            return { prices: {}, missing: models, problem: `models.dev could not be read: ${(failure as Error).message}` };
-          }
+          const live = withSettings(deployment.baseEnv, await readSettings());
+          const models = modelsInUse(live);
+          if (models.length === 0) return { ok: false, problem: 'no model is set yet', prices: await this.#pricesFor([]), priceSync: null };
+          const effective = modelSettingsFrom(live);
+          const source = deployment.baseEnv.PALUGADA_MODELS_DEV_URL;
+          clearCatalogueCache();
+          await syncPrices({
+            models, where: { url: effective?.url ?? null, provider: effective?.provider ?? null },
+            ...(source ? { source } : {}), ...keptInSettings,
+          });
+          await this.#book.refresh();
+          return {
+            ok: true, problem: this.#book.catalogue?.problem ?? null,
+            prices: await this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : []),
+            priceSync: this.#priceSync(),
+          };
         },
       },
 
@@ -1612,6 +1995,8 @@ export class OwnerApi {
           parsePriceTable({ models }, 'these prices');
           await this.#requireFactor(body.proof, 'change what a model costs');
           await writeSetting('model_prices', Object.keys(models).length > 0 ? { models } : null);
+          // Priced by it from the next call, not from the next start.
+          await this.#book.refresh();
           return this.#applySettings();
         },
       },
@@ -1742,7 +2127,7 @@ export class OwnerApi {
           }
           const token = await this.#telegramToken(body);
           await outside(telegramBot(token, this.#botApi()));
-          await this.#requireFactor(body.proof, 'connect Telegram');
+          await this.#requireFactor(body.proof, 'connect Telegram', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           const webhookSecret = randomBytes(24).toString('hex');
@@ -1808,7 +2193,7 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'paste the app secret, from the app\'s Basic settings: it is how a delivery is known to be from Meta', { field: 'appSecret' });
           }
           const number = await outside(whatsappNumber(token, phoneNumberId, this.#whatsappApi()));
-          await this.#requireFactor(body.proof, 'connect WhatsApp');
+          await this.#requireFactor(body.proof, 'connect WhatsApp', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           const verifyToken = (await saved(stored?.verifySecret)) ?? randomBytes(24).toString('hex');
@@ -1851,7 +2236,7 @@ export class OwnerApi {
         handle: async ({ body }) => {
           const deployment = this.#deploymentSettings();
           const { format, url, topic, typed, keep } = await this.#pushCandidate(body);
-          await this.#requireFactor(body.proof, 'set up push notifications');
+          await this.#requireFactor(body.proof, 'set up push notifications', null, true);
           if (typed) {
             const master = deployment.master(true);
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
@@ -1887,7 +2272,7 @@ export class OwnerApi {
           const deployment = this.#deploymentSettings();
           const kind = chatKindNamed(params.kind!);
           const url = await this.#chatWebhook(kind, body);
-          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`);
+          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`, null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           await putSecret(`channel-${kind}`, url, master);
@@ -1919,7 +2304,7 @@ export class OwnerApi {
         handle: async ({ body }) => {
           const deployment = this.#deploymentSettings();
           const candidate = await this.#emailCandidate(body);
-          await this.#requireFactor(body.proof, 'connect email');
+          await this.#requireFactor(body.proof, 'connect email', null, true);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
           await putSecret('channel-email', candidate.key, master);
@@ -1993,7 +2378,7 @@ export class OwnerApi {
             kinds,
             providers: {
               search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
-              embed: EMBED_PROVIDERS,
+              embed: EMBED_PROVIDERS, vision: VISION_PROVIDERS,
             },
             filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
             applies: deployment.restart ? 'now' : 'next_start',
@@ -2006,12 +2391,13 @@ export class OwnerApi {
         // used for this call and saved nowhere.
         method: 'POST',
         pattern: '/api/control/tools/:kind/test',
-        // A recording to try Listening with is larger than a search.
+        // A recording to try Listening with, or a picture to try Seeing
+        // with, is larger than a search.
         maxBodyBytes: 16 * 1024 * 1024,
         handle: async ({ params, body }) => {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
-            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' ? 120_000 : 30_000);
+            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'vision' ? 120_000 : 30_000);
             if (kind === 'embed') {
               // One sentence, to show the provider answers and how long its vectors are.
               const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
@@ -2022,6 +2408,12 @@ export class OwnerApi {
               // A clip the owner recorded on the page, heard once and kept nowhere.
               const text = await transcribe({ ...binding as ToolBinding<ListenProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
                 audioFrom(body), typeof body.language === 'string' ? body.language : null, signal);
+              return { problem: null, text };
+            }
+            if (kind === 'vision') {
+              // A picture the owner chose on the page, looked at once and kept nowhere.
+              const text = await describePicture({ ...binding as ToolBinding<VisionProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
+                pictureFrom(body), typeof body.question === 'string' && body.question.trim() ? body.question.trim().slice(0, 1_000) : DEFAULT_QUESTION, signal);
               return { problem: null, text };
             }
             if (kind === 'image' || kind === 'speech') {
@@ -2066,8 +2458,9 @@ export class OwnerApi {
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
           const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
-          const model = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed' ? text('model') : null;
-          const voice = kind === 'speech' ? text('voice') : null;
+          // A model and a voice for the kinds that have one, as TOOL_KINDS says.
+          const model = 'model' in TOOL_KINDS[kind] ? text('model') : null;
+          const voice = 'voice' in TOOL_KINDS[kind] ? text('voice') : null;
           tools[kind] = {
             provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
             ...(model ? { model } : {}), ...(voice ? { voice } : {}),
@@ -2168,9 +2561,17 @@ export class OwnerApi {
 
       {
         // Begins a sign-in to a server that asks for OAuth, and answers with
-        // the page the owner's browser opens to sign in. Nothing is bound by
-        // it: the tokens the sign-in leaves are the server's once it is saved,
-        // with the owner's device, as a pasted token is.
+        // the page the owner's browser opens to sign in.
+        //
+        // With the owner's device, as a division's sign-in is (B4). The
+        // tokens it leaves are kept under the server's name when the browser
+        // comes back, and a saved server of that name signs in with them from
+        // then on: without the device, anyone holding the owner's session
+        // could sign a saved server in as an account of their own. Asked after
+        // the server is found and a client is registered, so one that cannot
+        // be signed in to is refused without spending a code; the sign-in
+        // that began is then unusable, its state never handed over, and
+        // expires in minutes.
         method: 'POST',
         pattern: '/api/control/mcp/oauth/start',
         handle: async ({ body, request }) => {
@@ -2186,6 +2587,7 @@ export class OwnerApi {
             redirectUri: this.#callbackAddress(request),
             client: clientId ? { clientId, ...(clientSecret ? { clientSecret } : {}) } : null,
           });
+          await this.#requireFactor(body.proof, `sign in to the MCP server ${name}`);
           return { authorizeUrl, issuer };
         },
       },
@@ -2327,8 +2729,9 @@ export class OwnerApi {
           const presets = await vendorPresets();
           const taken: Record<string, string> = {};
           for (const preset of presets) {
+            // A binding that gives way to a service is not one that takes its name.
             const bound = this.#options.registry?.get(preset.name);
-            if (bound && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
+            if (bound && !bound.fallback && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
           }
           return { presets, saved, taken };
         },
@@ -2493,6 +2896,18 @@ export class OwnerApi {
           ceo: await speakerOf(params.companyId!),
           messages: await conversation(60, params.companyId!),
         }),
+      },
+
+      {
+        // The CEO speaks first when the owner comes back and something has
+        // happened since the last word (owner/ceo-briefing.ts). The console
+        // asks as it opens the conversation; most times there is nothing to say.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/conversation/briefing',
+        handle: async ({ params }) => {
+          await speakerOf(params.companyId!);
+          return { spoke: await ceoBriefsOwner(params.companyId!) };
+        },
       },
 
       {
@@ -2818,11 +3233,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/control/languages',
         handle: async ({ body }) => {
-          const change: { console?: string | null; agents?: string } = {};
+          const change: { console?: string | null; agents?: string | null } = {};
           if (body.console !== undefined) {
             change.console = body.console === null ? null : languageCode(body.console, 'console');
           }
-          if (body.agents !== undefined) change.agents = languageCode(body.agents, 'agents');
+          // Null is an answer: the agents follow the panel's language.
+          if (body.agents !== undefined) change.agents = body.agents === null ? null : languageCode(body.agents, 'agents');
           if (Object.keys(change).length === 0) {
             throw new PalugadaError('contract.violation', 'give console, agents, or both', {});
           }
@@ -2882,6 +3298,52 @@ export class OwnerApi {
         },
       },
 
+      {
+        // The hours the company keeps for what reaches the outside world
+        // (STATUS 2.150). It only ever defers an action, so it takes the
+        // session and not a second factor.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/office-hours',
+        handle: async ({ params }) => ({
+          hours: await withTenant(params.companyId!, (tx) => officeHours(tx, params.companyId!)),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/office-hours',
+        handle: async ({ params, body }) => {
+          const daysOfWeek = Array.isArray(body.daysOfWeek) ? body.daysOfWeek.map((day) => Number(day)) : [1, 2, 3, 4, 5];
+          const except = Array.isArray(body.except) ? body.except.map(String) : [];
+          const hours = {
+            timezone: String(body.timezone ?? 'UTC'),
+            startHour: Number(body.startHour), endHour: Number(body.endHour), daysOfWeek,
+          };
+          assertOfficeHours(hours);
+          // A name that is no capability would keep nothing open and look as if
+          // it did.
+          const known = new Set(catalogueNames());
+          for (const row of (await withControlPlane((tx) => tx.query<{ name: string }>(
+            'SELECT name FROM capabilities WHERE name = ANY($1)', [except]))).rows) known.add(row.name);
+          const unknown = except.find((name) => !known.has(name));
+          if (unknown !== undefined) {
+            throw new PalugadaError('contract.violation',
+              `except names ${JSON.stringify(unknown)}, which is not a capability; use a name such as chat.send`, { field: 'except' });
+          }
+          await setOfficeHours({ companyId: params.companyId!, ...hours, except });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/office-hours/clear',
+        handle: async ({ params }) => {
+          await clearOfficeHours(params.companyId!);
+          return { ok: true };
+        },
+      },
+
       /* --------------------------------------------- F8.12, F11.5, F3.11 --- */
 
       {
@@ -2910,7 +3372,11 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/control/cost',
-        handle: async ({ query }) => ({ companies: await platformCost(windowFrom(query)) }),
+        // PALUGADA's own assistant beside the companies: it is no company's (N8).
+        handle: async ({ query }) => ({
+          companies: await platformCost(windowFrom(query)),
+          assistant: await assistantCost(windowFrom(query)),
+        }),
       },
 
       {
@@ -2950,7 +3416,12 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
           }
           const item = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1 })).items[0] ?? null;
-          return { task, item };
+          // Whether a replay can run here: only for a role this deployment
+          // runs as an in-process handler. The console offered it on every
+          // task, and on a deployment started by `npm start` -- which runs
+          // none -- every press was refused (F11.4).
+          const replayable = Boolean(item && this.#options.replayHandlers?.has(item.roleSlug));
+          return { task, item, replayable };
         },
       },
 
@@ -2979,9 +3450,21 @@ export class OwnerApi {
       },
 
       {
+        // A task its budget stopped, going on from where it stopped: the same
+        // task and journal, after the owner raised the ceiling. Never done by
+        // the platform on its own (section 6.3). Spends from a ceiling the
+        // owner raised with a factor, and loosens nothing itself: the session.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/continue',
+        handle: async ({ params }) => {
+          await continueHalted(params.companyId!, params.taskId!);
+          return { continued: true };
+        },
+      },
+
+      {
         // The same work again, as a new task, with the owner's note in front
-        // of the run. The only way on from a halted task, which is never
-        // resumed (section 6.3).
+        // of the run. The way on from a halt that is not about the budget.
         method: 'POST',
         pattern: '/api/companies/:companyId/tasks/:taskId/rerun',
         handle: async ({ params, body }) => ({
@@ -3031,6 +3514,567 @@ export class OwnerApi {
           // there (0097); only a door made for that takes it.
           const token = query.get('token');
           return receiveHook(params.publicId!, { raw, headers: request.headers, ...(token ? { token } : {}) }, this.#options.secrets);
+        },
+      },
+
+      {
+        // A customer channel (0111, 0112): where Telegram or Meta posts what
+        // a customer writes to the company. Open, like a trigger's address;
+        // Telegram's secret header or Meta's signature over the bytes stands
+        // in for a session, checked before the body is read for anything
+        // (src/chats/hook.ts).
+        method: 'POST',
+        pattern: '/api/chat-hooks/:publicId',
+        open: true,
+        raw: true,
+        maxBodyBytes: 256 * 1024,
+        handle: async ({ params, request, raw }) =>
+          receiveChatHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets, {
+            // A customer's file is kept where a mailed one is, fetched with the channel's own token.
+            ...(this.#options.files ? { files: this.#options.files } : {}),
+            telegram: this.#botApi(),
+            whatsapp: this.#whatsappApi(),
+          }),
+      },
+
+      {
+        // Meta's check when the owner saves a customer number's webhook in
+        // the app: the challenge, as plain text, for the channel's verify
+        // token only.
+        method: 'GET',
+        pattern: '/api/chat-hooks/:publicId',
+        open: true,
+        handle: async ({ params, query }) =>
+          new PlainText('text/plain; charset=utf-8', await verifyChatHook(params.publicId!, query)),
+      },
+
+      {
+        // The company's customer channels: never a token, nor where it is sealed.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/chat-channels',
+        handle: async ({ params }) => ({ channels: await channelsOf(params.companyId!) }),
+      },
+
+      {
+        // A bot or a WhatsApp number of the company's own, answered by the
+        // role the owner names. With the device: it seals keys, lets
+        // strangers start work, and gives the role two capabilities it may
+        // not have had (F2.9). The keys are checked with Telegram or Meta
+        // before anything is kept.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          if (body.kind === 'whatsapp') return this.#connectWhatsApp(companyId, body);
+          if (body.kind === 'email') return this.#connectMailbox(companyId, body);
+          if (body.kind !== 'telegram') {
+            throw new PalugadaError('contract.violation', `a customer channel is telegram, whatsapp or email; got ${String(body.kind)}`, { field: 'kind' });
+          }
+          // Telegram's webhook is set here when this deployment has a public
+          // address; without one the channel is kept and cannot hear, and
+          // the owner is told.
+          const token = typeof body.token === 'string' ? body.token.trim() : '';
+          if (!/^\d{3,20}:[A-Za-z0-9_-]{20,}$/.test(token)) {
+            throw new PalugadaError('contract.violation',
+              'paste the token @BotFather gave the bot: digits, a colon, then letters and digits', { field: 'token' });
+          }
+          const where = await checkChannel(companyId, {
+            roleId: body.roleId, goalId: body.goalId, instruction: body.instruction, maxPerHour: body.maxPerHour,
+          });
+          const bot = await outside(telegramBot(token, this.#botApi()));
+          if (!bot.username) throw new PalugadaError('contract.violation', 'that token is not a bot\'s', { field: 'token' });
+          await assertAccountFree(companyId, 'telegram', bot.username);
+          await this.#requireFactor(body.proof, 'let customers write to the company', companyId);
+          const deployment = this.#deploymentSettings();
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const sealed = `chat-${randomBytes(8).toString('hex')}`;
+          const webhookSecret = randomBytes(24).toString('hex');
+          await putSecret(sealed, token, master);
+          let opened: Awaited<ReturnType<typeof openChannel>>;
+          try {
+            opened = await openChannel(companyId, {
+              kind: 'telegram', account: bot.username, ...where, tokenRef: `db://${sealed}`, webhookHash: hashSecret(webhookSecret),
+            });
+          } catch (failure) {
+            await deleteSecret(sealed).catch(() => undefined);
+            throw failure;
+          }
+          for (const ref of opened.replacedRefs) await deleteSecret(ref.slice('db://'.length));
+          await this.#answerCustomers(companyId, where.divisionId, where.roleId, `@${bot.username}`);
+          let webhook = 'no_public_address';
+          const publicUrl = deployment.baseEnv.PALUGADA_APP_URL_PUBLIC;
+          if (publicUrl) {
+            try {
+              await telegramApi(token, 'setWebhook', {
+                url: `${publicUrl.replace(/\/+$/, '')}/api/chat-hooks/${opened.publicId}`,
+                secret_token: webhookSecret,
+                allowed_updates: ['message'],
+              }, this.#botApi());
+              webhook = 'set';
+            } catch (failure) {
+              webhook = (failure as Error).message;
+            }
+          }
+          return { channel: (await channelsOf(companyId)).find((one) => one.id === opened.id), webhook };
+        },
+      },
+
+      {
+        // Closing lets the account go: a bot's webhook taken off, its keys
+        // deleted and its address answering nothing. It loosens nothing, so
+        // the session; what was said stays, and connecting the same account
+        // again opens the same channel at a new address. A WhatsApp number's
+        // webhook is the Meta app's, which the owner changes there.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels/:channelId/close',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const held = await withControlPlane(async (tx) => (await tx.query<{ token_ref: string | null }>(
+            'SELECT token_ref FROM chat_channels WHERE id::text = $1 AND company_id = $2', [params.channelId!, companyId])).rows[0]);
+          // Read before it is deleted: taking the webhook off needs the token.
+          const token = held?.token_ref
+            ? await this.#deploymentSettings().secrets.resolve(held.token_ref).catch(() => null)
+            : null;
+          const closed = await closeChannel(companyId, params.channelId!);
+          if (token && closed.kind === 'telegram') {
+            await telegramApi(token, 'deleteWebhook', { drop_pending_updates: true }, this.#botApi()).catch(() => undefined);
+          }
+          for (const ref of closed.sealedRefs) await deleteSecret(ref.slice('db://'.length));
+          return { closed: true };
+        },
+      },
+
+      {
+        // A channel answering on its own (0117): a reply grounded in the
+        // documents the owner marked for customers goes without a card when
+        // chat.send's check finds it so. Turning it on loosens a control, so
+        // the device; turning it off tightens one, so the session. On, the
+        // role that answers is given memory.search first, without which it
+        // could find no passage to answer from.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels/:channelId/answers-alone',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          if (typeof body.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true or false', { field: 'on' });
+          if (body.on) {
+            const channel = (await channelsOf(companyId)).find((one) => one.id === params.channelId);
+            if (!channel) throw new PalugadaError('contract.violation', 'no such channel in this company', { channelId: params.channelId });
+            await this.#requireFactor(body.proof, 'let a channel answer customers on its own', companyId);
+            const divisionId = await withTenant(companyId, async (tx) => (await tx.query<{ division_id: string }>(
+              'SELECT division_id FROM roles WHERE id = $1', [channel.roleId])).rows[0]!.division_id);
+            await this.#answerCustomers(companyId, divisionId, channel.roleId, channel.account, ['chat.read', 'chat.send', 'memory.search']);
+          }
+          await setAnswersAlone(companyId, params.channelId!, body.on);
+          return { answersAlone: body.on };
+        },
+      },
+
+      /* ------------------------------------------------------- 0119 --- */
+
+      {
+        // The books (0119): every account with what it holds, and the latest
+        // entries. Opened the first time they are looked at.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/books',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          // This month so far, in the deployment's calendar.
+          const to = new Date().toISOString().slice(0, 10);
+          const from = `${to.slice(0, 7)}-01`;
+          return {
+            accounts: await balancesOf(tx, params.companyId!),
+            entries: (await entriesOf(tx, params.companyId!, { limit: 200 })).entries,
+            month: { from, to, profit: await profitOf(tx, params.companyId!, from, to) },
+          };
+        }),
+      },
+
+      {
+        // The owner's own accounts and entries, with the session: they move
+        // no money, and a wrong entry is undone by a reversing one.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/accounts',
+        handle: async ({ params, body }) => ({
+          accountId: await withTenant(params.companyId!, (tx) => addAccount(tx, params.companyId!, body)),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/entries',
+        handle: async ({ params, body }) => {
+          const entry = entryInput(body);
+          return { entryId: await withTenant(params.companyId!, (tx) => postEntry(tx, params.companyId!, entry, 'owner')) };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/entries/:entryId/reverse',
+        handle: async ({ params }) => ({
+          entryId: await withTenant(params.companyId!, (tx) => reverseEntry(tx, params.companyId!, params.entryId!, 'owner')),
+        }),
+      },
+
+      /* ------------------------------------------------------- 0122 --- */
+
+      {
+        // The company's invoices (0122): the latest first, what is owed on
+        // them all, and with `?status=` only those open, overdue, paid or void.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/invoices',
+        handle: async ({ params, query }) => {
+          const status = query.get('status');
+          if (status !== null && !(INVOICE_FILTERS as readonly string[]).includes(status)) {
+            throw new PalugadaError('contract.violation', `status is ${INVOICE_FILTERS.join(', ')}; got ${JSON.stringify(status)}`, { field: 'status' });
+          }
+          const companyId = params.companyId!;
+          return withTenant(companyId, async (tx) => {
+            const { invoices, outstanding } = await listInvoices(tx, companyId, { ...(status ? { status: status as InvoiceFilter } : {}) });
+            // What has been done about each, and who does it (STATUS 2.178).
+            return {
+              invoices, outstanding,
+              reminding: await remindingOf(tx, companyId, invoices.map((invoice) => invoice.id)),
+              collections: { ...(await policyOf(tx, companyId)), senders: await sendersOf(tx, companyId) },
+            };
+          });
+        },
+      },
+
+      {
+        // Reminding customers about overdue invoices (STATUS 2.178): whether
+        // the company does, on which days after the due date, and the owner's
+        // words on how to pay, which the letters carry. Switching it on is
+        // the owner's decision to let the roles that bill customers write
+        // the reminders too (or the CEO, when none does): the tool is theirs
+        // from then on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/collections',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          await this.#knownCompany(companyId);
+          const change: { enabled?: boolean; stepsDays?: unknown; paymentNote?: string | null } = {};
+          if (body.enabled !== undefined) {
+            if (typeof body.enabled !== 'boolean') throw new PalugadaError('contract.violation', 'enabled is true or false', { field: 'enabled' });
+            change.enabled = body.enabled;
+          }
+          if (body.stepsDays !== undefined) change.stepsDays = body.stepsDays;
+          if (body.paymentNote !== undefined) change.paymentNote = body.paymentNote === null ? null : String(body.paymentNote);
+          if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'nothing to change: give enabled, stepsDays or paymentNote', {});
+          // Switching on hires and grants, as /roles and /structure/grant do,
+          // and the note is what every letter tells customers about paying:
+          // both are the owner's with their device. Switching off, or moving
+          // the days, lets nobody do anything new. The console sends the note
+          // back with the days whether or not it was touched, so a note that
+          // reads as the one kept is left out of the change, asks nothing, and
+          // is not written back over one changed meanwhile.
+          if (change.paymentNote !== undefined
+            && sameNote(change.paymentNote, (await withTenant(companyId, (tx) => policyOf(tx, companyId))).paymentNote)) {
+            delete change.paymentNote;
+          }
+          if (change.enabled === true || change.paymentNote !== undefined) {
+            await this.#requireFactor(body.proof, change.enabled === true ? 'let roles remind customers' : 'change what reminders tell customers about paying', companyId);
+          }
+          const policy = await withTenant(companyId, (tx) => setPolicy(tx, companyId, change));
+          const given = change.enabled === true ? await giveReminders(companyId) : { given: [], full: [], ungranted: [], unavailable: [] };
+          return { ...policy, ...given, senders: await withTenant(companyId, (tx) => sendersOf(tx, companyId)) };
+        },
+      },
+
+      {
+        // The owner asks that one invoice be left out of the reminders, or
+        // put back: a customer who is slow for a reason the books do not know.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/reminders',
+        handle: async ({ params, body }) => {
+          if (typeof body.held !== 'boolean') throw new PalugadaError('contract.violation', 'held is true to leave the invoice alone, false to remind about it again', { field: 'held' });
+          await withTenant(params.companyId!, (tx) => holdInvoice(tx, params.companyId!, params.invoiceId!, body.held as boolean));
+          return { held: body.held };
+        },
+      },
+
+      {
+        // One invoice, by its id or its number, with its lines and payments.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          return withTenant(companyId, async (tx) => {
+            const found = await invoiceWith(tx, companyId, params.invoiceId!);
+            if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+            return {
+              ...found,
+              reminders: (await remindersOf(tx, companyId, found.id)).map((one) => ({ step: one.step, sentOn: one.sentOn, to: one.to, confirmed: one.confirmed })),
+              held: await isHeld(tx, companyId, found.id),
+            };
+          });
+        },
+      },
+
+      {
+        // The owner issues an invoice with the session: it is written in the
+        // books and sent nowhere, and it is voided, not edited.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices',
+        handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => issueInvoice(tx, params.companyId!, body, 'owner')),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/payments',
+        handle: async ({ params, body }) => withTenant(params.companyId!, (tx) => payInvoice(tx, params.companyId!, params.invoiceId!, body, 'owner')),
+      },
+
+      {
+        // The owner prints an invoice. It is drawn from the books by the
+        // deployment's sandboxed browser, offline and with scripts off, and
+        // kept in `invoices` under its number, so a role can attach it by path
+        // (`email.send`) and the owner can take it from the Files tab. Drawn
+        // once: pressing again answers the page that is there. It writes a
+        // file from what the owner can already read and spends nothing, so
+        // the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/pdf',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const root = this.#filesRoot();
+          await this.#knownCompany(companyId);
+          const browsers = this.#browsers();
+          const made = await withTenant(companyId, async (tx) => {
+            const invoice = await invoiceWith(tx, companyId, params.invoiceId!);
+            if (!invoice) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
+            if (invoice.status === 'void') {
+              throw new PalugadaError('contract.violation', `${invoice.number} was voided: there is no invoice to print`, { field: 'invoice' });
+            }
+            const { rows } = await tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]);
+            return { invoice, company: rows[0]?.name ?? '', language: (await languagesFor(tx, companyId)).work };
+          });
+          const name = `${made.invoice.number.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}.pdf`;
+          const key = `${companyId}/${name}`;
+          const pending = this.#drawing.get(key) ?? (async () => {
+            const path = `invoices/${name}`;
+            const there = await readCompanyFile(root, companyId, path, PRINT_MAX_BYTES, 'an invoice is at most 5 MB').then(
+              (file) => file,
+              (error: unknown) => {
+                if (isPalugadaError(error, 'contract.violation') && /^there is no file /.test(error.message)) return null;
+                throw error;
+              },
+            );
+            // A page is written straight into its name, so a process stopped while writing it leaves one cut short
+            // there. Only a whole page -- PDF's header first and its end mark last -- is the invoice; a broken one is
+            // the platform's own, and is drawn again under the same name rather than served from then on.
+            const whole = (bytes: Buffer) => bytes.subarray(0, 5).toString('latin1') === '%PDF-' && bytes.subarray(-1024).includes('%%EOF');
+            if (there && whole(there.bytes)) return { path };
+            if (there) {
+              // The entry under invoices/ is removed, and only when it is the platform's own file: removed by the
+              // path a link points to, a link there would take an upload or a contract with it (the review of 20
+              // October), and every other delete in the files refuses a link too.
+              const { lstat, unlink } = await import('node:fs/promises');
+              const entry = join(await companyRoot(root, companyId), 'invoices', name);
+              const info = await lstat(entry);
+              if (info.isSymbolicLink() || !info.isFile()) {
+                throw new PalugadaError('contract.violation',
+                  `${path} is a link, not the invoice: remove it under Files, then print again`, { field: 'invoice' });
+              }
+              await unlink(entry);
+            }
+            const bytes = await browsers.print(invoiceHtml(made.invoice, made.company, made.language));
+            // Not held to the uploads' room: one page per invoice, each at most PRINT_MAX_BYTES, and none taken out.
+            const kept = await keepCompanyFile(root, companyId, 'invoices', name, bytes, false);
+            return { path: kept.path };
+          })().finally(() => this.#drawing.delete(key));
+          this.#drawing.set(key, pending);
+          return pending;
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/invoices/:invoiceId/void',
+        handle: async ({ params }) => withTenant(params.companyId!, (tx) => voidInvoice(tx, params.companyId!, params.invoiceId!, 'owner')),
+      },
+
+      /* ------------------------------------------------------- 0118 --- */
+
+      {
+        // The people the company deals with (0118): the latest touched first,
+        // the archived last; with `?q=`, those whose name, organisation,
+        // address or number has the words.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/contacts',
+        handle: async ({ params, query }) => ({
+          contacts: await listContacts(params.companyId!, (query.get('q') ?? '').slice(0, 200)),
+        }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/contacts/:contactId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => contactWith(tx, params.contactId!));
+          if (!found) throw new PalugadaError('contract.violation', 'no such contact in this company', { contactId: params.contactId });
+          return found;
+        },
+      },
+
+      {
+        // The owner's own records: kept, changed and archived with the
+        // session, as a document is. They grant and spend nothing.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts',
+        handle: async ({ params, body }) => {
+          const fields = contactFields({ name: body.name, ...pick(body, ['organisation', 'email', 'phone']) });
+          return { contactId: await withTenant(params.companyId!, (tx) => addContact(tx, params.companyId!, fields, 'owner')) };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId',
+        handle: async ({ params, body }) => {
+          const fields = contactFields(pick(body, ['name', 'organisation', 'email', 'phone']));
+          if (body.archived !== undefined && typeof body.archived !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'archived is true or false', { field: 'archived' });
+          }
+          await withTenant(params.companyId!, async (tx) => {
+            await changeContact(tx, params.companyId!, params.contactId!, fields, 'owner');
+            if (typeof body.archived === 'boolean') await archiveContact(tx, params.companyId!, params.contactId!, body.archived);
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId/notes',
+        handle: async ({ params, body }) => ({
+          noteId: await withTenant(params.companyId!, (tx) =>
+            noteContact(tx, params.companyId!, params.contactId!, requireText(body.body, 'body'), 'owner')),
+        }),
+      },
+
+      {
+        // A deal opened with a contact, or one of theirs moved on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId/deals',
+        handle: async ({ params, body }) => {
+          const deal = dealInput(pick(body, ['id', 'title', 'stage', 'value', 'expectedOn']));
+          return { dealId: await withTenant(params.companyId!, (tx) => recordDeal(tx, params.companyId!, params.contactId!, deal, 'owner')) };
+        },
+      },
+
+      {
+        // The company's conversations with customers, the latest first; with
+        // `?task=`, the one a piece of work answers, which a card asking for
+        // a reply shows beside the reply.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/chats',
+        handle: async ({ params, query }) => {
+          const task = query.get('task');
+          return { chats: await chatsOf(params.companyId!, task ? { taskId: task } : {}) };
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/chats/:chatId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => chatWith(tx, params.chatId!));
+          if (!found) throw new PalugadaError('contract.violation', 'no such conversation in this company', { chatId: params.chatId });
+          return found;
+        },
+      },
+
+      {
+        // The company's browser as the owner sees it: whether this
+        // deployment has one, whether they hold it, and each tab -- whose
+        // work it is and where it is. The tabs of this process: with more
+        // than one replica, of the one this request reached.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/browser',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const held = await holdOf(companyId);
+          const browsers = this.#options.browsers;
+          if (!browsers) return { available: false, held, tabs: [] };
+          const tabs = await browsers.tabs(companyId);
+          const ids = tabs.map((tab) => tab.taskId).filter((id): id is string => id !== null);
+          const work = new Map(ids.length === 0 ? [] : (await withTenant(companyId, (tx) => tx.query<{ id: string; input: unknown }>(
+            'SELECT id, input FROM tasks WHERE id = ANY($1::uuid[])', [ids]))).rows.map((row) => [row.id, summarise(row.input)]));
+          return { available: true, held, tabs: tabs.map((tab) => ({ ...tab, work: tab.taskId ? work.get(tab.taskId) ?? null : null })) };
+        },
+      },
+
+      {
+        // A tab's picture as it is now, which the console asks for again
+        // every second or so while the owner looks.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/browser/tabs/:tabId',
+        handle: async ({ params }) => {
+          const screen = await this.#browsers().screen(params.companyId!, params.tabId!);
+          return { ...screen, image: `data:image/jpeg;base64,${screen.image}` };
+        },
+      },
+
+      {
+        // With the device: a signed-in browser is the company's accounts,
+        // and while the owner holds it the company's work waits.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/take-over',
+        handle: async ({ params, body }) => {
+          this.#browsers();
+          await this.#requireFactor(body.proof, 'take the company\'s browser over', params.companyId!);
+          return { held: await takeOver(params.companyId!) };
+        },
+      },
+
+      {
+        // A page opened by the owner, in a work's tab or their own, under
+        // the rules any page is held to. Only while they hold the browser.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/open',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const browsers = this.#browsers();
+          await touchHold(companyId);
+          const tabId = typeof body.tabId === 'string' && body.tabId ? body.tabId : undefined;
+          return browsers.open(companyId, requireText(body.url, 'url'), tabId);
+        },
+      },
+
+      {
+        // Where the owner pressed, scrolled or typed on the tab's picture.
+        // What they type goes to the page and nowhere else: not an event,
+        // not a log.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/tabs/:tabId/input',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const browsers = this.#browsers();
+          await touchHold(companyId);
+          await browsers.input(companyId, params.tabId!, body as unknown as OwnerInput);
+          return { done: true };
+        },
+      },
+
+      {
+        // Given back: what the owner signed in to is sealed for the
+        // company's work, and every role that asked for it goes on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/give-back',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          await this.#options.browsers?.ownerDone(companyId);
+          await giveBack(companyId);
+          const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+            `SELECT id FROM inbox_items
+              WHERE kind = 'escalation' AND status = 'open' AND payload->>'askedBy' = 'agent' AND payload->>'browser' = 'true'
+              ORDER BY created_at`));
+          for (const item of asked) {
+            await inbox.answerEscalation(companyId, item.id,
+              'The owner gave the browser back. Read the page again: it is where they left it.', { channel: 'app' });
+          }
+          return { answered: asked.length };
         },
       },
 
@@ -3152,6 +4196,7 @@ export class OwnerApi {
             ...(body.reserveTokens === undefined
               ? {}
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
+            ...(body.priority === undefined || body.priority === null || body.priority === '' ? {} : { priority: priorityOf(body.priority) }),
           });
           return { taskId: assigned.task.id, wakeId: assigned.wakeId };
         },
@@ -3234,6 +4279,8 @@ export class OwnerApi {
             input: { goal: ticket.title, ...(ticket.body ? { context: ticket.body } : {}), ticketId: ticket.id },
             createdBy: 'owner',
             idempotencyKey: `ticket:${ticket.id}:${ticket.updatedAt.toISOString()}`,
+            // The ticket's own urgency (0070): it was dropped here.
+            priority: ticket.priority,
             // A ticket a run filed may hold a customer's words, which is why
             // `ticket.list` reads as outside content (F8.9); handed out by the
             // owner, they are still not the owner's words.
@@ -3274,9 +4321,16 @@ export class OwnerApi {
               'contract.violation', 'no account covers that role', {},
             );
           }
+          const chain = await chainFor(tx, accountId);
+          // The chain by name, for the owner, in the same order (§2.3 item 7):
+          // it was shown as each account's id cut to eight characters.
+          const { rows: named } = await tx.query<{ id: string; name: string | null }>(
+            `SELECT a.id, ${ACCOUNT_NAME} AS name FROM budget_accounts a WHERE a.id = ANY($1::uuid[])`, [chain]);
+          const names = new Map(named.map((row) => [row.id, row.name]));
           return {
             accountId,
-            chain: await chainFor(tx, accountId),
+            chain,
+            chainNames: chain.map((id) => names.get(id) ?? null),
             snapshot: await snapshot(tx, accountId),
           };
         }),
@@ -3335,6 +4389,29 @@ export class OwnerApi {
             },
           );
           return { ok: true };
+        },
+      },
+
+      {
+        // Goes on with everything an account's budget stopped, oldest first, for
+        // as many as it can fund (STATUS 2.155). With `tokensMax` it raises the
+        // account's ceiling first -- which asks for the owner's code, as raising
+        // one always does -- and without it the account must already have room.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/budget-accounts/:accountId/continue',
+        handle: async ({ params, body }) => {
+          if (body.tokensMax !== undefined && body.tokensMax !== null) {
+            const tokensMax = wholeNumber(body.tokensMax, 'tokensMax');
+            await setCeilings(params.companyId!, params.accountId!, { tokensMax }, async (before) => {
+              if (tokensMax > before.tokensMax) {
+                await this.#requireFactor(body.proof, 'raise a budget account\'s ceiling', params.companyId!);
+              }
+            });
+          }
+          const done = await continueAllHalted(params.companyId!, params.accountId!);
+          const { rows } = await withControlPlane((tx) => tx.query<{ tokens_max: string }>(
+            'SELECT tokens_max FROM budget_accounts WHERE id = $1', [params.accountId]));
+          return { ...done, tokensMax: Number(rows[0]!.tokens_max) };
         },
       },
 
@@ -3626,10 +4703,12 @@ export class OwnerApi {
               createdAt: row.created_at.toISOString(),
               rotatedAt: row.rotated_at?.toISOString() ?? null,
               ...(signIns.has(row.alias) ? { signIn: signIns.get(row.alias) } : {}),
+              ...(asked.get(row.alias)?.form ? { form: asked.get(row.alias)!.form!.kind } : {}),
             })),
             needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({
               alias, capabilities: need.capabilities, scopes: need.scopes,
               ...(signIns.has(alias) ? { signIn: signIns.get(alias) } : {}),
+              ...(need.form ? { form: need.form.kind } : {}),
             })),
             callback,
           };
@@ -3653,7 +4732,7 @@ export class OwnerApi {
               'an alias is lower-case letters, digits, - and _, starting with a letter: the name the service asks for, such as email or crm',
               { field: 'alias' });
           }
-          const value = typeof body.value === 'string' ? body.value.trim() : '';
+          let value = typeof body.value === 'string' ? body.value.trim() : '';
           if (value.length < 8 || value.length > 8_192) {
             throw new PalugadaError('contract.violation', 'paste the whole key the service gave you', { field: 'value' });
           }
@@ -3662,9 +4741,19 @@ export class OwnerApi {
           if (value.startsWith('{"oauth2"')) {
             throw new PalugadaError('contract.violation', 'a key that is signed in for is made by signing in, not pasted', { field: 'value' });
           }
-          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
+          const granted = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const { rows } = await tx.query<{ capability_name: string }>(
+              'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2', [companyId, divisionId]);
+            return rows.map((row) => row.capability_name);
+          });
+          // A key asked for in a form -- a mailbox -- is held to its shape
+          // before the device, and taken by its service before it is sealed.
+          const form = keysAskedFor(this.#options.registry, granted).get(alias)?.form;
+          if (form) value = form.parse(value);
           await this.#requireFactor(body.proof, `save the ${alias} key`, companyId);
           if (!deployment.master(true)) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          if (form) await form.check(value);
           return this.#keepDivisionKey({ companyId, divisionId, alias, value, prefix: CREDENTIAL_SECRETS });
         },
       },
@@ -3779,10 +4868,22 @@ export class OwnerApi {
       {
         // The owner's answer to an escalation, without deciding it: told to
         // the task, which goes back to work if it was waiting on the owner.
+        // A run's own question is decided by its answer (B6).
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
-        handle: async ({ params, body }) => {
-          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''));
+        // An answer may carry up to five files ({ name, data }, the file in
+        // base64): kept under received/answers, and the run is told where.
+        maxBodyBytes: 24 * 1024 * 1024,
+        handle: async ({ params, body, staff }) => {
+          // Kept once the answerer's right to answer is settled (answerEscalation
+          // calls it), and every file looked at before any is written: a file
+          // that is refused refuses the answer and leaves nothing behind.
+          const carried = Array.isArray(body.files) && body.files.length > 0;
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''), {
+            channel: 'app',
+            seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
+            ...(carried ? { keepFiles: () => keepAnswerFiles(this.#filesRoot(), params.companyId!, params.itemId!, body.files) } : {}),
+          });
           return { ok: true };
         },
       },
@@ -3887,12 +4988,20 @@ export class OwnerApi {
       {
         // Hiring (F2.9: adding a role is tier 3, so it takes the owner's
         // device). The role is complete enough to be given work at once, and
-        // the answer names any tool its division cannot use yet.
+        // the answer names any tool its division cannot use yet. With
+        // `grantTools` the hire also grants the division the tools it lacks,
+        // except what cannot be undone (tier 3): `granted` says which.
         method: 'POST',
         pattern: '/api/companies/:companyId/roles',
         handle: async ({ params, body }) => {
+          // The person, when the role is one, is found before the owner's code
+          // is spent: a name nobody has costs nothing but being told who there is.
+          const person = typeof body.person === 'string' && body.person.trim() !== ''
+            ? await inbox.approverNamed(params.companyId!, body.person)
+            : null;
           await this.#requireFactor(body.proof, 'hire a role', params.companyId!);
           return addRole(params.companyId!, {
+            ...(person ? { person } : {}),
             divisionId: requireText(body.divisionId, 'divisionId'),
             slug: requireText(body.slug, 'slug'),
             systemPrompt: requireText(body.systemPrompt, 'systemPrompt'),
@@ -3900,7 +5009,7 @@ export class OwnerApi {
             doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
             ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
             ...whoFrom(body),
-          }, { ownerApproved: true });
+          }, { ownerApproved: true, grantTools: body.grantTools === true });
         },
       },
 
@@ -3966,6 +5075,96 @@ export class OwnerApi {
           ...(body.divisionId ? { divisionId: requireText(body.divisionId, 'divisionId') } : {}),
           ...(typeof body.fileName === 'string' ? { fileName: body.fileName } : {}),
         }),
+      },
+
+      {
+        // The company's files, as the owner sees them: a folder at a time.
+        // Without a files root there is nothing to list, said so the page can
+        // draw it plainly.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/files',
+        handle: async ({ params, query }) => {
+          if (!this.#options.files?.root) return { available: false };
+          await this.#knownCompany(params.companyId!);
+          const listed = await listCompanyDirectory(this.#filesRoot(), params.companyId!, query.get('path') ?? '.', 500);
+          return { available: true, ...listed };
+        },
+      },
+
+      {
+        // One file out, as the bytes the company holds, in base64 inside JSON,
+        // like everything the console asks the API for: never a page the
+        // browser could draw from this origin.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/files/download',
+        handle: async ({ params, query }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          const opened = await readCompanyFile(root, params.companyId!, query.get('path'), DOWNLOAD_MAX_BYTES, 'the console downloads files up to 25 MB');
+          const name = opened.path.split('/').at(-1) ?? 'file';
+          return {
+            name, path: opened.path, mime: mimeOf(name), bytes: opened.size,
+            sha256: createHash('sha256').update(opened.bytes).digest('hex'), data: opened.bytes.toString('base64'),
+          };
+        },
+      },
+
+      {
+        // The owner gives the company a file. It is kept under a plain name in
+        // the folder of uploads, never opened, run or unpacked here; what reads
+        // it later is a read of outside content, as for every file. It grants
+        // and spends nothing, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/files',
+        maxBodyBytes: 16 * 1024 * 1024,
+        handle: async ({ params, body }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          const bytes = base64Bytes(body.data);
+          if (bytes.length === 0) throw new PalugadaError('contract.violation', 'an empty file is not kept', { field: 'data' });
+          if (bytes.length > UPLOAD_MAX_BYTES) {
+            throw new PalugadaError('contract.violation',
+              `a file is at most ${UPLOAD_MAX_BYTES / 1_048_576} MB; this one is ${(bytes.length / 1_048_576).toFixed(1)} MB`, { field: 'data' });
+          }
+          const kept = await keepCompanyFile(root, params.companyId!, UPLOAD_FOLDER, plainFileName(body.name), bytes);
+          await withTenant(params.companyId!, (tx) => appendEvent(tx, {
+            companyId: params.companyId!, type: 'file.uploaded', actor: 'owner',
+            payload: { path: kept.path, bytes: kept.bytes, sha256: kept.sha256 },
+          }));
+          return kept;
+        },
+      },
+
+      {
+        // Takes back what the owner handed over, or what a stranger sent, and nothing else.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/files/delete',
+        handle: async ({ params, body }) => {
+          const root = this.#filesRoot();
+          await this.#knownCompany(params.companyId!);
+          // The path as the company keeps it, as `file.uploaded` has it, and not the spelling the owner typed.
+          const removed = await removeCompanyFile(root, params.companyId!, body.path);
+          // A received file's message keeps counting it until it says the file is gone, and the room stays taken.
+          if (removed.startsWith('received/')) await receivedFileRemoved(params.companyId!, removed);
+          await withTenant(params.companyId!, (tx) => appendEvent(tx, {
+            companyId: params.companyId!, type: 'file.deleted', actor: 'owner', payload: { path: removed },
+          }));
+          return { ok: true };
+        },
+      },
+
+      {
+        // Which documents customers may be told (0117): a channel that
+        // answers on its own answers only from these. The session is enough:
+        // what a marked document lets go alone, the session could already
+        // approve card by card, and the channel's switch is the device's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/documents/:documentId/for-customers',
+        handle: async ({ params, body }) => {
+          if (typeof body.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true or false', { field: 'on' });
+          await setForCustomers(params.companyId!, params.documentId!, body.on);
+          return { forCustomers: body.on };
+        },
       },
 
       {
@@ -4061,6 +5260,24 @@ export class OwnerApi {
                 `no runtime named ${runtime} runs here; this deployment runs ${here.join(', ') || 'none'}`,
                 { runtime });
             }
+            // A person is not a runtime a role is moved onto, nor one it is
+            // moved off: a person is seated, then hired as a role of their own,
+            // and an agent does a person's work as a role of its own. Moved
+            // either way, the role ended in the database's own refusal
+            // (roles_person_is_named), in its words (the review of 20 October).
+            const { rows: was } = await withControlPlane((tx) => tx.query<{ runtime: string | null; person_name: string | null }>(
+              'SELECT runtime, person_name FROM roles WHERE id = $1 AND company_id = $2', [params.roleId, params.companyId]));
+            const isPerson = was[0]?.runtime === 'person';
+            if (runtime === 'person' && !isPerson) {
+              throw new PalugadaError('contract.violation',
+                'a person is hired as a role of their own: seat them under People, then hire them, rather than moving a role onto them',
+                { field: 'runtime' });
+            }
+            if (isPerson && runtime !== 'person') {
+              throw new PalugadaError('contract.violation',
+                `${was[0]!.person_name ?? 'a person'} does this role's work; to have an agent do it, hire an agent role for it`,
+                { field: 'runtime' });
+            }
             fields.runtime = runtime;
           }
           Object.assign(fields, whoFrom(body));
@@ -4071,7 +5288,12 @@ export class OwnerApi {
             ownerApproved: true,
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
           });
-          return { version };
+          // With `grantTools`, a change to the role's tools also grants its
+          // division the ones it lacks -- except what cannot be undone.
+          const granting = body.grantTools === true && fields.tools !== undefined
+            ? await grantRoleTools(params.companyId!, params.roleId!, { ownerApproved: true })
+            : null;
+          return { version, ...(granting ?? {}) };
         },
       },
 
@@ -4503,7 +5725,7 @@ export class OwnerApi {
           // Read before the factor is spent, so a pairing missing its key
           // does not cost the owner a code.
           const keyFingerprint = requireText(body.keyFingerprint, 'keyFingerprint');
-          await this.#requireFactor(body.proof, 'pair a device', params.companyId!);
+          await this.#requireFactor(body.proof, 'pair a device', params.companyId!, true);
           await pairDevice(params.companyId!, params.deviceId!, {
             keyFingerprint,
             liftQuarantine: body.liftQuarantine === true,
@@ -4595,6 +5817,8 @@ export class OwnerApi {
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
             ...(body.batchable === undefined ? {} : { batchable: body.batchable === true }),
             ...(body.enabled === undefined ? {} : { enabled: body.enabled !== false }),
+            // "New schedule", not an edit: a name in use is refused (N11).
+            ...(body.create === true ? { create: true } : {}),
             ...(body.priority === undefined ? {} : { priority: wholeNumber(body.priority, 'priority') }),
             // F9.1. Checked here for its shape; the range, and why it has a
             // floor, is the scheduler's to say (`assertScheduleTiming`). Null
@@ -4621,6 +5845,31 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/schedules/:scheduleId/run',
         handle: async ({ params }) => ({ task: await runScheduleNow(params.companyId!, params.scheduleId!) }),
+      },
+
+      {
+        // N11: off and on again. The session suffices, as saving one does: on,
+        // it draws on its own account under its role's grants, and its next
+        // run is its next time, not the ones it was off for.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedules/:scheduleId/enabled',
+        handle: async ({ params, body }) => {
+          if (typeof body.enabled !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'enabled must be true or false', { field: 'enabled' });
+          }
+          await setScheduleEnabled(params.companyId!, params.scheduleId!, body.enabled);
+          return { ok: true };
+        },
+      },
+
+      {
+        // N11: a schedule removed. The work it made stays.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedules/:scheduleId/remove',
+        handle: async ({ params }) => {
+          await removeSchedule(params.companyId!, params.scheduleId!);
+          return { ok: true };
+        },
       },
 
       {
@@ -4699,7 +5948,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/authenticators/:authenticatorId/revoke',
         handle: async ({ params, body }) => {
-          await this.#requireFactor(body.proof, 'revoke an authenticator');
+          await this.#requireFactor(body.proof, 'revoke an authenticator', null, true);
           await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
           return { signedOut: await this.#sessions.signOutFactor(params.authenticatorId!) };
         },
@@ -4739,7 +5988,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/recovery-codes',
         handle: async ({ body }) => {
-          await this.#requireFactor(body.proof, 'make new recovery codes');
+          await this.#requireFactor(body.proof, 'make new recovery codes', null, true);
           return { codes: await this.#options.mfa.issueRecoveryCodes() };
         },
       },
@@ -4770,7 +6019,7 @@ export class OwnerApi {
             clientDataJSON: requireText(credential.clientDataJSON, 'credential.clientDataJSON'),
             attestationObject: requireText(credential.attestationObject, 'credential.attestationObject'),
           };
-          await this.#requireFactor(body.proof, 'add a passkey');
+          await this.#requireFactor(body.proof, 'add a passkey', null, true);
           return this.#options.mfa.enrolPasskey(made);
         },
       },
@@ -4779,19 +6028,28 @@ export class OwnerApi {
 
   /* --------------------------------------------------------------- plumbing --- */
 
+  /** The folder the companies' files are in, or the one sentence that says there is none. */
+  #filesRoot(): string {
+    const root = this.#options.files?.root;
+    if (!root) {
+      throw new PalugadaError('capability.unknown',
+        'this deployment keeps no files: PALUGADA_FILES_ROOT is not set (the Compose install sets one)', {});
+    }
+    return root;
+  }
+
   /**
-   * Refuses an action that needs the owner's device rather than their tab.
-   *
-   * `decide` owns F10.10's gate for inbox items and this module never
-   * second-guesses it. This is the same *rule* applied to the handful of
-   * console actions that are not inbox items and are just as irreversible: a
-   * rotation is the answer to "that token leaked", and a session minted eight
-   * hours ago is possession of a browser tab.
-   *
-   * Kept here rather than pushed down into `rotateCredential` because rotation
-   * is also what a scheduled job does, and a job has no phone. The surface
-   * that has a human in front of it is the surface that can ask for one.
+   * A company that is there, before its folder is named: `companyRoot` makes
+   * the folder it is given, and a made-up id must not make one.
    */
+  async #knownCompany(companyId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+      throw new PalugadaError('contract.violation', 'that is not a company id', {});
+    }
+    const found = await withControlPlane((tx) => tx.query('SELECT 1 FROM companies WHERE id = $1', [companyId]));
+    if (found.rowCount !== 1) throw new PalugadaError('contract.violation', 'no such company', {});
+  }
+
   #deploymentSettings(): NonNullable<OwnerApiOptions['deploymentSettings']> {
     const deployment = this.#options.deploymentSettings;
     if (!deployment) {
@@ -4827,6 +6085,144 @@ export class OwnerApi {
   #whatsappApi(): { apiBase?: string } {
     const base = this.#deploymentSettings().baseEnv.PALUGADA_WHATSAPP_API;
     return base ? { apiBase: base } : {};
+  }
+
+  /**
+   * Lets the role that answers a channel read a chat and answer it: the two
+   * grants on its division and the two tools on the role, each recorded as a
+   * structural change the owner made (F2.9, F3.9) -- with the device the
+   * channel was connected with. What it has already is left as it is.
+   */
+  async #answerCustomers(
+    companyId: string, divisionId: string, roleId: string, channel: string, wanted: readonly string[] = ['chat.read', 'chat.send'],
+  ): Promise<void> {
+    const { granted, tools } = await withTenant(companyId, async (tx) => ({
+      granted: (await tx.query<{ capability_name: string }>(
+        'SELECT capability_name FROM capability_grants WHERE division_id = $1 AND capability_name = ANY($2::text[])',
+        [divisionId, [...wanted]])).rows.map((row) => row.capability_name),
+      tools: (await tx.query<{ tools: string[] }>('SELECT tools FROM roles WHERE id = $1', [roleId])).rows[0]?.tools ?? [],
+    }));
+    for (const capabilityName of wanted.filter((name) => !granted.includes(name))) {
+      await applyGrantChange(companyId, { kind: 'change_grant', divisionId, capabilityName, tierOverride: null }, { ownerApproved: true });
+    }
+    const missing = wanted.filter((name) => !tools.includes(name));
+    if (missing.length > 0) {
+      await applyRoleChange(companyId, roleId, { tools: [...tools, ...missing] }, {
+        ownerApproved: true, summary: `Before it answered customers on ${channel}`,
+      });
+    }
+  }
+
+  /**
+   * A WhatsApp Business number of the company's own (0112). Meta's webhook
+   * is set in the Meta app by the owner, not by an API call, so the answer
+   * is the callback address and a verify token -- shown once, kept only as
+   * its hash -- to paste there. Refused without a public address, before
+   * anything is kept: Meta has nowhere to deliver to.
+   */
+  async #connectWhatsApp(companyId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const deployment = this.#deploymentSettings();
+    const publicUrl = deployment.baseEnv.PALUGADA_APP_URL_PUBLIC;
+    if (!publicUrl) {
+      throw new PalugadaError('contract.violation',
+        'WhatsApp delivers to this deployment\'s public address, and it has none: set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at, then connect the number', {});
+    }
+    const accountId = typeof body.phoneNumberId === 'string' ? body.phoneNumberId.trim() : '';
+    if (!/^\d{5,20}$/.test(accountId)) {
+      throw new PalugadaError('contract.violation', 'the phone number ID is the number Meta shows under API Setup, digits only; it is not the phone number', { field: 'phoneNumberId' });
+    }
+    const token = typeof body.token === 'string' ? body.token.trim() : '';
+    if (token.length < 20 || /\s/.test(token)) {
+      throw new PalugadaError('contract.violation', 'paste the access token of a system user that may send for this number', { field: 'token' });
+    }
+    const appSecret = typeof body.appSecret === 'string' ? body.appSecret.trim() : '';
+    if (!appSecret || /\s/.test(appSecret)) {
+      throw new PalugadaError('contract.violation', 'paste the app secret, from the app\'s Basic settings: it is how a delivery is known to be from Meta', { field: 'appSecret' });
+    }
+    const where = await checkChannel(companyId, {
+      roleId: body.roleId, goalId: body.goalId, instruction: body.instruction, maxPerHour: body.maxPerHour,
+    });
+    const number = await outside(whatsappNumber(token, accountId, this.#whatsappApi()));
+    const account = number.number.replace(/\D/g, '');
+    await assertAccountFree(companyId, 'whatsapp', account);
+    await this.#requireFactor(body.proof, 'let customers write to the company', companyId);
+    const master = deployment.master(true);
+    if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+    const sealedToken = `chat-${randomBytes(8).toString('hex')}`;
+    const sealedSecret = `chat-${randomBytes(8).toString('hex')}`;
+    const verifyToken = randomBytes(24).toString('hex');
+    await putSecret(sealedToken, token, master);
+    await putSecret(sealedSecret, appSecret, master);
+    let opened: Awaited<ReturnType<typeof openChannel>>;
+    try {
+      opened = await openChannel(companyId, {
+        kind: 'whatsapp', account, ...where, tokenRef: `db://${sealedToken}`, webhookHash: hashSecret(verifyToken),
+        accountId, secretRef: `db://${sealedSecret}`,
+      });
+    } catch (failure) {
+      await deleteSecret(sealedToken).catch(() => undefined);
+      await deleteSecret(sealedSecret).catch(() => undefined);
+      throw failure;
+    }
+    for (const ref of opened.replacedRefs) await deleteSecret(ref.slice('db://'.length));
+    await this.#answerCustomers(companyId, where.divisionId, where.roleId, `+${account}`);
+    return {
+      channel: (await channelsOf(companyId)).find((one) => one.id === opened.id),
+      webhook: 'manual',
+      callbackUrl: `${publicUrl.replace(/\/+$/, '')}/api/chat-hooks/${opened.publicId}`,
+      verifyToken,
+    };
+  }
+
+  /**
+   * A company's own mailbox (0113): read by the workers over IMAP from now
+   * on, answered over SMTP. Both servers are signed in to before anything is
+   * kept, so a wrong password is said while the owner is looking at the
+   * form; and the reading starts after the inbox's last message, so its
+   * history is never taken for work.
+   */
+  async #connectMailbox(companyId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const deployment = this.#deploymentSettings();
+    const address = typeof body.address === 'string' ? body.address.trim().toLowerCase() : '';
+    if (!emailAddress(address)) {
+      throw new PalugadaError('contract.violation', 'the address is the mailbox customers write to, such as halo@tokokopi.id', { field: 'address' });
+    }
+    const settings = mailSettings(body, address);
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!password || /[\r\n]/.test(password)) {
+      throw new PalugadaError('contract.violation', 'paste the mailbox\'s password, or an app password where the provider asks for one (Gmail does)', { field: 'password' });
+    }
+    const where = await checkChannel(companyId, {
+      roleId: body.roleId, goalId: body.goalId, instruction: body.instruction, maxPerHour: body.maxPerHour,
+    });
+    await assertAccountFree(companyId, 'email', address);
+    const pollState = await checkMailbox(settings, password, await this.#mailOptions());
+    await this.#requireFactor(body.proof, 'let customers write to the company', companyId);
+    const master = deployment.master(true);
+    if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+    const sealed = `chat-${randomBytes(8).toString('hex')}`;
+    await putSecret(sealed, password, master);
+    let opened: Awaited<ReturnType<typeof openChannel>>;
+    try {
+      opened = await openChannel(companyId, {
+        kind: 'email', account: address, ...where, tokenRef: `db://${sealed}`, webhookHash: '',
+        mail: { ...settings }, pollState,
+      });
+    } catch (failure) {
+      await deleteSecret(sealed).catch(() => undefined);
+      throw failure;
+    }
+    for (const ref of opened.replacedRefs) await deleteSecret(ref.slice('db://'.length));
+    await this.#answerCustomers(companyId, where.divisionId, where.roleId, address);
+    return { channel: (await channelsOf(companyId)).find((one) => one.id === opened.id), webhook: 'polled' };
+  }
+
+  /** A certificate authority to trust for a mail server with a private one (`PALUGADA_MAIL_CA`, a PEM file). */
+  async #mailOptions(): Promise<MailOptions> {
+    const path = this.#deploymentSettings().baseEnv.PALUGADA_MAIL_CA;
+    if (!path) return {};
+    const { readFile } = await import('node:fs/promises');
+    return { ca: await readFile(path, 'utf8') };
   }
 
   #botApi(): { apiBase?: string } {
@@ -4954,7 +6350,7 @@ export class OwnerApi {
     if (!match || match.route.open || match.route.raw) {
       throw new PalugadaError('contract.violation', `${method} ${url.pathname} is not a route of this console`, {});
     }
-    const answer = await match.route.handle({ request, session, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams });
+    const answer = await this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams }));
     if (answer instanceof WithStatus) {
       if (answer.status >= 400) {
         throw new PalugadaError('contract.violation', String((answer.body as { error?: unknown } | null)?.error ?? `answered ${answer.status}`), {});
@@ -5054,6 +6450,17 @@ export class OwnerApi {
       throw failure;
     }
     if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
+    // Every role that asked for this key (`owner.ask` with `key`) is told it
+    // is there -- that it is, never what it is -- and its work goes on.
+    const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+      `SELECT id FROM inbox_items
+        WHERE kind = 'escalation' AND status = 'open' AND payload->>'askedBy' = 'agent'
+          AND payload->'key'->>'alias' = $1 AND payload->'key'->>'divisionId' = $2
+        ORDER BY created_at`, [alias, divisionId]));
+    for (const item of asked) {
+      await inbox.answerEscalation(companyId, item.id,
+        `The owner gave the ${alias} key. Call the capability that needed it again: it signs in with it now.`, { channel: 'app' });
+    }
     return { alias, version };
   }
 
@@ -5077,26 +6484,30 @@ export class OwnerApi {
   }
 
   /**
-   * What each model costs as the next start will price it: the operator's
-   * list with the owner's laid over it, from what is stored now, so a price
-   * just saved shows before the restart that takes it up.
+   * What each model costs now, and whose word it is (price-book.ts): the
+   * owner's own, the operator's file, the catalogue's, or nobody's -- the
+   * fallback, high on purpose, which the console says in as many words. The
+   * book is read again first, so a price just saved or just read shows at once.
    */
-  #pricesFor(models: ReadonlyArray<string | undefined>, stored: Record<string, unknown>) {
-    const own = (stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {};
-    // The file's, then setup's (PALUGADA_MODEL_PRICE_SETTINGS in the
-    // environment), then the owner's: the order the start lays them in.
-    const configured = withConsolePrices(this.#options.prices ?? DEFAULT_PRICE_TABLE,
-      this.#deploymentSettings().baseEnv.PALUGADA_MODEL_PRICE_SETTINGS);
-    const table = withConsolePrices(configured, Object.keys(own).length > 0 ? JSON.stringify({ models: own }) : undefined);
+  async #pricesFor(models: ReadonlyArray<string | undefined>) {
+    await this.#book.refresh();
     return [...new Set(models.filter((model): model is string => Boolean(model)))].map((model) => {
-      const { rate, basis } = rateFor(table, model);
+      const described = this.#book.describe(model);
       return {
         model,
-        input: rate.inputCentsPerMTok,
-        output: rate.outputCentsPerMTok,
-        source: model in own ? 'console' : basis === 'fallback' ? 'fallback' : 'file',
+        input: described.rate.inputCentsPerMTok,
+        output: described.rate.outputCentsPerMTok,
+        source: described.layer,
+        ...(described.provider === undefined ? {} : { provider: described.provider }),
       };
     });
+  }
+
+  /** When the catalogue was last read, why the last try failed if it did, and which models it could not price. */
+  #priceSync() {
+    const kept = this.#book.catalogue;
+    if (!kept) return null;
+    return { syncedAt: kept.syncedAt, problem: kept.problem, unpriced: kept.unpriced, source: kept.source, changes: kept.changes.slice(-5) };
   }
 
   /**
@@ -5201,11 +6612,11 @@ export class OwnerApi {
     const id = typeof body.provider === 'string' ? body.provider : '';
     const lists = {
       search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
-      embed: EMBED_PROVIDERS,
+      embed: EMBED_PROVIDERS, vision: VISION_PROVIDERS,
     } as const;
     const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
       : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id)
-        : kind === 'embed' ? embedProvider(id) : listenProvider(id);
+        : kind === 'embed' ? embedProvider(id) : kind === 'vision' ? visionProvider(id) : listenProvider(id);
     if (!provider) {
       const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
@@ -5226,7 +6637,7 @@ export class OwnerApi {
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider | VisionProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
@@ -5295,11 +6706,50 @@ export class OwnerApi {
     return { version: published.version, unchanged: false, file };
   }
 
+  /** The deployment's browsers, or why there are none. */
+  #browsers(): Browsers {
+    if (!this.#options.browsers) {
+      throw new PalugadaError('contract.violation',
+        'this deployment has no browser: install Chromium on its machine, or set PALUGADA_CHROMIUM to one', {});
+    }
+    return this.#options.browsers;
+  }
+
+  /**
+   * Refuses an action the owner's device must stand behind.
+   *
+   * The owner signed in with a code or a passkey, and that sign-in is the
+   * second factor for what they do in the session (the owner's report of 7
+   * October: the authenticator is for signing in, not for each division). So
+   * a session that was opened with a device passes. What it does not pass:
+   *
+   * - a session opened with a recovery code, which proves less than a device
+   *   and is asked for a code each time, until a device's code is shown in it
+   *   (`prove`), when it is the same as one opened with a device;
+   * - `fresh`, for what changes who the owner is -- an authenticator revoked,
+   *   new recovery codes, a passkey added, a device vouched for -- which takes
+   *   a code at the moment, because a stolen session must not be able to lock
+   *   the owner out or enrol its own device; and for what lets someone new in
+   *   for good, which is enrolling a device by another name -- a person
+   *   seated, a channel the owner is reached and answered on -- since either
+   *   would outlast the stolen session's sign-out (the review of 20 October);
+   * - a request with no session at all, which is what a chat is (a card from
+   *   Telegram reaches only what needs no device, `chatMayApply`).
+   *
+   * `decide` owns the same rule for inbox items, and this module never
+   * second-guesses it. This is that rule for the console actions that are not
+   * inbox items, kept here rather than pushed down into `rotateCredential`
+   * because rotation is also what a scheduled job does, and a job has no
+   * phone: the surface with a human in front of it is the one that can ask.
+   * A code presented when none is needed is not read, so it is not spent.
+   */
   async #requireFactor(
     proof: unknown,
     purpose: string,
     companyId: string | null = null,
+    fresh = false,
   ): Promise<void> {
+    if (!fresh && this.#acting.getStore()?.provedAt) return;
     if (proof === undefined || proof === null) {
       throw new PalugadaError(
         'approval.channel_forbidden',
@@ -5318,6 +6768,13 @@ export class OwnerApi {
     // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
     else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
+    // A device's code or passkey shown in a session opened with a recovery
+    // code makes it one opened with a device; a recovery code proves less and
+    // does not.
+    if (!('recovery' in presented)) {
+      const session = this.#acting.getStore();
+      if (session) await this.#sessions.prove(session.token);
+    }
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -5355,12 +6812,20 @@ export class OwnerApi {
     }
 
     let session: OwnerSession | null = null;
+    let staff: StaffSession | null = null;
     if (!match.route.open) {
       session = await this.#sessions.verify(bearer(req));
-      if (!session) {
+      // Not the owner's: a staff seat's (0110), held to its list before its
+      // request is read at all.
+      if (!session) staff = await this.#staff.verify(bearer(req));
+      if (!session && !staff) {
         // 401 rather than 404: the owner whose session expired should be told
         // to sign in, not told the console has moved.
         send(res, 401, { error: 'sign in first', code: 'owner.unauthenticated' });
+        return;
+      }
+      if (staff && !staffMay(staff.seat, req.method ?? 'GET', match.route.pattern, match.params)) {
+        send(res, 403, { error: 'that is the owner\'s, not a staff seat\'s', code: 'staff.forbidden' });
         return;
       }
     }
@@ -5378,15 +6843,17 @@ export class OwnerApi {
     }
 
     try {
-      const answer = await match.route.handle({
+      const answer = await this.#acting.run(session, () => match.route.handle({
         request: req,
         session,
+        staff,
         body,
         raw,
         params: match.params,
         query: url.searchParams,
-      });
+      }));
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
+      else if (answer instanceof EventStream) await this.#stream(req, res, answer);
       else if (answer instanceof HtmlPage) sendPage(res, answer);
       else if (answer instanceof PlainText) {
         res.writeHead(200, { 'content-type': answer.contentType, 'cache-control': 'no-store' });
@@ -5425,6 +6892,35 @@ export class OwnerApi {
         return;
       }
       send(res, 500, { error: 'internal error' });
+    }
+  }
+
+  /**
+   * Writes an event stream until the owner goes or the API closes. A comment
+   * line now and then keeps a quiet stream from being cut by a proxy that
+   * closes what it thinks is idle; `X-Accel-Buffering` asks one that buffers
+   * answers not to hold these back.
+   */
+  async #stream(req: IncomingMessage, res: ServerResponse, stream: EventStream): Promise<void> {
+    const stop = new AbortController();
+    this.#streams.add(stop);
+    req.once('close', () => stop.abort());
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    res.write(': listening\n\n');
+    const beat = setInterval(() => res.write(': still here\n\n'), STREAM_HEARTBEAT_MS);
+    try {
+      await stream.run((data, id) => {
+        res.write(`${id ? `id: ${id}\n` : ''}data: ${JSON.stringify(data)}\n\n`);
+      }, stop.signal);
+    } finally {
+      clearInterval(beat);
+      this.#streams.delete(stop);
+      res.end();
     }
   }
 
@@ -5548,6 +7044,11 @@ const CONTENT_TYPES: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
 };
 
+/** What the console is told about a staff seat signed in: who, and what it may do. */
+function staffOf(session: StaffSession): { name: string; kind: string; companyId: string } {
+  return { name: session.seat.name, kind: session.seat.kind, companyId: session.seat.companyId };
+}
+
 /**
  * The status a refusal deserves.
  *
@@ -5560,10 +7061,13 @@ function statusFor(code: string): number {
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
+  if (code === 'schedule.slug_taken') return 409;
+  if (code === 'task.not_continuable' || code === 'task.record_cleared') return 409;
   if (code === 'company.slug_taken') return 409;
+  if (code === 'browser.not_held') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
-  if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
+  if (code === 'approval.channel_forbidden' || code === 'policy.denied' || code === 'staff.forbidden') return 403;
   if (code === 'capability.rate_limited' || code === 'capability.busy' || code === 'hook.rate_limited') return 429;
   if (code === 'hook.unknown') return 404;
   if (code === 'hook.refused') return 401;
@@ -5708,6 +7212,33 @@ function audioFrom(body: Record<string, unknown>): Heard {
   return { bytes: Buffer.from(audio, 'base64'), mime };
 }
 
+/** A picture the owner chose to try Seeing with: a `data:` address, held to being one of the kinds a provider takes. */
+function pictureFrom(body: Record<string, unknown>): Picture {
+  const image = typeof body.image === 'string' ? body.image.replace(/^data:[^;]*;base64,/, '') : '';
+  if (!image) throw new PalugadaError('contract.violation', 'choose a picture to try it with', { field: 'image' });
+  const bytes = Buffer.from(image, 'base64');
+  const mime = pictureKind(bytes);
+  if (!mime) throw new PalugadaError('contract.violation', 'that is not a picture: a PNG, JPEG, WebP or GIF is', { field: 'image' });
+  return { bytes, mime };
+}
+
+/** A priority from a request: 0 (first) to 3 (last), the range F5.10 and a ticket both keep. */
+function priorityOf(value: unknown): number {
+  // `Number(null)`, `Number('')`, `Number(false)` and `Number([])` are all 0, the
+  // most urgent there is: a blank is not a priority, and is refused as one.
+  if (typeof value !== 'number' && !(typeof value === 'string' && value.trim() !== '')) {
+    throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
+  }
+  const priority = wholeNumber(value, 'priority');
+  if (priority < 0 || priority > 3) {
+    throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
+  }
+  return priority;
+}
+
+/** The longest mission: the sentence or two the owner reads first, and the CEO is told first. */
+const MISSION_MAX = 2_000;
+
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';
@@ -5718,33 +7249,6 @@ function outcomeOf(result: unknown): string {
 /** The services the owner connected in the console. */
 function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
   return ((settings.vendors as { capabilities?: VendorSpec[] } | undefined)?.capabilities) ?? [];
-}
-
-/**
- * The keys a division's granted capabilities ask for, by alias: which
- * capabilities use each, and the scopes they need of it (F12.6).
- */
-function keysAskedFor(
-  registry: CapabilityRegistry | undefined,
-  granted: readonly string[],
-): Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }> {
-  const asked = new Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }>();
-  for (const name of [...granted].sort()) {
-    const capability = registry?.get(name);
-    if (!capability?.credentialAlias) continue;
-    const entry: { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn } = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
-    entry.capabilities.push(name);
-    for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
-    // One sign-in for the key, asking for every scope its capabilities need
-    // of the same provider.
-    if (capability.signIn && (!entry.signIn || entry.signIn.provider === capability.signIn.provider)) {
-      entry.signIn = entry.signIn
-        ? { ...entry.signIn, scopes: [...new Set([...entry.signIn.scopes, ...capability.signIn.scopes])] }
-        : capability.signIn;
-    }
-    asked.set(capability.credentialAlias, entry);
-  }
-  return asked;
 }
 
 /** Where a credential's value lives, said without saying the value. */
@@ -6040,6 +7544,11 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: s
 function projectWorkLanguage(value: unknown): string | null | undefined {
   if (value === undefined || value === null) return value;
   return languageCode(value, 'workLanguage');
+}
+
+/** The fields of a body that were given, and none other: a record changes only what the owner sent. */
+function pick(body: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(fields.filter((field) => body[field] !== undefined).map((field) => [field, body[field]]));
 }
 
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */

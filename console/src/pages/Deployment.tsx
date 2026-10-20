@@ -9,20 +9,20 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, Grid, Group, NavLink, Paper, PasswordInput, Radio,
+  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, FileInput, Grid, Group, NavLink, Paper, PasswordInput, Radio,
   Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
-  IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
+  IconPhoto, IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
   IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
-import { api, explain } from '../api.ts';
+import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { dateTime } from '../format.ts';
+import { dateTime, relative } from '../format.ts';
 import { N, locale, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
@@ -62,7 +62,9 @@ interface SettingsView {
   };
   providers: ProviderEntry[];
   /** What each model the tiers name costs, in cents per million tokens, and who said so. */
-  prices: Array<{ model: string; input: number; output: number; source: 'console' | 'file' | 'fallback' }>;
+  prices: Array<{ model: string; input: number; output: number; source: 'console' | 'file' | 'catalogue' | 'fallback'; provider?: string }>;
+  /** When the platform last read models.dev, why the last try failed if it did, and what it could not price. */
+  priceSync: { syncedAt: string | null; problem: string | null; unpriced: string[] } | null;
   secrets: Array<{ name: string; updatedAt: string }>;
   masterKey: string | null;
   applies: 'now' | 'next_start';
@@ -198,19 +200,20 @@ function ErasureList() {
   );
 }
 
-function ModelSettings() {
+/** The model every role runs on: chosen here, and by the first run (Onboarding.tsx) when there is none. */
+export function ModelSettings() {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
       <ModelForm view={view.data} reload={view.reload} />
-      {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} reload={view.reload} />}
+      {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} sync={view.data.priceSync} reload={view.reload} />}
     </Stack>
   );
 }
 
-const PRICE_SOURCE: Record<SettingsView['prices'][number]['source'], string> = {
+const PRICE_SOURCE: Record<Exclude<SettingsView['prices'][number]['source'], 'catalogue'>, string> = {
   console: N('your price'),
   file: N('set in the configuration'),
   fallback: N('not priced: charged at the highest rate'),
@@ -222,55 +225,55 @@ function dollars(cents: number): string {
 }
 
 /**
- * What each model costs (L12). Without a price a call is charged at the top
- * of the market, on purpose -- a budget then stops early rather than late --
- * which is fifty times what some models cost. The owner types the numbers
- * from their provider's price list, in dollars per million tokens.
+ * What each model costs (L12). The platform reads models.dev every day for the
+ * models in use and prices by it, so the money agrees with the bill without
+ * anyone keeping it so; a price typed here is the owner's own and wins. A model
+ * nobody priced is charged at the top of the market, on purpose -- a budget then
+ * stops early rather than late -- which is fifty times what some models cost.
  */
-function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reload: () => void }) {
+function ModelPrices({ prices, sync, reload }: { prices: SettingsView['prices']; sync: SettingsView['priceSync']; reload: () => void }) {
   const requireFactor = useFactor();
+  // Only a price that is the owner's own (or the configuration's) is in a box. The catalogue's is the box's
+  // placeholder: filled in, it stayed when "Check the prices now" redrew the prices, read as typed, and Save
+  // pinned the old catalogue price as the owner's for good.
   const [typed, setTyped] = useState<Record<string, { input: string; output: string }>>(
-    Object.fromEntries(prices.map((row) => [row.model, row.source === 'fallback' ? { input: '', output: '' } : { input: dollars(row.input), output: dollars(row.output) }])),
+    Object.fromEntries(prices.map((row) => [row.model, row.source === 'console' || row.source === 'file' ? { input: dollars(row.input), output: dollars(row.output) } : { input: '', output: '' }])),
   );
+  // What a row would be saved at: what was typed, or, for a box left empty, the price it shows. A model nobody
+  // priced has no price to show, so both its boxes are typed.
+  const priced = (row: SettingsView['prices'][number], side: 'input' | 'output') => {
+    const box = typed[row.model]?.[side].trim() ?? '';
+    return box !== '' || row.source === 'fallback' ? box : dollars(row[side]);
+  };
   const changed = prices.filter((row) => {
-    const now = typed[row.model];
-    return now && now.input.trim() !== '' && now.output.trim() !== ''
-      && (row.source === 'fallback' || now.input !== dollars(row.input) || now.output !== dollars(row.output));
+    const input = priced(row, 'input');
+    const output = priced(row, 'output');
+    return input !== '' && output !== ''
+      && (row.source === 'fallback' || input !== dollars(row.input) || output !== dollars(row.output));
   });
   const save = async () => {
     const body = Object.fromEntries(changed.map((row) => [row.model, {
-      input: Math.round(Number(typed[row.model]!.input) * 100), output: Math.round(Number(typed[row.model]!.output) * 100),
+      input: Math.round(Number(priced(row, 'input')) * 100), output: Math.round(Number(priced(row, 'output')) * 100),
     }]));
     const done = await requireFactor(t('Change what a model costs'), (proof) =>
       api('POST', '/api/control/settings/model/prices', { prices: body, proof }));
     if (done) {
-      notifications.show({ color: 'teal', message: t('Saved. Calls are priced by it from the next start, in a moment.') });
-      setTimeout(reload, 3_000);
+      notifications.show({ color: 'teal', message: t('Saved. Calls are priced by it from now on.') });
+      reload();
     }
   };
-  // models.dev's prices, filled into the form for the owner to look at and
-  // save: nothing is saved by looking.
+  // Reads models.dev now rather than at its turn: what the platform does every
+  // day on its own, for an owner who has just changed a model. It saves no price
+  // of theirs.
   const [looking, setLooking] = useState(false);
   const [found, setFound] = useState<string | null>(null);
   const lookUp = async () => {
     setLooking(true);
     setFound(null);
     try {
-      const answer: { prices: Record<string, { input: number; output: number; provider: string }>; missing: string[]; problem: string | null } =
-        await api('POST', '/api/control/settings/model/prices/lookup', {});
-      if (answer.problem) {
-        setFound(answer.problem);
-        return;
-      }
-      setTyped((all) => ({
-        ...all,
-        ...Object.fromEntries(Object.entries(answer.prices).map(([model, price]) => [model, { input: dollars(price.input), output: dollars(price.output) }])),
-      }));
-      const from = Object.entries(answer.prices).map(([model, price]) => `${model} (${price.provider})`).join(', ');
-      setFound([
-        from ? t('Filled from models.dev: {models}. Check them against your bill, then save.', { models: from }) : '',
-        answer.missing.length > 0 ? t('Not found there: {models}.', { models: answer.missing.join(', ') }) : '',
-      ].filter(Boolean).join(' '));
+      const answer: { ok: boolean; problem: string | null } = await api('POST', '/api/control/settings/model/prices/sync', {});
+      if (answer.problem) setFound(answer.problem);
+      reload();
     } catch (failure) {
       setFound(explain(failure));
     } finally {
@@ -279,8 +282,12 @@ function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reloa
   };
   const unpriced = prices.some((row) => row.source === 'fallback');
   return (
-    <Section title={t('What it costs')} description={t('From your provider\'s price list, in dollars per million tokens. Budgets are counted in these prices.')}>
+    <Section title={t('What it costs')} description={t('Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.')}>
       <Stack gap="sm">
+        <Text size="xs" c="dimmed">
+          {sync?.syncedAt ? t('Last read from models.dev {when}.', { when: relative(sync.syncedAt) }) : t('Not read from models.dev yet.')}
+          {sync?.problem ? ` ${t('The last try failed, so these are the prices from before: {problem}', { problem: sync.problem })}` : ''}
+        </Text>
         {unpriced && (
           <Alert color="yellow" variant="light">
             {t('A model with no price is charged at the highest rate, $15 in and $75 out per million tokens, so a budget stops early rather than late. For most models that is many times what they cost.')}
@@ -290,7 +297,9 @@ function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reloa
           <Group key={row.model} gap="sm" align="flex-end" wrap="wrap">
             <Stack gap={0} style={{ minWidth: 180, flex: 1 }}>
               <Code>{row.model}</Code>
-              <Text size="xs" c={row.source === 'fallback' ? 'orange' : 'dimmed'}>{t(PRICE_SOURCE[row.source])}</Text>
+              <Text size="xs" c={row.source === 'fallback' ? 'orange' : 'dimmed'}>
+                {row.source === 'catalogue' ? t('{provider}, kept current automatically', { provider: row.provider ?? 'models.dev' }) : t(PRICE_SOURCE[row.source])}
+              </Text>
             </Stack>
             <TextInput size="xs" w={130} label={t('Input, $ per million')} placeholder={dollars(row.input)} inputMode="decimal"
               value={typed[row.model]?.input ?? ''} onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [row.model]: { ...all[row.model]!, input: value } })); }} />
@@ -300,8 +309,8 @@ function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reloa
         ))}
         {found && <Text size="xs" c="dimmed">{found}</Text>}
         <Group>
-          <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Fill from models.dev')}</Button>
-          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(typed[row.model]!.input)) || !Number.isFinite(Number(typed[row.model]!.output)))}
+          <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Check the prices now')}</Button>
+          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(priced(row, 'input'))) || !Number.isFinite(Number(priced(row, 'output'))))}
             onClick={() => void save()}>{t('Save prices')}</Button>
         </Group>
       </Stack>
@@ -880,7 +889,7 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
   );
 }
 
-type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen' | 'embed';
+type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen' | 'vision' | 'embed';
 
 interface ToolProvider {
   id: string;
@@ -915,10 +924,11 @@ interface ToolsView {
 
 const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   search: { title: N('Web search'), hint: N('Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.') },
-  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text, fetched by the provider rather than by this server.') },
+  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text. With no provider chosen, this deployment\'s own browser reads it, if it has one, and the address goes to nobody else.') },
   image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
   speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
   listen: { title: N('Listening'), hint: N('Writes down what is said: what you say to the assistant, and recordings in the company\'s files for a role.') },
+  vision: { title: N('Reading pictures'), hint: N('Lets a role read a picture in the company\'s files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.') },
   embed: { title: N('Meaning'), hint: N('Finds the company\'s documents by what they mean, not only by the words a question shares with them. Each passage is sent to the provider once, in the background.') },
 };
 
@@ -939,10 +949,12 @@ const TOOL_ABOUT: Record<string, string> = {
   'extract:firecrawl': N('A free tier without a key'),
   'extract:tavily': N('A free tier without a key'),
   'extract:keenable': N('A free tier without a key, shared by IP'),
+  'extract:firecrawl-self-hosted': N('A Firecrawl you run'),
   'image:openai': N('GPT Image'),
   'image:fal': N('FLUX and other open models, fast and cheap'),
   'image:openrouter': N('Image models from several labs, one key'),
   'image:deepinfra': N('FLUX schnell, a fraction of a cent'),
+  'image:comfyui': N('Your own GPU, any checkpoint you have'),
   'speech:openai': N('Thirteen voices, in most languages'),
   'speech:elevenlabs': N('The most natural voices'),
   'speech:xai': N('Grok\'s voices'),
@@ -957,6 +969,13 @@ const TOOL_ABOUT: Record<string, string> = {
   'listen:deepinfra': N('Whisper, a fraction of a cent'),
   'listen:speaches': N('Whisper on your own machine, OpenAI-compatible'),
   'listen:whisper-cpp': N('Its server, started with --convert so it takes any audio'),
+  'vision:openai': N('GPT, reads most scripts and handwriting'),
+  'vision:gemini': N('A generous free tier'),
+  'vision:anthropic': N('Careful with documents and tables'),
+  'vision:openrouter': N('Vision models from several labs, one key'),
+  'vision:groq': N('Llama 4, very fast and cheap'),
+  'vision:mistral': N('Mistral Small, reads documents well'),
+  'vision:openai-compatible': N('Ollama, llama.cpp or vLLM, OpenAI-compatible'),
   'embed:openai': N('text-embedding-3, cheap and good in most languages'),
   'embed:gemini': N('Gemini embedding; free on its free tier'),
   'embed:mistral': N('Mistral embed, hosted in Europe'),
@@ -973,6 +992,7 @@ const TOOL_PROBE: Record<ToolKind, { label: string; value: string }> = {
   image: { label: N('Try a picture of'), value: N('A lighthouse at dawn, flat illustration') },
   speech: { label: N('Try saying'), value: N('Good morning. Here is what happened overnight.') },
   listen: { label: N('Try it: say a few words'), value: '' },
+  vision: { label: N('Ask about it'), value: N('What is the total on this receipt?') },
   embed: { label: N('Try a sentence'), value: N('What is our refund policy?') },
 };
 
@@ -982,7 +1002,7 @@ function ToolSettings() {
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
-      {(['search', 'extract', 'image', 'speech', 'listen', 'embed'] as const).map((kind) => (
+      {(['search', 'extract', 'image', 'speech', 'listen', 'vision', 'embed'] as const).map((kind) => (
         <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]}
           filesRoot={view.data!.filesRoot} reload={view.reload} />
       ))}
@@ -1011,8 +1031,10 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     dimensions?: number;
   } | null>(null);
   const recorder = useRecorder();
+  // The picture Reading pictures is tried on, as the page read it.
+  const [picture, setPicture] = useState<string | null>(null);
   // Which of the tools has a model to choose; speaking also has a voice.
-  const hasModel = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed';
+  const hasModel = kind !== 'search' && kind !== 'extract';
   const keyKept = state.keySet && state.provider === providerId && key === '';
 
   const options = [
@@ -1025,7 +1047,20 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined,
     ...(hasModel ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
   });
-  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {}, embed: { text: probe } }[kind];
+  const tried = {
+    search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {},
+    vision: { image: picture, question: probe }, embed: { text: probe },
+  }[kind];
+  const choosePicture = (file: File | null) => {
+    setResult(null);
+    if (!file) {
+      setPicture(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setPicture(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
 
   /** Listening is tried with the owner's own voice: tap to record, tap again to send it. */
   const listenTest = async () => {
@@ -1085,6 +1120,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
         {(kind === 'image' || kind === 'speech') && !filesRoot && (
           <Alert color="orange" variant="light">{t('What it makes is kept in each company\'s files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.')}</Alert>
         )}
+        {kind === 'vision' && !filesRoot && (
+          <Alert color="orange" variant="light">{t('The pictures it reads are each company\'s files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.')}</Alert>
+        )}
         <Select label={t('Provider')} placeholder={t('Choose a provider')} data={options} value={providerId} searchable
           onChange={(next) => { setProviderId(next); setResult(null); setKey(''); setModel(''); setVoice(''); }} />
         {provider && (
@@ -1134,6 +1172,15 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                   {recorder.recording ? t('Stop, and write it down') : t(TOOL_PROBE.listen.label)}
                 </Button>
               </Group>
+            ) : kind === 'vision' ? (
+              <Stack gap="xs">
+                <FileInput label={t('Picture')} accept="image/png,image/jpeg,image/webp,image/gif" clearable
+                  leftSection={<IconPhoto size={16} />} onChange={choosePicture} />
+                <Group align="flex-end" gap="sm" wrap="nowrap">
+                  <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE.vision.label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
+                  <Button variant="default" leftSection={<IconPlugConnected size={16} />} loading={testing} disabled={!ready || !picture} onClick={() => void test()}>{t('Test it')}</Button>
+                </Group>
+              </Stack>
             ) : (
               <Group align="flex-end" gap="sm" wrap="nowrap">
                 <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE[kind].label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
@@ -1775,6 +1822,7 @@ const SERVICE_TEXT: Record<string, string> = {
   'dns.read': N('Read a domain\'s DNS records.'),
   'dns.update': N('Change a DNS record.'),
   'invoice.issue': N('Issue an invoice a customer pays.'),
+  'invoice.remind': N('Remind a customer, in a letter written from the books, that an invoice is overdue.'),
   'social.publish': N('Publish a post.'),
   'metrics.read': N('Read your site\'s visits and goals.'),
   'calendar.read': N('Read the events on a Google calendar, signed in with Google.'),
@@ -2052,17 +2100,33 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
       setProblem(t('Give it a name first: the sign-in is kept under it.'));
       return;
     }
+    // With the owner's device (B4): the tokens it leaves are the ones a saved
+    // server of this name signs in with. A server that cannot be signed in to
+    // is refused before the code is checked, so the code is not spent, and
+    // what it needs is shown here rather than in the dialog.
+    let opened: string | null = null;
     try {
-      const started: { authorizeUrl: string } = await api('POST', '/api/control/mcp/oauth/start', {
-        name: name.trim(), url: url.trim(),
-        ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+      await requireFactor(t('Sign in to {name}', { name: name.trim() }), async (proof) => {
+        try {
+          const started: { authorizeUrl: string } = await api('POST', '/api/control/mcp/oauth/start', {
+            name: name.trim(), url: url.trim(), proof,
+            ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+          });
+          opened = started.authorizeUrl;
+        } catch (failure) {
+          // The code was wrong or spent: the dialog says so, and asks again.
+          if (failure instanceof ApiError && (failure.code?.startsWith('mfa.') || failure.code === 'approval.channel_forbidden')) {
+            throw failure;
+          }
+          const said = explain(failure);
+          if (/registers no client itself/.test(said)) setClientNeeded(true);
+          setProblem(said);
+        }
       });
-      setAuthorizeUrl(started.authorizeUrl);
     } catch (failure) {
-      const said = explain(failure);
-      if (/registers no client itself/.test(said)) setClientNeeded(true);
-      setProblem(said);
+      setProblem(explain(failure));
     }
+    if (opened) setAuthorizeUrl(opened);
   };
 
   // While the owner signs in in the other tab: asked every few seconds

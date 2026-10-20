@@ -28,6 +28,101 @@ use an agent CLI instead. The platform's own loop offers each role its
 capabilities as tools; a model that cannot call them can only answer in
 words. See [Choose or change the model](how-to.md#choose-or-change-the-model).
 
+## Install in one command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh
+```
+
+This needs Docker with Compose and nothing else: no git, no Node. The script
+(`install.sh` at the top of the repository) does what the next section does
+by hand, without asking anything:
+
+- it downloads PALUGADA into `~/palugada` (`PALUGADA_DIR` changes where);
+- the first time, it writes `.env` with a new password for each of the
+  database's roles, readable by you alone;
+- it runs `docker compose up -d --build`, which builds the image, starts the
+  database, applies the migrations and starts the platform;
+- it waits until `http://127.0.0.1:8787/api/health` answers
+  (`PALUGADA_PORT` publishes another port), saying every ten seconds how
+  long it has been, what is running and the last line the platform printed,
+  and stopping at once, with the platform's last lines, if the platform
+  stops instead of waiting out the ten minutes;
+- it prints the link the platform prints while it has no owner. Open it
+  within a day: it asks you to add PALUGADA to your authenticator app, and
+  you are the owner. Then choose the model under **This deployment**,
+  **Model**, which the step-by-step setup would have asked.
+
+### On a server (a VPS)
+
+The console is first open to the server itself alone: it holds the owner's
+second factor and can spend money and send mail, so it is not put on the
+internet before you say so. Run over SSH, the installer ends by saying how to
+open it from your own computer, with this server's own public address in it:
+
+- **At once, with nothing to set up.** An SSH tunnel, from your computer:
+  `ssh -N -L 8787:127.0.0.1:8787 user@203.0.113.7`, left running; then open
+  the link the installer printed (`http://localhost:8787/#/claim/...`) in your
+  browser. Nothing is exposed.
+- **From any browser, over HTTPS.** Point a domain name at the server (an `A`
+  record), then run the installer again naming it:
+
+  ```sh
+  curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | PALUGADA_PUBLIC_HOST=console.example.com sh
+  ```
+
+  It writes the public name into `.env` (`PALUGADA_ALLOWED_HOSTS`,
+  `PALUGADA_APP_URL_PUBLIC`, `PALUGADA_BEHIND_PROXY`, `COMPOSE_PROFILES=https`)
+  and starts Caddy beside the console, which gets the name's certificate from
+  Let's Encrypt and renews it. Ports 80 and 443 must be free and open in the
+  server's firewall; the installer says whether the name points at this
+  server yet, and HTTPS is made as soon as it does.
+- **By the server's address alone**, with no domain:
+  `PALUGADA_PUBLIC_HOST=203.0.113.7`. The console is then on
+  `http://203.0.113.7:8787`, **without encryption**: what you type, your
+  authenticator codes included, can be read on the way. The installer says
+  so; use it for a first look, and a domain for anything you keep. Allow the
+  port in the server's firewall if the link does not open.
+- `PALUGADA_PUBLIC_HOST=private` shuts it to the server again. What you chose
+  stays through every later run of the installer, and `doctor` says where the
+  console is meant to be opened.
+
+Run the same command again to update. It keeps `.env` and the data, copies
+the database and the code it is about to replace to `~/palugada/backups/`
+before anything changes, then fetches the newest PALUGADA and rebuilds; the
+migrations run as it starts. If a copy fails, nothing is updated. The copy
+holds the database and the code only: the key
+that seals what you type into the console's secret fields is the file
+`master.key` in the `home` volume, which an update leaves as it is. Keep a
+copy of it apart from the backups
+([operations](operations.md#rotating-the-master-key)).
+
+To install a release rather than the newest code, name its tag; the same
+command with another tag updates to it, or goes back to it
+([releases](../RELEASING.md#installing-a-release)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | PALUGADA_VERSION=v0.2.0 sh
+```
+
+The installer is kept beside what it installed, and does two more things:
+
+```sh
+sh ~/palugada/install.sh doctor     # what is well, what is not, and what to do
+sh ~/palugada/install.sh rollback   # back to the code the last update replaced
+```
+
+`doctor` checks Docker, `.env`, that the database and the platform are
+running, that the console answers and its worker goes round, that the
+browser runs sandboxed, the disk and the newest copy of the database. It
+mends what cannot lose anything -- `.env` made yours alone again, a stopped
+container started -- and names the rest with what to do; it exits with an
+error while anything is wrong. `rollback` takes a copy first, puts back the
+code of the last update's copy, and rebuilds; the data stays as it is,
+since the earlier version runs on a database a later one migrated, and it
+prints the command to take the data back too if that is what you want.
+Run it again to undo it.
+
 ## Install with Docker Compose
 
 ```sh
@@ -89,8 +184,9 @@ What each step does:
 - `npm run db:migrate` applies the schema in `db/migrations/`, one numbered
   file at a time, each in its own transaction.
 - `npm run console:build` builds the console into `console/dist`, which the
-  server serves. Without it the server answers the API and nothing else, and
-  says so when it starts.
+  server serves, with the PDF reader the companies' browsers use beside it
+  (`console/dist/reader`). Without it the server answers the API and nothing
+  else, and says so when it starts.
 - `npm start` reads `.env` and starts the worker and the console together on
   `http://127.0.0.1:8787`. It prints what it configured and what it did not,
   one line each starting with `palugada:`, and ends with
@@ -172,7 +268,10 @@ palugada: no owner yet: open https://palugada.example.com/#/claim/QMJW… within
 
 Open it. The page shows a new secret as a QR code and as a key; add it to
 your authenticator app, type the six-digit code the app then shows, and you
-are signed in as the owner. The link works once, for a day, and only while
+are signed in as the owner. Type the code on the same page that showed you
+the QR code: each opening of the link shows a secret of its own, so a
+reload, or someone else who opened the link, is shown a different one, and
+nobody who saw the link keeps a copy of yours. The link works once, for a day, and only while
 the deployment has no owner; each start prints a new one until then. Anyone
 who can read the log holds the machine already, but open it straight away
 all the same, since whoever opens it first becomes the owner. The code is
@@ -191,8 +290,12 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   address hold that address back for fifteen minutes. A passkey is not
   locked by them: it cannot be guessed, so somebody else's wrong codes never
   keep you out if you have one.
-- A tier 3 approval, and anything that loosens a control, asks for a fresh
-  code every time, however recently you signed in.
+- A tier 3 approval, and anything that loosens money, a key, the model, a
+  channel or a device, asks for a fresh code every time, however recently you
+  signed in. What builds the company -- a division, a role, a grant, a goal, a
+  skill, a bundle -- is covered for ten minutes after a code (and signing in is
+  one), so setting up is not a code for each step. Change that, or turn it off,
+  under **Settings**, **Security**, **How long a code counts**.
 - To use your fingerprint, face or screen lock instead of a code, add a
   passkey under **Settings**, **Security**. It asks for a code once, to show
   the device is yours; after that the sign-in page and every confirm dialog
@@ -208,8 +311,9 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   skip it and take it later from the menu under **Owner**.
 - The language list on the sign-in page applies to this visit; each of the
   21 languages is named in itself (Bahasa Indonesia, Basa Jawa, 日本語,
-  العربية, ...). Until you choose, the console follows your browser's language.
-  Once you are in, choose the panel language from the menu under **Owner**
+  العربية, ...). Until you choose, the console follows your browser's language,
+  and your first sign-in tells the deployment which that was, so your CEO and
+  your agents speak it too. Once you are in, choose the panel language from the menu under **Owner**
   at the foot of the sidebar; it is kept by the deployment and follows you
   to every device.
 
@@ -222,7 +326,12 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
 
 1. Type a **Name**. The **Short name** fills itself in from it; it is used in
    links and exports, and is lower-case letters, digits and hyphens.
-2. Decide on **Let it run itself** (on by default). It installs the
+2. Check its two languages. **Work language** is what it produces for
+   customers: documents, emails, posts. **Talk language** is what its agents
+   write to you and to each other. Both start in the language the console is
+   in; change either, for a company that sells in English and reports to you
+   in Indonesian, say. **Settings**, **Languages** changes them later.
+3. Decide on **Let it run itself** (on by default). It installs the
    `company-os` bundle: a Strategy division with a strategist who reviews the
    week every Monday morning in the company's time zone, proposes at most
    three bets, and never applies them; a Strategy review division with a
@@ -232,7 +341,7 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
    stage gates, the weekly review); and three company policies: every stage
    proposal goes to the critic first, no paid advertising before the launch
    stage, and nothing new started while winding down.
-3. Press **Start it**, then type a code in
+4. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
 
 `company-os` arrives with the strategist's grants and its weekly review
@@ -264,6 +373,10 @@ file PALUGADA_VENDORS names`, and works around it or asks you. See
 [Connect a vendor](how-to.md#connect-a-vendor).
 
 ## Give it its first piece of work
+
+The quickest way is to answer the CEO, whose conversation opens when the
+company is started: tell it what the company sells and what you want done
+first, and apply the card it proposes. To give the work yourself:
 
 1. On the **Work** page press **Give work**, or in the sidebar press **New**
    and choose **Give a role work**.

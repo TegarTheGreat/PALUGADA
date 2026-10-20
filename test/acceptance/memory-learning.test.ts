@@ -14,12 +14,12 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { distillEpisodicToSemantic } from '../../src/memory/distillation.ts';
-import { learn, remember } from '../../src/memory/store.ts';
+import { learn, recall, remember, retract, supersede } from '../../src/memory/store.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
@@ -322,4 +322,250 @@ test('the owner sees where a fact came from, reads one division at a time, pages
   } finally {
     await api.close();
   }
+});
+
+/**
+ * A correction the owner made stays made (the audit of 3 October, P0-4). `learn`
+ * matched only rows that were active and not replaced, so after the owner took
+ * a claim back, or replaced it, the next agent to write the same sentence made
+ * a fresh active row beside the correction, and could raise it to "Known" by
+ * repeating it. A procedure the owner turned down was already respected; a fact
+ * was not.
+ */
+test('a sentence the owner took back, or replaced with their own word, is not learned again', async () => {
+  const fixture = await createCompany('learn-corrected');
+  await finish(fixture, { summary: 'Done.', learned: ['The supplier delivers on Mondays.', 'Cafes close at 4pm on Sundays.'] });
+  const [mondays, sundays] = (await withTenant(fixture.companyId, (tx) => tx.query<{ id: string; body: string }>(
+    "SELECT id, body FROM memories WHERE memory_type = 'semantic' ORDER BY body DESC"))).rows as [{ id: string; body: string }, { id: string; body: string }];
+
+  // Taken back: it was never true.
+  await withTenant(fixture.companyId, (tx) => retract(tx, mondays.id));
+  // Replaced by the owner's own word.
+  await withTenant(fixture.companyId, (tx) => supersede(tx, sundays.id, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'Cafes close at 5pm on Sundays.', source: 'owner', confidence: 1,
+  }));
+
+  for (let again = 0; again < 3; again += 1) {
+    await finish(fixture, { summary: 'Again.', learned: ['The supplier delivers on Mondays!', 'cafes close at 4pm on sundays'] });
+  }
+  const after = await withTenant(fixture.companyId, (tx) => tx.query<{ body: string; approval_state: string; superseded_by: string | null }>(
+    "SELECT body, approval_state, superseded_by FROM memories WHERE memory_type = 'semantic' ORDER BY created_at, body"));
+  assert.equal(after.rows.length, 3, 'no fresh row beside either correction');
+  const active = after.rows.filter((row) => row.approval_state === 'active' && row.superseded_by === null).map((row) => row.body);
+  assert.deepEqual(active, ['Cafes close at 5pm on Sundays.'], 'only what the owner said is believed');
+
+  // A replacement an agent made is one agent's word against another's, and the old sentence may be learned afresh.
+  await finish(fixture, { summary: 'Noted.', learned: ['Cafes open at 9am.'] });
+  const [opens] = (await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>("SELECT id FROM memories WHERE body = 'Cafes open at 9am.'"))).rows as [{ id: string }];
+  await withTenant(fixture.companyId, (tx) => supersede(tx, opens.id, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'Cafes open at 8am.', source: 'agent', confidence: 0.5,
+  }));
+  await finish(fixture, { summary: 'Noted again.', learned: ['Cafes open at 9am.'] });
+  const live = (await withTenant(fixture.companyId, (tx) => tx.query<{ body: string }>(
+    "SELECT body FROM memories WHERE approval_state = 'active' AND superseded_by IS NULL AND body LIKE 'Cafes open%' ORDER BY body"))).rows.map((row) => row.body);
+  assert.deepEqual(live, ['Cafes open at 8am.', 'Cafes open at 9am.']);
+});
+
+test('one task\'s near-identical lessons count once, and a task cannot reinforce what it taught', async () => {
+  const fixture = await createCompany('learn-echo');
+  await finish(fixture, {
+    summary: 'Done.',
+    learned: ['Cafes in Bandung reply fastest on WhatsApp.', 'cafes in bandung reply fastest on whatsapp', 'Cafes in Bandung reply fastest on WhatsApp!!', 'CAFES IN BANDUNG REPLY FASTEST ON WHATSAPP', 'Cafes in Bandung reply fastest on WhatsApp'],
+  });
+  let kept = await lessons(fixture);
+  assert.equal(kept.length, 1);
+  assert.deepEqual([kept[0]!.confidence, kept[0]!.reinforced_count], [0.5, 0], 'said five times by one task: said once');
+
+  // Another task saying it five ways is corroboration once, not five times.
+  await finish(fixture, {
+    summary: 'Elsewhere.',
+    learned: ['Cafes in Bandung reply fastest on WhatsApp.', 'cafes in bandung reply fastest on whatsapp', 'Cafes in Bandung reply fastest on WhatsApp!!'],
+  });
+  kept = await lessons(fixture);
+  assert.deepEqual([kept[0]!.confidence, kept[0]!.reinforced_count], [0.6, 1], 'a second piece of work corroborates once');
+});
+
+/**
+ * Memory is a lead; the record is the truth (the audit of 3 October, P0-5). A
+ * fact carried no date, so a price learned in March read like one learned
+ * today; a past event a run reported was served as certain as anything the
+ * owner said; and the prompts asked runs to remember "customers, products,
+ * prices, suppliers" -- mutable state, which the company keeps in records it
+ * can read again.
+ */
+test('a remembered fact says when it was recorded, and the pack says the record wins over memory', async () => {
+  const fixture = await createCompany('memory-lead');
+  // A month ago: inside the pack's horizon, which a fact of March would no longer be.
+  const recorded = new Date(Date.now() - 30 * 86_400_000);
+  await withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'Beans cost Rp 90.000 per kg.', source: 'agent', confidence: 0.7, validFrom: recorded,
+  }));
+  const pack = await packFor(fixture);
+  const fact = pack.sections.find((section) => section.kind === 'semantic_memory')!;
+  assert.ok(fact.title.includes(`(confidence 0.70, source agent, recorded ${recorded.toISOString().slice(0, 10)})`), fact.title);
+  const note = pack.sections.find((section) => section.title === 'Memory is not the record')!;
+  assert.match(note.body, /leads, not the record/);
+  assert.match(note.body, /customer, a deal, a balance, a stock level, a price or a measure/);
+  assert.match(note.body, /the record wins/);
+  const noteAt = pack.sections.indexOf(note);
+  assert.ok(noteAt < pack.sections.indexOf(fact), 'said before the facts it is about');
+
+  // Nothing remembered, nothing said about it.
+  const bare = await createCompany('memory-lead-none');
+  assert.equal((await packFor(bare)).sections.some((section) => section.title === 'Memory is not the record'), false);
+});
+
+test('a past event is kept as a report, below a known fact, and memory.search says when and that it is unverified', async () => {
+  const fixture = await createCompany('memory-episode');
+  await finish(fixture, { summary: 'Sent the price list; 5 cafes replied.' }, { goal: 'Reach cafes' });
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ confidence: number }>(
+    "SELECT confidence FROM memories WHERE memory_type = 'episodic'"));
+  assert.equal(rows[0]!.confidence, 0.5, 'an episode is what a run reported, not what the company knows');
+
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'memory.search');
+  await withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'Beans cost Rp 90.000 per kg.', source: 'agent', confidence: 0.7, validFrom: new Date('2026-03-04T10:00:00Z'),
+  }));
+  const broker = new CapabilityBroker(registry);
+  const searched = async (query: string, key: string, memoryType?: 'episodic') => {
+    const asking = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: `look ${key}` }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, asking.id, 'running');
+    return (await broker.invoke<unknown, { facts: Array<{ body: string; unverified: boolean; recordedOn: string }> }>({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, taskId: asking.id, idempotencyKey: key,
+    }, 'memory.search', { query, ...(memoryType ? { memoryType } : {}) })).output.facts;
+  };
+  const fact = (await searched('beans', 'p0-5-a'))[0]!;
+  assert.equal(fact.recordedOn, '2026-03-04', 'a fact says when it was recorded');
+  const episode = (await searched('cafes', 'p0-5-b', 'episodic'))[0]!;
+  assert.equal(episode.unverified, true, 'a past event comes back as a lead to check');
+  assert.match(episode.recordedOn, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('the prompts ask for what worked and why, not for prices, customers or stock a record already holds', async () => {
+  const fixture = await createCompany('memory-prompts');
+  const pack = await packFor(fixture);
+  const contract = pack.sections.find((section) => section.kind === 'contract');
+  assert.ok(contract, 'the role has a contract to return');
+  assert.match(contract!.body, /Not a price, a stock level, who owes what or a customer's details/);
+  assert.doesNotMatch(contract!.body, /customers, products, prices, suppliers/);
+  // What one customer likes is that customer's record, not a lesson every other customer's run is told (the audit of 6 October, M5).
+  assert.match(contract!.body, /in general like to be dealt with.*not about one named person/s);
+
+  await finish(fixture, { summary: 'The supplier in Garut sold 20 kg.' });
+  const llm = new RecordingLlmClient(() => '{"facts":[]}');
+  await distillEpisodicToSemantic({ companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: 'm' });
+  assert.match(llm.calls[0]!.system ?? '', /not a price, a stock level, who owes what or a customer's details/);
+  assert.doesNotMatch(llm.calls[0]!.system ?? '', /customers, products, prices, suppliers/);
+  assert.match(llm.calls[0]!.system ?? '', /in general like to be dealt with.*nothing about one named person/s);
+});
+
+/**
+ * The audit of 6 October (M1): a run was told no date, so "recorded 2026-03-04"
+ * could not become an age, and the one mitigation P0-5 added did little for the
+ * runtime that reads the pack as written.
+ */
+test("every run is told today's date, and memory.search says how old a fact is", async () => {
+  const fixture = await createCompany('memory-today');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'a task' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  const pack = await withTenant(fixture.companyId, (tx) => buildContext(tx, {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id, now: new Date('2026-10-06T23:30:00Z'),
+  }));
+  const today = pack.sections.find((section) => section.kind === 'today')!;
+  assert.match(today.body, /^Today is 2026-10-06 \(UTC\)\./);
+  const kinds = pack.sections.map((section) => section.kind);
+  assert.ok(kinds.indexOf('today') > kinds.indexOf('language'), 'after the rule it is read with, and with no memory at all');
+
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'memory.search');
+  await withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'Beans cost Rp 90.000 per kg.', source: 'agent', confidence: 0.7, validFrom: new Date(Date.now() - 40 * 86_400_000),
+  }));
+  const asking = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'look' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, asking.id, 'running');
+  const found = (await new CapabilityBroker(registry).invoke<unknown, { facts: Array<{ ageDays: number }> }>({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: asking.id, idempotencyKey: 'm1-age',
+  }, 'memory.search', { query: 'beans' })).output.facts;
+  assert.equal(found[0]!.ageDays, 40, 'a price learned forty days ago says so');
+});
+
+/**
+ * The audit of 6 October (M2, M3): the pack is bounded in tokens and not in
+ * noise. The newest unrelated lessons filled its slots and any one of them that
+ * came from outside content tainted the whole run, which then asked the owner
+ * about everything it did at tier 2. What is not recent, and not the owner's,
+ * is left out of the pack and stays one search away; and a lesson from outside
+ * content reaches a run only when it is about the task.
+ */
+test('the pack takes what is recent, and a lesson from outside content only when it is about the task', async () => {
+  const fixture = await createCompany('pack-bounded');
+  const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
+  const add = (body: string, extra: { source?: string; validFrom: Date; outside?: boolean }) => withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body, source: extra.source ?? 'agent', confidence: extra.source === 'owner' ? 1 : 0.7, validFrom: extra.validFrom, outside: extra.outside ?? false,
+  }));
+  await add('Cafes in Bandung reply fastest on WhatsApp.', { validFrom: daysAgo(10) });
+  await add('Cafes in Bandung close at four in the afternoon.', { validFrom: daysAgo(200) });
+  const kept = await add('Cafes in Bandung pay on delivery.', { validFrom: daysAgo(200) });
+  await withControlPlane((tx) => tx.query("UPDATE memories SET last_reinforced_at = now() - interval '5 days' WHERE id = $1", [kept]));
+  await add('Never promise a delivery date.', { source: 'owner', validFrom: daysAgo(400) });
+  await add('Supplier prefers Tuesday deliveries.', { validFrom: daysAgo(5), outside: true });
+  await add('Coffee emails from Bandung cafes ask for samples first.', { validFrom: daysAgo(5), outside: true });
+
+  const pack = await packFor(fixture);
+  const said = pack.sections.filter((section) => section.kind === 'semantic_memory').map((section) => section.body).join('\n');
+  assert.match(said, /reply fastest on WhatsApp/, 'recent, and about it');
+  assert.match(said, /pay on delivery/, 'old, but corroborated a few days ago');
+  assert.match(said, /Never promise a delivery date/, 'the owner\'s word has no horizon');
+  assert.match(said, /ask for samples first/, 'from outside content, and about the task');
+  assert.doesNotMatch(said, /close at four/, 'old and nobody has seen it since');
+  assert.doesNotMatch(said, /Tuesday deliveries/, 'from outside content and not about the task: it would only taint the run');
+  assert.equal(pack.sections.filter((section) => section.outside).length, 1, 'one section of outside content, not two');
+
+  // What left the pack is still there to search for.
+  const found = await withTenant(fixture.companyId, (tx) => recall(tx, fixture.companyId, { memoryType: 'semantic', divisionId: fixture.divisionId, text: 'close afternoon' }));
+  assert.deepEqual(found.map((memory) => memory.body), ['Cafes in Bandung close at four in the afternoon.']);
+});
+
+/**
+ * The audit of 6 October (M4): `learn()` matched an owner's fact when an agent
+ * restated it, and an agent that had read an email raised `outside` on the
+ * owner's own row -- the owner's word turned into "from outside content",
+ * wrapped as data, and every run that was told it tainted.
+ */
+test("an agent saying again what the owner said leaves the owner's fact as it was", async () => {
+  const fixture = await createCompany('learn-owner-guard');
+  const ownerId = await withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'We never sell on credit.', source: 'owner', confidence: 1,
+  }));
+  const answer = await withTenant(fixture.companyId, (tx) => learn(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'we never sell on credit', source: 'agent', confidence: 0.5, outside: true,
+  }));
+  assert.deepEqual(answer, { id: ownerId, reinforced: true }, 'it is counted, as it always was');
+  const row = (await withTenant(fixture.companyId, (tx) => tx.query<{ outside: boolean; reinforced_count: number; confidence: number }>(
+    'SELECT outside, reinforced_count, confidence FROM memories WHERE id = $1', [ownerId]))).rows[0]!;
+  assert.deepEqual(row, { outside: false, reinforced_count: 1, confidence: 1 }, 'but it is still the owner\'s word, not outside content');
+  assert.equal((await lessons(fixture)).length, 1, 'and no second row beside it');
 });

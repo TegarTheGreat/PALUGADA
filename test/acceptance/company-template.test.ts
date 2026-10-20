@@ -33,7 +33,7 @@ import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import {
   STANDARD_TEMPLATE_SLUG,
   STANDARD_COMPANY_TEMPLATE,
-} from '../../src/templates/standard.ts';
+} from '../helpers/standard-team.ts';
 import { baseRegistry } from '../../src/seed.ts';
 import { platformCapabilities } from '../../src/capabilities/platform.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';

@@ -45,6 +45,7 @@ import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { closureText, notOpenText, recordedText } from './notify.ts';
 import { say } from './say.ts';
+import { actionSaid } from './capability-said.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type { Heard } from '../capabilities/listen.ts';
 import type { ChatPartner } from './assistant.ts';
@@ -301,11 +302,11 @@ export class TelegramChannel implements OwnerChannel {
    * to answer.
    */
   render(item: NotifiableItem): { text: string; reply_markup?: unknown } {
-    const lines = [
-      `*${escapeMarkdown(item.title)}*`,
-      '',
-      escapeMarkdown(item.actionSummary),
-    ];
+    // A run's question is headed by who asks, in the owner's language, and
+    // said once: its title and its summary are both the question (§2.3).
+    const lines = item.question && item.asker
+      ? [`*${escapeMarkdown(say(item.language, '{role} asks:', { role: item.asker }))}*`, '', escapeMarkdown(item.question)]
+      : [`*${escapeMarkdown(item.title)}*`, '', escapeMarkdown(item.actionSummary)];
     if (item.consequenceIfDenied) {
       lines.push('', `_${escapeMarkdown(say(item.language, 'If denied:'))}_ ${escapeMarkdown(item.consequenceIfDenied)}`);
     }
@@ -1052,8 +1053,12 @@ export class TelegramChannel implements OwnerChannel {
   ): Promise<{ handled: boolean; reason?: string }> {
     const language = await ownerLanguage();
     const { rows } = await withTenant(companyId, (tx) =>
-      tx.query<{ title: string; status: string; decision: string | null; closed_reason: string | null; question: string | null }>(
-        "SELECT title, status, decision, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
+      tx.query<{
+        title: string; status: string; decision: string | null; closed_reason: string | null; question: string | null;
+        capability_name: string | null;
+      }>(
+        `SELECT title, status, decision, closed_reason, payload->>'question' AS question, capability_name
+           FROM inbox_items WHERE id = $1`, [itemId]));
     const item = rows[0];
     if (!item || item.status !== 'open') {
       await this.#answer(callbackQueryId, closureText({
@@ -1067,8 +1072,8 @@ export class TelegramChannel implements OwnerChannel {
       ...threaded(thread),
       text: [
         mode === 'answer'
-          ? say(language, 'Your answer to "{question}"? Reply to this message.', { question: item.question ?? item.title })
-          : say(language, 'What do you want to ask about "{title}"? Reply to this message.', { title: item.title }),
+          ? say(language, 'Your answer to "{question}"? Reply to this message.', { question: item.question ?? actionSaid(language, item.title, item.capability_name) })
+          : say(language, 'What do you want to ask about "{title}"? Reply to this message.', { title: actionSaid(language, item.title, item.capability_name) }),
         '',
         `${mode === 'answer' ? 'answer' : 'ref'} ${itemId}`,
       ].join('\n'),

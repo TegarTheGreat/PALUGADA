@@ -11,7 +11,7 @@ import {
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { RunBriefing, Trace, TraceRun, TraceStep } from '../types.ts';
-import { count, dateTime, goalKind, haltReason, humanize, money } from '../format.ts';
+import { capabilitySaid, count, dateTime, goalKind, haltReason, money, stepSaid } from '../format.ts';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, StatusBadge } from './ui.tsx';
 
@@ -34,7 +34,7 @@ function describe(step: TraceStep): {
   failed: boolean; outside: boolean;
 } {
   const detail = step.detail;
-  const capability = typeof detail.capability === 'string' ? detail.capability : null;
+  const capability = typeof detail.capability === 'string' ? capabilitySaid(detail.capability) : null;
   const badges: string[] = [];
   if (typeof detail.tier === 'number') badges.push(t('tier {tier}', { tier: detail.tier }));
   if (Array.isArray(detail.policies) && detail.policies.length > 0) badges.push(t('policies: {names}', { names: detail.policies.join(', ') }));
@@ -42,7 +42,7 @@ function describe(step: TraceStep): {
   const error = typeof detail.error === 'string' ? detail.error : null;
   const parts: Array<{ label: string; value: unknown }> = [];
   if (step.name.startsWith('capability:')) {
-    const name = step.name.slice('capability:'.length);
+    const name = capabilitySaid(step.name.slice('capability:'.length));
     const asked = (detail.input as { input?: unknown } | undefined)?.input ?? detail.input;
     if (asked !== undefined) parts.push({ label: t('What it was asked'), value: asked });
     if (detail.output !== undefined) parts.push({ label: t('What came back'), value: detail.output });
@@ -56,6 +56,7 @@ function describe(step: TraceStep): {
     };
   }
   if (step.name === 'tool.called' && capability) return { title: t('Called {capability}', { capability }), badges, parts, error, failed: false, outside: false };
+  if (step.name === 'tool.not_repeated' && capability) return { title: t('{capability} not done again: an earlier attempt had already done it', { capability }), badges: [], parts, error, failed: false, outside: false };
   if (step.name === 'tool.verified' && capability) return { title: t('{capability} read back and matched', { capability }), badges: [], parts, error, failed: false, outside: false };
   if (step.name === 'tool.verify_failed' && capability) return { title: t('{capability} read back differently', { capability }), badges: [], parts, error, failed: true, outside: false };
   if (step.name === 'content.read_outside' && capability) return { title: t('Read content from outside through {capability}', { capability }), badges: [], parts, error, failed: false, outside: true };
@@ -68,7 +69,7 @@ function describe(step: TraceStep): {
   }
   const rest = Object.fromEntries(Object.entries(detail).filter(([key]) => !['actor', 'idempotencyKey', 'observedPolicies'].includes(key)));
   if (Object.keys(rest).length > 0) parts.push({ label: t('Details'), value: rest });
-  return { title: humanize(step.name), badges, parts, error, failed: step.kind === 'denial', outside: false };
+  return { title: stepSaid(step.name), badges, parts, error, failed: step.kind === 'denial', outside: false };
 }
 
 export function TraceView({ trace, companyId }: { trace: Trace; companyId: string }) {
@@ -81,7 +82,7 @@ export function TraceView({ trace, companyId }: { trace: Trace; companyId: strin
         <Paper key={run.agentRunId} withBorder radius="md" p="md">
           <Group justify="space-between" mb="sm" wrap="wrap" gap="xs">
             <Group gap="xs">
-              <Text fw={700}>{run.roleSlug}</Text>
+              <Text fw={700}>{run.roleName ?? run.roleSlug}</Text>
               <Text size="sm" c="dimmed">{t('attempt {attempt}', { attempt: run.attempt + 1 })}</Text>
               <StatusBadge status={run.status} />
             </Group>
@@ -127,7 +128,7 @@ export function TraceView({ trace, companyId }: { trace: Trace; companyId: strin
         </Paper>
       ))}
       <Modal opened={told !== null} onClose={() => setTold(null)} size="xl"
-        title={<Text fw={700}>{told ? t('What {role} was told, attempt {attempt}', { role: told.roleSlug, attempt: told.attempt + 1 }) : ''}</Text>}>
+        title={<Text fw={700}>{told ? t('What {role} was told, attempt {attempt}', { role: told.roleName ?? told.roleSlug, attempt: told.attempt + 1 }) : ''}</Text>}>
         {told && <Briefing companyId={companyId} run={told} />}
       </Modal>
       {trace.calls.length > 0 && (

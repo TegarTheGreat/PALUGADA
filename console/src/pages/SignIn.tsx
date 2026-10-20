@@ -22,18 +22,22 @@ import { api, explain } from '../api.ts';
 import { LANGUAGES, language, setLanguage, t, type Language } from '../i18n.ts';
 import { passkeysSupported, presentPasskey, type RelyingParty } from '../passkey.ts';
 import { Claim, claimCode } from './Claim.tsx';
+import { Join, joinCode } from './Join.tsx';
 
 export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string; factor: string }) => void }) {
   // Opened from the link a deployment with no owner printed as it started --
   // or pasted into a tab already showing this page, which changes only the
   // fragment and loads nothing.
   const [claim, setClaim] = useState(claimCode);
+  // Or from an invite to a staff seat the owner made (0110).
+  const [join, setJoin] = useState(joinCode);
   useEffect(() => {
-    const changed = () => setClaim(claimCode());
+    const changed = () => { setClaim(claimCode()); setJoin(joinCode()); };
     window.addEventListener('hashchange', changed);
     return () => window.removeEventListener('hashchange', changed);
   }, []);
   if (claim) return <Claim code={claim} onSignedIn={onSignedIn} />;
+  if (join) return <Join code={join} onSignedIn={onSignedIn} />;
   return <Door onSignedIn={onSignedIn} />;
 }
 
@@ -197,7 +201,7 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
                 <Anchor component="button" type="button" size="sm" onClick={() => setRecovering(true)}>{t('Lost your phone? Use a recovery code')}</Anchor>
               )}
               <Text size="xs" c="dimmed" ta="center">
-                {t('The session lives in this tab only. Tier 3 approvals ask for your authenticator every time.')}
+                {t('The session lives in this tab only, and signing in is what confirms what you do in it. It ends after eight hours.')}
               </Text>
             </Stack>
           </Paper>

@@ -7,7 +7,7 @@
 import { Grid, NavLink, Paper, ScrollArea, SegmentedControl, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import {
-  IconBuilding, IconCertificate, IconDevices, IconLanguage, IconLock, IconPackage, IconShieldCheck,
+  IconBuilding, IconCertificate, IconDevices, IconLanguage, IconLock, IconPackage, IconShieldCheck, IconUsers,
 } from '@tabler/icons-react';
 import { N, t } from '../i18n.ts';
 import type { SettingsSection } from '../router.ts';
@@ -18,6 +18,7 @@ import { Health } from './Health.tsx';
 import { Skills } from './Skills.tsx';
 import { Bundles } from './Bundles.tsx';
 import { Devices } from './Devices.tsx';
+import { People } from './People.tsx';
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: typeof IconBuilding }> = [
   { id: 'company', label: N('Company'), hint: N('Hours, retention, alerts, freezing, export and closing.'), icon: IconBuilding },
@@ -26,6 +27,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: 
   { id: 'skills', label: N('Skills'), hint: N('Procedures the agents can read, and who vouched for them.'), icon: IconCertificate },
   { id: 'bundles', label: N('Bundles'), hint: N('Packages of roles and skills, and the publishers you trust.'), icon: IconPackage },
   { id: 'devices', label: N('Devices'), hint: N('Machines that run agents for this company.'), icon: IconDevices },
+  { id: 'people', label: N('People'), hint: N('Staff who can follow this company, and approve what is small.'), icon: IconUsers },
   { id: 'security', label: N('Security'), hint: N('Your authenticators and sessions.'), icon: IconLock },
 ];
 
@@ -42,6 +44,7 @@ export function SettingsHub({ ctx, route }: PageProps) {
       case 'skills': return <Skills ctx={ctx} route={route} />;
       case 'bundles': return <Bundles ctx={ctx} route={route} />;
       case 'devices': return <Devices ctx={ctx} route={route} />;
+      case 'people': return <People ctx={ctx} />;
       case 'security': return <SecuritySettings />;
     }
   })();

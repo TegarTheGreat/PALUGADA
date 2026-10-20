@@ -152,7 +152,7 @@ async function named(fixture: Fixture, name: string): Promise<void> {
   await withTenant(fixture.companyId, (tx) => tx.query('UPDATE roles SET display_name = $2 WHERE id = $1', [fixture.roleId, name]));
 }
 
-test('the owner writes to the bot and the CEO answers there; a card the chat may apply is one press, and one it may not waits in the app', async () => {
+test('the owner writes to the bot and the CEO answers there; work is given at once, a card the chat may apply is one press, and one it may not waits in the app', async () => {
   const fixture = await createCompany('telegram-talk');
   await named(fixture, 'Arka');
   const model = new ScriptedModel([
@@ -162,10 +162,11 @@ test('the owner writes to the bot and the CEO answers there; a card the chat may
         body: { roleId: fixture.roleId, divisionId: fixture.divisionId, projectId: fixture.projectId, goalId: fixture.goalId, goal: 'Plan the launch' },
         summary: 'Give the launch plan to the team.',
       },
+      { path: `/api/companies/${fixture.companyId}/memories`, body: { body: 'The supplier closes on Fridays.', kind: 'semantic' }, summary: 'Remember that the supplier closes on Fridays.' },
       { path: `/api/companies/${fixture.companyId}/spend/limit`, body: { moneyMaxCents: 500_000 }, summary: 'Raise the spending limit.' },
       { path: `/api/companies/${fixture.companyId}/retention`, body: { eventDays: 30 }, summary: 'Keep records for 30 days.' },
     ),
-    says('Siap. Rencana peluncuran saya bagi ke tim; batas belanja Anda naikkan di aplikasi.'),
+    says('Siap. Rencana peluncuran sudah saya bagi ke tim; batas belanja Anda naikkan di aplikasi.'),
   ]);
   const bot = fakeBot();
   const channel = channelFor(bot);
@@ -186,8 +187,9 @@ test('the owner writes to the bot and the CEO answers there; a card the chat may
     assert.equal(String(answer.chat_id), OWNER);
     const text = answer.rich_message.markdown as string;
     assert.match(text, /^\*\*Arka, CEO of /, 'who is speaking, first, in bold');
-    assert.match(text, /Siap\. Rencana peluncuran saya bagi ke tim/);
-    assert.match(text, /\n- Give the launch plan to the team\.\n/, 'the cards, as a list');
+    assert.match(text, /Siap\. Rencana peluncuran sudah saya bagi ke tim/);
+    assert.doesNotMatch(text, /Give the launch plan to the team/, 'work given at once is not a card to press');
+    assert.match(text, /\n- Remember that the supplier closes on Fridays\.\n/, 'the cards, as a list');
     assert.match(text, /\n- Raise the spending limit\. _\(in the app\)_/);
     assert.match(text, /\n- Keep records for 30 days\. _\(in the app\)_/, 'no device, but not something said in passing either: the chat applies only what it is listed for');
     assert.equal(bot.sent('sendMessage').length, 0, 'one message, the rich one');
@@ -195,24 +197,25 @@ test('the owner writes to the bot and the CEO answers there; a card the chat may
     // The same conversation as the console's, marked as Telegram's.
     const messages = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
     assert.deepEqual(messages.map((one: { role: string; channel: string }) => [one.role, one.channel]), [['owner', 'telegram'], ['assistant', 'telegram']]);
-    const [work, limit, retention] = messages[1].proposals as Array<{ id: string }>;
+    const [work, memory, limit, retention] = messages[1].proposals as Array<{ id: string; status: string }>;
+    assert.equal(work!.status, 'applied', 'the work was given as it was proposed');
     const buttons = answer.reply_markup.inline_keyboard.flat() as Array<{ text: string; callback_data?: string; url?: string; style?: string }>;
     assert.deepEqual(buttons.map((button) => [button.callback_data ?? button.url, button.style]), [
-      [`card:${work!.id}`, 'success'],
+      [`card:${memory!.id}`, 'success'],
       [`https://app.palugada.test/?company=${fixture.companyId}&talk=1`, undefined],
-    ], 'giving work is a press; raising the limit takes the device, so it opens the app');
+    ], 'remembering is a press; raising the limit takes the device, so it opens the app');
 
-    assert.deepEqual((await post(api.url, pressed(`card:${work!.id}`))).body, { handled: true });
-    await channel.settled();
     const tasks = async () => (await withTenant(fixture.companyId, (tx) =>
       tx.query<{ role_id: string; created_by: string }>('SELECT role_id, created_by FROM tasks'))).rows;
-    assert.deepEqual(await tasks(), [{ role_id: fixture.roleId, created_by: 'owner' }]);
-    assert.match(bot.sent('answerCallbackQuery').at(-1)!.text, /^Done: Give the launch plan/);
+    assert.deepEqual(await tasks(), [{ role_id: fixture.roleId, created_by: 'owner' }], 'and the task is there before anything is pressed');
 
-    // Pressed twice, the work is given once.
-    await post(api.url, pressed(`card:${work!.id}`));
+    assert.deepEqual((await post(api.url, pressed(`card:${memory!.id}`))).body, { handled: true });
     await channel.settled();
-    assert.equal((await tasks()).length, 1);
+    assert.match(bot.sent('answerCallbackQuery').at(-1)!.text, /^Done: Remember that the supplier closes on Fridays/);
+
+    // Pressed twice, it is kept once.
+    await post(api.url, pressed(`card:${memory!.id}`));
+    await channel.settled();
     assert.match(bot.sent('answerCallbackQuery').at(-1)!.text, /already applied/);
 
     // A press made up for the limit card is refused, and the card stays for the app.
@@ -221,9 +224,9 @@ test('the owner writes to the bot and the CEO answers there; a card the chat may
     await channel.settled();
     assert.deepEqual(bot.sent('answerCallbackQuery').slice(-2).map((one) => one.text), ['That one is applied in the app.', 'That one is applied in the app.']);
     const after = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
-    assert.deepEqual(after.find((one: { id: string }) => one.id === messages[1].id).proposals.map((one: { status: string }) => one.status), ['applied', 'open', 'open']);
+    assert.deepEqual(after.find((one: { id: string }) => one.id === messages[1].id).proposals.map((one: { status: string }) => one.status), ['applied', 'applied', 'open', 'open']);
     assert.deepEqual([after.at(-1).role, after.at(-1).channel], ['event', 'telegram']);
-    assert.match(after.at(-1).body, /^The owner applied: Give the launch plan/);
+    assert.match(after.at(-1).body, /^The owner applied: Remember that the supplier closes on Fridays/);
   } finally {
     await api.close();
   }

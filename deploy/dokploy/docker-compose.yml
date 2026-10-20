@@ -71,6 +71,10 @@ services:
       # Agent CLIs' settings, the charters' git repository, and -- unless
       # PALUGADA_MASTER_KEY is set -- the master key file.
       - home:/home/node
+    # Docker's own seccomp profile, with what Chromium's sandbox needs
+    # (scripts/seccomp-chromium.ts); relative to this file.
+    security_opt:
+      - seccomp=../docker/seccomp-chromium.json
     depends_on:
       db:
         condition: service_healthy

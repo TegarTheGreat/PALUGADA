@@ -18,6 +18,8 @@ export type ErrorCode =
   | 'capability.busy'
   /** F12.9: the capability was asked to reach somewhere it may not. */
   | 'capability.unreachable'
+  /** The owner has not taken the company's browser over, or the hold lapsed: nothing is typed into it. */
+  | 'browser.not_held'
   /** The broker was built with no secret manager, so no credential can be resolved. */
   | 'credential.unavailable'
   /** F12.6: the credential does not declare a scope the capability needs. */
@@ -34,6 +36,10 @@ export type ErrorCode =
   | 'policy.denied'
   | 'hook.denied'
   | 'model.unavailable'
+  /** The conversation is longer than the model reads; asking again would send the same one. */
+  | 'model.context_too_long'
+  /** A run went round in circles, was told so and asked to finish, and went on; the same journal would end the same way. */
+  | 'run.stuck'
   | 'skill.invalid'
   | 'skill.unknown'
   | 'skill.scope_change'
@@ -108,6 +114,8 @@ export type ErrorCode =
   | 'mfa.claim_invalid'
   /** F12.5: a claim of a deployment that already has an owner (0094). */
   | 'owner.claimed'
+  /** A staff seat asked for what is the owner's (0110). */
+  | 'staff.forbidden'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'
@@ -146,6 +154,8 @@ export type ErrorCode =
    * ended. Carries that task, so the owner can open it instead.
    */
   | 'schedule.still_running'
+  /** "New schedule" under a short name another schedule of the company has (N11). */
+  | 'schedule.slug_taken'
   /**
    * A company is being made, or restored, under a short name another company
    * already has. The name is the company's handle in links and exports, so
@@ -153,6 +163,17 @@ export type ErrorCode =
    */
   | 'company.slug_taken'
   | 'company.frozen'
+  /**
+   * Section 6.3: the owner asked to go on with a task that its budget did not
+   * stop, or that is no longer halted. Only a budget halt is continued where
+   * it stopped; anything else is done again.
+   */
+  | 'task.not_continuable'
+  /**
+   * The owner asked to go on with a task whose model turns retention has
+   * blanked: nothing is left to go on from, and it is done again instead.
+   */
+  | 'task.record_cleared'
   | 'role.frozen'
   | 'platform.stopped'
   | 'task.invalid_transition'

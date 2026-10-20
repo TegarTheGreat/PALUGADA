@@ -1,12 +1,19 @@
 /**
- * The second factor, asked for at the moment of the action (F10.10, F12.5).
+ * The second factor, asked for only when the server says the action needs one
+ * (F10.10, F12.5; STATUS 2.175).
  *
- * `requireFactor(what, attempt)` opens a dialog for *this* action and no
- * other: the code the owner types is handed to `attempt`, which is the one
- * request they are confirming. It resolves `true` once that request succeeded
- * and `false` if the owner backed out. Written this way rather than "return a
- * code" because a code is single use: handing one back and letting the caller
- * spend it later is how one ends up spent on a request that was never sent.
+ * The owner's sign-in is the second factor for what they do in the session, so
+ * `requireFactor(what, attempt)` first tries `attempt` with no code. The
+ * server refuses, before doing anything, what needs a code of its own -- an
+ * authenticator revoked, recovery codes made, a passkey added, a device
+ * vouched for, a person seated, a channel connected, and everything in a
+ * session signed in with a recovery code --
+ * and that refusal is what opens a dialog for *this* action and no other: the
+ * code the owner types is handed to `attempt`, which is the one request they
+ * are confirming. It resolves `true` once that request succeeded and `false`
+ * if the owner backed out. Written this way rather than "return a code"
+ * because a code is single use: handing one back and letting the caller spend
+ * it later is how one ends up spent on a request that was never sent.
  *
  * The attempt lives in the dialog's own state and is replaced, never kept,
  * when the dialog closes -- the Cancel button, Escape, or a click outside. The
@@ -20,7 +27,9 @@
  * signature is handed to `attempt` the way a code is.
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
-import { api, explain } from './api.ts';
+import { api, ApiError, explain } from './api.ts';
+import { useMediaQuery } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
 import { Alert, Anchor, Button, Divider, Group, Modal, PinInput, Stack, Text, TextInput, ThemeIcon, getDefaultZIndex } from '@mantine/core';
 import { IconFingerprint, IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
@@ -44,6 +53,8 @@ export function useFactor(): (what: string, attempt: Attempt) => Promise<boolean
 }
 
 export function FactorProvider({ children }: { children: ReactNode }) {
+  // Six boxes of the larger size are wider than this dialog on a phone.
+  const narrow = useMediaQuery('(max-width: 26em)') ?? false;
   const [pending, setPending] = useState<Pending | null>(null);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -54,12 +65,12 @@ export function FactorProvider({ children }: { children: ReactNode }) {
   const [recovery, setRecovery] = useState('');
   const settled = useRef(false);
 
-  const requireFactor = useCallback((what: string, attempt: Attempt) => new Promise<boolean>((resolve) => {
+  const ask = useCallback((what: string, attempt: Attempt, said: string | null) => new Promise<boolean>((resolve) => {
     settled.current = false;
     setCode('');
     setRecovery('');
     setRecovering(false);
-    setError(null);
+    setError(said);
     setPending({ what, attempt, resolve });
     // Asked each time rather than remembered: a passkey added or revoked in
     // another tab is offered, or not, the next time the dialog opens.
@@ -73,6 +84,23 @@ export function FactorProvider({ children }: { children: ReactNode }) {
       );
     }
   }), []);
+
+  /**
+   * Tried without a code, and asked for one only when the server says so. Any
+   * other failure -- a name taken, a field wrong -- is told in a message and
+   * counts as not done: the owner is not sent to their phone to read it.
+   */
+  const requireFactor = useCallback(async (what: string, attempt: Attempt): Promise<boolean> => {
+    try {
+      // `Proof` is what a dialog hands over; here there is none, and the route is told so by leaving it out.
+      await attempt(undefined as unknown as Proof);
+      return true;
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.code === 'approval.channel_forbidden') return ask(what, attempt, null);
+      notifications.show({ color: 'red', message: explain(failure) });
+      return false;
+    }
+  }, [ask]);
 
   const close = (done: boolean) => {
     if (pending && !settled.current) {
@@ -156,7 +184,7 @@ export function FactorProvider({ children }: { children: ReactNode }) {
             type="number"
             oneTimeCode
             autoFocus
-            size="lg"
+            size={narrow ? 'sm' : 'lg'}
             value={code}
             onChange={setCode}
             onComplete={(value) => void submit(value)}

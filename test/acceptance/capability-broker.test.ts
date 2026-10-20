@@ -283,6 +283,10 @@ test('a tier 3 action stops for owner approval instead of executing', async () =
   // F10.2: the item must be decidable on its own terms.
   assert.ok(approval!.actionSummary.length > 0);
   assert.ok(approval!.rationale.length > 0);
+  // Said to the owner, not to the platform (§2.3 item 7): the rationale was
+  // "Task 6f1c…-… requested dns.update at tier 3, which cannot be reversed."
+  assert.equal(approval!.rationale.split('\n')[0], 'This work asked for it at tier 3, which cannot be reversed.');
+  assert.ok(!approval!.rationale.includes(task.id) && !approval!.rationale.includes('dns.update'));
   assert.ok(approval!.consequenceIfDenied.length > 0);
   assert.ok(approval!.expiresAt instanceof Date);
 });

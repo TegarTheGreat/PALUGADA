@@ -36,6 +36,7 @@
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ownerReadingWithin, taskCalledWithin, waitingOnNothingCard } from '../owner/platform-cards.ts';
 
 export type StrandedShape =
   /** In `waiting_approval` with no approval or escalation open for it. */
@@ -111,18 +112,6 @@ export async function findStranded(companyId: string, now = new Date()): Promise
   });
 }
 
-const EXPLANATIONS: Record<StrandedShape, string> = {
-  approval_missing:
-    'It is waiting for an approval, and no approval or escalation for it is open, so nothing '
-    + 'you can answer will move it.',
-  review_missing:
-    'It is waiting for a review, and no review is pending and no escalation is open, so no '
-    + 'reviewer and no decision of yours will move it.',
-  wake_missing:
-    'It is parked until a window reopens, and the window never does, so it has no time to '
-    + 'wake at.',
-};
-
 /**
  * Asks the owner about each stranded task, once.
  *
@@ -165,15 +154,9 @@ export async function askAboutStranded(companyId: string, task: StrandedTask): P
     });
     // In the same transaction as the record that says it was asked, so the
     // record cannot outlive a question that was never put.
-    await inbox.raiseEscalationWithin(tx, {
-      companyId,
-      taskId: task.taskId,
-      title: 'A task is waiting on nothing',
-      detail:
-        `Task ${task.taskId} has been ${task.status} since ${task.since.toISOString()}. `
-        + `${EXPLANATIONS[task.shape]} Approve to run it again from where it stopped, `
-        + 'or deny to cancel it.',
-    });
+    const card = waitingOnNothingCard(await ownerReadingWithin(tx),
+      { task: await taskCalledWithin(tx, task.taskId), since: task.since, shape: task.shape });
+    await inbox.raiseEscalationWithin(tx, { companyId, taskId: task.taskId, title: card.title, detail: card.detail });
     return true;
   });
 }

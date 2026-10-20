@@ -15,9 +15,10 @@ import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { redactor } from '../../src/secrets/manager.ts';
-import { createRootTask, transition } from '../../src/engine/tasks.ts';
-import { taskDetailOf, workOf } from '../../src/owner/views.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
+import { galleryOf, taskDetailOf, workOf } from '../../src/owner/views.ts';
+import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -101,6 +102,57 @@ test('a finished task says what it produced, on the list and in full', async () 
   assert.match(detail.deliverables[0]!.text, /We launched/);
 });
 
+test('a file the task only read is not something it produced, on its page or in the gallery', async () => {
+  // `files.read`, `image.describe` and `speech.transcribe` answer with the path they opened and its text, which is
+  // what a draft answers with: a file a role read was listed beside the ones it wrote.
+  const fixture = await createCompany('deliver-reads');
+  await registerStandardCatalogue();
+  const run = await task(fixture, 'summarise the quarterly report');
+  await journal(fixture, run.id, 0, 'capability:files.read', 'committed', { path: 'in/report.pdf', kind: 'text', text: 'quarterly figures' });
+  await journal(fixture, run.id, 1, 'capability:image.describe', 'committed', { path: 'in/photo.png', provider: 'p', text: 'a storefront' });
+  await journal(fixture, run.id, 2, 'capability:speech.transcribe', 'committed', { path: 'in/call.mp3', text: 'hello there' });
+  await journal(fixture, run.id, 3, 'capability:doc.draft', 'committed', { path: 'drafts/summary.md', text: '# Summary\n\nIt went well.' });
+
+  const detail = (await taskDetailOf(fixture.companyId, run.id))!;
+  assert.deepEqual(detail.deliverables.map((one) => one.path), ['drafts/summary.md']);
+  const gallery = await galleryOf(fixture.companyId);
+  assert.deepEqual(gallery.items.map((one) => one.path), ['drafts/summary.md']);
+});
+
+test('a file a task made is offered on its page whatever it holds -- a picture, a computed sheet, a draft -- and not one it only read', async () => {
+  // The gallery and the deliverables show what has text to read; a picture or a spreadsheet has none, and was
+  // reachable only by knowing its path. The page names every file the journal says the task made, to take out.
+  const fixture = await createCompany('deliver-files');
+  await registerStandardCatalogue();
+  const run = await task(fixture, 'make the launch pack');
+  redactor.register('sk-live-deliverfiles-0002');
+  await journal(fixture, run.id, 0, 'capability:image.generate', 'committed', { path: 'generated/logo-ab12.png', provider: 'p', sha256: 'x' });
+  await journal(fixture, run.id, 1, 'capability:code.compute', 'committed', {
+    files: [{ path: 'computed/2026-10-06-ab12cd34/rekap.csv', bytes: 24 }, { path: 'computed/2026-10-06-ab12cd34/grafik.png', bytes: 900 }],
+  });
+  await journal(fixture, run.id, 2, 'capability:files.read', 'committed', { path: 'uploads/price-list.xlsx', kind: 'excel', text: 'prices' });
+  await journal(fixture, run.id, 3, 'capability:doc.draft', 'committed', { path: 'drafts/sk-live-deliverfiles-0002.md', text: '# Offer\n\nHello.', words: 2 });
+  await journal(fixture, run.id, 4, 'capability:doc.draft', 'failed', { path: 'drafts/lost.md', text: 'lost' });
+  await journal(fixture, run.id, 5, 'capability:image.generate', 'committed', { path: 'generated/line\nbreak.png' });
+
+  const detail = (await taskDetailOf(fixture.companyId, run.id))!;
+  assert.deepEqual(detail.files.map((one) => [one.capability, one.path]), [
+    ['image.generate', 'generated/logo-ab12.png'],
+    ['code.compute', 'computed/2026-10-06-ab12cd34/rekap.csv'],
+    ['code.compute', 'computed/2026-10-06-ab12cd34/grafik.png'],
+    ['doc.draft', 'drafts/[redacted].md'],
+    ['image.generate', 'generated/line break.png'],
+  ], 'what it read, and what did not commit, is not a file it made; a key in a path is redacted; a control character is a space');
+  // The files are listed beside the deliverables, not instead of them.
+  assert.deepEqual(detail.deliverables.map((one) => one.capability), ['doc.draft']);
+  // A task that made none has none.
+  const bare = await task(fixture, 'say hello');
+  assert.deepEqual((await taskDetailOf(fixture.companyId, bare.id))!.files, []);
+  // And another company's task is not found, with or without files.
+  const other = await createCompany('deliver-files-other');
+  assert.equal(await taskDetailOf(other.companyId, run.id), null);
+});
+
 test("a task's output is read only in its own company", async () => {
   const fixture = await createCompany('deliver-own');
   const other = await createCompany('deliver-other');
@@ -124,4 +176,39 @@ test('a result is read from the fields that describe one, and never left empty',
   assert.equal(await shaped({ note: 'checked twice', answer: 'Supplier B is cheaper.' }), 'Supplier B is cheaper.');
   assert.equal(await shaped({ ok: 'yes', result: 'Renewed the domain.' }), 'Renewed the domain.');
   assert.match((await shaped({ total: 3 }))!, /"total":3/);
+});
+
+test('a task shows the work it handed on and what each piece came to, and a piece shows who handed it on (N2)', async () => {
+  // The live run of 2 October: the marketer's seven-day plan sat on a sub-task
+  // of the CEO's, and the CEO's task -- the one the owner opened, because it
+  // was the one they had asked -- said "nothing yet" and pointed nowhere.
+  const fixture = await createCompany('handed-on');
+  const writerId = await addRole(fixture, 'writer');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET display_name = 'Laras', title = 'CMO' WHERE id = $1", [writerId]));
+  const parent = await task(fixture, 'make the Instagram plan');
+  await transition(fixture.companyId, parent.id, 'running');
+  const hand = (goal: string) => createSubTask(parent.id, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: writerId, input: { goal }, createdBy: 'agent_run',
+  });
+  const plan = await hand('Write the seven-day plan');
+  await transition(fixture.companyId, plan.id, 'running');
+  await transition(fixture.companyId, plan.id, 'completed', {
+    output: { summary: 'The seven-day plan, one post a day.', plan: 'Day 1: the iced palm-sugar coffee.' },
+  });
+  const captions = await hand('Write the captions');
+
+  const detail = (await taskDetailOf(fixture.companyId, parent.id))!;
+  assert.deepEqual(detail.handedOn, [
+    { id: plan.id, role: 'writer', roleName: 'Laras', status: 'completed', result: 'The seven-day plan, one post a day.' },
+    { id: captions.id, role: 'writer', roleName: 'Laras', status: 'pending', result: null },
+  ]);
+  assert.equal(detail.handedBy, null, 'the owner gave this one');
+
+  const piece = (await taskDetailOf(fixture.companyId, plan.id))!;
+  const parentSlug = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  assert.deepEqual(piece.handedBy, { id: parent.id, role: parentSlug, roleName: null });
+  assert.deepEqual(piece.handedOn, []);
 });

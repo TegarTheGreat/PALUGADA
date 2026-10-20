@@ -25,7 +25,8 @@ import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
-import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { QUESTION_ESCALATES_AFTER_HOURS, answerFilesSaid, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { hireProposedCard, ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
@@ -40,8 +41,11 @@ import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
+import { madeFiles } from '../engine/journal.ts';
 import { noteTalkDrift } from '../domain/language.ts';
+import { proposeSchedule } from '../scheduler/proposals.ts';
 import type { Capability } from './registry.ts';
+import { keysAskedFor } from './keys.ts';
 
 export interface MemorySearchInput {
   query: string;
@@ -55,9 +59,21 @@ export interface MemorySearchInput {
 }
 
 export interface MemorySearchResult {
-  facts: Array<{ body: string; confidence: number; source: string; unverified: boolean; outside?: boolean }>;
+  facts: Array<{
+    body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
+    /** The day it was recorded: a price or a status may have changed since, and the record wins. */
+    recordedOn: string;
+    /** How many days ago that was, so a run need not do the arithmetic against a date it was never told. */
+    ageDays: number;
+  }>;
   /** Passages of the company's documents the query's words point at (0075). */
-  documents: Array<{ title: string; heading: string | null; passage: string }>;
+  documents: Array<{
+    title: string; heading: string | null; passage: string;
+    /** The document and the passage's place in it, by which a reply to a customer names what it answers from. */
+    document: string; place: number;
+    /** Whether customers may be told it (0117). */
+    forCustomers: boolean;
+  }>;
   /** True when the limit cut the answer short, so the caller can ask again. */
   truncated: boolean;
 }
@@ -134,7 +150,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       // And by meaning, when the deployment has a provider for it: the
       // query's vector is made before the transaction, which a network call
       // should not hold open.
-      const meaning = await queryMeaning(input.query);
+      const meaning = await queryMeaning(input.query, ctx.signal, ctx.companyId);
       const passages = await withTenant(ctx.companyId, (tx) => searchDocuments(tx, {
         divisionId: ctx.divisionId, query: input.query, limit: 3, ...(meaning ? { meaning } : {}),
       }));
@@ -143,6 +159,11 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
         documents: passages.map((found) => ({
           title: found.title,
           heading: found.heading,
+          // Where it is, so a reply to a customer can name what it answers
+          // from; and whether customers may be told it (0117).
+          document: found.documentId,
+          place: found.passage,
+          forCustomers: found.forCustomers === true,
           passage: wrapUntrusted(`document:${found.title}`, found.body),
         })),
         facts: facts.slice(0, limit).map((memory) => ({
@@ -154,6 +175,8 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           // been in the pack -- nor one learned from outside content arrive
           // as anything but data (0071).
           unverified: memory.confidence < 0.6 || memory.outside,
+          recordedOn: memory.validFrom.toISOString().slice(0, 10),
+          ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
           ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
         })),
         truncated: facts.length > limit,
@@ -317,6 +340,8 @@ export interface TicketCreateInput {
   body?: string;
   /** 0 first to 3 last; 2 unless said. */
   priority?: number;
+  /** `work` unless said; `hire` proposes a role the company lacks (0132). */
+  kind?: 'work' | 'hire';
 }
 
 /**
@@ -337,6 +362,11 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
         title: { type: 'string', minLength: 1, maxLength: 200, description: 'What needs doing, in a line.' },
         body: { type: 'string', maxLength: 8000, description: 'What whoever picks it up needs to know, and what done looks like.' },
         priority: { type: 'integer', minimum: 0, maximum: 3, description: '0 first to 3 last; 2 unless it is urgent.' },
+        kind: {
+          type: 'string', enum: ['work', 'hire'],
+          description: 'work (unless said): something that needs doing. hire: a role the company lacks -- the title is the role, '
+            + 'the body the work it would take over and what it needs -- which the owner is shown and decides.',
+        },
       },
     },
     adapter: 'platform',
@@ -353,6 +383,7 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
           title: String(input.title ?? ''),
           body: typeof input.body === 'string' ? input.body : '',
           ...(input.priority === undefined ? {} : { priority: Number(input.priority) }),
+          ...(input.kind === undefined ? {} : { kind: input.kind }),
           openedBy: 'agent',
           openedByTaskId: ctx.taskId,
         });
@@ -364,6 +395,18 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
             companyId: ctx.companyId, taskId: ctx.taskId, where: 'ticket',
             text: `${opened.ticket.title}\n${opened.ticket.body}`,
           });
+          // A hire is the owner's (F2.9): they are shown it now, once, in
+          // their language, and decide it on the board or with the CEO.
+          if (opened.ticket.kind === 'hire') {
+            const card = hireProposedCard(await ownerReadingWithin(tx), { role: opened.ticket.title, why: opened.ticket.body });
+            // Not tied to the task that filed it: the card is the owner's
+            // to decide whenever they do, not something the run waits on or
+            // that closes when the run ends.
+            await raiseEscalationWithin(tx, {
+              companyId: ctx.companyId, title: card.title, detail: card.detail,
+              payload: { ticketId: opened.ticket.id, hire: true, role: opened.ticket.title, why: opened.ticket.body.slice(0, 1_500) },
+            });
+          }
         }
         return { ticketId: opened.ticket.id, existing: opened.existing };
       });
@@ -409,17 +452,22 @@ export function ticketListCapability(): Capability<{ status?: string; limit?: nu
 
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
-  get?(name: string): unknown;
+  get?(name: string): Capability<never, never> | undefined;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
-  registry.register(ownerAskCapability(registry.get ? (name) => Boolean(registry.get!(name)) : undefined) as unknown as Capability<never, never>);
+  registry.register(ownerAskCapability(
+    registry.get ? (name) => Boolean(registry.get!(name)) : undefined,
+    registry.get ? { get: (name) => registry.get!(name) } : undefined,
+  ) as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
+  registry.register(taskFollowUpCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
   registry.register(goalProposeCapability() as unknown as Capability<never, never>);
+  registry.register(scheduleProposeCapability() as unknown as Capability<never, never>);
   registry.register(ticketCreateCapability() as unknown as Capability<never, never>);
   registry.register(ticketListCapability() as unknown as Capability<never, never>);
 }
@@ -498,17 +546,19 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
           };
         }
         const tier = loosens(from, to) ? 3 : 2;
-        const why = typeof input.why === 'string' && input.why.trim() ? `\n\n${input.why.trim()}` : '';
+        const why = typeof input.why === 'string' ? input.why.trim() : '';
         // A policy may have had another role review this first -- company-os
         // has its critic read every one. What it said goes on the card the
         // owner answers, beside the proposer's case, not only back to the
         // proposer. Found by this exact action, as the broker's grant was.
         const review = await approvedReviewOf(tx, ctx.taskId, fingerprintAction('stage.propose', input));
-        const reviewed = review ? `\n\nReviewed by ${review.reviewer.name} before you:\n${review.reason}` : '';
+        const card = stageMoveCard(await ownerReadingWithin(tx), {
+          from, to, evidence, why, reviewed: review ? { reviewer: review.reviewer.name, reason: review.reason } : null,
+        });
         const inboxItemId = await raiseEscalationWithin(tx, {
           companyId: ctx.companyId,
-          title: `Move the company from ${from ?? 'no stage'} to ${to}?`,
-          detail: `${evidence}${why}${reviewed}`,
+          title: card.title,
+          detail: card.detail,
           tier,
           payload: {
             stageChange: { from, to },
@@ -522,14 +572,12 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
                 }
               : {}),
           },
-          consequenceIfDenied: from
-            ? `The company stays in the ${from} stage.`
-            : 'The company stays without a stage.',
+          consequenceIfDenied: card.consequence,
         });
         // The proposer's case is its own words to the owner; the reviewer's,
         // beside it, was checked when the review was recorded.
         await noteTalkDrift(tx, {
-          companyId: ctx.companyId, taskId: ctx.taskId, where: 'stage_proposal', text: `${evidence}${why}`,
+          companyId: ctx.companyId, taskId: ctx.taskId, where: 'stage_proposal', text: why ? `${evidence}\n\n${why}` : evidence,
         });
         return { proposed: true, inboxItemId };
       });
@@ -587,6 +635,54 @@ export function goalProposeCapability(): Capability<GoalProposeInput, { proposed
   };
 }
 
+export interface ScheduleProposeInput {
+  /** A short name for it: lower-case letters, digits and dashes. */
+  name: string;
+  /** When, as a five-field cron expression. */
+  cron: string;
+  /** The zone the cron is read in; the owner's when not given. */
+  timezone?: string;
+  /** Another role of this company that should do it, by its slug; this one when not given. */
+  role?: string;
+  /** What each run does: the instruction each run is given. */
+  instruction: string;
+  /** The evidence that the work recurs, for the owner. */
+  why: string;
+}
+
+/**
+ * `schedule.propose`: ask the owner to make some work recur (the tools
+ * research, gap #12). Tier 0 for the reason `goal.propose` is: it opens one
+ * item and changes nothing, and the schedule exists when the owner says yes.
+ */
+export function scheduleProposeCapability(): Capability<ScheduleProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+  return {
+    name: 'schedule.propose',
+    inputSchema: {
+      type: 'object',
+      required: ['name', 'cron', 'instruction', 'why'],
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 63, description: 'A short name: lower-case letters, digits and dashes, such as weekly-sales.' },
+        cron: { type: 'string', minLength: 9, maxLength: 120, description: 'When, as five cron fields: "0 9 * * 1" is Mondays at nine. At most once an hour.' },
+        timezone: { type: 'string', maxLength: 64, description: 'An IANA zone such as Asia/Jakarta; the owner\'s when not given.' },
+        role: { type: 'string', maxLength: 64, description: 'Another role that should do it, by its slug; you, when not given.' },
+        instruction: { type: 'string', minLength: 1, maxLength: 2_000, description: 'What each run does, as the instruction it is given.' },
+        why: { type: 'string', minLength: 1, maxLength: 1_000, description: 'The evidence that this work recurs, for the owner, with where it came from.' },
+      },
+      additionalProperties: false,
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      return proposeSchedule({
+        companyId: ctx.companyId, taskId: ctx.taskId,
+        name: input.name, cron: input.cron, timezone: input.timezone, role: input.role, instruction: input.instruction, why: input.why,
+      });
+    },
+  };
+}
+
 export interface OwnerAskInput {
   /** One question, answerable by the owner alone. */
   question: string;
@@ -594,11 +690,26 @@ export interface OwnerAskInput {
   why?: string;
   /** Two to six answers to choose from, when there are that few: the owner presses one. */
   options?: string[];
+  /**
+   * The key one of the division's capabilities signs in with, when that is
+   * what is asked for: the owner gives it where keys are given, and the run
+   * is told it is there, never what it is.
+   */
+  key?: string;
+  /**
+   * The person the question is for, by name, when it is one of the people
+   * seated beside the owner and not the owner: an approver. Only that person
+   * and the owner see and answer it; if it is not answered in a day it is the
+   * owner's to answer too, and they are told.
+   */
+  to?: string;
 }
 
 export interface OwnerAskResult {
   answered: boolean;
   answer?: string;
+  /** What came with the answer, kept in the company's files: read it with files.read. */
+  files?: Array<{ kind: string; name: string | null; path: string }>;
   /** Said when there is no answer to give. */
   note?: string;
 }
@@ -618,10 +729,16 @@ export const QUESTION_MAX = 1_000;
  * where it stopped.
  */
 /**
- * Words that make a question one about setting a tool up rather than about
- * the work, in English and Indonesian (L7).
+ * Words that ask how to set a tool up, in English and Indonesian (L7).
+ *
+ * Only words that mean wiring a service in. A state ("connected", "bound",
+ * "terhubung") is what a question about something else mentions in passing,
+ * and everyday verbs mean the work: "hubungi" is to contact a customer,
+ * "pasang" to put a price on a post, "set up" a call, and a "vendor" sells
+ * coffee beans. On a live run (N3) those answered for the owner a question
+ * about whom to write to and a decision to delete a customer's record.
  */
-const SETUP_WORDS = /\b(bind|bound|binding|connect\w*|integrat\w*|vendor|provider|set\s?up|configure|install\w*|api\s?key|credential|hubung\w*|sambung\w*|pasang|integrasi|konfigurasi)\b/i;
+const SETUP_WORDS = /\b(bind|binding|configure|configuring|configuration|integrate|integrating|integration|install|installing|api\s?key|credentials?|hubungkan|menghubungkan|sambungkan|menyambungkan|konfigurasi|mengonfigurasi|integrasi|kredensial|kunci\s?api)\b/i;
 
 /** Whether a question names a capability, by its name or the service before its dot (`crm` of `crm.note`). */
 function names(question: string, capability: string): boolean {
@@ -632,12 +749,20 @@ function names(question: string, capability: string): boolean {
 /**
  * The role's tools that nothing in this deployment is bound to, and that a
  * question asks how to set up: what the platform answers itself (L7).
+ *
+ * Never a question with answers to choose from: offering choices is asking
+ * the owner to decide, whatever else the question mentions. Answering one
+ * wrongly for the owner costs far more than asking them one they cannot
+ * answer, so anything short of a plain question about wiring a tool in is
+ * put to them.
  */
 async function setupAsked(
   ctx: { companyId: string; taskId: string },
   question: string,
+  options: unknown,
   bound: (name: string) => boolean,
 ): Promise<string[]> {
+  if (Array.isArray(options) && options.length > 0) return [];
   if (!SETUP_WORDS.test(question)) return [];
   const tools = await withTenant(ctx.companyId, async (tx) => {
     const { rows } = await tx.query<{ tools: string[] | null }>(
@@ -648,14 +773,51 @@ async function setupAsked(
 }
 
 /**
+ * The key a run asks for, held to what its division's capabilities sign in
+ * with (the tools research, recommendation 7): a key nothing in the division
+ * uses is refused before the owner sees anything, so a run talked into
+ * asking for "the AWS key" asks nobody; a key the division holds is not
+ * asked for again.
+ */
+async function keyAsked(
+  ctx: { companyId: string; divisionId: string },
+  alias: string,
+  registry: { get(name: string): Capability<never, never> | undefined },
+): Promise<{ held: true; capabilities: string[] } | { held: false; capabilities: string[] }> {
+  if (!/^[a-z][a-z0-9_-]{0,39}$/.test(alias)) {
+    throw new PalugadaError('contract.violation', 'key is the name a capability gives the key it signs in with, such as crm or mailbox', { field: 'key' });
+  }
+  const { granted, held } = await withTenant(ctx.companyId, async (tx) => {
+    const grants = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [ctx.divisionId]);
+    const keys = await tx.query<{ alias: string }>('SELECT alias FROM credentials WHERE division_id = $1', [ctx.divisionId]);
+    return { granted: grants.rows.map((row) => row.capability_name), held: new Set(keys.rows.map((row) => row.alias)) };
+  });
+  const asked = keysAskedFor(registry, granted);
+  const need = asked.get(alias);
+  if (!need) {
+    throw new PalugadaError('contract.violation',
+      `no capability this division may use signs in with a key named ${alias}`
+        + (asked.size > 0 ? `; the keys its capabilities ask for: ${[...asked.keys()].join(', ')}` : '; none of them asks for a key'),
+      { field: 'key' });
+  }
+  return { held: held.has(alias), capabilities: need.capabilities };
+}
+
+/**
  * `bound` says whether a capability is bound in this deployment. Given, a
  * question about setting up a tool nothing is bound to -- "which CRM vendor
  * should I bind?" -- is answered here rather than put to the owner (L7):
  * the owner connects a service on This deployment, Services, and an answer
  * typed into an inbox item connects nothing. The run is told so and carries
  * on; the owner is asked only what they can answer.
+ *
+ * `registry` lets a run ask for a key by name (`key`): see `keyAsked`.
  */
-export function ownerAskCapability(bound?: (name: string) => boolean): Capability<OwnerAskInput, OwnerAskResult> {
+export function ownerAskCapability(
+  bound?: (name: string) => boolean,
+  registry?: { get(name: string): Capability<never, never> | undefined },
+): Capability<OwnerAskInput, OwnerAskResult> {
   return {
     name: 'owner.ask',
     inputSchema: {
@@ -665,6 +827,8 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
         question: { type: 'string', minLength: 1, description: 'One question only the owner can answer.' },
         why: { type: 'string', description: 'What depends on the answer.' },
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
+        key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
+        to: { type: 'string', maxLength: 120, description: 'The person this is for, by name, when it is someone the company has seated and not the owner. They are named in your brief; a name no one has is refused saying who there is.' },
       },
     },
     adapter: 'platform',
@@ -678,7 +842,22 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
       if (question.length > QUESTION_MAX) {
         throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
       }
-      const unbound = bound ? await setupAsked(ctx, question, bound) : [];
+      let key: { alias: string; divisionId: string; capabilities: string[] } | null = null;
+      if (input.key !== undefined) {
+        if (!registry) throw new PalugadaError('contract.violation', 'this deployment cannot say which keys a division needs', { field: 'key' });
+        const alias = String(input.key).trim();
+        const asked = await keyAsked(ctx, alias, registry);
+        if (asked.held) {
+          return {
+            answered: true,
+            answer: `This division holds the ${alias} key: call ${asked.capabilities.join(' or ')} again. If it is refused, `
+              + 'say so: the owner may need to give it again.',
+          };
+        }
+        key = { alias, divisionId: ctx.divisionId, capabilities: asked.capabilities };
+      }
+      const person = input.to !== undefined && String(input.to).trim() !== '' ? await approverNamed(ctx.companyId, String(input.to)) : null;
+      const unbound = bound && !key ? await setupAsked(ctx, question, input.options, bound) : [];
       if (unbound.length > 0) {
         await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
           companyId: ctx.companyId, taskId: ctx.taskId, type: 'task.question_answered_by_platform', actor: 'system',
@@ -698,8 +877,17 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
         question,
         why: typeof input.why === 'string' ? input.why : null,
         options: Array.isArray(input.options) ? input.options.map(String) : null,
+        ...(key ? { key } : {}),
+        ...(person ? { addressee: { ...person, escalateAfterHours: QUESTION_ESCALATES_AFTER_HOURS } } : {}),
       });
-      if (asked.state === 'answered') return { answered: true, answer: asked.answer };
+      if (asked.state === 'answered') {
+        if (asked.files.length === 0) return { answered: true, answer: asked.answer };
+        return {
+          answered: true,
+          answer: asked.answer + answerFilesSaid(asked.files),
+          files: asked.files.map((one) => ({ kind: one.kind, name: one.name, path: one.path })),
+        };
+      }
       if (asked.state === 'unanswered') {
         return {
           answered: false,
@@ -729,6 +917,8 @@ export interface TaskDelegateInput {
 
 /** How often a parent waiting on a child looks again. */
 export const AWAIT_POLL_MS = 2 * 60_000;
+/** How far past its child's deadline a waiting parent's own reaches: a few looks, and the answer. */
+const AWAIT_COVER_MS = 5 * 60_000;
 
 /**
  * `task.delegate`: hand part of the work to another role, as a sub-task.
@@ -770,9 +960,10 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
       }
       const childInput = { goal: brief, ...(typeof input.context === 'string' ? { context: input.context } : {}) };
       const found = await withTenant(ctx.companyId, async (tx) => {
-        const role = await tx.query<{ id: string; division_id: string }>(
-          'SELECT id, division_id FROM roles WHERE slug = $1', [String(input.role ?? '')]);
         const parent = await getTask(tx, ctx.taskId);
+        const roles = await tx.query<NamedRole>(
+          'SELECT id, slug, division_id, display_name, title FROM roles ORDER BY slug');
+        const role = resolveRole(roles.rows, String(input.role ?? ''), parent?.roleId ?? null);
         const ticket = typeof input.ticketId === 'string' ? await readTicket(tx, input.ticketId) : null;
         // Worked already by a child of this very task: the delegation being replayed.
         const ours = ticket?.workingTaskId
@@ -780,11 +971,9 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
           : false;
         // The same brief to the same role from this task, already started:
         // the child `createSubTask` will hand back rather than make again.
-        const again = role.rows[0]
-          ? (await tx.query('SELECT 1 FROM tasks WHERE parent_task_id = $1 AND role_id = $2 AND input_hash = $3',
-            [ctx.taskId, role.rows[0].id, hashInput(childInput)])).rowCount === 1
-          : false;
-        return { role: role.rows[0], parent, ticket, ours, again };
+        const again = (await tx.query('SELECT 1 FROM tasks WHERE parent_task_id = $1 AND role_id = $2 AND input_hash = $3',
+          [ctx.taskId, role.id, hashInput(childInput)])).rowCount === 1;
+        return { role, parent, ticket, ours, again };
       });
       if (typeof input.ticketId === 'string') {
         // Checked before the child exists, so a ticket that cannot be handed
@@ -798,9 +987,6 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
             { field: 'ticketId' });
         }
       }
-      if (!found.role) {
-        throw new PalugadaError('contract.violation', `no role ${input.role} in this company`, { field: 'role' });
-      }
       if (!found.parent) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
       const deadlineAt = new Date(Date.now() + minutes * 60_000);
       const child = await createSubTask(ctx.taskId, {
@@ -811,9 +997,12 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         input: childInput,
         createdBy: 'agent_run',
         deadlineAt,
+        // A ticket handed on is as urgent as it was filed; without one the child
+        // is as urgent as the work it is part of (createSubTask).
+        ...(found.ticket ? { priority: found.ticket.priority } : {}),
       });
       await withTenant(ctx.companyId, async (tx) => {
-        await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role!.id]);
+        await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role.id]);
         // A replayed delegation finds its child already working the ticket.
         if (found.ticket && found.ticket.workingTaskId !== child.id) await startTicket(tx, ctx.companyId, found.ticket.id, child.id);
         // The brief is this role's words to another. The context is not
@@ -829,9 +1018,198 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         reason: 'event',
         detail: `task ${ctx.taskId} delegated task ${child.id}`,
       });
-      return { childId: child.id, role: String(input.role), deadlineAt: (child.deadlineAt ?? deadlineAt).toISOString() };
+      return { childId: child.id, role: found.role.slug, deadlineAt: (child.deadlineAt ?? deadlineAt).toISOString() };
     },
   };
+}
+
+export interface TaskFollowUpInput {
+  /** The slug of the role that looks again: this one, or another. */
+  role: string;
+  /** What to look at again, what to check it against, and what to do about it. */
+  brief: string;
+  context?: string;
+  /** How many hours from now: 1 to 2160, ninety days. */
+  afterHours: number;
+  /** How long it has once it wakes, in minutes (15 to 1440; 120 unless said). */
+  windowMinutes?: number;
+}
+
+/** Follow-ups waiting for one goal at once: a handful, so a role cannot leave a hundred reminders behind. */
+export const FOLLOW_UP_MAX_OPEN = 5;
+
+/**
+ * `task.follow_up`: a role asks to be woken later about its own work (the audit
+ * of 3 October, section 3.3; P0-7).
+ *
+ * An invoice is sent, a campaign launched, a deploy shipped: the effect lands
+ * later, and nothing in the company looked again -- only a blind recurring
+ * schedule, which the owner must say yes to, or the owner. This makes a
+ * sub-task now that cannot be claimed until its time (`wait_until`, which the
+ * claim already honours and nothing set), so it is an ordinary task when it
+ * arrives: the same journal, lease, budget chain and approvals. A sub-task and
+ * not a new kind of thing, so it carries the parent's goal, its budget and --
+ * what matters -- what the parent had read from outside: an injected
+ * instruction cannot be laundered into clean work an hour later.
+ *
+ * Bounded by what a task already is, and a little more: the hop limit (a chain
+ * of follow-ups ends after three), the parent's fan-out, an hour at the least
+ * and ninety days at the most, a handful open per goal, and cancelled when the
+ * goal closes. The window it has is counted from when it wakes, not from when
+ * it was made, or it would be halted for want of time before it could run.
+ */
+export function taskFollowUpCapability(): Capability<TaskFollowUpInput, { taskId: string; role: string; wakesAt: string }> {
+  return {
+    name: 'task.follow_up',
+    inputSchema: {
+      type: 'object',
+      required: ['role', 'brief', 'afterHours'],
+      properties: {
+        role: { type: 'string', minLength: 1, description: 'The slug of the role that looks again: yourself, or another.' },
+        brief: {
+          type: 'string', minLength: 1,
+          description: 'What to look at again, what to check it against (the figure, the record, the page), and what to do about what it finds: continue, propose a goal change, or ask the owner.',
+        },
+        context: { type: 'string', description: 'What it needs that the brief does not say: the invoice number, the campaign, the figure you expect. Do not paste what you did or the files you made: the follow-up is shown your result and the paths of the files you made.' },
+        afterHours: { type: 'integer', minimum: 1, maximum: 2160, description: 'How many hours from now it wakes: 1 to 2160 (ninety days).' },
+        windowMinutes: { type: 'integer', minimum: 15, maximum: 1440, description: 'How long it has once it wakes (default 120).' },
+      },
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const brief = String(input.brief ?? '').trim();
+      if (!brief) throw new PalugadaError('contract.violation', 'task.follow_up needs a brief', { field: 'brief' });
+      if (brief.length > 4_000) throw new PalugadaError('contract.violation', 'a brief is at most 4000 characters', { field: 'brief' });
+      const hours = input.afterHours;
+      if (!Number.isInteger(hours) || hours < 1 || hours > 2_160) {
+        throw new PalugadaError('contract.violation', 'afterHours is a whole number of hours, from 1 to 2160 (ninety days)', { field: 'afterHours' });
+      }
+      const window = input.windowMinutes ?? 120;
+      if (!Number.isInteger(window) || window < 15 || window > 1_440) {
+        throw new PalugadaError('contract.violation', 'windowMinutes is a whole number from 15 to 1440', { field: 'windowMinutes' });
+      }
+      const childInput = {
+        goal: brief,
+        ...(typeof input.context === 'string' && input.context.trim() ? { context: input.context.trim() } : {}),
+        followUpOf: ctx.taskId,
+      };
+      const found = await withTenant(ctx.companyId, async (tx) => {
+        const parent = await getTask(tx, ctx.taskId);
+        const roles = await tx.query<NamedRole>('SELECT id, slug, division_id, display_name, title FROM roles ORDER BY slug');
+        const role = resolveRole(roles.rows, String(input.role ?? ''), parent?.roleId ?? null);
+        // The same request again -- a parent replayed from its journal -- is the
+        // task it already made, and is not counted against the limit twice.
+        const key = `followup:${ctx.taskId}:${hashInput({ role: role.id, ...childInput, hours })}`;
+        const { rows: existing } = await tx.query<{ id: string; wait_until: Date | null }>(
+          'SELECT id, wait_until FROM tasks WHERE idempotency_key = $1', [key]);
+        const open = parent
+          ? Number((await tx.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM tasks
+              WHERE goal_id IS NOT DISTINCT FROM $1 AND idempotency_key LIKE 'followup:%' AND status = 'pending'`,
+            [parent.goalId])).rows[0]!.n)
+          : 0;
+        return { parent, role, key, existing: existing[0] ?? null, open };
+      });
+      if (!found.parent) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
+      if (found.existing) {
+        return { taskId: found.existing.id, role: found.role.slug, wakesAt: (found.existing.wait_until ?? new Date()).toISOString() };
+      }
+      if (found.open >= FOLLOW_UP_MAX_OPEN) {
+        throw new PalugadaError('contract.violation',
+          `at most ${FOLLOW_UP_MAX_OPEN} follow-ups are open for a goal; wait for one to come round, or make this one part of it`,
+          { field: 'afterHours' });
+      }
+      const wakesAt = new Date(Date.now() + hours * 3_600_000);
+      const child = await createSubTask(ctx.taskId, {
+        companyId: ctx.companyId,
+        projectId: found.parent.projectId,
+        divisionId: found.role.division_id,
+        roleId: found.role.id,
+        input: childInput,
+        createdBy: 'agent_run',
+        idempotencyKey: found.key,
+        waitUntil: wakesAt,
+        deadlineAt: new Date(wakesAt.getTime() + window * 60_000),
+      });
+      await withTenant(ctx.companyId, (tx) => noteTalkDrift(tx, { companyId: ctx.companyId, taskId: ctx.taskId, where: 'handoff', text: brief }));
+      return { taskId: child.id, role: found.role.slug, wakesAt: wakesAt.toISOString() };
+    },
+  };
+}
+
+interface NamedRole {
+  id: string;
+  slug: string;
+  division_id: string;
+  display_name: string | null;
+  title: string | null;
+}
+
+/**
+ * The role a delegation names: by its slug, or by a title or name that is one
+ * role's alone.
+ *
+ * Models name a colleague the way people do -- "the CMO", "Laras" -- and a
+ * slug-only lookup refused every one of those on a live run, nineteen times
+ * in a row, with an answer that said nothing about what would have been
+ * accepted. A title or name shared by two roles is refused rather than
+ * guessed between: handing a payment to the wrong "Head of Finance" is worse
+ * than asking again. Every refusal lists the roles there are, and the
+ * nearest slug when one is close, so the next call can be right.
+ */
+function resolveRole(roles: readonly NamedRole[], asked: string, asking: string | null): NamedRole {
+  const wanted = asked.trim().toLowerCase();
+  const bySlug = roles.find((role) => role.slug === wanted);
+  if (bySlug) return bySlug;
+  const named = roles.filter((role) =>
+    [role.title, role.display_name].some((label) => label !== null && label.trim().toLowerCase() === wanted));
+  if (named.length === 1) return named[0]!;
+  if (named.length > 1) {
+    throw new PalugadaError('contract.violation',
+      `"${asked}" is the title or name of more than one role (${named.map((role) => role.slug).join(', ')}); name one by its slug`,
+      { field: 'role' });
+  }
+  const offered = roles.filter((role) => role.id !== asking);
+  const describe = (role: NamedRole) => {
+    const who = [role.display_name, role.title].filter(Boolean).join(', ');
+    return who ? `${role.slug} (${who})` : role.slug;
+  };
+  const near = nearestRole(offered, wanted);
+  throw new PalugadaError('contract.violation',
+    `no role "${asked}" in this company${near ? `; did you mean ${describe(near)}?` : '.'} ` +
+    `The roles are: ${offered.map(describe).join(', ')}. Name one by its slug.`,
+    { field: 'role' });
+}
+
+/** The role whose slug, title or name is within a few edits of what was asked, or that shares its first five letters. */
+function nearestRole(roles: readonly NamedRole[], wanted: string): NamedRole | null {
+  let best: { role: NamedRole; distance: number } | null = null;
+  for (const role of roles) {
+    for (const label of [role.slug, role.title, role.display_name]) {
+      if (!label) continue;
+      const candidate = label.trim().toLowerCase();
+      const distance = editDistance(wanted, candidate);
+      const close = distance <= Math.max(2, Math.floor(wanted.length * 0.4))
+        || (wanted.length >= 5 && candidate.startsWith(wanted.slice(0, 5)));
+      if (close && (!best || distance < best.distance)) best = { role, distance };
+    }
+  }
+  return best?.role ?? null;
+}
+
+/** Levenshtein distance; names are short, so the quadratic table is a few hundred cells. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length]!;
 }
 
 export interface TaskAwaitResult {
@@ -839,7 +1217,20 @@ export interface TaskAwaitResult {
   /** The child's output, contained to what a parent may be handed (F6.7); null unless it completed. */
   output: Record<string, unknown> | null;
   summary: string;
+  /** Set when the output was cut to fit: the child keeps it whole, for the owner and for anyone pointing to it. */
+  abbreviated: { taskId: string; characters: number } | null;
+  /**
+   * The paths of the files the child's own writes made, from its journal and
+   * not from anything it said, the last twenty at most. A child that was
+   * halted after drafting something still has the draft, and its parent is
+   * told. Paths are references: a role that does not hold a tool to open
+   * files names them, or hands them on.
+   */
+  files: string[];
 }
+
+/** The most paths a parent is told of one child's work. */
+const FILES_SHOWN = 20;
 
 /**
  * `task.await`: the result of work this task delegated.
@@ -882,12 +1273,17 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           { childId: input.childId },
         );
       }
+      const filesOf = () => withTenant(ctx.companyId, async (tx) =>
+        (await madeFiles(tx, String(input.childId))).map((file) => file.path).slice(-FILES_SHOWN));
       if (found.status === 'completed') {
         const costCents = await withTenant(ctx.companyId, (tx) => taskCostCents(tx, String(input.childId)));
         const contained = containChildResult(found.role, found.output ?? {}, {
-          status: found.status, steps: found.steps, costCents,
+          status: found.status, steps: found.steps, costCents, taskId: String(input.childId),
         });
-        return { status: found.status, output: contained.output, summary: contained.summary };
+        return {
+          status: found.status, output: contained.output, summary: contained.summary, abbreviated: contained.abbreviated,
+          files: await filesOf(),
+        };
       }
       // Past its deadline and nobody running it: halted here, as the worker's
       // sweep would halt it, and answered. Parking again would reopen at a
@@ -908,7 +1304,21 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           status: found.status,
           output: null,
           summary: `${found.role} ${found.status}${found.halt_reason ? ` (${found.halt_reason})` : ''} without a result`,
+          abbreviated: null,
+          files: await filesOf(),
         };
+      }
+      // A coordinator waiting for a specialist is not halted before the
+      // specialist is: its deadline reaches the child's, and while the child
+      // waits for a person -- the owner's yes, a reviewer -- it is carried
+      // past now, so a wait that is not the work's is not held against it
+      // (the audit of 6 October, S1). A parent with no deadline keeps none.
+      if (found.status === 'waiting_approval' || found.status === 'waiting_review' || found.deadline_at) {
+        const covers = Math.max(found.deadline_at?.getTime() ?? 0, found.status === 'running' || found.status === 'pending' ? 0 : Date.now())
+          + AWAIT_COVER_MS;
+        await withTenant(ctx.companyId, (tx) => tx.query(
+          'UPDATE tasks SET deadline_at = $2 WHERE id = $1 AND deadline_at IS NOT NULL AND deadline_at < $2',
+          [ctx.taskId, new Date(covers)]));
       }
       const next = Date.now() + AWAIT_POLL_MS;
       // The deadline only while it is ahead: one already passed belongs to a
@@ -926,6 +1336,6 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
-  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
-  'stage.propose', 'goal.propose',
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await', 'task.follow_up',
+  'stage.propose', 'goal.propose', 'schedule.propose',
 ] as const;

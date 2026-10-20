@@ -55,6 +55,26 @@ refer to `docs/PRD.md`.
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
    passkey needs a single-use challenge and user verification.
+4b. **The sign-in is the second factor for the session, and a stolen session
+   can do what the owner can.** A session opened with a code or a passkey
+   (`owner_sessions.proved_at`) passes every check that used to ask for a code
+   of its own (`OwnerApi.#requireFactor`, and `decide` for tier 3, a yes for a
+   while and a yes for a schedule), on the owner's report of 7 October: the
+   authenticator is for signing in. This deliberately relaxes F10.10 and F12.5,
+   which wanted a fresh proof for each tier 3 approval (STATUS 2.175). The cost
+   is that a phone left unlocked with the console open, a tab on a shared
+   machine, or a leaked bearer token can approve money and irreversible actions
+   within the session's eight hours, until it is signed out ("sign out
+   everywhere" ends every one) or the device that opened it is revoked (checked
+   on every request). What still takes a code at the moment it is done: revoking
+   an authenticator, making recovery codes, adding a passkey and vouching for a
+   device -- the acts a thief would use to lock the owner out or to keep access
+   -- and, for the same reason, seating a person and connecting a channel the
+   owner is reached and answered on (Telegram, WhatsApp, push, Slack, Discord,
+   email), either of which would outlast the session's sign-out; and everything
+   in a session signed in with a recovery code, which proves less than a
+   device, until a device's code is shown in it. A chat has no
+   session and still cannot approve tier 3, and a staff seat still cannot.
 5. Each open route has its own secret. Hooks: a public id from a random UUID,
    then a bearer token stored as its SHA-256 or an HMAC over the raw bytes,
    with a five-minute window for Stripe, Slack and Standard Webhooks
@@ -111,8 +131,9 @@ refer to `docs/PRD.md`.
 
 **Reach.** What a `readsOutside` capability returns (`src/broker/catalogue.ts`:
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
-`calendar.read`, `crm.read`, `speech.transcribe`; every MCP tool,
-`src/capabilities/mcp.ts`; `ticket.list`), and any task a hook starts.
+`calendar.read`, `crm.read`, `speech.transcribe`, `image.describe`, `chat.read`,
+`browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
+`ticket.list`), and any task a hook starts.
 
 **Defences, in order.**
 
@@ -148,13 +169,120 @@ refer to `docs/PRD.md`.
    parent's, including what the parent's other sub-tasks read, and a task
    the owner makes from a ticket a run filed carries the ticket's words. A
    yes for a while never covers a call in tainted work, at any tier.
+5c. A yes for a schedule (0116) does cover tainted work, and only because it
+   is narrower than the taint: one schedule as it was defined when the yes
+   was given (a digest of its role, division, project, goal, account,
+   instruction and timing), one capability, and one action to the byte (the
+   same fingerprint as 4). What was read cannot have shaped an action every
+   byte of which the owner already approved; change one byte -- a recipient,
+   a word, an amount -- or the schedule, and the owner is asked. Never tier
+   3, never past ninety days, only with the owner's device, and only the
+   owner's console writes one (the application role counts uses).
+5d. A reply to a customer may go without the owner although the work began
+   with the customer's words (0117, `chat.send`'s `clearsOutside`), inside
+   bounds the capability checks before any model is asked: the owner turned
+   the channel on with their device; the reply goes to the conversation the
+   work began with; it names passages of documents the owner marked for
+   customers, read again from the company's records (the application role
+   cannot set the mark, nor the channel's switch); every figure, address and
+   link in it is in those passages or in what the customer wrote; six an hour
+   per conversation at most. Then a model shown the passages, the customer's
+   words fenced as data and the reply must say "send" with the one category
+   that sends; a refund, a price of its own, a complaint, the law, personal
+   data or a promise is the owner's card, and a model that cannot answer is
+   a no. The broker asks only at tier 2 and only where nothing else asks --
+   no policy, no guardian, no tier 3 -- so a policy the owner wrote is still
+   asked. What an injection in a customer's message can still do is choose
+   among what the owner published, and word it: it cannot add a figure, an
+   address or a link, nor reach anyone but that customer. A false statement
+   in plain words that the model misses goes out; each reply on its own is
+   marked in the conversation with what it answered from, and the owner
+   turns the channel off with their session.
+5d2. A reminder about an overdue invoice may go without the owner in work that
+   read content from outside (0130, `invoice.remind`'s `clearsOutside`),
+   because nothing in it is from outside. The capability takes the invoice and
+   no other field (a closed schema); the address is the invoice's, the figures
+   are the books', the words are the platform's in two languages, and the
+   customer's name, the one thing a stranger could have typed, is cut to one
+   line with every control and direction character dropped. It goes only when
+   the books say it is due -- overdue, still owed, not set aside by the owner,
+   its next step reached, a week since the last -- and each step is written
+   once under a lock on the invoice. What an injection can still do is make a
+   reminder go that was due anyway, to the address an invoice already named;
+   it cannot change who, what or when. An invoice issued to an address a
+   stranger chose is the invoice's problem (`invoice.issue` is tier 2), not
+   this letter's. A duty (src/duties) runs under a role's grants and the
+   broker's rules, with no model; only the platform can make its task (a key
+   no agent can derive).
+5e. A customer's first message files them under a record (0118): the one the
+   owner keeps with that mail address, or with that number -- every digit
+   when it was written with its country code, and otherwise only the
+   national digits with one to three of a country code before them. A
+   mail's From can be forged, so a stranger can be filed under a kept
+   customer and the work answering them reads that customer's record; the
+   forger never sees a reply, which goes to the address forged, and
+   anything else outward asks the owner, since the work read a customer's
+   words. A WhatsApp number is Meta's to vouch for. What `crm.read` returns
+   is outside content, and the application role adds a note and never
+   rewrites one.
+5f. An entry in the books written by work that had read outside content is
+   kept `outside` (0119), and `ledger.read` returns its memo fenced as data
+   and marks the work that reads it, as a lesson is (6). Every entry
+   balances, checked by the database at commit; the application role
+   inserts and never updates one, and adds no line to an entry another
+   transaction kept. The same holds for an invoice (0122): written by such
+   work it is kept `outside`, and `ledger.read` returns its customer, its note
+   and its lines fenced as data; the application role inserts invoices,
+   lines and payments and updates none; `invoice.issue` is tier 2, so that work
+   asks the owner (F8.9); and a payment recorded against an invoice is held to
+   being one -- assets debited, accounts receivable credited, no more than is
+   owed -- so a run cannot move the books with a made-up reference.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
    re-check redirects, and connect to the address they checked
-   (`src/capabilities/reachable.ts`).
-8. The console renders agent text as text. The owner's assistant only proposes
-   cards the owner applies (`src/owner/assistant.ts`).
+   (`src/capabilities/reachable.ts`). A company's browser does the same for
+   every request a page makes -- pictures, scripts, redirects -- through the
+   platform's proxy (`src/browser/egress.ts`), with Chromium resolving no
+   name itself and no exception for loopback. `web.extract` with no
+   provider chosen reads in that browser too, under the same proxy, in a
+   context made for the one reading and thrown away after it: no company's
+   sign-ins go with it, and nothing a page leaves reaches the next.
+   A PDF, a Word document or a workbook `files.read` reads is parsed in
+   that browser too, in a page of a context of its own set offline, never
+   in the platform's process (`src/browser/documents.ts`); a ZIP is
+   unpacked there counting what comes out, and refused past 32 MB.
+   A division's mailbox (`src/capabilities/mailbox.ts`) connects only to
+   the servers the owner gave in its key; a role chooses folders and words
+   to search for, never a host. Those words reach the server quoted or as
+   counted literals, and a line break in one is refused, so a role cannot
+   add an IMAP command; the folder is opened read-only.
+7b. The owner's own hand in the browser takes their device, holds the
+   company's work off the browser while it lasts, and lapses when left; what
+   they type goes to the page and to no event, journal or log
+   (`src/browser/holds.ts`, the `/browser` routes). A staff seat neither sees
+   nor takes the browser, and the assistant does not take it over.
+7a. A browser act does only what its card shows: on the page the role read,
+   to the elements it named, each checked by its name before anything is
+   done; a dialog is answered no unless the card said yes; a role never
+   types a password (`src/browser/browsers.ts`). The page script runs in a
+   world of its own, so a page's scripts cannot change what it reads.
+8. The console renders agent text as text: Markdown in it is read into a
+   tree by `console/src/markdown.ts` and drawn with the console's own
+   components (`Prose.tsx`), never turned into markup, so there is none to
+   run; an image is its words and nothing is fetched (an address is a way to
+   tell a stranger the page was opened); a link goes out only if it is http,
+   https or mail, in a tab told nothing of this one; and the reader is bounded
+   in length, lines, nesting and reach. The owner's assistant proposes
+   cards the owner applies (`src/owner/assistant.ts`), with one exception: the
+   everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
+   telling, stopping or rerunning a task; no device, no key -- is done as it is
+   proposed, **only in an answer that has read nothing an agent or a stranger
+   wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
+   settings). After a read of a task, an inbox item, a ticket, a message, a
+   memory or a document, the same action is a card, so text from outside cannot
+   have the assistant start work as the owner. A test names the actions, so
+   adding one is a decision.
 
 **Residual risk.**
 
@@ -170,6 +298,26 @@ refer to `docs/PRD.md`.
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the
   per-effect tier is the only answer.
+- A page can label its own buttons as it likes: a button that says "Batal"
+  and submits is clicked as "Batal". The card shows the page's own words.
+- A company's browser holds its sign-ins. A role with `browser.read` can open
+  any page those sign-ins reach, at tier 0; what it may change there is
+  `browser.act`, at tier 2.
+- A role may ask the owner for a key (`owner.ask` with `key`), and the card
+  leads to where keys are given. It may name only a key one of its own
+  division's capabilities signs in with, and is told when it is there,
+  never its value; a run persuaded to ask for anything else is refused
+  before the owner sees a card. What remains is the owner trusting a
+  convincing card: it says which capabilities the key is for.
+- A division's mailbox key reaches every message in the mailbox, and
+  `mailbox.read` is tier 0: a role granted it can read any of them, codes
+  a site sent included. What it may send is `email.send`, at tier 2.
+- A letter may carry files, named by path on the owner's card. They are read from this company's own
+  directory, never through a link out of it, and only from the folders of what the company made or was given
+  (never from what strangers sent, which is kept apart): a role that read an injection cannot send the owner's
+  contracts away by naming them, because the card says which files, and a file that is not in an allowed folder
+  is refused whatever it is called. What the card cannot say is what a named file holds at the moment of the
+  send; the journal keeps its hash.
 
 ### 2.3 A compromised or misbehaving runtime
 
@@ -262,6 +410,10 @@ refer to `docs/PRD.md`.
 3. The application role holds only the grants its code uses (0047).
 4. References between tenant tables are keys on `(company_id, id)` (0048).
 5. A factor enrolled for one company answers only there (`OwnerMfa.enrolled`).
+6. Each company's browser is a context of its own in Chromium -- its own
+   cookies, storage and cache -- and its cookies are sealed under a name made
+   from its id (`src/browser/`). One company's work never has a tab in
+   another's.
 
 **Residual risk.** The company is a setting the application role can set for
 itself: row level security stops a wrong query in platform code, not someone
@@ -319,6 +471,23 @@ redelivery after a restart or at another replica is taken in once.
 **Residual risk.** Whoever holds the owner's chat account has session-level
 authority below tier 3.
 
+#### 2.7.1 A stranger's file
+
+A customer's mail can carry files, and keeping one writes a stranger's bytes into the company's files
+(`src/chats/attachments.ts`, STATUS 2.171). **Defences.** The sender names nothing: the path is
+`received/mail/<yyyy-mm>/<first eight characters of the message's id>-<n>.<ext>`, made by the platform, and the
+extension is the kind the bytes turned out to be; the name they gave is kept apart, made plain and short, and
+is shown as data. The bytes decide (`sniffReceived`): a PDF, Word or Excel document, a picture, a recording or
+text is kept; a program, script, archive, SVG, pre-2007 or macro Office file and anything unrecognised is not.
+The file is created and never replaced, and not through a link; a link where the folder goes is found before
+anything is written beyond it. Five files a message, ten megabytes a file, fifteen a message, 2 GB a company
+and 500 MB a day. Nothing is opened or run: a document is read, if at all, in the sandboxed browser, and
+downloaded as an octet stream; `chat.read` is a read of outside content like any other, so the work it taints
+asks the owner at tier 2. The customer-facing role gets a customer's own files through `chat.read` and needs no
+`files.read` over the rest. **Residual risk.** A document is parsed by Chromium (no files, network or secrets in
+its context), now reachable by strangers; there is no virus scan and no retention, so personal data a stranger
+sends stays until the owner removes it; an export carries no file.
+
 ### 2.8 Supply chain
 
 - **Bundles and skills.** A signature that does not verify is refused; one from
@@ -342,6 +511,17 @@ authority below tier 3.
   advisory passes the audit; `pgvector/pgvector:pg16` in the compose files
   and `deploy/container-check`'s base are still by tag; and a pin is only as
   good as the review of the pull request that moves it.
+- **The price catalogue.** The platform reads models.dev daily for the models
+  in use (`src/engine/price-sync.ts`), through the same refusing fetch every
+  outbound call of the platform uses, and what it reads is data: a number per
+  model. What a poisoned or mistaken catalogue could do is make a model look
+  cheap and so stretch every budget. It cannot price anything at nothing (a
+  free or unlisted entry stays unpriced and is charged at the conservative
+  fallback), a price the owner typed or the operator's file gave is laid over
+  it, and the console shows which source set each price and what the last
+  reading changed. Residual: a low but non-zero price is believed, as the
+  owner's own typing would be; the cost recorded for a call is also the
+  provider's own `usage`, which the ceilings do not cross-check against a bill.
 
 ### 2.9 The operator's own mistakes
 
@@ -383,6 +563,16 @@ authority below tier 3.
   references as they were, and they are checked where they are resolved.
 
 ## 3. Out of scope, or not defended
+
+- Chromium itself. Its sandbox is on unless the operator turns it off
+  (`PALUGADA_BROWSER_SANDBOX=off`, said at every boot); with it off, a page
+  that breaks out of the renderer runs as the platform's user, with what
+  that user can read. In the image it is on: the compose files give the
+  container Docker's own seccomp profile with user namespaces allowed
+  (`deploy/docker/seccomp-chromium.json`), and CI checks that a page renders
+  in a namespace of its own. The cost is that any process in that container
+  -- an agent CLI among them -- may make a user namespace too, which is
+  more of the kernel to reach than Docker's default allows.
 
 - A compromised host, kernel, container runtime or Node process.
 - An operator with the database superuser or schema owner: they can drop the
@@ -430,6 +620,12 @@ All under `test/acceptance/` unless named.
 | Migration contents unchanged | `process.test.ts` |
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
+| A reply on its own: the owner's device, its own conversation, marked passages, no new figure or address, six an hour, a check that fails closed | `answers-alone.test.ts` |
+| Customer records: filed by address or by a whole number, another company's never found, a note never rewritten | `customer-records.test.ts` |
+| The books: every entry balances at commit, none rewritten or added to, an outside memo read as data | `books.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
+| The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |
+| The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
+| A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |

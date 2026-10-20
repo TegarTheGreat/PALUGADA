@@ -93,6 +93,10 @@
 .org-sub::after { content: ''; position: absolute; inset-inline-start: 12px; top: 49px; width: 14px; height: 2px; background: var(--org-line); }
 
 .clickable-row { cursor: pointer; }
+/* A row of a list drawn as rows on a phone, where a table would not fit. */
+.work-row { display: block; width: 100%; border-bottom: 1px solid var(--mantine-color-default-border); }
+.work-row:last-child { border-bottom: 0; }
+.work-row:hover { background: var(--mantine-color-default-hover); }
 
 .signin-art {
   background:
@@ -140,7 +144,16 @@ body { background: var(--mantine-color-body); }
 .kpi:not(:disabled):hover { background: var(--mantine-color-default-hover); }
 /* Two figures share a phone's width: the room goes to the figure, not the padding. */
 @media (max-width: 36em) {
-  .kpi { padding: 14px 16px; }
+  .kpi { padding: 14px 16px; container-type: inline-size; }
+  /* A number is never broken -- "US$200,0" over "0" -- but drawn small enough
+     to fit its card: a digit is about 0.62 of the type's size, so the size is
+     the card's width over its characters, at most the usual 28 pixels.
+     Important, because the figure's size is an inline style (Mantine's `fz`). */
+  .kpi-value[data-figure] {
+    white-space: nowrap;
+    overflow-wrap: normal;
+    font-size: min(28px, calc(160cqi / var(--figure-length, 8))) !important;
+  }
 }
 @media (max-width: 62em) {
   .kpi:nth-child(odd) { border-inline-start: 0; }

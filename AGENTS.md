@@ -27,15 +27,20 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 |---|---|
 | `src/engine/` | tasks and their state machine, the journal, checkout and leases, budgets, contracts, handoffs |
 | `src/broker/` | the capability registry, the catalogue and its tiers, preflight, cost |
-| `src/runtime/` | the runtime protocol and the runtimes (in-process, CLI agents, containers, HTTP) |
+| `src/runtime/` | the runtime protocol and the runtimes (in-process, CLI agents, containers, HTTP, and a person: `person.ts`) |
 | `src/owner/` | the owner API (`api.ts`), its read models (`views.ts`), sign-in, second factor, push, Telegram, the owner's assistant (`assistant.ts`) |
 | `src/settings/` | what the owner sets for the whole deployment in the console, the secrets it seals, and how both are laid over the environment |
-| `src/context/builder.ts` | what every run is told, in order: charters, language, skills, memory, goals, working memory |
+| `src/context/builder.ts` | what every run is told, in order: charters, language, skills, memory, goals, where the task stands, working memory |
 | `src/domain/` | goals, languages, the task state machine |
 | `src/inbox/` | approvals, incidents, escalations |
+| `src/chats/` | customers' conversations: the channels they write on, what arrives, and the Telegram, WhatsApp and mailbox transports |
+| `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
+| `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
+| `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
+| `src/templates/` | what a company starts from: `founding.ts`, the CEO and nothing else; `work.ts`, what every role is built from. A team is the CEO's to build, and `test/helpers/standard-team.ts` is the full company the tests that need one use |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem and a role's picture |
@@ -115,9 +120,19 @@ Each of these is a test, and each exists because the mistake was made once.
   names ships in `console/public`. `test/documents/console-images.test.ts`.
 - **The console stores nothing in the browser.** The session lives in memory;
   preferences live in the owner API.
+- **The console fits a phone.** Drawn in Chromium at 390 pixels, the work,
+  the money and the overview have nothing wider than the screen, nothing
+  that scrolls sideways, no badge cut and no figure broken.
+  `test/acceptance/console-phone.test.ts`, which skips where no Chromium is
+  installed; `PALUGADA_CHROMIUM` names one.
 - **Every column of an exported table is exported**, or listed with a reason
   in `test/acceptance/audit-export.test.ts`.
 - **Every requirement in the PRD appears in `docs/STATUS.md`.**
+- **A version is one number everywhere**: `package.json`, its lockfile and
+  the newest section of `CHANGELOG.md`. A change an owner or an operator
+  would notice adds its line to that section; releasing it is
+  `node scripts/release.ts`, as `docs/RELEASING.md` says.
+  `test/documents/release.test.ts`.
 - **Nothing in `src/` is exported and reachable only from tests.**
   `test/documents/reachability.test.ts` keeps an inventory.
 - **Tests run one file at a time** (`--test-concurrency=1`): they share one
@@ -144,6 +159,8 @@ Each of these is a test, and each exists because the mistake was made once.
    push branches and open pull requests, and nothing more.
 3. Give the platform engineer a task: a requirement, a defect, a gap from
    `docs/STATUS.md`.
-4. It works on a branch, runs `npm run check`, and opens a pull request. The
-   platform reviewer reads it against the criteria in its skill before the
-   branch is pushed. Nothing reaches the main branch without you merging it.
+4. It works on a branch and opens a pull request. It cannot run `npm run check`
+   itself -- its runtime has no shell, only the platform's tools -- so CI does,
+   and the pull request is held to it. The platform reviewer reads it against
+   the criteria in its skill before the branch is pushed. Nothing reaches the
+   main branch without you merging it.

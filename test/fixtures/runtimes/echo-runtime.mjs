@@ -135,6 +135,25 @@ async function act(req) {
     say({ type: 'done', output: { answer, failed: [{ capability: 'dns.write', why: 'It was refused, and the work did not need it.' }] } });
     return;
   }
+  if (script === 'resume_reworded') {
+    // An agent resumed after the owner answered, as an agent CLI is: it reads
+    // what it already did and goes on in its own order and its own words.
+    const did = new Set((req.contextPack?.workingMemory ?? []).map((step) => step.name));
+    if (!did.has('capability:dns.write')) {
+      await callTool('plan.record', {
+        steps: [{ capability: 'dns.write', intent: 'point the apex at the new host', expectedEffect: 'the zone has the new record' }],
+      });
+      await callTool('dns.write', { zone: 'example.com' });
+      const asked = await callTool('owner.ask', { question: 'Which host should the apex point at?' });
+      say({ type: 'done', output: { asked } });
+      return;
+    }
+    const answer = await callTool('owner.ask', { question: 'Which host should the apex point at?' });
+    const write = await callTool('dns.write', { zone: 'example.com' });
+    const read = await callTool('dns.read', { zone: 'example.com.' });
+    say({ type: 'done', output: { answer, write, read } });
+    return;
+  }
   if (script === 'call_forbidden') {
     const answer = await callTool('dns.write', { zone: 'example.com' });
     // A write that was refused is named, as the contract asks of every run

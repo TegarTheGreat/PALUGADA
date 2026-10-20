@@ -408,6 +408,26 @@ async function assertRoleIsNotFrozen(tx: TenantClient, roleId: string): Promise<
 }
 
 /**
+ * The same refusal for work one task hands another role, said to the task
+ * that asked and marked as being about that other role (`delegated`).
+ *
+ * The run that asked is not stopped: its own role works. Read as its own
+ * role's freeze, it parked the task to wait for a role nobody had paused, and
+ * nothing called it back (the review of 20 October). Shown to the run, it can
+ * hand the work to another role, or say it waits.
+ */
+async function assertDelegateIsNotFrozen(tx: TenantClient, roleId: string): Promise<void> {
+  if (!(await isRoleFrozen(tx, roleId))) return;
+  const { rows } = await tx.query<{ slug: string; frozen_reason: string | null }>(
+    'SELECT slug, frozen_reason FROM roles WHERE id = $1', [roleId]);
+  const role = rows[0]?.slug ?? roleId;
+  throw new PalugadaError('role.frozen',
+    `role ${role} is paused${rows[0]?.frozen_reason ? ` (${rows[0].frozen_reason})` : ''} and takes no work now: `
+      + 'hand the work to another role, or say it waits for this one',
+    { roleId, delegated: true });
+}
+
+/**
  * Refuses to defer work that can change something (F9.5).
  *
  * F9.5 restricts batching to tier 0, and the tier is read from the registry
@@ -470,7 +490,7 @@ export async function createSubTask(
 
     // A frozen role takes no delegated work either, or a parent could route
     // around the freeze simply by handing the task down.
-    await assertRoleIsNotFrozen(tx, input.roleId);
+    await assertDelegateIsNotFrozen(tx, input.roleId);
     await assertRoleIsComplete(tx, input.roleId);
     if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 

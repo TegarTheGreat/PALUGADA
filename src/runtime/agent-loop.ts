@@ -91,6 +91,16 @@ const ENDS_THE_RUN: ReadonlySet<string> = new Set([
   'capability.verify_failed', 'run.limit',
 ]);
 
+/**
+ * Whether what a tool call threw ends the run. A paused role is one of those
+ * when it is the run's own; work handed to another role that is paused is
+ * the run's to hear about, so it can hand the work elsewhere (tasks.ts,
+ * assertDelegateIsNotFrozen).
+ */
+function endsTheRun(error: unknown): boolean {
+  return error instanceof PalugadaError && ENDS_THE_RUN.has(error.code) && error.details.delegated !== true;
+}
+
 function bounded(text: string): string {
   if (text.length <= TOOL_RESULT_LIMIT) return text;
   return `${text.slice(0, TOOL_RESULT_LIMIT)}\n... [cut short: the result was ${text.length} characters]`;
@@ -258,7 +268,7 @@ export async function runAgentLoop(
       return reply.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n');
     },
     // What ends a run ends it here too; anything else about the writing is a reason to list the calls instead.
-    endsTheRun: (error) => services.signal.aborted || (error instanceof PalugadaError && ENDS_THE_RUN.has(error.code)),
+    endsTheRun: (error) => services.signal.aborted || endsTheRun(error),
   });
 
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
@@ -452,7 +462,7 @@ async function answer(
     };
   } catch (error) {
     if (services.signal.aborted) throw error;
-    if (error instanceof PalugadaError && ENDS_THE_RUN.has(error.code)) throw error;
+    if (endsTheRun(error)) throw error;
     const code = error instanceof PalugadaError ? `${error.code}: ` : '';
     return {
       type: 'tool_result', toolUseId: call.id, isError: true,

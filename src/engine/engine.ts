@@ -1789,8 +1789,12 @@ export class Engine {
     }
 
     // A role stopped while its task ran: the task waits for the role, as it
-    // would have had the role been stopped a moment sooner.
-    if (code === 'role.frozen') return this.#waitForRole(companyId, taskId, settled.roleId);
+    // would have had the role been stopped a moment sooner. Not when the
+    // paused role is one it handed work to: its own role works, and waiting
+    // for it would wait for nothing (an ordinary failure, said to the owner).
+    if (code === 'role.frozen' && (error as PalugadaError).details.delegated !== true) {
+      return this.#waitForRole(companyId, taskId, settled.roleId);
+    }
 
     if (code === 'platform.stopped' || code === 'company.frozen') {
       const current = await withTenant(companyId, (tx) => getTask(tx, taskId));

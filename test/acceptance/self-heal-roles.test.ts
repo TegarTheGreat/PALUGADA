@@ -29,7 +29,10 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { AdapterRegistry } from '../../src/runtime/protocol.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
+import { addRole, createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { answering } from '../helpers/done.ts';
+import { ScriptedModel, say, use } from '../helpers/scripted-model.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -286,6 +289,33 @@ test('a role stopped in the middle of a run parks the run instead of failing it'
   const done = await engine.runTask(fixture.companyId, task.id, 'worker');
   assert.equal(done.status, 'completed', done.reason);
   assert.equal(runs, 2);
+});
+
+test('work handed to a role that is paused is refused to the run, which hands it elsewhere: its own role is not paused', async () => {
+  const fixture = await createCompany('heal-target');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'task.delegate');
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET tools = ARRAY['task.delegate'] WHERE id = $1", [fixture.roleId]));
+  const designer = await addRole(fixture, 'designer');
+  await pauseRole(fixture.companyId, designer, 'on leave');
+
+  const model = new ScriptedModel([
+    use('call-1', 'task__delegate', { role: 'designer', brief: 'Draw the new label. Done is a PNG of it.' }),
+    (request) => say(answering(request.system, { summary: 'The designer is paused; the label waits for them.' })),
+  ]);
+  const task = await newTask(fixture);
+  const outcome = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'heal-target', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  // On main this failed the task through its attempts; since role.frozen
+  // parked a task for its own role, it parked this one for good -- its own
+  // role works, and nothing would ever call it back.
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const answered = JSON.stringify(model.requests[1]!.messages.at(-1));
+  assert.match(answered, /task\.delegate was refused/);
+  assert.match(answered, /designer/);
+  assert.match(answered, /another role/);
 });
 
 test('a role that cools off calls back the work that waited for it', async () => {

@@ -11119,7 +11119,7 @@ A model down for an afternoon, a vendor's outage, or a credential that expired o
 
   Also in `control-plane.test.ts` (the never-set default is the CEO for 60 minutes), `audit-export.test.ts` (`escalation_set` exported, and inferred for an older archive) and `founding-company.test.ts`. Each new test was seen to fail first.
 - **Not done.**
-  - The owner's card is titled for its first task and lists the others under Work that stopped (`stopped` on the inbox item, 2.186), but does not mark which of them the owner has already run again. The card closes only once every task on it has been run again.
+  - The owner's card is titled for its first task and lists the others under Work that stopped (`stopped` on the inbox item, 2.186), but does not mark which of them the owner has already run again. Running them again closes the card only with the last of them (`closeCardsRunAgainAnswers`), so until then every one stays listed. The owner's own answer on the card, or a fix the CEO completes, also closes it.
   - A child the CEO delegates and does not await can fail after the CEO completed. It is not a root task, so it is silent.
   - A failure that recurs, such as a daily schedule, opens a new card and a new CEO run each time.
   - The brief's not-done path may lead the CEO to `owner.ask`, putting a second card before the owner while the first is held.

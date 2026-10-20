@@ -355,6 +355,19 @@ The first version. What it holds, in the order an owner meets it.
 - When the company lacks a role, the CEO proposes the hire, and you see it at once as a card. *Hire it with the
   CEO* opens your conversation with the proposal ready to send; *Not needed now* closes it. The board marks a
   proposed hire, and it is never handed out as ordinary work (STATUS 2.181).
+- Work its budget stopped goes on by itself only when somebody still waits for it: not after you pressed *Run
+  again* (no more work done twice), not for a child whose parent failed, and never past the room of a company
+  account two divisions share. A role you pause stays paused, even one the spending breaker had stopped first
+  (STATUS 2.182).
+- Seating a person, and connecting Telegram, WhatsApp, push, Slack, Discord or email, now asks for your
+  authenticator code at that moment, as adding a device does; nothing else does (STATUS 2.182).
+- Calls are charged at the price you see: a model a provider answers under a dated name (OpenAI's "gpt-5-2025-08-07")
+  was charged the highest rate; fractions of a cent stay with the division that spent them (STATUS 2.182).
+- Reminders for overdue invoices run as the platform's own procedure whatever the sending role runs on, never hire a
+  second bookkeeper, count days in the company's time zone, go to the address you add to a customer, and never write
+  "How to pay: undefined" (STATUS 2.182).
+- You can remove files customers sent (under Files, received), which frees the room they take; invoice PDFs print
+  after the 500th; mail attachments arrive whole from servers that only estimate a message's size (STATUS 2.182).
 - Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
   same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
   for a minute instead of failing at fifteen seconds (STATUS 2.179).

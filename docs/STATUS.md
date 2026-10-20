@@ -10874,6 +10874,78 @@ goal-level cadence was listed here as not done since the audit of 3 October (P1 
 - **Not done.** Whether a real model, woken this way, does useful work rather than busy work is the next live run's
   to show (2.24 is the last). Hiring still takes the owner's word, by design (F2.9).
 
+## 2.182 What a review of the whole pull request found, and what it changed (20 October)
+
+A review of everything this branch adds -- ten reviewers, each over one area of the diff, then two skeptics for each
+finding, one trying to reproduce it and one looking for what already guards it -- found sixty-one defects. Three were
+refuted: one about invoice.remind sending twice, which 2.180 had already fixed, one about a ceiling the product cannot
+create, and one about prompt caching that is a cost choice, not a fault (it is taken up below anyway). Every other one
+was given a test that failed for the reason found before its fix. Two helpers worked on the console, files, mail and
+the collections duty in worktrees with databases of their own, and a second review of the fixes found five more, also
+fixed. None needed a migration.
+
+- **Work the budget stopped goes on only when somebody still waits for it, within the room of every account above
+  it (`src/engine/self-heal.ts`).** The platform went on with a task the owner had already run again -- the same work
+  twice, an email sent twice -- and with a child whose parent had failed or been cancelled. It took the 25 oldest
+  stopped tasks before asking which could go on, so a paused role's backlog kept every newer task waiting for good.
+  It counted room per account while room is the whole chain's, so two divisions under one company account each
+  spent the company's room. Now a task run again (by its event, or in the moment before, by the new task's key) and a
+  child whose parent was given up are left for the owner; a parent that *completed* abandons nothing (a follow-up, a
+  hand-off's successor, work handed down -- the second review's find); those that cannot go on are sorted after the
+  rest; every account in a chain gives up a run's worth for each task that goes on; and one look at a time runs for
+  a company, under a session advisory lock.
+- **The owner's pause is the owner's.** Pausing a role the spend breaker had already stopped was accepted and
+  dropped, and the role went back to work when the burst cooled. The pause now takes the freeze over.
+- **Work handed to a paused role is refused to the run that handed it.** The refusal for the child's role was read as
+  the parent's own role being paused, and the parent waited, woken hourly, for good. The model is now told, and can
+  hand it elsewhere.
+- **Money below a cent is carried for the account it is charged to.** One carry for the company turned one
+  division's fractions into another's whole cent; a fallback model's bill forgave what the first model's calls still
+  owed. A run, the guardian and `image.describe` now carry per account, and a fallback starts its own count.
+- **A provider's dated snapshot is priced as the model asked for.** "gpt-5" answered as "gpt-5-2025-08-07" matched no
+  price and was charged the fallback, about twelve times its input price. A name's price covers its dated snapshots,
+  and only those. A catalogue that could not be read is tried again an hour later, not every five minutes.
+- **A run's last turn after going round in circles no longer fails on Anthropic.** It was sent with no tools and its
+  tool calls, which Anthropic and Bedrock refuse with a 400. The calls are told in words for that turn.
+- **A person's answer is the work done**, though the person was unseated before the task went on, and the output says
+  who answered -- the person, or the owner in their place.
+- **What lets someone new in for good takes a code at the moment.** Seating a person and connecting a channel the
+  owner is reached and answered on (Telegram, WhatsApp, push, Slack, Discord, email) ask for the device when they are
+  done, as enrolling a device does: a stolen session could otherwise keep access after "sign out everywhere"
+  (`docs/THREAT-MODEL.md`). Nothing else asks again.
+- **The assistant.** A check's answer (an MCP server's own tool descriptions) counts as an outsider's words, so the
+  action after it is a card. "Start a company" no longer names the removed `standard-company` template. Two tabs make
+  one CEO briefing between them (a lock; the test holds the table so the two writes meet).
+- **What a seat reads.** The decisions' history leaves out questions put to another seat, as the queue does.
+- **Roles.** A role is not moved onto a person, nor a person's role onto a runtime, with the reason said; the console
+  offers neither, and on a deployment that runs only people it says no runtime runs here.
+- **Anthropic's cache.** A single question no longer marks its message for a cache nothing will read (a quarter more
+  than its price); a run's turns and every system prompt still are.
+- **Mail and received files.** Whether a mail was cut short is decided by the bytes the server sent, not by
+  RFC822.SIZE, which Exchange only estimates; a file's size is counted from its base64 alphabet; a file of one to three
+  bytes no longer fails, and "SELF..." is not a program; a mail that is only a forwarded letter or an invitation starts
+  work again; two writers making the same folder no longer lose a file. The owner can remove what strangers sent
+  (`received/`), which frees the company's room for it -- before, it could never be freed -- and what `code.compute`
+  makes from such a file stays under `received/`, where no letter takes it from.
+- **Invoices.** PDFs print after the 500th (the uploads' limit no longer holds the invoices folder), and a PDF a crash
+  cut short is drawn again. The export writes date columns as days, so an archive made east of UTC restores its dates.
+- **Collections (2.178).** The duty runs as its procedure whatever its role's runtime, and when run again: the engine
+  resolves a duty before it chooses a runtime. Switching reminders on grants only what reminding takes, never hires a
+  second bookkeeper (a paused one is given the tool, a person keeps the job, and the console says who cannot send),
+  and asks a recovery session for the device. The look uses an open project, reads every overdue invoice oldest
+  first, counts days on the company's time zone, makes no second task while one is live, sends to the address added
+  to the customer after the "no email" card, says the "nobody reminds" card once, and counts staleness from the first
+  letter's day, so a first step past sixty days is sent. A payment note longer than a letter carries is refused, not
+  cut, and an empty one is no longer saved as the word "undefined".
+- **The console.** "Check the prices now" no longer leaves the old prices in the boxes for Save to pin as the owner's
+  own; a company named in another script can be started; the console lands on a new company's overview; an offered
+  answer sends its files, and a removed file can be chosen again; file sizes are in the owner's language and in the
+  megabytes the limits use.
+- **Not done.** Saving the reminders' policy and giving the tool are still two transactions: an unexpected error
+  between them leaves reminders on with nobody to send them, which the look then says on its card. A rerun pressed in
+  the same instant the platform goes on with the task can still run both. Telegram and WhatsApp media are still not
+  kept (next).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

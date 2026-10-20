@@ -59,10 +59,18 @@ export function reminderAddress(issuedTo: string | null, contactNow: string | nu
   return contactNow !== null && pattern.test(contactNow) ? contactNow : null;
 }
 
+/**
+ * Where a reminder goes, by the rule the look uses (`reminderAddress`): the
+ * address the invoice was issued with when a letter can go there, else the
+ * customer's as it is now. The customer was read only when the invoice had no
+ * address at all, so one issued with an address no letter can go to was never
+ * sent to the one the owner then gave the customer (the review of 20 October).
+ */
 async function addressOf(tx: TenantClient, companyId: string, invoice: { customerEmail: string | null; contactId: string | null }): Promise<string | null> {
-  if (invoice.customerEmail !== null || invoice.contactId === null) return reminderAddress(invoice.customerEmail, null);
+  const issued = reminderAddress(invoice.customerEmail, null);
+  if (issued !== null || invoice.contactId === null) return issued;
   const { rows } = await tx.query<{ email: string | null }>('SELECT email FROM contacts WHERE company_id = $1 AND id = $2', [companyId, invoice.contactId]);
-  return reminderAddress(null, rows[0]?.email ?? null);
+  return reminderAddress(invoice.customerEmail, rows[0]?.email ?? null);
 }
 
 export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: string }, RemindResult> {

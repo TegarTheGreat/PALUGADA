@@ -238,6 +238,29 @@ test('an address the owner gives the customer after the card is where the remind
   }
 });
 
+test('an invoice issued to an address no letter can go to is sent to the one the owner gives the customer after', { skip: SKIP }, async () => {
+  // Found reviewing the fix above: the look took the customer's address when
+  // the one the invoice was issued with could not be written to, but
+  // invoice.remind read the customer only when the invoice had no address at
+  // all, so it said "no email" every day and nothing was sent.
+  const fixture = await createCompany('duty-bad-email');
+  const { smtp, engine, close } = await office(fixture);
+  try {
+    await withTenant(fixture.companyId, (tx) => setPolicy(tx, fixture.companyId, { stepsDays: [3] }));
+    const contactId = await withTenant(fixture.companyId, (tx) => addContact(tx, fixture.companyId, { name: 'Hotel José', email: 'josé@hotel.example' }, 'owner'));
+    await overdue(fixture, 5, { customerName: 'Hotel José', customerEmail: 'josé@hotel.example', contactId });
+    assert.equal((await ensureCollections(fixture.companyId, later())).escalated, 1, 'the owner is told there is nowhere to send it');
+    await withTenant(fixture.companyId, (tx) => changeContact(tx, fixture.companyId, contactId, { email: 'jose@hotel.example' }, 'owner'));
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.ok(look.task);
+    const outcome = await engine.runTask(fixture.companyId, look.task!, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    assert.deepEqual(smtp.sent.map((one) => one.to), [['jose@hotel.example']]);
+  } finally {
+    await close();
+  }
+});
+
 test('an invoice issued to a name with no address is the owner\'s to follow up, and the card does not ask for what cannot be given', { skip: SKIP }, async () => {
   const fixture = await createCompany('duty-no-contact');
   const { close } = await office(fixture);

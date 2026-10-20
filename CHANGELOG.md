@@ -374,29 +374,35 @@ The first version. What it holds, in the order an owner meets it.
 - Telling the CEO "remember this", or giving it a figure, is done at once as your own word, with no card to press.
   Telegram and WhatsApp show the words or the number kept under the answer, and the same thing said again is kept
   once. A reviewer stopped by its budget waits while the budget card is open instead of raising a second card, and
-  goes to you once no card covers it. You are no longer offered procedures for the platform's own tools or for its
-  duties (STATUS 2.184).
+  goes to you once no card covers it. Other work a budget stopped is not put to your CEO while its budget card is
+  open. You are no longer offered procedures for the platform's own tools or for its duties (STATUS 2.184).
 - Cards that only told you something now close themselves once it is handled. A day's spending, failure-rate or
   refusal card closes a whole day after it reached you, and its Telegram message keeps the figure. Last month's 80%
   warning closes in the new month, or when the "paused" card takes its place. A stopped task's own cards close when
   you press *Run again*. A run whose worker stopped is now a line of the daily digest, not an urgent card. A failed
   read-back or a capability that stopped working raises only its own card, and a failed read-back's card is never
-  lost if the worker stops. The alert thresholds no longer take `verificationFailuresPerDay` (STATUS 2.185).
+  lost if the worker stops. Such cards left open by the upgrade, or in a company restored from an older archive,
+  close the same way, and a card's Telegram message and its line in History say why it closed. The alert thresholds
+  no longer take `verificationFailuresPerDay` (STATUS 2.185).
 - A model or a service that stays down, or a capability whose check fails for good (a refused credential), no
   longer halts every task in flight with a card of its own. The work waits, looking again up to an hour apart for
   up to a day. There is one card for the cause, raised again if the cause comes back. The card closes itself and
   the waiting work goes on by itself when the cause passes. Work still waiting after a day stops and is listed on
-  the card, to open and run again. Saving a model key now calls back the work waiting for it (STATUS 2.186).
+  the card, to open and run again; the card stays for that work once the cause passes, and the next outage has a
+  card of its own. Saving a model key now calls back the work waiting for it (STATUS 2.186).
 - A task of a role you hired that ends without being done now goes to your CEO first, for an hour, in every
   division where you have not named someone else or nobody under Who hears about trouble first. The CEO is told of
   every task on the card. A fix closes the card, which stays readable; when the CEO cannot fix it, it says why and
-  the card is yours. Naming the CEO there follows the title when you appoint another (STATUS 2.187).
+  the card is yours. Running the work on it again, or going on with it, stops the CEO once nothing on the card is
+  left, and tells it what was taken up while some is still stopped. Naming the CEO there follows the title when you
+  appoint another (STATUS 2.187).
 - Work handed out from your own backlog no longer asks you before every letter or payment just because a run wrote
   the ticket. This holds whether the CEO's triage or you on the board hands it out. Only a ticket filed by work
   that had read something from outside (a customer's message, a web page, a mailbox) makes the work it leads to
   ask, and it asks the same way whoever hands it out. The board shows which tickets those are, a ticket never
-  becomes clean once filed, and an archive from an older version restores every ticket as from outside
-  (STATUS 2.188).
+  becomes clean once filed, and an archive from an older version restores every ticket as from outside. When you
+  come back, the CEO names only work you wrote yourself; work from a ticket a run filed, a schedule's run you
+  started, or a run again of either is counted, not quoted (STATUS 2.188).
 - Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
   same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
   for a minute instead of failing at fifteen seconds (STATUS 2.179).

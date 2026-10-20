@@ -410,6 +410,9 @@ test('only everyday work, and building the team in the app, is done at once; nev
     '/api/companies/:companyId/goals/:goalId',
     // Leaving one invoice out of the reminders is a tightening: fewer letters to a customer, at the owner's word.
     '/api/companies/:companyId/invoices/:invoiceId/reminders',
+    // What the owner says to remember, and a figure they give: their own word, as the console's forms write it.
+    '/api/companies/:companyId/memories',
+    '/api/companies/:companyId/metrics/:metricId/observations',
     '/api/companies/:companyId/projects',
     '/api/companies/:companyId/roles',
     '/api/companies/:companyId/roles/:roleId',

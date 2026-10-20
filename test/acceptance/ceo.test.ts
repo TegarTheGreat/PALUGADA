@@ -22,6 +22,7 @@ import { createCompanyFromTemplate, saveTemplate, type CompanyTemplate } from '.
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
+import { defineMetric } from '../../src/domain/metrics.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -313,6 +314,97 @@ test('the owner talks to a company through its CEO: in its name and persona, abo
     assert.equal(cleared.status, 200);
     assert.deepEqual((await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages, []);
     assert.equal((await api.call('GET', '/api/assistant', token)).body.messages.length, 2, 'PALUGADA\'s is still there');
+  } finally {
+    await api.close();
+  }
+});
+
+/*
+ * The owner-load review (P5). "Remember that the supplier closes on Fridays"
+ * and "we had 42 orders this week" are the owner's own word: the console's
+ * Memory page and a measure's form write them as the owner's at once. Told
+ * to the CEO, each was a card the owner had to press after the answer -- in a
+ * chat, a button to come back to. Done at once now, under the guard every
+ * action done at once is held to: an answer that read nothing an agent or a
+ * stranger wrote.
+ */
+test('the CEO remembers what the owner tells it to, and records the figure they give, at once and as theirs', async () => {
+  const fixture = await createCompany('ceo-remembers');
+  const metricId = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'orders', name: 'Orders a week', unit: 'count', target: 500,
+  });
+  const model = new ScriptedModel([
+    // The company's own structure, where the measure's id is: no one else's words.
+    uses(['read', { path: `/api/companies/${fixture.companyId}/structure` }]),
+    uses(
+      ['propose', {
+        path: `/api/companies/${fixture.companyId}/memories`,
+        body: { body: 'The supplier closes on Fridays.', kind: 'semantic' },
+        summary: 'Remember that the supplier closes on Fridays.',
+      }],
+      ['propose', {
+        path: `/api/companies/${fixture.companyId}/metrics/${metricId}/observations`,
+        body: { value: 42, note: 'counted by the owner' },
+        summary: 'Record 42 orders this week.',
+      }],
+    ),
+    says('Sudah saya ingat dan catat.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', `/api/companies/${fixture.companyId}/conversation/messages`, token,
+      { text: 'Ingat, pemasok tutup tiap Jumat. Pesanan minggu ini 42.' });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    const system = model.requests[0]!.system;
+    assert.match(system, /remembering what the owner tells you to and recording a figure they give/,
+      'the CEO is told these are its to do, not a card');
+    assert.match(system, /POST \/api\/companies\/:companyId\/memories -- Remember what the owner told you to remember, in their words/);
+
+    const [remembered, recorded] = results(model, 2);
+    assert.match(remembered!.content, /^Done: Remember that the supplier closes on Fridays\. \{"id"/);
+    assert.match(recorded!.content, /^Done: Record 42 orders this week\. \{"id"/);
+    const [, answered] = said.body.messages;
+    assert.deepEqual(answered.proposals.map((one: { status: string }) => one.status), ['applied', 'applied'], 'no card to press');
+
+    // Written as the console's own forms write them: the owner's word.
+    const { rows: memories } = await withTenant(fixture.companyId, (tx) => tx.query<{ source: string; confidence: number; approval_state: string }>(
+      "SELECT source, confidence, approval_state FROM memories WHERE body = 'The supplier closes on Fridays.'"));
+    assert.deepEqual(memories, [{ source: 'owner', confidence: 1, approval_state: 'active' }]);
+    const { rows: told } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string }>(
+      "SELECT actor FROM events WHERE type = 'memory.told'"));
+    assert.deepEqual(told, [{ actor: 'owner' }]);
+    const { rows: observed } = await withTenant(fixture.companyId, (tx) => tx.query<{ value: string; recorded_by: string; verified: boolean }>(
+      'SELECT value::text AS value, recorded_by, verified FROM metric_observations WHERE metric_id = $1', [metricId]));
+    assert.deepEqual(observed, [{ value: '42', recorded_by: 'owner', verified: true }]);
+  } finally {
+    await api.close();
+  }
+});
+
+test('after reading what the company remembers, what the owner said to remember waits on a card', async () => {
+  const fixture = await createCompany('ceo-remembers-after-reading');
+  const model = new ScriptedModel([
+    // What the company remembers holds what runs learned: other people's words.
+    uses(['read', { path: `/api/companies/${fixture.companyId}/memories` }]),
+    uses(['propose', {
+      path: `/api/companies/${fixture.companyId}/memories`,
+      body: { body: 'The supplier closes on Fridays.', kind: 'semantic' },
+      summary: 'Remember that the supplier closes on Fridays.',
+    }]),
+    says('Kartunya ada di atas.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', `/api/companies/${fixture.companyId}/conversation/messages`, token,
+      { text: 'Ingat, pemasok tutup tiap Jumat.' });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    assert.match(results(model, 2)[0]!.content, /^Proposed as a card, not done: this answer has read what agents or others wrote/);
+    assert.equal(said.body.messages[1].proposals[0].status, 'open');
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query(
+      "SELECT 1 FROM memories WHERE body = 'The supplier closes on Fridays.'"));
+    assert.equal(rows.length, 0, 'nothing is remembered until the owner presses it');
   } finally {
     await api.close();
   }

@@ -668,7 +668,7 @@ export class Engine {
     // the role's runtime an agent decided for itself what to write to
     // customers. As this process's own code it is journalled by place and
     // calls what its procedure calls, as an in-process handler does.
-    const duty = await withTenant(companyId, (tx) => dutyOf(tx, task));
+    const duty = await dutyOf(companyId, task);
     const configured = await this.#loadRuntimeConfig(companyId, task.roleId);
     const runtime = duty ? { ...configured, runtime: 'in-process' } : configured;
     const adapter = duty ? new DutyRuntime(duty) : this.#adapters.get(runtime.runtime);

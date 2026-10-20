@@ -18,7 +18,7 @@
  * delegates a task cannot give it such a key, and one that writes `duty` in
  * its input only writes a field.
  */
-import type { TenantClient } from '../db/tenant.ts';
+import { withTenant } from '../db/tenant.ts';
 import type { TaskContext, TaskHandler } from '../runtime/in-process.ts';
 import type { Adapter, AdapterHealth, AdapterResult, ExecutionBackend, RunRequest, RunServices } from '../runtime/protocol.ts';
 import type { TaskRow } from '../engine/tasks.ts';
@@ -44,12 +44,12 @@ export function dutyFor(task: Pick<TaskRow, 'idempotencyKey'>): TaskHandler | nu
  * again, followed back through reruns of reruns. Without it a rerun of a duty
  * was its role's work, and a model was handed the duty's input as a brief.
  */
-export async function dutyOf(tx: TenantClient, task: Pick<TaskRow, 'idempotencyKey'>): Promise<TaskHandler | null> {
+export async function dutyOf(companyId: string, task: Pick<TaskRow, 'idempotencyKey'>): Promise<TaskHandler | null> {
   const own = dutyFor(task);
   if (own || !task.idempotencyKey.startsWith('rerun:')) return own;
   // The CASE, not a WHERE beside the join: it is what keeps a key that is not
   // a rerun's from ever being read as an id.
-  const { rows } = await tx.query<{ key: string }>(
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ key: string }>(
     `WITH RECURSIVE back AS (
        SELECT $1::text AS key, 0 AS depth
        UNION ALL
@@ -58,7 +58,7 @@ export async function dutyOf(tx: TenantClient, task: Pick<TaskRow, 'idempotencyK
            ON t.id = CASE WHEN back.key ~ '^rerun:[0-9a-f-]{36}$' THEN substr(back.key, 7)::uuid END
         WHERE back.depth < 16
      )
-     SELECT key FROM back ORDER BY depth DESC LIMIT 1`, [task.idempotencyKey]);
+     SELECT key FROM back ORDER BY depth DESC LIMIT 1`, [task.idempotencyKey]));
   return rows[0] ? dutyFor({ idempotencyKey: rows[0].key }) : null;
 }
 

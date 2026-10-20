@@ -163,6 +163,74 @@ test('a card restored from an archive still takes the next failure of its cause 
   assert.equal(cards.rows[0]!.ended[1], again.id, 'the next failure is on the restored card');
 });
 
+/**
+ * A task's key names rows by their ids -- a run again the task it does again
+ * (`rerun:<task>`), a coordinator's task the card it was handed
+ * (`escalation:<card>`) -- and a restore gives every row a new one. Kept as
+ * the archive had them, the restored company read work run again as never
+ * run again: the card it answered stayed open, Run again made a second task
+ * beside the first, and a rerun of a duty was its role's model work. And a
+ * coordinator handling a restored card was told nothing of the work on it
+ * taken up since.
+ */
+test('a restored company reads its tasks\' keys as the archive did: what was run again, and the card a coordinator has', async () => {
+  const { rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { buildContext } = await import('../../src/context/builder.ts');
+  const { dutyOf } = await import('../../src/duties/duties.ts');
+  const { exportCompany } = await import('../../src/audit/export.ts');
+  const { importCompany } = await import('../../src/audit/import.ts');
+  const fixture = await createCompany('ended-restored-keys');
+  await addRole(fixture, 'coordinator');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: 'coordinator', afterMinutes: 60 });
+  const seven = await root(fixture, 'send invoice 7');
+  const eight = await root(fixture, 'send invoice 8');
+  const nine = await root(fixture, 'send invoice 9');
+  for (const task of [seven, eight, nine]) await halt(fixture, task.id, 'hop_limit');
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+  await rerunTask(fixture.companyId, seven.id, null);
+  assert.equal(await handEscalations(fixture.companyId), 1, 'handed with 8 and 9 in its brief');
+  const duty = await root(fixture, 'collect what is owed', 'duty:collections:restored');
+  await halt(fixture, duty.id, 'deadline_passed');
+  await rerunTask(fixture.companyId, duty.id, null);
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const archived = new Set(lines.map((line) => line.row.id).filter((id): id is string => typeof id === 'string'));
+  const restored = await importCompany(lines, { slug: 'ended-restored-keys-copy' });
+  const tasks = await withTenant(restored.companyId, (tx) => tx.query<{ id: string; goal: string; key: string; division_id: string }>(
+    "SELECT id, input->>'goal' AS goal, idempotency_key AS key, division_id FROM tasks ORDER BY created_at")).then((r) => r.rows);
+  assert.deepEqual(tasks.filter((task) => task.key.split(':').some((part) => archived.has(part))), [],
+    'no key names a row by the id it had in the archive');
+  const restoredOf = (goal: string, rerun = false) => tasks.find((task) => task.goal === goal && task.key.startsWith('rerun:') === rerun)!;
+  const card = async () => (await withTenant(restored.companyId, (tx) => tx.query<{
+    id: string; status: string; closed_reason: string | null; handed: string;
+  }>("SELECT id, status, closed_reason, payload->>'handedTaskId' AS handed FROM inbox_items WHERE kind = 'escalation'"))).rows[0]!;
+  const handed = await card();
+  const handling = tasks.find((task) => task.id === handed.handed)!;
+  assert.equal(handling.key, `escalation:${handed.id}`);
+
+  // Run again once per task, in the restored company as in the archive's.
+  assert.equal(restoredOf('send invoice 7', true).key, `rerun:${restoredOf('send invoice 7').id}`);
+  assert.equal(await rerunTask(restored.companyId, restoredOf('send invoice 7').id, null), restoredOf('send invoice 7', true).id,
+    'the rerun made before the archive, not a second');
+  // A rerun of a duty is still the duty.
+  assert.notEqual(await dutyOf(restored.companyId, { idempotencyKey: restoredOf('collect what is owed', true).key }), null);
+
+  // The coordinator handling the restored card is told what was taken up since.
+  await rerunTask(restored.companyId, restoredOf('send invoice 8').id, null);
+  assert.equal((await card()).status, 'open', 'invoice 9 is still stopped');
+  const pack = await withTenant(restored.companyId, (tx) => buildContext(tx, {
+    companyId: restored.companyId, divisionId: handling.division_id, taskId: handling.id,
+  }));
+  assert.match(pack.sections.filter((section) => /taken up/.test(section.title)).map((section) => section.body).join('\n'),
+    /send invoice 8/);
+
+  // And the card closes with its last task run again, 7's rerun counted.
+  await rerunTask(restored.companyId, restoredOf('send invoice 9').id, null);
+  const closed = await card();
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'task_rerun']);
+});
+
 test('work the coordinator was handed that ends badly goes to the owner, not back to the coordinator', async () => {
   const fixture = await createCompany('ended-loop');
   await addRole(fixture, 'coordinator');

@@ -66,7 +66,9 @@ interface ImportSection {
    * item's payload names the memory, skill or schedule its answer acts on.
    * Any string in them that is an id this import has mapped is replaced by
    * the id it has here, and so is each id inside a card's name (`once`) and
-   * inside the key an ended-work card is found again by (`endedKey`).
+   * inside the key an ended-work card is found again by (`endedKey`). A
+   * task's key is mapped the same way, once every section is in
+   * (`taskKeysFromArchive`).
    */
   remapJson?: readonly string[];
 }
@@ -501,6 +503,7 @@ export async function importCompany(
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
 
+    await taskKeysFromArchive(tx, companyId, remap);
     await periodsFromHistory(tx, companyId, bySection.get('events') ?? [], remap);
     await requireLocalVouching(tx, companyId);
     // An archive from before every company had a CEO has none; it gets the
@@ -604,6 +607,47 @@ async function periodsFromHistory(
         AND payload = '{}'::jsonb AND title <> $2`,
     [companyId, PAUSED_TITLE],
   );
+}
+
+/**
+ * The ids inside the restored tasks' keys, mapped part by part as a card's
+ * name is (`remapJoined`). A key names rows by their ids, and the code finds
+ * work by it: the task a run again does again (`rerun:<task>`, which Run
+ * again's once-per-task check, the close of the cards it answers, ended.ts,
+ * a coordinator's brief and a duty's rerun all read), the card a
+ * coordinator was handed (`escalation:<card>`), a follow-up's task, a
+ * schedule's occurrence, a hook's trigger, a ticket given out, a customer's
+ * message, and an ordinary task's role and parent. Kept as the archive had
+ * them, a restored company read work run again as never run again -- Run
+ * again made a second task beside the first -- and a coordinator was told
+ * nothing of its restored card. After every section rather than in the
+ * tasks', because the cards, triggers, tickets and messages some keys name
+ * are imported after the tasks and have no id here until then. A key that
+ * names a row by a hash of its id (`triage:`, `review:`) cannot be mapped,
+ * and the next such errand is made anew. The ids are fresh, so a mapped key
+ * cannot meet another on the table's unique key.
+ */
+async function taskKeysFromArchive(
+  tx: TenantClient,
+  companyId: string,
+  remap: ReadonlyMap<string, string>,
+): Promise<void> {
+  const { rows } = await tx.query<{ id: string; key: string }>(
+    'SELECT id, idempotency_key AS key FROM tasks WHERE company_id = $1', [companyId]);
+  const ids: string[] = [];
+  const keys: string[] = [];
+  for (const row of rows) {
+    const key = remapJoined(row.key, remap);
+    if (key === row.key) continue;
+    ids.push(row.id);
+    keys.push(key);
+  }
+  if (ids.length === 0) return;
+  await tx.query(
+    `UPDATE tasks t SET idempotency_key = k.key
+       FROM unnest($2::uuid[], $3::text[]) AS k(id, key)
+      WHERE t.company_id = $1 AND t.id = k.id`,
+    [companyId, ids, keys]);
 }
 
 async function importSection(
@@ -773,7 +817,8 @@ async function requireLocalVouching(tx: TenantClient, companyId: string): Promis
  * Only whole strings, and only ids this import itself assigned: text that
  * merely contains an id is left alone, and a string that happens to look
  * like one but was never in the archive is not rewritten into something else.
- * The keys a card is found again by are the exception (`JOINED_KEYS`).
+ * The keys a card is found again by are the exception (`JOINED_KEYS`), as
+ * are the tasks' own keys (`taskKeysFromArchive`).
  */
 function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
   if (typeof value === 'string') return remap.get(value) ?? value;

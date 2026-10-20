@@ -116,8 +116,8 @@ which the audit could not find.
 
 ## 2.1 Deliberate deviations from the PRD
 
-Five places where the implementation does not read literally as the PRD does.
-All five are choices, and all five are cheap to reverse if the reasoning stops
+Seven places where the implementation does not read literally as the PRD does.
+All seven are choices, and all seven are cheap to reverse if the reasoning stops
 holding.
 
 **F13.3's Paperclip compatibility is not offered.** The requirement asks that
@@ -170,6 +170,23 @@ hooks would buy names at the price of that atomic read. The three conditions
 that depend on nothing else — platform stop, company freeze, spend ceiling —
 *are* registered hooks, because those are the ones a second caller would
 otherwise have to remember to copy.
+
+**F11.4's verify, preflight and orphan alerts are not daily alerts.** A failed
+read-back and a capability that stopped being usable each raise their own
+incident when they happen (F8.4, F8.12), and the task a capability stopped is
+reported by ended.ts. A daily count of them was a second urgent card saying the
+same thing. A run whose worker stopped is put back with its journal and asks
+the owner for nothing, so it is a line of the daily digest; a task that keeps
+losing its worker is halted with its own incident. `verificationFailuresPerDay`
+is no longer read or accepted; its column is kept and exported (section 2.185).
+
+**F13.6's "halted + insiden" and F8.12's failed preflight wait on one incident
+that closes itself.** A model that does not answer a tier 2 role still never
+falls back, and work is still never started on a capability that failed its
+check. But the work waits instead of halting, on one card for the cause, and
+goes on by itself when the cause passes; only a day of waiting halts it, listed
+on that card. Halting each task with a card of its own made every outage an
+inbox full of cards and presses of Run again (section 2.186).
 
 ## 2.2 What an audit of these claims turned up
 
@@ -3393,7 +3410,7 @@ has.
   refused every time, and nobody saw what they meant to file. A ticket is
   now a row in the company, filed by a run or the owner (the same title
   still open in the division is the same ticket), read by the CEO with
-  `ticket.list` (outside content, since a run wrote it), handed on with
+  `ticket.list` (outside content, since a run wrote it; since 2.188, only a ticket filed by work that had read outside content is), handed on with
   `task.delegate` and its `ticketId` or given to a role from Work, Tickets;
   it closes when the task working it completes and opens again, with the
   reason, when that task ends any other way. It is closed, never deleted,
@@ -4528,7 +4545,8 @@ the code against it found these, and each is now closed with a test.
 - **A second review, and what it closed.**
   - *A task the owner handed a ticket a run filed was clean*, though a
     ticket's words may be a customer's (`ticket.list` reads as outside
-    content). It carries them now, and the guardian fences its goal.
+    content; since 2.188, when the ticket was filed by work that had read
+    some). It carries them now, and the guardian fences its goal.
   - *The rerun's taint was written after the task was made*, in a second
     transaction a worker could claim the task before. It is written with
     the task.
@@ -9162,7 +9180,8 @@ the audit of 3 October, which found two promises that the code did not keep.
   one at a time and one every ten minutes, each ticket once until somebody
   changes it, **nothing at all -- no task, no model call -- when none is owed**
   (F9.10), not while the company winds down, and it begins as outside content
-  when an agent filed any of them (F8.9), as a ticket the owner hands out does.
+  when an agent filed any of them (F8.9), as a ticket the owner hands out does
+  (since 2.188: when any was filed by work that had read outside content).
   It lists ids and titles only; the details are read with `ticket.list`.
 - **Not done:** a goal-level cadence -- the CEO looking at a goal that has no
   work under it, a metric that has not moved, a due date that passed -- is the
@@ -10984,6 +11003,160 @@ receipt mailed was kept and read (2.16x). Part 6 of P1.4 had been left with the 
   is fetched while Telegram or Meta waits for the delivery's answer: a slow download can make them deliver it again,
   which the message's key turns into nothing more than a duplicate.
 
+## 2.184 No procedure for the platform's own tools, a budget-stopped reviewer waited for, and the owner's word kept at once (the owner-load review of 20 October)
+
+Three small changes from the owner-load review (P4, P7, P5). Each removes a card the owner was asked to press for nothing. A review of the three then found four more problems, fixed below. Every test was seen to fail before its change.
+
+- **No procedure for the platform's own tools or for duties (P4, `src/memory/distillation.ts`).** Distillation proposes an SOP for any capability a division's completed tasks call three times, as a card that waits a fortnight. Its list of the platform's own tools was written out by hand and fell behind: `ticket.create` and `schedule.propose` were missing, so every founding company's management division was offered "Proposed SOP for ticket.create". The list is now `PLATFORM_CAPABILITIES`, which gains `ticket.create` and `ticket.list`. Both were registered all along, but missing from the list and from the boot note's "bound by the platform". Tasks keyed `duty:` are left out of the count and out of the examples, because a duty is already the platform's own procedure: three collection runs had proposed one for `invoice.remind`. The test takes the names from what `registerPlatformCapabilities` actually registers.
+- **A reviewer its budget stopped is waited for (P7, `src/review/review.ts`).** Settlement used to read every halted reviewer as finished without a verdict and escalate at once. The owner then had the budget card and a dead-end escalation for one event, and the verdict the continued reviewer returned was paid for and never read. The review now stays pending while three things hold:
+  - the reviewer is halted for budget;
+  - the platform would go on with it by itself (`GOES_ON_BY_ITSELF`, written to be NULL-safe);
+  - an open budget card covers it: its account's card, whichever task that card sits on, or the company's card for the month's ceiling. For the minute after the halt it also waits without a card, because the halt writes its card a moment after the halt itself (ended.ts waits the same minute).
+
+  The other cases settle at once: a reviewer the owner ran again, one whose proposer was given up, one halted for anything else (a hop limit, a model that did not answer), and one no card covers. When the proposer has already ended, the review is closed without a card.
+- **The proposer always has a card (from the review).** An account has one budget card, on the work it stopped first. Self-heal going on with that work alone, the owner's Continue on it, or the owner's no on the card closes it while the reviewer is still stopped. Liveness counts the pending review as the proposer's mover, and nothing reports a stopped sub-task, so the proposer waited in `waiting_review` with an empty inbox until room came back. The card condition above closes that gap: once nothing covers the reviewer, the review goes to the owner. A reviewer whose review has gone to the owner is also no longer continued by itself, since a settled review reads no other verdict. That lookup goes through the proposer, by which reviews are indexed.
+- **What the owner says to remember, and a figure they give, are done at once (P5, `src/owner/assistant-actions.ts`).** `POST /memories` and `POST /metrics/:metricId/observations` are now `auto`, under the guard every such action is held to: they apply only in an answer that read nothing an agent or a stranger wrote. Both actions and the CEO's prompt say to keep only what the owner asked for, in their words, never something read in the work. `docs/THREAT-MODEL.md` section 2.2 item 8 and its residual risks say what is left.
+- **A repeat is kept once (from the review, `ownerSaidAlready`).** The action told the model it need not read memory first because a repeat did no harm. In fact a repeat was a second row, taking a second of the owner's five places of each kind in every run's pack. The route now returns the owner memory already in use when it has the same kind, the same place, and the same letters and digits (`already: true`). It holds a lock on those words, so two sends at once keep one. Something taken back or replaced is kept anew when said again, and the same words in another division are a memory of their own.
+- **The chat shows what was kept (from the review, `keptAsTheirs`).** On Telegram and WhatsApp the owner never sees the closed card, so a fact the CEO paraphrased wrongly became the owner's word unseen. A chat answer now ends with "Kept as your word: …" and "Recorded as your figure: … for …", in the owner's language. The lines use the words and the number that were sent, not the card's summary. The owner's guide no longer says a fact to remember is a press in the chat, lists both among what is done at once, and no longer calls a hire or a goal a card.
+- **Tested** in:
+  - `distillation.test.ts`: no platform tool is proposed; a duty's tasks are not counted, and a role's work still is.
+  - `adversarial-review.test.ts`: a budget-stopped reviewer is waited for and its verdict settles the review. A hop limit or a model that is down goes to the owner at once, as does a reviewer run again or a given-up proposer. A card closed by self-heal continuing other work, or by the owner's no, sends the review to the owner after the minute, and the reviewer is not continued by itself. The month's card is covered too.
+  - `ceo.test.ts`: a memory and a figure are applied at once as the owner's; after a read of memory the same proposal is a card; a repeat is kept once.
+  - `assistant.test.ts`, `telegram-conversation.test.ts` and `whatsapp.test.ts`: the kept lines are shown, and a contact is the one-press card.
+- **Not done.**
+  - Going on with the one task an account's card sits on still withdraws the card for everything else that account stopped, and only "go on with all" raises it again. A stopped reviewer now goes to the owner then; other stopped work is as before.
+  - When the card closes, the review goes to the owner as it did before P7. The reviewer is not continued, which saves one review run at the price of one escalation.
+  - During "go on with all", a settlement on another worker in the gap before the card is raised again for a skipped reviewer can still escalate its review. That gives two cards, as before P7, never none.
+  - Two workers settling the same review at once can raise two escalations, as before.
+  - A Stop pressed mid-answer leaves actions already done at once with no line in the chat.
+  - The repeat check compares letters and digits, so the same fact in other words is a second memory.
+  - The guard looks at one answer, not the whole conversation (THREAT-MODEL).
+
+## 2.185 The platform's news cards close themselves once what they report is handled (the owner-load review of 20 October)
+
+Many platform cards asked the owner nothing and stayed until the owner found each one and dismissed it:
+
+- an urgent incident for every run whose worker stopped;
+- a second urgent card counting failed read-backs and preflight failures, beside the card each event had already raised;
+- a card for each day's spending, failure rate or refusals, which said "today" for ever;
+- an 80% warning that no month ever closed;
+- cards about a task that stayed open after the owner pressed *Run again*.
+
+Each now closes itself once what it reports is handled. Where a chat message is rewritten, it says why in the owner's language. A review of the change found two defects in the code and a missing record (this section); each code defect was seen to fail first.
+
+- **An orphaned run is a line of the daily digest**, shown only on a day it happened: "Runs picked up again after their worker stopped: 2" (`src/reporting/digest.ts`, `src/owner/digest-said.ts`). `reclaimOrphans` had already put the work back with its journal, so there was nothing for the owner to decide. A task that keeps losing its worker is still halted with its own incident (`checkout.ts`).
+- **No daily count of failed read-backs or preflight failures.**
+  - Each already raises its own card when it happens: F8.4 in `engine.ts`, F8.12 in `preflight.ts`, and `ended.ts` for the task it stopped. The daily sweep pushed a second urgent card saying the same thing.
+  - `verificationFailuresPerDay` is gone from the thresholds, the owner API and the assistant. `POST /api/companies/:id/alert-thresholds` with none of its fields now says which fields it takes. The column stays and is still exported. No migration.
+- **A deliberate deviation from F11.4.** F11.4 lists six alerts: cost, failures, policy violations, verify failed, preflight failed, orphan.
+  - Cost, failure rate and policy refusals remain daily alerts (`src/reporting/alerts.ts`).
+  - Verify and preflight failures are met by their own per-event incidents rather than a daily count.
+  - The orphan alert is a digest line, because it asks the owner for nothing.
+- **A day's card closes itself.**
+  - Cost, failure-rate and refusal cards carry `{alert, day}` and close as `day_ended`. That happens once their day has ended and they have been in front of the owner for a whole day, counted from when they were carried or came back from being put off. A day holds the whole of the owner's window wherever it falls against UTC.
+  - The first version closed them at the first look after UTC midnight. A card carried at 21:55, or at 21:30 in Jakarta (14:30 UTC), was gone, and its Telegram message rewritten, before the owner's next morning (the review).
+  - A message rewritten because its day ended keeps the figure it carried, under "Withdrawn: the day it was about has ended." (`ClosedItem.said`, `src/owner/telegram.ts`).
+- **The 80% warning carries its month** (`src/governance/spend-guard.ts`). It closes as `period_started` in a later month, whether the company was paused or not. While the company is paused it gives way to the pause card (`spend_paused`), but only once that card is open.
+- **Run again closes the cards it answers** (`rerunTask`, `src/engine/owner-control.ts`).
+  - The crash-loop and failed-read-back incidents carry `aboutTask` and close with the task.
+  - The ended-badly card closes once every task on it has been run again. Its list is kept whole, so no task on it is reported twice.
+  - Cards that only name the task stay: a frozen role, a refused model key, a batch stopped against its plan.
+  - `ended.ts` does not report a task already run again, under the same advisory lock. A task appended to a card that closed meanwhile gets a card of its own. A second press closes what a first one stopped short of.
+- **The failed read-back card is committed with the halt**, through the new `alongside` of `transition`. It used to be raised in a transaction of its own after the halt and its hooks. A worker stopped in between left the task halted, the write perhaps made, and no card. Nothing looks again at a task that has ended, `ended.ts` does not report a child, and the daily count that once noticed is gone (the review).
+- Four sentences are new in each of the 20 dictionaries, and the six the removed alerts used are gone from them.
+- **Tested**: each new test was seen to fail first.
+  - `reporting.test.ts`: the digest line; no second card for a read-back or a preflight failure; a day's card is kept past midnight and through the next evening, kept while put off, closed a whole day after it was carried, and closed once.
+  - `owner-channels.test.ts`: the three new closing sentences; a closed day's card keeps its figure in Telegram.
+  - `capability-broker.test.ts`: the read-back card is there while the halt's hook still runs, and Run again closes it.
+  - `task-control.test.ts`: Run again closes the crash-loop card and leaves the role-freeze and model-key cards; a card for two ended tasks stays until both are run again, and neither is reported twice.
+  - `spend-guard.test.ts`: last month's warning closes; the warning gives way to the pause card.
+- **Not done**:
+  - The daily cards still say "today", and one can now be read on the following day; the console shows when each was raised.
+  - An 80% warning carried on a month's last evening still closes at the first look in the new month, since the ceiling it warned of no longer applies.
+
+## 2.186 An outage is one card that closes itself, and the work waits through it and is called back (the owner-load review of 20 October)
+
+A model down for an afternoon, a vendor's outage, or a credential that expired overnight halted every task in flight, each with an urgent card of its own (F13.6's quarter hour, 2.83's half hour, F8.12). Once the cause had passed, the owner pressed Run again on each, and each started again from nothing. 2.140 did half of this for a refused key: it raised one card, but the card never closed, and saving a key did not wake the work waiting for it. Now the work waits, the owner gets one card per cause, the card closes itself when the cause passes, and the waiting work is called back. No migration.
+
+- **Waiting (`OUTAGE_PARK_WAITS_MS`, `OUTAGE_PARK_CEILING_MS` in `src/engine/recovered.ts`).** After its short waits, a task parks on long ones: a quarter hour, half an hour, then hourly. It waits at most a day, counted from the first long wait of this outage. The count is read from the wait events, so a restarted worker reads the same, and retention leaves events younger than 365 days alone. A long wait more than two hours after the previous one starts a new outage, so yesterday's outage does not spend today's day. A refused credential goes to the long waits at once: the task is still not started (F8.12), and it looks again no more often than its fifteen-minute reading stands.
+- **One card per cause, found by its name (`ONCE`).** The names are `model_down:<model>`, `service_down:<division>:<capability>`, `capability:<division>:<capability>` and `model_key_refused`. The cards belong to the company and carry no task, because ended.ts treats any task named on a card as already told. Raising a named card takes an advisory lock on its name, so two workers raise one card between them. Every long look raises its cause's card when none is open, not only the move from short to long waits. So if the cause returns after its card closed, or the owner closes the card while work still waits, the card comes back at that work's next look, as 2.140 already did for the key.
+- **Capabilities close on a check.** `checkCapability` works under a lock on the reading. On any healthy reading that follows one that was not healthy, including a division's first reading, it calls back the work parked on the capability in that division and withdraws both kinds of card, in the same transaction. The engine raises a capability's card only after the task is parked, from the reading as it then stands under the same lock (`#tellCapability`, `readingWithin`). If a check found the capability well in that moment, nothing is raised and the task is called back.
+- **Models and the key close on evidence (`closeRecovered`, the new worker stage `recovered`).** When the model a task last waited for answers it, the engine writes `model.answered`. Only the engine knows which of a role's models an attempt was on. Traces carry the name the provider billed, and a role that may fall back waits on the last model it tried. A card closes, and the rest of its work is called back, only when the latest work to get through did so after every refusal for that cause; for the key, any call or finish by the work that waited counts as getting through. A model's, the key's or a vendor's card that nothing waits on any more is withdrawn as `nothing_waits`. A credential's card is never closed that way: F8.12 asks the owner to fix the credential even when no work is waiting on it, and the sweep at a start raises that card when nothing waits. A process's first look at a company calls back the work waiting for a key (`callBackKeyWaits`), because saving a key restarts the deployment; the card stays until a call works.
+- **Call-back rules.** Each park is called back at most once, under a per-company lock with `SKIP LOCKED`, and only for tasks still in `waiting_window` for that reason, so a cancelled task is never touched. Each call-back writes `task.called_back`. The look a task was called back for keeps its place on its waits, so an early call-back neither uses up its waits nor moves it along them. Budget, policy, approval and review checks are unchanged.
+- **At the end of the day.** The task halts as before and is named on the open card (`endedTaskIds`, `inbox.holdEndedOn`), so ended.ts raises nothing more for it, and that card is never withdrawn. The card lists the stopped work under **Work that stopped**, each with **Open the task** (`stopped` on the inbox item). The work grouped on an ended-work card beyond its own task is listed there too.
+- **Restored companies.** On import, the ids inside a card's name are mapped (`remapOnce`). Before this, a restored credential card never closed, and another card for the same cause was raised beside it.
+- **Wording.** In all 20 languages, the cards for a model, a service, a failed check and a refused key say that the work waits and goes on by itself, that the card closes itself, and that work still waiting after about 24 hours (10 for the key) stops while the card stays open. Five old sentences were removed from every dictionary. The console has sentences in all 20 languages for `task.called_back`, `model.answered` and "Work that stopped".
+- **A deviation from F13.6 and F8.12.** The PRD says "halted + insiden" when a model does not answer a tier 2 role, and calls a failed preflight "an incident, not a retry". In both cases the work now waits on one incident that closes itself: it never falls back, and it is never started on a capability that failed its check. Only a day of waiting halts it. Section 3's paragraph on F13.6 is updated to say so.
+- **What a review of this change found, and fixed.** (1) The card was raised only on the move to the long waits, so work parked when a card closed and the cause returned waited with no card. (2) A model's card closed when a task got through on a different model of its role. (3) Stopped work was named on a card the console never showed. (4) A vendor's card nothing waited on stayed open, and a card could be raised over a service a check had just found well. (5) An imported card's name kept the old division. (6) The day was counted from the first long wait in two days, so a task halted at its first long look in the outage after the one it had waited out.
+- **Tested** in `out-of-process-runtimes.test.ts`: the model's one card, its close and call-back; the cause returning after the card closed; a refusal after the success; a fallback model's success; a cancelled waiter; the day spent, with its stopped work listed; the next day's outage; the key fixed after a start; six workers raising one card. Also in `preflight.test.ts`: a credential's wait, its rotation and its day; a vendor down for forty minutes; a vendor dropping again; a vendor's card nobody waits on; the check made between a look and its wait; a card restored from an archive. Each was seen to fail first.
+- **Not done.** An intermittent provider raises a new card each time it comes back and drops again, so one push per cycle. A role that may fall back waits on, and is carded under, the last model it tried, even when its first model is down too. A task that reaches its day just after the owner closed its card is reported the way any ended work is (ended.ts), not on a cause card. A credential card nothing waits on stays open until a check passes.
+
+## 2.187 A hired role's failure goes to the CEO first, wherever the owner named nobody (the owner-load review of 20 October)
+
+2.144 put work that ended badly to "the coordinator the division names" first, and to the owner only after its grace. But no real division names one: not the founding template, not a division the CEO adds, not a bundle. Only the tests' standard team did. So in every company an owner had made, every failure went straight to the owner, though `governance/ceo.ts` promises that a division's trouble reaches the CEO first. Now it does. The scheduler extension the verdict offered is left out.
+
+- **The CEO by default (`escalationPolicyFor`, `src/governance/structure.ts`).** The policy in force is the role the division names. Failing that, it is nobody when the owner said nobody. Otherwise it is the company's CEO for an hour (`CEO_FIRST_MINUTES`). The CEO is read when the card is raised, so `appointCeo` moves it. Naming the current CEO under **Who hears about trouble first** is kept the same way, as following the title. The Organization page shows the CEO in force and sends it back when only the minutes change. Kept as the role's code, that save pinned the former CEO after an appointment, which then heard about the new CEO's failures. Any other role named stays named.
+- **"Never said" is told from "straight to me" (0133, `divisions.escalation_set`).** Naming a role or nobody sets it. A time alone does not, so it is how long the CEO has. Templates set it only for a division that names `escalateTo`. The migration marks every division that holds a role or a time, or whose owner left a `division.escalation_set` event. An event alone could not carry this, because retention deletes events. The export carries the column, and an older archive has it worked out the way the migration does.
+- **Never back round.** Work of the role the policy names, the CEO's own included, goes to the owner at once. A task that is any card's `handedTaskId` is not reported again: how it ended is already written on that card, so a CEO that ends not done leaves one card, not two.
+- **Done or not done says what happens to the card.** The brief tells the CEO to end with `"notDone"`, saying why, when it can neither fix the cause nor hand it on. A "neither is possible" written into a done summary used to close the card. The card then carries that reason rather than the summary.
+- **The CEO is told of every task on its card.** One cause under one goal is one card, and the worker reports every ended task before it hands any card over, so an outage's failures were on the card by the hand-over. The brief named only the first, and the CEO's fix withdrew the rest unread. Now `handOver` freezes the card's tasks (`briefedTaskIds`) before it makes the CEO's task, and the brief names each one with the record its halt left. Nothing more joins a card until it is answered or could not be handed. The grouping update asks again, and waits for the hand-over's lock, so a task read in that moment gets a card of its own. A card closed by a fix gives back any task its brief did not name, and that task is reported on its own.
+- **Outside words stay outside (F8.9).** The CEO's task is tainted when any task on the card began from a hook or read outside content, since its brief quotes their goals and records (`docs/THREAT-MODEL.md` 5b).
+- **The console.** The Organization page names the role in force by its name and offers the CEO in "Escalate to". The Work page says "the escalation it was given" in all 20 languages.
+- **Tested** in `ended-badly.test.ts`:
+  - a hired role's failure goes to the CEO for an hour, and the CEO's fix closes the card;
+  - a CEO's not done leaves one card, with its reason;
+  - the CEO is never handed its own failure, and "straight to me" is kept;
+  - the title moves with `appointCeo`;
+  - the taint follows any task on the card;
+  - the brief names every grouped task, and the next failure after the brief is a card of its own;
+  - the race between a hand-over and a grouping, held open with a row lock;
+  - a card handed before briefs named every task gives back what it did not name;
+  - saving only the minutes follows the next CEO.
+
+  Also in `control-plane.test.ts` (the never-set default is the CEO for 60 minutes), `audit-export.test.ts` (`escalation_set` exported, and inferred for an older archive) and `founding-company.test.ts`. Each new test was seen to fail first.
+- **Not done.**
+  - The owner's card still names only its first task: nothing shows `endedTaskIds` to the owner, though the CEO now reads them all.
+  - A child the CEO delegates and does not await can fail after the CEO completed. It is not a root task, so it is silent.
+  - A failure that recurs, such as a daily schedule, opens a new card and a new CEO run each time.
+  - The brief's not-done path may lead the CEO to `owner.ask`, putting a second card before the owner while the first is held.
+  - A division whose owner pinned the CEO's code before this change keeps it until the policy is saved again.
+  - The tests' standard team names its CEO by code in its template.
+
+## 2.188 A ticket says whether the work that filed it had read outside content (F8.9; the owner-load review of 20 October)
+
+`ticket.list` counted as outside content whatever it returned, so a triage of a board holding only the owner's own tickets was tainted. Every tier 2 action in the work the CEO handed out from it then raised a card with reason `outside`, and no yes for a while could cover it. The same ticket given out by the owner from the board with /assign raised no card, because /assign decided by `opened_by`. Two ways of handing out one ticket disagreed, and the owner answered cards for their own requests.
+
+- **Kept on the row (0134).** `tickets.outside` says whether the work that filed a ticket had read something from outside. `ticket.create` works it out with `outsideContentIn` in the transaction that files the ticket, and the owner's POST /tickets files it `false`. The flag is stored, not looked up later, because retention deletes the `content.read_outside` events that would say so long before an open ticket is closed.
+- **Never made clean.** The application role's table-wide UPDATE on tickets is revoked. It gets back only `status, priority, working_task_id, closed_reason, closed_at, updated_at`, so no write can make an outside ticket clean or change a clean ticket's words. A ticket filed again under the same title is returned with its words and provenance unchanged. An agent's ticket from before 0134 counts as outside (the migration clears only the owner's rows, with forced row security lifted for that update, as 0129 does). So does every ticket restored from an archive written before 0134, which has no `outside` column. The export carries the column.
+- **Listed by what it returns.** The platform's `ticket.list` returns `outside` on each ticket. Its `readsOutside` is a function: true only when the result holds an outside ticket, and a listing that returns any outside ticket is tainted as a whole. The broker uses this function before the catalogue's flag, and the catalogue still marks `ticket.list` as reading outside, so a tracker bound from a vendor file in its place still taints. It takes `ids` (uuids, 1 to 50, no repeats), and `listTickets` refuses an id that is not a uuid, saying so.
+- **Triage and the board agree.** The triage selects `k.outside`, starts as outside content only for outside tickets, and names their ids. The brief gives the CEO every ticket id and tells it to pass them to `ticket.list`, so an outside ticket elsewhere on the board does not taint the pass. Examples are an open hire proposed from outside, or a ticket worked after a customer wrote. /assign decides by `ticket.outside` instead of `openedBy === 'agent'`. The founding CEO's charter now also says to give `ticket.list` the ids its brief names. Before, a CEO that followed its charter rather than its brief would list the whole board, and one outside ticket anywhere on it brought the cards back.
+- **What this replaces in earlier sections.** `opened_by` no longer decides taint, so three earlier passages are out of date and need a note pointing here:
+  - 2.23, the 0070 entry, says the CEO reads with `ticket.list` "(outside content, since a run wrote it)".
+  - 2.45's second review says "`ticket.list` reads as outside content".
+  - 2.144 says the triage "begins as outside content when an agent filed any of them".
+- **The threat model says what a clean ticket can carry.** Item 5b and §2.2 Reach are updated. One kind of the CEO's work holds words without being tainted by them: the review of a skill (the CEO's when the company has no reviewer). A ticket the CEO files from it is clean, which reaches no further than the `task.delegate` the same run could make. An escalation the CEO is handed carried the stuck task's record without its taint too, until 2.187 made it carry what the work on its card carried. The owner's assistant checks what it read one answer at a time, while its conversation keeps its earlier answers. That is now a residual risk, and item 8's claim is limited to the answer that did the reading.
+- **Tested** in `tickets.test.ts`:
+  - provenance is recorded both ways;
+  - filing again keeps a ticket's words and provenance;
+  - the application role is refused UPDATE of `outside`, `title` and `body`;
+  - the board shows `outside`;
+  - /assign of a clean agent ticket is clean and of an outside one is not;
+  - a newer archive carries the flag and an older one comes back all outside;
+  - the catalogue flag and the platform's function are both in place.
+
+  Tested in `ticket-triage.test.ts`:
+  - the owner's backlog and a clean filer's ticket are triaged clean, and the letter goes out without a card;
+  - a ticket filed after a mailbox read makes the triage outside, and the letter asks with reason `outside`;
+  - a mixed listing is tainted and a clean-only one is not;
+  - an outside hire does not taint a triage that lists by ids, though the whole board does;
+  - `ids` refuses a non-uuid;
+  - the CEO's charter tells it to list by the ids its brief names.
+
+  Also tested in `tenant-isolation.test.ts` (the column-level grant). Seen to fail first.
+- **Not done:**
+  - Companies founded before this keep the CEO charter they were founded with, without the ids sentence. Their triages still tell the CEO the ids in the brief.
+  - The assistant's taint is still decided one answer at a time, and an external skill's review task still carries no taint. Both predate this change and are only named in the threat model.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -11002,12 +11175,15 @@ the check that can run in the second before a decision.
 **A model that does not answer is waited for before it halts a task.**
 F13.6 says a tier 2 role does not fall back silently: "halted + insiden".
 It still never falls back. What changed is when it halts: every role's task
-now waits for the same model -- half a minute, doubling, five times, about
-a quarter of an hour -- and halts with one incident only when the model is
-still down. Waiting is not a substitution, since the model the owner chose
-does the work when it answers, and halting on the first dropped connection
-turned every provider blip into an inbox full of tasks to resume by hand
-(section 2.25).
+now waits for the same model -- half a minute, doubling five times, then a
+quarter hour, half an hour and hourly -- on one incident for the model that
+closes itself when the model answers, and halts, listed on that incident, only
+a day after its first long wait (2.186). F8.12's failed preflight is treated
+the same way: the task does not start, there is one incident for the
+capability, and the work is called back when a check passes. Waiting is not a
+substitution, since the model the owner chose does the work when it answers,
+and halting on the first dropped connection turned every provider blip into an
+inbox full of tasks to resume by hand (section 2.25).
 
 **Two things a green suite does not prove**, and both are named in the code as
 well as here.

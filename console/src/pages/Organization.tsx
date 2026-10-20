@@ -448,6 +448,10 @@ function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Ro
   if (runtimes.error) return <LoadFailed message={runtimes.error} retry={runtimes.reload} />;
   if (!runtimes.data) return <Loading rows={1} />;
   const current = runtimes.data.find((runtime) => runtime.name === role.runtime);
+  // A person is seated and hired as a role of their own, not a runtime a role
+  // is moved onto: what is offered, and whether there is anything to offer,
+  // is the rest. A deployment with no model runs only "person".
+  const movable = runtimes.data.filter((runtime) => runtime.name !== 'person');
   return (
     <Stack gap="sm">
       <Text size="sm">
@@ -460,7 +464,7 @@ function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Ro
       {role.runtime === 'person' ? (
         // A person is not moved onto a runtime: an agent does their work as a role of its own.
         <Text size="sm" c="dimmed">{t('A person does this role\'s work. To have an agent do it, hire an agent role for it.')}</Text>
-      ) : runtimes.data.length === 0 ? (
+      ) : movable.length === 0 ? (
         <Text size="sm" c="dimmed">{t('No runtime runs here yet. Setting a model key in the deployment gives every role one.')}</Text>
       ) : (
         <ActionForm
@@ -471,8 +475,7 @@ function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Ro
             type: 'select',
             required: true,
             initial: role.runtime,
-            // A person is seated and hired as a role of their own, not a runtime a role is moved onto.
-            options: runtimes.data.filter((runtime) => runtime.name !== 'person').map((runtime) => ({
+            options: movable.map((runtime) => ({
               value: runtime.name,
               label: runtime.ok ? runtime.name : t('{runtime} (not answering)', { runtime: runtime.name }),
             })),

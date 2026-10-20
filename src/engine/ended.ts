@@ -19,7 +19,9 @@
  *
  * Four things keep it from becoming noise or a loop. It is asked once per
  * task, and once per cause under a goal while a card for that cause is open:
- * ten tasks halting on the same hop limit are one card that names them all.
+ * ten tasks halting on the same hop limit are one card, and one coordinator's
+ * brief that names them all -- once that brief is written, the next is a card
+ * of its own, so a fix never closes a task its coordinator was not told of.
  * It looks only at the last day, so a deployment that starts running this
  * does not report its history. Work the coordinator was itself handed is not
  * a failure of its own: how it ended is written on the card it was handling,
@@ -74,6 +76,17 @@ const ALREADY_TOLD = `(
              AND (i.task_id = t.id OR i.payload->'endedTaskIds' ? t.id::text))
   OR EXISTS (SELECT 1 FROM inbox_items i
               WHERE i.kind = 'escalation' AND i.payload->>'handedTaskId' = t.id::text))`;
+
+/**
+ * A card more of the same can still be put on: one nobody has been briefed
+ * on yet, or one the coordinator briefed has answered or could not be given
+ * (it is then the owner's, as a card that went to nobody is). In between, a
+ * task put on it is in nobody's brief: the brief is frozen on the card
+ * (`briefedTaskIds`, `handOver` in inbox.ts) before the coordinator's task is
+ * made, and the coordinator's fix closes the card with every task on it.
+ */
+const OPEN_TO_MORE = `(NOT (payload ? 'briefedTaskIds' OR payload ? 'handedTaskId')
+  OR payload ? 'handledOutcome' OR payload ? 'handoffFailed')`;
 
 async function findEnded(companyId: string, now: Date): Promise<Ended[]> {
   return withTenant(companyId, async (tx) => {
@@ -135,25 +148,27 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
     // The same cause under the same goal, while a card for it is open, is on
     // that card -- one going to the same place. Not on a card about the
     // coordinator's own failing, which the coordinator would then be handed,
-    // nor on one already handed and not yet answered: its brief is written,
-    // and a task added after it would close with the card unread by anyone.
+    // nor on one whose brief is written and not yet answered (`OPEN_TO_MORE`).
     const key = `${task.goalId ?? 'none'}:${task.haltReason ?? 'failed'}`;
     const { rows: open } = await tx.query<{ id: string; ids: number }>(
       `SELECT id, jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) AS ids FROM inbox_items
         WHERE kind = 'escalation' AND status = 'open' AND payload->>'endedKey' = $1
           AND coalesce(payload->>'escalationRole', '') = $2
-          AND NOT (payload ? 'handedTaskId' AND NOT payload ? 'handledOutcome')
+          AND ${OPEN_TO_MORE}
         ORDER BY created_at LIMIT 1`,
       [key, askedFirst]);
     if (open[0]) {
-      if (open[0].ids < MOST_GROUPED) {
-        await tx.query(
-          `UPDATE inbox_items
-              SET payload = jsonb_set(payload, '{endedTaskIds}', coalesce(payload->'endedTaskIds', '[]'::jsonb) || to_jsonb($2::text))
-            WHERE id = $1`,
-          [open[0].id, task.taskId]);
-      }
-      return false;
+      if (open[0].ids >= MOST_GROUPED) return false;
+      // Asked again in the update: a hand-over may have frozen the brief, or
+      // a fix closed the card, since the look above. The update waits for that
+      // one's lock and reads the row it wrote, so a task is either in the
+      // brief or on a card of its own, never on a card nobody will read.
+      const { rowCount } = await tx.query(
+        `UPDATE inbox_items
+            SET payload = jsonb_set(payload, '{endedTaskIds}', coalesce(payload->'endedTaskIds', '[]'::jsonb) || to_jsonb($2::text))
+          WHERE id = $1 AND status = 'open' AND ${OPEN_TO_MORE}`,
+        [open[0].id, task.taskId]);
+      if (rowCount) return false;
     }
 
     const { rows: said } = await tx.query<{ detail: string | null }>(

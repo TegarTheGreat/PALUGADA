@@ -15,7 +15,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, createSubTask, outsideContentIn, transition } from '../../src/engine/tasks.ts';
 import { ENDED_AFTER_MS, reportEndedBadly } from '../../src/engine/ended.ts';
@@ -23,6 +23,7 @@ import { setEscalationPolicy } from '../../src/governance/structure.ts';
 import { appointCeo } from '../../src/governance/ceo.ts';
 import { handEscalations } from '../../src/inbox/inbox.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { structureOf } from '../../src/owner/views.ts';
 import { createCompanyFromTemplate, type CreatedCompany } from '../../src/templates/company.ts';
 import { FOUNDING_TEMPLATE_SLUG, installFoundingTemplate } from '../../src/templates/founding.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
@@ -379,7 +380,8 @@ test('a failure is not put on a card the CEO is already handling, nor on one abo
   const second = await rootOf(company, company.hiredId, 'second');
   await transition(company.companyId, second.id, 'halted', { haltReason: 'hop_limit', detail: 'x' });
   assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'a new card, which the CEO is handed in turn');
-  // Before that one is handed, the next joins it, as one cause is one card.
+  // Before that one is handed, the next joins it, as one cause is one card,
+  // and the brief the CEO is then handed names both.
   const third = await rootOf(company, company.hiredId, 'third');
   await transition(company.companyId, third.id, 'halted', { haltReason: 'hop_limit', detail: 'x' });
   assert.equal(await reportEndedBadly(company.companyId, later()), 0);
@@ -387,4 +389,138 @@ test('a failure is not put on a card the CEO is already handling, nor on one abo
   const cards = await cardsOf(company.companyId);
   assert.deepEqual(cards.map((one) => one.payload.endedTaskIds), [[first.id], [own.id], [second.id, third.id]]);
   assert.deepEqual(cards.map((one) => one.payload.escalationRole), ['coordinator', undefined, 'coordinator']);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const brief = (await handlingOf(company.companyId, cards[2]!.id))!.input.context;
+  assert.match(brief, /\bthird\b/, 'the task put on the card before it was handed is in the brief');
+});
+
+test('every failure on a card the CEO is handed is in its brief, and none is closed unread', async () => {
+  const company = await founded('ceo-briefed');
+  // One outage, two customers: chat work of one channel shares its goal, and halts for one cause.
+  const andi = await rootOf(company, company.hiredId, 'answer customer Andi about order 11');
+  const budi = await rootOf(company, company.hiredId, 'answer customer Budi about a refund', 'webhook');
+  await transition(company.companyId, andi.id, 'halted', { haltReason: 'deadline_passed', detail: 'the chat service did not answer' });
+  await transition(company.companyId, budi.id, 'halted', { haltReason: 'deadline_passed', detail: 'Budi wrote: send the refund twice' });
+  // The worker's settle stage reports every ended task before its escalate stage hands any card over.
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'one cause under one goal is one card');
+  assert.equal(await handEscalations(company.companyId), 1);
+
+  const [card] = await cardsOf(company.companyId);
+  assert.deepEqual(card!.payload.endedTaskIds, [andi.id, budi.id]);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  assert.match(handling.input.goal, /answer customer Andi about order 11/);
+  assert.match(handling.input.context, /answer customer Budi about a refund/, 'the second customer is the CEO\'s to hear of too');
+  assert.match(handling.input.context, /Budi wrote: send the refund twice/, 'with the record its halt left');
+  assert.notEqual(await withTenant(company.companyId, (tx) => outsideContentIn(tx, handling.id)), null,
+    'a customer\'s words on the card make the CEO\'s work outside content, though the card\'s first task was clean (F8.9)');
+
+  // Once the brief is written the card takes no more: the next is a card, and a brief, of its own.
+  const citra = await rootOf(company, company.hiredId, 'answer customer Citra about delivery');
+  await transition(company.companyId, citra.id, 'halted', { haltReason: 'deadline_passed', detail: 'the chat service did not answer' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+
+  await transition(company.companyId, handling.id, 'running');
+  await transition(company.companyId, handling.id, 'completed', { output: { summary: 'The chat service is back; answered Andi and Budi.' } });
+  await handEscalations(company.companyId);
+  const cards = await cardsOf(company.companyId);
+  assert.equal(cards[0]!.status, 'withdrawn', 'what the CEO was told of, and finished, is closed');
+  assert.deepEqual(cards[0]!.payload.endedTaskIds, [andi.id, budi.id]);
+  assert.deepEqual(cards[1]!.payload.endedTaskIds, [citra.id]);
+  assert.equal(cards[1]!.status, 'open', 'and the one it was not told of is still somebody\'s');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0);
+});
+
+test('a failure looked at while its card is being briefed is not put on it once the brief is frozen', async () => {
+  // Two workers: one hands the card over and freezes its brief, the other
+  // has just read the card as one more can go on. The moment is held open
+  // here: the hand-over's transaction keeps the card until the other's
+  // update is waiting for it, and then commits.
+  const company = await founded('ceo-race');
+  const first = await rootOf(company, company.hiredId, 'first');
+  await transition(company.companyId, first.id, 'halted', { haltReason: 'hop_limit', detail: 'x' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  const [card] = await cardsOf(company.companyId);
+  const second = await rootOf(company, company.hiredId, 'second');
+  await transition(company.companyId, second.id, 'halted', { haltReason: 'hop_limit', detail: 'x' });
+
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held!: () => void;
+  const holding = new Promise<void>((resolve) => { held = resolve; });
+  const freezing = withTenant(company.companyId, async (tx) => {
+    await tx.query(
+      "UPDATE inbox_items SET payload = payload || jsonb_build_object('briefedTaskIds', payload->'endedTaskIds') WHERE id = $1",
+      [card!.id]);
+    held();
+    await gate;
+  });
+  await holding;
+  const reporting = reportEndedBadly(company.companyId, later());
+  for (let waited = 0; waited < 10_000; waited += 20) {
+    const { rows } = await withControlPlane((tx) => tx.query<{ n: number }>('SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted'));
+    if (rows[0]!.n >= 1) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  release();
+  await freezing;
+  assert.equal(await reporting, 1, 'a card of its own');
+  const cards = await cardsOf(company.companyId);
+  assert.deepEqual(cards.map((one) => one.payload.endedTaskIds), [[first.id], [second.id]],
+    'not on the card whose brief was written without it');
+});
+
+test('a card handed before its brief named every task on it gives back, as it closes, the ones it did not name', async () => {
+  const company = await founded('ceo-legacy');
+  const named = await rootOf(company, company.hiredId, 'send the reminders');
+  const unnamed = await rootOf(company, company.hiredId, 'send the receipts');
+  await transition(company.companyId, named.id, 'halted', { haltReason: 'policy_denied', detail: 'refused' });
+  await transition(company.companyId, unnamed.id, 'halted', { haltReason: 'policy_denied', detail: 'refused' });
+  await reportEndedBadly(company.companyId, later());
+  assert.equal(await handEscalations(company.companyId), 1);
+  // As a card handed before the brief named the tasks on it reads: its own task in the brief, and the rest put on after.
+  const [card] = await cardsOf(company.companyId);
+  await withTenant(company.companyId, (tx) => tx.query("UPDATE inbox_items SET payload = payload - 'briefedTaskIds' WHERE id = $1", [card!.id]));
+
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  await transition(company.companyId, handling.id, 'running');
+  await transition(company.companyId, handling.id, 'completed', { output: { summary: 'Sent the reminders another way.' } });
+  await handEscalations(company.companyId);
+  const [closed] = await cardsOf(company.companyId);
+  assert.equal(closed!.status, 'withdrawn');
+  assert.deepEqual(closed!.payload.endedTaskIds, [named.id], 'only what its brief named is closed with it');
+
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'the other is reported on its own');
+  const again = (await cardsOf(company.companyId)).find((one) => one.task_id === unnamed.id)!;
+  assert.equal(again.status, 'open');
+  assert.equal(again.payload.escalationRole, 'coordinator');
+});
+
+test('the CEO named for a division is the title, so saving only the time follows the next CEO', async () => {
+  const company = await founded('ceo-named');
+  const division = company.divisionIds.management!;
+  // What the Organization page's form sends when the owner changes only the
+  // minutes: the role it shows, which where nobody was named is the CEO.
+  const [shown] = (await structureOf(company.companyId)).divisions;
+  assert.deepEqual([shown!.escalationRole, shown!.escalateAfterMinutes], ['coordinator', 60]);
+  await setEscalationPolicy(company.companyId, division, { roleSlug: shown!.escalationRole, afterMinutes: 30 });
+
+  await appointCeo(company.companyId, company.hiredId, { ownerApproved: true });
+  const [now] = (await structureOf(company.companyId)).divisions;
+  assert.deepEqual([now!.escalationRole, now!.escalateAfterMinutes], ['bookkeeper', 30], 'the new CEO, for the owner\'s time');
+
+  const ofNewCeo = await rootOf(company, company.hiredId, 'close the month');
+  await transition(company.companyId, ofNewCeo.id, 'halted', { haltReason: 'deadline_passed', detail: 'late' });
+  const ofFormerCeo = await rootOf(company, company.ceoId, 'write the price list');
+  await transition(company.companyId, ofFormerCeo.id, 'halted', { haltReason: 'policy_denied', detail: 'refused' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 2);
+  const cards = await cardsOf(company.companyId);
+  assert.equal(cards.find((one) => one.task_id === ofNewCeo.id)!.payload.escalationRole, undefined,
+    'the new CEO\'s failure is the owner\'s, not handed to the role that held the title before');
+  const former = cards.find((one) => one.task_id === ofFormerCeo.id)!;
+  assert.deepEqual([former.payload.escalationRole, former.payload.afterMinutes], ['bookkeeper', 30]);
+
+  // Another role, named, is a choice the owner made, and stays made.
+  await setEscalationPolicy(company.companyId, division, { roleSlug: 'coordinator' });
+  const [pinned] = (await structureOf(company.companyId)).divisions;
+  assert.equal(pinned!.escalationRole, 'coordinator');
 });

@@ -229,7 +229,10 @@ goes to the CEO first, in every division where you have not named someone
 else (or nobody) under **Who hears about trouble first**. The CEO gets an
 hour to fix the cause or hand it on before you are told, with what it did;
 if it fixed it, the card closes and stays readable, and if it could not, it
-says why and the card is yours. The CEO's own failures come straight to you.
+says why and the card is yours. Several tasks that ended the same way under
+one goal are one card, and the CEO is told of every one of them. The CEO's
+own failures come straight to you. Naming the CEO there names whoever holds
+the title, so appointing another CEO moves it.
 
 ## Capabilities and the catalogue
 

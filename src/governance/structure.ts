@@ -798,7 +798,8 @@ export const CEO_FIRST_MINUTES = 60;
  * brings -- and "nobody" sent every failure of a hired role's work straight
  * to the owner, while `governance/ceo.ts` promises a division's trouble
  * reaches the CEO first. Read when the escalation is raised rather than
- * stored, so it follows the title when the owner appoints another CEO.
+ * stored, so it follows the title when the owner appoints another CEO; the
+ * owner naming the CEO is kept the same way (`setEscalationPolicy`).
  * `escalation_set` (0133) is what keeps the owner's own "straight to me"
  * from reading as "never said".
  */
@@ -855,14 +856,24 @@ export async function setEscalationPolicy(
     // from then on the CEO is not asked in its place (`escalationPolicyFor`).
     // A time alone names nobody: it is how long whoever hears first has, the
     // CEO included, and it does not turn the CEO's turn into the owner's.
+    //
+    // Naming the company's CEO names the title, as the default does: kept as
+    // "never said", so it follows when the owner appoints another. Kept as
+    // the role's code, it went on naming the former CEO, which then heard
+    // first about the new CEO's failures while its own went straight to the
+    // owner -- and the Organization page, which shows the CEO where nobody
+    // was named and sends the role it shows, kept it so whenever the owner
+    // changed only the time.
+    const namesCeo = setsRole && policy.roleSlug != null && (await tx.query(
+      'SELECT 1 FROM roles WHERE slug = $1 AND title = $2', [policy.roleSlug, CEO])).rows.length > 0;
     await tx.query(
       `UPDATE divisions
           SET escalation_role_slug = CASE WHEN $4 THEN $2 ELSE escalation_role_slug END,
               escalate_after_minutes =
                 CASE WHEN $5 THEN $3 ELSE escalate_after_minutes END,
-              escalation_set = escalation_set OR $4
+              escalation_set = CASE WHEN $4 THEN $6 ELSE escalation_set END
         WHERE id = $1`,
-      [divisionId, policy.roleSlug ?? null, policy.afterMinutes ?? null, setsRole, setsMinutes],
+      [divisionId, namesCeo ? null : policy.roleSlug ?? null, policy.afterMinutes ?? null, setsRole, setsMinutes, !namesCeo],
     );
     await appendEvent(tx, {
       companyId,

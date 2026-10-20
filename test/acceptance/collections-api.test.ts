@@ -223,6 +223,18 @@ test('the days and the words on how to pay are kept, and refused when they are n
       assert.equal(refused.status, 400, JSON.stringify(stepsDays));
       assert.match(refused.body.error, /stepsDays is one to five days/);
     }
+    // A note longer than a letter carries is refused whole, never cut: the end
+    // of one is where an account number is, and half of one sends money nowhere.
+    const long = `Transfer to BCA ${'please use the invoice number as the reference; '.repeat(13)}account 123 456 7890`;
+    assert.ok(long.length > 500 && long.length <= 1000);
+    const refused = await api.call('POST', path, token, { paymentNote: long });
+    assert.equal(refused.status, 400, JSON.stringify(refused.body));
+    assert.match(refused.body.error, /paymentNote is at most 500 characters; this one is \d+/);
+    assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/invoices`, token)).body.collections.paymentNote, 'Transfer BCA 123 456 7890\na.n. PT Kopi Senja');
+    // What the cleaning takes away does not count against it.
+    const padded = await api.call('POST', path, token, { paymentNote: `${'x'.repeat(500)}${' '.repeat(300)}` });
+    assert.equal(padded.status, 200, JSON.stringify(padded.body));
+    assert.equal(padded.body.paymentNote, 'x'.repeat(500));
     assert.equal((await api.call('POST', path, token, { enabled: 'yes' })).status, 400);
     assert.equal((await api.call('POST', path, token, {})).status, 400);
     const cleared = await api.call('POST', path, token, { paymentNote: null, enabled: false });

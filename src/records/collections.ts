@@ -96,11 +96,19 @@ function oneLine(value: string, most = NAME_MAX): string {
   return flat.length > most ? `${flat.slice(0, most - 1).trimEnd()}…` : flat;
 }
 
-/** The owner's words on how to pay: lines kept, anything that could end a header or hide text dropped. */
+/** The owner's words on how to pay, cleaned: lines kept, anything that could end a header or hide text dropped. */
+function cleanNote(value: string): string {
+  return value.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(UNPRINTABLE, '')
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * The owner's words on how to pay, as a letter carries them. Cut only as a
+ * last guard: `setPolicy` refuses a longer note rather than keep half of it.
+ */
 export function paymentNoteOf(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
-  const clean = value.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(UNPRINTABLE, '')
-    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const clean = cleanNote(value);
   return clean === '' ? null : clean.slice(0, PAYMENT_NOTE_MAX);
 }
 
@@ -230,8 +238,11 @@ export async function setPolicy(
   let paymentNote = now.paymentNote;
   if (change.paymentNote !== undefined) {
     if (change.paymentNote !== null && typeof change.paymentNote !== 'string') throw wrong('paymentNote is the owner\'s words on how to pay, or null', 'paymentNote');
-    if (typeof change.paymentNote === 'string' && change.paymentNote.length > PAYMENT_NOTE_MAX * 2) {
-      throw wrong(`paymentNote is at most ${PAYMENT_NOTE_MAX} characters`, 'paymentNote');
+    // Measured as the letter will carry it, and refused whole: cut, a note
+    // kept its first part, and the end of one is where the account number is.
+    const length = typeof change.paymentNote === 'string' ? cleanNote(change.paymentNote).length : 0;
+    if (length > PAYMENT_NOTE_MAX) {
+      throw wrong(`paymentNote is at most ${PAYMENT_NOTE_MAX} characters; this one is ${length}`, 'paymentNote');
     }
     paymentNote = paymentNoteOf(change.paymentNote);
   }

@@ -273,7 +273,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies',
     what: 'Start a company.',
     fields: {
-      name: 'its name', companySlug: 'lowercase letters, digits and -', templateSlug: 'standard-company',
+      name: 'its name', companySlug: 'lowercase letters, digits and -',
       timezone: 'an IANA zone', bundles: 'optional list of bundle slugs, such as ["company-os"] for a company that runs itself',
     },
     factor: 'always',

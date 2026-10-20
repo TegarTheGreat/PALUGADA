@@ -376,6 +376,15 @@ test('after a check that brings back what an outside server says, the action is 
   }
 });
 
+test('a company the assistant starts is started as every company is: with its CEO, from no template it names', () => {
+  // The review of 20 October: the action still told the model to send
+  // templateSlug "standard-company", a template no fresh install has and an
+  // upgraded one keeps with the old seven-division team.
+  const start = ASSISTANT_ACTIONS.find((action) => action.pattern === '/api/companies')!;
+  assert.ok(!('templateSlug' in (start.fields ?? {})), 'the route starts from the founding template when none is named');
+  assert.doesNotMatch(JSON.stringify(ASSISTANT_ACTIONS), /standard-company/);
+});
+
 test('only everyday work, and building the team in the app, is done at once; never a key, money or an inbox decision', () => {
   const buildsTheTeam = [
     '/api/companies/:companyId/divisions', '/api/companies/:companyId/goals', '/api/companies/:companyId/goals/:goalId',

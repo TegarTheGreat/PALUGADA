@@ -207,12 +207,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} tina {finished} tugas gagal atanapi eureun dinten ieu ({rate}%), ngaleuwihan wates {limit}%.',
   'Unusual number of policy refusals': 'Jumlah panolakan kawijakan teu biasa',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Tindakan anu ditolak ku kawijakan dinten ieu: {count}, ngaleuwihan wates {limit}. Boh aya agén anu nuju nguji watesna, boh aya kawijakan anu setélanana teu leres.',
-  'External writes failed verification': 'Panyeratan ka luar teu lulus verifikasi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Panyeratan di luar anu dilaporkeun hasil nanging béda nalika diaos deui: {count}. Aya anu ngarobihna, henteu sapertos anu disuhunkeun.',
-  'A capability stopped being usable': 'Hiji kamampuh teu tiasa dianggé deui',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tugas anu teu tiasa dimimitian dinten ieu kusabab kamampuh anu diperyogikeun ku peranna teu lulus pamariksaan: {count}. Panginten aya kredénsial anu kadaluwarsa atanapi kuota anu séép.',
-  'A worker stopped reporting mid-run': 'Hiji pagawé eureun ngalaporkeun di tengah palaksanaan',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Palaksanaan anu eureun ngalaporkeun sareng dicandak deui dinten ieu: {count}. Padamelanana parantos diteraskeun deui; token anu parantos kaanggé henteu wangsul.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} ditolak {denials} kali dinten ieu, dugi ka wates {limit}. Moal aya tugas anu jalan minangka peran ieu dugi ka anjeun ngacairkeunana. Sabab anu biasa nyaéta idin kamampuh anu teu acan dipasihkeun, kawijakan anu henteu diitung dina piagam peran ieu, atanapi padamelan anu peran ieu henteu kantos disayagikeun pikeun ngalaksanakeunana.',
   'Role {role} is frozen after repeated denials': 'Peran {role} dibekukeun saparantos ditolak sababaraha kali',
   'What it was refused: {capabilities}': 'Anu ditolak: {capabilities}',
@@ -410,4 +404,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Disimpen salaku kecap anjeun: {words}',
   'Recorded as your figure: {value} for {measure}':
     'Dicatet salaku angka anjeun: {value} pikeun {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Prosés anu dituluykeun deui saatos pagawéna eureun: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Ditarik: tugas anu dimaksud parantos dijalankeun deui.',
+  'Withdrawn: the day it was about has ended.':
+    'Ditarik: dinten anu dimaksud parantos réngsé.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Ditarik: wates bulan ieu parantos kahontal, sarta kartu anu nyebatkeun pausahaan direureuhkeun ngagentosna.',
 };

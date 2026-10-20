@@ -203,12 +203,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} dari {finished} tugas gagal atau berhenti hari ini ({rate}%), melewati ambang {limit}%.',
   'Unusual number of policy refusals': 'Jumlah penolakan kebijakan tidak wajar',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Tindakan yang ditolak kebijakan hari ini: {count}, melewati ambang {limit}. Entah ada agent yang sedang menguji batasnya, atau ada kebijakan yang setelannya keliru.',
-  'External writes failed verification': 'Penulisan eksternal gagal verifikasi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Penulisan ke luar yang dilaporkan berhasil tetapi berbeda saat dibaca ulang: {count}. Ada sesuatu yang mengubahnya, tidak sesuai dengan yang diminta.',
-  'A capability stopped being usable': 'Sebuah kemampuan tidak bisa dipakai lagi',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tugas yang tidak bisa dimulai hari ini karena kemampuan yang dibutuhkan perannya tidak lolos pemeriksaan: {count}. Mungkin ada kredensial yang kedaluwarsa atau kuota yang habis.',
-  'A worker stopped reporting mid-run': 'Worker berhenti melapor di tengah run',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Run yang berhenti melapor dan diambil kembali hari ini: {count}. Pekerjaannya sudah dilanjutkan lagi; token yang sudah terpakai tidak kembali.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} ditolak {denials} kali hari ini, mencapai batas {limit}. Tidak ada tugas yang berjalan sebagai peran ini sampai Anda mencairkannya. Penyebab yang biasa adalah izin kemampuan yang belum diberikan, kebijakan yang tidak diperhitungkan piagam peran ini, atau pekerjaan yang memang tidak pernah dibekalkan untuk peran ini.',
   'Role {role} is frozen after repeated denials': 'Peran {role} dibekukan setelah berulang kali ditolak',
   'What it was refused: {capabilities}': 'Yang ditolak: {capabilities}',
@@ -406,4 +400,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Disimpan sebagai kata Anda: {words}',
   'Recorded as your figure: {value} for {measure}':
     'Dicatat sebagai angka Anda: {value} untuk {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Run yang dilanjutkan lagi setelah worker-nya berhenti: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Ditarik: tugas yang dimaksud sudah dijalankan lagi.',
+  'Withdrawn: the day it was about has ended.':
+    'Ditarik: hari yang dimaksud sudah berakhir.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Ditarik: batas bulan ini sudah tercapai, dan kartu yang menyatakan perusahaan dijeda menggantikannya.',
 };

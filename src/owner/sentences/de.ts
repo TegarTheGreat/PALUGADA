@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} von {finished} Aufgaben sind heute fehlgeschlagen oder wurden gestoppt ({rate} %), über der Schwelle von {limit} %.',
   'Unusual number of policy refusals': 'Ungewöhnlich viele Ablehnungen durch Richtlinien',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Heute von einer Richtlinie abgelehnte Aktionen: {count}, über der Schwelle von {limit}. Entweder testet ein Agent seine Grenzen aus, oder eine Richtlinie ist falsch eingestellt.',
-  'External writes failed verification': 'Externe Schreibvorgänge haben die Prüfung nicht bestanden',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Schreibvorgänge nach außen, die als erfolgreich gemeldet wurden, beim Zurücklesen aber anders aussahen: {count}. Etwas verändert sie anders als verlangt.',
-  'A capability stopped being usable': 'Eine Fähigkeit ist nicht mehr nutzbar',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Aufgaben, die heute nicht starten konnten, weil eine Fähigkeit, die ihre Rolle braucht, ihre Prüfung nicht bestanden hat: {count}. Wahrscheinlich sind Zugangsdaten abgelaufen oder ein Kontingent ist aufgebraucht.',
-  'A worker stopped reporting mid-run': 'Ein Worker hat sich mitten im Lauf nicht mehr gemeldet',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Läufe, die sich heute nicht mehr gemeldet haben und zurückgeholt wurden: {count}. Die Arbeit wurde wieder aufgenommen; die Tokens, die sie bereits verbraucht hatten, sind verloren.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} wurde heute {denials}-mal abgelehnt und hat damit die Grenze von {limit} erreicht. Keine Aufgabe läuft mehr als diese Rolle, bis Sie das Einfrieren aufheben. Die üblichen Ursachen sind eine fehlende Berechtigung für eine Fähigkeit, eine Richtlinie, die die Charta der Rolle nicht berücksichtigt, oder Arbeit, für die die Rolle nie ausgestattet war.',
   'Role {role} is frozen after repeated denials': 'Rolle {role} nach wiederholten Ablehnungen eingefroren',
   'What it was refused: {capabilities}': 'Abgelehnt wurde: {capabilities}',
@@ -412,4 +406,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Als Ihr Wort gespeichert: {words}',
   'Recorded as your figure: {value} for {measure}':
     'Als Ihre Zahl erfasst: {value} für {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Läufe, die nach dem Ausfall ihres Workers weitergingen: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Zurückgezogen: Die Aufgabe, um die es ging, wurde erneut ausgeführt.',
+  'Withdrawn: the day it was about has ended.':
+    'Zurückgezogen: Der Tag, um den es ging, ist vorbei.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Zurückgezogen: Die Obergrenze des Monats wurde erreicht, und an ihre Stelle tritt die Karte, die sagt, dass das Unternehmen pausiert ist.',
 };

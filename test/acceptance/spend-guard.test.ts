@@ -268,6 +268,53 @@ test('a ceiling raised past what is spent lifts the pause by itself, and the car
 });
 
 /**
+ * The 80% card was raised with nothing to say what it was about, so nothing
+ * could ever close it: a company warned in October and never paused kept
+ * "80% spent" in front of the owner for good, and one that went on to 100%
+ * had the warning beside the card that said it was paused.
+ */
+test("last month's 80% warning closes itself in the new month, paused or not (F1.7)", async () => {
+  const fixture = await createCompany('spend-warning-month');
+  const task = await newTask(fixture);
+  const now = new Date();
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12));
+  await seedTrace(fixture, task.id, 16_500, lastMonth);
+  assert.equal((await evaluateSpendLimit(fixture.companyId, lastMonth)).state, 'warned');
+  const [warning] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.ok(warning);
+
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'under');
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [warning.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'period_started' });
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"));
+  assert.deepEqual(said.map((row) => row.payload.inboxItemId), [warning.id]);
+});
+
+test('the 80% warning gives way to the pause card when the ceiling is reached (F1.7)', async () => {
+  const fixture = await createCompany('spend-warning-paused');
+  const task = await newTask(fixture);
+  await seedTrace(fixture, task.id, 16_500, new Date());
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'warned');
+  const [warning] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.ok(warning);
+
+  // Still this month's: a second look keeps it.
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'warned');
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [warning.id]);
+
+  await seedTrace(fixture, task.id, 4_000, new Date());
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'paused');
+  const open = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.equal(open.length, 1, 'one card says where the month stands');
+  assert.match(open[0]!.title, /paused/);
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [warning.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'spend_paused' });
+});
+
+/**
  * Seeds a role with a steady hourly spend across the baseline window.
  *
  * One task carrying many traces rather than many tasks: the breaker attributes

@@ -405,7 +405,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/alert-thresholds',
     what: 'When the owner is alerted.',
     fields: {
-      dailyCostCents: 'number', taskFailureRate: '0-1', policyDenialsPerDay: 'number', verificationFailuresPerDay: 'number',
+      dailyCostCents: 'number', taskFailureRate: '0-1', policyDenialsPerDay: 'number',
       roleFreezeDenialsPerDay: 'number', spendRateMultiple: 'number', spendRateFloorCents: 'number',
     },
     factor: 'never',

@@ -1,39 +1,38 @@
 /**
  * Alerts (PRD F11.4).
  *
- * Four conditions the owner has said they want to hear about: spend above a
- * daily ceiling, a task failure rate above a threshold, a burst of policy
- * denials, and any failed state verification.
+ * Three conditions the owner has said they want to hear about: spend above a
+ * daily ceiling, a task failure rate above a threshold, and a burst of policy
+ * denials.
  *
  * Every alert is raised at most once per company per kind per day. That
  * deduplication is not a nicety: a sweep running every minute against a
  * standing overspend would produce a thousand inbox items, and an owner who
  * has learned to scroll past the inbox is worse off than one with no alerts at
- * all (principle 1).
+ * all (principle 1). And each is about its day, and closes itself once that
+ * day has ended and the owner has had a whole day to see it (`closeEndedDays`).
  *
- * Verification failures use a threshold of one by default, because F8.4 treats
- * a write that reads back differently as an incident rather than a statistic.
+ * F11.4 names three more, and each is said where it can be acted on rather
+ * than as a daily count. A failed read-back has its own incident, about its
+ * task (F8.4, engine.ts); a capability that stopped being usable has its own
+ * (F8.12, preflight.ts), and the task it stopped is reported by ended.ts. A
+ * run whose worker stopped is put back with its journal, which asks nothing of
+ * the owner, so it is a line of the daily digest (digest.ts); a task that
+ * keeps losing its worker is halted with its own incident (checkout.ts). The
+ * daily cards for these were a second urgent card beside the first, pushed at
+ * the same moment, or an incident about work already picked up again.
  */
 import { withTenant, withControlPlane } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { alertCard, ownerReadingWithin, type AlertFacts } from '../owner/platform-cards.ts';
 
-export type AlertKind =
-  | 'daily_cost'
-  | 'task_failure_rate'
-  | 'policy_denials'
-  | 'verification_failures'
-  /** F11.4: a capability the role declares stopped being usable (F8.12). */
-  | 'preflight_failures'
-  /** F11.4: a run whose worker stopped talking and whose lease was reclaimed. */
-  | 'orphaned_runs';
+export type AlertKind = 'daily_cost' | 'task_failure_rate' | 'policy_denials';
 
 export interface Thresholds {
   dailyCostCents: number;
   taskFailureRate: number;
   policyDenialsPerDay: number;
-  verificationFailuresPerDay: number;
   /**
    * F3.7: denials by a single role in one day before that role is frozen.
    *
@@ -59,7 +58,6 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   dailyCostCents: 10_000,
   taskFailureRate: 0.2,
   policyDenialsPerDay: 20,
-  verificationFailuresPerDay: 1,
   roleFreezeDenialsPerDay: 10,
   spendRateMultiple: 3,
   spendRateFloorCents: 100,
@@ -73,21 +71,25 @@ export interface RaisedAlert {
   inboxItemId: string;
 }
 
-/** A company override wins over the platform default. */
+/**
+ * A company override wins over the platform default.
+ *
+ * `verification_failures_per_day` stays in the table and in the export, and
+ * is no longer read: every failed read-back is an incident of its own (F8.4),
+ * so there is no daily count left for it to be a threshold of.
+ */
 export async function thresholdsFor(companyId: string): Promise<Thresholds> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       daily_cost_cents: number;
       task_failure_rate: number;
       policy_denials_per_day: number;
-      verification_failures_per_day: number;
       role_freeze_denials_per_day: number;
       spend_rate_multiple: number;
       spend_rate_floor_cents: number;
     }>(
       `SELECT daily_cost_cents, task_failure_rate, policy_denials_per_day,
-              verification_failures_per_day, role_freeze_denials_per_day,
-              spend_rate_multiple, spend_rate_floor_cents
+              role_freeze_denials_per_day, spend_rate_multiple, spend_rate_floor_cents
          FROM alert_thresholds
         WHERE company_id = $1 OR company_id IS NULL
         ORDER BY company_id NULLS LAST
@@ -100,7 +102,6 @@ export async function thresholdsFor(companyId: string): Promise<Thresholds> {
       dailyCostCents: row.daily_cost_cents,
       taskFailureRate: row.task_failure_rate,
       policyDenialsPerDay: row.policy_denials_per_day,
-      verificationFailuresPerDay: row.verification_failures_per_day,
       roleFreezeDenialsPerDay: row.role_freeze_denials_per_day,
       spendRateMultiple: row.spend_rate_multiple,
       spendRateFloorCents: row.spend_rate_floor_cents,
@@ -116,35 +117,30 @@ export async function setThresholds(
     await tx.query(
       `INSERT INTO alert_thresholds
          (company_id, daily_cost_cents, task_failure_rate, policy_denials_per_day,
-          verification_failures_per_day, role_freeze_denials_per_day,
-          spend_rate_multiple, spend_rate_floor_cents)
+          role_freeze_denials_per_day, spend_rate_multiple, spend_rate_floor_cents)
        VALUES ($1,
                coalesce($2, 10000),
                coalesce($3, 0.2),
                coalesce($4, 20),
-               coalesce($5, 1),
-               coalesce($6, 10),
+               coalesce($5, 10),
                -- Cast explicitly: the literal 3 would make PostgreSQL infer an
                -- integer parameter, and this column is a real.
-               coalesce($7::real, 3),
-               coalesce($8, 100))
+               coalesce($6::real, 3),
+               coalesce($7, 100))
        ON CONFLICT (company_id) DO UPDATE
          SET daily_cost_cents = coalesce($2, alert_thresholds.daily_cost_cents),
              task_failure_rate = coalesce($3, alert_thresholds.task_failure_rate),
              policy_denials_per_day = coalesce($4, alert_thresholds.policy_denials_per_day),
-             verification_failures_per_day =
-               coalesce($5, alert_thresholds.verification_failures_per_day),
              role_freeze_denials_per_day =
-               coalesce($6, alert_thresholds.role_freeze_denials_per_day),
-             spend_rate_multiple = coalesce($7::real, alert_thresholds.spend_rate_multiple),
+               coalesce($5, alert_thresholds.role_freeze_denials_per_day),
+             spend_rate_multiple = coalesce($6::real, alert_thresholds.spend_rate_multiple),
              spend_rate_floor_cents =
-               coalesce($8, alert_thresholds.spend_rate_floor_cents)`,
+               coalesce($7, alert_thresholds.spend_rate_floor_cents)`,
       [
         companyId,
         thresholds.dailyCostCents ?? null,
         thresholds.taskFailureRate ?? null,
         thresholds.policyDenialsPerDay ?? null,
-        thresholds.verificationFailuresPerDay ?? null,
         thresholds.roleFreezeDenialsPerDay ?? null,
         thresholds.spendRateMultiple ?? null,
         thresholds.spendRateFloorCents ?? null,
@@ -158,10 +154,6 @@ interface DayMetrics {
   tasksFinished: number;
   tasksFailed: number;
   policyDenials: number;
-  verificationFailures: number;
-  /** F11.4. */
-  preflightFailures: number;
-  orphanedRuns: number;
 }
 
 export async function metricsForDay(companyId: string, day: Date): Promise<DayMetrics> {
@@ -171,9 +163,6 @@ export async function metricsForDay(companyId: string, day: Date): Promise<DayMe
       tasks_finished: string;
       tasks_failed: string;
       policy_denials: string;
-      verification_failures: string;
-      preflight_failures: string;
-      orphaned_runs: string;
     }>(
       `WITH bounds AS (
          SELECT date_trunc('day', $1::timestamptz) AS from_at,
@@ -190,19 +179,7 @@ export async function metricsForDay(companyId: string, day: Date): Promise<DayMe
              AND status IN ('failed', 'halted')) AS tasks_failed,
          (SELECT count(*)::text FROM events, bounds
            WHERE type = 'policy.denied'
-             AND occurred_at >= bounds.from_at AND occurred_at < bounds.to_at) AS policy_denials,
-         (SELECT count(*)::text FROM events, bounds
-           WHERE type = 'tool.verify_failed'
-             AND occurred_at >= bounds.from_at AND occurred_at < bounds.to_at)
-           AS verification_failures,
-         (SELECT count(*)::text FROM tasks, bounds
-           WHERE halt_reason = 'capability_unhealthy'
-             AND finished_at >= bounds.from_at AND finished_at < bounds.to_at)
-           AS preflight_failures,
-         (SELECT count(*)::text FROM agent_runs, bounds
-           WHERE status = 'orphaned'
-             AND finished_at >= bounds.from_at AND finished_at < bounds.to_at)
-           AS orphaned_runs`,
+             AND occurred_at >= bounds.from_at AND occurred_at < bounds.to_at) AS policy_denials`,
       [day],
     );
     const row = rows[0]!;
@@ -211,9 +188,6 @@ export async function metricsForDay(companyId: string, day: Date): Promise<DayMe
       tasksFinished: Number(row.tasks_finished),
       tasksFailed: Number(row.tasks_failed),
       policyDenials: Number(row.policy_denials),
-      verificationFailures: Number(row.verification_failures),
-      preflightFailures: Number(row.preflight_failures),
-      orphanedRuns: Number(row.orphaned_runs),
     };
   });
 }
@@ -231,7 +205,51 @@ async function claimAlertSlot(companyId: string, kind: AlertKind, day: Date): Pr
   });
 }
 
+/**
+ * Closes the cards about a day that has ended once the owner has had a whole
+ * day to see them, and returns `now`'s day as the cards name it.
+ *
+ * Each card said "today" of a day that had ended, asked nothing, and stayed:
+ * a busy month left thirty. The day is the one `claimAlertSlot` counts in,
+ * from the same expression, and is compared as text: both are YYYY-MM-DD.
+ *
+ * Not at the day's end. A card carried late in its day -- at 21:55, or at
+ * 21:30 in Jakarta, which is 14:30 in UTC -- had barely reached the owner by
+ * midnight, and closing it then rewrote its chat message (`retractClosed`)
+ * before their next morning: they never heard of the breach. So a card is
+ * kept a whole day from when it was put in front of the owner: carried to
+ * them (`notify_after`, which is the window's next opening for one raised
+ * after hours, F10.5), or back from being put off (`snoozed_until`, 0060).
+ * The owner's window is the same hours every day, so any whole day holds all
+ * of it, wherever those hours fall against UTC's midnight; a day, rather than
+ * the window's next closing, because a window that never closes or never
+ * opens has no closing to wait for.
+ */
+async function closeEndedDays(companyId: string, now: Date): Promise<string> {
+  return withTenant(companyId, async (tx) => {
+    const { rows: [today] } = await tx.query<{ day: string }>(
+      "SELECT to_char(date_trunc('day', $1::timestamptz), 'YYYY-MM-DD') AS day", [now]);
+    const { rows: closed } = await tx.query<{ id: string }>(
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'day_ended'
+        WHERE kind = 'budget_alert' AND status = 'open' AND payload ? 'alert'
+          AND payload->>'day' < $2
+          -- greatest() passes over a null: a card never put off counts from
+          -- when it was carried.
+          AND greatest(notify_after, snoozed_until) <= $1::timestamptz - interval '1 day'
+        RETURNING id`,
+      [now, today!.day],
+    );
+    for (const item of closed) {
+      await appendEvent(tx, {
+        companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: 'day_ended' },
+      });
+    }
+    return today!.day;
+  });
+}
+
 export async function evaluateAlerts(companyId: string, now = new Date()): Promise<RaisedAlert[]> {
+  const day = await closeEndedDays(companyId, now);
   const [thresholds, metrics] = await Promise.all([
     thresholdsFor(companyId),
     metricsForDay(companyId, now),
@@ -282,50 +300,6 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
     });
   }
 
-  if (metrics.verificationFailures >= thresholds.verificationFailuresPerDay) {
-    breaches.push({
-      kind: 'verification_failures',
-      summary:
-        `${metrics.verificationFailures} external writes reported success but read back ` +
-        'differently. Something is changing state other than as asked.',
-      observed: metrics.verificationFailures,
-      threshold: thresholds.verificationFailuresPerDay,
-      facts: { kind: 'verification_failures', count: metrics.verificationFailures },
-    });
-  }
-
-  // F11.4: both of these are "the platform noticed something about itself".
-  // One means a capability the role declares has stopped being usable, so
-  // tasks are halting before they start; the other means a worker stopped
-  // talking mid-run. Either is a single occurrence worth telling the owner
-  // about, so the threshold is one rather than a rate -- a system that only
-  // reports its own failures in bulk is a system that hides the first one.
-  if (metrics.preflightFailures > 0) {
-    breaches.push({
-      kind: 'preflight_failures',
-      summary:
-        `${metrics.preflightFailures} task${metrics.preflightFailures === 1 ? '' : 's'} could ` +
-        'not start today because a capability the role declares failed its readiness check. ' +
-        'A credential has probably expired or a quota is exhausted.',
-      observed: metrics.preflightFailures,
-      threshold: 0,
-      facts: { kind: 'preflight_failures', count: metrics.preflightFailures },
-    });
-  }
-
-  if (metrics.orphanedRuns > 0) {
-    breaches.push({
-      kind: 'orphaned_runs',
-      summary:
-        `${metrics.orphanedRuns} run${metrics.orphanedRuns === 1 ? '' : 's'} stopped reporting ` +
-        'and had their leases reclaimed today. The work was picked up again; the tokens they ' +
-        'had already spent were not recovered.',
-      observed: metrics.orphanedRuns,
-      threshold: 0,
-      facts: { kind: 'orphaned_runs', count: metrics.orphanedRuns },
-    });
-  }
-
   const raised: RaisedAlert[] = [];
 
   const reading = breaches.length > 0 ? await withTenant(companyId, ownerReadingWithin) : null;
@@ -333,18 +307,12 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
     if (!(await claimAlertSlot(companyId, breach.kind, now))) continue;
     const card = alertCard(reading!, breach.facts);
 
-    // A failed verification is an incident: it means the world may not match
-    // what the system believes. Everything else is a budget-shaped alert that
-    // can wait for the owner's window.
-    const inboxItemId =
-      // F8.12 calls a preflight failure an incident, and an orphaned run means
-      // a worker died mid-task -- neither keeps until the owner's window the way
-      // a spending figure does.
-      breach.kind === 'verification_failures'
-      || breach.kind === 'preflight_failures'
-      || breach.kind === 'orphaned_runs'
-        ? await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail })
-        : await inbox.raiseBudgetAlert({ companyId, title: card.title, detail: card.detail });
+    // Each is a figure about the day, which keeps until the owner's window: a
+    // number that will be just as true at breakfast. The day it is about is
+    // what closes it once the day is over (`closeEndedDays`).
+    const inboxItemId = await inbox.raiseBudgetAlert({
+      companyId, title: card.title, detail: card.detail, payload: { alert: breach.kind, day },
+    });
 
     await withTenant(companyId, async (tx) => {
       await appendEvent(tx, {

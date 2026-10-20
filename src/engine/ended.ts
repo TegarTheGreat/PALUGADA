@@ -75,6 +75,9 @@ async function findEnded(companyId: string, now: Date): Promise<Ended[]> {
                 SELECT 1 FROM inbox_items i
                  WHERE i.kind IN ('incident', 'escalation', 'budget_alert')
                    AND (i.task_id = t.id OR i.payload->'endedTaskIds' ? t.id::text))
+          -- Run again already (rerunTask): the owner has answered it, before
+          -- any card asked.
+          AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
         ORDER BY t.finished_at`,
       [now, ENDED_AFTER_MS / 1000, ENDED_WITHIN_MS / 1000],
     );
@@ -99,11 +102,16 @@ export async function reportEndedBadly(companyId: string, now = new Date()): Pro
  */
 async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
   return withTenant(companyId, async (tx) => {
+    // The lock `rerunTask` closes this card under, too: a task run again
+    // while this pass looked is seen here, after the lock, and not reported.
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [task.taskId]);
     const { rows: told } = await tx.query(
       `SELECT 1 FROM inbox_items
         WHERE kind IN ('incident', 'escalation', 'budget_alert')
-          AND (task_id = $1 OR payload->'endedTaskIds' ? $1::text) LIMIT 1`,
+          AND (task_id = $1 OR payload->'endedTaskIds' ? $1::text)
+       UNION ALL
+       SELECT 1 FROM tasks WHERE idempotency_key = 'rerun:' || $1::text
+       LIMIT 1`,
       [task.taskId]);
     if (told.length > 0) return false;
 
@@ -115,14 +123,16 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
         ORDER BY created_at LIMIT 1`,
       [key]);
     if (open[0]) {
-      if (open[0].ids < MOST_GROUPED) {
-        await tx.query(
-          `UPDATE inbox_items
-              SET payload = jsonb_set(payload, '{endedTaskIds}', coalesce(payload->'endedTaskIds', '[]'::jsonb) || to_jsonb($2::text))
-            WHERE id = $1`,
-          [open[0].id, task.taskId]);
-      }
-      return false;
+      if (open[0].ids >= MOST_GROUPED) return false;
+      // Still open when written to: a card closed since the look above -- by
+      // the owner, by its coordinator, by its tasks run again -- would carry
+      // this task as told on a card nobody reads. It gets its own instead.
+      const { rowCount } = await tx.query(
+        `UPDATE inbox_items
+            SET payload = jsonb_set(payload, '{endedTaskIds}', coalesce(payload->'endedTaskIds', '[]'::jsonb) || to_jsonb($2::text))
+          WHERE id = $1 AND status = 'open'`,
+        [open[0].id, task.taskId]);
+      if (rowCount === 1) return false;
     }
 
     const { rows: said } = await tx.query<{ detail: string | null }>(

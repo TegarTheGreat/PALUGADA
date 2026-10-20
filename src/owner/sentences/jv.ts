@@ -207,12 +207,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} saking {finished} tugas gagal utawi kendel dinten punika ({rate}%), nglangkungi wates {limit}%.',
   'Unusual number of policy refusals': 'Cacahipun panolakan kawicaksanan mboten limrah',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Tumindak ingkang dipuntolak kawicaksanan dinten punika: {count}, nglangkungi wates {limit}. Saged ugi wonten agen ingkang saweg nyobi watesipun, utawi wonten kawicaksanan ingkang setelanipun mboten leres.',
-  'External writes failed verification': 'Panyeratan ing njawi mboten lulus verifikasi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Panyeratan ing njawi ingkang kalapuraken kasil nanging benten nalika dipunwaos malih: {count}. Wonten ingkang ngewahi panyeratan punika, mboten kados ingkang dipunsuwun.',
-  'A capability stopped being usable': 'Setunggal kasagedan sampun mboten saged dipunginakaken',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tugas ingkang mboten saged kawiwitan dinten punika amargi kasagedan ingkang dipunbetahaken peranipun mboten lulus pamriksan: {count}. Saged ugi wonten kredensial ingkang sampun kadaluwarsa utawi kuota ingkang sampun telas.',
-  'A worker stopped reporting mid-run': 'Setunggal pekerja kendel lapur ing satengahing lampahan',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Lampahan ingkang kendel lapur lan dipunpendhet wangsul dinten punika: {count}. Pakaryanipun sampun dipunlajengaken malih; token ingkang sampun kaginakaken mboten wangsul.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} dipuntolak ping {denials} dinten punika, dumugi wates {limit}. Mboten wonten tugas ingkang mlampah minangka peran punika ngantos panjenengan nyairaken. Sabab ingkang limrah: palilah kasagedan ingkang dereng wonten, kawicaksanan ingkang mboten dipunetang wonten ing piagam peran punika, utawi pakaryan ingkang mboten nate dipuncawisaken kangge peran punika.',
   'Role {role} is frozen after repeated denials': 'Peran {role} dipunbekokaken sasampunipun bola-bali dipuntolak',
   'What it was refused: {capabilities}': 'Ingkang dipuntolak: {capabilities}',
@@ -410,4 +404,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Disimpen minangka pangandikan panjenengan: {words}',
   'Recorded as your figure: {value} for {measure}':
     'Dicathet minangka angka panjenengan: {value} kangge {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Lampahan ingkang dipunlajengaken malih sasampunipun pekerjanipun kendel: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Dipunwangsulaken: tugas ingkang dipunrembag sampun dipunlampahaken malih.',
+  'Withdrawn: the day it was about has ended.':
+    'Dipunwangsulaken: dinten ingkang dipunrembag sampun rampung.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Dipunwangsulaken: wates sasi punika sampun kadugèn, lan kertu ingkang ngandharaken bilih perusahaan dipunendheg nggantosaken.',
 };

@@ -205,12 +205,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '今日は {finished} 件のタスクのうち {failed} 件が失敗または停止し（{rate}%）、しきい値の {limit}% を超えています。',
   'Unusual number of policy refusals': 'ポリシーによる拒否が異常に多くなっています',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': '今日ポリシーに拒否されたアクション：{count} 件。しきい値の {limit} 件を超えています。エージェントが限界を探っているか、ポリシーの設定が適切でないかのどちらかです。',
-  'External writes failed verification': '外部への書き込みが検証に失敗しました',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': '成功と報告されたのに、読み戻すと内容が異なっていた外部への書き込み：{count} 件。指示とは別の形で、何かがそれらを変更しています。',
-  'A capability stopped being usable': '機能が使えなくなりました',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'ロールに必要な機能が稼働チェックで不合格になったため、今日開始できなかったタスク：{count} 件。認証情報の期限切れか、利用枠の使い切りが考えられます。',
-  'A worker stopped reporting mid-run': 'ワーカーが実行の途中で応答しなくなりました',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': '今日、応答が途絶えて回収された実行：{count} 件。作業は改めて引き継がれましたが、すでに使ったトークンは戻りません。',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} は今日 {denials} 回拒否され、上限の {limit} 回に達しました。凍結を解除するまで、このロールではタスクが実行されません。よくある原因は、機能の付与漏れ、ロールの憲章が想定していないポリシー、あるいはそのロールにもともと備わっていない仕事です。',
   'Role {role} is frozen after repeated denials': 'ロール {role} は拒否が続いたため凍結されました',
   'What it was refused: {capabilities}': '拒否されたもの：{capabilities}',
@@ -408,4 +402,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'あなたの言葉として記録しました：{words}',
   'Recorded as your figure: {value} for {measure}':
     'あなたの数値として記録しました：{measure} に {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    'ワーカーが止まった後に再開された実行：{count}件',
+  'Withdrawn: the task it was about was run again.':
+    '取り下げ済み：対象のタスクはもう一度実行されました。',
+  'Withdrawn: the day it was about has ended.':
+    '取り下げ済み：対象の日は終わりました。',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    '取り下げ済み：今月の上限に達したため、会社が一時停止中であることを伝えるカードに置き換わりました。',
 };

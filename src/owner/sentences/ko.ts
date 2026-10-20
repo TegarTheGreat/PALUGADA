@@ -207,12 +207,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '오늘 작업 {finished}건 중 {failed}건이 실패하거나 중지되어({rate}%) 임계값 {limit}%를 넘었어요.',
   'Unusual number of policy refusals': '정책 거부 횟수가 비정상적으로 많음',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': '오늘 정책에 거부된 조치: {count}건으로, 임계값 {limit}건을 넘었어요. 에이전트가 한계를 시험하고 있거나 정책이 잘못 설정되어 있어요.',
-  'External writes failed verification': '외부 쓰기가 검증에 실패함',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': '성공으로 보고됐지만 다시 읽으니 내용이 달랐던 외부 쓰기: {count}건. 요청과 다른 방식으로 무언가가 이를 바꾸고 있어요.',
-  'A capability stopped being usable': '기능을 더 이상 쓸 수 없음',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': '역할에 필요한 기능이 검사를 통과하지 못해 오늘 시작하지 못한 작업: {count}건. 자격 증명이 만료되었거나 할당량을 다 썼을 가능성이 커요.',
-  'A worker stopped reporting mid-run': '워커가 실행 도중 응답을 멈춤',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': '오늘 응답이 끊겨 회수된 실행: {count}건. 일은 다시 맡겨졌지만, 이미 쓴 토큰은 돌려받지 못했어요.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role}이(가) 오늘 {denials}회 거부되어 한도인 {limit}회에 도달했어요. 동결을 해제하기 전까지 이 역할로는 어떤 작업도 실행되지 않아요. 흔한 원인은 기능 권한 부여 누락, 역할의 헌장이 고려하지 않은 정책, 또는 역할이 애초에 할 수 있도록 갖춰지지 않은 일이에요.',
   'Role {role} is frozen after repeated denials': '역할 {role}이(가) 반복된 거부로 동결됨',
   'What it was refused: {capabilities}': '거부된 항목: {capabilities}',
@@ -410,4 +404,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '내 말로 저장했어요: {words}',
   'Recorded as your figure: {value} for {measure}':
     '내가 준 수치로 기록했어요: {measure}에 {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    '워커가 멈춘 뒤 다시 이어진 실행: {count}건',
+  'Withdrawn: the task it was about was run again.':
+    '철회됨: 관련 작업을 다시 실행했습니다.',
+  'Withdrawn: the day it was about has ended.':
+    '철회됨: 해당 날짜가 지났습니다.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    '철회됨: 이번 달 한도에 도달해, 회사가 일시 중지되었다는 카드가 이를 대신합니다.',
 };

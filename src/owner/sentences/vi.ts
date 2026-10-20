@@ -213,12 +213,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'Hôm nay có {failed} trên {finished} nhiệm vụ thất bại hoặc bị dừng ({rate}%), vượt ngưỡng {limit}%.',
   'Unusual number of policy refusals': 'Số lần bị chính sách từ chối cao bất thường',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Số hành động bị chính sách từ chối hôm nay: {count}, vượt ngưỡng {limit}. Hoặc một agent đang dò giới hạn của mình, hoặc một chính sách đang được thiết lập chưa đúng.',
-  'External writes failed verification': 'Các thao tác ghi ra bên ngoài không qua được xác minh',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Số thao tác ghi ra bên ngoài báo thành công nhưng đọc lại thì khác: {count}. Có thứ gì đó đang thay đổi chúng theo cách không ai yêu cầu.',
-  'A capability stopped being usable': 'Một năng lực không còn dùng được',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Số nhiệm vụ hôm nay không thể bắt đầu vì một năng lực mà vai trò của chúng cần không qua được kiểm tra: {count}. Có lẽ một thông tin xác thực đã hết hạn hoặc hạn ngạch đã dùng hết.',
-  'A worker stopped reporting mid-run': 'Một bộ thực thi ngừng báo cáo giữa lượt chạy',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Số lượt chạy ngừng báo cáo và đã được thu hồi hôm nay: {count}. Công việc đã được nhận lại; số token đã tiêu tốn thì không lấy lại được.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} đã bị từ chối {denials} lần hôm nay, chạm giới hạn {limit}. Không nhiệm vụ nào chạy dưới vai trò này cho đến khi bạn bỏ đóng băng. Nguyên nhân thường gặp là thiếu quyền dùng một năng lực, một chính sách mà điều lệ của vai trò không tính đến, hoặc công việc mà vai trò chưa từng được trang bị để làm.',
   'Role {role} is frozen after repeated denials': 'Vai trò {role} bị đóng băng sau nhiều lần bị từ chối',
   'What it was refused: {capabilities}': 'Những gì bị từ chối: {capabilities}',
@@ -416,4 +410,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã lưu như lời của bạn: {words}',
   'Recorded as your figure: {value} for {measure}':
     'Đã ghi là số liệu của bạn: {value} cho {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Lượt chạy được tiếp tục sau khi bộ thực thi dừng: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Đã rút lại: nhiệm vụ mà nó nói đến đã được chạy lại.',
+  'Withdrawn: the day it was about has ended.':
+    'Đã rút lại: ngày mà nó nói đến đã kết thúc.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Đã rút lại: đã chạm mức trần của tháng, và thẻ báo công ty đang tạm dừng thay thế cho nó.',
 };

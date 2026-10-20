@@ -266,10 +266,7 @@ export function reminderMailboxAsked(language: string | null): string {
 export type AlertFacts =
   | { kind: 'daily_cost'; costCents: number; limitCents: number }
   | { kind: 'task_failure_rate'; failed: number; finished: number; rate: number; limit: number }
-  | { kind: 'policy_denials'; count: number; limit: number }
-  | { kind: 'verification_failures'; count: number }
-  | { kind: 'preflight_failures'; count: number }
-  | { kind: 'orphaned_runs'; count: number };
+  | { kind: 'policy_denials'; count: number; limit: number };
 
 export function alertCard(reading: OwnerReading, facts: AlertFacts): Card {
   const { language } = reading;
@@ -294,27 +291,6 @@ export function alertCard(reading: OwnerReading, facts: AlertFacts): Card {
         detail: say(language,
           'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.',
           { count: number(reading, facts.count), limit: number(reading, facts.limit) }),
-      };
-    case 'verification_failures':
-      return {
-        title: say(language, 'External writes failed verification'),
-        detail: say(language,
-          'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.',
-          { count: number(reading, facts.count) }),
-      };
-    case 'preflight_failures':
-      return {
-        title: say(language, 'A capability stopped being usable'),
-        detail: say(language,
-          'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.',
-          { count: number(reading, facts.count) }),
-      };
-    case 'orphaned_runs':
-      return {
-        title: say(language, 'A worker stopped reporting mid-run'),
-        detail: say(language,
-          'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.',
-          { count: number(reading, facts.count) }),
       };
   }
 }

@@ -21,6 +21,7 @@ import { TelegramChannel } from '../../src/owner/telegram.ts';
 import { listenProvider, type ListenBinding } from '../../src/capabilities/listen.ts';
 import { speechProvider, type MediaBinding, type SpeechProvider } from '../../src/capabilities/media.ts';
 import type { LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
+import { defineMetric } from '../../src/domain/metrics.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -155,6 +156,9 @@ async function named(fixture: Fixture, name: string): Promise<void> {
 test('the owner writes to the bot and the CEO answers there; work is given and a fact remembered at once, a card the chat may apply is one press, and one it may not waits in the app', async () => {
   const fixture = await createCompany('telegram-talk');
   await named(fixture, 'Arka');
+  const metricId = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'orders', name: 'Orders a week', unit: 'count', target: 500,
+  });
   const model = new ScriptedModel([
     proposes(
       {
@@ -166,6 +170,7 @@ test('the owner writes to the bot and the CEO answers there; work is given and a
       { path: `/api/companies/${fixture.companyId}/contacts`, body: { name: 'Sari', organisation: 'Kopi Gayo' }, summary: 'Keep Sari of Kopi Gayo as a supplier.' },
       { path: `/api/companies/${fixture.companyId}/spend/limit`, body: { moneyMaxCents: 500_000 }, summary: 'Raise the spending limit.' },
       { path: `/api/companies/${fixture.companyId}/retention`, body: { eventDays: 30 }, summary: 'Keep records for 30 days.' },
+      { path: `/api/companies/${fixture.companyId}/metrics/${metricId}/observations`, body: { value: 42 }, summary: 'Record this week\'s orders.' },
     ),
     says('Siap. Rencana peluncuran sudah saya bagi ke tim; batas belanja Anda naikkan di aplikasi.'),
   ]);
@@ -191,6 +196,9 @@ test('the owner writes to the bot and the CEO answers there; work is given and a
     assert.match(text, /Siap\. Rencana peluncuran sudah saya bagi ke tim/);
     assert.doesNotMatch(text, /Give the launch plan to the team/, 'work given at once is not a card to press');
     assert.doesNotMatch(text, /Remember that the supplier closes on Fridays/, 'nor is a fact the owner said to remember');
+    // What was written as the owner's own word is shown as it was written, not as the model summed it up.
+    assert.match(text, /\nKept as your word: The supplier closes on Fridays\.\n/);
+    assert.match(text, /\nRecorded as your figure: 42 for Orders a week\n/);
     assert.match(text, /\n- Keep Sari of Kopi Gayo as a supplier\.\n/, 'the cards, as a list');
     assert.match(text, /\n- Raise the spending limit\. _\(in the app\)_/);
     assert.match(text, /\n- Keep records for 30 days\. _\(in the app\)_/, 'no device, but not something said in passing either: the chat applies only what it is listed for');
@@ -199,9 +207,10 @@ test('the owner writes to the bot and the CEO answers there; work is given and a
     // The same conversation as the console's, marked as Telegram's.
     const messages = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
     assert.deepEqual(messages.map((one: { role: string; channel: string }) => [one.role, one.channel]), [['owner', 'telegram'], ['assistant', 'telegram']]);
-    const [work, memory, contact, limit, retention] = messages[1].proposals as Array<{ id: string; status: string }>;
+    const [work, memory, contact, limit, retention, figure] = messages[1].proposals as Array<{ id: string; status: string }>;
     assert.equal(work!.status, 'applied', 'the work was given as it was proposed');
     assert.equal(memory!.status, 'applied', 'and the fact remembered, as the owner\'s');
+    assert.equal(figure!.status, 'applied', 'and the figure recorded');
     const remembered = await withTenant(fixture.companyId, (tx) => tx.query<{ source: string }>(
       "SELECT source FROM memories WHERE body = 'The supplier closes on Fridays.'"));
     assert.deepEqual(remembered.rows, [{ source: 'owner' }]);
@@ -230,7 +239,7 @@ test('the owner writes to the bot and the CEO answers there; work is given and a
     await channel.settled();
     assert.deepEqual(bot.sent('answerCallbackQuery').slice(-2).map((one) => one.text), ['That one is applied in the app.', 'That one is applied in the app.']);
     const after = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
-    assert.deepEqual(after.find((one: { id: string }) => one.id === messages[1].id).proposals.map((one: { status: string }) => one.status), ['applied', 'applied', 'applied', 'open', 'open']);
+    assert.deepEqual(after.find((one: { id: string }) => one.id === messages[1].id).proposals.map((one: { status: string }) => one.status), ['applied', 'applied', 'applied', 'open', 'open', 'applied']);
     const kept = await withTenant(fixture.companyId, (tx) => tx.query('SELECT 1 FROM contacts'));
     assert.equal(kept.rows.length, 1, 'kept once');
     assert.deepEqual([after.at(-1).role, after.at(-1).channel], ['event', 'telegram']);

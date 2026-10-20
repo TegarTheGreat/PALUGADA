@@ -302,9 +302,15 @@ refer to `docs/PRD.md`.
   lesson outranks and nothing expires, never marked as outside content) or a
   figure recorded as theirs, which counts as verified. Giving work and telling
   a task carry the same risk, less durably. The action is told to keep only
-  what the owner asked for, in their words, and the closed card says what was
-  done: a memory is taken back with Retract or Supersede on the Memory page,
-  and a figure is replaced by the next one, though it stays in its history.
+  what the owner asked for, in their words, and the owner is shown what was
+  written: in the console the closed card and what it sent, and in Telegram
+  or WhatsApp a line under the answer with the words kept, or the number and
+  its measure, as they were written rather than as the model summed them up
+  (`keptAsTheirs` in `src/owner/api.ts`). Nothing stops it being written
+  first: a memory is taken back with **Take back** or **Correct** on the
+  Memory page, and a figure is replaced by the next one, though it stays in
+  its history. The same words said again in the same place are the memory
+  already kept, not a second one (`ownerSaidAlready`).
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

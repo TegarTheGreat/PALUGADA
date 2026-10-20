@@ -6331,6 +6331,7 @@ export class OwnerApi {
         return {
           answer: said.body,
           cards: said.proposals.filter((one) => one.status === 'open').map((one) => ({ id: one.id, summary: one.summary, here: chatMayApply(one) })),
+          kept: await keptAsTheirs(said.proposals, await language()),
         };
       },
       // What the console's microphone gets: heard once, kept nowhere, in the console's language.
@@ -7419,6 +7420,43 @@ function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting 
     ...(Object.keys(aliases).length > 0 ? { aliases } : {}),
     ...(body.clearKey === true || !keep ? {} : { keySecret: keep }),
   };
+}
+
+/** The routes an answer writes the owner's own word through, done at once (assistant-actions.ts). */
+const OWNERS_WORD = { memory: '/api/companies/:companyId/memories', figure: '/api/companies/:companyId/metrics/:metricId/observations' } as const;
+
+/** The most of a memory a chat line shows; the Memory page has the whole. */
+const KEPT_SHOWN_MAX = 1_000;
+
+/**
+ * What an answer wrote as the owner's own word, as the lines a chat shows
+ * under it (docs/THREAT-MODEL.md section 2.2, item 8). A fact to remember and
+ * a figure the owner gave are written at once, as theirs, from what the
+ * model made of what they said. The console shows the closed card and what it
+ * sent; a chat showed only the model's account of it, so a fact it got wrong
+ * became the owner's word with nothing in front of them to show it. The
+ * words and the number are the ones written, not the card's summary.
+ */
+async function keptAsTheirs(proposals: AssistantProposal[], language: string): Promise<string[]> {
+  const kept: string[] = [];
+  for (const proposal of proposals) {
+    if (proposal.status !== 'applied') continue;
+    const pattern = patternFor(proposal.path, Object.values(OWNERS_WORD));
+    if (pattern === OWNERS_WORD.memory) {
+      const words = String(proposal.body.body ?? '').trim().replace(/\s+/g, ' ');
+      kept.push(say(language, 'Kept as your word: {words}', {
+        words: words.length <= KEPT_SHOWN_MAX ? words : `${words.slice(0, KEPT_SHOWN_MAX - 1)}…`,
+      }));
+    } else if (pattern === OWNERS_WORD.figure) {
+      const [, , companyId, , metric] = proposal.path.split('?')[0]!.split('/').filter(Boolean);
+      const { rows } = await withTenant(companyId!, (tx) => tx.query<{ name: string }>(
+        'SELECT name FROM goal_metrics WHERE id::text = $1 OR slug = $1', [metric]));
+      kept.push(say(language, 'Recorded as your figure: {value} for {measure}', {
+        value: String(Number(proposal.body.value)), measure: rows[0]?.name ?? metric!,
+      }));
+    }
+  }
+  return kept;
 }
 
 function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } | { recovery: string } {

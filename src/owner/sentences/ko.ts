@@ -406,4 +406,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '철회됨: 관련된 티켓이 닫혔습니다.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '청구서 {number}({amount}, {customer})은 {due}부터 연체되었고, 알림을 보낼 이메일 주소 없이 발행되었습니다. 직접 처리하거나 CEO에게 원하는 바를 알려 주세요.',
+  'Kept as your word: {words}':
+    '내 말로 저장했어요: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    '내가 준 수치로 기록했어요: {measure}에 {value}',
 };

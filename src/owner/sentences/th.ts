@@ -411,4 +411,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ถอนแล้ว: ทิกเก็ตที่เกี่ยวข้องถูกปิดแล้ว',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และออกโดยไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
+  'Kept as your word: {words}':
+    'บันทึกไว้เป็นคำของคุณ: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'บันทึกเป็นตัวเลขของคุณ: {value} สำหรับ {measure}',
 };

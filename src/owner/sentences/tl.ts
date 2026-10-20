@@ -405,4 +405,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Binawi: isinara ang ticket na tinutukoy nito.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at inilabas ito nang walang email address na mapagpapadalhan ng paalala. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
+  'Kept as your word: {words}':
+    'Itinago bilang sarili mong salita: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Itinala bilang sarili mong bilang: {value} para sa {measure}',
 };

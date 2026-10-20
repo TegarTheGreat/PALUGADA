@@ -402,4 +402,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tiket yang dibahasnya sudah ditutup.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Faktur {number} ({amount}, {customer}) terlambat sejak {due}, dan diterbitkan tanpa alamat email untuk mengirim pengingat. Tindak lanjuti sendiri, atau beri tahu CEO apa yang Anda inginkan.',
+  'Kept as your word: {words}':
+    'Disimpan sebagai kata Anda: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Dicatat sebagai angka Anda: {value} untuk {measure}',
 };

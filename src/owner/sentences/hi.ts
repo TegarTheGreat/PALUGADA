@@ -408,4 +408,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस टिकट के बारे में था, वह बंद हो गया।',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'चालान {number} ({amount}, {customer}) {due} से बकाया है, और यह बिना किसी ईमेल पते के जारी हुआ था जिस पर अनुस्मारक भेजा जा सके। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
+  'Kept as your word: {words}':
+    'आपके शब्दों के रूप में रखा गया: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'आपके आँकड़े के रूप में दर्ज किया गया: {measure} के लिए {value}',
 };

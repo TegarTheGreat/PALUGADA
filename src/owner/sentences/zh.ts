@@ -407,4 +407,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已撤回：它涉及的工单已关闭。',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且开具时没有可发送提醒的电子邮件地址。请自行跟进，或告诉 CEO 您想怎么处理。',
+  'Kept as your word: {words}':
+    '已按您的原话记下：{words}',
+  'Recorded as your figure: {value} for {measure}':
+    '已记为您给出的数字：{measure} 为 {value}',
 };

@@ -20,6 +20,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
 import { GOES_ON_BY_ITSELF } from '../engine/owner-control.ts';
+import { ENDED_AFTER_MS } from '../engine/ended.ts';
 import { LEARNED_CONFIDENCE, MEMORY_BODY_MAX, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, reviewDeadlockedCard, reviewUnreadableCard, stageMoveStoppedCard } from '../owner/platform-cards.ts';
@@ -517,6 +518,19 @@ export async function approvedReviewOf(
 }
 
 /**
+ * An open card that tells the owner a halted task (`t`) is stopped for its
+ * budget: its account's card (`raiseBudgetHalt`), which names the account in
+ * the task's chain it was raised for and may sit on another task the account
+ * stopped, or the company's card for its month's ceiling, which a halt for
+ * the month's pause raises instead.
+ */
+const BUDGET_CARD_SAYS_SO = `EXISTS (
+  SELECT 1 FROM inbox_items card
+   WHERE card.kind = 'budget_alert' AND card.status = 'open'
+     AND (card.payload->'budgetHalt'->>'budgetAccountId' = ANY(app.budget_chain(t.budget_account_id)::text[])
+          OR card.payload ? 'spendPause'))`;
+
+/**
  * Settles reviews whose reviewer task has finished.
  *
  * State-driven rather than a callback, for the same reason handoff is: a
@@ -530,14 +544,15 @@ export async function approvedReviewOf(
  * guessed at. Treating an unreadable answer as an approval would make the
  * whole gate decorative.
  */
-export async function settleCompletedReviews(companyId: string): Promise<
+export async function settleCompletedReviews(companyId: string, now = new Date()): Promise<
   Array<{ reviewRequestId: string; decision: ReviewDecision | 'unreadable' }>
 > {
   const finished = await withTenant(companyId, async (tx) => {
     // A reviewer its budget stopped has not finished while the platform will
-    // go on with it by itself (`GOES_ON_BY_ITSELF`, with `t` the reviewer): a
-    // reviewer is a sub-task on its proposer's account, so its budget card
-    // already tells the owner, and self-heal or that card's "go on with all"
+    // go on with it by itself (`GOES_ON_BY_ITSELF`, with `t` the reviewer) and
+    // a budget card tells the owner it is stopped (`BUDGET_CARD_SAYS_SO`): a
+    // reviewer is a sub-task on its proposer's account, so its halt raises
+    // that account's card, and self-heal or the card's "go on with all"
     // continues it once there is room. Escalated here as well, the owner had
     // two cards for one event -- the second a dead end, since approving it
     // only sent the proposer back to a review already closed -- and the
@@ -546,6 +561,15 @@ export async function settleCompletedReviews(companyId: string): Promise<
     // will go on with, so it settles now; and so does a reviewer stopped for
     // anything else, a hop limit or a model that did not answer, which no one
     // continues by itself.
+    //
+    // The card is what keeps the proposer from waiting on nothing: liveness
+    // counts the pending review as its mover, and nothing reports a stopped
+    // sub-task. An account has one card, on the work it stopped first, and it
+    // is answered when that work goes on or the owner says no to it; the
+    // reviewer can still be stopped then, so the review goes to the owner as
+    // it did before. For the minute after the halt it waits regardless, since
+    // the halt writes its card a moment after the halt itself (ended.ts waits
+    // the same minute for the same card).
     const { rows } = await tx.query<{
       id: string;
       review_task_id: string;
@@ -565,8 +589,11 @@ export async function settleCompletedReviews(companyId: string): Promise<
         WHERE review.status = 'pending'
           AND (t.status IN ('completed', 'failed', 'cancelled')
                OR (t.status = 'halted'
-                   AND (t.halt_reason IS DISTINCT FROM 'budget_exhausted' OR NOT (${GOES_ON_BY_ITSELF}))))
+                   AND NOT (t.halt_reason IS NOT DISTINCT FROM 'budget_exhausted' AND (${GOES_ON_BY_ITSELF})
+                            AND (coalesce(t.finished_at > $1::timestamptz - make_interval(secs => $2), false)
+                                 OR ${BUDGET_CARD_SAYS_SO}))))
         ORDER BY review.created_at`,
+      [now, ENDED_AFTER_MS / 1000],
     );
     return rows;
   });

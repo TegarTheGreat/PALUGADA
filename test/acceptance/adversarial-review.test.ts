@@ -8,6 +8,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { connectionString } from '../../src/config.ts';
 import { withTenant } from '../../src/db/tenant.ts';
@@ -29,6 +30,8 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import { PalugadaError, type ErrorCode } from '../../src/errors.ts';
 import { cancelTask, continueHalted, rerunTask } from '../../src/engine/owner-control.ts';
 import { findStranded } from '../../src/engine/liveness.ts';
+import { ENDED_AFTER_MS } from '../../src/engine/ended.ts';
+import { clearSpendPause, evaluateSpendLimit, setSpendLimit } from '../../src/governance/spend-guard.ts';
 import { createCompany, addRole, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -592,4 +595,77 @@ test('a review whose proposer was given up is closed without asking the owner ab
   assert.deepEqual(await pendingReviews(fixture.companyId), [], 'the review is settled');
   const escalations = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation');
   assert.deepEqual(escalations, [], 'nobody waits for the verdict, so nobody is asked for one');
+});
+
+/*
+ * The review of the change above. A budget card is one an account, on the
+ * work it stopped first, and answered when that work goes on: self-heal with
+ * room for one run, or the owner's Continue, withdraws it while the reviewer
+ * is still stopped. The owner can also say no to it. Waiting on after that,
+ * the proposer sat in waiting_review with nothing in the inbox, since the
+ * pending review is its mover and a reviewer is a sub-task nothing else
+ * reports. So the review waits only while a budget card says the reviewer is
+ * stopped -- or for the minute in which the halt is still raising its own --
+ * and goes to the owner once none does.
+ */
+test('a reviewer its budget stopped is waited for only while a budget card says so; then the proposer is asked about', async () => {
+  for (const closed of ['continued', 'denied'] as const) {
+    const { fixture, registry, calls } = await reviewedCompany(`review-budget-card-${closed}`);
+    const outOfBudget = async (): Promise<never> => { throw new PalugadaError('budget.exceeded', 'out of budget', {}); };
+    const engine = engineFor(registry, {
+      worker: async (ctx) => {
+        await ctx.callCapability('email.send', PROPOSAL);
+        return { sent: true };
+      },
+      other: outOfBudget,
+      'qa-reviewer': outOfBudget,
+    });
+    // Other work on the same account, stopped first: the account's one card is on it.
+    const first = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'Other work' }, createdBy: 'owner',
+    });
+    assert.equal((await engine.runTask(fixture.companyId, first.id, 'other')).status, 'halted');
+    const task = await proposerTask(fixture);
+    assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_review');
+    const [pending] = await pendingReviews(fixture.companyId);
+    assert.equal((await engine.runTask(fixture.companyId, pending!.reviewTaskId, 'qa-reviewer')).status, 'halted');
+    const [card] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+    assert.equal(card!.taskId, first.id, `${closed}: one card for the account, on the work it stopped first`);
+    assert.deepEqual(await settleCompletedReviews(fixture.companyId), [], `${closed}: while it is open, the review waits`);
+
+    if (closed === 'continued') await continueHalted(fixture.companyId, first.id, 'system');
+    else await inbox.decide(fixture.companyId, card!.id, 'deny');
+    assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.kind), [], `${closed}: the card is closed`);
+    assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, pending!.reviewTaskId)))!.status, 'halted');
+
+    // A halt raises its card a moment after it is written: for that minute the review still waits.
+    assert.deepEqual(await settleCompletedReviews(fixture.companyId), [], `${closed}: the halt's own card may still be coming`);
+    const later = new Date(Date.now() + ENDED_AFTER_MS + 1_000);
+    assert.deepEqual((await settleCompletedReviews(fixture.companyId, later)).map((one) => one.decision), ['unreadable'], closed);
+    const escalations = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation');
+    assert.deepEqual(escalations.map((item) => item.taskId), [task.id], `${closed}: the proposer has a card`);
+    assert.deepEqual(await findStranded(fixture.companyId, new Date(Date.now() + 7 * 86_400_000)), []);
+    // The review has its answer, so nothing pays for a verdict it would not read.
+    await assert.rejects(continueHalted(fixture.companyId, pending!.reviewTaskId, 'system'), { code: 'task.not_continuable' });
+    assert.equal(calls.executions, 0);
+  }
+});
+
+test('a reviewer the month\'s ceiling stopped waits while the month\'s card is open, and goes to the owner once it is not', async () => {
+  const { fixture, task, reason } = await reviewerStoppedBy('review-month-paused', 'spend.paused');
+  assert.equal(reason, 'budget_exhausted');
+  // The month's spending past its ceiling: the company is paused, and its one card says so.
+  await setSpendLimit(fixture.companyId, 1_000);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
+     VALUES ($1, $2, NULL, 'test-model', '{}'::jsonb, '{}'::jsonb, 10, 5, 2000, now())`, [randomUUID(), fixture.companyId]));
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'paused');
+  const later = new Date(Date.now() + ENDED_AFTER_MS + 1_000);
+  assert.deepEqual(await settleCompletedReviews(fixture.companyId, later), [], 'the month\'s card tells the owner');
+
+  await clearSpendPause(fixture.companyId);
+  assert.deepEqual((await settleCompletedReviews(fixture.companyId, later)).map((one) => one.decision), ['unreadable']);
+  const escalations = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation');
+  assert.deepEqual(escalations.map((item) => item.taskId), [task.id]);
 });

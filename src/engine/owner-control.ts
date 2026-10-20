@@ -224,11 +224,14 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
  * while the child waited, so the answer would go nowhere. A parent that
  * completed abandoned nothing: it is the ordinary state of a follow-up, of a
  * hand-off's successor and of work a coordinator handed down and left. A
- * parent stopped for its budget goes on too, and the child with it.
+ * parent stopped for its budget goes on too, and the child with it. Nor a
+ * reviewer whose review is already settled -- gone to the owner while it was
+ * stopped -- since a review that has an answer reads no other verdict.
  */
 export const GOES_ON_BY_ITSELF = `
   NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
   AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
+  AND NOT EXISTS (SELECT 1 FROM review_requests rr WHERE rr.review_task_id = t.id AND rr.status <> 'pending')
   AND NOT EXISTS (SELECT 1 FROM task_steps s
                    WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
   AND NOT EXISTS (
@@ -297,7 +300,8 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       const { rowCount } = await tx.query(`SELECT 1 FROM tasks t WHERE t.id = $1 AND ${GOES_ON_BY_ITSELF}`, [taskId]);
       if (rowCount === 0) {
         throw new PalugadaError('task.not_continuable',
-          `task ${taskId} was run again by the owner, or its parent was given up: nothing waits for it to go on`,
+          `task ${taskId} was run again by the owner, its parent was given up, or the review it was for is settled: `
+            + 'nothing waits for it to go on',
           { taskId, status: row.status, haltReason: row.halt_reason });
       }
     }

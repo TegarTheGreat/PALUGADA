@@ -660,7 +660,7 @@ export class Worker {
       });
 
       await this.#stage(report, 'settle', async () => {
-        await settleCompletedReviews(company);
+        await settleCompletedReviews(company, now);
         // F15.3: skill candidates screened and given to a reviewer, and the
         // reviews that finished read -- every tick, so a skill is with the
         // owner soon after its reviewer answers. No model is needed here:

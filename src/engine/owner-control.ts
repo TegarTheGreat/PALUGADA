@@ -214,6 +214,24 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 }
 
 /**
+ * A halted task (`t`) the platform may go on with by itself, whatever its
+ * room (self-heal.ts): not run again by the owner, whose new task does the
+ * work; one whose run retention has not cleared, so there is something to go
+ * on from; and, when it is a child, one with a parent still waiting for it --
+ * a parent not yet ended, or one stopped for its budget too, which goes on
+ * with it. A child whose parent failed or was cancelled while it waited would
+ * spend money on an answer that goes nowhere.
+ */
+export const GOES_ON_BY_ITSELF = `
+  NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
+  AND NOT EXISTS (SELECT 1 FROM task_steps s
+                   WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
+  AND (t.parent_task_id IS NULL OR EXISTS (
+        SELECT 1 FROM tasks p WHERE p.id = t.parent_task_id
+           AND (p.status NOT IN ('completed', 'failed', 'halted', 'cancelled')
+                OR (p.status = 'halted' AND p.halt_reason = 'budget_exhausted'))))`;
+
+/**
  * Goes on with a task its budget stopped, from where it stopped.
  *
  * Section 6.3 says such a task is never resumed *automatically*; it goes to
@@ -268,6 +286,16 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
     const row = rows[0]!;
     // A second press, or one racing the first: the task has moved on.
     if (row.status !== 'halted' || row.halt_reason !== 'budget_exhausted') throw refuse(row.status, row.halt_reason);
+    // The platform goes on only with work somebody still waits for; the owner
+    // may go on with anything their budget stopped.
+    if (by === 'system') {
+      const { rowCount } = await tx.query(`SELECT 1 FROM tasks t WHERE t.id = $1 AND ${GOES_ON_BY_ITSELF}`, [taskId]);
+      if (rowCount === 0) {
+        throw new PalugadaError('task.not_continuable',
+          `task ${taskId} was run again by the owner, or its parent has ended: nothing waits for it to go on`,
+          { taskId, status: row.status, haltReason: row.halt_reason });
+      }
+    }
     if (row.frozen) {
       throw new PalugadaError('role.frozen', 'its role is frozen; unfreeze the role before going on with its work', { taskId });
     }

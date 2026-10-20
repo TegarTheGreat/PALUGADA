@@ -111,6 +111,17 @@ test('a model that goes on after being told is given no tools for its next turn,
   assert.deepEqual(model.requests[7]!.tools, [], 'and none for the turn after it');
   assert.match(lastWords(model.requests[7]!), /You have no tools now/);
   assert.match(lastWords(model.requests[7]!), /single JSON object/);
+  // A request with no tools that still holds tool calls is refused by the
+  // providers (Anthropic: "Requests which include `tool_use` or `tool_result`
+  // blocks must define tools"), and the refusal would fail the task for
+  // certain. The calls are told in words instead, so the model still reads
+  // what it did and what it was answered.
+  assert.deepEqual(flat(model.requests[7]!).filter((block) => block.type !== 'text'), [], 'no tool blocks in a request with no tools');
+  const told = JSON.stringify(model.requests[7]!.messages);
+  assert.match(told, /dns__read/);
+  assert.match(told, /192\.0\.2\.7/);
+  const roles = model.requests[7]!.messages.map((message) => message.role);
+  assert.ok(roles.every((role, i) => i === 0 || role !== roles[i - 1]), 'the turns still take turns');
 });
 
 test('the notice is in what the trace says the model was sent, and no step the journal keeps changes', async () => {

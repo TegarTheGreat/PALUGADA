@@ -16,12 +16,18 @@
  * never for a role the owner paused, and never in a loop: a task that has gone
  * on by itself three times in a day and stopped again has told the owner
  * something, and its card stays for them.
+ *
+ * Nor with work that has nobody left to do it for (the review of 20
+ * October): a task the owner already ran again, whose new task does the work,
+ * and a child whose parent ended while it waited, whose answer would go
+ * nowhere. Those wait for the owner's own press, or for nothing.
  */
+import { adminPool } from '../db/pool.ts';
 import { withTenant } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { startNewPeriods } from './budget.ts';
-import { continueHalted } from './owner-control.ts';
+import { GOES_ON_BY_ITSELF, continueHalted } from './owner-control.ts';
 import { DEFAULT_TASK_RESERVE_TOKENS } from './tasks.ts';
 
 /** The tokens an account must have left, beyond a reservation, for work to go on: what a run makes progress in. */
@@ -35,11 +41,10 @@ const MAX_PER_LOOK = 25;
 
 interface Stopped {
   id: string;
-  account: string;
-  tokens_room: string;
-  money_room: string;
-  frozen: boolean;
-  resumed: string;
+  /** Every account the task draws on, its own first: the room is the room of all of them. */
+  chain: string[];
+  /** Whether nothing but room keeps it: its role works, and it has not gone on three times today. */
+  ready: boolean;
 }
 
 /**
@@ -50,58 +55,74 @@ interface Stopped {
 export async function resumeBudgetStopped(companyId: string, now = new Date()): Promise<{ continued: number; waiting: number }> {
   // A passed month's counts start again first, so that the room read below is this month's.
   await startNewPeriods(companyId);
-  const stopped = await withTenant(companyId, async (tx) => {
+  // One look at a time for a company. Two workers looking together would each
+  // count the same room and spend it twice; the second finds the first looking
+  // and leaves the room to it. Held on a connection of its own for the whole
+  // look, since each task goes on in a transaction of its own.
+  const lock = await adminPool().connect();
+  let broken = false;
+  try {
+    const { rows } = await lock.query<{ mine: boolean }>(
+      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS mine', [`self-heal:${companyId}`]);
+    if (!rows[0]!.mine) return { continued: 0, waiting: 0 };
+    try {
+      return await look(companyId, now);
+    } finally {
+      await lock.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [`self-heal:${companyId}`])
+        .catch(() => { broken = true; });
+    }
+  } finally {
+    // A lock that could not be given back goes with its connection.
+    lock.release(broken);
+  }
+}
+
+async function look(companyId: string, now: Date): Promise<{ continued: number; waiting: number }> {
+  const { stopped, room } = await withTenant(companyId, async (tx) => {
+    // Those that cannot go on by themselves -- a paused role, three goes today
+    // -- are counted but sorted after the rest, so that however many there
+    // are, they never stand in front of one that can.
     const { rows } = await tx.query<Stopped>(
-      `SELECT t.id, t.budget_account_id AS account,
-              (SELECT min(a.tokens_max - a.tokens_spent - a.tokens_reserved)
-                 FROM budget_accounts a WHERE a.id = ANY(app.budget_chain(t.budget_account_id)))::text AS tokens_room,
-              (SELECT min(a.money_max_cents - a.money_spent_cents)
-                 FROM budget_accounts a WHERE a.id = ANY(app.budget_chain(t.budget_account_id)))::text AS money_room,
-              r.frozen_at IS NOT NULL AS frozen,
-              (SELECT count(*) FROM events e
-                WHERE e.task_id = t.id AND e.type = 'task.continued' AND e.actor = 'system'
-                  AND e.occurred_at > $1::timestamptz - interval '1 day')::text AS resumed
+      `SELECT t.id, app.budget_chain(t.budget_account_id)::text[] AS chain,
+              (r.frozen_at IS NULL AND
+               (SELECT count(*) FROM events e
+                 WHERE e.task_id = t.id AND e.type = 'task.continued' AND e.actor = 'system'
+                   AND e.occurred_at > $1::timestamptz - interval '1 day') < $2) AS ready
          FROM tasks t JOIN roles r ON r.id = t.role_id
-        WHERE t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
-        ORDER BY t.finished_at NULLS FIRST, t.created_at, t.id
-        LIMIT $2`,
-      [now, MAX_PER_LOOK]);
-    return rows;
+        WHERE t.status = 'halted' AND t.halt_reason = 'budget_exhausted' AND ${GOES_ON_BY_ITSELF}
+        ORDER BY 3 DESC, t.finished_at NULLS FIRST, t.created_at, t.id`,
+      [now, MAX_RESUMES_A_DAY]);
+    const accounts = [...new Set(rows.filter((row) => row.ready).flatMap((row) => row.chain))];
+    const { rows: left } = await tx.query<{ id: string; tokens: string; money: string }>(
+      `SELECT id, (tokens_max - tokens_spent - tokens_reserved)::text AS tokens,
+              (money_max_cents - money_spent_cents)::text AS money
+         FROM budget_accounts WHERE id = ANY($1::uuid[])`,
+      [accounts]);
+    // What each account can carry, in runs: its room over what a run needs.
+    const room = new Map(left.map((row) => [row.id, Math.min(
+      Math.floor(Number(row.tokens) / MIN_ROOM_TOKENS), Math.floor(Number(row.money) / MIN_ROOM_CENTS))]));
+    return { stopped: rows, room };
   });
   if (stopped.length === 0) return { continued: 0, waiting: 0 };
   if (await isSpendPaused(companyId, now)) return { continued: 0, waiting: stopped.length };
 
-  // What an account can carry, in runs: the room under every ceiling above it,
-  // over what a run needs, and fewer as each one goes on.
-  const carry = new Map<string, number>();
   let continued = 0;
-  let waiting = 0;
   let outOfRoom = false;
   for (const task of stopped) {
-    if (outOfRoom || task.frozen || Number(task.resumed) >= MAX_RESUMES_A_DAY) {
-      waiting += 1;
-      continue;
-    }
-    if (!carry.has(task.account)) {
-      carry.set(task.account, Math.min(
-        Math.floor(Number(task.tokens_room) / MIN_ROOM_TOKENS),
-        Math.floor(Number(task.money_room) / MIN_ROOM_CENTS)));
-    }
-    const left = carry.get(task.account)!;
-    if (left < 1) {
-      waiting += 1;
-      continue;
-    }
+    if (outOfRoom || !task.ready || continued >= MAX_PER_LOOK) continue;
+    // A run is carried by every account above it, not only its own: two
+    // divisions under one company account share the company's room, and each
+    // run that goes on takes its share from all of them.
+    if (!task.chain.every((account) => (room.get(account) ?? 0) >= 1)) continue;
     try {
       await continueHalted(companyId, task.id, 'system');
-      carry.set(task.account, left - 1);
+      for (const account of task.chain) room.set(account, room.get(account)! - 1);
       continued += 1;
     } catch (failure) {
       if (!(failure instanceof PalugadaError)) throw failure;
-      waiting += 1;
       // Nothing after it is funded either.
       if (failure.code === 'spend.paused' || failure.code === 'budget.reservation_refused') outOfRoom = true;
     }
   }
-  return { continued, waiting };
+  return { continued, waiting: stopped.length - continued };
 }

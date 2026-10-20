@@ -192,11 +192,30 @@ function noticeFor(health: Exclude<LoopHealth, { state: 'ok' }>): string {
  * more and the message before the new one stays as it was.
  */
 export function withHealthNotice(messages: readonly LoopMessage[], health: LoopHealth): readonly LoopMessage[] {
-  const last = messages.at(-1);
-  if (health.state === 'ok' || !last || last.role !== 'user') return messages;
+  if (health.state === 'ok') return messages;
+  // The wrap-up offers no tools, and a provider refuses a request with no
+  // tools that holds tool calls (Anthropic: "Requests which include
+  // `tool_use` or `tool_result` blocks must define tools"; Bedrock the same):
+  // the turn meant to let the run finish would fail it for certain. Its calls
+  // are told in words instead, so the model still reads what it did.
+  const sent = health.state === 'wrap-up' ? inWords(messages) : messages;
+  const last = sent.at(-1);
+  if (!last || last.role !== 'user') return sent;
   const note = noticeFor(health);
   const content = typeof last.content === 'string'
     ? `${last.content}\n\n${note}`
     : [...last.content, { type: 'text' as const, text: note }];
-  return [...messages.slice(0, -1), { role: 'user', content }];
+  return [...sent.slice(0, -1), { role: 'user', content }];
+}
+
+/** The conversation with every tool call and every answer written out as text. */
+function inWords(messages: readonly LoopMessage[]): LoopMessage[] {
+  return messages.map((message) => (typeof message.content === 'string' ? message : {
+    role: message.role,
+    content: message.content.map((block) => {
+      if (block.type === 'text') return block.text;
+      if (block.type === 'tool_use') return `[Called ${block.name} with ${JSON.stringify(block.input ?? {})}]`;
+      return `[${block.isError ? 'The call was refused' : 'The call answered'}:]\n${block.content}`;
+    }).join('\n\n'),
+  }));
 }

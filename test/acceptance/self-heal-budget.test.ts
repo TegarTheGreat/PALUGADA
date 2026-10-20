@@ -18,7 +18,9 @@ import assert from 'node:assert/strict';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
-import { createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { createRootTask, createSubTask, getTask, transition } from '../../src/engine/tasks.ts';
+import { continueHalted, rerunTask } from '../../src/engine/owner-control.ts';
+import { createAccount } from '../../src/engine/budget.ts';
 import { resumeBudgetStopped, MIN_ROOM_TOKENS, MIN_ROOM_CENTS, MAX_RESUMES_A_DAY } from '../../src/engine/self-heal.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
@@ -180,6 +182,97 @@ test('a task that has gone on by itself three times in a day and stopped again i
   const { continueHalted } = await import('../../src/engine/owner-control.ts');
   await continueHalted(fixture.companyId, task.id);
   assert.equal(await statusOf(fixture, task.id), 'pending');
+});
+
+/** A task stopped for its budget without a run: what the engine leaves, on whichever account it drew on. */
+async function haltedOn(fixture: Fixture, budgetAccountId = fixture.budgetAccountId, parentTaskId?: string) {
+  sequence += 1;
+  const input = {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, goalId: fixture.goalId, input: { goal: `Stopped (${sequence})` }, reserveTokens: 1_000,
+  };
+  const task = parentTaskId
+    ? await createSubTask(parentTaskId, input)
+    : await createRootTask({ ...input, budgetAccountId, createdBy: 'owner' });
+  await transition(fixture.companyId, task.id, 'running');
+  await transition(fixture.companyId, task.id, 'halted', { haltReason: 'budget_exhausted' });
+  return task;
+}
+
+test('work the owner already ran again, and a child whose parent has ended, are not gone on with', async () => {
+  const fixture = await createCompany('heal-not-twice', { tokensMax: 5_000_000 });
+  // The owner pressed "Run again" on a stopped task: the new task does the
+  // work, and going on with the old one too would do it twice -- an email
+  // sent twice, a payment recorded twice.
+  const ranAgain = await haltedOn(fixture);
+  const rerun = await rerunTask(fixture.companyId, ranAgain.id);
+  // A child whose parent failed, or was cancelled, while it waited: its
+  // answer has nobody to go to, and going on spends money on it.
+  const parent = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'Plan the launch' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, parent.id, 'running');
+  const orphan = await haltedOn(fixture, fixture.budgetAccountId, parent.id);
+  await transition(fixture.companyId, parent.id, 'failed');
+  // A child whose parent is still waiting for it goes on: that is what it is for.
+  const waited = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'Plan the opening' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, waited.id, 'running');
+  const awaited = await haltedOn(fixture, fixture.budgetAccountId, waited.id);
+
+  assert.deepEqual(await resumeBudgetStopped(fixture.companyId), { continued: 1, waiting: 0 });
+  assert.deepEqual([await statusOf(fixture, ranAgain.id), await statusOf(fixture, orphan.id), await statusOf(fixture, awaited.id)],
+    ['halted', 'halted', 'pending']);
+  assert.equal(await statusOf(fixture, rerun), 'pending', 'the work goes on once, as the owner asked');
+  // And not by another way in either: the platform's own go-on refuses them.
+  await assert.rejects(continueHalted(fixture.companyId, ranAgain.id, 'system'), { code: 'task.not_continuable' });
+  await assert.rejects(continueHalted(fixture.companyId, orphan.id, 'system'), { code: 'task.not_continuable' });
+  // The owner's own press is still theirs to make.
+  await continueHalted(fixture.companyId, orphan.id);
+  assert.equal(await statusOf(fixture, orphan.id), 'pending');
+});
+
+test('work that cannot go on does not keep newer work from going on', async () => {
+  const fixture = await createCompany('heal-head', { tokensMax: 50_000_000 });
+  // More stopped tasks than one look takes up, each already gone on three
+  // times today: none of them may go on by itself.
+  const blocked: string[] = [];
+  for (let i = 0; i < 30; i += 1) blocked.push((await haltedOn(fixture)).id);
+  await withTenant(fixture.companyId, async (tx) => {
+    for (const id of blocked) {
+      for (let i = 0; i < MAX_RESUMES_A_DAY; i += 1) {
+        await appendEvent(tx, { companyId: fixture.companyId, taskId: id, type: 'task.continued', actor: 'system', payload: { by: 'budget_room' } });
+      }
+    }
+  });
+  const newer = await haltedOn(fixture);
+  const result = await resumeBudgetStopped(fixture.companyId);
+  assert.equal(result.continued, 1, 'the newer one goes on, whatever waits before it');
+  assert.equal(await statusOf(fixture, newer.id), 'pending');
+  assert.equal(result.waiting, 30, 'and the rest are counted as waiting for the owner');
+});
+
+test('accounts under one parent share its room, not each count all of it', async () => {
+  const fixture = await createCompany('heal-siblings', { tokensMax: 100_000 });
+  // Two divisions' accounts, each with room of its own to spare, under a
+  // company account with room for one run.
+  const leaf = (label: string) => withTenant(fixture.companyId, (tx) => createAccount(tx, {
+    companyId: fixture.companyId, label, tokensMax: 50_000_000, moneyMaxCents: 1_000_000,
+    scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+  }));
+  const sales = await leaf('Sales');
+  const ops = await leaf('Operations');
+  const first = await haltedOn(fixture, sales);
+  const second = await haltedOn(fixture, ops);
+  const { rows } = await withControlPlane((tx) => tx.query<{ used: string }>(
+    'SELECT (tokens_spent + tokens_reserved)::text AS used FROM budget_accounts WHERE id = $1', [fixture.budgetAccountId]));
+  await room(fixture, Number(rows[0]!.used) + MIN_ROOM_TOKENS + 10_000);
+
+  assert.deepEqual(await resumeBudgetStopped(fixture.companyId), { continued: 1, waiting: 1 });
+  assert.deepEqual([await statusOf(fixture, first.id), await statusOf(fixture, second.id)], ['pending', 'halted']);
 });
 
 test('another company\'s stopped work is not touched by this one\'s room', async () => {

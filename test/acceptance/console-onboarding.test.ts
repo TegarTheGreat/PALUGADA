@@ -91,6 +91,12 @@ test('an owner with no company is asked for a name and what it is for, and meets
       `SELECT (SELECT count(*) FROM companies) AS companies, (SELECT count(*) FROM roles) AS roles,
               (SELECT min(title) FROM roles) AS title`));
     assert.deepEqual(rows[0], { companies: '1', roles: '1', title: 'CEO' });
+
+    // The owner is on the new company's overview, not sent home because the list did not have it yet when the
+    // address changed.
+    const { rows: [company] } = await withControlPlane((tx) => tx.query<{ id: string }>('SELECT id FROM companies'));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(await page.evaluate<string>('location.hash'), `#/c/${company!.id}/overview`);
   } finally {
     await page.close();
     await api.close();

@@ -241,10 +241,17 @@ function Console({ device, staff, recovered, signOut }: {
   useEffect(() => { if (routed) setLastCompany(routed.id); }, [routed]);
   const company = routed ?? companies.find((one) => one.id === lastCompany) ?? companies[0] ?? null;
 
+  // A company just started or restored is in the address before the list read again has it: until it does, it
+  // is not taken for one that no longer exists.
+  const [arriving, setArriving] = useState<string | null>(null);
+  useEffect(() => {
+    if (arriving && companies.some((one) => one.id === arriving)) setArriving(null);
+  }, [arriving, companies]);
+
   // A company in the address that no longer exists: back to the portfolio.
   useEffect(() => {
-    if (base.data && route.kind === 'company' && !routed) go({ kind: 'home' }, { replace: true });
-  }, [base.data, route, routed]);
+    if (base.data && route.kind === 'company' && !routed && route.companyId !== arriving) go({ kind: 'home' }, { replace: true });
+  }, [base.data, route, routed, arriving]);
 
   // Opened from a card in Telegram that the chat could not apply: the
   // conversation it came from, with the card waiting in it.
@@ -268,6 +275,12 @@ function Console({ device, staff, recovered, signOut }: {
     setMore(false);
     go({ kind: 'company', companyId: target, page, section: options.section ?? 'company', item: options.item ?? null });
   }, [company]);
+  // To a company just started or restored: its overview, once the list is read again.
+  const arrive = (id: string) => {
+    setArriving(id);
+    base.reload();
+    open('overview', { companyId: id });
+  };
 
   const context = useMemo<ConsoleContext | null>(() => (company ? {
     companyId: company.id,
@@ -468,10 +481,10 @@ function Console({ device, staff, recovered, signOut }: {
             setup={base.data.setup}
             reloadSetup={base.reload}
             restore={() => setRestoring(true)}
-            started={(id) => { base.reload(); open('overview', { companyId: id }); setGreeting(id); }}
+            started={(id) => { arrive(id); setGreeting(id); }}
           />
         </Box>
-        <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+        <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => arrive(id)} />
       </Box>
     );
   }
@@ -725,8 +738,8 @@ function Console({ device, staff, recovered, signOut }: {
       </Drawer>
 
       <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null} setup={setup} reloadSetup={base.reload}
-        started={(id) => { base.reload(); open('overview', { companyId: id }); setGreeting(id); }} />
-      <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+        started={(id) => { arrive(id); setGreeting(id); }} />
+      <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => arrive(id)} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
       <Assistant opened={asking} onClose={() => setAsking(false)} />

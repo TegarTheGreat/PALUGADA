@@ -444,4 +444,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã rút lại: vai trò được giao đã xử lý việc này, và không còn gì để bạn quyết định.',
   'Work finished: {count}':
     'Việc đã xong: {count}',
+  'Stopped: its work was taken up another way':
+    'Đã dừng: công việc của nó đã được xử lý theo cách khác',
 };

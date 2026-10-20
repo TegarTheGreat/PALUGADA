@@ -397,7 +397,8 @@ The first version. What it holds, in the order an owner meets it.
   the card is yours. Running the work on it again, or going on with it, stops the CEO once nothing on the card is
   left, and tells it what was taken up while some is still stopped. Naming the CEO there follows the title when you
   appoint another. A company restored from an archive still knows which of its work was run again and which card
-  the CEO was handling (STATUS 2.187).
+  the CEO was handling. A CEO the platform stopped because its work was taken up says so, rather than "Cancelled
+  by you" (STATUS 2.187).
 - Work handed out from your own backlog no longer asks you before every letter or payment just because a run wrote
   the ticket. This holds whether the CEO's triage or you on the board hands it out. Only a ticket filed by work
   that had read something from outside (a customer's message, a web page, a mailbox) makes the work it leads to

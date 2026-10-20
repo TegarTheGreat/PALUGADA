@@ -437,4 +437,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سُحب: تولّى أمره الدور الذي أُسند إليه، ولم يبقَ شيء عليك أن تقرره.',
   'Work finished: {count}':
     'أعمال اكتملت: {count}',
+  'Stopped: its work was taken up another way':
+    'أُوقفت: تُولّي عملها بطريقة أخرى',
 };

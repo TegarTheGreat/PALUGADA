@@ -846,6 +846,47 @@ test('an ended card about work its budget stopped closes when the work goes on, 
 });
 
 /**
+ * The platform stops a coordinator too -- self-heal going on with the work
+ * it was handling, the next look after a press that stopped short -- and the
+ * stop was written as the owner's own cancel: the Work page told the owner
+ * "Cancelled by you", and "You cancelled it", of a stop they never made.
+ */
+test('a CEO the platform stopped is said to have been stopped by the platform, not cancelled by the owner', async () => {
+  const { continueHalted } = await import('../../src/engine/owner-control.ts');
+  const { haltSaid } = await import('../../src/owner/halt-said.ts');
+  const company = await founded('ceo-stopped-by-platform');
+  const cancelled = async (taskId: string) => (await withTenant(company.companyId, (tx) => tx.query<{
+    halt_reason: string; actor: string; said: string;
+  }>(`SELECT t.halt_reason, e.actor, e.payload->>'haltReason' AS said
+        FROM tasks t JOIN events e ON e.task_id = t.id AND e.type = 'task.cancelled' WHERE t.id = $1`, [taskId]))).rows[0];
+
+  // Self-heal goes on with the work the CEO was handling.
+  const september = await stoppedForBudget(company, 'post the September invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const healed = (await handlingOf(company.companyId, (await cardsOf(company.companyId))[0]!.id))!;
+  await continueHalted(company.companyId, september.id, 'system');
+  assert.deepEqual(await cancelled(healed.id), { halt_reason: 'work_taken_up', actor: 'system', said: 'work_taken_up' });
+
+  // The next look stops one a press left running.
+  const october = await rootOf(company, company.hiredId, 'send the October letters');
+  await transition(company.companyId, october.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const card = (await cardsOf(company.companyId)).find((item) => item.task_id === october.id)!;
+  const left = (await handlingOf(company.companyId, card.id))!;
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun' WHERE id = $1", [card.id]));
+  await handEscalations(company.companyId);
+  assert.equal((await cancelled(left.id))!.halt_reason, 'work_taken_up');
+
+  // Said as what it was, in the owner's language.
+  assert.equal(haltSaid(null, 'work_taken_up'), 'Stopped: its work was taken up another way');
+  assert.doesNotMatch(haltSaid('id', 'work_taken_up'), /work|taken/);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and it is nobody\'s news');
+});
+
+/**
  * Run again, or going on, stops the CEO handling the card it closes after
  * the card's transaction commits, in transactions of its own. A worker that
  * stopped in between -- a deploy, a crash -- or a cancel that failed left

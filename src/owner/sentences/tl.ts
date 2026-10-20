@@ -437,4 +437,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Binawi: inasikaso na ito ng papel na pinagbigyan nito, at wala nang natitirang kailangan mong pagpasyahan.',
   'Work finished: {count}':
     'Mga gawaing natapos: {count}',
+  'Stopped: its work was taken up another way':
+    'Itinigil: inasikaso na ang trabaho nito sa ibang paraan',
 };

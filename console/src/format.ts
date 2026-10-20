@@ -560,6 +560,8 @@ const HALT_REASONS: Record<string, string> = {
   approval_expired: N('Your approval was not given in time'),
   owner_stop: N('Stopped by you'),
   owner_cancel: N('Cancelled by you'),
+  // The platform's stop of a coordinator whose work was taken up (`stopHandling`).
+  work_taken_up: N('Stopped: its work was taken up another way'),
   company_frozen: N('The company is frozen'),
   journal_divergence: N('Its record did not match on replay'),
   crash_loop: N('It kept stopping the worker running it'),
@@ -593,6 +595,7 @@ const HALT_EXPLAINED: Record<string, string> = {
   approval_expired: N('Your approval was not given in time, so it did not go ahead. Do it again if it is still wanted.'),
   owner_stop: N('You stopped it.'),
   owner_cancel: N('You cancelled it, or the work it was started for.'),
+  work_taken_up: N('The work it was handed was run again, went on, or was answered on its card, so the platform stopped it rather than have it done twice.'),
   company_frozen: N('The company was frozen while it worked. Unfreeze it under Settings, then do it again.'),
   journal_divergence: N('Run again from its record, one of its steps did not match what was recorded, so it stopped rather than guess. Do it again as a new task.'),
   crash_loop: N('The worker running it stopped three times before it finished, so it was halted rather than take another worker down. What it did is kept. Find out what stopped the worker, then do it again.'),

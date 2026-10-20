@@ -17,7 +17,7 @@
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
-import { TERMINAL_STATUSES, isTerminal, type TaskStatus } from '../domain/task.ts';
+import { TERMINAL_STATUSES, isTerminal, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.ts';
@@ -78,7 +78,9 @@ async function taskHere(companyId: string, taskId: string) {
 
 /**
  * Cancels a task and every task under it that has not ended, and returns how
- * many that was.
+ * many that was. By the owner, or by the platform (`work_taken_up`), which
+ * stops a coordinator whose work was taken up another way and says so: the
+ * owner is not told they cancelled what they never touched.
  *
  * The sub-tasks too, because a child exists to serve its parent and one left
  * running would spend money on an answer nobody will read. Nothing else: a
@@ -119,6 +121,7 @@ async function cancelTree(
   stopped: boolean,
 ): Promise<number> {
   const why = reason?.trim() ? reason.trim().slice(0, INSTRUCTION_MAX) : null;
+  const haltReason: HaltReason = by === 'owner' ? 'owner_cancel' : 'work_taken_up';
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; project_id: string; budget_account_id: string | null; released: string;
@@ -138,12 +141,12 @@ async function cancelTree(
           FOR NO KEY UPDATE OF t
        )
        UPDATE tasks t
-          SET status = 'cancelled', halt_reason = 'owner_cancel', finished_at = now(),
+          SET status = 'cancelled', halt_reason = $5, finished_at = now(),
               lease_holder = NULL, lease_expires_at = NULL, tokens_reserved = 0
          FROM doomed d
         WHERE t.id = d.id
        RETURNING t.id, t.project_id, t.budget_account_id, d.tokens_reserved AS released`,
-      [taskId, companyId, TERMINAL_STATUSES, stopped],
+      [taskId, companyId, TERMINAL_STATUSES, stopped, haltReason],
     );
     await releaseReservations(tx, rows);
     for (const row of rows) {
@@ -154,7 +157,7 @@ async function cancelTree(
         type: 'task.cancelled',
         actor: by,
         payload: {
-          haltReason: 'owner_cancel',
+          haltReason,
           ...(row.id === taskId ? {} : { under: taskId }),
           ...(why ? { reason: why } : {}),
         },

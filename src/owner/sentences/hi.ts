@@ -440,4 +440,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस भूमिका को यह सौंपा गया था, उसने इसे संभाल लिया, और आपके तय करने को कुछ नहीं बचा।',
   'Work finished: {count}':
     'पूरे हुए काम: {count}',
+  'Stopped: its work was taken up another way':
+    'रोका गया: इसका काम दूसरे तरीके से उठा लिया गया',
 };

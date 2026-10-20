@@ -62,6 +62,11 @@ export interface Imap {
   commands: string[];
   /** Set to refuse every sign-in, as a server does after the password changed. */
   refuse: boolean;
+  /**
+   * What RFC822.SIZE says for a message of this many bytes: the exact count
+   * unless set, and an estimate when set, as Exchange gives by default.
+   */
+  sizeSaid: ((bytes: number) => number) | null;
   deliver(raw: string, options?: { seen?: boolean; arrived?: Date }): number;
   close(): Promise<void>;
 }
@@ -127,6 +132,7 @@ export async function imapServer(certificate: Certificate, account: { user: stri
     logins: [],
     commands: [],
     refuse: false,
+    sizeSaid: null,
     deliver(raw: string, options = {}) {
       const uid = (state.messages.at(-1)?.uid ?? 100) + 1;
       state.messages.push({ uid, raw, flags: new Set(options.seen ? ['\\Seen'] : []), arrived: options.arrived ?? new Date() });
@@ -213,7 +219,7 @@ export async function imapServer(certificate: Certificate, account: { user: stri
             if (!/BODY\.PEEK\[/i.test(line)) message.flags.add('\\Seen');
             const flags = /\bFLAGS\b/i.test(line) ? ` FLAGS (${[...message.flags].join(' ')})` : '';
             const whole = Buffer.from(message.raw, 'utf8');
-            const size = /\bRFC822\.SIZE\b/i.test(line) ? ` RFC822.SIZE ${whole.length}` : '';
+            const size = /\bRFC822\.SIZE\b/i.test(line) ? ` RFC822.SIZE ${state.sizeSaid ? state.sizeSaid(whole.length) : whole.length}` : '';
             const body = whole.subarray(0, partial ? Number(partial[2]) : undefined);
             socket.write(`* ${index + 1} FETCH (UID ${uid}${flags}${size} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
             socket.write(body);

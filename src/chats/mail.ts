@@ -20,7 +20,7 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { SecretManager } from '../secrets/manager.ts';
 import { receiveMessage, type ChatKind, type OpenChannel } from './chats.ts';
-import { ImapSession, MailRefused } from './imap.ts';
+import { FETCH_MAX_BYTES, ImapSession, MailRefused } from './imap.ts';
 import { readMail } from './mime.ts';
 import { smtpSession } from './smtp.ts';
 import { RECEIVED_FILE_MAX, RECEIVED_MESSAGE_MAX } from './attachments.ts';
@@ -50,6 +50,13 @@ const MESSAGES_PER_READING = 20;
 
 /** A message with files is fetched whole up to this size; over it, its text is read and its files are said not to be kept. */
 const MESSAGE_FETCH_MAX = RECEIVED_MESSAGE_MAX;
+/**
+ * How far over MESSAGE_FETCH_MAX a server may say a message is before it is
+ * not fetched at all. RFC822.SIZE is exact on most servers and an estimate on
+ * some (Exchange's IMAP by default), so it only spares a fetch that is
+ * clearly too big; what decides is the bytes the server sends.
+ */
+const SIZE_SAID_SLACK = 1.25;
 
 /** Settings as the owner gave them, checked: hosts as names, ports as numbers. */
 export function mailSettings(body: Record<string, unknown>, address: string): MailSettings {
@@ -194,18 +201,20 @@ async function readMailbox(mailbox: DueMailbox, secrets: SecretManager, options:
         if (!mail.text && mail.attachments.length === 0) continue;
         // The first window shows that there are files; the rest of the message is fetched only for those, and only
         // when it is a size the platform keeps (a window cuts an attachment mid-way, which is no file at all).
+        // A window the server filled may go on; one it did not fill is the whole message. Asked for one byte more
+        // than is kept, an answer that fills that is a message too big, and one that does not is all of it.
         let tooBig = false;
-        if (mail.files.length > 0 && first.size !== null && first.size > raw.length) {
-          if (first.size <= MESSAGE_FETCH_MAX) {
-            const whole = await imap.fetchSized(uid, first.size);
-            if (whole && whole.raw.length >= first.size) {
+        if (mail.files.length > 0 && raw.length >= FETCH_MAX_BYTES) {
+          if (first.size !== null && first.size > MESSAGE_FETCH_MAX * SIZE_SAID_SLACK) {
+            tooBig = true;
+          } else {
+            const whole = await imap.fetchSized(uid, MESSAGE_FETCH_MAX + 1);
+            if (whole && whole.raw.length <= MESSAGE_FETCH_MAX) {
               raw = whole.raw;
               mail = readMail(raw, { keep: true });
             } else {
               tooBig = true;
             }
-          } else {
-            tooBig = true;
           }
         }
         const outcome = await receiveMessage(mailbox, {

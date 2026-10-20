@@ -281,6 +281,35 @@ test('a sixth file and a message over fifteen megabytes are each said, and the t
   }
 });
 
+/**
+ * RFC822.SIZE is the exact size on most servers and an estimate on some
+ * (Exchange's IMAP gives one by default). Read as exact, an estimate a little
+ * over the message refused every file in it as "cut short", and one a little
+ * under kept a PDF cut off where the first window ended.
+ */
+test('a server that estimates a message\'s size neither refuses its files nor keeps one cut short', { skip: SKIP_MAIL }, async () => {
+  const w = await world({ browser: false });
+  try {
+    assert.equal((await w.poll()).received, 0);
+    // Over: a small letter said to be two kilobytes bigger than it is.
+    w.imap.sizeSaid = (bytes) => bytes + 2_000;
+    w.imap.deliver(letter('over-said', [{ name: 'po.pdf', type: 'application/pdf', data: ORDER }]));
+    assert.equal((await w.poll()).received, 1);
+    // Under: a letter longer than the first window, said to be shorter than the window.
+    const long = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(220 * 1024, 0x41), Buffer.from('\n%%EOF\n')]);
+    w.imap.sizeSaid = (bytes) => Math.floor(bytes * 0.8);
+    w.imap.deliver(letter('under-said', [{ name: 'scan.pdf', type: 'application/pdf', data: long }], { from: 'Budi <budi@pelanggan.example>' }));
+    assert.equal((await w.poll()).received, 1);
+    const [small, big] = await w.messages();
+    assert.deepEqual(small!.files.map((one) => [one.kind, one.why]), [['pdf', null]], JSON.stringify(small!.files));
+    assert.deepEqual(await readFile(join(w.mine, small!.files[0]!.path!)), ORDER);
+    assert.deepEqual(big!.files.map((one) => [one.kind, one.why]), [['pdf', null]], JSON.stringify(big!.files));
+    assert.deepEqual(await readFile(join(w.mine, big!.files[0]!.path!)), long, 'the whole file, not the first window of it');
+  } finally {
+    await finish(w);
+  }
+});
+
 test('a deployment with no files root says nothing was kept, and the message still starts its work', { skip: SKIP_MAIL }, async () => {
   const none = await world({ files: false, browser: false });
   try {

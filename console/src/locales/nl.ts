@@ -255,6 +255,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "Uw CEO stelt een rol voor die het bedrijf niet heeft. Aannemen beslist u: de CEO schrijft de rol met u in het gesprek, en u ziet hem voordat hij begint.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "Je CEO denkt met een model en er is nog geen ingesteld. Kies een aanbieder en plak de sleutel. Je kunt dit later wijzigen onder “Deze installatie”.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "bijv. We roosteren Gayo-koffie en verkopen die aan cafés en kantoren in Bandung, dezelfde dag bezorgd.",
+  "the escalation it was given": "de escalatie die ze kreeg",
   "{capability}, every time {schedule} does exactly this": "{capability}, elke keer dat {schedule} precies dit doet",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "Goedgekeurd, en negentig dagen lang toegestaan elke keer dat {schedule} precies dit doet.",
   "Taken back. The next time {schedule} does it, you are asked again.": "Ingetrokken. De volgende keer dat {schedule} het doet, word je weer gevraagd.",

@@ -261,6 +261,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "Votre CEO propose un rôle que l’entreprise n’a pas. L’embauche vous revient : le CEO rédige le rôle avec vous dans la conversation, et vous le voyez avant qu’il commence.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "Votre CEO réfléchit avec un modèle, et aucun n’est encore configuré. Choisissez un fournisseur et collez sa clé. Vous pourrez le changer plus tard sous « Cette instance ».",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "p. ex. Nous torréfions du café de Gayo et le vendons à des cafés et des bureaux de Bandung, livré le jour même.",
+  "the escalation it was given": "la remontée qui lui a été confiée",
   "{capability}, every time {schedule} does exactly this": "{capability}, chaque fois que {schedule} fait exactement ceci",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "Approuvé, et autorisé chaque fois que {schedule} fait exactement ceci, pendant quatre-vingt-dix jours.",
   "Taken back. The next time {schedule} does it, you are asked again.": "Retiré. La prochaine fois que {schedule} le fera, la question vous sera de nouveau posée.",

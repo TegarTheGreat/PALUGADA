@@ -174,6 +174,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO Anda mengusulkan peran yang belum dimiliki perusahaan. Merekrut adalah keputusan Anda: CEO menyusun perannya bersama Anda dalam percakapan, dan Anda melihatnya sebelum peran itu mulai bekerja.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO Anda berpikir dengan sebuah model, dan belum ada yang disiapkan. Pilih penyedia dan tempel kuncinya. Anda bisa mengubahnya nanti di Deployment ini.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "mis. Kami menyangrai kopi Gayo dan menjualnya ke kafe dan kantor di Bandung, diantar di hari yang sama.",
+  "the escalation it was given": "eskalasi yang diserahkan kepadanya",
   "{capability}, every time {schedule} does exactly this": "{capability}, setiap kali {schedule} melakukan persis ini",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "Disetujui, dan diizinkan setiap kali {schedule} melakukan persis ini, selama sembilan puluh hari.",
   "Taken back. The next time {schedule} does it, you are asked again.": "Dicabut. Lain kali {schedule} melakukannya, Anda akan ditanya lagi.",

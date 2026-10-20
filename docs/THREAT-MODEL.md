@@ -166,9 +166,13 @@ refer to `docs/PRD.md`.
    cannot pay for stops the call.
 5b. Taint follows the work to new tasks, in the transaction that makes
    them: a rerun carries what the task it reruns carried, a sub-task its
-   parent's, including what the parent's other sub-tasks read, and a task
-   the owner makes from a ticket a run filed carries the ticket's words. A
-   yes for a while never covers a call in tainted work, at any tier.
+   parent's, including what the parent's other sub-tasks read, a task
+   the owner makes from a ticket a run filed carries the ticket's words, and
+   the task a coordinator (the CEO, by default) is handed about work that
+   ended badly carries what that work carried -- any of the tasks on the
+   card, since its brief quotes each one's goal and the record its halt left
+   (`handOver`, `src/inbox/inbox.ts`).
+   A yes for a while never covers a call in tainted work, at any tier.
 5c. A yes for a schedule (0116) does cover tainted work, and only because it
    is narrower than the taint: one schedule as it was defined when the yes
    was given (a digest of its role, division, project, goal, account,

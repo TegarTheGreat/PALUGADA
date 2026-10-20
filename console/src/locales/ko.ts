@@ -251,6 +251,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO가 회사에 없는 역할을 제안합니다. 채용은 당신이 결정합니다. CEO가 대화에서 당신과 함께 역할을 작성하고, 시작하기 전에 당신이 확인합니다.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO는 모델로 생각하는데 아직 설정된 모델이 없어요. 제공업체를 고르고 그 키를 붙여넣으세요. 나중에 '이 인스턴스'에서 바꿀 수 있어요.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "예: 가요 커피를 로스팅해서 반둥의 카페와 사무실에 당일 배송으로 판매해요.",
+  "the escalation it was given": "넘겨받은 에스컬레이션",
   "{capability}, every time {schedule} does exactly this": "{capability}, {schedule}이(가) 정확히 이 작업을 할 때마다",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "승인했어요. {schedule}이(가) 정확히 이 작업을 할 때마다 90일 동안 허용해요.",
   "Taken back. The next time {schedule} does it, you are asked again.": "철회했어요. 다음에 {schedule}이(가) 실행하면 다시 확인을 요청해요.",

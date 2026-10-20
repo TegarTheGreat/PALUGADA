@@ -271,6 +271,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO panjenengan ngusulaké peran sing durung ana ing perusahaan. Nyewa iku keputusan panjenengan: CEO nyusun peran kasebut bareng panjenengan ing obrolan, lan panjenengan ndeleng sadurungé wiwit nyambut gawé.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO panjenengan mikir nganggé model, lan dereng wonten ingkang dipunsiapaken. Pilih panyedhia lan tempelna kunci-ipun. Panjenengan saged ngowahi mangké wonten ing Pamasangan punika.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "tuladha: Kula nyangrai kopi Gayo lan dodolan dhateng kafe lan kantor ing Bandung, dipunkirim ing dinten ingkang sami.",
+  "the escalation it was given": "eskalasi ingkang dipunpasrahaken",
   "{capability}, every time {schedule} does exactly this": "{capability}, saben {schedule} nindakaken persis punika",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "Sampun dipunsetujoni, lan dipunparengaken saben {schedule} nindakaken persis punika, salebetipun sangang dasa dinten.",
   "Taken back. The next time {schedule} does it, you are asked again.": "Sampun dipuntarik wangsul. Sanès wekdal {schedule} nindakaken, panjenengan badhe dipunsuwuni malih.",

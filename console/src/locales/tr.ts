@@ -280,6 +280,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO'nuz şirketin sahip olmadığı bir rol öneriyor. İşe almaya siz karar verirsiniz: CEO rolü sizinle sohbette yazar ve rol başlamadan önce onu görürsünüz.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO'nuz bir modelle düşünür ve henüz hiçbiri ayarlanmadı. Bir sağlayıcı seçin ve anahtarını yapıştırın. Bunu sonra şuradan değiştirebilirsiniz: Bu kurulum.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "örn. Gayo kahvesi kavuruyor, Bandung'daki kafelere ve ofislere aynı gün teslim ediyoruz.",
+  "the escalation it was given": "devredilen aktarım",
   "{capability}, every time {schedule} does exactly this": "{capability}, {schedule} tam olarak bunu her yaptığında",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "Onaylandı ve {schedule} tam olarak bunu her yaptığında doksan gün boyunca izin verildi.",
   "Taken back. The next time {schedule} does it, you are asked again.": "Geri alındı. {schedule} bunu bir dahaki sefere yaptığında size yeniden sorulacak.",

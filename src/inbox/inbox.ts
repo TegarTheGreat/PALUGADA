@@ -16,7 +16,8 @@ import { hashInput } from '../engine/hash.ts';
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { createRootTask, getTask, transitionWithin } from '../engine/tasks.ts';
+import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
+import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
 import { releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
@@ -30,6 +31,7 @@ import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
 import { budgetHaltWords } from '../owner/budget-halt.ts';
 import {
   askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard, skillCard, skillsCard,
+  taskCalledWithin,
 } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 import type { AnswerFile } from '../chats/attachments.ts';
@@ -629,13 +631,13 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
   // not have the owner told in one, and an owner asleep should not be told at
   // three because a division's clock ran out.
   //
-  // Only when the division actually names somebody, though. `afterMinutes` has
-  // a company-wide default and `roleSlug` does not, so a division that never
-  // set a policy still reads back as "four hours" -- and holding the owner's
-  // notification for four hours is granting a grace period to nobody. Through
-  // that window no role has been asked, no one is working on it, and the item
-  // simply waits. Without a named role the escalation has no home, and F2.1's
-  // own default for that case is the owner, now.
+  // Only when somebody is asked, though. `afterMinutes` has a company-wide
+  // default, so a division whose owner said "straight to me" still reads back
+  // as "four hours" -- and holding the owner's notification for four hours is
+  // granting a grace period to nobody. Through that window no role has been
+  // asked, no one is working on it, and the item simply waits. Without a role
+  // the escalation has no home, and F2.1's own default for that case is the
+  // owner, now. (A division that never said is its CEO's to hear first.)
   const handledBy = policy?.roleSlug ? policy : null;
   const askedFirst = handledBy?.roleSlug
     ? askedFirstSaid(await ownerReadingWithin(tx), { role: await roleCalledWithin(tx, { slug: handledBy.roleSlug }), minutes: handledBy.afterMinutes })
@@ -698,9 +700,12 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
 
 /** How much of the handling role's own account the owner's item carries. */
 const HANDLED_NOTE_LIMIT = 1_000;
+/** How much of each further task's record a coordinator's brief carries: fifty of them still fit a brief. */
+const BRIEFED_RECORD_LIMIT = 200;
 
 /**
- * Hands each escalation to the role its division names (F2.1), and adds what
+ * Hands each escalation to the role its division names (F2.1) -- the
+ * company's CEO, unless the owner named another or nobody -- and adds what
  * that role did to the item the owner reads.
  *
  * The item already said "ops-lead was asked first and has had 45 minutes", and
@@ -768,10 +773,51 @@ async function handOver(companyId: string, item: {
       `SELECT id FROM goals WHERE status = 'active'
         ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1`);
     const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1');
+    // Every task on the card is in the brief. One cause under one goal is one
+    // card (`engine/ended.ts`), and the worker reports every task that ended
+    // before it hands any card over, so an outage's failures are on the card
+    // by now; a brief of the card's own task alone left the rest to be
+    // closed, unread, with the coordinator's fix. Frozen on the card before
+    // the task is made: a retry after a crash writes the same brief, and
+    // nothing more is put on the card until it is answered.
+    const { rows: frozen } = await tx.query<{ ids: string[] }>(
+      `UPDATE inbox_items
+          SET payload = payload || jsonb_build_object('briefedTaskIds', coalesce(payload->'briefedTaskIds', payload->'endedTaskIds'))
+        WHERE id = $1 AND payload ? 'endedTaskIds'
+        RETURNING ARRAY(SELECT jsonb_array_elements_text(payload->'briefedTaskIds')) AS ids`,
+      [item.id]);
+    const briefed = frozen[0]?.ids ?? [];
+    const others: Array<{ called: string; record: string | null }> = [];
+    for (const id of briefed) {
+      if (id === item.task_id) continue;
+      const { rows: said } = await tx.query<{ detail: string | null }>(
+        `SELECT payload->>'detail' AS detail FROM events
+          WHERE task_id = $1 AND type IN ('task.halted', 'task.failed') ORDER BY occurred_at DESC LIMIT 1`,
+        [id]);
+      // On one line, so a record of several does not break the brief's list.
+      const record = said[0]?.detail?.replace(/\s+/g, ' ').trim().slice(0, BRIEFED_RECORD_LIMIT);
+      others.push({ called: await taskCalledWithin(tx, id), record: record || null });
+    }
+    // F8.9: the brief is the card, and the card carries the stuck tasks' own
+    // words -- what each was asked, and the record its halt left, which a run
+    // may have written after reading an email or a customer's message. Work
+    // made from them is that outside text's work, as a rerun or a filed
+    // ticket's is: an injected "not done" must not become clean work for the
+    // coordinator that a standing approval covers. Any one of them is enough.
+    let carried: { from: 'begun' | 'read'; of: string } | null = null;
+    for (const id of new Set([...(item.task_id ? [item.task_id] : []), ...briefed])) {
+      const from = await outsideContentIn(tx, id);
+      if (from) {
+        carried = { from, of: id };
+        break;
+      }
+    }
     return {
       role: roles[0] ?? null,
       goalId: stuck[0]?.goal_id ?? goal[0]?.id ?? null,
       projectId: stuck[0]?.project_id ?? project[0]?.id ?? null,
+      others,
+      carried,
     };
   });
 
@@ -802,11 +848,23 @@ async function handOver(companyId: string, item: {
       goalId: found.goalId, createdBy: 'event', idempotencyKey: `escalation:${item.id}`,
       input: {
         goal: `Escalated to you: ${item.title}`,
+        // How the handling ends decides the card: work marked done closes a
+        // card about a task that ended badly (`noteHandling`), so a "neither
+        // is possible" written into a done summary closed it, and the owner
+        // never saw a failure nobody could mend. Not done keeps it theirs.
         context:
-          `${item.rationale}\n\nDo what you can about it before ${until}; the owner is told then, ` +
-          'with what you did. You cannot decide it for them: fix the cause, hand it to the role ' +
-          'that can, or say plainly why neither is possible.',
+          `${item.rationale}` +
+          (found.others.length === 0 ? '' :
+            `\n\nThe card is also about ${found.others.length} more ${found.others.length === 1 ? 'task' : 'tasks'} ` +
+            'that ended the same way, under the same goal:\n' +
+            found.others.map((other) => `- ${other.called}${other.record ? `: ${other.record}` : ''}`).join('\n')) +
+          `\n\nDo what you can about ${found.others.length === 0 ? 'it' : 'all of them'} before ${until}; the owner is told then, ` +
+          'with what you did. You cannot decide it for them: fix the cause, or hand it to the role ' +
+          'that can. If you can do neither, end with "notDone" saying why, and do not count it as done.',
       },
+      ...(found.carried === null ? {} : {
+        carriesOutside: { capability: 'the escalation it was given', from: found.carried.from, escalationOf: found.carried.of },
+      }),
     });
     taskId = task.id;
   } catch (error) {
@@ -830,10 +888,14 @@ async function noteHandling(companyId: string, item: {
     // Only finished tasks are asked about, and a finished task stays finished.
     const task = await getTask(tx, item.payload.handedTaskId!);
     if (!task) return;
+    // A role that could not mend it says why under `notDone`, as its brief
+    // asks: that reason, written for the owner, is what the owner reads, and
+    // not a summary of what it looked at on the way.
+    const notDone = task.haltReason === 'not_done' && task.output ? saidNotDone(task.output) : null;
+    const account = notDone || (typeof task.output?.summary === 'string' ? task.output.summary.trim() : '');
     const said = handledSaid(await ownerReadingWithin(tx), {
       role: await roleCalledWithin(tx, { slug: item.payload.escalationRole }),
-      summary: typeof task.output?.summary === 'string' && task.output.summary.trim()
-        ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT) : null,
+      summary: account ? account.slice(0, HANDLED_NOTE_LIMIT) : null,
       status: task.status, haltReason: task.haltReason ?? null,
     });
     // Guarded on the marker, so a second pass -- or a second worker -- adds
@@ -851,9 +913,19 @@ async function noteHandling(companyId: string, item: {
     // stays open, and the owner is told when the grace is up. Never one about
     // a task the owner has to judge (a stranded one, a review): those do not
     // say they close.
+    //
+    // Closed with only what the coordinator was told of. A task on the card
+    // its brief did not name -- one put on a card handed before briefs named
+    // every task -- was handled by nobody: it is taken off as the card
+    // closes, so the next look at what ended reports it on its own.
     if (item.payload.handledCloses === true && task.status === 'completed') {
       await tx.query(
-        `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'handled_by_coordinator'
+        `UPDATE inbox_items
+            SET status = 'withdrawn', closed_reason = 'handled_by_coordinator',
+                payload = CASE WHEN payload ? 'endedTaskIds' THEN jsonb_set(payload, '{endedTaskIds}', (
+                  SELECT coalesce(jsonb_agg(ended), '[]'::jsonb) FROM jsonb_array_elements(payload->'endedTaskIds') ended
+                   WHERE coalesce(payload->'briefedTaskIds', jsonb_build_array(task_id::text)) @> jsonb_build_array(ended)))
+                ELSE payload END
           WHERE id = $1 AND status = 'open'`,
         [item.id],
       );

@@ -92,8 +92,9 @@ const NO_PLATFORM_TOOLS = new Set(['lab', 'assurance']);
 /**
  * F2.1: when something in a division is stuck, the coordinator is asked first
  * and has an hour before the owner is told, with the coordinator's account of
- * what it did. The coordinator's own division goes straight to the owner:
- * there is nobody above it to ask.
+ * what it did. The coordinator's own division names nobody: it is the CEO's,
+ * which hears first by default, and the coordinator's own failures go
+ * straight to the owner, there being nobody above it to ask.
  */
 const TO_THE_COORDINATOR = { role: 'coordinator', afterMinutes: 60 } as const;
 

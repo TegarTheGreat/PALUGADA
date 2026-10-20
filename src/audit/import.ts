@@ -445,6 +445,7 @@ export async function importCompany(
   const skipped = [...bySection.keys()].filter(
     (name) => !SECTIONS.some((section) => section.name === name),
   );
+  escalationSetFromHistory(bySection);
 
   // One transaction, on the control plane, for the whole company.
   //
@@ -512,6 +513,30 @@ export async function importCompany(
 
     return { companyId, slug: options.slug, sections: counts, skipped };
   });
+}
+
+/**
+ * Whether the owner said who hears first about each division (0133), for an
+ * archive written before the column existed: read as the migration read a
+ * deployment's own divisions -- a role or a time held, or the event the
+ * owner's setting left, which the archive carries. Without it every division
+ * of an older archive would come back as never set, and an owner's "straight
+ * to me" as the CEO's to hear first. Rows are replaced, not changed: they are
+ * the caller's.
+ */
+function escalationSetFromHistory(bySection: Map<string, Array<Record<string, unknown>>>): void {
+  const divisions = bySection.get('divisions') ?? [];
+  if (divisions.every((row) => 'escalation_set' in row)) return;
+  const said = new Set<string>();
+  for (const event of bySection.get('events') ?? []) {
+    const payload = event.payload as { divisionId?: unknown } | null | undefined;
+    if (event.type === 'division.escalation_set' && typeof payload?.divisionId === 'string') said.add(payload.divisionId);
+  }
+  bySection.set('divisions', divisions.map((row) => 'escalation_set' in row ? row : {
+    ...row,
+    escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
+      || (typeof row.id === 'string' && said.has(row.id)),
+  }));
 }
 
 async function importSection(

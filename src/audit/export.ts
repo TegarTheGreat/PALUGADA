@@ -73,10 +73,11 @@ const SECTIONS: Section[] = [
   {
     name: 'divisions',
     // With its escalation policy (F2.1): who hears about a problem first and
-    // how long they have. A division restored without it sends every
-    // escalation straight to the owner.
+    // how long they have, and whether the owner said so (0133). A division
+    // restored without it sends every escalation to the CEO, the owner's
+    // "straight to me" among them.
     sql: `SELECT id, parent_division_id, depth, slug, name, max_concurrency,
-                 escalation_role_slug, escalate_after_minutes, created_at
+                 escalation_role_slug, escalate_after_minutes, escalation_set, created_at
             FROM divisions ORDER BY depth, slug`,
   },
   {

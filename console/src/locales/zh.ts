@@ -240,6 +240,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "您的 CEO 提议设立一个公司还没有的职位。是否招聘由您决定：CEO 会在对话中与您一起写好这个职位，并在它开始工作前让您过目。",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO 靠模型思考，而现在还没有设置。选择一个服务商并粘贴它的密钥。之后可以在“本部署”中更改。",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "例如：我们烘焙 Gayo 咖啡，卖给万隆的咖啡馆和办公室，当天送达。",
+  "the escalation it was given": "交给它的上报事项",
   "{capability}, every time {schedule} does exactly this": "{capability}，每次 {schedule} 执行完全相同的操作时",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "已批准，在九十天内，每次 {schedule} 执行完全相同的操作时都允许。",
   "Taken back. The next time {schedule} does it, you are asked again.": "已撤回。下次 {schedule} 执行时，会再次征求您的同意。",

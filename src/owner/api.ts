@@ -3843,7 +3843,8 @@ export class OwnerApi {
             );
             if (there) return { path };
             const bytes = await browsers.print(invoiceHtml(made.invoice, made.company, made.language));
-            const kept = await keepCompanyFile(root, companyId, 'invoices', name, bytes);
+            // Not held to the uploads' room: one page per invoice, each at most PRINT_MAX_BYTES, and none taken out.
+            const kept = await keepCompanyFile(root, companyId, 'invoices', name, bytes, false);
             return { path: kept.path };
           })().finally(() => this.#drawing.delete(key));
           this.#drawing.set(key, pending);

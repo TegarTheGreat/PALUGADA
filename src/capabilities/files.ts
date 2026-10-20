@@ -423,7 +423,7 @@ export function fileTextReader(options: FilesOptions, browser?: Browsers): FileT
 
 /* -------------------------------------------------- the owner's uploads --- */
 
-/** The folder of what the owner hands the company: the only one the console removes from. */
+/** The folder of what the owner hands the company, which the console also removes from. */
 export const UPLOAD_FOLDER = 'uploads';
 /** One uploaded file, in bytes. */
 export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -480,19 +480,21 @@ export function plainFileName(raw: unknown): string {
  * put where it goes, to somewhere outside the company's files, is refused and
  * nothing is written. The file is created and not overwritten (`O_EXCL`), and
  * not through a link that has the name (`O_NOFOLLOW`): one that exists is
- * `name-2`, `name-3` and on, so what was kept is never replaced. At most
- * `UPLOAD_MAX_FILES` files and `UPLOAD_MAX_TOTAL` bytes in the folder. The
- * folder is an argument so what strangers send and what the company issues can
- * be kept the same way, in folders of their own.
+ * `name-2`, `name-3` and on, so what was kept is never replaced. The folder
+ * is an argument so what strangers send and what the company issues can be
+ * kept the same way, in folders of their own; `limited` holds it to the
+ * uploads' room (`UPLOAD_MAX_FILES` files, `UPLOAD_MAX_TOTAL` bytes), which a
+ * folder the owner cannot empty -- the invoices the books issued, one page
+ * each -- must not be held to, or its next file is refused for good.
  */
 export function keepCompanyFile(
-  root: string, companyId: string, folder: string, name: string, bytes: Buffer,
+  root: string, companyId: string, folder: string, name: string, bytes: Buffer, limited = true,
 ): Promise<{ path: string; bytes: number; sha256: string }> {
   // One at a time for a company's folder: the count of what is kept and the writing of the next are two steps, and
   // uploads that arrive together would each see the same count and all pass. (Within this process; a second one
   // on the same root can still overshoot by what it has in flight.)
   const key = `${root}\u0000${companyId.toLowerCase()}`;
-  const run = (keeping.get(key) ?? Promise.resolve()).then(() => keepOne(root, companyId, folder, name, bytes));
+  const run = (keeping.get(key) ?? Promise.resolve()).then(() => keepOne(root, companyId, folder, name, bytes, limited));
   const tail = run.then(() => undefined, () => undefined);
   keeping.set(key, tail);
   void tail.then(() => { if (keeping.get(key) === tail) keeping.delete(key); });
@@ -502,7 +504,7 @@ export function keepCompanyFile(
 const keeping = new Map<string, Promise<void>>();
 
 async function keepOne(
-  root: string, companyId: string, folder: string, name: string, bytes: Buffer,
+  root: string, companyId: string, folder: string, name: string, bytes: Buffer, limited: boolean,
 ): Promise<{ path: string; bytes: number; sha256: string }> {
   const { mkdir, open, readdir, lstat, realpath, unlink } = await import('node:fs/promises');
   const { constants } = await import('node:fs');
@@ -520,15 +522,17 @@ async function keepOne(
   }
   if (real !== here) throw outside();
 
-  let files = 0;
-  let total = 0;
-  for (const one of await readdir(real)) {
-    const info = await lstat(join(real, one)).catch(() => null);
-    if (info?.isFile()) { files += 1; total += info.size; }
-  }
-  if (files >= UPLOAD_MAX_FILES || total + bytes.length > UPLOAD_MAX_TOTAL) {
-    throw new PalugadaError('contract.violation',
-      `${folder} holds at most ${UPLOAD_MAX_FILES} files and ${UPLOAD_MAX_TOTAL / 1_048_576} MB: take some out first`, { folder });
+  if (limited) {
+    let files = 0;
+    let total = 0;
+    for (const one of await readdir(real)) {
+      const info = await lstat(join(real, one)).catch(() => null);
+      if (info?.isFile()) { files += 1; total += info.size; }
+    }
+    if (files >= UPLOAD_MAX_FILES || total + bytes.length > UPLOAD_MAX_TOTAL) {
+      throw new PalugadaError('contract.violation',
+        `${folder} holds at most ${UPLOAD_MAX_FILES} files and ${UPLOAD_MAX_TOTAL / 1_048_576} MB: take some out first`, { folder });
+    }
   }
 
   const dot = name.lastIndexOf('.');

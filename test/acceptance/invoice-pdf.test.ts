@@ -157,6 +157,26 @@ test('the owner prints an invoice: it is drawn, kept under its number, says what
   }
 });
 
+/**
+ * The folder of invoices was held to the owner's uploads' limit, 500 files,
+ * and nothing takes an invoice out: the 501st was never printed, and no
+ * invoice after it either. It holds one page per invoice the books issued.
+ */
+test('the five hundred and first invoice prints like the first', { skip: SKIP }, async () => {
+  const { api, issue, print, mine } = await owned();
+  try {
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(join(mine, 'invoices'), { recursive: true });
+    for (let n = 1; n <= 500; n += 1) await writeFile(join(mine, 'invoices', `old-${String(n).padStart(4, '0')}.pdf`), '%PDF-1.4\n%%EOF\n');
+    const made = await print((await issue()).invoiceId);
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    assert.equal(made.body.path, 'invoices/inv-0001.pdf');
+    assert.equal((await readdir(join(mine, 'invoices'))).length, 501);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a hostile name prints as plain text, and nothing it names is fetched', { skip: SKIP }, async () => {
   const { api, fixture, root, browser, issue, print } = await owned();
   const requests: string[] = [];

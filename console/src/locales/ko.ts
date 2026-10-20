@@ -2596,6 +2596,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, 등급 {tier}",
   "{open} open · {done} done this week": "진행 중 {open}개 · 이번 주 완료 {done}개",
   "{provider}, kept current automatically": "{provider}, 자동으로 최신 유지",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles}은(는) 지금 알림을 보낼 수 없습니다: 일시 중지되었거나 사람이 맡고 있습니다. 일시 중지된 역할은 다시 일하기 시작하면 보냅니다.",
   "{role} hands it to whoever should do it": "{role}이(가) 적합한 담당에게 넘겨요",
   "{role} is awake and has it (task {task}).": "{role}이(가) 깨어나 맡았어요(작업 {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "{role}을(를) 일시 중지했어요. 재개하기 전까지 새로운 일이 시작되지 않아요.",

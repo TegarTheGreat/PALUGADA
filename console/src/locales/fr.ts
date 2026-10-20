@@ -2606,6 +2606,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, niveau {tier}",
   "{open} open · {done} done this week": "Ouvertes : {open} · Terminées cette semaine : {done}",
   "{provider}, kept current automatically": "{provider}, tenu à jour automatiquement",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} ne peut pas envoyer de rappels pour l’instant : en pause, ou tenu par une personne. Un rôle en pause les envoie dès qu’il reprend le travail.",
   "{role} hands it to whoever should do it": "{role} la confie à qui doit s’en charger",
   "{role} is awake and has it (task {task}).": "{role} est réveillé et s’en occupe (tâche {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} en pause. Rien de nouveau ne démarre pour lui tant que vous ne l’avez pas réactivé.",

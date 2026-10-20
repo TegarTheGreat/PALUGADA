@@ -135,6 +135,33 @@ test('with no role that bills customers, a bookkeeper is hired for it, so a comp
   }
 });
 
+test('a bookkeeper that is paused, or run by a person, is not hired twice: reminders go on and the owner is told who cannot send them', async () => {
+  const { api, token } = await open();
+  try {
+    // Paused by the owner: it is given the tool, and sends once it works again.
+    const paused = await createCompany('collect-paused');
+    const sari = await addRole(paused, 'bookkeeper');
+    await withControlPlane((tx) => tx.query(
+      "UPDATE roles SET tools = ARRAY['ledger.read'], display_name = 'Sari', frozen_at = now(), frozen_by = 'owner' WHERE id = $1", [sari]));
+    const on = await api.call('POST', `/api/companies/${paused.companyId}/collections`, token, { enabled: true });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    assert.deepEqual([on.body.enabled, on.body.given, on.body.unavailable], [true, ['Sari'], ['Sari']]);
+    assert.deepEqual(await toolsOf(paused, sari), ['ledger.read', 'invoice.remind']);
+    assert.equal((await withTenant(paused.companyId, (tx) => tx.query("SELECT 1 FROM roles WHERE slug LIKE 'bookkeeper%'"))).rowCount, 1);
+
+    // Run by a person: the platform does not take the job from them, and does not hire another under their name.
+    const person = await createCompany('collect-person');
+    const budi = await addRole(person, 'bookkeeper');
+    await withControlPlane((tx) => tx.query("UPDATE roles SET runtime = 'person', person_name = 'Budi', display_name = 'Budi' WHERE id = $1", [budi]));
+    const again = await api.call('POST', `/api/companies/${person.companyId}/collections`, token, { enabled: true });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual([again.body.given, again.body.unavailable], [[], ['Budi']]);
+    assert.equal((await withTenant(person.companyId, (tx) => tx.query("SELECT 1 FROM roles WHERE slug LIKE 'bookkeeper%'"))).rowCount, 1);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a role with all twelve of its tools is left as it is, and the owner is told', async () => {
   const fixture = await createCompany('collect-full');
   const biller = await addRole(fixture, 'bookkeeper');

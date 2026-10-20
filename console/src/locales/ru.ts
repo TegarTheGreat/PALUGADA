@@ -2603,6 +2603,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, уровень {tier}",
   "{open} open · {done} done this week": "Открыто: {open} · выполнено за неделю: {done}",
   "{provider}, kept current automatically": "{provider}, обновляется автоматически",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} сейчас не может отправлять напоминания: роль на паузе или её ведёт человек. Роль на паузе отправит их, как только снова начнёт работать.",
   "{role} hands it to whoever should do it": "{role} передаст работу тому, кто должен её выполнить",
   "{role} is awake and has it (task {task}).": "Роль {role} проснулась и взяла её в работу (задача {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "Роль {role} на паузе. Ничего нового для неё не запускается, пока вы её не возобновите.",

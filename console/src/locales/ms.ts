@@ -2618,6 +2618,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, tahap {tier}",
   "{open} open · {done} done this week": "{open} terbuka · {done} selesai minggu ini",
   "{provider}, kept current automatically": "{provider}, dikemas kini secara automatik",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} tidak boleh menghantar peringatan sekarang: dijeda, atau dikendalikan oleh seseorang. Peranan yang dijeda akan menghantarnya sebaik sahaja ia bekerja semula.",
   "{role} hands it to whoever should do it": "{role} menyerahkannya kepada sesiapa yang sepatutnya melakukannya",
   "{role} is awake and has it (task {task}).": "{role} sudah bangun dan memegangnya (tugasan {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} dijeda. Tiada kerja baharu yang bermula untuknya sehingga anda menyambungnya semula.",

@@ -2585,6 +2585,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}，等级 {tier}",
   "{open} open · {done} done this week": "{open} 个进行中 · 本周完成 {done} 个",
   "{provider}, kept current automatically": "{provider}，自动保持最新",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} 目前无法发送提醒：已暂停，或由真人负责。已暂停的角色恢复工作后就会发送。",
   "{role} hands it to whoever should do it": "{role} 会把它交给合适的角色",
   "{role} is awake and has it (task {task}).": "{role} 已唤醒并接手了它（任务 {task}）。",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} 已暂停。在您恢复它之前，不会为它启动任何新工作。",

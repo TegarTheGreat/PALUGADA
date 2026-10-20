@@ -3757,7 +3757,7 @@ export class OwnerApi {
           if (body.paymentNote !== undefined) change.paymentNote = body.paymentNote === null ? null : String(body.paymentNote);
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'nothing to change: give enabled, stepsDays or paymentNote', {});
           const policy = await withTenant(companyId, (tx) => setPolicy(tx, companyId, change));
-          const given = change.enabled === true ? await giveReminders(companyId) : { given: [], full: [], ungranted: [] };
+          const given = change.enabled === true ? await giveReminders(companyId) : { given: [], full: [], ungranted: [], unavailable: [] };
           return { ...policy, ...given, senders: await withTenant(companyId, (tx) => sendersOf(tx, companyId)) };
         },
       },

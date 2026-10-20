@@ -120,10 +120,22 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
 }) {
   const [busy, setBusy] = useState(false);
   const path = `/api/companies/${companyId}/collections`;
+  // A role that would send them and cannot -- paused, or a person's -- is
+  // said, so a switch that went on with nobody able to send is not read as
+  // done.
+  const switchTo = async (enabled: boolean) => {
+    const answer: { unavailable?: string[] } = await api('POST', `/api/companies/${companyId}/collections`, { enabled });
+    if (answer.unavailable && answer.unavailable.length > 0) {
+      notifications.show({
+        color: 'yellow',
+        message: t('{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.', { roles: answer.unavailable.join(', ') }),
+      });
+    }
+  };
   const flip = async (enabled: boolean) => {
     setBusy(true);
     try {
-      await api('POST', `/api/companies/${companyId}/collections`, { enabled });
+      await switchTo(enabled);
       notifications.show({ color: 'teal', message: t('Saved.') });
       changed();
     } catch (failure) {
@@ -153,7 +165,7 @@ function RemindersPanel({ companyId, owner, collections, changed }: {
               <Text size="sm">{t('No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.')}</Text>
               {owner && (
                 <Group mt="xs">
-                  <ActionButton size="xs" variant="default" label={t('Let them send reminders')} run={() => api('POST', path, { enabled: true })} done={changed} />
+                  <ActionButton size="xs" variant="default" label={t('Let them send reminders')} run={() => switchTo(true)} done={changed} />
                 </Group>
               )}
             </Alert>

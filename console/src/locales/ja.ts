@@ -2594,6 +2594,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}、ティア {tier}",
   "{open} open · {done} done this week": "未完了 {open} 件 · 今週完了 {done} 件",
   "{provider}, kept current automatically": "{provider}、自動で最新に維持",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} は今リマインドを送れません（一時停止中、または人が担当しています）。一時停止中のロールは、再び動き出すと送ります。",
   "{role} hands it to whoever should do it": "{role} が適切な担当者に渡します",
   "{role} is awake and has it (task {task}).": "{role} が起動して引き受けました（タスク {task}）。",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} を一時停止しました。再開するまで、新しい仕事は始まりません。",

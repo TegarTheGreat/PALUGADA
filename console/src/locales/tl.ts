@@ -2579,6 +2579,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, antas {tier}",
   "{open} open · {done} done this week": "{open} bukas · {done} natapos ngayong linggo",
   "{provider}, kept current automatically": "{provider}, awtomatikong pinananatiling napapanahon",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "Hindi pa makapagpapadala ng mga paalala ang {roles} ngayon: naka-pause, o tao ang may hawak. Magpapadala ang role na naka-pause sa sandaling gumana itong muli.",
   "{role} hands it to whoever should do it": "Ipinapasa ito ni {role} sa dapat gumawa nito",
   "{role} is awake and has it (task {task}).": "Gising na si {role} at hawak na nito ito (gawain {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "Naka-pause si {role}. Walang bagong magsisimula para dito hanggang ituloy mo ito.",

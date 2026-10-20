@@ -2623,6 +2623,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, cấp {tier}",
   "{open} open · {done} done this week": "{open} đang mở · {done} xong tuần này",
   "{provider}, kept current automatically": "{provider}, tự động được giữ cập nhật",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} hiện chưa gửi được nhắc nhở: đang tạm dừng, hoặc do một người đảm nhận. Vai trò đang tạm dừng sẽ gửi ngay khi hoạt động lại.",
   "{role} hands it to whoever should do it": "{role} sẽ giao cho người phù hợp",
   "{role} is awake and has it (task {task}).": "{role} đã thức dậy và nhận việc (nhiệm vụ {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "Đã tạm dừng {role}. Không có việc mới nào bắt đầu cho vai trò này cho đến khi bạn cho tiếp tục.",

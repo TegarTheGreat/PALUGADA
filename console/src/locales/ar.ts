@@ -2596,6 +2596,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}، المستوى {tier}",
   "{open} open · {done} done this week": "المفتوحة: {open} · المنجزة هذا الأسبوع: {done}",
   "{provider}, kept current automatically": "{provider}، يُحدَّث تلقائيًا",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} لا يستطيع إرسال التذكيرات الآن: إما متوقف مؤقتًا أو يتولاه شخص. الدور المتوقف يرسلها حين يعود إلى العمل.",
   "{role} hands it to whoever should do it": "يسلّمها {role} إلى من ينبغي أن ينفذها",
   "{role} is awake and has it (task {task}).": "{role} مستيقظ ويتولاها (المهمة {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "أُوقف {role} مؤقتًا. لا يبدأ له شيء جديد حتى استئنافك له.",

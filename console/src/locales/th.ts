@@ -2618,6 +2618,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name} ระดับ {tier}",
   "{open} open · {done} done this week": "เปิดอยู่ {open} · เสร็จสัปดาห์นี้ {done}",
   "{provider}, kept current automatically": "{provider} อัปเดตให้ทันสมัยโดยอัตโนมัติ",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} ยังส่งการเตือนไม่ได้ตอนนี้ เพราะถูกพักไว้ หรือมีคนเป็นผู้ทำ บทบาทที่ถูกพักจะส่งเมื่อกลับมาทำงาน",
   "{role} hands it to whoever should do it": "{role} จะส่งให้ผู้ที่ควรทำ",
   "{role} is awake and has it (task {task}).": "{role} ตื่นแล้วและรับงานไป (งาน {task})",
   "{role} paused. Nothing new starts for it until you resume it.": "หยุด {role} ชั่วคราวแล้ว จะไม่มีงานใหม่เริ่มจนกว่าคุณจะให้ทำงานต่อ",

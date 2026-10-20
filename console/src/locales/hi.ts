@@ -2569,6 +2569,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, स्तर {tier}",
   "{open} open · {done} done this week": "{open} खुले · इस हफ़्ते {done} पूरे",
   "{provider}, kept current automatically": "{provider}, अपने आप अद्यतन रखा जाता है",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} अभी अनुस्मारक नहीं भेज सकती: रोकी गई है, या कोई व्यक्ति इसे चलाता है। रोकी गई भूमिका फिर से काम शुरू करते ही उन्हें भेजेगी।",
   "{role} hands it to whoever should do it": "यह {role} के ज़रिए उस तक पहुँचता है जिसे यह करना चाहिए",
   "{role} is awake and has it (task {task}).": "{role} सक्रिय है और यह उसके पास है (कार्य {task})।",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} को रोका गया। जब तक आप इसे फिर शुरू न करें, इसके लिए कुछ नया शुरू नहीं होगा।",

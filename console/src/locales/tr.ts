@@ -2625,6 +2625,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, seviye {tier}",
   "{open} open · {done} done this week": "{open} açık · bu hafta {done} tamamlandı",
   "{provider}, kept current automatically": "{provider}, otomatik olarak güncel tutulur",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} şu an hatırlatma gönderemiyor: duraklatılmış ya da bir kişi tarafından yürütülüyor. Duraklatılan rol yeniden çalışmaya başlayınca gönderir.",
   "{role} hands it to whoever should do it": "{role} işi, yapması gereken kişiye devreder",
   "{role} is awake and has it (task {task}).": "{role} uyandı ve işi aldı (görev {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} duraklatıldı. Siz sürdürene kadar onun için yeni bir şey başlamaz.",

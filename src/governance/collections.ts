@@ -26,6 +26,12 @@ export interface GivenReminders {
   full: string[];
   /** Roles whose division could not be granted it: the platform knows no such capability here (a deployment that never registered it). */
   ungranted: string[];
+  /**
+   * Roles that would send them and cannot now: paused, by the owner or the
+   * spend breaker (given the tool all the same, they send once they work
+   * again), or run by a person, whose job the platform does not take.
+   */
+  unavailable: string[];
 }
 
 /** What the bookkeeper hired for the switch is told it is: the job, and where its edges are. */
@@ -45,23 +51,30 @@ const BOOKKEEPER_CHARTER =
 const REMINDING = ['invoice.remind', 'plan.record', 'owner.ask'];
 
 export async function giveReminders(companyId: string): Promise<GivenReminders> {
-  const holders = await withTenant(companyId, async (tx) => {
+  // Every role, paused or run by a person too: a bookkeeper the owner paused
+  // is still the company's bookkeeper, and hiring another under its name was
+  // refused, after reminders had been switched on, on every press.
+  const roles = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; tools: string[]; called: string; issues: boolean; reminds: boolean; named: boolean; ceo: boolean; division_id: string;
+      paused: boolean; person: boolean;
     }>(
       `SELECT id, tools, division_id, coalesce(display_name, title, slug) AS called, 'invoice.issue' = ANY(tools) AS issues,
-              'invoice.remind' = ANY(tools) AS reminds, slug = 'bookkeeper' AS named, title = 'CEO' AS ceo
-         FROM roles WHERE company_id = $1 AND frozen_at IS NULL AND coalesce(runtime, '') <> 'person' ORDER BY created_at`, [companyId]);
+              'invoice.remind' = ANY(tools) AS reminds, slug = 'bookkeeper' AS named, title = 'CEO' AS ceo,
+              frozen_at IS NOT NULL AS paused, coalesce(runtime, '') = 'person' AS person
+         FROM roles WHERE company_id = $1 ORDER BY created_at`, [companyId]);
     return rows;
   });
   // The roles that bill customers, and any that already hold the tool or are
   // the company's bookkeeper: the authority to remind is a part of the
   // authority to bill. With none of them, the job gets a role of its own --
-  // the CEO already holds the most tools a role may.
-  const chosen = holders.filter((role) => role.issues || role.reminds || role.named);
+  // the CEO already holds the most tools a role may. A person's role is not
+  // one of them: reminding is then a person's job, not the platform's.
+  const chosen = roles.filter((role) => !role.person && (role.issues || role.reminds || role.named));
   const given: string[] = [];
   const full: string[] = [];
   const ungranted: string[] = [];
+  const unavailable = chosen.filter((role) => role.paused).map((role) => role.called);
   for (const role of chosen) {
     if (role.tools.includes('invoice.remind')) {
       // The tool is there; its division's grant may not be.
@@ -77,8 +90,12 @@ export async function giveReminders(companyId: string): Promise<GivenReminders> 
     if (granting.ungranted.includes('invoice.remind')) ungranted.push(role.called);
     given.push(role.called);
   }
-  const ceo = holders.find((role) => role.ceo);
-  if (chosen.length === 0 && ceo) {
+  const ceo = roles.find((role) => role.ceo);
+  const bookkeeper = roles.find((role) => role.named);
+  if (chosen.length === 0 && bookkeeper) {
+    // Run by a person: the slug is theirs, and the job too.
+    unavailable.push(bookkeeper.called);
+  } else if (chosen.length === 0 && ceo) {
     const hired = await addRole(companyId, {
       divisionId: ceo.division_id, slug: 'bookkeeper', title: 'Bookkeeper', systemPrompt: BOOKKEEPER_CHARTER,
       tools: [...PLATFORM_TOOLS, 'invoice.remind', 'ledger.read'],
@@ -87,5 +104,5 @@ export async function giveReminders(companyId: string): Promise<GivenReminders> 
     if (hired.ungranted.includes('invoice.remind')) ungranted.push('Bookkeeper');
     given.push('Bookkeeper');
   }
-  return { given, full, ungranted };
+  return { given, full, ungranted, unavailable };
 }

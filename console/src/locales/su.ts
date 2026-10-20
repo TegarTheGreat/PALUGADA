@@ -2624,6 +2624,7 @@ export const DICTIONARY: Dictionary = {
   "{name}, tier {tier}": "{name}, tingkat {tier}",
   "{open} open · {done} done this week": "{open} kabuka · {done} réngsé minggu ieu",
   "{provider}, kept current automatically": "{provider}, dijaga anyar sacara otomatis",
+  "{roles} cannot send reminders now: paused, or run by a person. A paused role sends them once it works again.": "{roles} ayeuna can bisa ngirim panginget: keur direureuhkeun, atawa dijalankeun ku jalma. Peran anu direureuhkeun bakal ngirimna lamun geus digawé deui.",
   "{role} hands it to whoever should do it": "{role} masrahkeun ka anu sakuduna ngalaksanakeun",
   "{role} is awake and has it (task {task}).": "{role} parantos gugah sareng nyepeng tugas éta (tugas {task}).",
   "{role} paused. Nothing new starts for it until you resume it.": "{role} direureuhkeun. Henteu aya padamelan énggal anu dimimitian kanggo peran ieu dugi ka anjeun neraskeunana.",

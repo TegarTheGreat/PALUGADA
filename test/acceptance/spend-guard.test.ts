@@ -13,7 +13,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import {
@@ -31,7 +31,7 @@ import { frozenRoles } from '../../src/governance/role-freeze.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
-import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -290,6 +290,41 @@ test("last month's 80% warning closes itself in the new month, paused or not (F1
   const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string } }>(
     "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"));
   assert.deepEqual(said.map((row) => row.payload.inboxItemId), [warning.id]);
+});
+
+/**
+ * An 80% warning raised before the warning said its month (0135) left nothing
+ * for the month's end to close it by: a deployment upgraded with one open kept
+ * it for good. What it is about is when it was raised.
+ */
+test("an 80% warning raised before the warnings said their month closes with its month after the upgrade (F1.7, 0135)", async () => {
+  const fixture = await createCompany('spend-warning-0135');
+  const now = new Date();
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12));
+  const raised = async (title: string, at: Date) => {
+    const itemId = await inbox.raiseBudgetAlert({ companyId: fixture.companyId, title, detail: '$165.00 of $200.00 spent.' });
+    await withControlPlane((tx) => tx.query('UPDATE inbox_items SET created_at = $2 WHERE id = $1', [itemId, at]));
+    return itemId;
+  };
+  const earlier = await raised('Monthly budget is 80% spent', lastMonth);
+  const current = await raised('Monthly budget is 80% spent', now);
+  // The pause card raised before it said its month: matched by its title where it closes, and not a warning.
+  const pause = await raised('Monthly budget reached; the company is paused', lastMonth);
+  const card = async (itemId: string) => (await withTenant(fixture.companyId, (tx) => tx.query<{
+    status: string; closed_reason: string | null; payload: Record<string, unknown>;
+  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [itemId]))).rows[0]!;
+
+  await runMigrationAgain('0135_old_cards_name_their_period.sql');
+
+  const monthOf = (at: Date) => new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1)).toISOString();
+  assert.deepEqual((await card(earlier)).payload, { spendWarning: { periodStart: monthOf(lastMonth) } });
+  assert.deepEqual((await card(current)).payload, { spendWarning: { periodStart: monthOf(now) } });
+  assert.deepEqual((await card(pause)).payload, {});
+
+  // The next look closes last month's, as it closes one raised today, and leaves this month's.
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'under');
+  assert.deepEqual([(await card(earlier)).status, (await card(earlier)).closed_reason], ['withdrawn', 'period_started']);
+  assert.equal((await card(current)).status, 'open');
 });
 
 /**

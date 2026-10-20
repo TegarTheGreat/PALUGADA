@@ -30,7 +30,7 @@ import { hireProposedCard, ownerReadingWithin, stageMoveCard } from '../owner/pl
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
-import { createSubTask, getTask, transition } from '../engine/tasks.ts';
+import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
 import { queryMeaning } from '../knowledge/meaning.ts';
@@ -386,6 +386,11 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
           ...(input.kind === undefined ? {} : { kind: input.kind }),
           openedBy: 'agent',
           openedByTaskId: ctx.taskId,
+          // F8.9: what this work has read is in what it writes. Asked in the
+          // transaction that files the ticket and kept on the row, because
+          // the events that say so are deleted by retention long before an
+          // open ticket is.
+          outside: (await outsideContentIn(tx, ctx.taskId)) !== null,
         });
         // Read by the owner on the board and by whichever role takes it on.
         // A ticket already open under the same title keeps the words it had,
@@ -417,32 +422,67 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
   };
 }
 
+export interface TicketListInput {
+  status?: string;
+  /** Only these tickets, as a triage's brief names them. */
+  ids?: string[];
+  limit?: number;
+}
+
+export interface TicketListResult {
+  tickets: Array<{
+    id: string; title: string; body: string; status: string; priority: number; divisionId: string | null;
+    openedBy: 'owner' | 'agent';
+    /** Filed by work that had read something from outside (F8.9): its words may be a stranger's. */
+    outside: boolean;
+    workingTaskId: string | null; createdAt: string;
+  }>;
+}
+
 /**
  * `ticket.list`: the company's open tickets, for the role that hands work on
- * (0070). What a ticket says was written by a run, perhaps from a customer's
- * words, so it is outside content (F8.9) like a page read from the web.
+ * (0070). A ticket filed by work that had read something from outside --
+ * a customer's email, a page from the web -- may hold a stranger's words, and
+ * the work that reads it carries them (F8.9); the owner's own tickets, and
+ * those clean work filed, are the company's words and do not. It asked
+ * nothing of what it returned, so a triage of the owner's own backlog was
+ * tainted, and the work it handed out asked the owner before every tier 2
+ * action -- when the same ticket given out from the board did not.
+ *
+ * `ids` keeps a listing to the tickets a triage was given: the whole board
+ * holds an open hire proposed from outside, or a ticket worked after a
+ * customer wrote, and either would taint a pass that has nothing to do with
+ * it. A listing that returns any ticket from outside is tainted as a whole.
  */
-export function ticketListCapability(): Capability<{ status?: string; limit?: number }, { tickets: Array<Record<string, unknown>> }> {
+export function ticketListCapability(): Capability<TicketListInput, TicketListResult> {
   return {
     name: 'ticket.list',
     inputSchema: {
       type: 'object',
       properties: {
         status: { enum: ['active', 'open', 'in_progress', 'done', 'closed', 'all'], description: 'active (open and in progress) unless said.' },
+        ids: {
+          // No more than a listing returns unless told otherwise, so none is cut short unsaid.
+          type: 'array', minItems: 1, maxItems: 50, uniqueItems: true,
+          items: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+          description: 'Only these tickets, by id: the ones a triage was given.',
+        },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
       },
     },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
-    readsOutside: true,
+    readsOutside: (output) => ((output as TicketListResult).tickets ?? []).some((ticket) => ticket.outside === true),
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
       const status = (input.status ?? 'active') as 'active';
-      const tickets = await withTenant(ctx.companyId, (tx) => listTickets(tx, { status, limit: input.limit ?? 50 }));
+      const tickets = await withTenant(ctx.companyId, (tx) => listTickets(tx, {
+        status, limit: input.limit ?? 50, ...(input.ids ? { ids: input.ids } : {}),
+      }));
       return {
         tickets: tickets.map((ticket) => ({
           id: ticket.id, title: ticket.title, body: ticket.body.slice(0, 1_000), status: ticket.status,
-          priority: ticket.priority, divisionId: ticket.divisionId, openedBy: ticket.openedBy,
+          priority: ticket.priority, divisionId: ticket.divisionId, openedBy: ticket.openedBy, outside: ticket.outside,
           workingTaskId: ticket.workingTaskId, createdAt: ticket.createdAt.toISOString(),
         })),
       };

@@ -133,7 +133,9 @@ refer to `docs/PRD.md`.
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
 `calendar.read`, `crm.read`, `speech.transcribe`, `image.describe`, `chat.read`,
 `browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
-`ticket.list`), and any task a hook starts.
+`ticket.list` when what it returns holds a ticket filed by work that had read
+outside content, or of unknown provenance -- and always when a vendor file
+binds it to an outside tracker), and any task a hook starts.
 
 **Defences, in order.**
 
@@ -167,12 +169,33 @@ refer to `docs/PRD.md`.
 5b. Taint follows the work to new tasks, in the transaction that makes
    them: a rerun carries what the task it reruns carried, a sub-task its
    parent's, including what the parent's other sub-tasks read, a task
-   the owner makes from a ticket a run filed carries the ticket's words, and
+   made from a ticket filed by tainted work -- the owner's from the board,
+   or the CEO's triage of the backlog -- carries the ticket's words, and
    the task a coordinator (the CEO, by default) is handed about work that
    ended badly carries what that work carried -- any of the tasks on the
    card, since its brief quotes each one's goal and the record its halt left
-   (`handOver`, `src/inbox/inbox.ts`).
-   A yes for a while never covers a call in tainted work, at any tier.
+   (`handOver`, `src/inbox/inbox.ts`). A ticket carries what its filer's
+   work had read when it was filed (`ticket.create` asks `outsideContentIn`
+   in the transaction that files it, 0134), recorded on the row because the
+   events that say so expire with retention. It never becomes clean: the
+   application role may not update a ticket's provenance, title or body, a
+   ticket filed again under the same title is returned as it was, a ticket
+   from before 0134 counts as outside unless the owner filed it, and every
+   ticket restored from an archive written before 0134 counts as outside.
+   The owner's own tickets are clean, as a task the owner gives is: typed on
+   the board, a card the owner applied, or one the assistant filed itself in
+   an answer that read nothing anyone else wrote (`auto`,
+   `assistant-actions.ts`). A triage's brief names its tickets' ids and
+   `ticket.list` given them returns only those, so an unrelated ticket from
+   outside on the board does not taint the pass; a listing that returns any
+   ticket from outside taints the whole pass. A ticket is as clean as the
+   work that filed it, and one kind of the CEO's work holds words it is not
+   tainted by: the review of a skill, the CEO's when the company has no
+   reviewer, holds the skill's text, an imported one's included, fenced as
+   data (`sendForReview`, `src/skills/skills.ts`). A ticket the CEO files
+   from it is clean -- no wider than the `task.delegate` the same run could
+   already make from the same words. A yes for a while never covers a call
+   in tainted work, at any tier.
 5c. A yes for a schedule (0116) does cover tainted work, and only because it
    is narrower than the taint: one schedule as it was defined when the yes
    was given (a digest of its role, division, project, goal, account,
@@ -286,8 +309,9 @@ refer to `docs/PRD.md`.
    wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
    settings). After a read of a task, an inbox item, a ticket, a message, a
    memory or a document, the same action is a card, so text from outside cannot
-   have the assistant start work as the owner. A test names the actions, so
-   adding one is a decision.
+   have the assistant start work as the owner in the answer that read it (what
+   a later answer carries of it is under Residual risk). A test names the
+   actions, so adding one is a decision.
 
 **Residual risk.**
 
@@ -315,6 +339,14 @@ refer to `docs/PRD.md`.
   Memory page, and a figure is replaced by the next one, though it stays in
   its history. The same words said again in the same place are the memory
   already kept, not a second one (`ownerSaidAlready`).
+  The same holds for what the conversation carries between answers: the
+  conversation the assistant is sent holds its earlier answers (`converse`,
+  `src/owner/assistant.ts`), so an answer that read a task's output says what
+  it found, and the next answer, which reads only the company's structure,
+  can give work or file a ticket at once with those words in it, and the
+  task or ticket is the owner's and clean. What the conversation keeps is the
+  assistant's own account of what it read, never the text itself, and each
+  answer answers a line the owner wrote.
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

@@ -80,8 +80,9 @@ export const FOUNDING_TEMPLATE: CompanyTemplate = {
         'for customers -- say so in your report, and propose the hire with ticket.create of kind "hire": the title ' +
         'is the role, the body the work it would take over and what it needs. The owner is shown it at once and ' +
         'hires it with you in conversation; hiring is theirs, so do not ask again while it is open. The other roles file what is ' +
-        'owed and not yet anyone\'s as tickets: read them with ticket.list, and hand one on with task.delegate ' +
-        'and its ticketId, so it closes when the work is done. When an action\'s effect lands later -- an invoice ' +
+        'owed and not yet anyone\'s as tickets: read them with ticket.list, giving it the ids your brief names ' +
+        'when it names any, and hand one on with task.delegate and its ticketId, so it closes when the work is ' +
+        'done. When an action\'s effect lands later -- an invoice ' +
         'sent, a campaign launched -- ask to look again with task.follow_up: name the role, what to check it ' +
         'against and what to do about what it finds, and do not wait on it. When the same work is owed again and ' +
         'again, propose a schedule for it with schedule.propose -- which role, when, what each run does, and the ' +

@@ -58,6 +58,7 @@ test('work the owner gives with a priority has it, and one that is out of range 
     // A ticket's priority is the task's when the owner gives it out.
     const filed = await withTenant(fixture.companyId, (tx) => openTicket(tx, {
       companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title: 'A customer cannot pay', body: '', priority: 1, openedBy: 'owner',
+      outside: false,
     }));
     const taken = await api.call('POST', `/api/companies/${fixture.companyId}/tickets/${filed.ticket.id}/assign`, owner, {
       roleId: fixture.roleId, goalId: fixture.goalId,

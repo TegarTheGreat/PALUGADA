@@ -151,6 +151,13 @@ test('a question for a seat is that seat\'s and the owner\'s: another seat neith
       "SELECT actor FROM events WHERE type = 'owner.decided' AND payload->>'inboxItemId' = $1 LIMIT 1", [itemId]));
     assert.equal(event?.actor, 'staff');
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, taskId)), [{ question: 'Berapa harga gula?', answer: '14.000 per kilo', files: [], by: 'Budi' }]);
+    // Answered, it is no more another seat's to read: the decisions' history
+    // held the question and Budi's answer for any seat (the review of 20 October).
+    const decisions = (token: string) => api.call('GET', `/api/companies/${fixture.companyId}/decisions`, token)
+      .then((answered) => (answered.body.items as Array<{ id: string }>).map((one) => one.id));
+    assert.deepEqual(await decisions(siti.token), [], 'not in another seat\'s history');
+    assert.deepEqual(await decisions(budi.token), [itemId], 'in the addressee\'s');
+    assert.deepEqual(await decisions(owner), [itemId], 'and in the owner\'s');
 
     // The owner can answer one that is another seat's.
     const second = await runningTask(fixture, 'Cek harga susu');

@@ -1442,7 +1442,7 @@ export interface HistoryPage {
  */
 export async function history(
   companyId: string,
-  options: { query?: string | null; before?: string | null; limit?: number } = {},
+  options: { query?: string | null; before?: string | null; limit?: number; seat?: { id: string } | null } = {},
 ): Promise<HistoryPage> {
   const limit = Math.min(Math.max(Math.trunc(options.limit ?? 25), 1), 100);
   const cursor = options.before ? readCursor(options.before) : null;
@@ -1477,9 +1477,13 @@ export async function history(
           AND ($2::bigint IS NULL
                OR (created_at, id) < (timestamptz 'epoch' + $2::bigint * interval '1 microsecond',
                                       $3::uuid))
+          -- A seat reads what was nobody's in particular and what was its
+          -- own, as in the queue: a question put to another seat, and the
+          -- answer it gave, are that seat's and the owner's.
+          AND ($5::uuid IS NULL OR addressee_seat IS NULL OR addressee_seat = $5::uuid)
         ORDER BY created_at DESC, id DESC
         LIMIT $4`,
-      [pattern, cursor?.createdMicros ?? null, cursor?.id ?? null, limit + 1],
+      [pattern, cursor?.createdMicros ?? null, cursor?.id ?? null, limit + 1, options.seat?.id ?? null],
     );
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];

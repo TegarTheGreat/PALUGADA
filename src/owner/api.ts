@@ -997,10 +997,11 @@ export class OwnerApi {
         // waiting; this is what the owner said, and what closed without them.
         method: 'GET',
         pattern: '/api/companies/:companyId/decisions',
-        handle: async ({ params, query }) => inbox.history(params.companyId!, {
+        handle: async ({ params, query, staff }) => inbox.history(params.companyId!, {
           query: query.get('q'),
           before: query.get('before'),
           limit: query.get('limit') === null ? 25 : wholeNumber(query.get('limit'), 'limit'),
+          seat: staff ? { id: staff.seat.id } : null,
         }),
       },
 

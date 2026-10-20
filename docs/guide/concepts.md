@@ -224,9 +224,15 @@ is, delegates it with a brief that says what done looks like, waits for the
 result and reports what came back. It does operations work itself, and it
 does not contact anyone outside the company or ship anything.
 
-It is also the first stop for trouble: in the standard template every other
-division escalates to the coordinator, which gets an hour to fix the cause or
-hand it on before you are told, with what it did.
+It is also the first stop for trouble: work of another role that ends badly
+goes to the CEO first, in every division where you have not named someone
+else (or nobody) under **Who hears about trouble first**. The CEO gets an
+hour to fix the cause or hand it on before you are told, with what it did;
+if it fixed it, the card closes and stays readable, and if it could not, it
+says why and the card is yours. Several tasks that ended the same way under
+one goal are one card, and the CEO is told of every one of them. The CEO's
+own failures come straight to you. Naming the CEO there names whoever holds
+the title, so appointing another CEO moves it.
 
 ## Capabilities and the catalogue
 
@@ -255,8 +261,9 @@ which writes down a recording in the company's files; and the tools a run uses t
   message that says a vendor is needed.
 - Every call goes through the broker, which checks the grant, the tier, the
   policies and the budget; a write is read back afterwards to verify it
-  happened. A capability whose health check fails stops the task before it
-  starts and raises an incident.
+  happened. A capability whose health check fails keeps the task from
+  starting and raises one incident for the capability; the task waits, and
+  goes on by itself when a check finds the capability well again.
 - Work that has read something written outside the company, such as an
   email, a web page or a customer record, carries that fact, and any tier 2
   or higher action in it asks you first.

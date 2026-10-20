@@ -34,6 +34,7 @@ import {
   escalationPolicyFor,
   proposeStructuralChange,
   setEscalationPolicy,
+  CEO_FIRST_MINUTES,
   DEFAULT_ESCALATION_MINUTES,
 } from '../../src/governance/structure.ts';
 import { history, recordVersion, restore } from '../../src/governance/config-versions.ts';
@@ -745,20 +746,34 @@ test('an answer to a run\'s own question closes it, and the run that resumes rea
 
 test('a division has an escalation policy, and a default when it has not set one (F2.1)', async () => {
   const fixture = await createCompany('escalation');
+  const policy = () => withTenant(fixture.companyId, (tx) => escalationPolicyFor(tx, fixture.divisionId));
 
-  const initial = await withTenant(fixture.companyId, (tx) =>
-    escalationPolicyFor(tx, fixture.divisionId),
-  );
-  assert.deepEqual(initial, { roleSlug: null, afterMinutes: DEFAULT_ESCALATION_MINUTES });
+  // Never set: the company's CEO hears first, for an hour (the fixture's
+  // `worker` is its CEO). A division that names nobody is every division a
+  // real company has, and "nobody" sent each of its failures to the owner.
+  assert.deepEqual(await policy(), { roleSlug: 'worker', afterMinutes: CEO_FIRST_MINUTES });
 
   await setEscalationPolicy(fixture.companyId, fixture.divisionId, {
     roleSlug: 'ops-lead',
     afterMinutes: 30,
   });
-  const set = await withTenant(fixture.companyId, (tx) =>
-    escalationPolicyFor(tx, fixture.divisionId),
-  );
-  assert.deepEqual(set, { roleSlug: 'ops-lead', afterMinutes: 30 });
+  assert.deepEqual(await policy(), { roleSlug: 'ops-lead', afterMinutes: 30 });
+
+  // The owner's "straight to me" is a setting, and the CEO does not come back in its place.
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: null });
+  assert.deepEqual(await policy(), { roleSlug: null, afterMinutes: 30 });
+
+  // How long, set alone, is how long the CEO has: it names nobody else.
+  const other = await createCompany('escalation-minutes');
+  const otherPolicy = () => withTenant(other.companyId, (tx) => escalationPolicyFor(tx, other.divisionId));
+  await setEscalationPolicy(other.companyId, other.divisionId, { afterMinutes: 15 });
+  assert.deepEqual(await otherPolicy(), { roleSlug: 'worker', afterMinutes: 15 });
+
+  // And nobody, with no time given, reads back as the company-wide four hours, held by nobody.
+  const third = await createCompany('escalation-nobody');
+  await setEscalationPolicy(third.companyId, third.divisionId, { roleSlug: null });
+  assert.deepEqual(await withTenant(third.companyId, (tx) => escalationPolicyFor(tx, third.divisionId)),
+    { roleSlug: null, afterMinutes: DEFAULT_ESCALATION_MINUTES });
 });
 
 /**
@@ -965,8 +980,8 @@ test('a division\'s escalation policy shapes the escalation it raises (F2.1)', a
 /**
  * A grace period is only a grace period if somebody has it.
  *
- * `escalationPolicyFor` defaults `afterMinutes` to four hours and `roleSlug` to
- * nothing, so a division that never set a policy reads back as "four hours" for
+ * `escalationPolicyFor` defaults `afterMinutes` to four hours, so a division
+ * whose owner said "nobody: straight to me" reads back as "four hours" for
  * nobody. Holding the owner's notification on that would mean four hours in
  * which no role has been asked, nobody is working on the problem, and the item
  * just sits -- the delay bought silence, not handling. Without a named role the
@@ -976,8 +991,9 @@ test('a division\'s escalation policy shapes the escalation it raises (F2.1)', a
 test('a division that names no escalation role does not delay the owner (F2.1)', async () => {
   const fixture = await createCompany('escalation-unowned');
 
-  // Deliberately not calling setEscalationPolicy: this is the state every
-  // division is created in.
+  // The owner's own "straight to me". A division that never said is the
+  // CEO's to hear first (the test above); this one said nobody.
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: null });
   const unowned = await inbox.raiseEscalation({
     companyId: fixture.companyId,
     divisionId: fixture.divisionId,

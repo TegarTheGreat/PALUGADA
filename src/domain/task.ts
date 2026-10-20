@@ -112,6 +112,12 @@ export type HaltReason =
   | 'owner_stop'
   /** The owner cancelled this task, or the task it was started for. */
   | 'owner_cancel'
+  /**
+   * The platform stopped it, and what was under it, because the work it was
+   * handed was taken up another way: run again, gone on with, or answered on
+   * its card (`stopHandling` in owner-control.ts, `handOver` in inbox.ts).
+   */
+  | 'work_taken_up'
   | 'company_frozen'
   /** F5.1: the journal holds a different step where this one should be. */
   | 'journal_divergence'

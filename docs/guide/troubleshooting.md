@@ -335,22 +335,47 @@ to cancel it.
 
 **Cause.** A capability's health check failed for a reason that does not
 pass by itself: usually an expired or mis-scoped credential, a quota used
-up, or a wrong address. The work that needed it is stopped rather than
-started. A service that is only busy, failing on its side or not answering
-does not stop work at first: the task shows **Waiting for a service to
-answer again** and looks again, longer each time, for about half an hour.
+up, or a wrong address. The work that needs it does not start: it shows
+**Waiting for a service to answer again** and looks again a quarter of an
+hour later, then half an hour, then every hour -- never more often than the
+check is taken anyway, so a refused login is not tried more often. There is
+one card for the capability however much work waits for it.
 
 **Fix.** Open the division on **Team**, read **Capability health**, and fix
-the credential; **Rotate a credential** repoints it. Then run the stopped
-work again.
+the credential; **Rotate a credential** repoints it. The check the rotation
+takes calls the waiting work back at once, and the card closes itself.
+Work still waiting a day after its first long wait stops instead, and is
+listed on the card under **Work that stopped**, which then stays open: open
+each task from there and run it again.
 
-### "… stayed unreachable, and the work that needs it stopped"
+### "… is not answering, and the work that needs it is waiting"
 
-**Cause.** A service was busy or not answering for the whole half hour a
-task waited for it.
+**Cause.** A service was busy or not answering for the half hour a task
+waited for it, and is still not. The work keeps waiting, looking again up to
+an hour apart, and there is one card for the service.
 
-**Fix.** Check the service's own status page. When it answers again, run
-the task again from its page.
+**Fix.** Usually nothing: when the service answers, the look that finds it
+so calls the waiting work back and the card closes itself, and it closes too
+when no work waits for the service any more. If the service drops again, the
+work still waiting raises the card again. Check the service's own status
+page if it lasts. Work still waiting after a day stops, and is listed on the
+card under **Work that stopped**, which then stays open for you to run it
+again.
+
+### "Model … is not answering, and work is waiting for it"
+
+**Cause.** The model was tried for about a quarter of an hour and did not
+answer -- a provider's outage, a rate limit that does not lift, a local
+model that is down -- and the role has no fallback it may use. The work
+waits for that same model, looking again up to an hour apart; there is one
+card for the model however much work waits on it.
+
+**Fix.** Usually nothing: when the model answers a task that waited for it,
+and nothing it was asked since was refused, the card closes itself and the
+rest of the waiting work is called back. If the model goes down again, the
+work still waiting raises the card again. Work still waiting after a day
+stops, and is listed on the card under **Work that stopped**, which then
+stays open for you to run it again.
 
 ### An agent says `… needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`
 

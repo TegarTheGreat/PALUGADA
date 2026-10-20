@@ -19,9 +19,10 @@
  *
  * Nor with work that has nobody left to do it for (the review of 20
  * October): a task the owner already ran again, whose new task does the work,
- * and a child whose parent failed, was cancelled or was stopped for good while
- * it waited, whose answer would go nowhere (`GOES_ON_BY_ITSELF`). Those wait
- * for the owner's own press, or for nothing.
+ * a child whose parent failed, was cancelled or was stopped for good while it
+ * waited, whose answer would go nowhere, and a reviewer whose review went to
+ * the owner while it was stopped, whose verdict nothing reads
+ * (`GOES_ON_BY_ITSELF`). Those wait for the owner's own press, or for nothing.
  */
 import { adminPool } from '../db/pool.ts';
 import { withTenant } from '../db/tenant.ts';

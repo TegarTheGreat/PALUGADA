@@ -6,7 +6,7 @@
  * a daily summary stops reading it within a week, at which point the digest
  * has become a way of *not* informing them while appearing to.
  *
- * So the digest reports six numbers and at most a handful of lines, and
+ * So the digest reports seven numbers and at most a handful of lines, and
  * anything that needs a decision is an inbox item rather than a paragraph
  * here. The digest tells the owner whether to look; the inbox is where they
  * act.
@@ -23,6 +23,13 @@ export interface DailyDigest {
   tasksHalted: number;
   openInboxItems: number;
   openIncidents: number;
+  /**
+   * Runs whose worker stopped reporting, and whose tasks were put back with
+   * their journals (F5.14, F11.4). Nothing for the owner to decide -- the work
+   * went on, and a task that keeps losing its worker has its own incident --
+   * so it is a figure here and not a card.
+   */
+  orphanedRuns: number;
   /**
    * What stopped, by why, most first: at most a few. Data, so whoever says it
    * says it in the reader's language (`renderDailyDigest`,
@@ -43,6 +50,7 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
       halted: string;
       open_items: string;
       open_incidents: string;
+      orphaned_runs: string;
     }>(
       `WITH bounds AS (
          SELECT date_trunc('day', $1::timestamptz) AS from_at,
@@ -63,7 +71,10 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
              AND finished_at >= bounds.from_at AND finished_at < bounds.to_at) AS halted,
          (SELECT count(*)::text FROM inbox_items WHERE status = 'open') AS open_items,
          (SELECT count(*)::text FROM inbox_items
-           WHERE status = 'open' AND kind = 'incident') AS open_incidents`,
+           WHERE status = 'open' AND kind = 'incident') AS open_incidents,
+         (SELECT count(*)::text FROM agent_runs, bounds
+           WHERE status = 'orphaned'
+             AND finished_at >= bounds.from_at AND finished_at < bounds.to_at) AS orphaned_runs`,
       [day],
     );
     const row = rows[0]!;
@@ -90,6 +101,7 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
       tasksHalted: Number(row.halted),
       openInboxItems: Number(row.open_items),
       openIncidents: Number(row.open_incidents),
+      orphanedRuns: Number(row.orphaned_runs),
       stopped: haltRows.map((halt) => ({ reason: halt.halt_reason, count: Number(halt.count) })),
     };
   });

@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'Задач, которые сегодня завершились сбоем или были остановлены: {failed} из {finished} ({rate}%) — это выше порога {limit}%.',
   'Unusual number of policy refusals': 'Необычно много отказов по политикам',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Действий, отклонённых политикой сегодня: {count} — это выше порога {limit}. Либо агент прощупывает границы дозволенного, либо политика настроена неверно.',
-  'External writes failed verification': 'Внешние записи не прошли проверку',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Записей во внешние системы, которые сообщили об успехе, но при перечитывании оказались другими: {count}. Что-то меняет их не так, как было запрошено.',
-  'A capability stopped being usable': 'Возможность перестала работать',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Задач, которые сегодня не смогли начаться, потому что нужная их роли возможность не прошла проверку: {count}. Вероятно, истёк срок учётных данных или закончилась квота.',
-  'A worker stopped reporting mid-run': 'Воркер перестал выходить на связь посреди запуска',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Запусков, которые сегодня перестали выходить на связь и были возвращены: {count}. Работа подхвачена заново; уже потраченные ими токены не вернуть.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'Роль {role} сегодня получила отказов: {denials} — это предел ({limit}). Ни одна задача не будет выполняться от имени этой роли, пока вы её не разморозите. Обычные причины: не выдано разрешение на возможность, политика, которую устав роли не учитывает, или работа, к которой роль никогда не была готова.',
   'Role {role} is frozen after repeated denials': 'Роль {role} заморожена после повторных отказов',
   'What it was refused: {capabilities}': 'В чём ей отказали: {capabilities}',
@@ -225,12 +219,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': 'Задача «{task}» ждёт с {since}. {why} Нажмите «Одобрить», чтобы снова запустить её с того места, где она остановилась, или «Отклонить», чтобы её отменить.',
   'A task keeps stopping the worker running it': 'Задача раз за разом выводит из строя воркер, который её выполняет',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': 'Задача «{task}» теряла воркер уже несколько раз (всего: {lost}): каждый раз воркер, выполнявший её, переставал отвечать до завершения работы. Сделанное сохранено. Задача остановлена, чтобы не вывести из строя другой воркер; запустите её снова, когда найдёте причину, или отмените.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'Нет связи: {services} — работа, которой это нужно, остановлена',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Задача ждала около {minutes} мин, каждый раз проверяя снова, и остановилась. Когда сервис ответит, запустите её снова.',
   'It was tried {tries} times over about {minutes} minutes.': 'Попыток: {tries} примерно за {minutes} мин.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Эта роль может выполнять необратимые действия, поэтому запуск не был молча переведён на другую модель.',
   'No fallback model is left for this role.': 'Для этой роли не осталось резервной модели.',
-  'Model {model} failed and the run was not moved': 'Модель {model} дала сбой, а запуск не был переведён на другую',
   'External write failed verification': 'Внешняя запись не прошла проверку',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Задача записала данные во внешний сервис и прочитала их обратно, но прочитанное не совпало. Прежде чем запускать её снова, проверьте место, куда она писала: запись могла пройти.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Проверка зашла в тупик (доработок: {rounds}): {capability}',
@@ -255,7 +246,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Расписание «{schedule}» раз за разом даёт один и тот же результат',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'Все последние запуски (их {runs}) завершились одним и тем же результатом. Иногда это ровно то, что нужно, — отчёт, которому нечего добавить, — но часто это расписание, которое перестало делать что-то полезное, хотя за него всё ещё платят. «Отклонить» — выключить его; «Одобрить» — оставить работать и больше не спрашивать об этом результате.',
   'Capability {capability} failed preflight': 'Возможность «{capability}» не прошла предварительную проверку',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Работа, которой она нужна, останавливается, а не запускается: устраните причину, затем запустите эту работу снова. Обычные причины: истёкшие или выданные с неверными правами учётные данные, исчерпанная квота или неверный адрес.',
   'Batch guard stopped {capability}': 'Контроль пакетных вызовов остановил «{capability}»',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Вызов не совпал с планом, записанным его запуском. Ничего не отправлено, ни один сервис не вызван.',
   '{role} was asked first and has had {minutes} minutes.': 'Сначала спросили роль {role}; у неё было {minutes} мин.',
@@ -343,8 +333,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} отклонил ключ модели ({status}), поэтому не может выполняться никакая работа, которой нужна модель. Откройте Настройки, Эта установка, Модель, вставьте рабочий ключ, проверьте его и сохраните.',
   '{host} refused the model key, and work is waiting': '{host} отклонил ключ модели, и работа ждёт',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Работа, ожидающая модель, продолжится сама, как только начнёт использоваться рабочий ключ.',
   'A task ended before it was done: {task}':
     'Задача завершилась, не будучи выполненной: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -408,4 +396,50 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Отозвано: тикет, о котором шла речь, закрыт.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Счёт {number} ({amount}, {customer}) просрочен с {due}, и он выставлен без адреса электронной почты, на который можно отправить напоминание. Займитесь им сами или скажите CEO, что нужно сделать.',
+  'Kept as your word: {words}':
+    'Сохранено как ваши слова: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Записано как ваша цифра: {value} для «{measure}»',
+  'Runs picked up again after their worker stopped: {count}':
+    'Запуски, возобновлённые после остановки воркера: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Отозвано: задачу, о которой шла речь, запустили заново.',
+  'Withdrawn: the day it was about has ended.':
+    'Отозвано: день, о котором шла речь, закончился.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Отозвано: месячный лимит достигнут, и его место заняла карточка о том, что компания на паузе.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Работа, которая всё ещё ждёт спустя примерно {hours} ч, останавливается, и тогда эта карточка остаётся открытой, чтобы вы могли запустить её снова.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} не отвечает, и работа, которой это нужно, ждёт',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Работа ждала около {minutes} мин, каждый раз проверяя снова, и всё ещё ждёт: она продолжится сама, как только сервис ответит, и тогда эта карточка закроется сама.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Работа ждёт и продолжится сама, как только модель ответит, и тогда эта карточка закроется сама.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Модель {model} не отвечает, и работа её ждёт',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Работа, ожидающая модель, продолжится сама, как только начнёт использоваться рабочий ключ, и тогда эта карточка закроется сама.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Работа, которой она нужна, ждёт, а не запускается, и продолжится сама, как только проверка будет пройдена; тогда эта карточка закроется сама. Обычные причины: истёкшие или выданные с неверными правами учётные данные, исчерпанная квота или неверный адрес.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    'Роль {role} остановили: работу по этой карточке возобновили.',
+  'Withdrawn: the month it was about has ended.':
+    'Отозвано: месяц, о котором шла речь, закончился.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Отозвано: пауза снята, и работа продолжается.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Отозвано: модель снова отвечает, и работа, которая её ждала, возвращена.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Отозвано: ключ модели снова работает, и работа, которая его ждала, возвращена.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Отозвано: сервис снова прошёл проверку, и работа, которая его ждала, возвращена.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Отозвано: этого больше не ждёт никакая работа.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Отозвано: роль, которой это передали, с этим разобралась, и решать вам больше нечего.',
+  'Work finished: {count}':
+    'Завершено работ: {count}',
+  'Stopped: its work was taken up another way':
+    'Остановлена: работу продолжили другим путём',
 };

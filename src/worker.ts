@@ -49,6 +49,7 @@ import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
 import { reportEndedBadly } from './engine/ended.ts';
+import { callBackKeyWaits, closeRecovered } from './engine/recovered.ts';
 import { ensureTriage } from './engine/triage.ts';
 import { ensureCollections } from './duties/collections.ts';
 import { ensureOutcomes } from './engine/outcomes.ts';
@@ -380,6 +381,8 @@ export class Worker {
   #sweptAt: number | null = null;
   /** Whether this worker has removed what earlier erasures left on disk. See the erasure stage. */
   #erasuresFinished = false;
+  /** The companies whose work waiting for a model key this process has called back, once each. See the recovered stage. */
+  readonly #keysCalledBack = new Set<string>();
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
@@ -659,8 +662,23 @@ export class Worker {
         }
       });
 
+      // Work waiting for a model, a key or a service that answers again is
+      // called back now, and the one card about the cause closes itself
+      // (src/engine/recovered.ts). A stage of its own, so a failure here
+      // holds back nothing that settles. On this process's first look at a
+      // company, the work waiting for a model key is called back too: saving
+      // a key starts the deployment again, and the key saved may be one that
+      // works.
+      await this.#stage(report, 'recovered', async () => {
+        if (!this.#keysCalledBack.has(company)) {
+          await callBackKeyWaits(company);
+          this.#keysCalledBack.add(company);
+        }
+        await closeRecovered(company);
+      });
+
       await this.#stage(report, 'settle', async () => {
-        await settleCompletedReviews(company);
+        await settleCompletedReviews(company, now);
         // F15.3: skill candidates screened and given to a reviewer, and the
         // reviews that finished read -- every tick, so a skill is with the
         // owner soon after its reviewer answers. No model is needed here:

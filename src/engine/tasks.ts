@@ -728,14 +728,25 @@ export interface TransitionOptions {
  */
 export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up' | 'role_paused';
 
-/** Moves a task to a new status, refusing transitions the PRD does not allow. */
+/**
+ * Moves a task to a new status, refusing transitions the PRD does not allow.
+ *
+ * `alongside` is written in the same transaction, after the move: for what is
+ * the move's own record and must not be missing when the move is there, such
+ * as the incident a failed read-back halts with (engine.ts). A refused move
+ * writes neither.
+ */
 export async function transition(
   companyId: string,
   taskId: string,
   to: TaskStatus,
   options: TransitionOptions = {},
+  alongside?: (tx: TenantClient) => Promise<void>,
 ): Promise<void> {
-  await withTenant(companyId, (tx) => transitionWithin(tx, companyId, taskId, to, options));
+  await withTenant(companyId, async (tx) => {
+    await transitionWithin(tx, companyId, taskId, to, options);
+    if (alongside) await alongside(tx);
+  });
   // A child that has ended is what a parent waiting on it is waiting for, so
   // the parent is woken now rather than at its next look, two minutes on:
   // every hand-off in a company cost two minutes of nothing. A transaction of

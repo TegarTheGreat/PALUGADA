@@ -208,12 +208,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '今天 {finished} 个任务中有 {failed} 个失败或被停止（{rate}%），超过了 {limit}% 的阈值。',
   'Unusual number of policy refusals': '策略拒绝次数异常',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': '今天被策略拒绝的操作：{count} 次，超过了 {limit} 次的阈值。要么是某个智能体在试探自己的权限边界，要么是某项策略设置不当。',
-  'External writes failed verification': '外部写入未通过核验',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': '报告成功、但读回结果不一致的外部写入：{count} 次。有东西在以未经要求的方式改动它们。',
-  'A capability stopped being usable': '某项能力已无法使用',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': '今天因角色所需的能力未通过检查而无法启动的任务：{count} 个。可能是凭据已过期，或配额已用尽。',
-  'A worker stopped reporting mid-run': '某个工作进程在运行中途停止了上报',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': '今天停止上报并被收回的运行：{count} 次。工作已被重新领取；它们已消耗的 token 无法收回。',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} 今天被拒绝了 {denials} 次，已达到 {limit} 次的限制。在您解冻之前，不会有任务以此角色运行。常见原因是缺少某项能力的授权、角色章程没有考虑到某项策略，或者这项工作是该角色从未具备条件去做的。',
   'Role {role} is frozen after repeated denials': '角色 {role} 因屡次被拒绝而冻结',
   'What it was refused: {capabilities}': '被拒绝的内容：{capabilities}',
@@ -224,12 +218,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}”自 {since} 起一直在等待。{why}批准即从停止处重新运行，拒绝则取消它。',
   'A task keeps stopping the worker running it': '某个任务屡次导致运行它的工作进程停止',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}”已 {lost} 次失去工作进程：每次运行它的工作进程都在工作完成前停止响应。它已完成的部分会保留。它已被停止，以免再拖垮另一个工作进程；查明原因后请重新运行，或取消它。',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} 一直无法连接，需要它的工作已停止',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': '该任务等待了约 {minutes} 分钟，每次都重新检查，现已停止。服务恢复响应后，请重新运行。',
   'It was tried {tries} times over about {minutes} minutes.': '已在约 {minutes} 分钟内尝试了 {tries} 次。',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': '此角色能执行不可撤销的操作，因此运行没有被悄悄切换到其他模型。',
   'No fallback model is left for this role.': '此角色已没有可用的备用模型。',
-  'Model {model} failed and the run was not moved': '模型 {model} 出错，运行未被切换',
   'External write failed verification': '外部写入未通过核验',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': '该任务向外部服务写入后又读回，读到的内容不一致。重新运行之前，请先查看它写入的位置：写入可能已经发生。',
   'Review deadlocked after {rounds} revisions: {capability}': '审核在 {rounds} 轮修改后陷入僵局：{capability}',
@@ -254,7 +245,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': '定时计划“{schedule}”一直产生相同的结果',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '它最近 {runs} 次运行的输出全部相同。这有时完全正常——比如一份没有新内容可报告的报告——但更常见的是，定时计划已经不再做任何有用的事，却仍在花钱。拒绝即关闭它；批准则让它继续运行，并且不再就此结果询问您。',
   'Capability {capability} failed preflight': '能力 {capability} 未通过检查',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': '需要它的工作已停止，而不是启动：请修复原因，然后重新运行该工作。常见原因是凭据过期或权限范围有误、配额用尽，或地址错误。',
   'Batch guard stopped {capability}': '批量防护拦下了 {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': '它与本次运行记录的计划不符。没有发送任何内容，也没有调用任何服务。',
   '{role} was asked first and has had {minutes} minutes.': '已先询问 {role}，至今已过去 {minutes} 分钟。',
@@ -342,8 +332,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} 拒绝了模型密钥（{status}），因此所有需要模型的工作都无法运行。请打开 设置、本部署、模型，粘贴一个可用的密钥，测试后保存。',
   '{host} refused the model key, and work is waiting': '{host} 拒绝了模型密钥，工作正在等待',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    '等待模型的工作会在换用可用密钥后自动继续。',
   'A task ended before it was done: {task}':
     '一项任务在完成前就结束了：{task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -407,4 +395,48 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已撤回：它涉及的工单已关闭。',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且开具时没有可发送提醒的电子邮件地址。请自行跟进，或告诉 CEO 您想怎么处理。',
+  'Kept as your word: {words}':
+    '已按您的原话记下：{words}',
+  'Recorded as your figure: {value} for {measure}':
+    '已记为您给出的数字：{measure} 为 {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    '工作进程停止后重新接手的运行：{count}',
+  'Withdrawn: the task it was about was run again.':
+    '已撤回：它涉及的任务已重新运行。',
+  'Withdrawn: the day it was about has ended.':
+    '已撤回：它涉及的那一天已经过去。',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    '已撤回：本月上限已达到，由说明公司已暂停的卡片取而代之。',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    '约 {hours} 小时后仍在等待的工作会停止，此卡片随后会保持打开，供您重新运行。',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} 没有响应，需要它的工作正在等待',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    '工作已等待约 {minutes} 分钟，每次都重新检查，目前仍在等待：服务一响应就会自动继续，此卡片随后也会自动关闭。',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    '工作会等待，模型一响应就会自动继续，此卡片随后也会自动关闭。',
+  'Model {model} is not answering, and work is waiting for it':
+    '模型 {model} 没有响应，有工作正在等待它',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    '等待模型的工作会在换用可用密钥后自动继续，此卡片随后也会自动关闭。',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    '需要它的工作会等待而不是启动，检查一通过就会自动继续；此卡片随后会自动关闭。常见原因是凭据过期或权限范围有误、配额用尽，或地址错误。',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} 已被停止：此卡片上的工作已重新开始。',
+  'Withdrawn: the month it was about has ended.':
+    '已撤回：它涉及的那个月已经过去。',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    '已撤回：暂停已解除，工作继续进行。',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    '已撤回：模型已恢复响应，等待它的工作已被唤回。',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    '已撤回：模型密钥已恢复可用，等待它的工作已被唤回。',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    '已撤回：该服务已再次通过检查，等待它的工作已被唤回。',
+  'Withdrawn: no work is waiting on it any more.':
+    '已撤回：已没有工作在等待它。',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    '已撤回：接手它的角色已经处理好，没有需要你决定的事了。',
+  'Work finished: {count}':
+    '已完成的工作：{count}',
 };

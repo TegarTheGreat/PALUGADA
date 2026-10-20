@@ -491,7 +491,12 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     adapter: 'platform',
     tier: TIER.READ_ONLY,
     summary: "Reads the company's open tickets, for the role that hands work on.",
-    calibration: 'Reads the company\'s own backlog. Nothing changes; what a ticket says was written by a run, so it is outside content.',
+    calibration: 'Reads the company\'s own backlog. Nothing changes; a ticket filed by work that had read something from outside is outside content.',
+    // The company's own backlog says which of its tickets came from outside,
+    // and the platform's binding asks what it returned (0134). A tracker a
+    // vendor file binds in its place says nothing of the kind, and anyone
+    // may have written in it.
+    readsOutside: true,
   },
   {
     name: 'calendar.hold',

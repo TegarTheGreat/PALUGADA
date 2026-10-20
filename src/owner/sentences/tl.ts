@@ -206,12 +206,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} sa {finished} gawain ang nabigo o huminto ngayong araw ({rate}%), lampas sa threshold na {limit}%.',
   'Unusual number of policy refusals': 'Hindi pangkaraniwang dami ng pagtanggi ng patakaran',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Mga aksyong tinanggihan ng isang patakaran ngayong araw: {count}, lampas sa threshold na {limit}. Maaaring may agent na sumusubok sa mga limit nito, o may patakarang mali ang pagkakatakda.',
-  'External writes failed verification': 'Hindi pumasa sa beripikasyon ang mga write sa labas',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Mga write sa labas na nag-ulat ng tagumpay pero iba ang lumabas nang basahin ulit: {count}. May nagbabago sa mga ito nang hindi ayon sa hiniling.',
-  'A capability stopped being usable': 'Hindi na magamit ang isang kakayahan',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Mga gawaing hindi makapagsimula ngayong araw dahil hindi pumasa sa pagsusuri ang isang kakayahang kailangan ng kanilang role: {count}. Malamang na nag-expire ang isang credential o naubos ang isang quota.',
-  'A worker stopped reporting mid-run': 'Huminto sa pag-uulat ang isang worker sa gitna ng takbo',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Mga takbong huminto sa pag-uulat at binawi ngayong araw: {count}. Itinuloy ulit ang trabaho; hindi na nabawi ang mga token na nagastos na nila.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'Tinanggihan si {role} nang {denials} beses ngayong araw, abot sa limit na {limit}. Walang gawaing tatakbo bilang role na ito hanggang i-unfreeze mo ito. Ang karaniwang dahilan ay kulang na pahintulot sa isang kakayahan, isang patakarang hindi isinasaalang-alang ng charter ng role, o trabahong hindi kailanman inihanda ang role na gawin.',
   'Role {role} is frozen after repeated denials': 'Na-freeze si {role} matapos ang paulit-ulit na pagtanggi',
   'What it was refused: {capabilities}': 'Mga tinanggihan dito: {capabilities}',
@@ -222,12 +216,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': 'Naghihintay ang “{task}” mula pa {since}. {why} I-approve para patakbuhin itong muli mula sa kung saan ito huminto, o Tanggihan para i-cancel ito.',
   'A task keeps stopping the worker running it': 'May gawaing paulit-ulit na nagpapahinto sa worker na nagpapatakbo rito',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': 'Nawalan ng worker ang “{task}” nang {lost} beses: sa bawat pagkakataon, huminto sa pagsagot ang worker na nagpapatakbo rito bago natapos ang trabaho. Itinatago ang nagawa na nito. Inihinto ito para hindi na makapagpabagsak ng isa pang worker; patakbuhin itong muli kapag nahanap na ang dahilan, o i-cancel ito.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'Nanatiling hindi maabot ang {services}, at huminto ang trabahong nangangailangan nito',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Naghintay ang gawain nang mga {minutes} minuto, sinusubukan ulit sa bawat pagkakataon, at huminto na. Kapag sumagot na ang serbisyo, patakbuhin itong muli.',
   'It was tried {tries} times over about {minutes} minutes.': 'Sinubukan ito nang {tries} beses sa loob ng mga {minutes} minuto.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Kayang gumawa ng role na ito ng mga aksyong hindi na mababawi, kaya hindi tahimik na inilipat ang takbo sa ibang modelo.',
   'No fallback model is left for this role.': 'Wala nang natitirang pamalit na modelo para sa role na ito.',
-  'Model {model} failed and the run was not moved': 'Nabigo ang modelong {model} at hindi inilipat ang takbo',
   'External write failed verification': 'Hindi pumasa sa beripikasyon ang isang write sa labas',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Sumulat ang gawain sa isang serbisyo sa labas at binasa ito ulit, at hindi tumugma ang nabasa nito. Tingnan ang lugar na sinulatan nito bago mo ito patakbuhin ulit: maaaring natuloy na ang pagsulat.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Naipit ang review matapos ang {rounds} rebisyon: {capability}',
@@ -252,7 +243,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Paulit-ulit na pareho ang resulta ng iskedyul na “{schedule}”',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'Pare-pareho ang output ng huling {runs} takbo nito. Minsan, iyon mismo ang tama — isang ulat na walang bagong masasabi — at madalas, isa itong iskedyul na tumigil nang gumawa ng anumang kapaki-pakinabang pero binabayaran pa rin. Tanggihan para i-off ito; I-approve para patuloy itong tumakbo at hindi ka na tanungin tungkol sa resultang ito.',
   'Capability {capability} failed preflight': 'Hindi pumasa sa paunang pagsusuri ang kakayahang {capability}',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Inihinto ang trabahong nangangailangan nito sa halip na simulan: ayusin ang dahilan, pagkatapos ay patakbuhin ulit ang trabahong iyon. Ang karaniwang dahilan ay credential na nag-expire o mali ang saklaw, quota na naubos na, o maling address.',
   'Batch guard stopped {capability}': 'Pinahinto ng bantay sa batch ang {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Hindi ito tumugma sa planong itinala ng takbo nito. Walang naipadala, at walang serbisyong tinawag.',
   '{role} was asked first and has had {minutes} minutes.': 'Unang tinanong si {role} at nabigyan na ng {minutes} minuto.',
@@ -340,8 +330,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     'Tinanggihan ng {host} ang key ng modelo ({status}), kaya walang gawaing nangangailangan ng modelo ang maaaring tumakbo. Buksan ang Mga Setting, Deployment na ito, Modelo, i-paste ang key na gumagana, subukan ito at i-save.',
   '{host} refused the model key, and work is waiting': 'Tinanggihan ng {host} ang key ng modelo, at naghihintay ang trabaho',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Kusang magpapatuloy ang trabahong naghihintay sa modelo kapag gumagamit na ng key na gumagana.',
   'A task ended before it was done: {task}':
     'Natigil ang isang gawain bago ito natapos: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -405,4 +393,48 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Binawi: isinara ang ticket na tinutukoy nito.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at inilabas ito nang walang email address na mapagpapadalhan ng paalala. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
+  'Kept as your word: {words}':
+    'Itinago bilang sarili mong salita: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Itinala bilang sarili mong bilang: {value} para sa {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Mga run na itinuloy muli matapos huminto ang worker nito: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Binawi: pinatakbo ulit ang gawaing tinutukoy nito.',
+  'Withdrawn: the day it was about has ended.':
+    'Binawi: tapos na ang araw na tinutukoy nito.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Binawi: naabot na ang limitasyon ng buwan, at ang card na nagsasabing naka-pause ang kumpanya ang pumalit dito.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Ang trabahong naghihintay pa rin pagkalipas ng mga {hours} oras ay hihinto, at mananatiling bukas ang card na ito para mapatakbo mo itong muli.',
+  '{service} is not answering, and the work that needs it is waiting':
+    'Hindi sumasagot ang {service}, at naghihintay ang trabahong nangangailangan nito',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Naghintay ang trabaho nang mga {minutes} minuto, sinusubukan ulit sa bawat pagkakataon, at naghihintay pa rin: kusa itong magpapatuloy kapag sumagot na ang serbisyo, at kusang magsasara ang card na ito.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Naghihintay ang trabaho at kusang magpapatuloy kapag sumagot na ang modelo, at kusang magsasara ang card na ito.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Hindi sumasagot ang modelong {model}, at may trabahong naghihintay rito',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Kusang magpapatuloy ang trabahong naghihintay sa modelo kapag gumagamit na ng key na gumagana, at kusang magsasara ang card na ito.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Naghihintay ang trabahong nangangailangan nito sa halip na magsimula, at kusa itong magpapatuloy kapag pumasa na ang pagsusuri; kusang magsasara ang card na ito. Ang karaniwang dahilan ay credential na nag-expire o mali ang saklaw, quota na naubos na, o maling address.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    'Inihinto si {role}: muli nang sinimulan ang trabaho sa card na ito.',
+  'Withdrawn: the month it was about has ended.':
+    'Binawi: tapos na ang buwang tinutukoy nito.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Binawi: inalis na ang pause, at tuloy ang trabaho.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Binawi: sumasagot na ulit ang modelo, at ibinalik na ang anumang trabahong naghihintay rito.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Binawi: gumagana na ulit ang key ng modelo, at ibinalik na ang anumang trabahong naghihintay rito.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Binawi: pumasa na ulit sa pagsusuri ang serbisyo, at ibinalik na ang anumang trabahong naghihintay rito.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Binawi: wala nang trabahong naghihintay rito.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Binawi: inasikaso na ito ng papel na pinagbigyan nito, at wala nang natitirang kailangan mong pagpasyahan.',
+  'Work finished: {count}':
+    'Mga gawaing natapos: {count}',
 };

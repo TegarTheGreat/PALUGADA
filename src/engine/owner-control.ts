@@ -24,6 +24,7 @@ import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
+import { heldAllRunAgain, lockOnceWithin } from '../inbox/inbox.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
 export const INSTRUCTION_MAX = 2_000;
@@ -88,7 +89,12 @@ async function taskHere(companyId: string, taskId: string) {
  * the runtime, the same path the stop button uses. Approvals the task was
  * waiting on are withdrawn by the trigger every terminal move fires (0036).
  */
-export async function cancelTask(companyId: string, taskId: string, reason?: string | null): Promise<number> {
+export async function cancelTask(
+  companyId: string,
+  taskId: string,
+  reason?: string | null,
+  by: 'owner' | 'system' = 'owner',
+): Promise<number> {
   const root = await taskHere(companyId, taskId);
   if (isTerminal(root.status)) {
     throw new PalugadaError('contract.violation', `task ${taskId} is already ${root.status}`, { taskId });
@@ -124,7 +130,7 @@ export async function cancelTask(companyId: string, taskId: string, reason?: str
         projectId: row.project_id,
         taskId: row.id,
         type: 'task.cancelled',
-        actor: 'owner',
+        actor: by,
         payload: {
           haltReason: 'owner_cancel',
           ...(row.id === taskId ? {} : { under: taskId }),
@@ -173,7 +179,14 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     : { capability: 'the task it reruns', from: carried, rerunOf: taskId };
   const already = await withTenant(companyId, (tx) =>
     tx.query<{ id: string }>('SELECT id FROM tasks WHERE idempotency_key = $1', [key]));
-  if (already.rows[0]) return already.rows[0].id;
+  if (already.rows[0]) {
+    // A second press closes nothing twice, and after a first press that
+    // stopped between making the task and closing the cards, it closes them
+    // and stops what was handling them.
+    const handling = await withTenant(companyId, (tx) => closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId));
+    await stopHandling(companyId, handling, RERUN_STOPS_HANDLING, 'owner');
+    return already.rows[0].id;
+  }
 
   const { task } = await assignTask({
     companyId,
@@ -188,7 +201,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     priority: previous.priority,
     detail: `the owner asked for task ${taskId} again`,
   });
-  await withTenant(companyId, async (tx) => {
+  const handling = await withTenant(companyId, async (tx) => {
     await appendEvent(tx, {
       companyId,
       projectId: task.projectId,
@@ -209,25 +222,172 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
       actor: 'owner',
       payload: { rerunTaskId: task.id },
     });
+    return closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId);
   });
+  await stopHandling(companyId, handling, RERUN_STOPS_HANDLING, 'owner');
   return task.id;
+}
+
+/** Why a coordinator's task is stopped when the owner runs again the work it was handed. */
+const RERUN_STOPS_HANDLING = 'the owner ran the work it was handling again';
+
+/**
+ * Stops the tasks a coordinator was handed for cards the work itself has
+ * since answered -- run again, or gone on with -- and everything they
+ * started: the work is being done, and a CEO still fixing it would do it a
+ * second time beside it, an invoice sent twice. After the card is closed, in
+ * a transaction of its own, so the close never holds a card while it waits
+ * for tasks and budgets, which the engine takes the other way round. One that
+ * has ended meanwhile is left as it ended; its account is written on the card
+ * (`handEscalations`), as is that this one was stopped.
+ */
+async function stopHandling(
+  companyId: string,
+  taskIds: readonly string[],
+  why: string,
+  by: 'owner' | 'system',
+): Promise<void> {
+  for (const id of taskIds) {
+    try {
+      await cancelTask(companyId, id, why, by);
+    } catch (error) {
+      if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
+    }
+  }
+}
+
+/**
+ * Over a card for work that ended badly (`card`, ended.ts): every task on it
+ * has been answered by the work itself -- run again, or no longer stopped
+ * because it was gone on with (`continueHalted`) -- so nothing on it is left
+ * for anyone. Both, so that a card about one task run again and another gone
+ * on with closes with whichever comes last. A task that went on and has
+ * stopped again since is answered here too: this card was about the stop it
+ * went on from (`continuedTaskIds`), and the new one is told on its own.
+ */
+function endedAllAnswered(card: string): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(${card}.payload->'endedTaskIds') AS listed(id)
+      JOIN tasks s ON s.id = listed.id::uuid AND s.company_id = ${card}.company_id
+     WHERE s.status IN ('halted', 'failed')
+       AND NOT coalesce(${card}.payload->'continuedTaskIds', '[]'::jsonb) ? listed.id
+       AND NOT EXISTS (SELECT 1 FROM tasks r
+                        WHERE r.company_id = ${card}.company_id AND r.idempotency_key = 'rerun:' || listed.id))`;
+}
+
+/**
+ * The cards that running a task again answers, withdrawn: the owner pressed
+ * "Run again" -- or the CEO did, for them -- and then had to find the card
+ * that asked for it and dismiss it by hand.
+ *
+ * Only cards about the task stopping. An incident says so with `aboutTask`
+ * (the crash loop, a failed read-back); one that only names the task -- its
+ * role frozen for its refusals, the company's model key refused, a batch
+ * stopped against its plan -- is about something running it again does not
+ * change, and stays. Questions and approvals the task asked are already
+ * closed by its ending (0036, 0124).
+ *
+ * The card for tasks that ended badly (ended.ts) names several under one
+ * cause, and its list is how a task is known to have been reported: a task
+ * taken off it would be reported again as if it had just ended. So the list
+ * is kept whole, and the card goes once every task on it has been run again
+ * or gone on with (`endedAllAnswered`). Two tasks of one card run again at
+ * once cannot both miss that: each looks after its own new task is
+ * committed, so the later look sees both.
+ *
+ * Under the lock ended.ts raises that card under, so the card and the run
+ * again cannot pass each other: either the card is there to be closed here,
+ * or ended.ts finds the new task and raises none.
+ *
+ * A card about a cause -- a model, a key, a vendor, a credential -- names the
+ * work that stopped while it was open in the same list, and goes the same
+ * way, once its cause has passed (`causePassed`, inbox.ts). While the cause
+ * is still there the card speaks for the work still waiting on it, the new
+ * task among it, and stays: it is withdrawn when the cause passes with
+ * nothing on it left (`withdrawOnceWithin`). Closed here instead, the work
+ * waiting on the cause would wait with no card until its next look, which
+ * would push a second card for the same outage, and work that stopped in
+ * between would be reported as any ended work is, not on the cause's card.
+ * Under the lock on the card's name, which the mark is made under: a card
+ * marked as this looks is seen marked, and one marked after it sees this
+ * task's new one.
+ */
+async function closeCardsRunAgainAnswers(
+  tx: TenantClient,
+  companyId: string,
+  projectId: string,
+  taskId: string,
+): Promise<string[]> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [taskId]);
+  const { rows: causes } = await tx.query<{ once: string }>(
+    `SELECT DISTINCT payload->>'once' AS once FROM inbox_items
+      WHERE kind = 'incident' AND status = 'open' AND payload ? 'once' AND payload->'endedTaskIds' ? $1
+      ORDER BY 1`,
+    [taskId],
+  );
+  for (const cause of causes) await lockOnceWithin(tx, companyId, cause.once);
+  const { rows: passed } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = 'task_rerun'
+      WHERE i.kind = 'incident' AND i.status = 'open' AND i.payload ? 'causePassed'
+        AND i.payload->'endedTaskIds' ? $1 AND ${heldAllRunAgain('i')}
+      RETURNING i.id`,
+    [taskId],
+  );
+  const { rows: incidents } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun'
+      WHERE kind = 'incident' AND status = 'open' AND task_id = $1 AND payload->>'aboutTask' = 'true'
+      RETURNING id`,
+    [taskId],
+  );
+  const { rows: ended } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = 'task_rerun'
+      WHERE i.kind = 'escalation' AND i.status = 'open' AND i.payload ? 'endedKey'
+        AND i.payload->'endedTaskIds' ? $1 AND ${endedAllAnswered('i')}
+      RETURNING i.id`,
+    [taskId],
+  );
+  for (const item of [...passed, ...incidents, ...ended]) {
+    await appendEvent(tx, {
+      companyId, projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
+      payload: { inboxItemId: item.id, closedReason: 'task_rerun' },
+    });
+  }
+  // What a coordinator was handed for an ended-work card that running the
+  // work again has closed -- now, or by an earlier press that stopped before
+  // it got this far -- and is still working on, to be stopped (`stopHandling`).
+  const { rows: handling } = await tx.query<{ id: string }>(
+    `SELECT DISTINCT h.id FROM inbox_items i
+       JOIN tasks h ON h.id = (i.payload->>'handedTaskId')::uuid
+      WHERE i.kind = 'escalation' AND i.status = 'withdrawn' AND i.closed_reason = 'task_rerun'
+        AND i.payload->'endedTaskIds' ? $1 AND h.status <> ALL($2::text[])`,
+    [taskId, TERMINAL_STATUSES],
+  );
+  return handling.map((row) => row.id);
 }
 
 /**
  * A halted task (`t`) the platform may go on with by itself, whatever its
- * room (self-heal.ts): not run again by the owner, whose new task does the
- * work -- said by the event on it, or, in the moment before that is written,
- * by the new task's key; one whose run retention has not cleared, so there is
- * something to go on from; and not a child its parent abandoned -- a parent
- * that failed, was cancelled, or was stopped for good while the child waited,
- * so the answer would go nowhere. A parent that completed abandoned nothing:
- * it is the ordinary state of a follow-up, of a hand-off's successor and of
- * work a coordinator handed down and left. A parent stopped for its budget
- * goes on too, and the child with it.
+ * room (self-heal.ts), and so a reviewer its review waits for rather than
+ * asking the owner about (review.ts): not run again by the owner, whose new
+ * task does the work -- said by the event on it, or, in the moment before
+ * that is written, by the new task's key; one whose run retention has not
+ * cleared, so there is something to go on from; and not a child its parent
+ * abandoned -- a parent that failed, was cancelled, or was stopped for good
+ * while the child waited, so the answer would go nowhere. A parent that
+ * completed abandoned nothing: it is the ordinary state of a follow-up, of a
+ * hand-off's successor and of work a coordinator handed down and left. A
+ * parent stopped for its budget goes on too, and the child with it. Nor a
+ * reviewer whose review is already settled -- gone to the owner while it was
+ * stopped -- since a review that has an answer reads no other verdict. A
+ * reviewer is its proposer's sub-task, so its review is found by the proposer,
+ * which the reviews are indexed by; by the reviewer alone it was a scan of
+ * every review the company ever had, for each stopped task, each look.
  */
 export const GOES_ON_BY_ITSELF = `
   NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
   AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
+  AND NOT EXISTS (SELECT 1 FROM review_requests rr
+                   WHERE rr.proposer_task_id = t.parent_task_id AND rr.review_task_id = t.id AND rr.status <> 'pending')
   AND NOT EXISTS (SELECT 1 FROM task_steps s
                    WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
   AND NOT EXISTS (
@@ -279,7 +439,11 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
         + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
   }
-  await withControlPlane(async (tx) => {
+  const handling = await withControlPlane(async (tx) => {
+    // The lock ended.ts reports a stopped task under: a card it raises about
+    // this one is either there to be closed below, or raised after the task
+    // has gone on, which it then sees and does not report.
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [taskId]);
     const { rows } = await tx.query<{ status: TaskStatus; halt_reason: string | null; budget_account_id: string; frozen: boolean }>(
       `SELECT t.status, t.halt_reason, t.budget_account_id, r.frozen_at IS NOT NULL AS frozen
          FROM tasks t JOIN roles r ON r.id = t.role_id
@@ -296,7 +460,8 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       const { rowCount } = await tx.query(`SELECT 1 FROM tasks t WHERE t.id = $1 AND ${GOES_ON_BY_ITSELF}`, [taskId]);
       if (rowCount === 0) {
         throw new PalugadaError('task.not_continuable',
-          `task ${taskId} was run again by the owner, or its parent was given up: nothing waits for it to go on`,
+          `task ${taskId} was run again by the owner, its parent was given up, or the review it was for is settled: `
+            + 'nothing waits for it to go on',
           { taskId, status: row.status, haltReason: row.halt_reason });
       }
     }
@@ -336,12 +501,39 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         RETURNING id`,
       [taskId, companyId, closedBecause],
     );
-    for (const item of withdrawn) {
+    // And the card for work that ended badly, raised about it while no
+    // budget card covered it (ended.ts), once every task on it has gone on or
+    // been run again: it stayed open while the work ran, and the CEO it was
+    // handed went on fixing work that was already going on.
+    const { rows: ended } = await tx.query<{ id: string; handed: string | null }>(
+      `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = $3
+        WHERE i.company_id = $2 AND i.kind = 'escalation' AND i.status = 'open' AND i.payload ? 'endedKey'
+          AND i.payload->'endedTaskIds' ? $1 AND ${endedAllAnswered('i')}
+        RETURNING i.id, i.payload->>'handedTaskId' AS handed`,
+      [taskId, companyId, closedBecause],
+    );
+    for (const item of [...withdrawn, ...ended]) {
       await appendEvent(tx, {
         companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
         payload: { inboxItemId: item.id, closedReason: closedBecause },
       });
     }
+    // Every card that names it, open or closed, was about the stop it now
+    // goes on from, and is not about how it ends next (ALREADY_TOLD in
+    // ended.ts): the same task, ending another way, is told anew. One left
+    // open for other work it names keeps naming this one, as what it was.
+    // Only ended.ts puts a task back on a card that marks it; a cause's card
+    // (`holdEndedOn`) names no task and holds only work its cause stopped,
+    // which is never gone on with, so none is ever marked.
+    await tx.query(
+      `UPDATE inbox_items
+          SET payload = jsonb_set(payload, '{continuedTaskIds}',
+                                  coalesce(payload->'continuedTaskIds', '[]'::jsonb) || to_jsonb($1::text))
+        WHERE company_id = $2 AND kind IN ('incident', 'escalation', 'budget_alert')
+          AND (task_id = $1::uuid OR payload->'endedTaskIds' ? $1::text)
+          AND NOT coalesce(payload->'continuedTaskIds', '[]'::jsonb) ? $1::text`,
+      [taskId, companyId],
+    );
     // A ticket the halt put back on the board, and nobody has taken since,
     // is this task's again (0070).
     const { rows: tickets } = await tx.query<{ id: string }>(
@@ -357,7 +549,9 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         companyId, projectId: task.projectId, taskId, type: 'ticket.started', actor: 'system', payload: { ticketId: ticket.id },
       });
     }
+    return ended.flatMap((item) => (item.handed ? [item.handed] : []));
   });
+  await stopHandling(companyId, handling, 'the work it was handling went on', by);
   await enqueueWake({ companyId, roleId: task.roleId, reason: 'event', detail: `the owner continued task ${taskId}` });
 }
 

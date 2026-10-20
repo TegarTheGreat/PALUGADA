@@ -207,12 +207,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '오늘 작업 {finished}건 중 {failed}건이 실패하거나 중지되어({rate}%) 임계값 {limit}%를 넘었어요.',
   'Unusual number of policy refusals': '정책 거부 횟수가 비정상적으로 많음',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': '오늘 정책에 거부된 조치: {count}건으로, 임계값 {limit}건을 넘었어요. 에이전트가 한계를 시험하고 있거나 정책이 잘못 설정되어 있어요.',
-  'External writes failed verification': '외부 쓰기가 검증에 실패함',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': '성공으로 보고됐지만 다시 읽으니 내용이 달랐던 외부 쓰기: {count}건. 요청과 다른 방식으로 무언가가 이를 바꾸고 있어요.',
-  'A capability stopped being usable': '기능을 더 이상 쓸 수 없음',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': '역할에 필요한 기능이 검사를 통과하지 못해 오늘 시작하지 못한 작업: {count}건. 자격 증명이 만료되었거나 할당량을 다 썼을 가능성이 커요.',
-  'A worker stopped reporting mid-run': '워커가 실행 도중 응답을 멈춤',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': '오늘 응답이 끊겨 회수된 실행: {count}건. 일은 다시 맡겨졌지만, 이미 쓴 토큰은 돌려받지 못했어요.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role}이(가) 오늘 {denials}회 거부되어 한도인 {limit}회에 도달했어요. 동결을 해제하기 전까지 이 역할로는 어떤 작업도 실행되지 않아요. 흔한 원인은 기능 권한 부여 누락, 역할의 헌장이 고려하지 않은 정책, 또는 역할이 애초에 할 수 있도록 갖춰지지 않은 일이에요.',
   'Role {role} is frozen after repeated denials': '역할 {role}이(가) 반복된 거부로 동결됨',
   'What it was refused: {capabilities}': '거부된 항목: {capabilities}',
@@ -223,12 +217,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '\'{task}\'이(가) {since}부터 기다리고 있어요. {why} 승인하면 멈춘 곳부터 다시 실행하고, 거절하면 취소해요.',
   'A task keeps stopping the worker running it': '작업이 실행 중인 워커를 계속 멈추게 함',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '\'{task}\'이(가) 워커를 {lost}회 잃었어요. 매번 실행 중이던 워커가 일이 끝나기 전에 응답을 멈췄어요. 지금까지 한 일은 보존돼요. 다른 워커까지 멈추게 하지 않도록 작업을 중지했어요. 원인을 찾은 뒤 다시 실행하거나 취소하세요.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services}에 계속 연결할 수 없어 이를 필요로 하는 일이 중지됨',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': '작업이 약 {minutes}분 동안 매번 다시 확인하며 기다렸지만 결국 중지됐어요. 서비스가 응답하면 다시 실행하세요.',
   'It was tried {tries} times over about {minutes} minutes.': '약 {minutes}분 동안 {tries}회 시도했어요.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': '이 역할은 되돌릴 수 없는 조치를 할 수 있어서, 실행을 다른 모델로 몰래 옮기지 않았어요.',
   'No fallback model is left for this role.': '이 역할에 남은 대체 모델이 없어요.',
-  'Model {model} failed and the run was not moved': '모델 {model}이(가) 실패했지만 실행을 옮기지 않음',
   'External write failed verification': '외부 쓰기가 검증에 실패함',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': '작업이 외부 서비스에 쓴 뒤 다시 읽었는데, 읽은 내용이 일치하지 않았어요. 다시 실행하기 전에 쓴 곳을 확인하세요. 쓰기가 이미 이루어졌을 수 있어요.',
   'Review deadlocked after {rounds} revisions: {capability}': '{rounds}회 수정 후에도 검토가 교착 상태: {capability}',
@@ -253,7 +244,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': '일정 \'{schedule}\'이(가) 계속 같은 결과를 냄',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '최근 실행 {runs}회가 모두 같은 출력으로 끝났어요. 이것이 딱 맞는 경우도 있지만(새로 알릴 것이 없는 보고서처럼), 비용은 계속 나가는데 더 이상 쓸모 있는 일을 하지 않는 일정인 경우가 많아요. 거절하면 끄고, 승인하면 계속 실행하며 이 결과에 대해 다시 묻지 않아요.',
   'Capability {capability} failed preflight': '기능 {capability}이(가) 검사를 통과하지 못함',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': '이를 필요로 하는 일은 시작되지 않고 중지돼요. 원인을 고친 다음 그 일을 다시 실행하세요. 흔한 원인은 만료되었거나 범위가 잘못 지정된 자격 증명, 다 쓴 할당량, 잘못된 주소예요.',
   'Batch guard stopped {capability}': '일괄 처리 가드가 {capability}을(를) 중지함',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': '실행이 기록한 계획과 일치하지 않았어요. 아무것도 보내지 않았고, 어떤 서비스도 호출하지 않았어요.',
   '{role} was asked first and has had {minutes} minutes.': '{role}에게 먼저 요청했고 {minutes}분이 지났어요.',
@@ -341,8 +331,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host}이(가) 모델 키를 거부했습니다({status}). 모델이 필요한 작업은 실행할 수 없습니다. 설정, 이 인스턴스, 모델을 열어 사용할 수 있는 키를 붙여넣고 테스트한 뒤 저장하세요.',
   '{host} refused the model key, and work is waiting': '{host}이(가) 모델 키를 거부해 작업이 대기 중입니다',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    '모델을 기다리던 작업은 사용할 수 있는 키가 적용되면 자동으로 이어집니다.',
   'A task ended before it was done: {task}':
     '작업이 끝나지 못한 채 종료되었습니다: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -406,4 +394,48 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '철회됨: 관련된 티켓이 닫혔습니다.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '청구서 {number}({amount}, {customer})은 {due}부터 연체되었고, 알림을 보낼 이메일 주소 없이 발행되었습니다. 직접 처리하거나 CEO에게 원하는 바를 알려 주세요.',
+  'Kept as your word: {words}':
+    '내 말로 저장했어요: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    '내가 준 수치로 기록했어요: {measure}에 {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    '워커가 멈춘 뒤 다시 이어진 실행: {count}건',
+  'Withdrawn: the task it was about was run again.':
+    '철회됨: 관련 작업을 다시 실행했습니다.',
+  'Withdrawn: the day it was about has ended.':
+    '철회됨: 해당 날짜가 지났습니다.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    '철회됨: 이번 달 한도에 도달해, 회사가 일시 중지되었다는 카드가 이를 대신합니다.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    '약 {hours}시간이 지나도 기다리고 있는 일은 중지되고, 이 카드는 다시 실행할 수 있도록 열린 채로 남아요.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service}이(가) 응답하지 않아 이를 필요로 하는 일이 기다리는 중',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    '일이 약 {minutes}분 동안 매번 다시 확인하며 기다렸고 지금도 기다리고 있어요. 서비스가 응답하면 자동으로 이어지고, 이 카드도 저절로 닫혀요.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    '일은 기다리다가 모델이 응답하면 자동으로 이어지고, 이 카드도 저절로 닫혀요.',
+  'Model {model} is not answering, and work is waiting for it':
+    '모델 {model}이(가) 응답하지 않아 일이 기다리는 중',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    '모델을 기다리던 작업은 사용할 수 있는 키가 적용되면 자동으로 이어지고, 이 카드도 저절로 닫혀요.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    '이를 필요로 하는 일은 시작되지 않고 기다리다가, 검사를 통과하면 자동으로 이어져요. 이 카드도 저절로 닫혀요. 흔한 원인은 만료되었거나 범위가 잘못 지정된 자격 증명, 다 쓴 할당량, 잘못된 주소예요.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role}이(가) 중지됐어요. 이 카드의 일이 다시 진행되고 있어요.',
+  'Withdrawn: the month it was about has ended.':
+    '철회됨: 해당 달이 지났습니다.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    '철회됨: 일시 중지가 풀려 작업이 계속됩니다.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    '철회됨: 모델이 다시 응답하고 있으며, 이를 기다리던 작업은 다시 불러왔습니다.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    '철회됨: 모델 키가 다시 작동하며, 이를 기다리던 작업은 다시 불러왔습니다.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    '철회됨: 서비스가 다시 점검을 통과했으며, 이를 기다리던 작업은 다시 불러왔습니다.',
+  'Withdrawn: no work is waiting on it any more.':
+    '철회됨: 이를 기다리는 작업이 더 이상 없습니다.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    '철회됨: 넘겨받은 역할이 처리했으므로 결정할 일이 남아 있지 않습니다.',
+  'Work finished: {count}':
+    '완료된 일: {count}',
 };

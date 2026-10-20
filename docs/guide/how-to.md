@@ -26,10 +26,13 @@ authenticator on its own page takes it on the card too (**Apply with a
 code**; inside the window a code just shown opens, it needs none for what
 builds the company). The exception is everyday work you asked for in a
 conversation with a company's CEO: giving the team work, filing and handing
-on a ticket, telling a task something, stopping it or running it again. That
-is done as the CEO proposes it, and the card is already marked applied --
-unless that answer has read what agents or customers wrote, when it is a card
-again, for you. A key goes in the sealed field on the card and
+on a ticket, telling a task something, stopping it or running it again,
+remembering what you tell it to remember and recording a figure you give it.
+That is done as the CEO proposes it, and the card is already marked applied
+-- unless that answer has read what agents or customers wrote, when it is a
+card again, for you. What it remembers is kept as your own word, so check it:
+**Correct** or **Take back** on **Memory** undoes it, and the same thing said
+again is kept once. A key goes in the sealed field on the card and
 from there straight to where it is kept: the assistant never sees it, and a
 key typed into the conversation is refused, not kept, and not sent to the
 model. **Dismiss** a card you do not want; **Start again** forgets the
@@ -59,10 +62,13 @@ The CEO answers in its own name and in the persona you chose for it, from
 what it reads about its own company and nothing else; for models, keys,
 channels or other companies it sends you to **Ask PALUGADA**. Work you want
 done is given to the CEO's own role at once, which hands it to the right
-people when it runs, and the CEO tells you it did. Anything else it proposes
--- hiring, a goal, a limit -- is a card, and nothing changes until you press
-**Apply**. **Show what it sends** on a card shows the route and every value
-it sends, ids included. Each company's conversation is its own,
+people when it runs, and the CEO tells you it did; what you tell it to
+remember, and a figure you give it, are kept at once as yours. Building the
+team in the app -- a hire, a division, a goal -- is done as it proposes it
+too, and it says what it did. Anything else it proposes, such as a spending
+limit, is a card, and nothing changes until you press **Apply**. **Show what
+it sends** on a card shows the route and every value it sends, ids included.
+Each company's conversation is its own,
 and **Start again** forgets only that one.
 
 The CEO thinks with the deployment's model, like **Ask PALUGADA**; it works
@@ -1529,12 +1535,16 @@ CEO** in the console. With several companies, send `/ceo` and choose whom
 you talk to; `/palugada` talks to PALUGADA's assistant about the whole
 deployment. A voice note needs a provider under **Tools**, **Listening**;
 the answer shows what was heard, and is also said aloud when one is chosen
-under **Speaking**. Giving work, filing a ticket and telling or cancelling a
-task are done as the CEO says so; a fact to remember or a measured value is
-a card with one press in the chat; anything that takes your device,
-such as a spending limit, has a button that opens the conversation in the
-console. Only you, in your own chat with the bot, are heard; what you say
-in a group is not sent to anyone.
+under **Speaking**. Giving work, filing a ticket, telling or cancelling a
+task, remembering what you tell it to and recording a figure you give are
+done as the CEO says so; what it kept as your word is shown under its answer
+as it was written ("Kept as your word: ...", "Recorded as your figure: ..."),
+and **Memory** in the console is where to correct or take back a fact.
+Anything else the chat may apply, such as keeping a contact, is a card with
+one press in the chat; anything that takes your device, such as a spending
+limit, has a button that opens the conversation in the console. Only you, in
+your own chat with the bot, are heard; what you say in a group is not sent to
+anyone.
 
 While the CEO thinks, the chat shows "Thinking…" with a stop button;
 pressing it stops the answer, and nothing it had proposed is put in front

@@ -207,12 +207,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} tina {finished} tugas gagal atanapi eureun dinten ieu ({rate}%), ngaleuwihan wates {limit}%.',
   'Unusual number of policy refusals': 'Jumlah panolakan kawijakan teu biasa',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Tindakan anu ditolak ku kawijakan dinten ieu: {count}, ngaleuwihan wates {limit}. Boh aya agén anu nuju nguji watesna, boh aya kawijakan anu setélanana teu leres.',
-  'External writes failed verification': 'Panyeratan ka luar teu lulus verifikasi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Panyeratan di luar anu dilaporkeun hasil nanging béda nalika diaos deui: {count}. Aya anu ngarobihna, henteu sapertos anu disuhunkeun.',
-  'A capability stopped being usable': 'Hiji kamampuh teu tiasa dianggé deui',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tugas anu teu tiasa dimimitian dinten ieu kusabab kamampuh anu diperyogikeun ku peranna teu lulus pamariksaan: {count}. Panginten aya kredénsial anu kadaluwarsa atanapi kuota anu séép.',
-  'A worker stopped reporting mid-run': 'Hiji pagawé eureun ngalaporkeun di tengah palaksanaan',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Palaksanaan anu eureun ngalaporkeun sareng dicandak deui dinten ieu: {count}. Padamelanana parantos diteraskeun deui; token anu parantos kaanggé henteu wangsul.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} ditolak {denials} kali dinten ieu, dugi ka wates {limit}. Moal aya tugas anu jalan minangka peran ieu dugi ka anjeun ngacairkeunana. Sabab anu biasa nyaéta idin kamampuh anu teu acan dipasihkeun, kawijakan anu henteu diitung dina piagam peran ieu, atanapi padamelan anu peran ieu henteu kantos disayagikeun pikeun ngalaksanakeunana.',
   'Role {role} is frozen after repeated denials': 'Peran {role} dibekukeun saparantos ditolak sababaraha kali',
   'What it was refused: {capabilities}': 'Anu ditolak: {capabilities}',
@@ -223,12 +217,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” parantos ngantosan ti saprak {since}. {why} Satujuan kanggo ngajalankeunana deui ti tempat eureunna, atanapi Tolak kanggo ngabolaykeunana.',
   'A task keeps stopping the worker running it': 'Hiji tugas terus-terusan ngajantenkeun pagawé anu ngajalankeunana eureun',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” kaleungitan pagawéna {lost} kali: unggal kali, pagawé anu ngajalankeunana eureun ngawaler sateuacan padamelan réngsé. Naon anu parantos dilakukeun tetep disimpen. Tugas ieu dimandegkeun supados henteu ngajantenkeun pagawé sanés eureun; jalankeun deui saparantos sababna kapendak, atanapi bolaykeun.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} tetep teu tiasa dihubungi, sareng padamelan anu meryogikeunana eureun',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Tugas ieu ngantosan kirang langkung {minutes} menit, mariksa deui unggal waktos, sareng ayeuna parantos eureun. Saparantos layanan éta ngawaler, jalankeun deui.',
   'It was tried {tries} times over about {minutes} minutes.': 'Parantos dicobian {tries} kali salami kirang langkung {minutes} menit.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Peran ieu tiasa ngalakukeun tindakan anu teu tiasa dibalikeun, janten palaksanaan ieu henteu dipindahkeun cicingeun ka modél sanés.',
   'No fallback model is left for this role.': 'Teu aya deui modél cadangan kanggo peran ieu.',
-  'Model {model} failed and the run was not moved': 'Modél {model} gagal sareng palaksanaanana henteu dipindahkeun',
   'External write failed verification': 'Panyeratan ka luar teu lulus verifikasi',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Tugas ieu nyerat ka layanan luar teras maos deui, sareng naon anu dibaca henteu cocog. Tingali heula tempat anu diserat sateuacan anjeun ngajalankeunana deui: panyeratan éta panginten parantos kajantenan.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Tilikan buntu saparantos {rounds} révisi: {capability}',
@@ -253,7 +244,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Jadwal “{schedule}” terus-terusan masihan hasil anu sami',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '{runs} palaksanaan pamungkasna sadayana réngsé kalayan hasil anu sami. Sakapeung éta memang leres — laporan anu teu aya béja énggal — sareng sering éta jadwal anu parantos henteu ngalakukeun nanaon anu mangpaat nanging masih dibayar. Tolak kanggo mareuman jadwal ieu; Satujuan kanggo tetep ngajalankeunana sareng anjeun moal ditaroskeun deui ngeunaan hasil ieu.',
   'Capability {capability} failed preflight': 'Kamampuh {capability} teu lulus pamariksaan awal',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Padamelan anu meryogikeunana dieureunkeun, sanés dimimitian: lereskeun sababna, teras jalankeun deui padamelan éta. Sabab anu biasa nyaéta kredénsial anu kadaluwarsa atanapi cakupanana lepat, kuota anu séép, atanapi alamat anu lepat.',
   'Batch guard stopped {capability}': 'Pangaman tindakan massal ngeureunkeun {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Ieu henteu cocog sareng rencana anu dicatet ku palaksanaanana. Henteu aya anu dikintun, sareng henteu aya layanan anu digero.',
   '{role} was asked first and has had {minutes} minutes.': '{role} ditaroskeun heula sareng parantos dipasihan {minutes} menit.',
@@ -341,8 +331,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} nolak konci modél ({status}), jadi euweuh pagawéan anu butuh modél anu bisa jalan. Buka Setélan, Pamasangan ieu, Modél AI, témpélkeun konci anu tiasa dipaké, uji, tuluy simpen.',
   '{host} refused the model key, and work is waiting': '{host} nolak konci modél, sarta pagawéan keur ngantosan',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Pagawéan anu ngantosan modél bakal diteruskeun sorangan sanggeus konci anu tiasa dipaké geus dipaké.',
   'A task ended before it was done: {task}':
     'Hiji tugas eureun samemeh réngsé: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -406,4 +394,48 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tikét anu dibahasna parantos ditutup.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Faktur {number} ({amount}, {customer}) geus telat ti {due}, sarta dikaluarkeun tanpa alamat surélék pikeun ngirim panginget. Tindak lanjutan sorangan, atawa béjaan CEO naon anu dipikahayang.',
+  'Kept as your word: {words}':
+    'Disimpen salaku kecap anjeun: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Dicatet salaku angka anjeun: {value} pikeun {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Prosés anu dituluykeun deui saatos pagawéna eureun: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Ditarik: tugas anu dimaksud parantos dijalankeun deui.',
+  'Withdrawn: the day it was about has ended.':
+    'Ditarik: dinten anu dimaksud parantos réngsé.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Ditarik: wates bulan ieu parantos kahontal, sarta kartu anu nyebatkeun pausahaan direureuhkeun ngagentosna.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Padamelan anu masih ngantosan saparantos kirang langkung {hours} jam bakal eureun, teras kartu ieu tetep dibuka supados anjeun tiasa ngajalankeun deui.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} henteu ngawaler, sareng padamelan anu meryogikeunana nuju ngantosan',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Padamelan ieu parantos ngantosan kirang langkung {minutes} menit, mariksa deui unggal waktos, sareng masih ngantosan: bakal diteruskeun sorangan saparantos layanan éta ngawaler, teras kartu ieu nutup sorangan.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Padamelan ieu ngantosan sareng bakal diteruskeun sorangan saparantos modél ngawaler, teras kartu ieu nutup sorangan.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Modél {model} henteu ngawaler, sareng aya padamelan anu ngantosanana',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Pagawéan anu ngantosan modél bakal diteruskeun sorangan sanggeus konci anu tiasa dipaké geus dipaké, teras kartu ieu nutup sorangan.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Padamelan anu meryogikeunana ngantosan, sanés dimimitian, sareng bakal diteruskeun sorangan saparantos pamariksaanana lulus; teras kartu ieu nutup sorangan. Sabab anu biasa nyaéta kredénsial anu kadaluwarsa atanapi cakupanana lepat, kuota anu séép, atanapi alamat anu lepat.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} dieureunkeun: padamelan dina kartu ieu parantos dijalankeun deui.',
+  'Withdrawn: the month it was about has ended.':
+    'Ditarik: bulan anu dimaksud parantos réngsé.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Ditarik: reureuhna parantos dicabut, sarta pagawéan diteraskeun.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Ditarik: modél parantos ngawaler deui, sarta pagawéan anu ngantosanana parantos disauran deui.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Ditarik: konci modél parantos jalan deui, sarta pagawéan anu ngantosanana parantos disauran deui.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Ditarik: layanan parantos lulus pamariksaanana deui, sarta pagawéan anu ngantosanana parantos disauran deui.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Ditarik: tos teu aya deui pagawéan anu ngantosanana.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Ditarik: peran anu nampi parantos ngurusna, sarta teu aya deui anu kedah diputuskeun ku anjeun.',
+  'Work finished: {count}':
+    'Padamelan anu réngsé: {count}',
 };

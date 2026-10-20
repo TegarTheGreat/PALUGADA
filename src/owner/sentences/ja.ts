@@ -205,12 +205,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '今日は {finished} 件のタスクのうち {failed} 件が失敗または停止し（{rate}%）、しきい値の {limit}% を超えています。',
   'Unusual number of policy refusals': 'ポリシーによる拒否が異常に多くなっています',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': '今日ポリシーに拒否されたアクション：{count} 件。しきい値の {limit} 件を超えています。エージェントが限界を探っているか、ポリシーの設定が適切でないかのどちらかです。',
-  'External writes failed verification': '外部への書き込みが検証に失敗しました',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': '成功と報告されたのに、読み戻すと内容が異なっていた外部への書き込み：{count} 件。指示とは別の形で、何かがそれらを変更しています。',
-  'A capability stopped being usable': '機能が使えなくなりました',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'ロールに必要な機能が稼働チェックで不合格になったため、今日開始できなかったタスク：{count} 件。認証情報の期限切れか、利用枠の使い切りが考えられます。',
-  'A worker stopped reporting mid-run': 'ワーカーが実行の途中で応答しなくなりました',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': '今日、応答が途絶えて回収された実行：{count} 件。作業は改めて引き継がれましたが、すでに使ったトークンは戻りません。',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} は今日 {denials} 回拒否され、上限の {limit} 回に達しました。凍結を解除するまで、このロールではタスクが実行されません。よくある原因は、機能の付与漏れ、ロールの憲章が想定していないポリシー、あるいはそのロールにもともと備わっていない仕事です。',
   'Role {role} is frozen after repeated denials': 'ロール {role} は拒否が続いたため凍結されました',
   'What it was refused: {capabilities}': '拒否されたもの：{capabilities}',
@@ -221,12 +215,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '「{task}」は {since} から待機しています。{why}承認すると止まったところから再実行し、却下するとキャンセルします。',
   'A task keeps stopping the worker running it': '実行中のワーカーを何度も停止させるタスクがあります',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '「{task}」はワーカーを {lost} 回失いました。そのたびに、実行していたワーカーが作業の完了前に応答しなくなりました。ここまでに行った作業は保持されています。別のワーカーまで止めないよう停止しています。原因がわかったら再実行するか、キャンセルしてください。',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} に接続できないままのため、それを必要とする作業が停止しました',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'タスクは約 {minutes} 分間、そのつど確認し直しながら待ちましたが、停止しました。サービスが応答するようになったら、再実行してください。',
   'It was tried {tries} times over about {minutes} minutes.': '約 {minutes} 分間に {tries} 回試みました。',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'このロールは取り消せないアクションを実行できるため、実行を別のモデルへ黙って切り替えることはしませんでした。',
   'No fallback model is left for this role.': 'このロールに使える代替モデルはもう残っていません。',
-  'Model {model} failed and the run was not moved': 'モデル {model} が失敗し、実行は切り替えられませんでした',
   'External write failed verification': '外部への書き込みが検証に失敗しました',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'タスクは外部サービスに書き込んで読み戻しましたが、読み取った内容が一致しませんでした。再実行する前に、書き込み先を確認してください。書き込みはすでに行われている可能性があります。',
   'Review deadlocked after {rounds} revisions: {capability}': '{rounds} 回の修正後もレビューが行き詰まりました：{capability}',
@@ -251,7 +242,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'スケジュール「{schedule}」が同じ結果を出し続けています',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '直近 {runs} 回の実行は、すべて同じ出力で終わりました。それがまさに正しい場合もあります（新しく伝えることのない報告など）が、多くの場合は、費用がかかり続けているのに役に立つことを何もしなくなったスケジュールです。却下するとオフにします。承認すると実行を続け、この結果について再び確認しません。',
   'Capability {capability} failed preflight': '機能 {capability} が稼働チェックで不合格になりました',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'それを必要とする作業は、開始されずに停止しています。原因を直してから、その作業を再実行してください。よくある原因は、認証情報の期限切れや権限範囲の誤り、利用枠の使い切り、アドレスの誤りです。',
   'Batch guard stopped {capability}': 'バッチガードが {capability} を止めました',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': '実行が記録した計画と一致しませんでした。何も送信されておらず、どのサービスも呼び出されていません。',
   '{role} was asked first and has had {minutes} minutes.': '{role} が先に依頼を受け、{minutes} 分が経過しています。',
@@ -339,8 +329,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} がモデルのキーを拒否しました（{status}）。モデルを必要とする作業は実行できません。設定、このインスタンス、モデルを開き、使えるキーを貼り付け、テストして保存してください。',
   '{host} refused the model key, and work is waiting': '{host} がモデルのキーを拒否したため、作業が待機中です',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'モデルを待っている作業は、使えるキーに切り替わると自動的に再開します。',
   'A task ended before it was done: {task}':
     '作業が完了前に終了しました：{task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -404,4 +392,48 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '取り下げ: 対象のチケットが閉じられました。',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '請求書 {number}（{amount}、{customer}）は {due} から期限を過ぎていますが、リマインドを送るメールアドレスなしで発行されています。ご自身で対応するか、CEO にご希望を伝えてください。',
+  'Kept as your word: {words}':
+    'あなたの言葉として記録しました：{words}',
+  'Recorded as your figure: {value} for {measure}':
+    'あなたの数値として記録しました：{measure} に {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    'ワーカーが止まった後に再開された実行：{count}件',
+  'Withdrawn: the task it was about was run again.':
+    '取り下げ済み：対象のタスクはもう一度実行されました。',
+  'Withdrawn: the day it was about has ended.':
+    '取り下げ済み：対象の日は終わりました。',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    '取り下げ済み：今月の上限に達したため、会社が一時停止中であることを伝えるカードに置き換わりました。',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    '約 {hours} 時間たってもまだ待っている作業は停止します。その場合、このカードは再実行できるよう開いたままになります。',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} が応答せず、それを必要とする作業が待機しています',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    '作業は約 {minutes} 分間、そのつど確認し直しながら待ち、今も待機しています。サービスが応答すれば自動的に再開し、このカードも自動的に閉じます。',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    '作業は待機し、モデルが応答すれば自動的に再開します。このカードも自動的に閉じます。',
+  'Model {model} is not answering, and work is waiting for it':
+    'モデル {model} が応答せず、作業が待機しています',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'モデルを待っている作業は、使えるキーに切り替わると自動的に再開し、このカードも自動的に閉じます。',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'それを必要とする作業は、開始されずに待機し、チェックに通れば自動的に再開します。このカードも自動的に閉じます。よくある原因は、認証情報の期限切れや権限範囲の誤り、利用枠の使い切り、アドレスの誤りです。',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} は停止されました。このカードの作業はすでに再開されています。',
+  'Withdrawn: the month it was about has ended.':
+    '取り下げ済み：対象の月は終わりました。',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    '取り下げ済み：一時停止が解除され、作業は続いています。',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    '取り下げ済み：モデルが再び応答しています。待機していた作業は呼び戻されました。',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    '取り下げ済み：モデルのキーが再び使えるようになりました。待機していた作業は呼び戻されました。',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    '取り下げ済み：サービスが再びチェックに通りました。待機していた作業は呼び戻されました。',
+  'Withdrawn: no work is waiting on it any more.':
+    '取り下げ済み：これを待っている作業はもうありません。',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    '取り下げ済み：引き渡された役割が対応したため、あなたが決めることは残っていません。',
+  'Work finished: {count}':
+    '完了した仕事：{count}',
 };

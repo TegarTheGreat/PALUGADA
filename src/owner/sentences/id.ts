@@ -203,12 +203,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} dari {finished} tugas gagal atau berhenti hari ini ({rate}%), melewati ambang {limit}%.',
   'Unusual number of policy refusals': 'Jumlah penolakan kebijakan tidak wajar',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Tindakan yang ditolak kebijakan hari ini: {count}, melewati ambang {limit}. Entah ada agent yang sedang menguji batasnya, atau ada kebijakan yang setelannya keliru.',
-  'External writes failed verification': 'Penulisan eksternal gagal verifikasi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Penulisan ke luar yang dilaporkan berhasil tetapi berbeda saat dibaca ulang: {count}. Ada sesuatu yang mengubahnya, tidak sesuai dengan yang diminta.',
-  'A capability stopped being usable': 'Sebuah kemampuan tidak bisa dipakai lagi',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tugas yang tidak bisa dimulai hari ini karena kemampuan yang dibutuhkan perannya tidak lolos pemeriksaan: {count}. Mungkin ada kredensial yang kedaluwarsa atau kuota yang habis.',
-  'A worker stopped reporting mid-run': 'Worker berhenti melapor di tengah run',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Run yang berhenti melapor dan diambil kembali hari ini: {count}. Pekerjaannya sudah dilanjutkan lagi; token yang sudah terpakai tidak kembali.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} ditolak {denials} kali hari ini, mencapai batas {limit}. Tidak ada tugas yang berjalan sebagai peran ini sampai Anda mencairkannya. Penyebab yang biasa adalah izin kemampuan yang belum diberikan, kebijakan yang tidak diperhitungkan piagam peran ini, atau pekerjaan yang memang tidak pernah dibekalkan untuk peran ini.',
   'Role {role} is frozen after repeated denials': 'Peran {role} dibekukan setelah berulang kali ditolak',
   'What it was refused: {capabilities}': 'Yang ditolak: {capabilities}',
@@ -219,12 +213,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” sudah menunggu sejak {since}. {why} Setujui untuk menjalankannya lagi dari titik berhentinya, atau Tolak untuk membatalkannya.',
   'A task keeps stopping the worker running it': 'Sebuah tugas terus menghentikan worker yang menjalankannya',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” kehilangan worker-nya {lost} kali: setiap kali, worker yang menjalankannya berhenti merespons sebelum pekerjaannya selesai. Apa yang sudah dikerjakannya tetap disimpan. Tugas ini dihentikan agar tidak menjatuhkan worker lain; jalankan lagi setelah penyebabnya ditemukan, atau batalkan.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} tetap tidak bisa dijangkau, dan pekerjaan yang membutuhkannya berhenti',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Tugas ini menunggu sekitar {minutes} menit, memeriksa lagi setiap kali, lalu berhenti. Setelah layanannya merespons, jalankan lagi.',
   'It was tried {tries} times over about {minutes} minutes.': 'Sudah dicoba {tries} kali selama sekitar {minutes} menit.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Peran ini bisa melakukan tindakan yang tidak bisa dibatalkan, jadi run-nya tidak dipindahkan diam-diam ke model lain.',
   'No fallback model is left for this role.': 'Tidak ada lagi model cadangan untuk peran ini.',
-  'Model {model} failed and the run was not moved': 'Model {model} gagal dan run-nya tidak dipindahkan',
   'External write failed verification': 'Penulisan eksternal gagal verifikasi',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Tugas ini menulis ke layanan luar lalu membacanya kembali, dan yang terbaca tidak cocok. Periksa tempat yang ditulisinya sebelum Anda menjalankannya lagi: penulisan itu mungkin sudah terjadi.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Tinjauan buntu setelah {rounds} revisi: {capability}',
@@ -249,7 +240,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Jadwal “{schedule}” terus memberi hasil yang sama',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '{runs} run terakhirnya semuanya berakhir dengan hasil yang sama. Kadang itu memang benar — laporan yang tidak punya kabar baru — dan sering kali itu jadwal yang sudah tidak melakukan apa pun yang berguna tetapi masih dibayar. Tolak untuk mematikannya; Setujui untuk tetap menjalankannya dan tidak ditanya lagi soal hasil ini.',
   'Capability {capability} failed preflight': 'Kemampuan {capability} tidak lolos pemeriksaan awal',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Pekerjaan yang membutuhkannya dihentikan, bukan dimulai: perbaiki penyebabnya, lalu jalankan lagi pekerjaan itu. Penyebab yang biasa adalah kredensial yang kedaluwarsa atau cakupannya salah, kuota yang habis, atau alamat yang salah.',
   'Batch guard stopped {capability}': 'Pengaman tindakan massal menghentikan {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Tindakan ini tidak sesuai dengan rencana yang dicatat run-nya. Tidak ada yang dikirim, dan tidak ada layanan yang dipanggil.',
   '{role} was asked first and has had {minutes} minutes.': '{role} ditanya lebih dulu dan sudah diberi waktu {minutes} menit.',
@@ -337,8 +327,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} menolak kunci model ({status}), jadi tidak ada pekerjaan yang membutuhkan model yang dapat berjalan. Buka Pengaturan, Deployment ini, Model, tempel kunci yang berfungsi, uji, lalu simpan.',
   '{host} refused the model key, and work is waiting': '{host} menolak kunci model, dan pekerjaan sedang menunggu',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Pekerjaan yang menunggu model akan lanjut sendiri begitu kunci yang berfungsi dipakai.',
   'A task ended before it was done: {task}':
     'Sebuah tugas berakhir sebelum selesai: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -402,4 +390,48 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tiket yang dibahasnya sudah ditutup.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Faktur {number} ({amount}, {customer}) terlambat sejak {due}, dan diterbitkan tanpa alamat email untuk mengirim pengingat. Tindak lanjuti sendiri, atau beri tahu CEO apa yang Anda inginkan.',
+  'Kept as your word: {words}':
+    'Disimpan sebagai kata Anda: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Dicatat sebagai angka Anda: {value} untuk {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Run yang dilanjutkan lagi setelah worker-nya berhenti: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Ditarik: tugas yang dimaksud sudah dijalankan lagi.',
+  'Withdrawn: the day it was about has ended.':
+    'Ditarik: hari yang dimaksud sudah berakhir.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Ditarik: batas bulan ini sudah tercapai, dan kartu yang menyatakan perusahaan dijeda menggantikannya.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Pekerjaan yang masih menunggu setelah sekitar {hours} jam akan berhenti, dan kartu ini lalu tetap terbuka agar Anda bisa menjalankannya lagi.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} tidak merespons, dan pekerjaan yang membutuhkannya sedang menunggu',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Pekerjaan ini sudah menunggu sekitar {minutes} menit, memeriksa lagi setiap kali, dan masih menunggu: pekerjaan akan lanjut sendiri begitu layanannya merespons, lalu kartu ini tertutup sendiri.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Pekerjaan menunggu dan akan lanjut sendiri begitu model merespons, lalu kartu ini tertutup sendiri.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Model {model} tidak merespons, dan pekerjaan sedang menunggunya',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Pekerjaan yang menunggu model akan lanjut sendiri begitu kunci yang berfungsi dipakai, lalu kartu ini tertutup sendiri.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Pekerjaan yang membutuhkannya menunggu, bukan dimulai, dan akan lanjut sendiri begitu pemeriksaannya lolos; kartu ini lalu tertutup sendiri. Penyebab yang biasa adalah kredensial yang kedaluwarsa atau cakupannya salah, kuota yang habis, atau alamat yang salah.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} dihentikan: pekerjaan di kartu ini sudah dijalankan lagi.',
+  'Withdrawn: the month it was about has ended.':
+    'Ditarik: bulan yang dimaksud sudah berakhir.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Ditarik: jeda sudah dicabut, dan pekerjaan berlanjut.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Ditarik: model sudah merespons lagi, dan pekerjaan yang menunggunya sudah dipanggil kembali.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Ditarik: kunci model sudah berfungsi lagi, dan pekerjaan yang menunggunya sudah dipanggil kembali.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Ditarik: layanan sudah lolos pemeriksaannya lagi, dan pekerjaan yang menunggunya sudah dipanggil kembali.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Ditarik: tidak ada lagi pekerjaan yang menunggunya.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Ditarik: peran yang menerimanya sudah menanganinya, dan tidak ada lagi yang perlu Anda putuskan.',
+  'Work finished: {count}':
+    'Pekerjaan selesai: {count}',
 };

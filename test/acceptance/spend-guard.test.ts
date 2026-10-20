@@ -13,7 +13,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import {
@@ -31,7 +31,7 @@ import { frozenRoles } from '../../src/governance/role-freeze.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
-import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -265,6 +265,128 @@ test('a ceiling raised past what is spent lifts the pause by itself, and the car
   const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string; payload: { reason: string } }>(
     "SELECT actor, payload FROM events WHERE type = 'budget.pause_lifted'"));
   assert.deepEqual(said.map((row) => [row.actor, row.payload.reason]), [['system', 'ceiling_raised']]);
+});
+
+/**
+ * The 80% card was raised with nothing to say what it was about, so nothing
+ * could ever close it: a company warned in October and never paused kept
+ * "80% spent" in front of the owner for good, and one that went on to 100%
+ * had the warning beside the card that said it was paused.
+ */
+test("last month's 80% warning closes itself in the new month, paused or not (F1.7)", async () => {
+  const fixture = await createCompany('spend-warning-month');
+  const task = await newTask(fixture);
+  const now = new Date();
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12));
+  await seedTrace(fixture, task.id, 16_500, lastMonth);
+  assert.equal((await evaluateSpendLimit(fixture.companyId, lastMonth)).state, 'warned');
+  const [warning] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.ok(warning);
+
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'under');
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [warning.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'period_started' });
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"));
+  assert.deepEqual(said.map((row) => row.payload.inboxItemId), [warning.id]);
+});
+
+/**
+ * An 80% warning raised before the warning said its month (0135) left nothing
+ * for the month's end to close it by: a deployment upgraded with one open kept
+ * it for good. What it is about is when it was raised.
+ */
+test("an 80% warning raised before the warnings said their month closes with its month after the upgrade (F1.7, 0135)", async () => {
+  const fixture = await createCompany('spend-warning-0135');
+  const now = new Date();
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12));
+  const raised = async (title: string, at: Date) => {
+    const itemId = await inbox.raiseBudgetAlert({ companyId: fixture.companyId, title, detail: '$165.00 of $200.00 spent.' });
+    await withControlPlane((tx) => tx.query('UPDATE inbox_items SET created_at = $2 WHERE id = $1', [itemId, at]));
+    return itemId;
+  };
+  const earlier = await raised('Monthly budget is 80% spent', lastMonth);
+  const current = await raised('Monthly budget is 80% spent', now);
+  // The pause card raised before it said its month: matched by its title where it closes, and not a warning.
+  const pause = await raised('Monthly budget reached; the company is paused', lastMonth);
+  const card = async (itemId: string) => (await withTenant(fixture.companyId, (tx) => tx.query<{
+    status: string; closed_reason: string | null; payload: Record<string, unknown>;
+  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [itemId]))).rows[0]!;
+
+  await runMigrationAgain('0135_old_cards_name_their_period.sql');
+
+  const monthOf = (at: Date) => new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1)).toISOString();
+  assert.deepEqual((await card(earlier)).payload, { spendWarning: { periodStart: monthOf(lastMonth) } });
+  assert.deepEqual((await card(current)).payload, { spendWarning: { periodStart: monthOf(now) } });
+  assert.deepEqual((await card(pause)).payload, {});
+
+  // The next look closes last month's, as it closes one raised today, and leaves this month's.
+  assert.equal((await evaluateSpendLimit(fixture.companyId, now)).state, 'under');
+  assert.deepEqual([(await card(earlier)).status, (await card(earlier)).closed_reason], ['withdrawn', 'period_started']);
+  assert.equal((await card(current)).status, 'open');
+});
+
+/**
+ * Both of a month's cards close when it ends, and only one of them still says
+ * something true: what the month spent is still what it spent, and "the
+ * company is paused" is not. The chat keeps the warning's figure above why it
+ * closed, as it does a day's card, and says of each why it went rather than a
+ * bare "withdrawn".
+ */
+test('in the chat, last month\'s warning keeps its figure and its pause card does not, each saying why it closed (F1.7, F10.9)', async () => {
+  const { dispatch, retractClosed, closureText } = await import('../../src/owner/notify.ts');
+  type Closed = Parameters<typeof closureText>[0] & { said?: string | null };
+  const warned = await createCompany('spend-chat-warned');
+  const paused = await createCompany('spend-chat-paused');
+  const now = new Date();
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12));
+  await seedTrace(warned, (await newTask(warned)).id, 16_500, lastMonth);
+  await seedTrace(paused, (await newTask(paused)).id, 20_000, lastMonth);
+  assert.equal((await evaluateSpendLimit(warned.companyId, lastMonth)).state, 'warned');
+  assert.equal((await evaluateSpendLimit(paused.companyId, lastMonth)).state, 'paused');
+
+  const rewritten: Closed[] = [];
+  const chat = {
+    name: 'chat:telegram',
+    carries: () => true,
+    deliver: async () => ({ ref: '7' }),
+    retract: async (closed: Closed) => { rewritten.push(closed); return 'retracted' as const; },
+  };
+  for (const fixture of [warned, paused]) {
+    assert.equal((await dispatch(fixture.companyId, chat, { now: new Date(Date.now() + 86_400_000) })).delivered, 1);
+    await evaluateSpendLimit(fixture.companyId, now);
+    assert.deepEqual(await retractClosed(fixture.companyId, chat), { retracted: 1, failed: 0 });
+  }
+  const [warning, pause] = rewritten;
+  assert.equal(warning!.closedReason, 'period_started');
+  assert.match(warning!.said ?? '', /^\$165\.00 of \$200\.00 spent since /, 'what the month spent is still what it spent');
+  assert.equal(closureText(warning!), 'Withdrawn: the month it was about has ended.');
+  assert.equal(pause!.closedReason, 'period_started');
+  assert.equal(pause!.said, null, 'the company is not paused any more, so that is not said again');
+  assert.equal(closureText(pause!), 'Withdrawn: the month it was about has ended.');
+});
+
+test('the 80% warning gives way to the pause card when the ceiling is reached (F1.7)', async () => {
+  const fixture = await createCompany('spend-warning-paused');
+  const task = await newTask(fixture);
+  await seedTrace(fixture, task.id, 16_500, new Date());
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'warned');
+  const [warning] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.ok(warning);
+
+  // Still this month's: a second look keeps it.
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'warned');
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [warning.id]);
+
+  await seedTrace(fixture, task.id, 4_000, new Date());
+  assert.equal((await evaluateSpendLimit(fixture.companyId)).state, 'paused');
+  const open = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+  assert.equal(open.length, 1, 'one card says where the month stands');
+  assert.match(open[0]!.title, /paused/);
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [warning.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'spend_paused' });
 });
 
 /**

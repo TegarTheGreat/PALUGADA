@@ -40,6 +40,7 @@ import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { PAUSED_TITLE } from '../governance/spend-guard.ts';
 import { slugTaken } from '../templates/company.ts';
 import type { ArchiveLine } from './export.ts';
 
@@ -64,7 +65,8 @@ interface ImportSection {
    * JSON columns whose values may carry ids from the archive -- an inbox
    * item's payload names the memory, skill or schedule its answer acts on.
    * Any string in them that is an id this import has mapped is replaced by
-   * the id it has here.
+   * the id it has here, and so is each id inside a card's name (`once`) and
+   * inside the key an ended-work card is found again by (`endedKey`).
    */
   remapJson?: readonly string[];
 }
@@ -445,6 +447,7 @@ export async function importCompany(
   const skipped = [...bySection.keys()].filter(
     (name) => !SECTIONS.some((section) => section.name === name),
   );
+  escalationSetFromHistory(bySection);
 
   // One transaction, on the control plane, for the whole company.
   //
@@ -498,6 +501,7 @@ export async function importCompany(
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
 
+    await periodsFromHistory(tx, companyId, bySection.get('events') ?? [], remap);
     await requireLocalVouching(tx, companyId);
     // An archive from before every company had a CEO has none; it gets the
     // one it would have been given (governance/ceo.ts).
@@ -512,6 +516,94 @@ export async function importCompany(
 
     return { companyId, slug: options.slug, sections: counts, skipped };
   });
+}
+
+/**
+ * Whether the owner said who hears first about each division (0133), for an
+ * archive written before the column existed: read as the migration read a
+ * deployment's own divisions -- a role or a time held, or the event the
+ * owner's setting left, which the archive carries. Without it every division
+ * of an older archive would come back as never set, and an owner's "straight
+ * to me" as the CEO's to hear first. Rows are replaced, not changed: they are
+ * the caller's.
+ */
+function escalationSetFromHistory(bySection: Map<string, Array<Record<string, unknown>>>): void {
+  const divisions = bySection.get('divisions') ?? [];
+  if (divisions.every((row) => 'escalation_set' in row)) return;
+  const said = new Set<string>();
+  for (const event of bySection.get('events') ?? []) {
+    const payload = event.payload as { divisionId?: unknown } | null | undefined;
+    if (event.type === 'division.escalation_set' && typeof payload?.divisionId === 'string') said.add(payload.divisionId);
+  }
+  bySection.set('divisions', divisions.map((row) => 'escalation_set' in row ? row : {
+    ...row,
+    escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
+      || (typeof row.id === 'string' && said.has(row.id)),
+  }));
+}
+
+/**
+ * The day's cards and 80% warnings of an archive written before 0135, in the
+ * shape the code before it raised them: with nothing in the payload the
+ * closes read their period from. 0135 ran here before the archive arrived,
+ * so they are labelled as it labelled a deployment's own, by its statements
+ * scoped to this company -- or they stay open for good. Which alert raised a
+ * card is said only by the archive's `alert.raised`, under the id the card
+ * had there, mapped here. As in 0135, each statement reaches only a card in
+ * the old shape, so an archive written since leaves nothing for it.
+ */
+async function periodsFromHistory(
+  tx: TenantClient,
+  companyId: string,
+  events: Array<Record<string, unknown>>,
+  remap: ReadonlyMap<string, string>,
+): Promise<void> {
+  const raised = new Map<string, string>();
+  for (const event of events) {
+    const payload = event.payload as { kind?: unknown; inboxItemId?: unknown } | null | undefined;
+    if (event.type !== 'alert.raised' || typeof payload?.kind !== 'string' || typeof payload.inboxItemId !== 'string') continue;
+    const id = remap.get(payload.inboxItemId);
+    if (id) raised.set(id, payload.kind);
+  }
+  const ids = [...raised.keys()];
+
+  // A day's card: its alert, and the day it was raised as `claimAlertSlot`
+  // counts one, in the database's time zone.
+  await tx.query(
+    `UPDATE inbox_items i
+        SET payload = i.payload || jsonb_build_object(
+              'alert', k.kind, 'day', to_char(date_trunc('day', i.created_at), 'YYYY-MM-DD'))
+       FROM unnest($2::uuid[], $3::text[]) AS k(id, kind)
+      WHERE i.company_id = $1 AND i.id = k.id
+        AND i.kind = 'budget_alert' AND i.status = 'open' AND NOT i.payload ? 'alert'`,
+    [companyId, ids, [...raised.values()]],
+  );
+
+  // An incident an alert raised is one of the daily counts nothing raises any
+  // more, closed with the event the code writes when it withdraws a card.
+  const { rows: counts } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'day_ended'
+      WHERE company_id = $1 AND id = ANY($2::uuid[]) AND kind = 'incident' AND status = 'open'
+      RETURNING id`,
+    [companyId, ids],
+  );
+  for (const count of counts) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: count.id, closedReason: 'day_ended' },
+    });
+  }
+
+  // What is left of the task-less budget cards with nothing in their payload,
+  // other than the pause card its title names, is the 80% warning: its month
+  // is UTC's, written as `toISOString` writes the start the close compares.
+  await tx.query(
+    `UPDATE inbox_items
+        SET payload = jsonb_build_object('spendWarning', jsonb_build_object(
+              'periodStart', to_char(date_trunc('month', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+      WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open' AND task_id IS NULL
+        AND payload = '{}'::jsonb AND title <> $2`,
+    [companyId, PAUSED_TITLE],
+  );
 }
 
 async function importSection(
@@ -681,16 +773,45 @@ async function requireLocalVouching(tx: TenantClient, companyId: string): Promis
  * Only whole strings, and only ids this import itself assigned: text that
  * merely contains an id is left alone, and a string that happens to look
  * like one but was never in the archive is not rewritten into something else.
+ * The keys a card is found again by are the exception (`JOINED_KEYS`).
  */
 function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
   if (typeof value === 'string') return remap.get(value) ?? value;
   if (Array.isArray(value)) return value.map((item) => remapIds(item, remap));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, remapIds(item, remap)]),
+      Object.entries(value).map(([key, item]) => [
+        key,
+        JOINED_KEYS.has(key) && typeof item === 'string' ? remapJoined(item, remap) : remapIds(item, remap),
+      ]),
     );
   }
   return value;
+}
+
+/**
+ * The payload keys whose strings have ids inside them, joined by colons, and
+ * by which a card is found again:
+ *
+ * - a card's name for what it is about (`once`): `capability:<division>:<name>`,
+ *   `service_down:<division>:<name>`, `reminder_unconfirmed:<attempt>`
+ *   (src/engine/recovered.ts, the collections duty);
+ * - the cause under a goal an ended-work card groups by (`endedKey`):
+ *   `<goal or none>:<halt reason>` (src/engine/ended.ts).
+ *
+ * Restored as it was, each named a division or a goal the restored company
+ * does not have: a credential's card never closed itself, and the next
+ * failure of the same cause raised a second card beside the restored one.
+ */
+const JOINED_KEYS: ReadonlySet<string> = new Set(['once', 'endedKey']);
+
+/**
+ * One of those strings with each id in it mapped. Split where the parts are
+ * joined, and only a part that is an id this import assigned is replaced, so
+ * a model's name with a colon in it is left as it is.
+ */
+function remapJoined(joined: string, remap: ReadonlyMap<string, string>): string {
+  return joined.split(':').map((part) => remap.get(part) ?? part).join(':');
 }
 
 function normalise(value: unknown, isJson: boolean): unknown {

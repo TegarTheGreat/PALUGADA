@@ -59,7 +59,13 @@ test('a card asking to be signed in opens the browser on the work\'s page, which
   await registry.sync();
   const api = await consoleWithSettings({ staticRoot: BUILT, registry, browsers });
   master = api.master;
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    await browsers.close();
+    throw error;
+  });
   try {
     await grantCapability(fixture, 'browser.read');
     await grantCapability(fixture, 'browser.handover');

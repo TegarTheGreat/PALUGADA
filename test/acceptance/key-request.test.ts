@@ -140,7 +140,12 @@ test('the card asking for a key opens the division\'s keys on Team, where giving
   assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
   const fixture = await createCompany('key-request-console');
   const { api, broker, taskId, at } = await setting(fixture, BUILT);
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     await assert.rejects(broker.invoke(at('ask'), 'owner.ask', { question: 'Saya perlu kunci CRM untuk membaca data pelanggan.', key: 'crm' }), refused('owner.asked'));
     await page.goto(api.url);

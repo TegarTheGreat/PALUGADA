@@ -27,13 +27,19 @@ import { cancelTask, rerunTask } from '../../src/engine/owner-control.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from '../helpers/standard-team.ts';
+import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../helpers/standard-team.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { answering, reportOn } from '../helpers/done.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
-before(ensureSchema);
+// The standard company is the tests' own (test/helpers/standard-team.ts), and
+// a fresh database has none until a file stores it: stored here, so this file
+// does not depend on which ran before it.
+before(async () => {
+  await ensureSchema();
+  await installStandardTemplate();
+});
 beforeEach(resetData);
 after(async () => {
   await closePools();

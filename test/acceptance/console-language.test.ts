@@ -39,12 +39,23 @@ async function signedIn(language: string) {
   await createCompany('lang-browser');
   await withControlPlane((tx) => tx.query('UPDATE platform_control SET tour_finished_at = now()'));
   const api = await consoleWithSettings({ staticRoot: BUILT });
-  const page = await openPage(browser as string, { width: 1200, height: 800 }, language);
-  await page.goto(api.url);
-  await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
-  await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
-  await page.type(api.code());
-  await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]') && document.querySelector('nav, aside')`, 'the console');
+  // Until the caller holds both, a failure here closes them: left open, they
+  // keep the file running after its tests end.
+  const page = await openPage(browser as string, { width: 1200, height: 800 }, language).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
+  try {
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]') && document.querySelector('nav, aside')`, 'the console');
+  } catch (error) {
+    await page.close();
+    await api.close();
+    throw error;
+  }
   return { api, page };
 }
 

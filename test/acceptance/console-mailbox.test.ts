@@ -57,7 +57,14 @@ test('a division is given its mailbox in a form, checked by the mail servers bef
   await grantCapability(fixture, 'mailbox.read');
   await grantCapability(fixture, 'email.send');
   const api = await consoleWithSettings({ staticRoot: BUILT, registry });
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    await imap.close();
+    await smtp.close();
+    throw error;
+  });
   try {
     await page.goto(api.url);
     await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');

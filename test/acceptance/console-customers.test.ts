@@ -69,7 +69,12 @@ test('the owner reads a customer\'s conversation, and sees it beside the reply t
   const registry = new CapabilityRegistry();
   for (const capability of chatCapabilities({ secrets: api.secrets, telegram: { apiBase: telegram.url } })) registry.register(capability);
   await registry.sync();
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     const owner = await api.signIn();
     const made = await api.call('POST', `/api/companies/${fixture.companyId}/chat-channels`, owner, {
@@ -145,7 +150,12 @@ test('a WhatsApp number is shown as customers dial it, and connecting one or a m
   const registry = new CapabilityRegistry();
   for (const capability of chatCapabilities({ secrets: api.secrets })) registry.register(capability);
   await registry.sync();
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     const owner = await api.signIn();
     const made = await api.call('POST', `/api/companies/${fixture.companyId}/chat-channels`, owner, {

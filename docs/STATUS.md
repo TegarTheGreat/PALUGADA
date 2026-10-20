@@ -10762,6 +10762,34 @@ cannot settle goes to a person, once. Tools (3), checks (4) and the person (5) w
     never repeated (the unique step).
   - *Whether it works on a real mailbox* is as verified as `email.send`: against a mail server written for the test.
 
+## 2.179 CI is green where it runs, not only where it was written (found 20 October)
+
+PR #16's CI had been red since 7 October, and a nightly run or two a week had hung until GitHub stopped it at six
+hours, while `npm run check` was green on the machine the work was done on. Each cause was reproduced before it was
+mended, in a copy of CI's environment -- its Node (22.23.3, ICU 78) and a database cluster made with `en_US.UTF-8`
+-- not argued from the log.
+
+- **Chromium's first start.** The first browser test of a run (`browser-live`, first by name) waited fifteen seconds
+  for Chromium to answer; a Chromium that has never run builds its font cache first, which took twelve seconds here
+  and more on a runner. The wait for a starting browser is a minute (`LAUNCH_WAIT_MS`, `src/browser/cdp.ts`) -- a
+  deployment's first start on a fresh server is the same case -- and a browser that exits still ends the wait at once.
+  "Failed to connect to the bus", which Chromium writes on every start on a server, is no longer quoted as the reason.
+- **The hangs.** A console test opened its server, then its browser, and only then entered `try`: a browser that
+  failed to start left the server open, and the test file never ended. The helper now stops a browser that could not
+  be driven, waits for the page target instead of reading the list too early, kills one that will not stop, and fails
+  a command on a closed connection instead of waiting for ever; each console test closes what it opened when the
+  browser fails. CI's test job has a limit of 45 minutes, and every test one of ten.
+- **Money was written as the runtime's data said.** `toLocaleString` with no fewest places takes a currency's places
+  from ICU, and ICU 78 writes the rupiah with none: the same invoice read `Rp 25.000,00` on one Node and `Rp 25.000`
+  on the next, and `Rp 25.000,50` would have been rounded. The books keep hundredths, so the invoice, the letters,
+  the cards and the console write two places, always.
+- **Order under a collation.** A test compared titles in `ORDER BY` order, which is byte order in a `C` database and
+  not in an `en_US` one. It orders by bytes now.
+- **A test that relied on the one before it.** Two files started companies from the standard template without storing
+  it, and passed only when an earlier file had.
+- **Tested.** The four failing tests failed in the copy of CI's environment, and pass there and here; the browser test
+  passed from a cold font cache.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

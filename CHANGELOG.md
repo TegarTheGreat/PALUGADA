@@ -342,6 +342,9 @@ The first version. What it holds, in the order an owner meets it.
   get it wrong. It stops when the invoice is paid, never writes twice in a week, and tells you once, in your
   language, about an invoice a letter did not mend. Switch it on under Books, Invoices (it gives the job to the
   roles that bill customers, or hires a bookkeeper); leave one invoice alone with a press (STATUS 2.178).
+- Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
+  same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
+  for a minute instead of failing at fifteen seconds (STATUS 2.179).
 - Customers can write to a company on a Telegram bot of its own, connected
   on **Customers** with your device. Each message starts work for the role
   you chose; every reply is a card showing the conversation beside it,

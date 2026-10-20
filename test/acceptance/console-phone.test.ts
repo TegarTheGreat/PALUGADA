@@ -90,7 +90,12 @@ test('the work, the money and the overview fit a phone, with nothing off to the 
   }
 
   const api = await consoleWithSettings({ staticRoot: BUILT });
-  const page = await openPage(browser as string, { width: 390, height: 844 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     await page.goto(api.url);
     await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');

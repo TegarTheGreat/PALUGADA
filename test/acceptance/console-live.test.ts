@@ -45,7 +45,12 @@ test('the work list shows a task finished within seconds of it finishing', { ski
   await transition(companyId, task.id, 'running');
 
   const api = await consoleWithSettings({ staticRoot: BUILT });
-  const page = await openPage(browser as string, { width: 1280, height: 900 });
+  // A browser that cannot be driven fails the test, and what was opened for it is
+  // closed with it: left open, it keeps the file running after its tests end.
+  const page = await openPage(browser as string, { width: 1280, height: 900 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
   try {
     await page.goto(api.url);
     await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');

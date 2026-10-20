@@ -157,7 +157,8 @@ export function roleSpendingFastCard(reading: OwnerReading, facts: { role: strin
 function invoiceMoney(reading: OwnerReading, cents: number, currency: string): string {
   const amount = cents / 100;
   try {
-    return amount.toLocaleString(reading.language ?? 'en', { style: 'currency', currency, maximumFractionDigits: 2 });
+    // Two places, as the invoice itself writes it (src/records/invoice-document.ts).
+    return amount.toLocaleString(reading.language ?? 'en', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   } catch {
     return `${amount.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
   }

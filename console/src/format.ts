@@ -664,7 +664,9 @@ export function goalKind(kind: string): string {
 
 /** An amount in its own currency, as the owner's language writes it: the books' and the invoices'. */
 export function inCurrency(cents: number, currency: string): string {
-  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, maximumFractionDigits: 2 });
+  // Two places, always, as the invoice the customer reads writes it: the
+  // browser's own idea of a currency's places differs between versions.
+  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Why a task its budget stopped has no room: the tokens, which are not the dollars beside it. */

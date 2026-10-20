@@ -72,7 +72,11 @@ export function invoiceFormats(workLanguage: string, currency: string): {
   const locale = language === 'id' ? 'id-ID' : 'en-US';
   const money = (cents: number): string => {
     try {
-      return (cents / 100).toLocaleString(locale, { style: 'currency', currency, maximumFractionDigits: 2 });
+      // Two places, always: the books keep hundredths, and how many places a
+      // currency is written with otherwise comes from the runtime's own data,
+      // which has changed between releases (IDR went from two to none), so the
+      // same invoice would read differently after an upgrade.
+      return (cents / 100).toLocaleString(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
     } catch {
       // A code the runtime does not know is written as it is, beside the figure.
       return `${(cents / 100).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;

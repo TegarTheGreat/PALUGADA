@@ -14,7 +14,7 @@ import { notifications } from '@mantine/notifications';
 import { IconArchive, IconArchiveOff, IconMessageCircle, IconPlus, IconSearch, IconUser } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { moneyDisplay, numberSeparators, relative } from '../format.ts';
+import { inCurrency, moneyDisplay, numberSeparators, relative } from '../format.ts';
 import { N, locale, t } from '../i18n.ts';
 import type { Contact, ContactDetail, Deal, DealStage } from '../types.ts';
 import { ActionButton } from './ActionForm.tsx';
@@ -32,7 +32,7 @@ const STAGES: Record<DealStage, string> = {
 /** A deal's worth in its own currency, as the owner's language writes it. */
 function worth(value: Deal['value']): string | null {
   if (!value) return null;
-  return (value.amountCents / 100).toLocaleString(locale(), { style: 'currency', currency: value.currency, maximumFractionDigits: 2 });
+  return inCurrency(value.amountCents, value.currency);
 }
 
 export function Contacts({ companyId, owner, openChat }: { companyId: string; owner: boolean; openChat: (chatId: string) => void }) {

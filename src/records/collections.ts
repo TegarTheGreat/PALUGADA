@@ -32,7 +32,10 @@ import { invoiceFormats } from './invoice-document.ts';
 export const DEFAULT_STEPS: readonly number[] = [3, 10, 24];
 /** The least time between two letters about one invoice. */
 export const MIN_GAP_DAYS = 7;
-/** An invoice this far past due that was never reminded is not sent a form letter by a platform just switched on. */
+/**
+ * An invoice this far past the day its first reminder was due, and never
+ * reminded, is not sent a form letter by a platform just switched on.
+ */
 export const STALE_AFTER_DAYS = 60;
 /** How long the last letter has to work before a person is told it did not. */
 export const ESCALATE_AFTER_DAYS = 7;
@@ -61,7 +64,11 @@ export function whatIsNext(input: {
   const daysOverdue = daysBetween(input.dueDate, input.today);
   if (daysOverdue <= 0) return { action: 'wait', why: 'not_overdue', daysOverdue };
   const done = input.sent.length;
-  if (done === 0 && daysOverdue > STALE_AFTER_DAYS) return { action: 'escalate', why: 'stale', daysOverdue, sent: 0 };
+  // Counted from the first letter's day, not the due date: a company may put
+  // its first letter later than sixty days (setPolicy takes up to 180), and
+  // counted from the due date every invoice was stale before its first letter
+  // was due.
+  if (done === 0 && daysOverdue - input.steps[0]! > STALE_AFTER_DAYS) return { action: 'escalate', why: 'stale', daysOverdue, sent: 0 };
 
   const last = input.sent[done - 1];
   const sinceLast = last ? daysBetween(last.day, input.today) : Number.POSITIVE_INFINITY;

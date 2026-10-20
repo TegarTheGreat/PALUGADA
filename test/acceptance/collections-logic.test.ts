@@ -63,13 +63,27 @@ test('the sequence stops after its last letter, and a person is told when that l
 });
 
 test('an invoice long overdue that was never reminded is a person\'s, not a form letter\'s', () => {
-  // Sixty days past: still the platform's. Sixty-one: the books were not kept this way a month ago.
-  assert.deepEqual(whatIsNext({ dueDate: '2026-08-11', today: '2026-10-10', steps: DEFAULT_STEPS, sent: [] }),
-    { action: 'remind', step: 1, of: 3, daysOverdue: STALE_AFTER_DAYS });
-  assert.deepEqual(whatIsNext({ dueDate: '2026-08-10', today: '2026-10-10', steps: DEFAULT_STEPS, sent: [] }),
-    { action: 'escalate', why: 'stale', daysOverdue: STALE_AFTER_DAYS + 1, sent: 0 });
+  // Counted from the day its first letter was due (three days past the due
+  // date): sixty days after it, still the platform's. Sixty-one: the books
+  // were not kept this way a month ago.
+  assert.deepEqual(whatIsNext({ dueDate: '2026-08-08', today: '2026-10-10', steps: DEFAULT_STEPS, sent: [] }),
+    { action: 'remind', step: 1, of: 3, daysOverdue: DEFAULT_STEPS[0]! + STALE_AFTER_DAYS });
+  assert.deepEqual(whatIsNext({ dueDate: '2026-08-07', today: '2026-10-10', steps: DEFAULT_STEPS, sent: [] }),
+    { action: 'escalate', why: 'stale', daysOverdue: DEFAULT_STEPS[0]! + STALE_AFTER_DAYS + 1, sent: 0 });
   // But one that was being reminded carries on: it is the sequence that is the platform's.
-  assert.equal(whatIsNext({ dueDate: '2026-08-10', today: '2026-10-10', steps: DEFAULT_STEPS, sent: [{ step: 1, day: '2026-10-05' }] }).action, 'wait');
+  assert.equal(whatIsNext({ dueDate: '2026-08-07', today: '2026-10-10', steps: DEFAULT_STEPS, sent: [{ step: 1, day: '2026-10-05' }] }).action, 'wait');
+});
+
+test('a company whose first letter goes later than sixty days still sends it on its day', () => {
+  // setPolicy takes a first step of up to 180 days. Measured from the due
+  // date, every invoice was stale before its first letter was due, and none
+  // was ever written to.
+  const steps = [90, 120];
+  assert.deepEqual(whatIsNext({ dueDate: '2026-01-01', today: '2026-03-31', steps, sent: [] }), { action: 'wait', why: 'not_yet', daysOverdue: 89 });
+  assert.deepEqual(whatIsNext({ dueDate: '2026-01-01', today: '2026-04-01', steps, sent: [] }), { action: 'remind', step: 1, of: 2, daysOverdue: 90 });
+  // And sixty days after that first letter's day, an invoice never written to is a person's.
+  assert.deepEqual(whatIsNext({ dueDate: '2026-01-01', today: '2026-05-31', steps, sent: [] }), { action: 'remind', step: 1, of: 2, daysOverdue: 150 });
+  assert.deepEqual(whatIsNext({ dueDate: '2026-01-01', today: '2026-06-01', steps, sent: [] }), { action: 'escalate', why: 'stale', daysOverdue: 151, sent: 0 });
 });
 
 test('a single step is one letter and then a person', () => {

@@ -778,6 +778,83 @@ test('an ended card about work its budget stopped closes when the work goes on, 
 });
 
 /**
+ * An account has one card, on the work it stopped first, and ended.ts counts
+ * the rest of what it stopped as told while that card is open. Going on with
+ * the card's own work -- the owner's Continue on it, or self-heal with room
+ * for one run -- withdrew the card while the rest was still stopped, and only
+ * "go on with all" raised it again. ended.ts looks back a day, so work that
+ * had stopped longer ago was then told by nothing.
+ */
+test('going on with the work an account\'s card sits on raises the card again for the work it still stops', async () => {
+  const { continueAllHalted, continueHalted } = await import('../../src/engine/owner-control.ts');
+  const { MIN_ROOM_CENTS, MIN_ROOM_TOKENS, resumeBudgetStopped } = await import('../../src/engine/self-heal.ts');
+  const { DEFAULT_TASK_RESERVE_TOKENS } = await import('../../src/engine/tasks.ts');
+  const { BUDGET_CARD_SAYS_SO } = await import('../../src/engine/ended.ts');
+  const stoppedLongAgo = async (slug: string, goals: string[]) => {
+    const company = await founded(slug);
+    const tasks: Array<{ id: string }> = [];
+    for (const goal of goals) tasks.push(await stoppedForBudget(company, goal));
+    for (const task of tasks) await inbox.raiseBudgetHalt(company.companyId, task.id);
+    await withTenant(company.companyId, (tx) => tx.query(
+      "UPDATE tasks SET finished_at = now() - interval '2 days' WHERE id = ANY($1::uuid[])", [tasks.map((task) => task.id)]));
+    return { company, tasks };
+  };
+  const budgetCards = (companyId: string) => withTenant(companyId, (tx) => tx.query<{
+    task_id: string; status: string; closed_reason: string | null;
+  }>("SELECT task_id, status, closed_reason FROM inbox_items WHERE kind = 'budget_alert' ORDER BY created_at")).then((r) => r.rows);
+  const covered = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${BUDGET_CARD_SAYS_SO}`, [taskId]))).rowCount === 1;
+  /** Room on every account the work draws on for `tokens` more, and `cents`. */
+  const room = async (companyId: string, taskId: string, tokens: number, cents: number) => {
+    const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+      'SELECT unnest(app.budget_chain(budget_account_id))::text AS id FROM tasks WHERE id = $1', [taskId]));
+    await withControlPlane((tx) => tx.query(
+      `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+        WHERE id = ANY($1::uuid[])`, [rows.map((row) => row.id), tokens, cents]));
+  };
+
+  // The owner goes on with the work the card sits on.
+  const owner = await stoppedLongAgo('budget-card-owner', ['post the July invoices', 'post the August invoices']);
+  const [july, august] = owner.tasks;
+  await continueHalted(owner.company.companyId, july!.id);
+  assert.deepEqual(await budgetCards(owner.company.companyId), [
+    { task_id: july!.id, status: 'withdrawn', closed_reason: 'task_continued' },
+    { task_id: august!.id, status: 'open', closed_reason: null },
+  ], 'the card is raised again, on the work still stopped');
+  assert.equal(await covered(owner.company.companyId, august!.id), true);
+  assert.equal(await reportEndedBadly(owner.company.companyId, later()), 0);
+
+  // Self-heal with room for two runs goes on with the oldest two, the card's
+  // first: the card is raised again once, on the one left, and not on each
+  // next one only to be withdrawn as it goes on.
+  const healed = await stoppedLongAgo('budget-card-heal',
+    ['post the September invoices', 'post the October invoices', 'post the November invoices']);
+  const [september, october, november] = healed.tasks;
+  await room(healed.company.companyId, september!.id, 2 * MIN_ROOM_TOKENS + 500, 2 * MIN_ROOM_CENTS + 50);
+  assert.deepEqual(await resumeBudgetStopped(healed.company.companyId), { continued: 2, waiting: 1 });
+  assert.equal((await taskState(healed.company.companyId, october!.id)).status, 'pending');
+  assert.deepEqual(await budgetCards(healed.company.companyId), [
+    { task_id: september!.id, status: 'withdrawn', closed_reason: 'budget_room' },
+    { task_id: november!.id, status: 'open', closed_reason: null },
+  ]);
+  assert.equal(await covered(healed.company.companyId, november!.id), true);
+
+  // "Go on with all", with room for two of three: one card raised again at
+  // the end, for the one left, and none raised and withdrawn on the way.
+  const all = await stoppedLongAgo('budget-card-all', ['post the December invoices', 'post the January invoices', 'post the February invoices']);
+  const [december, , february] = all.tasks;
+  await room(all.company.companyId, december!.id, 2 * DEFAULT_TASK_RESERVE_TOKENS + 500, 150);
+  const [account] = await withTenant(all.company.companyId, (tx) => tx.query<{ account: string }>(
+    "SELECT payload->'budgetHalt'->>'budgetAccountId' AS account FROM inbox_items WHERE kind = 'budget_alert'")).then((r) => r.rows);
+  const went = await continueAllHalted(all.company.companyId, account!.account);
+  assert.equal(went.continued, 2);
+  assert.deepEqual(await budgetCards(all.company.companyId), [
+    { task_id: december!.id, status: 'withdrawn', closed_reason: 'task_continued' },
+    { task_id: february!.id, status: 'open', closed_reason: null },
+  ]);
+});
+
+/**
  * A card about a task names it for good, and ended.ts counted any card that
  * names a task as having told of it, whatever had happened since. Going on
  * is the same task: the card that said its budget stopped it -- the

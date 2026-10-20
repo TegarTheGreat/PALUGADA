@@ -24,7 +24,7 @@ import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
-import { heldAllRunAgain, lockOnceWithin } from '../inbox/inbox.ts';
+import { budgetHaltTerms, heldAllRunAgain, lockOnceWithin, raiseBudgetHaltWithin } from '../inbox/inbox.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
 export const INSTRUCTION_MAX = 2_000;
@@ -414,8 +414,21 @@ export const GOES_ON_BY_ITSELF = `
  * is paused, and while its role is frozen. The `transition` path does not
  * reach this: `halted` has no way out in the state machine, and this is the
  * one door, opened by the owner.
+ *
+ * Going on with the work an account's card sits on answers the card, but
+ * not for the rest of what the account stopped: the card is raised again,
+ * in the same transaction, on the work still stopped. Withdrawn alone, it
+ * left that work told by nothing -- ended.ts counts it as told while a
+ * budget card covers it, and looks back only a day. Not when going on with
+ * all of them (`continueAllHalted`, `reraise: false`), which raises it once,
+ * at the end, for those it could not fund.
  */
-export async function continueHalted(companyId: string, taskId: string, by: 'owner' | 'system' = 'owner'): Promise<void> {
+export async function continueHalted(
+  companyId: string,
+  taskId: string,
+  by: 'owner' | 'system' = 'owner',
+  options: { reraise?: boolean } = {},
+): Promise<void> {
   const task = await taskHere(companyId, taskId);
   const refuse = (status: string, reason: string | null) => new PalugadaError(
     'task.not_continuable',
@@ -439,6 +452,8 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
         + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
   }
+  // Read before the transaction, which should not wait on another connection.
+  const terms = options.reraise === false ? null : await budgetHaltTerms();
   const handling = await withControlPlane(async (tx) => {
     // The lock ended.ts reports a stopped task under: a card it raises about
     // this one is either there to be closed below, or raised after the task
@@ -495,10 +510,10 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
     });
     const closedBecause = by === 'system' ? 'budget_room' : 'task_continued';
     // The card that said it stopped has been answered by going on.
-    const { rows: withdrawn } = await tx.query<{ id: string }>(
+    const { rows: withdrawn } = await tx.query<{ id: string; account: string | null }>(
       `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
         WHERE task_id = $1 AND company_id = $2 AND kind = 'budget_alert' AND status = 'open'
-        RETURNING id`,
+        RETURNING id, payload->'budgetHalt'->>'budgetAccountId' AS account`,
       [taskId, companyId, closedBecause],
     );
     // And the card for work that ended badly, raised about it while no
@@ -517,6 +532,22 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
         payload: { inboxItemId: item.id, closedReason: closedBecause },
       });
+    }
+    const handed = ended.flatMap((item) => (item.handed ? [item.handed] : []));
+    // The account's card, for the work it still stops: on the last of it to
+    // stop, which self-heal, going on oldest first, reaches last, so a look
+    // that goes on with several raises the card again once, not once each.
+    // Not on a coordinator's task stopped below with the card it was handling.
+    for (const card of withdrawn) {
+      if (!terms || !card.account) continue;
+      const { rows: next } = await tx.query<{ id: string }>(
+        `SELECT t.id FROM tasks t
+          WHERE t.company_id = $1 AND t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
+            AND $2::uuid = ANY(app.budget_chain(t.budget_account_id)) AND t.id <> ALL($3::uuid[])
+          ORDER BY t.finished_at DESC NULLS LAST, t.created_at DESC, t.id DESC
+          LIMIT 1`,
+        [companyId, card.account, handed]);
+      if (next[0]) await raiseBudgetHaltWithin(tx, companyId, next[0].id, terms);
     }
     // Every card that names it, open or closed, was about the stop it now
     // goes on from, and is not about how it ends next (ALREADY_TOLD in
@@ -549,7 +580,7 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         companyId, projectId: task.projectId, taskId, type: 'ticket.started', actor: 'system', payload: { ticketId: ticket.id },
       });
     }
-    return ended.flatMap((item) => (item.handed ? [item.handed] : []));
+    return handed;
   });
   await stopHandling(companyId, handling, 'the work it was handling went on', by);
   await enqueueWake({ companyId, roleId: task.roleId, reason: 'event', detail: `the owner continued task ${taskId}` });
@@ -594,7 +625,7 @@ export async function continueAllHalted(companyId: string, accountId: string): P
       continue;
     }
     try {
-      await continueHalted(companyId, taskId);
+      await continueHalted(companyId, taskId, 'owner', { reraise: false });
       continued += 1;
     } catch (failure) {
       if (!(failure instanceof PalugadaError)) throw failure;

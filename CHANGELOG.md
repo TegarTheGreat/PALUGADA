@@ -375,7 +375,8 @@ The first version. What it holds, in the order an owner meets it.
   Telegram and WhatsApp show the words or the number kept under the answer, and the same thing said again is kept
   once. A reviewer stopped by its budget waits while the budget card is open instead of raising a second card, and
   goes to you once no card covers it. Other work a budget stopped is not put to your CEO while its budget card is
-  open. You are no longer offered procedures for the platform's own tools or for its duties (STATUS 2.184).
+  open, and going on with the work that card is about raises it again for the work the account still stops. You
+  are no longer offered procedures for the platform's own tools or for its duties (STATUS 2.184).
 - Cards that only told you something now close themselves once it is handled. A day's spending, failure-rate or
   refusal card closes a whole day after it reached you, and its Telegram message keeps the figure. Last month's 80%
   warning closes in the new month, or when the "paused" card takes its place. A stopped task's own cards close when

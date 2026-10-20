@@ -600,8 +600,9 @@ test('a review whose proposer was given up is closed without asking the owner ab
 /*
  * The review of the change above. A budget card is one an account, on the
  * work it stopped first, and answered when that work goes on: self-heal with
- * room for one run, or the owner's Continue, withdraws it while the reviewer
- * is still stopped. The owner can also say no to it. Waiting on after that,
+ * room for one run, or the owner's Continue, withdrew it while the reviewer
+ * was still stopped -- it is now raised again, on the reviewer, in the same
+ * transaction. The owner can also say no to it. Waiting on after that,
  * the proposer sat in waiting_review with nothing in the inbox, since the
  * pending review is its mover and a reviewer is a sub-task nothing else
  * reports. So the review waits only while a budget card says the reviewer is
@@ -634,14 +635,22 @@ test('a reviewer its budget stopped is waited for only while a budget card says 
     assert.equal(card!.taskId, first.id, `${closed}: one card for the account, on the work it stopped first`);
     assert.deepEqual(await settleCompletedReviews(fixture.companyId), [], `${closed}: while it is open, the review waits`);
 
-    if (closed === 'continued') await continueHalted(fixture.companyId, first.id, 'system');
-    else await inbox.decide(fixture.companyId, card!.id, 'deny');
+    const later = new Date(Date.now() + ENDED_AFTER_MS + 1_000);
+    if (closed === 'continued') {
+      // Going on with the work the card sits on raises it again for the
+      // work the account still stops, the reviewer, which goes on waiting;
+      // the owner's no to that card is what leaves nothing saying so.
+      await continueHalted(fixture.companyId, first.id, 'system');
+      const [again] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'budget_alert');
+      assert.equal(again!.taskId, pending!.reviewTaskId, 'the account\'s card, raised again on the work it still stops');
+      assert.deepEqual(await settleCompletedReviews(fixture.companyId, later), [], 'while it is open, the review waits');
+      await inbox.decide(fixture.companyId, again!.id, 'deny');
+    } else await inbox.decide(fixture.companyId, card!.id, 'deny');
     assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.kind), [], `${closed}: the card is closed`);
     assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, pending!.reviewTaskId)))!.status, 'halted');
 
     // A halt raises its card a moment after it is written: for that minute the review still waits.
     assert.deepEqual(await settleCompletedReviews(fixture.companyId), [], `${closed}: the halt's own card may still be coming`);
-    const later = new Date(Date.now() + ENDED_AFTER_MS + 1_000);
     assert.deepEqual((await settleCompletedReviews(fixture.companyId, later)).map((one) => one.decision), ['unreadable'], closed);
     const escalations = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation');
     assert.deepEqual(escalations.map((item) => item.taskId), [task.id], `${closed}: the proposer has a card`);

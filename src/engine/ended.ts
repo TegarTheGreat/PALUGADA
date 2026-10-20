@@ -91,7 +91,9 @@ export const BUDGET_CARD_SAYS_SO = `EXISTS (
  * what they stopped was reported again here as work that ended badly, and
  * handed to the CEO, which cannot lift a budget. Only while that card is
  * open: a card that has closed is about the work it sits on, and work still
- * stopped after it is somebody's to hear of.
+ * stopped after it is somebody's to hear of. Going on with the work the card
+ * sits on raises it again for the rest (`continueHalted`), so what is left
+ * here is a card the owner answered, and only within the day this looks back.
  *
  * Not a card about a stop the work has gone on from (`continuedTaskIds`,
  * written by `continueHalted`). Going on is the same task, and a card names

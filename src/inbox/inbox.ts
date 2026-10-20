@@ -1567,53 +1567,76 @@ export async function raiseBudgetAlert(input: {
  * not stack a second card on the first.
  */
 export async function raiseBudgetHalt(companyId: string, taskId: string): Promise<string | null> {
-  const notifyAfter = await notifyAfterFor('budget_alert', {});
-  const language = (await deploymentLanguages()).console;
-  return withTenant(companyId, async (tx) => {
-    const raised = await tx.query(
-      "SELECT 1 FROM inbox_items WHERE task_id = $1 AND kind = 'budget_alert' AND status = 'open'", [taskId]);
-    if (raised.rows.length > 0) return null;
-    const task = await getTask(tx, taskId);
-    if (!task?.budgetAccountId) return null;
-    const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
-      `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
-        WHERE a.id = ANY(app.budget_chain($1))
-        ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
-        LIMIT 1`,
-      [task.budgetAccountId],
-    );
-    const account = accounts[0];
-    if (!account) return null;
-    // One card for an account, however many tasks it stopped: a division that
-    // runs out stops everything charged to it together, and a card each, to be
-    // opened and continued one by one, was the owner's whole afternoon. The
-    // card says how many it stopped, live, and one press goes on with them all.
-    const standing = await tx.query<{ id: string }>(
-      `SELECT id FROM inbox_items WHERE kind = 'budget_alert' AND status = 'open'
-          AND payload->'budgetHalt'->>'budgetAccountId' = $1 LIMIT 1`, [account.id]);
-    if (standing.rows[0]) return standing.rows[0].id;
-    const words = budgetHaltWords(language, {
-      account: account.name,
-      work: workOf(task.input),
-      spent: Number(account.tokens_spent),
-      max: Number(account.tokens_max),
-    });
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO inbox_items
-         (company_id, task_id, kind, title, action_summary, rationale, consequence_if_denied,
-          notify_after, payload)
-       VALUES ($1, $2, 'budget_alert', $3, $3, $4, '', $5, $6)
-       RETURNING id`,
-      [companyId, taskId, words.title, words.rationale, notifyAfter,
-        JSON.stringify({ budgetHalt: { budgetAccountId: account.id } })],
-    );
-    const id = rows[0]!.id;
-    await appendEvent(tx, {
-      companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
-      payload: { inboxItemId: id, budgetAccountId: account.id },
-    });
-    return id;
+  const terms = await budgetHaltTerms();
+  return withTenant(companyId, (tx) => raiseBudgetHaltWithin(tx, companyId, taskId, terms));
+}
+
+/** When a budget card may reach the owner, and in what words: read before the transaction that raises it. */
+export interface BudgetHaltTerms {
+  notifyAfter: Date;
+  language: string | null;
+}
+
+export async function budgetHaltTerms(): Promise<BudgetHaltTerms> {
+  return { notifyAfter: await notifyAfterFor('budget_alert', {}), language: (await deploymentLanguages()).console };
+}
+
+/**
+ * The same, inside a transaction that also changed what the card is about:
+ * going on with the work an account's card sits on raises it again, in the
+ * same transaction, for the work the account still stops (`continueHalted`).
+ * On the control plane there, so every statement names the company.
+ */
+export async function raiseBudgetHaltWithin(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string,
+  terms: BudgetHaltTerms,
+): Promise<string | null> {
+  const raised = await tx.query(
+    "SELECT 1 FROM inbox_items WHERE company_id = $1 AND task_id = $2 AND kind = 'budget_alert' AND status = 'open'",
+    [companyId, taskId]);
+  if (raised.rows.length > 0) return null;
+  const task = await getTask(tx, taskId);
+  if (!task?.budgetAccountId || task.companyId !== companyId) return null;
+  const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
+    `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
+      WHERE a.id = ANY(app.budget_chain($1))
+      ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
+      LIMIT 1`,
+    [task.budgetAccountId],
+  );
+  const account = accounts[0];
+  if (!account) return null;
+  // One card for an account, however many tasks it stopped: a division that
+  // runs out stops everything charged to it together, and a card each, to be
+  // opened and continued one by one, was the owner's whole afternoon. The
+  // card says how many it stopped, live, and one press goes on with them all.
+  const standing = await tx.query<{ id: string }>(
+    `SELECT id FROM inbox_items WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open'
+        AND payload->'budgetHalt'->>'budgetAccountId' = $2 LIMIT 1`, [companyId, account.id]);
+  if (standing.rows[0]) return standing.rows[0].id;
+  const words = budgetHaltWords(terms.language, {
+    account: account.name,
+    work: workOf(task.input),
+    spent: Number(account.tokens_spent),
+    max: Number(account.tokens_max),
   });
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items
+       (company_id, task_id, kind, title, action_summary, rationale, consequence_if_denied,
+        notify_after, payload)
+     VALUES ($1, $2, 'budget_alert', $3, $3, $4, '', $5, $6)
+     RETURNING id`,
+    [companyId, taskId, words.title, words.rationale, terms.notifyAfter,
+      JSON.stringify({ budgetHalt: { budgetAccountId: account.id } })],
+  );
+  const id = rows[0]!.id;
+  await appendEvent(tx, {
+    companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
+    payload: { inboxItemId: id, budgetAccountId: account.id },
+  });
+  return id;
 }
 
 /** What a task is for, as one line: its goal, or the first thing its input says. */

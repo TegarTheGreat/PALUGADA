@@ -606,16 +606,28 @@ export async function continueHalted(
     // stop, which self-heal, going on oldest first, reaches last, so a look
     // that goes on with several raises the card again once, not once each.
     // Not on a coordinator's task stopped below with the card it was handling.
+    // The same account's card, wherever it lands: worked out afresh from the
+    // work it lands on, it could be a narrower account's, or none where that
+    // work has a card of its own, and the rest of what this account stopped
+    // was told by nothing. And only on work somebody still waits for
+    // (`GOES_ON_BY_ITSELF`): work the owner ran again, a child its parent
+    // gave up, a coordinator's task on a closed card wait for nobody, and a
+    // card on one of them alone asked the owner to do it a second time. None
+    // is raised when nothing else is left.
     for (const card of withdrawn) {
       if (!terms || !card.account) continue;
       const { rows: next } = await tx.query<{ id: string }>(
         `SELECT t.id FROM tasks t
           WHERE t.company_id = $1 AND t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
             AND $2::uuid = ANY(app.budget_chain(t.budget_account_id)) AND t.id <> ALL($3::uuid[])
+            AND NOT EXISTS (SELECT 1 FROM inbox_items own
+                             WHERE own.company_id = $1 AND own.task_id = t.id
+                               AND own.kind = 'budget_alert' AND own.status = 'open')
+            AND ${GOES_ON_BY_ITSELF}
           ORDER BY t.finished_at DESC NULLS LAST, t.created_at DESC, t.id DESC
           LIMIT 1`,
         [companyId, card.account, handed]);
-      if (next[0]) await raiseBudgetHaltWithin(tx, companyId, next[0].id, terms);
+      if (next[0]) await raiseBudgetHaltWithin(tx, companyId, next[0].id, terms, card.account);
     }
     // Every card that names it, open or closed, was about the stop it now
     // goes on from, and is not about how it ends next (ALREADY_TOLD in

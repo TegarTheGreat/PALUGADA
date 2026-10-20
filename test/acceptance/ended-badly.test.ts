@@ -1079,6 +1079,88 @@ test('going on with the work an account\'s card sits on raises the card again fo
 });
 
 /**
+ * The card raised again was worked out afresh from the work it landed on:
+ * the tightest account over that work, and nothing at all when that work had
+ * a card of its own -- for a role's account under the division, say -- so
+ * the rest of what the division stopped was told by no card. And it landed
+ * on any work still stopped, work the owner had already run again among it,
+ * whose card's one press then did that work a second time beside its rerun.
+ */
+test('the card raised again is the withdrawn account\'s, on work somebody still waits for', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { MIN_ROOM_CENTS, MIN_ROOM_TOKENS, resumeBudgetStopped } = await import('../../src/engine/self-heal.ts');
+  const { createAccount } = await import('../../src/engine/budget.ts');
+  const { BUDGET_CARD_SAYS_SO } = await import('../../src/engine/ended.ts');
+  const openCards = (companyId: string) => withTenant(companyId, (tx) => tx.query<{ task_id: string; account: string }>(
+    `SELECT task_id, payload->'budgetHalt'->>'budgetAccountId' AS account FROM inbox_items
+      WHERE kind = 'budget_alert' AND status = 'open' ORDER BY created_at`)).then((r) => r.rows);
+  const covered = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${BUDGET_CARD_SAYS_SO}`, [taskId]))).rowCount === 1;
+
+  // The division's card sits on July, and the collector's own account, under
+  // the division, has a card on the newest of the work.
+  const company = await founded('budget-card-narrower');
+  const [division] = await withTenant(company.companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM budget_accounts WHERE scope_type = 'division'")).then((r) => r.rows);
+  const collector = await withTenant(company.companyId, async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO roles (company_id, division_id, slug, display_name, system_prompt, model, output_schema, done_criteria)
+     VALUES ($1, $2, 'collector', 'Dewi', 'You collect what is owed.', 'test-model', '{"type":"object"}'::jsonb,
+             ARRAY['the run returns an output matching its schema'])
+     RETURNING id`, [company.companyId, company.divisionIds.management])).rows[0]!.id);
+  const collectors = await withTenant(company.companyId, (tx) => createAccount(tx, {
+    companyId: company.companyId, label: 'collector', tokensMax: 100_000_000,
+    scope: { scopeType: 'role', scopeId: collector, parentAccountId: division!.id },
+  }));
+  const july = await stoppedForBudget(company, 'post the July invoices');
+  const august = await stoppedForBudget(company, 'post the August invoices');
+  const owed = await rootOf(company, collector, 'collect what is owed');
+  await transition(company.companyId, owed.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + 5 WHERE id = $1', [division!.id]));
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + 1 WHERE id = $1', [collectors]));
+  for (const task of [july, august, owed]) await inbox.raiseBudgetHalt(company.companyId, task.id);
+  assert.deepEqual(await openCards(company.companyId),
+    [{ task_id: july.id, account: division!.id }, { task_id: owed.id, account: collectors }]);
+  await withTenant(company.companyId, (tx) => tx.query(
+    "UPDATE tasks SET finished_at = now() - interval '2 days' WHERE id = ANY($1::uuid[])", [[july.id, august.id, owed.id]]));
+  // Room for one run on the division and the company, none on the collector's.
+  await withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+      WHERE company_id = $1 AND scope_type <> 'role'`, [company.companyId, MIN_ROOM_TOKENS + 500, MIN_ROOM_CENTS + 50]));
+  assert.deepEqual(await resumeBudgetStopped(company.companyId), { continued: 1, waiting: 2 });
+  assert.equal((await taskState(company.companyId, july.id)).status, 'pending');
+  assert.deepEqual(await openCards(company.companyId),
+    [{ task_id: owed.id, account: collectors }, { task_id: august.id, account: division!.id }],
+    'the division\'s card is raised again, on August, and the collector\'s stays');
+  assert.equal(await covered(company.companyId, august.id), true);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0);
+
+  // Work the owner ran again waits for nobody: going on with the rest raises
+  // no card on it, by the owner's press or by self-heal.
+  for (const by of ['owner', 'system'] as const) {
+    const again = await founded(`budget-card-rerun-${by}`);
+    const september = await stoppedForBudget(again, 'post the September invoices');
+    await inbox.raiseBudgetHalt(again.companyId, september.id);
+    const invoice = await stoppedForBudget(again, 'send invoice 7 to PT Maju');
+    await inbox.raiseBudgetHalt(again.companyId, invoice.id);
+    await rerunTask(again.companyId, invoice.id, null);
+    if (by === 'owner') {
+      await continueHalted(again.companyId, september.id);
+    } else {
+      const { rows } = await withTenant(again.companyId, (tx) => tx.query<{ id: string }>(
+        'SELECT unnest(app.budget_chain(budget_account_id))::text AS id FROM tasks WHERE id = $1', [september.id]));
+      await withControlPlane((tx) => tx.query(
+        `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2, money_max_cents = money_spent_cents + $3
+          WHERE id = ANY($1::uuid[])`, [rows.map((row) => row.id), 5 * MIN_ROOM_TOKENS, 5 * MIN_ROOM_CENTS]));
+      assert.deepEqual(await resumeBudgetStopped(again.companyId), { continued: 1, waiting: 0 });
+    }
+    assert.equal((await taskState(again.companyId, september.id)).status, 'pending', by);
+    assert.deepEqual(await openCards(again.companyId), [], `${by}: no card on work run again`);
+  }
+});
+
+/**
  * A card about a task names it for good, and ended.ts counted any card that
  * names a task as having told of it, whatever had happened since. Going on
  * is the same task: the card that said its budget stopped it -- the

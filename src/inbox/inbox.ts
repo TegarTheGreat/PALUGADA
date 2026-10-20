@@ -1589,13 +1589,18 @@ export async function budgetHaltTerms(): Promise<BudgetHaltTerms> {
  * The same, inside a transaction that also changed what the card is about:
  * going on with the work an account's card sits on raises it again, in the
  * same transaction, for the work the account still stops (`continueHalted`).
- * On the control plane there, so every statement names the company.
+ * On the control plane there, so every statement names the company. Raised
+ * again, it names the account it named before (`accountId`), not the
+ * tightest over the work it lands on: that could be a narrower account,
+ * whose card covers only its own work, and the rest of what the first
+ * account stopped would be told by nothing.
  */
 export async function raiseBudgetHaltWithin(
   tx: TenantClient,
   companyId: string,
   taskId: string,
   terms: BudgetHaltTerms,
+  accountId?: string,
 ): Promise<string | null> {
   const raised = await tx.query(
     "SELECT 1 FROM inbox_items WHERE company_id = $1 AND task_id = $2 AND kind = 'budget_alert' AND status = 'open'",
@@ -1605,10 +1610,10 @@ export async function raiseBudgetHaltWithin(
   if (!task?.budgetAccountId || task.companyId !== companyId) return null;
   const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
     `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
-      WHERE a.id = ANY(app.budget_chain($1))
+      WHERE a.id = ANY(app.budget_chain($1)) AND ($2::uuid IS NULL OR a.id = $2::uuid)
       ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
       LIMIT 1`,
-    [task.budgetAccountId],
+    [task.budgetAccountId, accountId ?? null],
   );
   const account = accounts[0];
   if (!account) return null;

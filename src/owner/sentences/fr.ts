@@ -441,4 +441,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Retiré : plus aucun travail ne l’attend.',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'Retiré : le rôle auquel il a été confié s’en est occupé, et vous n’avez plus rien à décider.',
+  'Work finished: {count}':
+    'Travaux terminés : {count}',
 };

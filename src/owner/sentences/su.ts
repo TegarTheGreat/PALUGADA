@@ -436,4 +436,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tos teu aya deui pagawéan anu ngantosanana.',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'Ditarik: peran anu nampi parantos ngurusna, sarta teu aya deui anu kedah diputuskeun ku anjeun.',
+  'Work finished: {count}':
+    'Padamelan anu réngsé: {count}',
 };

@@ -432,4 +432,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tidak ada lagi pekerjaan yang menunggunya.',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'Ditarik: peran yang menerimanya sudah menanganinya, dan tidak ada lagi yang perlu Anda putuskan.',
+  'Work finished: {count}':
+    'Pekerjaan selesai: {count}',
 };

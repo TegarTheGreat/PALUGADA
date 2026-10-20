@@ -438,4 +438,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ingetrokken: er wacht geen werk meer op.',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'Ingetrokken: de rol waaraan het was overgedragen heeft het afgehandeld, en er valt voor u niets meer te beslissen.',
+  'Work finished: {count}':
+    'Werk klaar: {count}',
 };

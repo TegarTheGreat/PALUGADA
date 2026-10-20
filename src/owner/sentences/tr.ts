@@ -439,4 +439,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: artık onu bekleyen bir iş yok.',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'Geri çekildi: devredildiği rol bununla ilgilendi ve karar vermeniz gereken bir şey kalmadı.',
+  'Work finished: {count}':
+    'Tamamlanan işler: {count}',
 };

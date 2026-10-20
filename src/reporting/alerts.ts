@@ -15,8 +15,10 @@
  * F11.4 names three more, and each is said where it can be acted on rather
  * than as a daily count. A failed read-back has its own incident, about its
  * task (F8.4, engine.ts); a capability that stopped being usable has its own
- * (F8.12, preflight.ts), and the task it stopped is reported by ended.ts. A
- * run whose worker stopped is put back with its journal, which asks nothing of
+ * card (F8.12, preflight.ts and engine.ts), on which the work that waited a
+ * day for it is listed when it stops (`holdEndedOn`), and ended.ts reports
+ * such a task only when no card about the capability is open or that card
+ * already lists fifty. A run whose worker stopped is put back with its journal, which asks nothing of
  * the owner, so it is a line of the daily digest (digest.ts); a task that
  * keeps losing its worker is halted with its own incident (checkout.ts). The
  * daily cards for these were a second urgent card beside the first, pushed at

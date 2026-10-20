@@ -172,10 +172,14 @@ that depend on nothing else — platform stop, company freeze, spend ceiling —
 otherwise have to remember to copy.
 
 **F11.4's verify, preflight and orphan alerts are not daily alerts.** A failed
-read-back and a capability that stopped being usable each raise their own
-incident when they happen (F8.4, F8.12), and the task a capability stopped is
-reported by ended.ts. A daily count of them was a second urgent card saying the
-same thing. A run whose worker stopped is put back with its journal and asks
+read-back raises its own incident when it happens (F8.4). A capability that
+stopped being usable has one card of its own (F8.12), raised by the check that
+failed or by the first long look of the work waiting on it. That work waits on
+the card for up to a day; if the capability is not mended by then, it halts and
+is listed on that card under Work that stopped (`holdEndedOn`, `endedTaskIds`).
+ended.ts reports such a task only when no card about the capability is open
+then, or that card already lists 50 (section 2.186). A daily count of them was
+a second urgent card saying the same thing. A run whose worker stopped is put back with its journal and asks
 the owner for nothing, so it is a line of the daily digest; a task that keeps
 losing its worker is halted with its own incident. `verificationFailuresPerDay`
 is no longer read or accepted; its column is kept and exported (section 2.185).
@@ -11046,7 +11050,7 @@ Each now closes itself once what it reports is handled. Where a chat message is 
 
 - **An orphaned run is a line of the daily digest**, shown only on a day it happened: "Runs picked up again after their worker stopped: 2" (`src/reporting/digest.ts`, `src/owner/digest-said.ts`). `reclaimOrphans` had already put the work back with its journal, so there was nothing for the owner to decide. A task that keeps losing its worker is still halted with its own incident (`checkout.ts`).
 - **No daily count of failed read-backs or preflight failures.**
-  - Each already raises its own card when it happens: F8.4 in `engine.ts`, F8.12 in `preflight.ts`, and `ended.ts` for the task it stopped. The daily sweep pushed a second urgent card saying the same thing.
+  - Each already has a card of its own. F8.4's is raised in `engine.ts` when the read-back fails. F8.12's is the capability's one card, raised by the check that failed (`preflight.ts`) or by the first long look of the work waiting on it (2.186). The task the capability stopped waits on that card, and after a day it halts and is listed there (`holdEndedOn`); `ended.ts` reports it only when no such card is open, or the card already lists 50. The daily sweep pushed a second urgent card saying the same thing.
   - `verificationFailuresPerDay` is gone from the thresholds, the owner API and the assistant. `POST /api/companies/:id/alert-thresholds` with none of its fields now says which fields it takes. The column stays and is still exported. No migration.
 - **A deliberate deviation from F11.4.** F11.4 lists six alerts: cost, failures, policy violations, verify failed, preflight failed, orphan.
   - Cost, failure rate and policy refusals remain daily alerts (`src/reporting/alerts.ts`).
@@ -11115,7 +11119,7 @@ A model down for an afternoon, a vendor's outage, or a credential that expired o
 
   Also in `control-plane.test.ts` (the never-set default is the CEO for 60 minutes), `audit-export.test.ts` (`escalation_set` exported, and inferred for an older archive) and `founding-company.test.ts`. Each new test was seen to fail first.
 - **Not done.**
-  - The owner's card still names only its first task: nothing shows `endedTaskIds` to the owner, though the CEO now reads them all.
+  - The owner's card is titled for its first task and lists the others under Work that stopped (`stopped` on the inbox item, 2.186), but does not mark which of them the owner has already run again. Running them again closes the card only with the last of them (`closeCardsRunAgainAnswers`), so until then every one stays listed. The owner's own answer on the card, or a fix the CEO completes, also closes it.
   - A child the CEO delegates and does not await can fail after the CEO completed. It is not a root task, so it is silent.
   - A failure that recurs, such as a daily schedule, opens a new card and a new CEO run each time.
   - The brief's not-done path may lead the CEO to `owner.ask`, putting a second card before the owner while the first is held.

@@ -438,4 +438,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: अब कोई काम इसका इंतज़ार नहीं कर रहा है।',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'वापस लिया गया: जिस भूमिका को यह सौंपा गया था, उसने इसे संभाल लिया, और आपके तय करने को कुछ नहीं बचा।',
+  'Work finished: {count}':
+    'पूरे हुए काम: {count}',
 };

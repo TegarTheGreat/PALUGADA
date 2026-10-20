@@ -434,4 +434,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '取り下げ済み：これを待っている作業はもうありません。',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     '取り下げ済み：引き渡された役割が対応したため、あなたが決めることは残っていません。',
+  'Work finished: {count}':
+    '完了した仕事：{count}',
 };

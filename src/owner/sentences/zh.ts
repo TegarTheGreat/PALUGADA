@@ -437,4 +437,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已撤回：已没有工作在等待它。',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     '已撤回：接手它的角色已经处理好，没有需要你决定的事了。',
+  'Work finished: {count}':
+    '已完成的工作：{count}',
 };

@@ -441,4 +441,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ถอนออกแล้ว: ไม่มีงานใดรอสิ่งนี้อยู่อีกแล้ว',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     'ถอนออกแล้ว: บทบาทที่ได้รับมอบหมายจัดการเรื่องนี้แล้ว และไม่มีอะไรเหลือให้คุณตัดสินใจ',
+  'Work finished: {count}':
+    'งานที่เสร็จแล้ว: {count}',
 };

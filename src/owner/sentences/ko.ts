@@ -436,4 +436,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '철회됨: 이를 기다리는 작업이 더 이상 없습니다.',
   'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
     '철회됨: 넘겨받은 역할이 처리했으므로 결정할 일이 남아 있지 않습니다.',
+  'Work finished: {count}':
+    '완료된 일: {count}',
 };

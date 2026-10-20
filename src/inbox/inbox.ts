@@ -1621,10 +1621,20 @@ export async function raiseBudgetHaltWithin(
   // runs out stops everything charged to it together, and a card each, to be
   // opened and continued one by one, was the owner's whole afternoon. The
   // card says how many it stopped, live, and one press goes on with them all.
-  const standing = await tx.query<{ id: string }>(
-    `SELECT id FROM inbox_items WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open'
-        AND payload->'budgetHalt'->>'budgetAccountId' = $2 LIMIT 1`, [companyId, account.id]);
+  //
+  // Locked, so that going on with the card's own work, which withdraws it
+  // (`continueHalted`), is waited for: read as open in that moment, it was
+  // taken for this work's card and withdrawn a moment later, while the going
+  // on had looked for stopped work to raise it again on before this work had
+  // stopped. A halt is not held up by that transaction's lock on the account
+  // when its run had spent what it reserved. Once the withdraw commits, the
+  // card is no longer read; one raised again in its place is, on a second look.
+  const standingQuery = `SELECT id FROM inbox_items WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open'
+      AND payload->'budgetHalt'->>'budgetAccountId' = $2 ORDER BY created_at, id LIMIT 1`;
+  const standing = await tx.query<{ id: string }>(`${standingQuery} FOR NO KEY UPDATE`, [companyId, account.id]);
   if (standing.rows[0]) return standing.rows[0].id;
+  const raisedAgain = await tx.query<{ id: string }>(standingQuery, [companyId, account.id]);
+  if (raisedAgain.rows[0]) return raisedAgain.rows[0].id;
   const words = budgetHaltWords(terms.language, {
     account: account.name,
     work: workOf(task.input),

@@ -1161,6 +1161,138 @@ test('the card raised again is the withdrawn account\'s, on work somebody still 
 });
 
 /**
+ * Going on with the work an account's card sits on reads what else the
+ * account stopped, to raise the card again on it, while other workers change
+ * that work. Two going on at once under one account wait for each other at
+ * the account's reservation, which locks it until the first commits: the
+ * second reads what the first left -- a card it can withdraw, or work no
+ * longer stopped -- and one refused for room leaves its work with the card
+ * the first raised on it. A halt is not held up that way when its run had
+ * spent what it reserved, so it releases nothing: raised while the card was
+ * being withdrawn, it found the card still open and raised none, and the
+ * going on had looked for stopped work before this was stopped. The work was
+ * told by no budget card. Each moment is held open here with a row lock on a
+ * card the transaction going on updates after its reads.
+ */
+test('the account\'s card and the work under it are changed by one worker at a time', async () => {
+  const { continueHalted } = await import('../../src/engine/owner-control.ts');
+  const { DEFAULT_TASK_RESERVE_TOKENS } = await import('../../src/engine/tasks.ts');
+  const { BUDGET_CARD_SAYS_SO } = await import('../../src/engine/ended.ts');
+  const openCards = (companyId: string) => withTenant(companyId, (tx) => tx.query<{ task_id: string }>(
+    "SELECT task_id FROM inbox_items WHERE kind = 'budget_alert' AND status = 'open'")).then((r) => r.rows);
+  const covered = async (companyId: string, taskId: string) => (await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${BUDGET_CARD_SAYS_SO}`, [taskId]))).rowCount === 1;
+  /** A card the owner said no to, about `task`: a row going on with `task` updates after its reads. */
+  const answeredCard = async (company: Founded, task: { id: string }) => {
+    const id = (await inbox.raiseBudgetHalt(company.companyId, task.id))!;
+    await withTenant(company.companyId, (tx) => tx.query(
+      "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [id]));
+    return id;
+  };
+  /** Holds the card's row until the returned function lets it go. */
+  const hold = async (companyId: string, cardId: string) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => { held = resolve; });
+    const done = withTenant(companyId, async (tx) => {
+      await tx.query('SELECT 1 FROM inbox_items WHERE id = $1 FOR UPDATE', [cardId]);
+      held();
+      await gate;
+    });
+    await holding;
+    return async () => { release(); await done; };
+  };
+  /** Settles to what `work` did, and says when it has. */
+  const watched = (work: Promise<unknown>) => {
+    const state = { settled: false, outcome: undefined as unknown };
+    const promise = work.then((value) => { state.outcome = value; }, (error) => { state.outcome = error; })
+      .finally(() => { state.settled = true; });
+    return { state, promise };
+  };
+  /** Until `n` connections to this database wait for a lock, or what was watched has settled. */
+  const waitingOn = async (n: number, state: { settled: boolean }) => {
+    for (let waited = 0; waited < 10_000 && !state.settled; waited += 20) {
+      const { rows } = await withControlPlane((tx) => tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+          WHERE NOT l.granted AND a.datname = current_database()`));
+      if (rows[0]!.n >= n) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+
+  // Two going on at once: "go on with all" on August, self-heal on July, the
+  // card's. Neither raises a card on work the other is going on with.
+  const company = await founded('budget-card-two-continues');
+  const august = await stoppedForBudget(company, 'post the August invoices');
+  const answered = await answeredCard(company, august);
+  const july = await stoppedForBudget(company, 'post the July invoices');
+  await inbox.raiseBudgetHalt(company.companyId, july.id);
+  const letGo = await hold(company.companyId, answered);
+  const all = watched(continueHalted(company.companyId, august.id, 'owner', { reraise: false }));
+  await waitingOn(1, all.state);
+  const healed = watched(continueHalted(company.companyId, july.id, 'system'));
+  await waitingOn(2, healed.state);
+  await letGo();
+  await all.promise;
+  await healed.promise;
+  assert.equal(all.state.outcome, undefined);
+  assert.equal(healed.state.outcome, undefined);
+  assert.equal((await taskState(company.companyId, august.id)).status, 'pending');
+  assert.equal((await taskState(company.companyId, july.id)).status, 'pending');
+  assert.deepEqual(await openCards(company.companyId), [], 'no card on work that went on');
+
+  // The second refused for room once the first has gone on: its work keeps
+  // the card the first raised on it.
+  const tight = await founded('budget-card-second-refused');
+  const may = await stoppedForBudget(tight, 'post the May invoices');
+  const mayCard = (await inbox.raiseBudgetHalt(tight.companyId, may.id))!;
+  const june = await stoppedForBudget(tight, 'post the June invoices');
+  await withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = tokens_spent + tokens_reserved + $2
+      WHERE id = ANY(SELECT unnest(app.budget_chain(budget_account_id)) FROM tasks WHERE id = $1)`,
+    [may.id, DEFAULT_TASK_RESERVE_TOKENS]));
+  const free = await hold(tight.companyId, mayCard);
+  const first = watched(continueHalted(tight.companyId, may.id));
+  await waitingOn(1, first.state);
+  const second = watched(continueHalted(tight.companyId, june.id));
+  await waitingOn(2, second.state);
+  await free();
+  await first.promise;
+  await second.promise;
+  assert.equal(first.state.outcome, undefined);
+  assert.equal((second.state.outcome as { code?: string }).code, 'budget.reservation_refused');
+  assert.equal((await taskState(tight.companyId, june.id)).status, 'halted');
+  assert.deepEqual(await openCards(tight.companyId), [{ task_id: june.id }]);
+  assert.equal(await covered(tight.companyId, june.id), true);
+
+  // A halt raised while the card's work goes on, by a run that had spent
+  // what it reserved.
+  const halting = await founded('budget-card-halt-meanwhile');
+  const october = await stoppedForBudget(halting, 'post the October invoices');
+  const said = await answeredCard(halting, october);
+  await inbox.raiseBudgetHalt(halting.companyId, october.id);
+  const november = await rootOf(halting, halting.hiredId, 'post the November invoices');
+  await withTenant(halting.companyId, async (tx) => {
+    await tx.query('SELECT app.budget_release(budget_account_id, tokens_reserved) FROM tasks WHERE id = $1', [november.id]);
+    await tx.query('UPDATE tasks SET tokens_reserved = 0 WHERE id = $1', [november.id]);
+  });
+  const release = await hold(halting.companyId, said);
+  const goingOn = watched(continueHalted(halting.companyId, october.id));
+  await waitingOn(1, goingOn.state);
+  await transition(halting.companyId, november.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+  const raised = watched(inbox.raiseBudgetHalt(halting.companyId, november.id));
+  await waitingOn(2, raised.state);
+  await release();
+  await goingOn.promise;
+  await raised.promise;
+  assert.equal(goingOn.state.outcome, undefined);
+  assert.deepEqual(await openCards(halting.companyId), [{ task_id: november.id }]);
+  assert.equal(await covered(halting.companyId, november.id), true);
+  assert.equal(await reportEndedBadly(halting.companyId, later()), 0);
+});
+
+/**
  * A card about a task names it for good, and ended.ts counted any card that
  * names a task as having told of it, whatever had happened since. Going on
  * is the same task: the card that said its budget stopped it -- the

@@ -614,6 +614,13 @@ export async function continueHalted(
     // gave up, a coordinator's task on a closed card wait for nobody, and a
     // card on one of them alone asked the owner to do it a second time. None
     // is raised when nothing else is left.
+    //
+    // Read without a lock, and not skipping work another worker holds. That
+    // work is under this account, so going on with it reserves on the account
+    // this transaction has locked, and it waits for this one to commit: then
+    // it withdraws the card raised on it here, or is refused for room and
+    // keeps it. Skipped, a task whose going on was then refused stayed
+    // stopped with no card.
     for (const card of withdrawn) {
       if (!terms || !card.account) continue;
       const { rows: next } = await tx.query<{ id: string }>(

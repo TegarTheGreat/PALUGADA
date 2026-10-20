@@ -174,18 +174,23 @@ export async function keepReceivedFile(input: {
   const month = input.at.toISOString().slice(0, 7);
   const name = `${stem}-${input.position}.${sniffed.ext}`;
 
-  // Folder by folder, so that a link put where one goes is found before anything is made beyond it.
+  // Folder by folder, so that a link put where one goes is found before anything is made beyond it. Another
+  // writer -- a second mailbox, an answer -- may make the same folder between the look and the making: what it
+  // made is looked at again, and a folder is gone on with, as a link never is.
   let here = await companyRoot(input.root, input.companyId);
-  try {
-    for (const part of [RECEIVED_FOLDER, channel, month]) {
-      here = join(here, part);
-      const found = await lstat(here).catch(() => null);
-      if (found === null) await mkdir(here);
-      else if (!found.isDirectory()) return { note: 'the company\'s files have a link where received files go, so nothing was written', why: 'failed' };
+  for (const part of [RECEIVED_FOLDER, channel, month]) {
+    here = join(here, part);
+    let found = await lstat(here).catch(() => null);
+    if (found === null) {
+      try {
+        await mkdir(here);
+        continue;
+      } catch (failure) {
+        if ((failure as NodeJS.ErrnoException).code !== 'EEXIST') throw failure;
+        found = await lstat(here).catch(() => null);
+      }
     }
-  } catch (failure) {
-    if ((failure as NodeJS.ErrnoException).code === 'EEXIST') return { note: 'the folder for received files changed while it was being made', why: 'failed' };
-    throw failure;
+    if (!found?.isDirectory()) return { note: 'the company\'s files have a link where received files go, so nothing was written', why: 'failed' };
   }
 
   const sha256 = createHash('sha256').update(input.bytes).digest('hex');

@@ -614,6 +614,23 @@ test('a file of a few bytes is the text it is, and text that begins with SELF is
   assert.equal(await readFile(join(root, fixture.companyId, kept[0]!.path), 'utf8'), 'ok');
 });
 
+/**
+ * Two writers can make the same folder at once -- two mailboxes of one company
+ * read by two workers at the first file of a month, a mail and an answer at
+ * the first file of all -- and the one that came second was told the folder
+ * "changed while it was being made", and its customer's file was never kept.
+ */
+test('files written at the same moment into folders not made yet are all kept', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'palugada-attachments-race-'));
+  roots.push(root);
+  const fixture = await createCompany('attachments-race');
+  const made = await Promise.all(['a1b2c3d4', 'b1b2c3d4', 'c1b2c3d4', 'd1b2c3d4', 'e1b2c3d4', 'f1b2c3d4'].map((stem, n) => keepReceivedFile({
+    root, companyId: fixture.companyId, channel: n % 2 === 0 ? 'email' : 'answers', at: new Date('2026-10-06T10:00:00Z'),
+    messageId: `${stem}-0000-4000-8000-000000000000`, position: 1, bytes: ORDER, claimedName: 'po.pdf',
+  })));
+  assert.deepEqual(made.map((one) => ('kept' in one ? 'kept' : one.note)), Array(6).fill('kept'));
+});
+
 test('a link where received files go does not carry the write out, and an earlier file is not replaced', async () => {
   const root = await mkdtemp(join(tmpdir(), 'palugada-attachments-link-'));
   const outside = await mkdtemp(join(tmpdir(), 'palugada-attachments-outside-'));

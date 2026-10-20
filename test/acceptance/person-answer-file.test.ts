@@ -12,9 +12,11 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { ownerAskCapability } from '../../src/broker/platform-capabilities.ts';
@@ -25,6 +27,7 @@ import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { chromium, openPage } from '../helpers/browser.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -187,6 +190,84 @@ test('a deployment that keeps no files says so, and does not drop the file on th
     assert.match(String(sent.body.error), /keeps no files/);
     assert.equal((await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>('SELECT status FROM inbox_items WHERE id = $1', [rows[0]!.id]))).rows[0]!.status, 'open');
   } finally {
+    await api.close();
+  }
+});
+
+const BUILT = fileURLToPath(new URL('../../console/dist', import.meta.url));
+const browser = chromium();
+
+/**
+ * The card offers a file to go with the answer to every question, and an
+ * answer pressed from the options went by the route that keeps no file: the
+ * owner was told "Answer sent" and the run never had the file. And a file
+ * taken off and chosen again did nothing, because the browser fires no change
+ * for the file its button already holds.
+ */
+test('a file attached before an offered answer is pressed goes with that answer, and a file can be chosen again', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
+  assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-answer-files-console-'));
+  const fixture = await createCompany('answer-file-console');
+  const api = await consoleWithSettings({ files: { root }, staticRoot: BUILT });
+  const page = await openPage(browser as string, { width: 1280, height: 900 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
+  try {
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'Pilih pemasok gula' }, createdBy: 'owner', reserveTokens: 100,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    const context = { companyId: fixture.companyId, taskId: task.id, divisionId: fixture.divisionId, roleId: fixture.roleId } as never;
+    const input = { question: 'Pemasok mana yang dipakai?', options: ['Pemasok A', 'Pemasok B'] };
+    await assert.rejects(ownerAskCapability().execute(input as never, context), (error: unknown) => (error as { code?: string }).code === 'owner.asked');
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+      "SELECT id FROM inbox_items WHERE task_id = $1 AND status = 'open'", [task.id]));
+    const itemId = rows[0]!.id;
+
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]')`, 'the console');
+    await page.evaluate(`location.hash = '#/c/${fixture.companyId}/inbox?item=${itemId}'`);
+    const option = `[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Pemasok A')`;
+    await page.waitFor(`${option} && document.querySelector('input[type="file"]')`, 'the question with its options');
+
+    // A file chosen, taken off, and chosen again, as a person does with the same file.
+    const choose = `(() => {
+      const input = document.querySelector('input[type="file"]');
+      const chosen = new DataTransfer();
+      chosen.items.add(new File(['harga A: Rp 15.000/kg'], 'penawaran.txt', { type: 'text/plain' }));
+      input.files = chosen.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`;
+    await page.evaluate(choose);
+    await page.waitFor(`document.body.innerText.includes('penawaran.txt')`, 'the file attached');
+    assert.equal(await page.evaluate(`document.querySelector('input[type="file"]').value`), '',
+      'the button forgets the file it was given, so the same one chosen again is a change the browser reports');
+    await page.evaluate(`document.querySelector('button[aria-label="Remove penawaran.txt"]').click()`);
+    await page.waitFor(`!document.body.innerText.includes('penawaran.txt')`, 'the file taken off');
+    await page.evaluate(choose);
+    await page.waitFor(`document.body.innerText.includes('penawaran.txt')`, 'the file attached again');
+
+    await page.evaluate(`${option}.click()`);
+    const until = Date.now() + 15_000;
+    let status = 'open';
+    while (status === 'open' && Date.now() < until) {
+      status = (await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>('SELECT status FROM inbox_items WHERE id = $1', [itemId]))).rows[0]!.status;
+      if (status === 'open') await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(status, 'decided');
+    const told = await ownerAskCapability().execute(input as never, context) as { answered: boolean; answer: string; files?: Array<{ kind: string; path: string }> };
+    assert.equal(told.answered, true);
+    assert.match(String(told.answer), /^Pemasok A/, 'the answer is the option pressed');
+    assert.deepEqual((told.files ?? []).map((one) => one.kind), ['text'], 'and the file went with it');
+    assert.equal(await readFile(join(root, fixture.companyId, told.files![0]!.path), 'utf8'), 'harga A: Rp 15.000/kg');
+  } finally {
+    await page.close();
     await api.close();
   }
 });

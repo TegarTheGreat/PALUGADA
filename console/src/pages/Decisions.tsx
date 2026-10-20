@@ -19,7 +19,7 @@
  * way -- the confirmation says which of the chosen stay, and the server
  * leaves them whatever the page sends.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionIcon, Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, FileButton, Grid, Group, Kbd, Menu, Modal, NumberInput,
   Paper, ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
@@ -533,7 +533,11 @@ function Detail({
   const [answer, setAnswer] = useState('');
   // Files that go with the answer to a run's question: read when chosen, sent with the answer, kept nowhere here.
   const [attached, setAttached] = useState<Array<{ name: string; data: string }>>([]);
+  // The button keeps the files it was given until it is told to forget them, and a browser says nothing when the
+  // same one is chosen again -- after it was taken off, or refused as too big.
+  const forget = useRef<() => void>(null);
   const attach = async (chosen: File[]) => {
+    forget.current?.();
     const room = ANSWER_FILES_MAX - attached.length;
     if (chosen.length > room) {
       setError(t('At most five files can come with an answer.'));
@@ -640,12 +644,17 @@ function Detail({
   };
 
   // One of the answers the agent offered, pressed: the answer is its text,
-  // on a yes, exactly as if it had been typed.
+  // on a yes, exactly as if it had been typed -- with the files attached, by
+  // the route that keeps them, as a typed answer goes.
   const choose = async (option: string) => {
     setBusy(`choose:${option}`);
     setError(null);
     try {
-      await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      if (attached.length > 0) {
+        await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer: option, files: attached });
+      } else {
+        await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      }
       notifications.show({ color: 'teal', message: t('Answer sent. The task carries on with it.') });
       decided();
     } catch (failure) {
@@ -866,7 +875,7 @@ function Detail({
                   </Group>
                 ))}
                 {attached.length < ANSWER_FILES_MAX && (
-                  <FileButton multiple onChange={(chosen) => void attach(chosen)}>
+                  <FileButton multiple resetRef={forget} onChange={(chosen) => void attach(chosen)}>
                     {(props) => <Button {...props} size="xs" variant="light" leftSection={<IconPaperclip size={14} />}>{t('Attach a file')}</Button>}
                   </FileButton>
                 )}

@@ -776,7 +776,8 @@ export const QUESTIONS_PER_TASK = 3;
 export const QUESTION_ESCALATES_AFTER_HOURS = 24;
 
 export type AgentQuestion =
-  | { state: 'answered'; inboxItemId: string; answer: string; files: AnswerFile[] }
+  /** `bySeat`: the person it was put to answered it, rather than the owner in their place. */
+  | { state: 'answered'; inboxItemId: string; answer: string; files: AnswerFile[]; bySeat: boolean }
   | { state: 'waiting'; inboxItemId: string }
   | { state: 'unanswered'; inboxItemId: string };
 
@@ -858,8 +859,10 @@ export async function askOwner(input: {
     }
     const { rows: asked } = await tx.query<{
       id: string; status: string; decision: string | null; owner_note: string | null; question: string; answer_files: AnswerFile[];
+      by_seat: boolean;
     }>(
-      `SELECT id, status, decision, owner_note, payload->>'question' AS question, answer_files FROM inbox_items
+      `SELECT id, status, decision, owner_note, payload->>'question' AS question, answer_files,
+              decided_by_seat IS NOT NULL AS by_seat FROM inbox_items
         WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
         ORDER BY created_at`,
       [input.taskId],
@@ -877,7 +880,7 @@ export async function askOwner(input: {
         return { state: 'waiting', inboxItemId: same.id };
       }
       if (same.status === 'decided' && same.decision === 'approve') {
-        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '', files: same.answer_files };
+        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '', files: same.answer_files, bySeat: same.by_seat };
       }
       return { state: 'unanswered', inboxItemId: same.id };
     }

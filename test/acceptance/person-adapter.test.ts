@@ -171,11 +171,15 @@ test('an answer already given is the work done, though the person was unseated b
     const [left] = (await items()).filter((item) => item.question);
     assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${left!.id}/answer`, owner, { answer: 'Stok susu 12 dus.' })).status, 200);
 
-    for (const [task, said] of [[answered, 'Stok gula 40 karung.'], [open, 'Stok susu 12 dus.']] as const) {
+    // Each is said to be by whoever gave it: Budi's by Budi, the owner's by
+    // the owner, not credited to the person who left.
+    for (const [task, said, by] of [[answered, 'Stok gula 40 karung.', 'Budi'], [open, 'Stok susu 12 dus.', 'the owner']] as const) {
       const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
       assert.equal(outcome.status, 'completed', `${said}: ${outcome.reason}`);
       const done = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
-      assert.equal((done!.output as { summary: string }).summary, said, 'the answer given is kept, not thrown away');
+      const output = done!.output as { summary: string; answeredBy: string };
+      assert.equal(output.summary, said, 'the answer given is kept, not thrown away');
+      assert.equal(output.answeredBy, by);
     }
   } finally {
     await api.close();

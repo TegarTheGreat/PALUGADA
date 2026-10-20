@@ -83,10 +83,14 @@ export class PersonAdapter implements Adapter {
     });
 
     if (asked.state === 'answered') {
+      // Whoever gave the answer is who it is from: the owner may answer in
+      // the person's place, and the work is not credited to someone who did
+      // not do it.
+      const by = asked.bySeat ? name : 'the owner';
       return {
         output: {
-          summary: asked.answer || `${name} did it`,
-          answeredBy: name,
+          summary: asked.answer || `${by} did it`,
+          answeredBy: by,
           ...(asked.files.length > 0 ? { files: asked.files.map((one) => ({ kind: one.kind, name: one.name, path: one.path })) } : {}),
         },
         // A person's answer is not a model's report on criteria it met: it is

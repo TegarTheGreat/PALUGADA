@@ -385,12 +385,13 @@ The first version. What it holds, in the order an owner meets it.
   lost if the worker stops. Such cards left open by the upgrade, or in a company restored from an older archive,
   close the same way, and a card's Telegram message and its line in History say why it closed. The alert thresholds
   no longer take `verificationFailuresPerDay` (STATUS 2.185).
-- A model or a service that stays down, or a capability whose check fails for good (a refused credential), no
-  longer halts every task in flight with a card of its own. The work waits, looking again up to an hour apart for
-  up to a day. There is one card for the cause, raised again if the cause comes back. The card closes itself and
-  the waiting work goes on by itself when the cause passes. Work still waiting after a day stops and is listed on
-  the card, to open and run again; the card stays for that work once the cause passes, and the next outage has a
-  card of its own. Saving a model key now calls back the work waiting for it (STATUS 2.186).
+- A model or a service that stays down, or a capability whose check fails for good (a refused credential), no longer
+  halts every task in flight with a card of its own. The work waits, looking again up to an hour apart for up to a
+  day. There is one card for the cause while work waits on it, raised again if the cause comes back. The card closes
+  itself and the waiting work goes on by itself when the cause passes. Work still waiting after a day stops and is
+  listed on the card, to open and run again; the card stays for that work once the cause passes or, for a model or a
+  service, no work waits on it any more, and the next work to meet the cause has a card of its own, beside the first
+  if the cause is still down. Saving a model key now calls back the work waiting for it (STATUS 2.186).
 - A task of a role you hired that ends without being done now goes to your CEO first, for an hour, in every
   division where you have not named someone else or nobody under Who hears about trouble first. The CEO is told of
   every task on the card. A fix closes the card, which stays readable; when the CEO cannot fix it, it says why and

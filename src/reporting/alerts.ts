@@ -17,8 +17,9 @@
  * task (F8.4, engine.ts); a capability that stopped being usable has its own
  * card (F8.12, preflight.ts and engine.ts), on which the work that waited a
  * day for it is listed when it stops (`holdEndedOn`), and ended.ts reports
- * such a task only when no card about the capability is open or that card
- * already lists fifty. A run whose worker stopped is put back with its journal, which asks nothing of
+ * such a task only when no card about the capability that still answers for
+ * it is open -- one kept only for earlier stopped work (`causePassed`) does
+ * not -- or that card already lists fifty. A run whose worker stopped is put back with its journal, which asks nothing of
  * the owner, so it is a line of the daily digest (digest.ts); a task that
  * keeps losing its worker is halted with its own incident (checkout.ts). The
  * daily cards for these were a second urgent card beside the first, pushed at

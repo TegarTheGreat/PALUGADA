@@ -440,4 +440,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Отозвано: роль, которой это передали, с этим разобралась, и решать вам больше нечего.',
   'Work finished: {count}':
     'Завершено работ: {count}',
+  'Stopped: its work was taken up another way':
+    'Остановлена: работу продолжили другим путём',
 };

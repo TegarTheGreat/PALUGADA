@@ -17,14 +17,14 @@
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
-import { TERMINAL_STATUSES, isTerminal, type TaskStatus } from '../domain/task.ts';
+import { TERMINAL_STATUSES, isTerminal, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
-import { heldAllRunAgain, lockOnceWithin } from '../inbox/inbox.ts';
+import { budgetHaltTerms, heldAllRunAgain, lockOnceWithin, raiseBudgetHaltWithin } from '../inbox/inbox.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
 export const INSTRUCTION_MAX = 2_000;
@@ -78,7 +78,9 @@ async function taskHere(companyId: string, taskId: string) {
 
 /**
  * Cancels a task and every task under it that has not ended, and returns how
- * many that was.
+ * many that was. By the owner, or by the platform (`work_taken_up`), which
+ * stops a coordinator whose card was answered before the card named it and
+ * says so: the owner is not told they cancelled what they never touched.
  *
  * The sub-tasks too, because a child exists to serve its parent and one left
  * running would spend money on an answer nobody will read. Nothing else: a
@@ -99,29 +101,57 @@ export async function cancelTask(
   if (isTerminal(root.status)) {
     throw new PalugadaError('contract.violation', `task ${taskId} is already ${root.status}`, { taskId });
   }
+  return cancelTree(companyId, taskId, reason, by, by === 'owner' ? 'owner_cancel' : 'work_taken_up', false);
+}
+
+/**
+ * The cancel itself. `stopped` takes work its budget stopped as well, the
+ * task's own and any under it: halted, so ended as far as the state machine
+ * goes, but it goes on by itself once there is room (self-heal.ts). What a
+ * coordinator was handed is stopped for good when the work it was handling
+ * has been taken up (`stopHandling`), whether it was working or waiting for
+ * room, and so is what it handed on. A task that has ended any other way,
+ * meanwhile included, is left as it ended, and nothing under it is touched.
+ *
+ * `haltReason` says what happened, and `by` who pressed: the owner's Run
+ * again on the work stops the CEO handling it as work taken up, by the
+ * owner's press. Told by who pressed, it was "Cancelled by you" of a CEO the
+ * owner never cancelled.
+ */
+async function cancelTree(
+  companyId: string,
+  taskId: string,
+  reason: string | null | undefined,
+  by: 'owner' | 'system',
+  haltReason: HaltReason,
+  stopped: boolean,
+): Promise<number> {
   const why = reason?.trim() ? reason.trim().slice(0, INSTRUCTION_MAX) : null;
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; project_id: string; budget_account_id: string | null; released: string;
     }>(
       `WITH RECURSIVE tree AS (
-         SELECT id FROM tasks WHERE id = $1 AND company_id = $2
+         SELECT id FROM tasks
+          WHERE id = $1 AND company_id = $2
+            AND (NOT $4 OR status <> ALL ($3::text[]) OR (status = 'halted' AND halt_reason = 'budget_exhausted'))
          UNION ALL
          SELECT t.id FROM tasks t JOIN tree ON t.parent_task_id = tree.id AND t.company_id = $2
        ),
        doomed AS (
          SELECT t.id, t.tokens_reserved FROM tasks t JOIN tree ON tree.id = t.id
           WHERE t.status <> ALL ($3::text[])
+             OR ($4 AND t.status = 'halted' AND t.halt_reason = 'budget_exhausted')
           ORDER BY t.id
           FOR NO KEY UPDATE OF t
        )
        UPDATE tasks t
-          SET status = 'cancelled', halt_reason = 'owner_cancel', finished_at = now(),
+          SET status = 'cancelled', halt_reason = $5, finished_at = now(),
               lease_holder = NULL, lease_expires_at = NULL, tokens_reserved = 0
          FROM doomed d
         WHERE t.id = d.id
        RETURNING t.id, t.project_id, t.budget_account_id, d.tokens_reserved AS released`,
-      [taskId, companyId, TERMINAL_STATUSES],
+      [taskId, companyId, TERMINAL_STATUSES, stopped, haltReason],
     );
     await releaseReservations(tx, rows);
     for (const row of rows) {
@@ -132,7 +162,7 @@ export async function cancelTask(
         type: 'task.cancelled',
         actor: by,
         payload: {
-          haltReason: 'owner_cancel',
+          haltReason,
           ...(row.id === taskId ? {} : { under: taskId }),
           ...(why ? { reason: why } : {}),
         },
@@ -230,6 +260,17 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 
 /** Why a coordinator's task is stopped when the owner runs again the work it was handed. */
 const RERUN_STOPS_HANDLING = 'the owner ran the work it was handling again';
+/** And when the work it was handed goes on from where it stopped. */
+const GONE_ON_STOPS_HANDLING = 'the work it was handling went on';
+/** And when its card closed before the card named it (`handOver`). */
+export const ANSWERED_BEFORE_HANDED = 'the card it was handed was answered before it reached it';
+
+/** Why a coordinator's task is stopped, by how the card it was handed closed. */
+function whyHandlingStops(closedReason: string | null): string {
+  if (closedReason === 'task_rerun') return RERUN_STOPS_HANDLING;
+  if (closedReason === 'task_continued' || closedReason === 'budget_room') return GONE_ON_STOPS_HANDLING;
+  return ANSWERED_BEFORE_HANDED;
+}
 
 /**
  * Stops the tasks a coordinator was handed for cards the work itself has
@@ -237,9 +278,11 @@ const RERUN_STOPS_HANDLING = 'the owner ran the work it was handling again';
  * started: the work is being done, and a CEO still fixing it would do it a
  * second time beside it, an invoice sent twice. After the card is closed, in
  * a transaction of its own, so the close never holds a card while it waits
- * for tasks and budgets, which the engine takes the other way round. One that
- * has ended meanwhile is left as it ended; its account is written on the card
- * (`handEscalations`), as is that this one was stopped.
+ * for tasks and budgets, which the engine takes the other way round. One its
+ * budget stopped is stopped too: left halted, it went on by itself once there
+ * was room, on the closed card. One that has ended any other way meanwhile is
+ * left as it ended; its account is written on the card (`handEscalations`),
+ * as is that this one was stopped.
  */
 async function stopHandling(
   companyId: string,
@@ -247,12 +290,51 @@ async function stopHandling(
   why: string,
   by: 'owner' | 'system',
 ): Promise<void> {
-  for (const id of taskIds) {
-    try {
-      await cancelTask(companyId, id, why, by);
-    } catch (error) {
-      if (!(error instanceof PalugadaError && error.code === 'contract.violation')) throw error;
-    }
+  for (const id of taskIds) await cancelTree(companyId, id, why, by, 'work_taken_up', true);
+}
+
+/**
+ * Stops what a coordinator was handed for a card the work itself answered
+ * -- run again, or gone on with -- that the press did not stop. The press
+ * stops it after the card's transaction commits (`stopHandling`), and a
+ * worker that stopped in between, or a cancel that failed, left it working
+ * for good, paid for, beside the work: a second Continue is refused, and
+ * self-heal never presses twice. Found from the card, at every hand-over
+ * look (`handEscalations`), so whichever press it was, it is stopped once.
+ * Only until the card has its coordinator's account, which is written once
+ * its task has ended -- or says it halted, which may be its budget, and then
+ * it is stopped as well.
+ *
+ * And a coordinator's task the card never named. The hand-over makes the
+ * task, then names it on the card in a transaction of its own, and cancels
+ * the task itself when the card has closed in between (`handOver`). A worker
+ * that stopped between the two, with the card then closed -- run again, or
+ * the owner's own answer -- before it was back, left a task nothing found
+ * again: the next look hands over only open cards. Found by the key the
+ * hand-over made it under, from the card, by its id.
+ */
+export async function stopHandlingLeftWorking(companyId: string): Promise<void> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string; reason: string | null }>(
+    `SELECT DISTINCT ON (h.id) h.id, i.closed_reason AS reason FROM inbox_items i
+       JOIN tasks h ON h.id = (i.payload->>'handedTaskId')::uuid
+      WHERE i.kind = 'escalation' AND i.status = 'withdrawn'
+        AND i.closed_reason IN ('task_rerun', 'task_continued', 'budget_room')
+        AND (NOT i.payload ? 'handledOutcome' OR i.payload->>'handledOutcome' = 'halted')
+        AND (h.status <> ALL($1::text[]) OR (h.status = 'halted' AND h.halt_reason = 'budget_exhausted'))
+      ORDER BY h.id
+      LIMIT 50`,
+    [TERMINAL_STATUSES]));
+  const { rows: unnamed } = await withTenant(companyId, (tx) => tx.query<{ id: string; reason: string | null }>(
+    `SELECT h.id, i.closed_reason AS reason FROM inbox_items i
+       JOIN tasks h ON h.idempotency_key = 'escalation:' || i.id::text
+      WHERE i.kind = 'escalation' AND i.status <> 'open' AND i.payload->>'escalationRole' IS NOT NULL
+        AND NOT i.payload ? 'handedTaskId' AND NOT i.payload ? 'handoffFailed'
+        AND (h.status <> ALL($1::text[]) OR (h.status = 'halted' AND h.halt_reason = 'budget_exhausted'))
+      ORDER BY h.id
+      LIMIT 50`,
+    [TERMINAL_STATUSES]));
+  for (const row of [...rows, ...unnamed]) {
+    await stopHandling(companyId, [row.id], whyHandlingStops(row.reason), 'system');
   }
 }
 
@@ -354,12 +436,14 @@ async function closeCardsRunAgainAnswers(
   }
   // What a coordinator was handed for an ended-work card that running the
   // work again has closed -- now, or by an earlier press that stopped before
-  // it got this far -- and is still working on, to be stopped (`stopHandling`).
+  // it got this far -- and is still working on, or waiting for room to, to be
+  // stopped (`stopHandling`).
   const { rows: handling } = await tx.query<{ id: string }>(
     `SELECT DISTINCT h.id FROM inbox_items i
        JOIN tasks h ON h.id = (i.payload->>'handedTaskId')::uuid
       WHERE i.kind = 'escalation' AND i.status = 'withdrawn' AND i.closed_reason = 'task_rerun'
-        AND i.payload->'endedTaskIds' ? $1 AND h.status <> ALL($2::text[])`,
+        AND i.payload->'endedTaskIds' ? $1
+        AND (h.status <> ALL($2::text[]) OR (h.status = 'halted' AND h.halt_reason = 'budget_exhausted'))`,
     [taskId, TERMINAL_STATUSES],
   );
   return handling.map((row) => row.id);
@@ -376,12 +460,23 @@ async function closeCardsRunAgainAnswers(
  * while the child waited, so the answer would go nowhere. A parent that
  * completed abandoned nothing: it is the ordinary state of a follow-up, of a
  * hand-off's successor and of work a coordinator handed down and left. A
- * parent stopped for its budget goes on too, and the child with it. Nor a
+ * parent stopped for its budget goes on too, and the child with it, unless
+ * that parent is itself left for good: so every ancestor stopped for its
+ * budget is looked at, up to the first that is not, and one looked at
+ * that was abandoned, or is a coordinator on a closed card (below), keeps
+ * everything under it where it is. One level up, a task two under such a
+ * coordinator went on, its answer for a parent that never would. Nor a
  * reviewer whose review is already settled -- gone to the owner while it was
  * stopped -- since a review that has an answer reads no other verdict. A
  * reviewer is its proposer's sub-task, so its review is found by the proposer,
  * which the reviews are indexed by; by the reviewer alone it was a scan of
  * every review the company ever had, for each stopped task, each look.
+ *
+ * Nor a coordinator's task whose card is no longer open -- its work run
+ * again or gone on with, or the owner's own answer -- nor what it handed on:
+ * nobody reads its account any more, and set going again it would do beside
+ * the owner what the owner had answered. Its card is found by its key
+ * (`handOver`), as `takenUpOnHandedCard` finds it, by the card's own id.
  */
 export const GOES_ON_BY_ITSELF = `
   NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
@@ -390,10 +485,26 @@ export const GOES_ON_BY_ITSELF = `
                    WHERE rr.proposer_task_id = t.parent_task_id AND rr.review_task_id = t.id AND rr.status <> 'pending')
   AND NOT EXISTS (SELECT 1 FROM task_steps s
                    WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
+  AND NOT EXISTS (SELECT 1 FROM inbox_items hc WHERE hc.id = ${handedCard('t')} AND hc.status <> 'open')
   AND NOT EXISTS (
-        SELECT 1 FROM tasks p WHERE p.id = t.parent_task_id
-           AND (p.status IN ('failed', 'cancelled')
-                OR (p.status = 'halted' AND p.halt_reason IS DISTINCT FROM 'budget_exhausted')))`;
+        WITH RECURSIVE above AS (
+          SELECT p.id, p.parent_task_id, p.status, p.halt_reason, p.idempotency_key
+            FROM tasks p WHERE p.id = t.parent_task_id
+          UNION ALL
+          SELECT p.id, p.parent_task_id, p.status, p.halt_reason, p.idempotency_key
+            FROM tasks p JOIN above a ON p.id = a.parent_task_id
+           WHERE a.status = 'halted' AND a.halt_reason = 'budget_exhausted')
+        SELECT 1 FROM above p
+         WHERE p.status IN ('failed', 'cancelled')
+            OR (p.status = 'halted' AND p.halt_reason IS DISTINCT FROM 'budget_exhausted')
+            OR (p.status = 'halted'
+                AND EXISTS (SELECT 1 FROM inbox_items hc WHERE hc.id = ${handedCard('p')} AND hc.status <> 'open')))`;
+
+/** The card a coordinator's task (`task`) was handed, by the key it was made under; NULL for any other task. */
+function handedCard(task: string): string {
+  return `CASE WHEN ${task}.idempotency_key ~ '^escalation:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+               THEN substr(${task}.idempotency_key, 12)::uuid END`;
+}
 
 /**
  * Goes on with a task its budget stopped, from where it stopped.
@@ -414,8 +525,21 @@ export const GOES_ON_BY_ITSELF = `
  * is paused, and while its role is frozen. The `transition` path does not
  * reach this: `halted` has no way out in the state machine, and this is the
  * one door, opened by the owner.
+ *
+ * Going on with the work an account's card sits on answers the card, but
+ * not for the rest of what the account stopped: the card is raised again,
+ * in the same transaction, on the work still stopped. Withdrawn alone, it
+ * left that work told by nothing -- ended.ts counts it as told while a
+ * budget card covers it, and looks back only a day. Not when going on with
+ * all of them (`continueAllHalted`, `reraise: false`), which raises it once,
+ * at the end, for those it could not fund.
  */
-export async function continueHalted(companyId: string, taskId: string, by: 'owner' | 'system' = 'owner'): Promise<void> {
+export async function continueHalted(
+  companyId: string,
+  taskId: string,
+  by: 'owner' | 'system' = 'owner',
+  options: { reraise?: boolean } = {},
+): Promise<void> {
   const task = await taskHere(companyId, taskId);
   const refuse = (status: string, reason: string | null) => new PalugadaError(
     'task.not_continuable',
@@ -439,6 +563,8 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       `task ${taskId} cannot be continued: retention has cleared what its run said, so there is nothing to go on from. `
         + 'Run it again instead', { taskId, status: task.status, haltReason: task.haltReason });
   }
+  // Read before the transaction, which should not wait on another connection.
+  const terms = options.reraise === false ? null : await budgetHaltTerms();
   const handling = await withControlPlane(async (tx) => {
     // The lock ended.ts reports a stopped task under: a card it raises about
     // this one is either there to be closed below, or raised after the task
@@ -495,10 +621,10 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
     });
     const closedBecause = by === 'system' ? 'budget_room' : 'task_continued';
     // The card that said it stopped has been answered by going on.
-    const { rows: withdrawn } = await tx.query<{ id: string }>(
+    const { rows: withdrawn } = await tx.query<{ id: string; account: string | null }>(
       `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
         WHERE task_id = $1 AND company_id = $2 AND kind = 'budget_alert' AND status = 'open'
-        RETURNING id`,
+        RETURNING id, payload->'budgetHalt'->>'budgetAccountId' AS account`,
       [taskId, companyId, closedBecause],
     );
     // And the card for work that ended badly, raised about it while no
@@ -517,6 +643,41 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
         payload: { inboxItemId: item.id, closedReason: closedBecause },
       });
+    }
+    const handed = ended.flatMap((item) => (item.handed ? [item.handed] : []));
+    // The account's card, for the work it still stops: on the last of it to
+    // stop, which self-heal, going on oldest first, reaches last, so a look
+    // that goes on with several raises the card again once, not once each.
+    // Not on a coordinator's task stopped below with the card it was handling.
+    // The same account's card, wherever it lands: worked out afresh from the
+    // work it lands on, it could be a narrower account's, or none where that
+    // work has a card of its own, and the rest of what this account stopped
+    // was told by nothing. And only on work somebody still waits for
+    // (`GOES_ON_BY_ITSELF`): work the owner ran again, a child its parent
+    // gave up, a coordinator's task on a closed card wait for nobody, and a
+    // card on one of them alone asked the owner to do it a second time. None
+    // is raised when nothing else is left.
+    //
+    // Read without a lock, and not skipping work another worker holds. That
+    // work is under this account, so going on with it reserves on the account
+    // this transaction has locked, and it waits for this one to commit: then
+    // it withdraws the card raised on it here, or is refused for room and
+    // keeps it. Skipped, a task whose going on was then refused stayed
+    // stopped with no card.
+    for (const card of withdrawn) {
+      if (!terms || !card.account) continue;
+      const { rows: next } = await tx.query<{ id: string }>(
+        `SELECT t.id FROM tasks t
+          WHERE t.company_id = $1 AND t.status = 'halted' AND t.halt_reason = 'budget_exhausted'
+            AND $2::uuid = ANY(app.budget_chain(t.budget_account_id)) AND t.id <> ALL($3::uuid[])
+            AND NOT EXISTS (SELECT 1 FROM inbox_items own
+                             WHERE own.company_id = $1 AND own.task_id = t.id
+                               AND own.kind = 'budget_alert' AND own.status = 'open')
+            AND ${GOES_ON_BY_ITSELF}
+          ORDER BY t.finished_at DESC NULLS LAST, t.created_at DESC, t.id DESC
+          LIMIT 1`,
+        [companyId, card.account, handed]);
+      if (next[0]) await raiseBudgetHaltWithin(tx, companyId, next[0].id, terms, card.account);
     }
     // Every card that names it, open or closed, was about the stop it now
     // goes on from, and is not about how it ends next (ALREADY_TOLD in
@@ -549,9 +710,9 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         companyId, projectId: task.projectId, taskId, type: 'ticket.started', actor: 'system', payload: { ticketId: ticket.id },
       });
     }
-    return ended.flatMap((item) => (item.handed ? [item.handed] : []));
+    return handed;
   });
-  await stopHandling(companyId, handling, 'the work it was handling went on', by);
+  await stopHandling(companyId, handling, GONE_ON_STOPS_HANDLING, by);
   await enqueueWake({ companyId, roleId: task.roleId, reason: 'event', detail: `the owner continued task ${taskId}` });
 }
 
@@ -594,7 +755,7 @@ export async function continueAllHalted(companyId: string, accountId: string): P
       continue;
     }
     try {
-      await continueHalted(companyId, taskId);
+      await continueHalted(companyId, taskId, 'owner', { reraise: false });
       continued += 1;
     } catch (failure) {
       if (!(failure instanceof PalugadaError)) throw failure;

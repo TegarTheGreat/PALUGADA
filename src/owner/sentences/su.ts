@@ -438,4 +438,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: peran anu nampi parantos ngurusna, sarta teu aya deui anu kedah diputuskeun ku anjeun.',
   'Work finished: {count}':
     'Padamelan anu réngsé: {count}',
+  'Stopped: its work was taken up another way':
+    'Dieureunkeun: pagawéanana parantos diurus ku cara séjén',
 };

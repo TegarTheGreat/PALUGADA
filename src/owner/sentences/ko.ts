@@ -438,4 +438,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '철회됨: 넘겨받은 역할이 처리했으므로 결정할 일이 남아 있지 않습니다.',
   'Work finished: {count}':
     '완료된 일: {count}',
+  'Stopped: its work was taken up another way':
+    '중지됨: 이 작업은 다른 방식으로 이어졌습니다',
 };

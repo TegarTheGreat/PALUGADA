@@ -14,7 +14,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -32,6 +32,8 @@ import {
 import { withSettings } from '../../src/settings/overlay.ts';
 import { DEFAULT_PRICE_TABLE, costOf, withConsolePrices } from '../../src/engine/pricing.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { consoleWithSettings as consoleServing } from '../helpers/owner-console.ts';
+import { chromium, openPage } from '../helpers/browser.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -289,6 +291,63 @@ test('the platform reads models.dev for the models it runs on, and prices by it 
     assert.equal(typed.status, 200, JSON.stringify(typed.body));
     assert.deepEqual((await api.call('GET', '/api/control/settings', token)).body.prices[0], { model: 'deepseek-chat', input: 30, output: 50, source: 'console' });
   } finally {
+    await api.close();
+  }
+});
+
+/**
+ * The page filled each price box once, with the price as it was when it was
+ * drawn, catalogue prices too. "Check the prices now" redrew the prices under
+ * the boxes and left the old figures in them, so Save lit up with nothing
+ * typed, and pressing it -- or saving any other model -- pinned the old
+ * catalogue price as the owner's own, for good.
+ */
+test('checking the prices again leaves nothing to save that the owner did not type', { skip: chromium() ? false : 'no Chromium to draw the console in' }, async () => {
+  const built = fileURLToPath(new URL('../../console/dist', import.meta.url));
+  assert.ok(existsSync(join(built, 'index.html')), 'the console is built first (npm run console:build)');
+  let cost = { input: 3, output: 15 };
+  const catalogue = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      deepseek: { id: 'deepseek', name: 'DeepSeek', api: 'https://api.deepseek.com', models: { 'deepseek-chat': { id: 'deepseek-chat', cost } } },
+    }));
+  });
+  servers.push(catalogue);
+  await new Promise<void>((resolve) => catalogue.listen(0, '127.0.0.1', resolve));
+  const api = await consoleServing({
+    staticRoot: built,
+    baseEnv: {
+      PALUGADA_MODEL_PROVIDER: 'openai', PALUGADA_MODEL_URL: 'https://api.deepseek.com/v1',
+      PALUGADA_MODEL_ALIASES: JSON.stringify({ fast: 'deepseek-chat', standard: 'deepseek-chat', deep: 'deepseek-chat' }),
+      PALUGADA_MODELS_DEV_URL: `http://127.0.0.1:${(catalogue.address() as AddressInfo).port}/api.json`,
+    },
+  });
+  const page = await openPage(chromium()!, { width: 1280, height: 900 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
+  try {
+    const token = await api.signIn();
+    assert.equal((await api.call('POST', '/api/control/settings/model/prices/sync', token, {})).body.ok, true);
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]')`, 'the console');
+    await page.evaluate(`location.hash = '#/deployment/model'`);
+    const box = `[...document.querySelectorAll('label')].find((one) => one.innerText.startsWith('Input, $ per million'))`;
+    await page.waitFor(`${box} && document.getElementById(${box}.htmlFor).placeholder === '3'`, 'the price as the catalogue gave it');
+    const save = `[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Save prices')`;
+    assert.equal(await page.evaluate(`${save}.disabled`), true, 'nothing typed, nothing to save');
+
+    cost = { input: 2.5, output: 12 };
+    await page.evaluate(`[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Check the prices now').click()`);
+    await page.waitFor(`document.getElementById(${box}.htmlFor).placeholder === '2.5'`, 'the catalogue read again', 15_000);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(await page.evaluate(`${save}.disabled`), true, 'still nothing typed, so still nothing to save');
+    assert.notEqual(await page.evaluate(`document.getElementById(${box}.htmlFor).value`), '3', 'and the old price is not left in the box');
+  } finally {
+    await page.close();
     await api.close();
   }
 });

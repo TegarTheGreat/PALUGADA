@@ -233,17 +233,27 @@ function dollars(cents: number): string {
  */
 function ModelPrices({ prices, sync, reload }: { prices: SettingsView['prices']; sync: SettingsView['priceSync']; reload: () => void }) {
   const requireFactor = useFactor();
+  // Only a price that is the owner's own (or the configuration's) is in a box. The catalogue's is the box's
+  // placeholder: filled in, it stayed when "Check the prices now" redrew the prices, read as typed, and Save
+  // pinned the old catalogue price as the owner's for good.
   const [typed, setTyped] = useState<Record<string, { input: string; output: string }>>(
-    Object.fromEntries(prices.map((row) => [row.model, row.source === 'fallback' ? { input: '', output: '' } : { input: dollars(row.input), output: dollars(row.output) }])),
+    Object.fromEntries(prices.map((row) => [row.model, row.source === 'console' || row.source === 'file' ? { input: dollars(row.input), output: dollars(row.output) } : { input: '', output: '' }])),
   );
+  // What a row would be saved at: what was typed, or, for a box left empty, the price it shows. A model nobody
+  // priced has no price to show, so both its boxes are typed.
+  const priced = (row: SettingsView['prices'][number], side: 'input' | 'output') => {
+    const box = typed[row.model]?.[side].trim() ?? '';
+    return box !== '' || row.source === 'fallback' ? box : dollars(row[side]);
+  };
   const changed = prices.filter((row) => {
-    const now = typed[row.model];
-    return now && now.input.trim() !== '' && now.output.trim() !== ''
-      && (row.source === 'fallback' || now.input !== dollars(row.input) || now.output !== dollars(row.output));
+    const input = priced(row, 'input');
+    const output = priced(row, 'output');
+    return input !== '' && output !== ''
+      && (row.source === 'fallback' || input !== dollars(row.input) || output !== dollars(row.output));
   });
   const save = async () => {
     const body = Object.fromEntries(changed.map((row) => [row.model, {
-      input: Math.round(Number(typed[row.model]!.input) * 100), output: Math.round(Number(typed[row.model]!.output) * 100),
+      input: Math.round(Number(priced(row, 'input')) * 100), output: Math.round(Number(priced(row, 'output')) * 100),
     }]));
     const done = await requireFactor(t('Change what a model costs'), (proof) =>
       api('POST', '/api/control/settings/model/prices', { prices: body, proof }));
@@ -300,7 +310,7 @@ function ModelPrices({ prices, sync, reload }: { prices: SettingsView['prices'];
         {found && <Text size="xs" c="dimmed">{found}</Text>}
         <Group>
           <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Check the prices now')}</Button>
-          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(typed[row.model]!.input)) || !Number.isFinite(Number(typed[row.model]!.output)))}
+          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(priced(row, 'input'))) || !Number.isFinite(Number(priced(row, 'output'))))}
             onClick={() => void save()}>{t('Save prices')}</Button>
         </Group>
       </Stack>

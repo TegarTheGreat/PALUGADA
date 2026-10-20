@@ -253,6 +253,28 @@ test('an invoice issued to a name with no address is the owner\'s to follow up, 
   }
 });
 
+test('while the reminders wait for the owner\'s mailbox, the next days make no more work and ask nothing again', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-one-ask');
+  const { engine, close } = await office(fixture, { mailbox: false });
+  try {
+    await overdue(fixture, 5);
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.equal((await engine.runTask(fixture.companyId, look.task!, 'worker')).status, 'waiting_approval');
+    // Another invoice falls due tomorrow: a look then sees other invoices on another day.
+    await overdue(fixture, 2);
+    for (const days of [1, 2]) {
+      const next = await ensureCollections(fixture.companyId, new Date(Date.now() + days * 86_400_000));
+      assert.equal(next.task, null, `day ${days}: the reminders already wait for the owner`);
+    }
+    const { rows: [counted] } = await withTenant(fixture.companyId, (tx) => tx.query<{ tasks: number; asked: number }>(
+      `SELECT (SELECT count(*)::int FROM tasks WHERE idempotency_key LIKE 'duty:collections:%') AS tasks,
+              (SELECT count(*)::int FROM inbox_items WHERE status = 'open' AND payload->'key'->>'alias' = 'mailbox') AS asked`));
+    assert.deepEqual(counted, { tasks: 1, asked: 1 });
+  } finally {
+    await close();
+  }
+});
+
 test('an overdue invoice is found however many newer ones the books hold', { skip: SKIP }, async () => {
   const fixture = await createCompany('duty-many');
   const { close } = await office(fixture);

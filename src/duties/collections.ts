@@ -185,7 +185,14 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
     const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at LIMIT 1');
     const { rows: goal } = await tx.query<{ id: string }>(
       "SELECT id FROM goals WHERE status = 'active' ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1");
-    return { role: rows[0] ?? null, projectId: project[0]?.id ?? null, goalId: goal[0]?.id ?? null };
+    // One at a time: a task still waiting -- for the owner's mailbox, a
+    // window, its turn -- has the reminders in hand. The next day's look sees
+    // another day, so another task, which asked the owner for the same
+    // mailbox again, each day, until they gave it.
+    const { rows: live } = await tx.query(
+      `SELECT 1 FROM tasks WHERE idempotency_key LIKE 'duty:collections:%'
+          AND status NOT IN ('completed', 'failed', 'halted', 'cancelled') LIMIT 1`);
+    return { role: rows[0] ?? null, projectId: project[0]?.id ?? null, goalId: goal[0]?.id ?? null, busy: live.length > 0 };
   });
 
   if (!who.role) {
@@ -200,7 +207,7 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
     });
     return { task: null, due: found.due.length, escalated, nobody: told };
   }
-  if (!who.projectId || !who.goalId) return { ...NOTHING, escalated };
+  if (!who.projectId || !who.goalId || who.busy) return { ...NOTHING, escalated };
 
   // The same invoices at the same steps on the same day are the same task: two
   // workers that look at once make one between them.

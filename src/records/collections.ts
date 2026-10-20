@@ -120,7 +120,6 @@ function oneLine(value: string, most = NAME_MAX): string {
   return flat.length > most ? `${flat.slice(0, most - 1).trimEnd()}…` : flat;
 }
 
-/** The owner's words on how to pay, cleaned: lines kept, anything that could end a header or hide text dropped. */
 /** A line without the spaces and tabs at its end, walked back from the end: no pattern, so no backtracking. */
 function withoutTrailingBlanks(line: string): string {
   let end = line.length;
@@ -128,6 +127,7 @@ function withoutTrailingBlanks(line: string): string {
   return line.slice(0, end);
 }
 
+/** The owner's words on how to pay, cleaned: lines kept, anything that could end a header or hide text dropped. */
 function cleanNote(value: string): string {
   // The spaces at the ends of lines are taken off line by line, without a
   // pattern: as one it was quadratic in a run of spaces with no newline, and
@@ -136,6 +136,19 @@ function cleanNote(value: string): string {
   return value.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(UNPRINTABLE, '')
     .split('\n').map(withoutTrailingBlanks).join('\n')
     .replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Whether a note the owner sent says what the kept one says, once cleaned as
+ * it would be kept: the console sends the note back with the days whether or
+ * not it was touched, and one that changes nothing is not a change to ask the
+ * owner's device for. A note too long to keep is never the same.
+ */
+export function sameNote(given: string | null, kept: string | null): boolean {
+  if (given === null) return kept === null;
+  if (given.length > PAYMENT_NOTE_MAX * 8) return false;
+  const clean = cleanNote(given);
+  return (clean === '' ? null : clean) === kept;
 }
 
 /**
@@ -262,6 +275,9 @@ export async function setPolicy(
   companyId: string,
   change: { enabled?: boolean; stepsDays?: unknown; paymentNote?: string | null },
 ): Promise<CollectionsPolicy> {
+  // Two saves at once each read the policy and write all of it back: one at a
+  // time, so the second starts from what the first kept rather than undoing it.
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`collections-policy:${companyId}`]);
   const now = await policyOf(tx, companyId);
   let stepsDays = now.stepsDays;
   if (change.stepsDays !== undefined) {

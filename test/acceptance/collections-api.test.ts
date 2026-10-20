@@ -186,6 +186,20 @@ test('in a session opened with a recovery code, letting roles write to customers
     // Switching off, and the days, let nobody do anything new.
     assert.equal((await api.call('POST', path, recovered, { enabled: false })).status, 200);
     assert.equal((await api.call('POST', path, recovered, { stepsDays: [5, 12] })).status, 200);
+    // The console's form sends the note back with the days whether or not it
+    // was touched: a note that stays what it was asks nothing, however it is
+    // spelled, and only one that says something new does.
+    assert.equal((await api.call('POST', path, recovered, { stepsDays: [4, 11], paymentNote: null })).status, 200);
+    await withTenant(fixture.companyId, (tx) => setPolicy(tx, fixture.companyId, { paymentNote: 'Transfer BCA 123\na.n. PT Kopi Senja' }));
+    const same = await api.call('POST', path, recovered, { stepsDays: [6, 13], paymentNote: '  Transfer BCA 123  \r\na.n. PT Kopi Senja\n' });
+    assert.equal(same.status, 200, JSON.stringify(same.body));
+    assert.deepEqual([same.body.stepsDays, same.body.paymentNote], [[6, 13], 'Transfer BCA 123\na.n. PT Kopi Senja']);
+    const other = await api.call('POST', path, recovered, { stepsDays: [7, 14], paymentNote: 'Transfer BCA 999 000 1111' });
+    assert.equal(other.status, 403, JSON.stringify(other.body));
+    const cleared = await api.call('POST', path, recovered, { paymentNote: null });
+    assert.equal(cleared.status, 403, 'taking the note away changes what every letter says too');
+    assert.deepEqual(await withTenant(fixture.companyId, (tx) => policyOf(tx, fixture.companyId)),
+      { enabled: false, stepsDays: [6, 13], paymentNote: 'Transfer BCA 123\na.n. PT Kopi Senja' });
     const shown = await api.call('POST', path, recovered, { enabled: true, proof: { totp: api.code() } });
     assert.equal(shown.status, 200, JSON.stringify(shown.body));
     assert.deepEqual(shown.body.given, ['Bookkeeper']);

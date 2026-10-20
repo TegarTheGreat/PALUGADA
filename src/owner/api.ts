@@ -117,7 +117,7 @@ import {
 } from '../chats/chats.ts';
 import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
 import { invoiceHtml } from '../records/invoice-document.ts';
-import { holdInvoice, isHeld, policyOf, remindersOf, remindingOf, sendersOf, setPolicy } from '../records/collections.ts';
+import { holdInvoice, isHeld, policyOf, remindersOf, remindingOf, sameNote, sendersOf, setPolicy } from '../records/collections.ts';
 import { giveReminders } from '../governance/collections.ts';
 import { INVOICE_FILTERS, invoiceWith, issueInvoice, listInvoices, payInvoice, voidInvoice, type InvoiceFilter } from '../records/invoices.ts';
 import {
@@ -3764,7 +3764,14 @@ export class OwnerApi {
           // Switching on hires and grants, as /roles and /structure/grant do,
           // and the note is what every letter tells customers about paying:
           // both are the owner's with their device. Switching off, or moving
-          // the days, lets nobody do anything new.
+          // the days, lets nobody do anything new. The console sends the note
+          // back with the days whether or not it was touched, so a note that
+          // reads as the one kept is left out of the change, asks nothing, and
+          // is not written back over one changed meanwhile.
+          if (change.paymentNote !== undefined
+            && sameNote(change.paymentNote, (await withTenant(companyId, (tx) => policyOf(tx, companyId))).paymentNote)) {
+            delete change.paymentNote;
+          }
           if (change.enabled === true || change.paymentNote !== undefined) {
             await this.#requireFactor(body.proof, change.enabled === true ? 'let roles remind customers' : 'change what reminders tell customers about paying', companyId);
           }

@@ -36,7 +36,7 @@ import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
-import { capabilitySaid, dateTime, goalKind, hireDraft, money, numberSeparators, relative } from '../format.ts';
+import { capabilitySaid, dateTime, goalKind, hireDraft, megabytes, money, numberSeparators, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
@@ -545,7 +545,7 @@ function Detail({
     }
     const tooBig = chosen.find((file) => file.size > ANSWER_FILE_MAX_MB * 1_048_576);
     if (tooBig) {
-      setError(t('That file is {size} MB; at most {max} MB can be uploaded.', { size: (tooBig.size / 1_048_576).toFixed(1), max: ANSWER_FILE_MAX_MB }));
+      setError(t('That file is {size} MB; at most {max} MB can be uploaded.', { size: megabytes(tooBig.size), max: ANSWER_FILE_MAX_MB }));
       return;
     }
     setError(null);

@@ -16,7 +16,7 @@ import { IconCheck, IconCopy, IconDownload, IconFile, IconFolder, IconUpload } f
 import { api, explain } from '../api.ts';
 import { saveCompanyFile } from '../files.ts';
 import { useLoad } from '../hooks.ts';
-import { fileSize, relative } from '../format.ts';
+import { fileSize, megabytes, relative } from '../format.ts';
 import { t } from '../i18n.ts';
 import { ActionButton } from './ActionForm.tsx';
 import { EmptyState, LoadFailed, Loading } from './ui.tsx';
@@ -57,7 +57,7 @@ export function Files({ companyId, owner }: { companyId: string; owner: boolean 
     forget.current?.();
     if (!file) return;
     if (file.size > UPLOAD_MAX_MB * 1_048_576) {
-      notifications.show({ color: 'red', message: t('That file is {size} MB; at most {max} MB can be uploaded.', { size: (file.size / 1_048_576).toFixed(1), max: UPLOAD_MAX_MB }) });
+      notifications.show({ color: 'red', message: t('That file is {size} MB; at most {max} MB can be uploaded.', { size: megabytes(file.size), max: UPLOAD_MAX_MB }) });
       return;
     }
     setBusy(true);

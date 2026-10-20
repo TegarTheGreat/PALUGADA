@@ -19,8 +19,9 @@ import { fileURLToPath } from 'node:url';
 // server's type check has no document to give it.
 (globalThis as { document?: unknown }).document = { documentElement: {} };
 const console_ = (path: string) => new URL(`../../console/src/${path}`, import.meta.url).href;
-const { money, centsFrom, typedFrom, setMoneyDisplay, numberSeparators } = await import(console_('format.ts')) as {
+const { money, centsFrom, typedFrom, setMoneyDisplay, numberSeparators, fileSize } = await import(console_('format.ts')) as {
   numberSeparators: () => { thousandSeparator: string; decimalSeparator: string };
+  fileSize: (bytes: number) => string;
   money: (cents: number) => string;
   centsFrom: (typed: string | number) => number;
   typedFrom: (cents: number) => number;
@@ -90,5 +91,29 @@ test("a number being typed is grouped and pointed the way the owner's language w
       const source = await readFile(`${pages}${folder}/${name}`, 'utf8');
       assert.doesNotMatch(source, /thousandSeparator/, `${folder}/${name} groups a number the English way; spread numberSeparators()`);
     }
+  }
+});
+
+/**
+ * A file's size is a figure too. It was written with toFixed and English
+ * units, "12.4 KB" in a German or Indonesian console, and counted in
+ * thousands while every upload limit is counted in megabytes of 1,048,576
+ * bytes: a file of 10,400,000 bytes was accepted under "at most 10 MB" and
+ * then listed as "10.4 MB".
+ */
+test("a file's size is written the owner's way, in the megabytes its limit is counted in", async () => {
+  setLanguage('en');
+  assert.equal(fileSize(10_400_000), '9.9 MB', 'under the 10 MB it was let in under');
+  assert.equal(fileSize(12_698), '12.4 kB');
+  assert.equal(fileSize(800), '800 bytes');
+  setLanguage('de');
+  assert.equal(fileSize(12_698), '12,4 kB');
+  setLanguage('id');
+  assert.equal(fileSize(3_250_586), '3,1 MB');
+  setLanguage('en');
+
+  for (const name of ['components/Files.tsx', 'pages/Decisions.tsx']) {
+    const page = await readFile(fileURLToPath(new URL(`../../console/src/${name}`, import.meta.url)), 'utf8');
+    assert.doesNotMatch(page, /toFixed\(/, `${name} writes a size the English way, whatever the language`);
   }
 });

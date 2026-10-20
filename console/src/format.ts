@@ -105,11 +105,27 @@ const UNITS: Array<[number, Intl.RelativeTimeFormatUnit]> = [
 ];
 
 /** "5 min ago", "in 2 hr": how far a moment is from now, at a glance, in the owner's language. */
-/** A size in bytes, as a person reads one: 800 B, 12.4 KB, 3.1 MB. */
+/**
+ * A size in bytes, as a person reads one in their language: 800 bytes,
+ * 12,4 kB, 3,1 Mo. Counted in the megabytes of 1,048,576 bytes every upload
+ * limit here is checked in, so a file let in under "at most 10 MB" is never
+ * listed as more than ten.
+ */
 export function fileSize(bytes: number): string {
-  if (bytes < 1_000) return `${bytes} B`;
-  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
-  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  const said = (value: number, unit: string, unitDisplay: 'long' | 'short') =>
+    new Intl.NumberFormat(locale(), { style: 'unit', unit, unitDisplay, maximumFractionDigits: 1 }).format(value);
+  if (bytes < 1_024) return said(bytes, 'byte', 'long');
+  if (bytes < 1_048_576) return said(bytes / 1_024, 'kilobyte', 'short');
+  return said(bytes / 1_048_576, 'megabyte', 'short');
+}
+
+/**
+ * How many megabytes a file is, as a figure in the owner's language, for a
+ * sentence that names the unit itself. Rounded up, so a file refused for
+ * being over a limit is never said to be the limit.
+ */
+export function megabytes(bytes: number): string {
+  return new Intl.NumberFormat(locale(), { maximumFractionDigits: 1, roundingMode: 'ceil' }).format(bytes / 1_048_576);
 }
 
 export function relative(iso: string | null | undefined): string {

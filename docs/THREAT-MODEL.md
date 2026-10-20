@@ -369,7 +369,11 @@ binds it to an outside tracker), and any task a hook starts.
   it -- work they gave, a ticket they filed, or either run again -- and counts
   the rest. A ticket an agent filed, read from a customer's email or not, is
   the owner's press when they give it out, not their words, and a run again of
-  a webhook's work or of an agent's brief has that work's goal.
+  a webhook's work or of an agent's brief has that work's goal. Run now on a
+  schedule is the owner's press too, whoever made the schedule: the owner's
+  yes to a run's `schedule.propose` makes one whose goal is the run's
+  instruction word for word, and nothing on the schedule keeps that it was
+  proposed.
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

@@ -19,10 +19,10 @@
  * a goal is quoted only when the owner wrote it. Finished work a webhook or a
  * schedule set going is not told at all. Work the owner gave from words they
  * did not write -- a ticket an agent filed, read from a customer's email or
- * not, or a run again of a webhook's work or of an agent's brief to a
- * sub-task -- is counted and not quoted: it was the owner's press, not the
- * owner's words, and the next answer, which reads nothing, could keep them as
- * the owner's.
+ * not, a schedule's work they pressed Run now on, or a run again of a
+ * webhook's work or of an agent's brief to a sub-task -- is counted and not
+ * quoted: it was the owner's press, not the owner's words, and the next
+ * answer, which reads nothing, could keep them as the owner's.
  */
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { ceoSaysIn } from './ceo-language.ts';
@@ -56,15 +56,23 @@ async function newsSince(companyId: string, since: string): Promise<News> {
     // itself. A step an agent handed on is part of one of these, not news.
     //
     // The owner's press is not always the owner's words: a task given from a
-    // ticket has the ticket's title for its goal, and a run again has the
-    // goal of the task it runs again. So a goal is the owner's only where the
-    // first task of its chain -- reruns followed back, as `whatWasAsked` in
-    // broker/guardian.ts follows them -- was work the owner gave, and, if it
-    // was given from a ticket, a ticket the owner filed. Asked as a yes, so
-    // that what cannot be found -- a ticket or a first task deleted, a chain
-    // longer than eight -- is counted, not quoted. Not asked of the events: a
-    // run that read an email after it was made did not write its goal, and
-    // retention deletes them.
+    // ticket has the ticket's title for its goal, Run now on a schedule has
+    // the schedule's, and a run again has the goal of the task it runs again.
+    // So a goal is the owner's only where the first task of its chain --
+    // reruns followed back, as `whatWasAsked` in broker/guardian.ts follows
+    // them -- was work the owner gave, not a schedule's, and, if it was given
+    // from a ticket, a ticket the owner filed. No schedule's goal is quoted,
+    // whoever made the schedule: the owner's yes to a run's proposal makes
+    // one whose goal is the run's instruction word for word, and a bundle's
+    // carries its author's, and nothing on the schedule keeps which -- the
+    // approval's event is deleted by retention. Told by the task's key, which
+    // removing the schedule leaves, as it does not leave `schedule_id`. The
+    // clock's own runs of a schedule are not told at all, so this costs only
+    // the line for a press.
+    // Asked as a yes, so that what cannot be found -- a ticket or a first
+    // task deleted, a chain longer than eight -- is counted, not quoted. Not
+    // asked of the events: a run that read an email after it was made did not
+    // write its goal, and retention deletes them.
     const finished = await tx.query<{ goal: string | null; owners: boolean }>(
       `WITH RECURSIVE finished AS (
          SELECT t.id, t.finished_at, t.input->>'goal' AS goal FROM tasks t
@@ -83,6 +91,7 @@ async function newsSince(companyId: string, since: string): Promise<News> {
               EXISTS (SELECT 1 FROM line o
                        WHERE o.finished_id = f.id
                          AND coalesce(o.idempotency_key, '') NOT LIKE 'rerun:%'
+                         AND coalesce(o.idempotency_key, '') NOT LIKE 'schedule:%'
                          AND o.parent_task_id IS NULL AND o.created_by = 'owner'
                          AND (coalesce(o.idempotency_key, '') NOT LIKE 'ticket:%'
                               OR EXISTS (SELECT 1 FROM tickets k

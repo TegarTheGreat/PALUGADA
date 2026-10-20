@@ -280,8 +280,15 @@ const FILES_MAX = 5;
 const FILE_DECODE_MAX = 10 * 1024 * 1024;
 /** A picture this small that the message refers to by Content-ID is a signature's logo or a tracking pixel, not an attachment. */
 const INLINE_LOGO_MAX = 30 * 1024;
-/** Parts that carry no file anyone sent: the mail system's own notes, a calendar invitation, a forwarded message. */
-const NOT_FILES = new Set(['message/delivery-status', 'message/rfc822', 'message/disposition-notification', 'text/calendar']);
+/** The mail system's own notes on a message, which nobody sent and which are no part of what was said. */
+const MAIL_NOTES = new Set(['message/delivery-status', 'message/disposition-notification']);
+/**
+ * Parts a person sent that are not kept as files: a forwarded message and a
+ * calendar invitation. They are still something that came, so a mail that is
+ * only one of them starts its work and says so, rather than being skipped as
+ * empty.
+ */
+const NOT_FILES = new Set(['message/rfc822', 'text/calendar']);
 
 interface Found {
   plain: string[];
@@ -312,7 +319,11 @@ function walk(part: Part, found: Found, depth = 0): void {
     return;
   }
   if (disposition === 'attachment' || !type.value.startsWith('text/')) {
-    if (NOT_FILES.has(type.value)) return;
+    if (MAIL_NOTES.has(type.value)) return;
+    if (NOT_FILES.has(type.value)) {
+      found.attachments.push(attachmentKind(type.value));
+      return;
+    }
     const encoding = (part.headers.get('content-transfer-encoding') ?? '').trim().toLowerCase();
     // What the part holds once decoded, without decoding it: base64 is three bytes to four characters.
     const size = encoding === 'base64' ? Math.floor(part.body.length * 0.75) : part.body.length;

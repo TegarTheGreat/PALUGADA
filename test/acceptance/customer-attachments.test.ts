@@ -310,6 +310,34 @@ test('a server that estimates a message\'s size neither refuses its files nor ke
   }
 });
 
+/**
+ * A forwarded letter and a calendar invitation are kept as no file, and were
+ * dropped as if they were nothing: a customer who forwarded a supplier's
+ * invoice as an attachment and wrote no words had their mail skipped, with no
+ * work started and nothing for the owner to see.
+ */
+test('a forwarded letter or an invitation with no words of its own still starts work, and says what came', { skip: SKIP_MAIL }, async () => {
+  const w = await world({ browser: false });
+  try {
+    assert.equal((await w.poll()).received, 0);
+    w.imap.deliver(letter('forward-only', [
+      { type: 'message/rfc822', data: 'From: pemasok@supplier.example\r\nSubject: Faktur 88\r\n\r\nMohon dibayar.\r\n' },
+    ], { text: '' }));
+    w.imap.deliver(letter('invite-only', [
+      { name: 'invite.ics', type: 'text/calendar; method=REQUEST', data: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' },
+    ], { text: '', from: 'Budi <budi@pelanggan.example>' }));
+    assert.equal((await w.poll()).received, 2, 'neither is skipped');
+    const messages = await w.messages();
+    assert.deepEqual(messages.map((one) => [one.task_id !== null, one.files]), [[true, []], [true, []]], 'each started work, and neither is kept as a file');
+    const events = (await withTenant(w.fixture.companyId, (tx) => tx.query<{ input: { event: string } }>(
+      "SELECT input FROM tasks WHERE created_by = 'webhook' ORDER BY created_at"))).rows.map((row) => row.input.event);
+    assert.equal(events.length, 2);
+    for (const event of events) assert.match(event, /\[sent a document, which cannot be read here\]/, event);
+  } finally {
+    await finish(w);
+  }
+});
+
 test('a deployment with no files root says nothing was kept, and the message still starts its work', { skip: SKIP_MAIL }, async () => {
   const none = await world({ files: false, browser: false });
   try {

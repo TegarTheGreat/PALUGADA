@@ -3529,7 +3529,12 @@ export class OwnerApi {
         raw: true,
         maxBodyBytes: 256 * 1024,
         handle: async ({ params, request, raw }) =>
-          receiveChatHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets),
+          receiveChatHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets, {
+            // A customer's file is kept where a mailed one is, fetched with the channel's own token.
+            ...(this.#options.files ? { files: this.#options.files } : {}),
+            telegram: this.#botApi(),
+            whatsapp: this.#whatsappApi(),
+          }),
       },
 
       {

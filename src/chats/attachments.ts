@@ -42,6 +42,33 @@ const TEXT_FILE_MAX = 5_000_000;
 /** The folder every received file is under. */
 export const RECEIVED_FOLDER = 'received';
 
+/**
+ * A file a transport hands over over HTTP, read to at most `max` bytes: a
+ * download that goes on past it is stopped there and refused, rather than
+ * read whole into memory to be measured after. A size the transport said
+ * beforehand is a claim, and this is what holds whatever it said.
+ */
+export async function readReceived(response: Response, max = RECEIVED_FILE_MAX): Promise<Buffer> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      size += value.byteLength;
+      if (size > max) throw new Error(`it is over ${max / 1_048_576} MB`);
+      parts.push(value);
+    }
+  } finally {
+    // Cancelled rather than left draining: a stream nobody cancels keeps its socket open.
+    await reader.cancel().catch(() => undefined);
+  }
+  return Buffer.concat(parts);
+}
+
 /** What a kept file is: the word the console and a role use for it. */
 export type KeptKind = 'pdf' | 'word' | 'excel' | 'photo' | 'voice' | 'text';
 

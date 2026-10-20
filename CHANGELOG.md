@@ -368,6 +368,8 @@ The first version. What it holds, in the order an owner meets it.
   "How to pay: undefined" (STATUS 2.182).
 - You can remove files customers sent (under Files, received), which frees the room they take; invoice PDFs print
   after the 500th; mail attachments arrive whole from servers that only estimate a message's size (STATUS 2.182).
+- A photo, voice note or document a customer sends on Telegram or WhatsApp is kept under Files, received, as a
+  mailed one is, and the role answering reads it, instead of being told it cannot (STATUS 2.183).
 - Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
   same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
   for a minute instead of failing at fifteen seconds (STATUS 2.179).

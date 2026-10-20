@@ -25,7 +25,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { redactor } from '../secrets/manager.ts';
 import { GRAPH_API } from '../owner/whatsapp.ts';
-import type { InboundMessage } from './chats.ts';
+import { readReceived } from './attachments.ts';
+import type { InboundMedia, InboundMessage } from './chats.ts';
 
 /** The header Meta signs a delivery in. */
 export const WHATSAPP_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -48,6 +49,23 @@ const ATTACHMENTS: Record<string, string> = {
   location: 'location', contacts: 'contact',
 };
 
+/**
+ * The types that carry a file the platform keeps, as `ATTACHMENTS` words them.
+ * A sticker is said and not kept: it is a picture of a feeling, not a document.
+ */
+const FILES = new Set(['image', 'video', 'document', 'audio']);
+
+/** Fetches one of a message's files by Meta's id for it. */
+export type FetchWhatsAppMedia = (mediaId: string) => Promise<Buffer>;
+
+/**
+ * Where Meta hands media over: a download address from the Graph API is
+ * fetched with the number's token only on one of Meta's hosts (or the Graph
+ * API's own, when the deployment points it elsewhere), so an address that is
+ * not Meta's is never handed the token.
+ */
+const META_HOSTS = /(^|\.)(fbsbx\.com|facebook\.com|fbcdn\.net|whatsapp\.net)$/i;
+
 /** The most of one message kept; WhatsApp's own limit is 4096 characters. */
 const TEXT_MAX = 4_096;
 
@@ -64,8 +82,12 @@ function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-/** The customers' messages in a delivery, to the number `accountId` names, in the order they came. */
-export function customerMessages(delivery: unknown, accountId: string): InboundMessage[] {
+/**
+ * The customers' messages in a delivery, to the number `accountId` names, in
+ * the order they came. A message's file is fetched by `fetchMedia` when the
+ * platform keeps it, and not before.
+ */
+export function customerMessages(delivery: unknown, accountId: string, fetchMedia?: FetchWhatsAppMedia): InboundMessage[] {
   const found: InboundMessage[] = [];
   for (const entry of list((delivery as { entry?: unknown } | null)?.entry)) {
     for (const change of list((entry as { changes?: unknown }).changes)) {
@@ -100,6 +122,15 @@ export function customerMessages(delivery: unknown, accountId: string): InboundM
           continue;
         }
         if (!text && !attachment) continue;
+        const mediaId = FILES.has(type) && typeof part.id === 'string' && part.id ? part.id : null;
+        const media: InboundMedia | null = mediaId ? {
+          kind: attachment!,
+          name: typeof part.filename === 'string' ? part.filename : null,
+          mime: typeof part.mime_type === 'string' ? part.mime_type : 'application/octet-stream',
+          // The delivery does not say how big it is; the Graph API does, and the read is held to the limit whatever it says.
+          size: null,
+          get: fetchMedia ? () => fetchMedia(mediaId) : null,
+        } : null;
         found.push({
           chat: from,
           id: id.slice(0, 200),
@@ -107,6 +138,7 @@ export function customerMessages(delivery: unknown, accountId: string): InboundM
           customerHandle: from,
           text: text.slice(0, TEXT_MAX),
           attachment,
+          ...(media ? { media: [media] } : {}),
         });
       }
     }
@@ -154,4 +186,39 @@ export async function sendFromNumber(token: string, accountId: string, to: strin
     throw new PalugadaError('capability.unreachable', 'WhatsApp answered without the id of the message it sent', { transport: 'whatsapp' });
   }
   return id;
+}
+
+/**
+ * Fetches a file a customer sent the number: the Graph API is asked where it
+ * is (an address that lasts five minutes), and it is read from there with the
+ * same token, to at most the size a received file may be.
+ */
+export async function whatsappMedia(token: string, mediaId: string, api: GraphApi = {}): Promise<Buffer> {
+  redactor.register(token);
+  const base = (api.apiBase ?? GRAPH_API).replace(/\/+$/, '');
+  const authorization = { authorization: `Bearer ${token}` };
+  const get = async (url: string) => {
+    try {
+      return await (api.fetch ?? globalThis.fetch)(url, { headers: authorization, signal: AbortSignal.timeout(60_000) });
+    } catch (failure) {
+      throw new Error(`WhatsApp could not be reached: ${(failure as Error).message}`);
+    }
+  };
+  const described = await get(`${base}/${encodeURIComponent(mediaId)}`);
+  const media = (await described.json().catch(() => null)) as { url?: unknown; error?: { message?: string } } | null;
+  if (!described.ok || typeof media?.url !== 'string') {
+    throw new Error(`WhatsApp did not say where the file is: ${media?.error?.message ?? `HTTP ${described.status}`}`);
+  }
+  let where: URL;
+  try {
+    where = new URL(media.url);
+  } catch {
+    throw new Error('WhatsApp gave an address that is not one');
+  }
+  const graph = new URL(base);
+  const meta = where.protocol === 'https:' && META_HOSTS.test(where.hostname);
+  if (!meta && where.origin !== graph.origin) throw new Error(`the address it is at is not Meta's (${where.hostname}), so the token was not sent there`);
+  const response = await get(where.toString());
+  if (!response.ok) throw new Error(`WhatsApp did not hand it over (HTTP ${response.status})`);
+  return readReceived(response);
 }

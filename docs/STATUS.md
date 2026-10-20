@@ -10311,7 +10311,7 @@ folder is the store.
   (`chat.attachment_kept`, `chat.attachment_not_kept`: kind and size, never the name), in the twenty dictionaries.
   An export lists each file without its path and says "not in the archive": a restored company lists no file it does not have.
 - **Not done, and said.** Telegram and WhatsApp files (part 6: the transports' own downloads and their limits
-  are not verified here). No retention of received files: they stay until the owner removes them (the Files tab
+  are not verified here) -- done in 2.183. No retention of received files: they stay until the owner removes them (the Files tab
   removes uploads only; a received file is removed with the company), which is personal data a stranger chose to
   send. No virus scan. A message of over 15 MiB shows only the files visible in its first window as not kept, and
   the rest not at all. The sandboxed converter now reaches strangers' documents: a bug in Chromium's PDF or XML
@@ -10945,6 +10945,35 @@ fixed. None needed a migration.
   between them leaves reminders on with nobody to send them, which the look then says on its card. A rerun pressed in
   the same instant the platform goes on with the task can still run both. Telegram and WhatsApp media are still not
   kept (next).
+
+## 2.183 A customer's photo or document on Telegram or WhatsApp is kept, as a mailed one is (P1.4 part 6)
+
+A receipt photographed on WhatsApp reached the run as "[sent a photo, which cannot be read here]", while the same
+receipt mailed was kept and read (2.16x). Part 6 of P1.4 had been left with the transports' downloads unverified.
+
+- **Fetched with the channel's own token, once the message is claimed (`src/chats/hook.ts`).** The parsers say what
+  a message carries -- Telegram's largest photo size, a document with its name and type, a voice note, a video; on
+  WhatsApp an image, a video, a document or audio -- and fetch it only when the platform keeps it: a duplicate, or a
+  message past the hour's limit, fetches nothing. A sticker, a place or a contact card is said, not kept. Telegram is
+  asked where the file is (`getFile`) and it is read from there (`telegramFile`); WhatsApp's Graph API is asked for the
+  file's address, which lasts five minutes, and it is read with the same token (`whatsappMedia`).
+- **The same path, the same limits.** What is fetched goes through `keepReceivedFile` under `received/telegram/` or
+  `received/whatsapp/`, with the mailboxes' limits per file, per message, per day and per company, the same refusal of
+  programs and the same notes; the run is told where each file is, and `chat.read` reads it. A size Telegram states
+  over the limit is never fetched, and every download is read to at most the limit whatever was stated
+  (`readReceived`), so a file that says it is small cannot fill memory.
+- **The token goes to Meta and nowhere else.** A download address the Graph API gives is fetched with the number's
+  token only when it is on one of Meta's own hosts (or the Graph API's, when a deployment points that elsewhere): one
+  that is not is refused, with the reason on the file, and never handed the token. The bot's token is given to the
+  redactor before any address that carries it is used.
+- **Tested** in `chat-media.test.ts` (a Telegram photo's largest size and a PDF kept whole, a file Telegram says is
+  too big not fetched, a download that fails said so, the token in nothing kept; a WhatsApp photo and PDF kept, an
+  address that is not Meta's never asked) and `customer-whatsapp.test.ts`, whose photo is now a file with its note.
+  Both were seen to fail first.
+- **Not verified here.** Telegram hands a bot files of at most 20 MB and Meta's media addresses expire in five
+  minutes, by their documentation; neither was tried against the real services from this environment. A large file
+  is fetched while Telegram or Meta waits for the delivery's answer: a slow download can make them deliver it again,
+  which the message's key turns into nothing more than a duplicate.
 
 ## 3. Decisions, deviations, and what is unverified
 

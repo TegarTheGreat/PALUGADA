@@ -104,6 +104,8 @@ export interface OpenChannel {
   accountId: string | null;
   /** WhatsApp: where the Meta app's secret, which signs every delivery, is sealed. */
   secretRef: string | null;
+  /** Where the bot's or the number's token is sealed: what a customer's file is fetched with (a hook's channel). */
+  tokenRef?: string | null;
 }
 
 export interface Received {
@@ -185,10 +187,10 @@ export async function channelAt(publicId: string): Promise<OpenChannel | null> {
     const { rows } = await tx.query<{
       id: string; company_id: string; kind: ChatKind; account: string; project_id: string; division_id: string;
       role_id: string; goal_id: string; instruction: string; max_per_hour: number; webhook_hash: string;
-      account_id: string | null; secret_ref: string | null; answers_alone: boolean;
+      account_id: string | null; secret_ref: string | null; answers_alone: boolean; token_ref: string | null;
     }>(
       `SELECT id, company_id, kind, account, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
-              webhook_hash, account_id, secret_ref, answers_alone
+              webhook_hash, account_id, secret_ref, answers_alone, token_ref
          FROM chat_channels WHERE public_id = $1 AND enabled`,
       [publicId],
     );
@@ -198,7 +200,7 @@ export async function channelAt(publicId: string): Promise<OpenChannel | null> {
       id: row.id, companyId: row.company_id, kind: row.kind, account: row.account, projectId: row.project_id,
       divisionId: row.division_id, roleId: row.role_id, goalId: row.goal_id, instruction: row.instruction,
       maxPerHour: row.max_per_hour, webhookHash: row.webhook_hash, accountId: row.account_id, secretRef: row.secret_ref,
-      answersAlone: row.answers_alone,
+      answersAlone: row.answers_alone, tokenRef: row.token_ref,
     };
   });
 }

@@ -18,6 +18,9 @@ import { traceFromInboxItem } from '../../src/reporting/trace.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { ENDED_AFTER_MS, reportEndedBadly } from '../../src/engine/ended.ts';
+import { evaluateSpendLimit } from '../../src/governance/spend-guard.ts';
+import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
+import { importCompany } from '../../src/audit/import.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 
@@ -421,6 +424,71 @@ test("a day's card or count raised before the cards said their day closes after 
   // The close the new cards have reaches the old one: a whole day after it was carried.
   await evaluateAlerts(fixture.companyId, new Date(Date.UTC(2026, 8, 3)));
   assert.deepEqual([(await card(spend)).status, (await card(spend)).closed_reason], ['withdrawn', 'day_ended']);
+});
+
+/**
+ * An archive written before 0135 carries the same cards in the old shape, and
+ * arrives at a deployment that ran 0135 long before: restored as they were,
+ * they stayed open for good. The alert that raised each is named only in the
+ * archive's events, by the id the card had there, which the restore changes.
+ */
+test("a day's card, count or 80% warning restored from an archive written before 0135 closes as one raised here does (F11.4, F1.7, F16.4)", async () => {
+  const fixture = await createCompany('alert-archive-0135');
+  const raisedAt = new Date(Date.UTC(2026, 8, 1, 12));
+  const asRaised = async (itemId: string, kind?: string) => {
+    await withControlPlane((tx) => tx.query(
+      'UPDATE inbox_items SET created_at = $2, notify_after = $2 WHERE id = $1', [itemId, raisedAt]));
+    if (kind) {
+      await withTenant(fixture.companyId, (tx) => tx.query(
+        `INSERT INTO events (company_id, type, actor, payload)
+         VALUES ($1, 'alert.raised', 'system', jsonb_build_object('kind', $2::text, 'inboxItemId', $3::text))`,
+        [fixture.companyId, kind, itemId]));
+    }
+  };
+  await asRaised(await inbox.raiseBudgetAlert({
+    companyId: fixture.companyId, title: 'Daily model spend over threshold', detail: 'Model spend today is 300 cents.',
+  }), 'daily_cost');
+  await asRaised(await inbox.raiseIncident({
+    companyId: fixture.companyId, title: 'Tasks could not start', detail: '2 tasks could not start today.',
+  }), 'preflight_failures');
+  await asRaised(await inbox.raiseBudgetAlert({ companyId: fixture.companyId, title: 'Monthly budget is 80% spent', detail: '$165.00 of $200.00 spent.' }));
+  // Neither is touched: the pause card raised before it said its month, and an incident no alert raised.
+  await asRaised(await inbox.raiseBudgetAlert({ companyId: fixture.companyId, title: 'Monthly budget reached; the company is paused', detail: 'x' }));
+  await asRaised(await inbox.raiseIncident({ companyId: fixture.companyId, title: 'Something broke', detail: 'x' }));
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  assert.ok(lines.filter((line) => line.section === 'inbox_items').every((line) => JSON.stringify(line.row.payload) === '{}'),
+    'the archive carries them as the code before 0135 wrote them');
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+
+  const cards = async () => Object.fromEntries((await withTenant(restored.companyId, (tx) => tx.query<{
+    id: string; title: string; status: string; closed_reason: string | null; payload: Record<string, unknown>;
+  }>('SELECT id, title, status, closed_reason, payload FROM inbox_items'))).rows
+    .map(({ title, ...row }) => [title, row]));
+  const restoredCards = await cards();
+  const countId = restoredCards['Tasks could not start']!.id;
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(restoredCards).map(([title, { id: _id, ...row }]) => [title, row])),
+    {
+      'Daily model spend over threshold': { status: 'open', closed_reason: null, payload: { alert: 'daily_cost', day: '2026-09-01' } },
+      'Monthly budget is 80% spent': { status: 'open', closed_reason: null, payload: { spendWarning: { periodStart: '2026-09-01T00:00:00.000Z' } } },
+      'Monthly budget reached; the company is paused': { status: 'open', closed_reason: null, payload: {} },
+      'Something broke': { status: 'open', closed_reason: null, payload: {} },
+      'Tasks could not start': { status: 'withdrawn', closed_reason: 'day_ended', payload: {} },
+    },
+    'each is labelled as 0135 labelled a card already here, and the daily count nothing raises any more is closed',
+  );
+  const withdrawn = (await withTenant(restored.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"))).rows.map((row) => [row.payload.inboxItemId, row.payload.closedReason]);
+  assert.deepEqual(withdrawn, [[countId, 'day_ended']], 'and the restored timeline says so');
+
+  // The closes the new cards have reach the restored ones.
+  await evaluateAlerts(restored.companyId, new Date(Date.UTC(2026, 8, 3)));
+  await evaluateSpendLimit(restored.companyId, new Date(Date.UTC(2026, 9, 2)));
+  const after = await cards();
+  assert.deepEqual([after['Daily model spend over threshold']!.status, after['Daily model spend over threshold']!.closed_reason], ['withdrawn', 'day_ended']);
+  assert.deepEqual([after['Monthly budget is 80% spent']!.status, after['Monthly budget is 80% spent']!.closed_reason], ['withdrawn', 'period_started']);
 });
 
 test('the daily digest fits one screen (F10.6)', async () => {

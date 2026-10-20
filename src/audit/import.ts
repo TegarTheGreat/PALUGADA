@@ -40,6 +40,7 @@ import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { PAUSED_TITLE } from '../governance/spend-guard.ts';
 import { slugTaken } from '../templates/company.ts';
 import type { ArchiveLine } from './export.ts';
 
@@ -499,6 +500,7 @@ export async function importCompany(
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
 
+    await periodsFromHistory(tx, companyId, bySection.get('events') ?? [], remap);
     await requireLocalVouching(tx, companyId);
     // An archive from before every company had a CEO has none; it gets the
     // one it would have been given (governance/ceo.ts).
@@ -537,6 +539,70 @@ function escalationSetFromHistory(bySection: Map<string, Array<Record<string, un
     escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
       || (typeof row.id === 'string' && said.has(row.id)),
   }));
+}
+
+/**
+ * The day's cards and 80% warnings of an archive written before 0135, in the
+ * shape the code before it raised them: with nothing in the payload the
+ * closes read their period from. 0135 ran here before the archive arrived,
+ * so they are labelled as it labelled a deployment's own, by its statements
+ * scoped to this company -- or they stay open for good. Which alert raised a
+ * card is said only by the archive's `alert.raised`, under the id the card
+ * had there, mapped here. As in 0135, each statement reaches only a card in
+ * the old shape, so an archive written since leaves nothing for it.
+ */
+async function periodsFromHistory(
+  tx: TenantClient,
+  companyId: string,
+  events: Array<Record<string, unknown>>,
+  remap: ReadonlyMap<string, string>,
+): Promise<void> {
+  const raised = new Map<string, string>();
+  for (const event of events) {
+    const payload = event.payload as { kind?: unknown; inboxItemId?: unknown } | null | undefined;
+    if (event.type !== 'alert.raised' || typeof payload?.kind !== 'string' || typeof payload.inboxItemId !== 'string') continue;
+    const id = remap.get(payload.inboxItemId);
+    if (id) raised.set(id, payload.kind);
+  }
+  const ids = [...raised.keys()];
+
+  // A day's card: its alert, and the day it was raised as `claimAlertSlot`
+  // counts one, in the database's time zone.
+  await tx.query(
+    `UPDATE inbox_items i
+        SET payload = i.payload || jsonb_build_object(
+              'alert', k.kind, 'day', to_char(date_trunc('day', i.created_at), 'YYYY-MM-DD'))
+       FROM unnest($2::uuid[], $3::text[]) AS k(id, kind)
+      WHERE i.company_id = $1 AND i.id = k.id
+        AND i.kind = 'budget_alert' AND i.status = 'open' AND NOT i.payload ? 'alert'`,
+    [companyId, ids, [...raised.values()]],
+  );
+
+  // An incident an alert raised is one of the daily counts nothing raises any
+  // more, closed with the event the code writes when it withdraws a card.
+  const { rows: counts } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'day_ended'
+      WHERE company_id = $1 AND id = ANY($2::uuid[]) AND kind = 'incident' AND status = 'open'
+      RETURNING id`,
+    [companyId, ids],
+  );
+  for (const count of counts) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: count.id, closedReason: 'day_ended' },
+    });
+  }
+
+  // What is left of the task-less budget cards with nothing in their payload,
+  // other than the pause card its title names, is the 80% warning: its month
+  // is UTC's, written as `toISOString` writes the start the close compares.
+  await tx.query(
+    `UPDATE inbox_items
+        SET payload = jsonb_build_object('spendWarning', jsonb_build_object(
+              'periodStart', to_char(date_trunc('month', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+      WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open' AND task_id IS NULL
+        AND payload = '{}'::jsonb AND title <> $2`,
+    [companyId, PAUSED_TITLE],
+  );
 }
 
 async function importSection(

@@ -273,6 +273,15 @@ function attachmentKind(type: string): string {
   return 'document';
 }
 
+/** How many bytes base64 decodes to: six bits for each character of its alphabet, whatever lies between them. */
+function base64Size(body: Buffer): number {
+  let characters = 0;
+  for (const byte of body) {
+    if ((byte >= 0x41 && byte <= 0x5a) || (byte >= 0x61 && byte <= 0x7a) || (byte >= 0x30 && byte <= 0x39) || byte === 0x2b || byte === 0x2f) characters += 1;
+  }
+  return Math.floor((characters * 3) / 4);
+}
+
 /** Parts walked in one message, past which the rest are left: a message built to be a maze is read no further. */
 const PARTS_MAX = 200;
 /** Files returned from one message, and the largest one decoded. */
@@ -325,8 +334,10 @@ function walk(part: Part, found: Found, depth = 0): void {
       return;
     }
     const encoding = (part.headers.get('content-transfer-encoding') ?? '').trim().toLowerCase();
-    // What the part holds once decoded, without decoding it: base64 is three bytes to four characters.
-    const size = encoding === 'base64' ? Math.floor(part.body.length * 0.75) : part.body.length;
+    // What the part holds once decoded, without decoding it: base64 is three bytes to four characters, counted
+    // without its line breaks -- a break every 76 characters made the guess 2.6 per cent over, and a file just
+    // under the limit was refused as over it.
+    const size = encoding === 'base64' ? base64Size(part.body) : part.body.length;
     if (found.keep && /^image\//.test(type.value) && part.headers.has('content-id') && disposition !== 'attachment' && size <= INLINE_LOGO_MAX) return;
     found.attachments.push(attachmentKind(type.value));
     if (found.keep) {

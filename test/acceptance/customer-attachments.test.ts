@@ -338,6 +338,26 @@ test('a forwarded letter or an invitation with no words of its own still starts 
   }
 });
 
+/**
+ * A file's size was guessed from its base64 with the line breaks counted in,
+ * which is about 2.6 per cent over, so a PDF of 9.8 MB was refused as over
+ * 10 MB before a byte of it was read.
+ */
+test('a file just under ten megabytes is kept, not refused by a guess at its size', { skip: SKIP_MAIL }, async () => {
+  const w = await world({ browser: false });
+  try {
+    assert.equal((await w.poll()).received, 0);
+    const scan = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(10_276_044 - 16, 0x20), Buffer.from('\n%%EOF\n')]);
+    assert.equal(scan.length, 10_276_044);
+    w.imap.deliver(letter('just-under', [{ name: 'scan.pdf', type: 'application/pdf', data: scan }]));
+    assert.equal((await w.poll()).received, 1);
+    const [message] = await w.messages();
+    assert.deepEqual(message!.files.map((one) => [one.kind, one.why, one.bytes]), [['pdf', null, scan.length]], JSON.stringify(message!.files));
+  } finally {
+    await finish(w);
+  }
+});
+
 test('a deployment with no files root says nothing was kept, and the message still starts its work', { skip: SKIP_MAIL }, async () => {
   const none = await world({ files: false, browser: false });
   try {

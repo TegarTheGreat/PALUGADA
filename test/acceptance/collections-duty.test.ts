@@ -26,6 +26,7 @@ import { DivisionSecrets } from '../../src/secrets/manager.ts';
 import { COLLECTIONS_EVERY_MS, ensureCollections } from '../../src/duties/collections.ts';
 import { dutyFor } from '../../src/duties/duties.ts';
 import { holdInvoice, setPolicy } from '../../src/records/collections.ts';
+import { addContact, changeContact } from '../../src/records/contacts.ts';
 import { issueInvoice, payInvoice } from '../../src/records/invoices.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { ScriptedModel } from '../helpers/scripted-model.ts';
@@ -136,7 +137,7 @@ test('an overdue invoice whose reminder is due is made a task, which writes the 
     // And the one with no address is put to the owner, once.
     const [card] = await cards(fixture);
     assert.match(card!.title, /^Invoice INV-0005 needs you: Toko Kopi Senja has not paid$/);
-    assert.match(card!.rationale, /there is no email address to send a reminder to/);
+    assert.match(card!.rationale, /it was issued with no email address to send a reminder to/);
   } finally {
     await close();
   }
@@ -202,6 +203,51 @@ test('the owner\'s Run again on a duty runs the duty again, not a model over its
     assert.deepEqual((await statusOf(fixture, again)).output, {
       summary: `Reminded the customers of: ${invoice.number}.`, reminded: [invoice.number], left: [],
     });
+  } finally {
+    await close();
+  }
+});
+
+test('an address the owner gives the customer after the card is where the reminder goes, and the card after the last letter still comes', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-no-email');
+  const { smtp, engine, close } = await office(fixture);
+  try {
+    await withTenant(fixture.companyId, (tx) => setPolicy(tx, fixture.companyId, { stepsDays: [3] }));
+    const contactId = await withTenant(fixture.companyId, (tx) => addContact(tx, fixture.companyId, { name: 'Toko Kopi Senja' }, 'owner'));
+    await overdue(fixture, 5, { customerName: undefined, customerEmail: undefined, contactId });
+    const first = await ensureCollections(fixture.companyId, later());
+    assert.deepEqual([first.task, first.escalated], [null, 1]);
+    const [card] = await cards(fixture);
+    assert.match(card!.rationale, /there is no email address to send a reminder to\. Add one to the customer, or follow it up yourself\./);
+
+    // The owner does what the card says.
+    await withTenant(fixture.companyId, (tx) => changeContact(tx, fixture.companyId, contactId, { email: 'bu.sari@kopisenja.example' }, 'owner'));
+    const second = await ensureCollections(fixture.companyId, later());
+    assert.ok(second.task, 'the invoice is reminded once its customer can be written to');
+    const outcome = await engine.runTask(fixture.companyId, second.task!, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    assert.deepEqual(smtp.sent.map((one) => one.to), [['bu.sari@kopisenja.example']]);
+
+    // A letter that did not mend it is still the owner's in its turn: being
+    // told there was no address was not being told about this.
+    const week = await ensureCollections(fixture.companyId, new Date(Date.now() + 8 * 86_400_000));
+    assert.equal(week.escalated, 1);
+    assert.equal((await cards(fixture)).filter((one) => /after the last reminder/.test(one.rationale)).length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test('an invoice issued to a name with no address is the owner\'s to follow up, and the card does not ask for what cannot be given', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-no-contact');
+  const { close } = await office(fixture);
+  try {
+    await overdue(fixture, 5, { customerEmail: undefined });
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.equal(look.escalated, 1);
+    const [card] = await cards(fixture);
+    assert.match(card!.rationale, /was issued with no email address to send a reminder to\. Follow it up yourself, or tell the CEO what you want done\./);
+    assert.equal((await ensureCollections(fixture.companyId, later())).escalated, 0, 'said once');
   } finally {
     await close();
   }

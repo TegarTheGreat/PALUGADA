@@ -410,4 +410,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Việc tuyển là do bạn quyết định. Tuyển cùng CEO chỉ bằng một câu, hoặc đóng phiếu nếu công ty không cần.',
   'Withdrawn: the ticket it was about was closed.':
     'Đã rút lại: phiếu liên quan đã được đóng.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và được lập mà không có địa chỉ email để gửi nhắc nhở. Hãy tự theo dõi, hoặc cho CEO biết bạn muốn làm gì.',
 };

@@ -403,4 +403,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ikaw ang magpapasya sa pagkuha. Kunin ito kasama ang CEO sa isang salita, o isara ang ticket kung hindi ito kailangan ng kumpanya.',
   'Withdrawn: the ticket it was about was closed.':
     'Binawi: isinara ang ticket na tinutukoy nito.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at inilabas ito nang walang email address na mapagpapadalhan ng paalala. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
 };

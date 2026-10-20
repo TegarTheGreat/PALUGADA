@@ -171,6 +171,8 @@ function invoiceMoney(reading: OwnerReading, cents: number, currency: string): s
  */
 export function invoiceUnpaidCard(reading: OwnerReading, facts: {
   why: 'unpaid_after_last' | 'stale' | 'no_email'; number: string; customer: string; cents: number; currency: string; dueDate: string;
+  /** Issued to one of the company's contacts: an address added there is the one the next reminder goes to. */
+  contact: boolean;
 }): Card {
   const { language } = reading;
   const values = {
@@ -183,7 +185,12 @@ export function invoiceUnpaidCard(reading: OwnerReading, facts: {
       ? say(language, '{customer} still owes {amount} on invoice {number}, due {due}, after the last reminder. The platform has stopped writing to them. What comes next is yours: a call, a final notice, or letting it go.', values)
       : facts.why === 'stale'
         ? say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and no reminder was ever sent, so the platform did not send a form letter this late. Follow it up yourself, or tell the CEO what you want done.', values)
-        : say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.', values),
+        // An invoice issued to a name and not to a contact has no customer to
+        // add an address to, and is never edited: asking for one is advice
+        // that cannot be taken.
+        : facts.contact
+          ? say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and there is no email address to send a reminder to. Add one to the customer, or follow it up yourself.', values)
+          : say(language, 'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.', values),
   };
 }
 

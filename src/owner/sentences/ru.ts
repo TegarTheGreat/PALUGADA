@@ -406,4 +406,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Нанимать решаете вы. Наймите вместе с CEO одним словом или закройте тикет, если компании это не нужно.',
   'Withdrawn: the ticket it was about was closed.':
     'Отозвано: тикет, о котором шла речь, закрыт.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Счёт {number} ({amount}, {customer}) просрочен с {due}, и он выставлен без адреса электронной почты, на который можно отправить напоминание. Займитесь им сами или скажите CEO, что нужно сделать.',
 };

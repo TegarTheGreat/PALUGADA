@@ -409,4 +409,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'การจ้างเป็นการตัดสินใจของคุณ จ้างร่วมกับ CEO ได้ในคำเดียว หรือปิดทิกเก็ตหากบริษัทไม่ต้องการ',
   'Withdrawn: the ticket it was about was closed.':
     'ถอนแล้ว: ทิกเก็ตที่เกี่ยวข้องถูกปิดแล้ว',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และออกโดยไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
 };

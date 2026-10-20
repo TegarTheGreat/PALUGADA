@@ -404,4 +404,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ngarékrut téh kaputusan anjeun. Rékrut babarengan jeung CEO ku sakecap, atanapi tutup tikétna upami perusahaan henteu peryogi.',
   'Withdrawn: the ticket it was about was closed.':
     'Ditarik: tikét anu dibahasna parantos ditutup.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Faktur {number} ({amount}, {customer}) geus telat ti {due}, sarta dikaluarkeun tanpa alamat surélék pikeun ngirim panginget. Tindak lanjutan sorangan, atawa béjaan CEO naon anu dipikahayang.',
 };

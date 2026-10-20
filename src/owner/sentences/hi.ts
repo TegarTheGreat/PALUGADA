@@ -406,4 +406,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'भर्ती का निर्णय आपका है। CEO के साथ एक शब्द में भर्ती करें, या अगर कंपनी को इसकी ज़रूरत नहीं है तो टिकट बंद करें।',
   'Withdrawn: the ticket it was about was closed.':
     'वापस लिया गया: जिस टिकट के बारे में था, वह बंद हो गया।',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'चालान {number} ({amount}, {customer}) {due} से बकाया है, और यह बिना किसी ईमेल पते के जारी हुआ था जिस पर अनुस्मारक भेजा जा सके। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
 };

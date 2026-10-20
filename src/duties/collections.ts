@@ -31,10 +31,9 @@ import { languagesFor } from '../domain/language.ts';
 import { isPalugadaError, type PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { invoiceUnpaidCard, nobodyRemindsCard, ownerReadingWithin, remindedSaid, reminderMailboxAsked, reminderPlanSaid, reminderUnconfirmedCard } from '../owner/platform-cards.ts';
-import { ADDRESS } from '../capabilities/mailbox.ts';
-import type { RemindResult } from '../capabilities/collections.ts';
+import { reminderAddress, type RemindResult } from '../capabilities/collections.ts';
 import { createRootTask } from '../engine/tasks.ts';
-import { lettersOf, noteEscalated, policyOf, unconfirmedLetters, whatIsNext } from '../records/collections.ts';
+import { lettersOf, lockInvoice, noteEscalated, policyOf, unconfirmedLetters, whatIsNext } from '../records/collections.ts';
 import { listInvoices } from '../records/invoices.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 
@@ -61,7 +60,19 @@ export interface CollectionsLook {
 const NOTHING: CollectionsLook = { task: null, due: 0, escalated: 0, nobody: false };
 
 interface Candidate { id: string; number: string; step: number }
-interface ForAPerson { id: string; number: string; customer: string; cents: number; currency: string; dueDate: string; why: 'unpaid_after_last' | 'stale' | 'no_email' }
+interface ForAPerson {
+  id: string; number: string; customer: string; cents: number; currency: string; dueDate: string; why: 'unpaid_after_last' | 'stale' | 'no_email';
+  /** Issued to one of the company's contacts, where the owner can add an address. */
+  contact: boolean;
+}
+
+/**
+ * The key that an invoice with nowhere to send its reminder was told: once,
+ * and apart from the escalation an invoice is told once (`noteEscalated`).
+ * Kept with that, it took the invoice's one card, and the one for a letter
+ * that did not mend it -- once an address was given -- was never raised.
+ */
+const noAddressKey = (invoiceId: string) => `reminder_no_email:${invoiceId}`;
 
 /** What the books say needs doing about overdue invoices today. */
 async function read(tx: TenantClient, companyId: string, today: string): Promise<{ due: Candidate[]; person: ForAPerson[] } | null> {
@@ -76,6 +87,14 @@ async function read(tx: TenantClient, companyId: string, today: string): Promise
   const { rows: flags } = await tx.query<{ invoice_id: string; held: boolean; told: boolean }>(
     `SELECT invoice_id, held_at IS NOT NULL AS held, escalated_at IS NOT NULL AS told FROM invoice_collections
       WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])`, [companyId, ids]);
+  // Where each goes (`reminderAddress`): the contact's address as it is now,
+  // for an invoice issued with none.
+  const { rows: contacts } = await tx.query<{ id: string; email: string | null }>(
+    'SELECT id, email FROM contacts WHERE company_id = $1 AND id = ANY($2::uuid[])',
+    [companyId, invoices.flatMap((invoice) => (invoice.contactId ? [invoice.contactId] : []))]);
+  const { rows: toldNoAddress } = await tx.query<{ once: string }>(
+    "SELECT payload->>'once' AS once FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = ANY($1::text[])",
+    [ids.map(noAddressKey)]);
 
   const due: Candidate[] = [];
   const person: ForAPerson[] = [];
@@ -83,11 +102,15 @@ async function read(tx: TenantClient, companyId: string, today: string): Promise
     const flag = flags.find((one) => one.invoice_id === invoice.id);
     if (flag?.held) continue;
     const next = whatIsNext({ dueDate: invoice.dueDate, today, steps: policy.stepsDays, sent: sent.get(invoice.id) ?? [] });
-    const reachable = invoice.customerEmail !== null && new RegExp(ADDRESS).test(invoice.customerEmail);
-    const about = { id: invoice.id, number: invoice.number, customer: invoice.customerName, cents: invoice.outstandingCents, currency: invoice.currency, dueDate: invoice.dueDate };
+    const contactNow = contacts.find((one) => one.id === invoice.contactId)?.email ?? null;
+    const reachable = reminderAddress(invoice.customerEmail, contactNow) !== null;
+    const about = {
+      id: invoice.id, number: invoice.number, customer: invoice.customerName, cents: invoice.outstandingCents, currency: invoice.currency,
+      dueDate: invoice.dueDate, contact: invoice.contactId !== null,
+    };
     if (next.action === 'remind') {
       if (reachable) due.push({ id: invoice.id, number: invoice.number, step: next.step });
-      else if (!flag?.told) person.push({ ...about, why: 'no_email' });
+      else if (!toldNoAddress.some((one) => one.once === noAddressKey(invoice.id))) person.push({ ...about, why: 'no_email' });
     } else if (next.action === 'escalate' && !flag?.told) {
       person.push({ ...about, why: next.why });
     }
@@ -125,14 +148,26 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
 
   // A card for each invoice a letter no longer answers, once, in the same
   // transaction that notes it was told: the note and the card exist together.
+  // One with nowhere to write is told once on its own key, under the lock its
+  // reminders are written under, so two looks at once raise one card.
   let escalated = 0;
   for (const one of found.person) {
     const raised = await withTenant(companyId, async (tx) => {
-      if (!(await noteEscalated(tx, companyId, one.id))) return false;
+      const once = one.why === 'no_email' ? noAddressKey(one.id) : null;
+      if (once) {
+        await lockInvoice(tx, one.id);
+        const { rows: told } = await tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1", [once]);
+        if (told.length > 0) return false;
+      } else if (!(await noteEscalated(tx, companyId, one.id))) {
+        return false;
+      }
       const card = invoiceUnpaidCard(await ownerReadingWithin(tx), {
-        why: one.why, number: one.number, customer: one.customer, cents: one.cents, currency: one.currency, dueDate: one.dueDate,
+        why: one.why, number: one.number, customer: one.customer, cents: one.cents, currency: one.currency, dueDate: one.dueDate, contact: one.contact,
       });
-      await inbox.raiseEscalationWithin(tx, { companyId, title: card.title, detail: card.detail, payload: { invoiceId: one.id, number: one.number, why: one.why } });
+      await inbox.raiseEscalationWithin(tx, {
+        companyId, title: card.title, detail: card.detail,
+        payload: { invoiceId: one.id, number: one.number, why: one.why, ...(once ? { once } : {}) },
+      });
       return true;
     });
     if (raised) escalated += 1;

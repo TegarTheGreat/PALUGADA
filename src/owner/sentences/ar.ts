@@ -403,4 +403,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'التوظيف قرارك. وظّفه مع الرئيس التنفيذي بكلمة واحدة، أو أغلق التذكرة إن لم تحتج إليه الشركة.',
   'Withdrawn: the ticket it was about was closed.':
     'سُحب: أُغلقت التذكرة التي كان يتعلق بها.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، وقد صدرت دون عنوان بريد إلكتروني يُرسل إليه تذكير. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
 };

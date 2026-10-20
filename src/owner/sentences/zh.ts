@@ -405,4 +405,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '是否招聘由您决定。一句话就能和 CEO 一起招聘，如果公司不需要，请关闭该工单。',
   'Withdrawn: the ticket it was about was closed.':
     '已撤回：它涉及的工单已关闭。',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且开具时没有可发送提醒的电子邮件地址。请自行跟进，或告诉 CEO 您想怎么处理。',
 };

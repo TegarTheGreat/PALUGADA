@@ -31,7 +31,7 @@
  */
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { appendEvent } from '../audit/event-log.ts';
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { languagesFor } from '../domain/language.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MailOptions } from '../chats/mail.ts';
@@ -46,6 +46,26 @@ export type RemindResult =
   | { status: 'skipped'; invoice: string; reason: 'void' | 'paid' | 'off' | 'held' | 'no_email' | 'not_overdue' | 'not_yet' | 'too_soon' | 'after_last' | 'for_a_person' };
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Where a reminder about an invoice goes: the address it was issued to, or --
+ * when it was issued with none -- its customer's as the contacts have it now.
+ * An invoice keeps what it was issued with, so the address the owner adds to
+ * the customer when told there is nowhere to write is read from the contact;
+ * without that it was never used. Only when the invoice has none: one it was
+ * issued to is not replaced by what a contact says later.
+ */
+export function reminderAddress(issuedTo: string | null, contactNow: string | null): string | null {
+  const pattern = new RegExp(ADDRESS);
+  if (issuedTo !== null && pattern.test(issuedTo)) return issuedTo;
+  return contactNow !== null && pattern.test(contactNow) ? contactNow : null;
+}
+
+async function addressOf(tx: TenantClient, companyId: string, invoice: { customerEmail: string | null; contactId: string | null }): Promise<string | null> {
+  if (invoice.customerEmail !== null || invoice.contactId === null) return reminderAddress(invoice.customerEmail, null);
+  const { rows } = await tx.query<{ email: string | null }>('SELECT email FROM contacts WHERE company_id = $1 AND id = $2', [companyId, invoice.contactId]);
+  return reminderAddress(null, rows[0]?.email ?? null);
+}
 
 export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: string }, RemindResult> {
   return {
@@ -75,9 +95,11 @@ export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: 
     // Everything in the letter is the books': nothing a stranger or a model
     // wrote can be in it, so work that read from outside may send it.
     async clearsOutside(input, ctx) {
-      const invoice = await withTenant(ctx.companyId, (tx) => invoiceWith(tx, ctx.companyId, String(input.invoice ?? '')));
-      if (!invoice) return { cleared: false, why: 'off' };
-      return { cleared: true, record: { invoice: invoice.number, to: invoice.customerEmail } };
+      return withTenant(ctx.companyId, async (tx) => {
+        const invoice = await invoiceWith(tx, ctx.companyId, String(input.invoice ?? ''));
+        if (!invoice) return { cleared: false, why: 'off' };
+        return { cleared: true, record: { invoice: invoice.number, to: await addressOf(tx, ctx.companyId, invoice) } };
+      });
     },
 
     async execute(input, ctx: CapabilityContext) {
@@ -99,8 +121,8 @@ export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: 
         if (invoice.outstandingCents <= 0) return skipped('paid');
         if (!policy.enabled) return skipped('off');
         if (await isHeld(tx, ctx.companyId, invoice.id)) return skipped('held');
-        const to = invoice.customerEmail;
-        if (!to || !new RegExp(ADDRESS).test(to)) return skipped('no_email');
+        const to = await addressOf(tx, ctx.companyId, invoice);
+        if (!to) return skipped('no_email');
 
         // The letters the server took and those it may have: a step in flight
         // or unconfirmed is a step taken.

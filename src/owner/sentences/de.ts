@@ -406,4 +406,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Die Einstellung entscheiden Sie. Stellen Sie die Rolle mit einem Wort mit dem CEO ein, oder schließen Sie das Ticket, wenn das Unternehmen sie nicht braucht.',
   'Withdrawn: the ticket it was about was closed.':
     'Zurückgezogen: Das Ticket, um das es ging, wurde geschlossen.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    'Rechnung {number} ({amount}, {customer}) ist seit {due} überfällig und wurde ohne E-Mail-Adresse ausgestellt, an die eine Erinnerung gehen könnte. Verfolgen Sie sie selbst, oder sagen Sie dem CEO, was geschehen soll.',
 };

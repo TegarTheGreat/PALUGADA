@@ -407,4 +407,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'İşe almaya siz karar verirsiniz. CEO ile tek sözle işe alın ya da şirketin ihtiyacı yoksa bileti kapatın.',
   'Withdrawn: the ticket it was about was closed.':
     'Geri çekildi: ilgili bilet kapatıldı.',
+  'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
+    '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hatırlatma gönderilecek bir e-posta adresi olmadan kesilmiş. Kendiniz takip edin ya da CEO\'ya ne istediğinizi söyleyin.',
 };

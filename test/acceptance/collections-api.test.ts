@@ -209,6 +209,42 @@ test('the policy, the letters sent and the invoices left alone travel with the c
   assert.deepEqual(there.held, [false, true]);
 });
 
+/**
+ * A day was exported as the instant the database driver makes of it, which
+ * is midnight where the exporting process runs: east of UTC that is the day
+ * before, and a restored company had its letters, its invoices and their
+ * entries dated a day early -- and counted the next letter from that day.
+ */
+test('the days in the archive are the days in the books, wherever the export ran', async () => {
+  const fixture = await createCompany('collect-days');
+  const invoice = await owing(fixture, 12);
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO invoice_reminders (company_id, invoice_id, step, sent_on, to_address, outstanding_cents, days_overdue)
+     VALUES ($1, $2, 1, $3, 'bu.sari@kopisenja.example', 2500000, 3)`, [fixture.companyId, invoice.invoiceId, day(-9)]));
+  const lines: ArchiveLine[] = [];
+  const was = process.env.TZ;
+  process.env.TZ = 'Asia/Jakarta';
+  try {
+    await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  } finally {
+    if (was === undefined) delete process.env.TZ;
+    else process.env.TZ = was;
+  }
+  const row = (section: string) => lines.find((line) => line.section === section)!.row as Record<string, unknown>;
+  assert.equal(row('invoice_reminders').sent_on, day(-9));
+  assert.deepEqual([row('invoices').issue_date, row('invoices').due_date], [day(-26), day(-12)]);
+  assert.equal(row('journal_entries').entry_date, day(-26));
+
+  const restored = await importCompany(lines, { slug: 'collect-days-restored' });
+  const there = await withTenant(restored.companyId, async (tx) => {
+    const copy = (await tx.query<{ id: string; issue: string; due: string }>(
+      "SELECT id, to_char(issue_date, 'YYYY-MM-DD') AS issue, to_char(due_date, 'YYYY-MM-DD') AS due FROM invoices")).rows[0]!;
+    return { copy, letters: await remindersOf(tx, restored.companyId, copy.id) };
+  });
+  assert.deepEqual([there.copy.issue, there.copy.due], [day(-26), day(-12)]);
+  assert.deepEqual(there.letters.map((one) => one.sentOn), [day(-9)], 'the letter is dated the day it went');
+});
+
 const BUILT = fileURLToPath(new URL('../../console/dist', import.meta.url));
 const browser = chromium();
 

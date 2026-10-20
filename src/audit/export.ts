@@ -536,6 +536,8 @@ export const EXPORT_SECTION_NAMES: readonly string[] = [
 
 /** Rows are fetched in pages so a long history does not arrive all at once. */
 const PAGE_SIZE = 500;
+/** PostgreSQL's `date` (pg_type.oid 1082). */
+const DATE_TYPE = 1082;
 
 async function streamSection(
   tx: TenantClient,
@@ -548,11 +550,21 @@ async function streamSection(
   let total = 0;
 
   for (;;) {
-    const { rows } = await tx.query<Record<string, unknown>>(
+    const { rows, fields } = await tx.query<Record<string, unknown>>(
       `${sql} LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
       params,
     );
+    // A date column is a day, and is written as one. The driver reads it as midnight where this process runs,
+    // which as an instant is the day before east of UTC: an archive written in Jakarta restored every letter,
+    // invoice and entry a day early. Its local day is the day the database holds.
+    const days = fields.filter((field) => field.dataTypeID === DATE_TYPE).map((field) => field.name);
     for (const row of rows) {
+      for (const name of days) {
+        const value = row[name];
+        if (value instanceof Date) {
+          row[name] = `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+        }
+      }
       await write({ section, row });
       total += 1;
     }

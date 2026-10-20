@@ -427,6 +427,28 @@ test('nobody set to remind is one card, and once the owner closes it, it waits f
   }
 });
 
+test('the look counts days on the company\'s calendar, not UTC\'s', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-zone');
+  const { close } = await office(fixture);
+  try {
+    await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'America/Los_Angeles' WHERE id = $1", [fixture.companyId]));
+    await withTenant(fixture.companyId, (tx) => setPolicy(tx, fixture.companyId, { stepsDays: [1] }));
+    await withTenant(fixture.companyId, (tx) => issueInvoice(tx, fixture.companyId, {
+      customerName: 'Toko Kopi Senja', customerEmail: 'bu.sari@kopisenja.example', currency: 'IDR',
+      issueDate: '2027-03-01', dueDate: '2027-03-10', lines: [{ description: 'Desain', quantity: 1, unitCents: 2_500_000 }],
+    }, 'owner'));
+    // Half past midnight in UTC is half past five the evening before in Los
+    // Angeles: still the due date there, and nobody is late on it.
+    const evening = await ensureCollections(fixture.companyId, new Date('2027-03-11T00:30:00Z'));
+    assert.deepEqual([evening.task, evening.due], [null, 0]);
+    // The next evening it is a day late there.
+    const next = await ensureCollections(fixture.companyId, new Date('2027-03-12T00:30:00Z'));
+    assert.equal(next.due, 1);
+  } finally {
+    await close();
+  }
+});
+
 test('the owner\'s switch, and one company\'s books not being another\'s', { skip: SKIP }, async () => {
   const mine = await createCompany('duty-mine');
   const theirs = await createCompany('duty-theirs');

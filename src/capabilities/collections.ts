@@ -36,7 +36,7 @@ import { languagesFor } from '../domain/language.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MailOptions } from '../chats/mail.ts';
 import {
-  confirmStep, giveStepBack, isHeld, lettersOf, lockInvoice, policyOf, reminderLetter, takeStep, whatIsNext,
+  confirmStep, dayIn, giveStepBack, isHeld, lettersOf, lockInvoice, policyOf, reminderLetter, takeStep, whatIsNext, zoneOf,
 } from '../records/collections.ts';
 import { invoiceWith } from '../records/invoices.ts';
 import { ADDRESS, MAILBOX_ALIAS, credentialForm, deliver, preflightFor } from './mailbox.ts';
@@ -44,8 +44,6 @@ import { ADDRESS, MAILBOX_ALIAS, credentialForm, deliver, preflightFor } from '.
 export type RemindResult =
   | { status: 'sent'; invoice: string; step: number; of: number; to: string; messageId: string; daysOverdue: number }
   | { status: 'skipped'; invoice: string; reason: 'void' | 'paid' | 'off' | 'held' | 'no_email' | 'not_overdue' | 'not_yet' | 'too_soon' | 'after_last' | 'for_a_person' };
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 /**
  * Where a reminder about an invoice goes: the address it was issued to, or --
@@ -127,7 +125,9 @@ export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: 
         // The letters the server took and those it may have: a step in flight
         // or unconfirmed is a step taken.
         const sent = (await lettersOf(tx, ctx.companyId, [invoice.id])).get(invoice.id) ?? [];
-        const next = whatIsNext({ dueDate: invoice.dueDate, today: today(), steps: policy.stepsDays, sent });
+        // Today where the company is: a due date is a day on its calendar.
+        const today = dayIn(await zoneOf(tx, ctx.companyId), new Date());
+        const next = whatIsNext({ dueDate: invoice.dueDate, today, steps: policy.stepsDays, sent });
         if (next.action === 'escalate') return skipped('for_a_person');
         if (next.action === 'wait') return skipped(next.why);
 

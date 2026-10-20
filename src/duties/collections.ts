@@ -33,7 +33,7 @@ import * as inbox from '../inbox/inbox.ts';
 import { invoiceUnpaidCard, nobodyRemindsCard, ownerReadingWithin, remindedSaid, reminderMailboxAsked, reminderPlanSaid, reminderUnconfirmedCard } from '../owner/platform-cards.ts';
 import { reminderAddress, type RemindResult } from '../capabilities/collections.ts';
 import { createRootTask } from '../engine/tasks.ts';
-import { lettersOf, lockInvoice, noteEscalated, policyOf, unconfirmedLetters, whatIsNext } from '../records/collections.ts';
+import { dayIn, lettersOf, lockInvoice, noteEscalated, policyOf, unconfirmedLetters, whatIsNext, zoneOf } from '../records/collections.ts';
 import { overdueInvoices } from '../records/invoices.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 
@@ -126,11 +126,12 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
   const before = lastLook.get(companyId);
   if (before !== undefined && now.getTime() - before < COLLECTIONS_EVERY_MS && now.getTime() >= before) return NOTHING;
   lastLook.set(companyId, now.getTime());
-  const today = now.toISOString().slice(0, 10);
 
   // A letter the mail server never said it took is told to the owner once,
   // whether or not the company still reminds: it was written either way.
-  await withTenant(companyId, async (tx) => {
+  // And the day it is, where the company is: what is late is counted on its
+  // calendar, as invoice.remind counts it.
+  const today = await withTenant(companyId, async (tx) => {
     for (const letter of await unconfirmedLetters(tx, companyId)) {
       const once = `reminder_unconfirmed:${letter.attemptId}`;
       const { rows: told } = await tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1", [once]);
@@ -141,6 +142,7 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
         payload: { once, invoiceId: letter.invoiceId, number: letter.number, step: letter.step },
       });
     }
+    return dayIn(await zoneOf(tx, companyId), now);
   });
 
   const found = await withTenant(companyId, (tx) => read(tx, companyId, today));

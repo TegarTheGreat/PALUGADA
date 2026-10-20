@@ -27,6 +27,7 @@
 import type { TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { invoiceFormats } from './invoice-document.ts';
+import { wallClockAt } from '../scheduler/windows.ts';
 
 /** Days past the due date at which each reminder goes, unless the company set its own. */
 export const DEFAULT_STEPS: readonly number[] = [3, 10, 24];
@@ -41,6 +42,29 @@ export const STALE_AFTER_DAYS = 60;
 export const ESCALATE_AFTER_DAYS = 7;
 
 const DAY = 86_400_000;
+
+/**
+ * The company's time zone: the calendar its reminders count days on, and date
+ * their letters by. A due date is a day where the company is; counted in UTC,
+ * a letter went to a customer on the evening of the due day in a company
+ * west of UTC, and a day late east of it. UTC for a zone this platform cannot
+ * read, so a misspelt one stops nothing.
+ */
+export async function zoneOf(tx: TenantClient, companyId: string): Promise<string> {
+  const { rows } = await tx.query<{ timezone: string }>('SELECT timezone FROM companies WHERE id = $1', [companyId]);
+  const zone = rows[0]?.timezone ?? 'UTC';
+  try {
+    wallClockAt(zone, 0);
+    return zone;
+  } catch {
+    return 'UTC';
+  }
+}
+
+/** The day of the calendar (`YYYY-MM-DD`) it is in a time zone at an instant. */
+export function dayIn(zone: string, instant: Date): string {
+  return new Date(wallClockAt(zone, instant.getTime())).toISOString().slice(0, 10);
+}
 
 /** Whole days from one day of the calendar to another (`YYYY-MM-DD`), by the calendar and not by any clock. */
 export function daysBetween(from: string, to: string): number {
@@ -281,13 +305,14 @@ export interface Reminder {
 
 /** The letters sent about an invoice, in order: those the server took, and those it may have. */
 export async function remindersOf(tx: TenantClient, companyId: string, invoiceId: string): Promise<Reminder[]> {
+  const zone = await zoneOf(tx, companyId);
   const { rows } = await tx.query<{ step: number; sent_on: string; sent_at: Date; to_address: string; outstanding_cents: string; days_overdue: number; confirmed: boolean }>(
     `SELECT step, to_char(sent_on, 'YYYY-MM-DD') AS sent_on, sent_at, to_address, outstanding_cents, days_overdue, true AS confirmed
        FROM invoice_reminders WHERE company_id = $1 AND invoice_id = $2
      UNION ALL
-     SELECT step, to_char((started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD'), started_at, to_address, outstanding_cents, days_overdue, false
+     SELECT step, to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD'), started_at, to_address, outstanding_cents, days_overdue, false
        FROM invoice_reminder_attempts WHERE company_id = $1 AND invoice_id = $2
-     ORDER BY step`, [companyId, invoiceId]);
+     ORDER BY step`, [companyId, invoiceId, zone]);
   return rows.map((row) => ({
     step: row.step, sentOn: row.sent_on, sentAt: row.sent_at, to: row.to_address,
     outstandingCents: Number(row.outstanding_cents), daysOverdue: row.days_overdue, confirmed: row.confirmed,
@@ -298,13 +323,14 @@ export async function remindersOf(tx: TenantClient, companyId: string, invoiceId
 export async function lettersOf(tx: TenantClient, companyId: string, invoiceIds: string[]): Promise<Map<string, Array<{ step: number; day: string }>>> {
   const out = new Map<string, Array<{ step: number; day: string }>>();
   if (invoiceIds.length === 0) return out;
+  const zone = await zoneOf(tx, companyId);
   const { rows } = await tx.query<{ invoice_id: string; step: number; day: string }>(
     `SELECT invoice_id, step, to_char(sent_on, 'YYYY-MM-DD') AS day FROM invoice_reminders
       WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
      UNION ALL
-     SELECT invoice_id, step, to_char((started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') FROM invoice_reminder_attempts
+     SELECT invoice_id, step, to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') FROM invoice_reminder_attempts
       WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
-     ORDER BY invoice_id, step`, [companyId, invoiceIds]);
+     ORDER BY invoice_id, step`, [companyId, invoiceIds, zone]);
   for (const row of rows) out.set(row.invoice_id, [...(out.get(row.invoice_id) ?? []), { step: row.step, day: row.day }]);
   return out;
 }
@@ -335,11 +361,12 @@ export async function giveStepBack(tx: TenantClient, companyId: string, attemptI
  * when there was no such letter in flight any more.
  */
 export async function confirmStep(tx: TenantClient, companyId: string, attemptId: string, messageId: string): Promise<boolean> {
+  const zone = await zoneOf(tx, companyId);
   const { rowCount } = await tx.query(
     `INSERT INTO invoice_reminders (company_id, invoice_id, step, sent_on, sent_at, to_address, message_id, outstanding_cents, days_overdue, task_id)
-     SELECT company_id, invoice_id, step, (started_at AT TIME ZONE 'UTC')::date, started_at, to_address, $3, outstanding_cents, days_overdue, task_id
+     SELECT company_id, invoice_id, step, (started_at AT TIME ZONE $4)::date, started_at, to_address, $3, outstanding_cents, days_overdue, task_id
        FROM invoice_reminder_attempts WHERE company_id = $1 AND id = $2`,
-    [companyId, attemptId, messageId]);
+    [companyId, attemptId, messageId, zone]);
   await tx.query('DELETE FROM invoice_reminder_attempts WHERE company_id = $1 AND id = $2', [companyId, attemptId]);
   return (rowCount ?? 0) > 0;
 }
@@ -359,12 +386,13 @@ export interface Unconfirmed {
 /** Letters handed to the mail server long enough ago that it is not going to say any more about them. */
 export async function unconfirmedLetters(tx: TenantClient, companyId: string): Promise<Unconfirmed[]> {
   const policy = await policyOf(tx, companyId);
+  const zone = await zoneOf(tx, companyId);
   const { rows } = await tx.query<{ id: string; invoice_id: string; number: string; customer_name: string; to_address: string; step: number; day: string }>(
     `SELECT a.id, a.invoice_id, i.number, i.customer_name, a.to_address, a.step,
-            to_char((a.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day
+            to_char((a.started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS day
        FROM invoice_reminder_attempts a JOIN invoices i ON i.company_id = a.company_id AND i.id = a.invoice_id
       WHERE a.company_id = $1 AND a.started_at < now() - make_interval(mins => $2)
-      ORDER BY a.started_at`, [companyId, IN_FLIGHT_MINUTES]);
+      ORDER BY a.started_at`, [companyId, IN_FLIGHT_MINUTES, zone]);
   return rows.map((row) => ({
     attemptId: row.id, invoiceId: row.invoice_id, number: row.number, customer: row.customer_name, to: row.to_address,
     step: row.step, of: Math.max(policy.stepsDays.length, row.step), day: row.day,
@@ -423,12 +451,13 @@ export async function remindingOf(tx: TenantClient, companyId: string, invoiceId
   if (invoiceIds.length === 0) return out;
   // A letter the server may have sent is one of the letters: the owner reads
   // it on the invoice as such (`remindersOf`).
+  const zone = await zoneOf(tx, companyId);
   const { rows: sent } = await tx.query<{ invoice_id: string; n: number; last_on: string }>(
     `SELECT invoice_id, count(*)::int AS n, to_char(max(sent_on), 'YYYY-MM-DD') AS last_on FROM (
        SELECT invoice_id, sent_on FROM invoice_reminders WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
        UNION ALL
-       SELECT invoice_id, (started_at AT TIME ZONE 'UTC')::date FROM invoice_reminder_attempts WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
-     ) letters GROUP BY invoice_id`, [companyId, invoiceIds]);
+       SELECT invoice_id, (started_at AT TIME ZONE $3)::date FROM invoice_reminder_attempts WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
+     ) letters GROUP BY invoice_id`, [companyId, invoiceIds, zone]);
   const { rows: flags } = await tx.query<{ invoice_id: string; held: boolean; told: boolean }>(
     `SELECT invoice_id, held_at IS NOT NULL AS held, escalated_at IS NOT NULL AS told FROM invoice_collections
       WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])`, [companyId, invoiceIds]);

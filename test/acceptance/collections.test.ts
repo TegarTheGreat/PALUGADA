@@ -320,3 +320,36 @@ test('a letter the mail server refused leaves the step free, and the next try se
     await close();
   }
 });
+
+test('a reminder counts its days on the company\'s calendar, and its letter is dated there', { skip: SKIP }, async () => {
+  const fixture = await createCompany('remind-zone');
+  const { servers, broker, close } = await wired(fixture);
+  try {
+    // A zone where today is not UTC's today, whatever the hour this runs, an
+    // hour or more from the moment either changes day: twelve hours behind
+    // (a day behind until noon UTC) before eleven, fourteen ahead (a day
+    // ahead from ten) after.
+    const behind = new Date().getUTCHours() < 11;
+    const zone = behind ? 'Etc/GMT+12' : 'Pacific/Kiritimati';
+    const local = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const before = new Date(Date.parse(`${local}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    await withControlPlane((tx) => tx.query('UPDATE companies SET timezone = $2 WHERE id = $1', [fixture.companyId, zone]));
+    await withTenant(fixture.companyId, (tx) => setPolicy(tx, fixture.companyId, { stepsDays: [1] }));
+
+    // Due on the company's today: not late there, though UTC's day may be past it.
+    const today = await overdue(fixture, 0, { issueDate: before, dueDate: local });
+    // Due on the company's yesterday: a day late there, though UTC may still be on it.
+    const yesterday = await overdue(fixture, 0, { issueDate: before, dueDate: before });
+    const taskId = await runningTask(fixture);
+    const ask = async (invoice: string, key: string) => (await broker.invoke(at(fixture, taskId, key), 'invoice.remind', { invoice })).output as Result;
+
+    assert.equal((await ask(today.number, 'today')).reason, 'not_overdue');
+    const sent = await ask(yesterday.number, 'yesterday');
+    assert.equal(sent.status, 'sent', JSON.stringify(sent));
+    assert.equal(servers.smtp.sent.length, 1);
+    const kept = await withTenant(fixture.companyId, (tx) => remindersOf(tx, fixture.companyId, yesterday.invoiceId));
+    assert.deepEqual(kept.map((one) => one.sentOn), [local], 'the letter is dated on the company\'s day');
+  } finally {
+    await close();
+  }
+});

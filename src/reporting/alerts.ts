@@ -9,8 +9,8 @@
  * deduplication is not a nicety: a sweep running every minute against a
  * standing overspend would produce a thousand inbox items, and an owner who
  * has learned to scroll past the inbox is worse off than one with no alerts at
- * all (principle 1). And each is about its day: the next day's first look
- * closes the one before, once the owner's window has carried it to them.
+ * all (principle 1). And each is about its day, and closes itself once that
+ * day has ended and the owner has had a whole day to see it (`closeEndedDays`).
  *
  * F11.4 names three more, and each is said where it can be acted on rather
  * than as a daily count. A failed read-back has its own incident, about its
@@ -206,18 +206,24 @@ async function claimAlertSlot(companyId: string, kind: AlertKind, day: Date): Pr
 }
 
 /**
- * Closes the cards about a day before `now`'s, and returns `now`'s day as the
- * cards name it.
+ * Closes the cards about a day that has ended once the owner has had a whole
+ * day to see them, and returns `now`'s day as the cards name it.
  *
- * Each card said "today" of a day that has ended, asked nothing, and stayed:
+ * Each card said "today" of a day that had ended, asked nothing, and stayed:
  * a busy month left thirty. The day is the one `claimAlertSlot` counts in,
  * from the same expression, and is compared as text: both are YYYY-MM-DD.
  *
- * Two kinds are kept past their day. One whose notification has not had the
- * owner's window yet -- raised after hours, `notify_after` is when the window
- * next opens (F10.5) -- would be closed before any channel carried it, and
- * the owner would never hear of the breach; it closes the day after. One the
- * owner put off until a later day (0060) is theirs to see then.
+ * Not at the day's end. A card carried late in its day -- at 21:55, or at
+ * 21:30 in Jakarta, which is 14:30 in UTC -- had barely reached the owner by
+ * midnight, and closing it then rewrote its chat message (`retractClosed`)
+ * before their next morning: they never heard of the breach. So a card is
+ * kept a whole day from when it was put in front of the owner: carried to
+ * them (`notify_after`, which is the window's next opening for one raised
+ * after hours, F10.5), or back from being put off (`snoozed_until`, 0060).
+ * The owner's window is the same hours every day, so any whole day holds all
+ * of it, wherever those hours fall against UTC's midnight; a day, rather than
+ * the window's next closing, because a window that never closes or never
+ * opens has no closing to wait for.
  */
 async function closeEndedDays(companyId: string, now: Date): Promise<string> {
   return withTenant(companyId, async (tx) => {
@@ -227,8 +233,9 @@ async function closeEndedDays(companyId: string, now: Date): Promise<string> {
       `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'day_ended'
         WHERE kind = 'budget_alert' AND status = 'open' AND payload ? 'alert'
           AND payload->>'day' < $2
-          AND notify_after < date_trunc('day', $1::timestamptz)
-          AND (snoozed_until IS NULL OR snoozed_until < date_trunc('day', $1::timestamptz))
+          -- greatest() passes over a null: a card never put off counts from
+          -- when it was carried.
+          AND greatest(notify_after, snoozed_until) <= $1::timestamptz - interval '1 day'
         RETURNING id`,
       [now, today!.day],
     );

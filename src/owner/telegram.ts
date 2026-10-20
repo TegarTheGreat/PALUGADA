@@ -416,7 +416,8 @@ export class TelegramChannel implements OwnerChannel {
   }
 
   /**
-   * Replaces a closed item's message with what happened to it.
+   * Replaces a closed item's message with what happened to it, under what it
+   * said when that is still true (`ClosedItem.said`).
    *
    * `editMessageText` without a `reply_markup` is what removes the inline
    * keyboard -- Telegram drops the buttons of an edited message unless new
@@ -439,6 +440,7 @@ export class TelegramChannel implements OwnerChannel {
         text: [
           `*${escapeMarkdown(closed.title)}*`,
           '',
+          ...(closed.said ? [escapeMarkdown(closed.said), ''] : []),
           escapeMarkdown(closureText(closed)),
         ].join('\n'),
       });

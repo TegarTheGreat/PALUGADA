@@ -208,6 +208,58 @@ test('a read-back mismatch halts the task and raises an incident', async () => {
 });
 
 /**
+ * The card is the halt's own record, not something said after it. It was
+ * raised in a transaction of its own after the halt and after the halt's
+ * hooks, so a worker stopped in between -- a deploy, a crash -- left a task
+ * halted for a write that may have happened and no card saying so. Nothing
+ * tried again, because the task had ended; the daily count that used to
+ * notice is gone; and a child task is not reported by ended.ts at all. The
+ * hook stands in for the worker stopping: what it finds committed is all a
+ * restart would find.
+ */
+test('the failed read-back card is committed with the halt, before anything after it runs (F8.4)', async () => {
+  const fixture = await createCompany('dns-drift-atomic');
+  const { capability } = dnsCapability({ corruptWrite: true });
+  const registry = new CapabilityRegistry();
+  registry.register(capability);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.update');
+
+  const task = await newTask(fixture);
+  const engine = engineFor(registry, async (ctx) => {
+    await ctx.callCapability('dns.update', { record: 'www', value: '1.2.3.4' });
+    return {};
+  });
+  let reached!: () => void;
+  const atHalt = new Promise<void>((resolve) => { reached = resolve; });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  engine.hooks.add({
+    name: 'test.worker_stops_here',
+    on: 'on_halt',
+    run: async () => {
+      reached();
+      await held;
+      return { allow: true };
+    },
+  });
+
+  const running = engine.runTask(fixture.companyId, task.id, 'worker');
+  await atHalt;
+  try {
+    const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+    assert.deepEqual([stored!.status, stored!.haltReason], ['halted', 'verification_failed']);
+    const incidents = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
+    assert.deepEqual(incidents.map((item) => item.taskId), [task.id], 'the card is there the moment the halt is');
+  } finally {
+    release();
+  }
+  assert.equal((await running).reason, 'verification_failed');
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1,
+    'and raised once');
+});
+
+/**
  * F8.4 from the run's side. A model is handed a failed tool call as a result
  * it can read, and the natural answer to "the write did not stick" is to
  * write again: a second payment, a second email. The failed read-back ends

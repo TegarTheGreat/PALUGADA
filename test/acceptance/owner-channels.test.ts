@@ -37,6 +37,7 @@ import {
   encodeAction,
   escapeMarkdown,
 } from '../../src/owner/telegram.ts';
+import { evaluateAlerts, setThresholds } from '../../src/reporting/alerts.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -1178,6 +1179,44 @@ test('a chat message loses its buttons once the item is decided elsewhere (F10.9
     assert.deepEqual(await retractClosed(fixture.companyId, channel), { retracted: 0, failed: 0 });
     assert.equal(vendor.calls.length, 2);
     assert.ok((await retraction(fixture, itemId)).retracted_at);
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
+ * A day's figure is still that day's figure once its card has closed. The
+ * message was rewritten to its title and "withdrawn", so an owner scrolling
+ * back through the chat found that something had been over a threshold and
+ * not what, or by how much -- the one thing the message was for.
+ */
+test("a day's card that closed keeps its figure in the chat, under why it closed (F10.9, F11.4)", async () => {
+  const fixture = await createCompany('chat-retract-day');
+  const vendor = await fakeTelegram();
+  try {
+    await setThresholds(fixture.companyId, { dailyCostCents: 150 });
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents)
+       VALUES ('trace-chat-day', $1, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300)`,
+      [fixture.companyId]));
+    const [raised] = await evaluateAlerts(fixture.companyId);
+    const channel = telegram({ url: vendor.url });
+    await dispatch(fixture.companyId, channel, { now: tomorrow() });
+    const sent = String(vendor.calls.find((call) => call.path.endsWith('/sendMessage'))!.body.text);
+    assert.match(sent, /Model spend today is/);
+
+    await evaluateAlerts(fixture.companyId, new Date(Date.now() + 3 * 86_400_000));
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ closed_reason: string }>(
+      'SELECT closed_reason FROM inbox_items WHERE id = $1', [raised!.inboxItemId]));
+    assert.equal(rows[0]!.closed_reason, 'day_ended');
+    assert.deepEqual(await retractClosed(fixture.companyId, channel), { retracted: 1, failed: 0 });
+
+    const edit = vendor.calls.find((call) => call.path.endsWith('/editMessageText'))!;
+    assert.equal(edit.body.reply_markup, undefined);
+    const text = String(edit.body.text);
+    assert.match(text, /^\*Daily model spend over threshold\*/);
+    assert.ok(text.includes(sent.split('\n\n')[1]!), 'the figure the message carried is still there');
+    assert.match(text, /Withdrawn: the day it was about has ended\\\.$/);
   } finally {
     await vendor.close();
   }

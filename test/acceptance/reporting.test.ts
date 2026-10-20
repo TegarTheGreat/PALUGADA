@@ -294,65 +294,77 @@ test('an orphaned run is a line of the digest, not an incident (F11.4, F5.14, F1
 });
 
 /**
- * "Model spend today is over the ceiling" is about today. Nothing closed it,
+ * "Model spend today is over the ceiling" is about its day. Nothing closed it,
  * so every busy day left one more card that asked nothing and that nobody
- * could act on. It closes at the first look of a later day -- but only once
- * the owner's window has opened on it: a card raised after hours has not been
- * carried to them yet, and closing it first would hide the breach.
+ * could act on. It closes itself -- but not at midnight. A card carried late
+ * in its day has barely reached the owner by then: on a deployment whose
+ * owner is reached from 08:00 to 22:00, a breach carried at 21:55 was gone at
+ * 00:00, its chat message rewritten, before the owner's next morning; an
+ * owner in Jakarta, whose 08:00-22:00 is 01:00-15:00 UTC, lost at 07:00
+ * whatever they had heard of the evening before. A card stays a whole day
+ * after it was put in front of the owner -- carried to them, or back from
+ * being put off -- because a day holds the whole of the owner's window
+ * wherever their hours fall against UTC, and closes at the first look after.
  */
-test("yesterday's spending card closes itself, once it has had its window (F11.4)", async () => {
+test("a day's card closes itself once it has been in front of the owner a whole day (F11.4)", async () => {
   const fixture = await createCompany('alert-day-ended');
   await setThresholds(fixture.companyId, { dailyCostCents: 150 });
-  const now = new Date();
-  const yesterday = new Date(now.getTime() - 86_400_000);
-  await withTenant(fixture.companyId, (tx) => tx.query(
+  const start = Date.UTC(2026, 8, 1);
+  const at = (hours: number) => new Date(start + hours * 3_600_000);
+  const trace = (id: string, when: Date) => withTenant(fixture.companyId, (tx) => tx.query(
     `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
-     VALUES ('trace-day-ended', $1, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300, $2)`,
-    [fixture.companyId, yesterday]));
-
-  const [raised] = await evaluateAlerts(fixture.companyId, yesterday);
-  assert.equal(raised!.kind, 'daily_cost');
-  const card = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{
+     VALUES ($1, $2, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300, $3)`,
+    [id, fixture.companyId, when]));
+  const carried = (itemId: string, when: Date) => withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE inbox_items SET notify_after = $2 WHERE id = $1', [itemId, when]));
+  const card = async (itemId: string) => (await withTenant(fixture.companyId, (tx) => tx.query<{
     status: string; closed_reason: string | null; payload: { alert?: string; day?: string };
-  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [raised!.inboxItemId]))).rows[0]!;
-  const { rows: [day] } = await withTenant(fixture.companyId, (tx) => tx.query<{ day: string }>(
-    "SELECT to_char(date_trunc('day', $1::timestamptz), 'YYYY-MM-DD') AS day", [yesterday]));
-  assert.deepEqual((await card()).payload, { alert: 'daily_cost', day: day!.day }, 'it says which day it is about');
+  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [itemId]))).rows[0]!;
+  const withdrawn = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn' ORDER BY occurred_at"))).rows
+    .map((row) => [row.payload.inboxItemId, row.payload.closedReason]);
 
-  // Raised after hours: the window opens on it this morning.
-  await withTenant(fixture.companyId, (tx) => tx.query(
-    "UPDATE inbox_items SET notify_after = date_trunc('day', $2::timestamptz) + interval '9 hours' WHERE id = $1",
-    [raised!.inboxItemId, now]));
-  assert.deepEqual(await evaluateAlerts(fixture.companyId, now), []);
-  assert.equal((await card()).status, 'open', 'kept until it has been carried to the owner');
+  await trace('trace-first-day', at(12));
+  const [first] = await evaluateAlerts(fixture.companyId, at(12));
+  assert.equal(first!.kind, 'daily_cost');
+  assert.deepEqual((await card(first!.inboxItemId)).payload, { alert: 'daily_cost', day: '2026-09-01' },
+    'it says which day it is about');
+  await carried(first!.inboxItemId, at(21 + 55 / 60));
 
-  // Put off by the owner past today: theirs to see then.
-  await withTenant(fixture.companyId, (tx) => tx.query(
-    "UPDATE inbox_items SET notify_after = $2, snoozed_until = $3::timestamptz + interval '1 day' WHERE id = $1",
-    [raised!.inboxItemId, yesterday, now]));
-  await evaluateAlerts(fixture.companyId, now);
-  assert.equal((await card()).status, 'open', 'a card the owner put off is kept for when they asked to see it');
+  // Five minutes after its day ended, and the owner asleep since 22:00.
+  assert.deepEqual(await evaluateAlerts(fixture.companyId, at(24 + 5 / 60)), []);
+  assert.equal((await card(first!.inboxItemId)).status, 'open', 'the first look after its day leaves it');
 
-  // Its window was yesterday: the first look today closes it.
+  await trace('trace-second-day', at(36));
+  const [second] = await evaluateAlerts(fixture.companyId, at(36));
+  assert.deepEqual((await card(second!.inboxItemId)).payload, { alert: 'daily_cost', day: '2026-09-02' });
+  await carried(second!.inboxItemId, at(36));
+
+  // The next evening, five minutes short of a whole day since it was carried.
+  await evaluateAlerts(fixture.companyId, at(45 + 50 / 60));
+  assert.equal((await card(first!.inboxItemId)).status, 'open', 'kept a whole day after it was carried');
+
+  // Put off by the owner until two in the morning: a whole day from then.
   await withTenant(fixture.companyId, (tx) => tx.query(
-    'UPDATE inbox_items SET snoozed_until = NULL WHERE id = $1', [raised!.inboxItemId]));
-  await evaluateAlerts(fixture.companyId, now);
-  const closed = await card();
+    'UPDATE inbox_items SET snoozed_until = $2 WHERE id = $1', [first!.inboxItemId, at(50)]));
+  await evaluateAlerts(fixture.companyId, at(59));
+  assert.equal((await card(first!.inboxItemId)).status, 'open', 'a card the owner put off has its day once it is back');
+  assert.deepEqual(await withdrawn(), []);
+
+  // Not put off: the first day's closes, the second day's has not had its day yet.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE inbox_items SET snoozed_until = NULL WHERE id = $1', [first!.inboxItemId]));
+  await evaluateAlerts(fixture.companyId, at(59));
+  const closed = await card(first!.inboxItemId);
   assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'day_ended']);
-  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
-    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"));
-  assert.deepEqual(said.map((row) => [row.payload.inboxItemId, row.payload.closedReason]), [[raised!.inboxItemId, 'day_ended']]);
+  assert.deepEqual(await withdrawn(), [[first!.inboxItemId, 'day_ended']]);
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [second!.inboxItemId]);
 
-  // Today's card is today's: a second look the same day leaves it.
-  await withTenant(fixture.companyId, (tx) => tx.query(
-    `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
-     VALUES ('trace-day-today', $1, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300, $2)`,
-    [fixture.companyId, now]));
-  const [today] = await evaluateAlerts(fixture.companyId, now);
-  await withTenant(fixture.companyId, (tx) => tx.query(
-    "UPDATE inbox_items SET notify_after = $2::timestamptz - interval '1 hour' WHERE id = $1", [today!.inboxItemId, now]));
-  await evaluateAlerts(fixture.companyId, now);
-  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [today!.inboxItemId]);
+  // A second look closes nothing twice; a whole day on, the second day's goes.
+  await evaluateAlerts(fixture.companyId, at(59));
+  assert.deepEqual(await withdrawn(), [[first!.inboxItemId, 'day_ended']]);
+  await evaluateAlerts(fixture.companyId, at(60));
+  assert.deepEqual(await withdrawn(), [[first!.inboxItemId, 'day_ended'], [second!.inboxItemId, 'day_ended']]);
 });
 
 test('the daily digest fits one screen (F10.6)', async () => {

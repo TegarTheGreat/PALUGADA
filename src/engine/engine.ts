@@ -1866,15 +1866,25 @@ export class Engine {
 
     const haltReason = code ? haltCodes[code] : undefined;
     if (haltReason) {
-      await transition(companyId, taskId, 'halted', { haltReason, detail: (error as Error).message });
+      // F8.4: a write that reports success but reads back differently is an
+      // incident, not a retry. About this task: the card asks the owner to
+      // look before running it again, and running it again closes it.
+      //
+      // In the halt's own transaction. Raised after it -- and after the halt's
+      // hooks -- a worker stopped in between left the task halted for a write
+      // that may have happened and no card saying so, and nothing looks again
+      // at a task that has ended: ended.ts does not report a child, and there
+      // is no daily count of failed read-backs any more (alerts.ts).
+      const unverified = haltReason === 'verification_failed'
+        ? async (tx: TenantClient) => {
+            const card = writeUnverifiedCard(await ownerReadingWithin(tx), { record: (error as Error).message });
+            await inbox.raiseIncidentWithin(tx, {
+              companyId, taskId, title: card.title, detail: card.detail, payload: { aboutTask: true },
+            });
+          }
+        : undefined;
+      await transition(companyId, taskId, 'halted', { haltReason, detail: (error as Error).message }, unverified);
       await this.#onHalt(companyId, settled, haltReason, error, agentRunId);
-      if (haltReason === 'verification_failed') {
-        // F8.4: a write that reports success but reads back differently is an
-        // incident, not a retry. About this task: the card asks the owner to
-        // look before running it again, and running it again closes it.
-        const card = writeUnverifiedCard(await withTenant(companyId, ownerReadingWithin), { record: (error as Error).message });
-        await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail, payload: { aboutTask: true } });
-      }
       // Section 6.3: a task its budget stopped goes to the owner. A month's
       // money running out halts the same way and has its own item, raised by
       // the spend guard for the whole company, so it is not raised again here.

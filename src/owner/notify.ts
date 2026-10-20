@@ -134,7 +134,21 @@ export interface ClosedItem {
   closedReason: string | null;
   /** As for `NotifiableItem`. */
   language?: string;
+  /**
+   * What the message said, kept for an item closed because its time passed
+   * rather than because what it said stopped being so (`STILL_SAID`). Absent
+   * for every other close, whose message is replaced by what became of it.
+   */
+  said?: string | null;
 }
+
+/**
+ * The closes that leave what a message said true. A day's card closes because
+ * the day is over (alerts.ts), and its figure is still that day's figure: the
+ * owner reading back through the chat should find it there, under why the
+ * card closed, rather than a title and "withdrawn".
+ */
+const STILL_SAID: ReadonlySet<string> = new Set(['day_ended']);
 
 /**
  * What became of the message.
@@ -908,9 +922,10 @@ export async function retractClosed(
       id: string; kind: string; title: string; status: ClosedItem['status'];
       decision: string | null; closed_reason: string | null;
       external_ref: string | null; retract_attempts: number; language: string | null; capability_name: string | null;
+      summary: string;
     }>(
       `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason, i.capability_name,
-              n.external_ref, n.retract_attempts,
+              ${CHANNEL_SUMMARY} AS summary, n.external_ref, n.retract_attempts,
               (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
@@ -954,6 +969,9 @@ export async function retractClosed(
       decision: row.decision,
       closedReason: row.closed_reason,
       language: row.language ?? 'en',
+      // What the message carried, from the same expression `dispatch` sent.
+      said: row.closed_reason !== null && STILL_SAID.has(row.closed_reason)
+        ? actionSaid(row.language, row.summary, row.capability_name) : null,
     };
     try {
       await channel.retract(closed, row.external_ref);

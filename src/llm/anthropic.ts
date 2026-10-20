@@ -94,7 +94,11 @@ export class AnthropicClient implements ToolUsingLlmClient {
   }
 
   async complete(request: LlmRequest, signal?: AbortSignal): Promise<LlmResponse> {
-    const turn = await this.turn({ ...request, tools: [] }, signal);
+    // A single question has no next turn to read its messages back from the
+    // cache: marked, they were written to it at a quarter more than their
+    // price and never read. Its system prompt, the same from one such
+    // question to the next, is still marked.
+    const turn = await this.#send({ ...request, tools: [] }, signal, false);
     return {
       content: turn.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n'),
       inputTokens: turn.inputTokens,
@@ -105,7 +109,15 @@ export class AnthropicClient implements ToolUsingLlmClient {
   }
 
   async turn(request: LlmTurnRequest, signal?: AbortSignal): Promise<LlmTurn> {
+    return this.#send(request, signal, true);
+  }
+
+  async #send(request: LlmTurnRequest, signal: AbortSignal | undefined, markConversation: boolean): Promise<LlmTurn> {
     const model = this.resolve(request.model);
+    const sent = request.messages.map((message) => ({
+      role: message.role,
+      content: typeof message.content === 'string' ? message.content : message.content.map(toWire),
+    }));
     const body = JSON.stringify({
       model,
       max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
@@ -113,10 +125,7 @@ export class AnthropicClient implements ToolUsingLlmClient {
       // is the charter and the pack, identical on every turn of a run, and a
       // run of twenty turns would otherwise be billed for it twenty times.
       system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
-      messages: markedForCache(request.messages.map((message) => ({
-        role: message.role,
-        content: typeof message.content === 'string' ? message.content : message.content.map(toWire),
-      }))),
+      messages: markConversation ? markedForCache(sent) : sent,
       ...(request.tools.length > 0
         ? {
           tools: request.tools.map((tool) => ({

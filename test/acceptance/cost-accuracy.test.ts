@@ -335,6 +335,15 @@ test('the Messages API client marks the end of the conversation for the provider
     await client.turn(asked);
     const only = api.received[1]!.body.messages as Array<{ content: unknown }>;
     assert.deepEqual(only[0]!.content, [{ type: 'text', text: 'The task.', cache_control: { type: 'ephemeral' } }]);
+
+    // A single question -- a check, a summary -- has no next turn to read its
+    // message back: marked, it was written to the cache at a quarter more
+    // than its price and never read (the review of 20 October). Its system
+    // prompt, the same from one such question to the next, still is.
+    await client.complete({ model: 'standard', system: 'You check things.', messages: [{ role: 'user', content: 'Is this fine?' }] });
+    const once = api.received[2]!.body;
+    assert.equal((once.messages as Array<{ content: unknown }>)[0]!.content, 'Is this fine?', 'the question is sent as it is, unmarked');
+    assert.ok((once.system as Array<{ cache_control?: unknown }>)[0]!.cache_control);
   } finally {
     await api.close();
   }

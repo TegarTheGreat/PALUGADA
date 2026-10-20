@@ -34,7 +34,7 @@ import { invoiceUnpaidCard, nobodyRemindsCard, ownerReadingWithin, remindedSaid,
 import { reminderAddress, type RemindResult } from '../capabilities/collections.ts';
 import { createRootTask } from '../engine/tasks.ts';
 import { lettersOf, lockInvoice, noteEscalated, policyOf, unconfirmedLetters, whatIsNext } from '../records/collections.ts';
-import { listInvoices } from '../records/invoices.ts';
+import { overdueInvoices } from '../records/invoices.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 
 /** The least time between one look at a company's invoices and the next. */
@@ -78,7 +78,7 @@ const noAddressKey = (invoiceId: string) => `reminder_no_email:${invoiceId}`;
 async function read(tx: TenantClient, companyId: string, today: string): Promise<{ due: Candidate[]; person: ForAPerson[] } | null> {
   const policy = await policyOf(tx, companyId);
   if (!policy.enabled) return null;
-  const { invoices } = await listInvoices(tx, companyId, { status: 'open', limit: 500 });
+  const invoices = await overdueInvoices(tx, companyId, today);
   if (invoices.length === 0) return { due: [], person: [] };
   const ids = invoices.map((invoice) => invoice.id);
   // The letters the server took and those it may have: a step in flight or

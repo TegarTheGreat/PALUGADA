@@ -253,6 +253,28 @@ test('an invoice issued to a name with no address is the owner\'s to follow up, 
   }
 });
 
+test('an overdue invoice is found however many newer ones the books hold', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-many');
+  const { close } = await office(fixture);
+  try {
+    // The oldest is the late one; five hundred issued since are not due yet.
+    const late = await overdue(fixture, 5);
+    await withTenant(fixture.companyId, async (tx) => {
+      for (let n = 0; n < 500; n += 1) {
+        await issueInvoice(tx, fixture.companyId, {
+          customerName: `Pelanggan ${n}`, customerEmail: 'kasir@pelanggan.example', currency: 'IDR',
+          issueDate: day(0), dueDate: day(14), lines: [{ description: 'Langganan', quantity: 1, unitCents: 10_000 }],
+        }, 'owner');
+      }
+    });
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.equal(look.due, 1, 'the late one was not among the five hundred newest, and was never looked at');
+    assert.deepEqual((await statusOf(fixture, look.task!)).input.invoices, [late.number]);
+  } finally {
+    await close();
+  }
+});
+
 test('the work goes in a project the company still has open, not the first one it closed', { skip: SKIP }, async () => {
   const fixture = await createCompany('duty-archived');
   const { close } = await office(fixture);

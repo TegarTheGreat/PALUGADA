@@ -307,6 +307,21 @@ export async function listInvoices(tx: TenantClient, companyId: string, options:
   };
 }
 
+/**
+ * Every invoice still owed whose due date is before `today`, the longest
+ * overdue first: what collections looks at. Not `listInvoices`, which keeps
+ * the newest and cuts the rest, so in books with more open invoices than it
+ * keeps the oldest -- the late ones -- were never looked at.
+ */
+export async function overdueInvoices(tx: TenantClient, companyId: string, today: string): Promise<Invoice[]> {
+  const { rows } = await tx.query<Row>(
+    `SELECT * FROM (${ROWS} WHERE i.company_id = $1 AND i.due_date < $2::date) owed
+      WHERE NOT owed.is_void AND owed.paid_cents < owed.total_cents
+      ORDER BY owed.due_date, owed.number`,
+    [companyId, today]);
+  return rows.map(invoiceOf);
+}
+
 /* ---------------------------------------------------------------- writes --- */
 
 /** Issues an invoice: numbered, with the entry that puts what is owed in the books. */

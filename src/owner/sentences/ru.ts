@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'Задач, которые сегодня завершились сбоем или были остановлены: {failed} из {finished} ({rate}%) — это выше порога {limit}%.',
   'Unusual number of policy refusals': 'Необычно много отказов по политикам',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Действий, отклонённых политикой сегодня: {count} — это выше порога {limit}. Либо агент прощупывает границы дозволенного, либо политика настроена неверно.',
-  'External writes failed verification': 'Внешние записи не прошли проверку',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Записей во внешние системы, которые сообщили об успехе, но при перечитывании оказались другими: {count}. Что-то меняет их не так, как было запрошено.',
-  'A capability stopped being usable': 'Возможность перестала работать',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Задач, которые сегодня не смогли начаться, потому что нужная их роли возможность не прошла проверку: {count}. Вероятно, истёк срок учётных данных или закончилась квота.',
-  'A worker stopped reporting mid-run': 'Воркер перестал выходить на связь посреди запуска',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Запусков, которые сегодня перестали выходить на связь и были возвращены: {count}. Работа подхвачена заново; уже потраченные ими токены не вернуть.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'Роль {role} сегодня получила отказов: {denials} — это предел ({limit}). Ни одна задача не будет выполняться от имени этой роли, пока вы её не разморозите. Обычные причины: не выдано разрешение на возможность, политика, которую устав роли не учитывает, или работа, к которой роль никогда не была готова.',
   'Role {role} is frozen after repeated denials': 'Роль {role} заморожена после повторных отказов',
   'What it was refused: {capabilities}': 'В чём ей отказали: {capabilities}',
@@ -408,4 +402,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Отозвано: тикет, о котором шла речь, закрыт.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Счёт {number} ({amount}, {customer}) просрочен с {due}, и он выставлен без адреса электронной почты, на который можно отправить напоминание. Займитесь им сами или скажите CEO, что нужно сделать.',
+  'Runs picked up again after their worker stopped: {count}':
+    'Запуски, возобновлённые после остановки воркера: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Отозвано: задачу, о которой шла речь, запустили заново.',
+  'Withdrawn: the day it was about has ended.':
+    'Отозвано: день, о котором шла речь, закончился.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Отозвано: месячный лимит достигнут, и его место заняла карточка о том, что компания на паузе.',
 };

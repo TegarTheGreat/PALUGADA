@@ -212,12 +212,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'วันนี้มีงานล้มเหลวหรือถูกหยุด {failed} จาก {finished} งาน ({rate}%) เกินเกณฑ์ {limit}%',
   'Unusual number of policy refusals': 'นโยบายปฏิเสธบ่อยผิดปกติ',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'การกระทำที่ถูกนโยบายปฏิเสธวันนี้: {count} ครั้ง เกินเกณฑ์ {limit} ครั้ง อาจเป็นเพราะเอเจนต์กำลังลองหยั่งขอบเขตของตัวเอง หรือนโยบายตั้งค่าไว้ไม่เหมาะสม',
-  'External writes failed verification': 'การเขียนไปยังภายนอกไม่ผ่านการยืนยัน',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'การเขียนไปยังภายนอกที่รายงานว่าสำเร็จ แต่อ่านกลับมาแล้วไม่ตรงกัน: {count} รายการ มีบางอย่างกำลังเปลี่ยนข้อมูลเหล่านั้นโดยไม่เป็นไปตามที่สั่ง',
-  'A capability stopped being usable': 'ความสามารถหนึ่งใช้งานไม่ได้แล้ว',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'งานที่เริ่มไม่ได้วันนี้เพราะความสามารถที่บทบาทต้องใช้ไม่ผ่านการตรวจสอบ: {count} งาน ข้อมูลรับรองอาจหมดอายุ หรือโควตาอาจหมดแล้ว',
-  'A worker stopped reporting mid-run': 'เวิร์กเกอร์หยุดรายงานกลางรอบการทำงาน',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'รอบการทำงานที่หยุดรายงานและถูกดึงกลับวันนี้: {count} รอบ งานถูกรับไปทำต่อแล้ว แต่โทเค็นที่ใช้ไปแล้วไม่ได้คืนมา',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} ถูกปฏิเสธ {denials} ครั้งในวันนี้ ถึงขีดจำกัด {limit} ครั้งแล้ว จะไม่มีงานใดทำงานในบทบาทนี้จนกว่าคุณจะยกเลิกการแช่แข็ง สาเหตุที่พบบ่อยคือขาดสิทธิ์ใช้ความสามารถ มีนโยบายที่กฎบัตรของบทบาทไม่ได้คำนึงถึง หรือเป็นงานที่บทบาทนี้ไม่เคยถูกเตรียมไว้ให้ทำ',
   'Role {role} is frozen after repeated denials': 'บทบาท {role} ถูกแช่แข็งหลังจากถูกปฏิเสธซ้ำๆ',
   'What it was refused: {capabilities}': 'สิ่งที่ถูกปฏิเสธ: {capabilities}',
@@ -411,4 +405,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ถอนแล้ว: ทิกเก็ตที่เกี่ยวข้องถูกปิดแล้ว',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และออกโดยไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
+  'Runs picked up again after their worker stopped: {count}':
+    'การรันที่ทำต่อหลังเวิร์กเกอร์หยุด: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'ถอนออกแล้ว: งานที่เกี่ยวข้องถูกเรียกใช้อีกครั้งแล้ว',
+  'Withdrawn: the day it was about has ended.':
+    'ถอนออกแล้ว: วันที่เกี่ยวข้องผ่านไปแล้ว',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'ถอนออกแล้ว: ถึงเพดานของเดือนแล้ว และการ์ดที่แจ้งว่าบริษัทหยุดชั่วคราวเข้ามาแทนที่',
 };

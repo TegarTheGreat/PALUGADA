@@ -206,12 +206,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'المهام التي فشلت أو توقفت اليوم: {failed} من أصل {finished} ({rate}%)، متجاوزةً العتبة البالغة {limit}%.',
   'Unusual number of policy refusals': 'عدد غير معتاد من مرات الرفض بسبب السياسات',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'الإجراءات التي رفضتها سياسةٌ اليوم: {count}، متجاوزةً العتبة البالغة {limit}. فإما أن وكيلًا يختبر حدوده، وإما أن سياسةً معايَرة على نحو خاطئ.',
-  'External writes failed verification': 'فشلت عمليات كتابة خارجية في القراءة للتحقق',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'عمليات الكتابة الخارجية التي أفادت بالنجاح لكن القراءة للتحقق أظهرت غير ذلك: {count}. ثمة ما يغيّرها على غير ما طُلب.',
-  'A capability stopped being usable': 'قدرة لم تعد صالحة للاستخدام',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'المهام التي تعذّر بدؤها اليوم لأن قدرةً يحتاجها دورها فشلت في فحصها: {count}. على الأرجح انتهت صلاحية بيانات اعتماد أو نفدت حصة.',
-  'A worker stopped reporting mid-run': 'توقف عاملٌ عن الإبلاغ في منتصف التشغيل',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'عمليات التشغيل التي توقفت عن الإبلاغ وسُحبت من عمّالها اليوم: {count}. استُؤنف العمل؛ أما التوكنات التي كانت قد أُنفقت فلم تُسترد.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'عدد مرات رفض {role} اليوم: {denials}، وهو الحد البالغ {limit}. لن تُشغَّل أي مهمة بهذا الدور إلى أن يُلغى تجميده. والأسباب المعتادة: نقص إذن لقدرة ما، أو سياسة لا يراعيها ميثاق الدور، أو عمل لم يُجهَّز الدور قط للقيام به.',
   'Role {role} is frozen after repeated denials': 'جُمّد الدور {role} بعد رفض متكرر',
   'What it was refused: {capabilities}': 'ما رُفض له: {capabilities}',
@@ -405,4 +399,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سُحب: أُغلقت التذكرة التي كان يتعلق بها.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، وقد صدرت دون عنوان بريد إلكتروني يُرسل إليه تذكير. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
+  'Runs picked up again after their worker stopped: {count}':
+    'عمليات تشغيل استُؤنفت بعد توقف عاملها: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'سُحب: أُعيد تشغيل المهمة التي كان يتعلق بها.',
+  'Withdrawn: the day it was about has ended.':
+    'سُحب: انتهى اليوم الذي كان يتعلق به.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'سُحب: بلغ الإنفاق سقف الشهر، وتحل محله البطاقة التي تقول إن الشركة متوقفة مؤقتًا.',
 };

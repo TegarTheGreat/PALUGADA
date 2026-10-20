@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} van de {finished} taken zijn vandaag mislukt of gestopt ({rate}%), boven de drempel van {limit}%.',
   'Unusual number of policy refusals': 'Ongewoon veel weigeringen door beleidsregels',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Acties die vandaag door een beleidsregel zijn geweigerd: {count}, boven de drempel van {limit}. Óf een agent tast zijn grenzen af, óf een beleidsregel is verkeerd afgesteld.',
-  'External writes failed verification': 'Externe schrijfacties kwamen niet door de controle',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Schrijfacties naar buiten die als geslaagd werden gemeld, maar bij teruglezen anders bleken: {count}. Iets wijzigt ze anders dan gevraagd.',
-  'A capability stopped being usable': 'Een mogelijkheid is niet meer bruikbaar',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Taken die vandaag niet konden starten omdat een mogelijkheid die hun rol nodig heeft niet door de controle kwam: {count}. Waarschijnlijk zijn inloggegevens verlopen of is een quotum op.',
-  'A worker stopped reporting mid-run': 'Een worker meldde zich halverwege een uitvoering niet meer',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Uitvoeringen die zich vandaag niet meer meldden en zijn teruggehaald: {count}. Het werk is weer opgepakt; de tokens die ze al hadden uitgegeven, zijn verloren.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} is vandaag {denials} keer afgewezen en zit daarmee op de limiet van {limit}. Er draait geen taak als deze rol totdat je haar ontdooit. Gebruikelijke oorzaken zijn een ontbrekende machtiging voor een mogelijkheid, een beleidsregel waar het handvest van de rol geen rekening mee houdt, of werk waarvoor de rol nooit is toegerust.',
   'Role {role} is frozen after repeated denials': 'Rol {role} bevroren na herhaalde afwijzingen',
   'What it was refused: {capabilities}': 'Wat werd geweigerd: {capabilities}',
@@ -408,4 +402,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ingetrokken: het ticket waar het over ging is gesloten.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en is uitgeschreven zonder e-mailadres om een herinnering naartoe te sturen. Volg haar zelf op, of zeg de CEO wat u wilt.',
+  'Runs picked up again after their worker stopped: {count}':
+    'Uitvoeringen die werden hervat nadat hun worker stopte: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Ingetrokken: de taak waar het over ging is opnieuw uitgevoerd.',
+  'Withdrawn: the day it was about has ended.':
+    'Ingetrokken: de dag waar het over ging is voorbij.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Ingetrokken: het plafond van de maand is bereikt, en de kaart die zegt dat het bedrijf gepauzeerd is neemt de plaats in.',
 };

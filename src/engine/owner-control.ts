@@ -173,7 +173,12 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     : { capability: 'the task it reruns', from: carried, rerunOf: taskId };
   const already = await withTenant(companyId, (tx) =>
     tx.query<{ id: string }>('SELECT id FROM tasks WHERE idempotency_key = $1', [key]));
-  if (already.rows[0]) return already.rows[0].id;
+  if (already.rows[0]) {
+    // A second press closes nothing twice, and after a first press that
+    // stopped between making the task and closing the cards, it closes them.
+    await withTenant(companyId, (tx) => closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId));
+    return already.rows[0].id;
+  }
 
   const { task } = await assignTask({
     companyId,
@@ -209,8 +214,63 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
       actor: 'owner',
       payload: { rerunTaskId: task.id },
     });
+    await closeCardsRunAgainAnswers(tx, companyId, previous.projectId, taskId);
   });
   return task.id;
+}
+
+/**
+ * The cards that running a task again answers, withdrawn: the owner pressed
+ * "Run again" -- or the CEO did, for them -- and then had to find the card
+ * that asked for it and dismiss it by hand.
+ *
+ * Only cards about the task stopping. An incident says so with `aboutTask`
+ * (the crash loop, a failed read-back); one that only names the task -- its
+ * role frozen for its refusals, the company's model key refused, a batch
+ * stopped against its plan -- is about something running it again does not
+ * change, and stays. Questions and approvals the task asked are already
+ * closed by its ending (0036, 0124).
+ *
+ * The card for tasks that ended badly (ended.ts) names several under one
+ * cause, and its list is how a task is known to have been reported: a task
+ * taken off it would be reported again as if it had just ended. So the list
+ * is kept whole, and the card goes once every task on it has been run again.
+ * Two tasks of one card run again at once cannot both miss that: each looks
+ * after its own new task is committed, so the later look sees both.
+ *
+ * Under the lock ended.ts raises that card under, so the card and the run
+ * again cannot pass each other: either the card is there to be closed here,
+ * or ended.ts finds the new task and raises none.
+ */
+async function closeCardsRunAgainAnswers(
+  tx: TenantClient,
+  companyId: string,
+  projectId: string,
+  taskId: string,
+): Promise<void> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [taskId]);
+  const { rows: incidents } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun'
+      WHERE kind = 'incident' AND status = 'open' AND task_id = $1 AND payload->>'aboutTask' = 'true'
+      RETURNING id`,
+    [taskId],
+  );
+  const { rows: ended } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items i SET status = 'withdrawn', closed_reason = 'task_rerun'
+      WHERE i.kind = 'escalation' AND i.status = 'open' AND i.payload ? 'endedKey'
+        AND i.payload->'endedTaskIds' ? $1
+        AND NOT EXISTS (
+              SELECT 1 FROM jsonb_array_elements_text(i.payload->'endedTaskIds') AS listed(id)
+               WHERE NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || listed.id))
+      RETURNING i.id`,
+    [taskId],
+  );
+  for (const item of [...incidents, ...ended]) {
+    await appendEvent(tx, {
+      companyId, projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
+      payload: { inboxItemId: item.id, closedReason: 'task_rerun' },
+    });
+  }
 }
 
 /**

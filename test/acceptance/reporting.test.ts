@@ -17,6 +17,7 @@ import { renderDailyDigest } from '../../src/owner/digest-said.ts';
 import { traceFromInboxItem } from '../../src/reporting/trace.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { ENDED_AFTER_MS, reportEndedBadly } from '../../src/engine/ended.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -202,7 +203,16 @@ test('a failure rate needs a denominator worth dividing by', async () => {
   assert.equal(raised.some((alert) => alert.kind === 'task_failure_rate'), true);
 });
 
-test('a failed verification is an incident, not a statistic (F8.4, F11.4)', async () => {
+/**
+ * F8.4 and F8.12 each give the event its own card: a write that read back
+ * differently halts its task and raises "External write failed verification"
+ * with the task on it (engine.ts), and a capability that stops being usable
+ * raises its own incident (preflight.ts), with the ended task's escalation
+ * (ended.ts) behind it. The daily sweep raised a second urgent card for each,
+ * pushed at the same moment, saying the same thing as a count. The card about
+ * the event is the one the owner can act on, and it is the only one now.
+ */
+test('a failed read-back is one card, its own, and the daily sweep adds none (F8.4, F11.4)', async () => {
   const fixture = await createCompany('alert-verify');
   await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
 
@@ -214,58 +224,38 @@ test('a failed verification is an incident, not a statistic (F8.4, F11.4)', asyn
     );
   });
 
-  const raised = await evaluateAlerts(fixture.companyId);
-  assert.equal(raised.length, 1);
-  assert.equal(raised[0]!.kind, 'verification_failures');
-
-  // Raised as an incident, so it may reach the owner outside their window: the
-  // world may not match what the system believes.
-  const items = await inbox.listOpen(fixture.companyId);
-  assert.equal(items[0]!.kind, 'incident');
+  assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), [], 'no second card beside the one the halt raised');
 });
 
-/**
- * F11.4 names preflight and orphan alerts, and both are one-occurrence
- * thresholds rather than rates.
- *
- * A capability that stopped being usable means tasks are halting before they
- * start; a worker that stopped reporting means a run died mid-task. A system
- * that only reports its own failures in bulk hides the first one — which is
- * the one somebody could still have acted on.
- */
-test('a capability that stopped being usable is an incident on the first task (F11.4)', async () => {
+test('a task a capability stopped is reported by its own card, not by a daily count (F8.12, F11.4)', async () => {
   const fixture = await createCompany('alert-preflight');
   await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
 
-  await withTenant(fixture.companyId, async (tx) => {
-    await tx.query(
-      `INSERT INTO tasks
-         (company_id, project_id, division_id, role_id, budget_account_id, input,
-          input_hash, idempotency_key, created_by, status, halt_reason, finished_at)
-       VALUES ($1,$2,$3,$4,$5,'{}'::jsonb,'h','preflight-1','owner',
-               'halted','capability_unhealthy', now())`,
-      [
-        fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId,
-        fixture.budgetAccountId,
-      ],
-    );
+  const halted = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'post the weekly update' },
+    createdBy: 'owner', reserveTokens: 1_000,
   });
+  await transition(fixture.companyId, halted.id, 'halted', { haltReason: 'capability_unhealthy' });
 
-  const raised = await evaluateAlerts(fixture.companyId);
-  assert.deepEqual(raised.map((alert) => alert.kind), ['preflight_failures']);
-  assert.match(raised[0]!.summary, /readiness check/);
-
-  // An incident, not a budget-shaped alert: F8.12 is explicit that this does
-  // not keep until the owner's window.
-  const items = await inbox.listOpen(fixture.companyId);
-  assert.equal(items[0]!.kind, 'incident');
-
-  // Once a day, like every other alert. A capability that stays broken must
-  // not file ninety-six identical incidents.
   assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), []);
+
+  // Not silent: with no card about it, the task's own escalation is raised.
+  assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + ENDED_AFTER_MS + 60_000)), 1);
+  const [ended] = await inbox.listOpen(fixture.companyId);
+  assert.equal(ended!.taskId, halted.id);
 });
 
-test('an orphaned run is an incident, and says the spend was not recovered (F11.4, F5.14)', async () => {
+/**
+ * A run whose worker stopped talking has its task put back with its journal
+ * (reclaimOrphans), and a task that keeps doing it is halted with its own
+ * incident (haltIfCrashLooping). The daily incident in between asked nothing
+ * of the owner, and as an incident it pushed through their window at any
+ * hour: it is a line of the digest now.
+ */
+test('an orphaned run is a line of the digest, not an incident (F11.4, F5.14, F10.6)', async () => {
   const fixture = await createCompany('alert-orphan');
   await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
 
@@ -289,12 +279,80 @@ test('an orphaned run is an incident, and says the spend was not recovered (F11.
     );
   });
 
-  const raised = await evaluateAlerts(fixture.companyId);
-  assert.deepEqual(raised.map((alert) => alert.kind), ['orphaned_runs']);
-  assert.match(raised[0]!.summary, /were not recovered|was not recovered/);
+  assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), []);
 
-  const items = await inbox.listOpen(fixture.companyId);
-  assert.equal(items[0]!.kind, 'incident');
+  const digest = await buildDailyDigest(fixture.companyId);
+  assert.equal(digest.orphanedRuns, 1);
+  assert.match(renderDailyDigest(digest, 'en'), /^Runs picked up again after their worker stopped: 1$/m);
+  assert.match(renderDailyDigest(digest, 'id'), /^Run yang dilanjutkan lagi setelah worker-nya berhenti: 1$/m);
+
+  // A day with none says nothing about it.
+  const quiet = await buildDailyDigest(fixture.companyId, new Date(Date.now() - 2 * 86_400_000));
+  assert.equal(quiet.orphanedRuns, 0);
+  assert.doesNotMatch(renderDailyDigest(quiet, 'en'), /worker stopped/);
+});
+
+/**
+ * "Model spend today is over the ceiling" is about today. Nothing closed it,
+ * so every busy day left one more card that asked nothing and that nobody
+ * could act on. It closes at the first look of a later day -- but only once
+ * the owner's window has opened on it: a card raised after hours has not been
+ * carried to them yet, and closing it first would hide the breach.
+ */
+test("yesterday's spending card closes itself, once it has had its window (F11.4)", async () => {
+  const fixture = await createCompany('alert-day-ended');
+  await setThresholds(fixture.companyId, { dailyCostCents: 150 });
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 86_400_000);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
+     VALUES ('trace-day-ended', $1, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300, $2)`,
+    [fixture.companyId, yesterday]));
+
+  const [raised] = await evaluateAlerts(fixture.companyId, yesterday);
+  assert.equal(raised!.kind, 'daily_cost');
+  const card = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{
+    status: string; closed_reason: string | null; payload: { alert?: string; day?: string };
+  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [raised!.inboxItemId]))).rows[0]!;
+  const { rows: [day] } = await withTenant(fixture.companyId, (tx) => tx.query<{ day: string }>(
+    "SELECT to_char(date_trunc('day', $1::timestamptz), 'YYYY-MM-DD') AS day", [yesterday]));
+  assert.deepEqual((await card()).payload, { alert: 'daily_cost', day: day!.day }, 'it says which day it is about');
+
+  // Raised after hours: the window opens on it this morning.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET notify_after = date_trunc('day', $2::timestamptz) + interval '9 hours' WHERE id = $1",
+    [raised!.inboxItemId, now]));
+  assert.deepEqual(await evaluateAlerts(fixture.companyId, now), []);
+  assert.equal((await card()).status, 'open', 'kept until it has been carried to the owner');
+
+  // Put off by the owner past today: theirs to see then.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET notify_after = $2, snoozed_until = $3::timestamptz + interval '1 day' WHERE id = $1",
+    [raised!.inboxItemId, yesterday, now]));
+  await evaluateAlerts(fixture.companyId, now);
+  assert.equal((await card()).status, 'open', 'a card the owner put off is kept for when they asked to see it');
+
+  // Its window was yesterday: the first look today closes it.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE inbox_items SET snoozed_until = NULL WHERE id = $1', [raised!.inboxItemId]));
+  await evaluateAlerts(fixture.companyId, now);
+  const closed = await card();
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'day_ended']);
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"));
+  assert.deepEqual(said.map((row) => [row.payload.inboxItemId, row.payload.closedReason]), [[raised!.inboxItemId, 'day_ended']]);
+
+  // Today's card is today's: a second look the same day leaves it.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
+     VALUES ('trace-day-today', $1, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300, $2)`,
+    [fixture.companyId, now]));
+  const [today] = await evaluateAlerts(fixture.companyId, now);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET notify_after = $2::timestamptz - interval '1 hour' WHERE id = $1", [today!.inboxItemId, now]));
+  await evaluateAlerts(fixture.companyId, now);
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [today!.inboxItemId]);
 });
 
 test('the daily digest fits one screen (F10.6)', async () => {

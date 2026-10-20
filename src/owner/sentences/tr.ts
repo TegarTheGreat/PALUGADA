@@ -210,12 +210,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'Bugün {finished} görevden {failed} tanesi başarısız oldu ya da durduruldu (%{rate}); bu, %{limit} eşiğinin üzerinde.',
   'Unusual number of policy refusals': 'Olağan dışı sayıda ilke reddi',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Bugün bir ilke tarafından reddedilen eylemler: {count}; bu, {limit} eşiğinin üzerinde. Ya bir ajan sınırlarını yokluyor ya da bir ilke yanlış ayarlanmış.',
-  'External writes failed verification': 'Dış yazma işlemleri doğrulamadan geçemedi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Başarılı olduğunu bildiren ama geri okunduğunda farklı çıkan dış yazma işlemleri: {count}. Bir şey onları istenenden farklı biçimde değiştiriyor.',
-  'A capability stopped being usable': 'Bir yetenek kullanılamaz hâle geldi',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Rollerinin ihtiyaç duyduğu bir yetenek kontrolden geçemediği için bugün başlayamayan görevler: {count}. Muhtemelen bir kimlik bilgisinin süresi doldu ya da bir kota bitti.',
-  'A worker stopped reporting mid-run': 'Bir işleyici çalıştırmanın ortasında sinyal vermeyi bıraktı',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Bugün sinyal vermeyi bırakıp geri alınan çalıştırmalar: {count}. İş yeniden ele alındı; daha önce harcanmış token\'lar geri kazanılamadı.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} rolü bugün {denials} kez reddedildi ve {limit} sınırına ulaştı. Dondurmayı kaldırana kadar bu rolle hiçbir görev çalışmaz. Bunun nedeni genellikle bir yetenek için eksik yetki, rolün tüzüğünün hesaba katmadığı bir ilke ya da rolün hiçbir zaman donatılmadığı bir iştir.',
   'Role {role} is frozen after repeated denials': '{role} rolü tekrarlanan retler sonrasında donduruldu',
   'What it was refused: {capabilities}': 'Reddedilenler: {capabilities}',
@@ -409,4 +403,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: ilgili bilet kapatıldı.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hatırlatma gönderilecek bir e-posta adresi olmadan kesilmiş. Kendiniz takip edin ya da CEO\'ya ne istediğinizi söyleyin.',
+  'Runs picked up again after their worker stopped: {count}':
+    'İşleyicisi durduktan sonra yeniden sürdürülen çalıştırmalar: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Geri çekildi: ilgili görev yeniden çalıştırıldı.',
+  'Withdrawn: the day it was about has ended.':
+    'Geri çekildi: ilgili gün sona erdi.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Geri çekildi: ayın tavanına ulaşıldı ve yerini şirketin duraklatıldığını söyleyen kart aldı.',
 };

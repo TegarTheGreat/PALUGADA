@@ -206,12 +206,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} sa {finished} gawain ang nabigo o huminto ngayong araw ({rate}%), lampas sa threshold na {limit}%.',
   'Unusual number of policy refusals': 'Hindi pangkaraniwang dami ng pagtanggi ng patakaran',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Mga aksyong tinanggihan ng isang patakaran ngayong araw: {count}, lampas sa threshold na {limit}. Maaaring may agent na sumusubok sa mga limit nito, o may patakarang mali ang pagkakatakda.',
-  'External writes failed verification': 'Hindi pumasa sa beripikasyon ang mga write sa labas',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Mga write sa labas na nag-ulat ng tagumpay pero iba ang lumabas nang basahin ulit: {count}. May nagbabago sa mga ito nang hindi ayon sa hiniling.',
-  'A capability stopped being usable': 'Hindi na magamit ang isang kakayahan',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Mga gawaing hindi makapagsimula ngayong araw dahil hindi pumasa sa pagsusuri ang isang kakayahang kailangan ng kanilang role: {count}. Malamang na nag-expire ang isang credential o naubos ang isang quota.',
-  'A worker stopped reporting mid-run': 'Huminto sa pag-uulat ang isang worker sa gitna ng takbo',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Mga takbong huminto sa pag-uulat at binawi ngayong araw: {count}. Itinuloy ulit ang trabaho; hindi na nabawi ang mga token na nagastos na nila.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'Tinanggihan si {role} nang {denials} beses ngayong araw, abot sa limit na {limit}. Walang gawaing tatakbo bilang role na ito hanggang i-unfreeze mo ito. Ang karaniwang dahilan ay kulang na pahintulot sa isang kakayahan, isang patakarang hindi isinasaalang-alang ng charter ng role, o trabahong hindi kailanman inihanda ang role na gawin.',
   'Role {role} is frozen after repeated denials': 'Na-freeze si {role} matapos ang paulit-ulit na pagtanggi',
   'What it was refused: {capabilities}': 'Mga tinanggihan dito: {capabilities}',
@@ -405,4 +399,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Binawi: isinara ang ticket na tinutukoy nito.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Lampas na sa takda ang invoice {number} ({amount}, {customer}) mula pa noong {due}, at inilabas ito nang walang email address na mapagpapadalhan ng paalala. Ikaw na ang humabol, o sabihin sa CEO ang gusto mong mangyari.',
+  'Runs picked up again after their worker stopped: {count}':
+    'Mga run na itinuloy muli matapos huminto ang worker nito: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Binawi: pinatakbo ulit ang gawaing tinutukoy nito.',
+  'Withdrawn: the day it was about has ended.':
+    'Binawi: tapos na ang araw na tinutukoy nito.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Binawi: naabot na ang limitasyon ng buwan, at ang card na nagsasabing naka-pause ang kumpanya ang pumalit dito.',
 };

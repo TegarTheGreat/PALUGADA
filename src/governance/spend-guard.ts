@@ -183,6 +183,10 @@ export async function clearSpendPause(companyId: string): Promise<void> {
 /**
  * The card that said the company is paused, withdrawn once it is not: left
  * open, it asked the owner to lift a pause that had already gone.
+ *
+ * The 80% warning is not among them. While the company is paused the pause
+ * card has already taken its place (`spend_paused`), and a resume pressed
+ * while it is not paused leaves the 80% as true as it was.
  */
 async function withdrawPauseCard(tx: TenantClient, companyId: string, reason: 'spend_resumed' | 'period_started'): Promise<void> {
   const { rows } = await tx.query<{ id: string }>(
@@ -192,11 +196,35 @@ async function withdrawPauseCard(tx: TenantClient, companyId: string, reason: 's
       RETURNING id`,
     [companyId, reason, PAUSED_TITLE],
   );
-  for (const item of rows) {
+  await saidWithdrawn(tx, companyId, rows, reason);
+}
+
+/** Every card withdrawn here is said in the log, with why. */
+async function saidWithdrawn(tx: TenantClient, companyId: string, items: Array<{ id: string }>, reason: string): Promise<void> {
+  for (const item of items) {
     await appendEvent(tx, {
       companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
     });
   }
+}
+
+/**
+ * The 80% warnings of months that have ended. Each is about its month, as the
+ * pause is (M6), and a company warned and never paused kept the card for good:
+ * the pause card's month-end path runs only for a company that was paused.
+ * Compared as text, because both sides are `toISOString` of a UTC midnight.
+ */
+async function withdrawEarlierWarnings(companyId: string, periodStart: Date): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'period_started'
+        WHERE kind = 'budget_alert' AND status = 'open' AND payload ? 'spendWarning'
+          AND payload->'spendWarning'->>'periodStart' < $1
+        RETURNING id`,
+      [periodStart.toISOString()],
+    );
+    await saidWithdrawn(tx, companyId, rows, 'period_started');
+  });
 }
 
 /**
@@ -236,6 +264,10 @@ export async function evaluateSpendLimit(
 ): Promise<SpendOutcome> {
   const spend = await periodSpend(companyId, now);
   let already = await limitFor(companyId);
+
+  // Whether or not the month ended paused: a warning that did not become a
+  // pause is about a month that is over all the same.
+  await withdrawEarlierWarnings(companyId, spend.periodStart);
 
   // The ceiling is a month's, and so is its pause (M6). One set in a month
   // that has ended is lifted at the first look in the new one, with its
@@ -313,6 +345,21 @@ export async function evaluateSpendLimit(
         detail: card.detail,
       });
     }
+    // The warning said the month was near its ceiling; the pause card says it
+    // is there, and the two side by side said one thing twice. Only once the
+    // pause card is open, so the owner is never left with neither, and at
+    // every look while paused, so a stop between raising one and closing the
+    // other is mended by the next.
+    await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ id: string }>(
+        `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'spend_paused'
+          WHERE kind = 'budget_alert' AND status = 'open' AND payload ? 'spendWarning'
+            AND EXISTS (SELECT 1 FROM inbox_items pause
+                         WHERE pause.kind = 'budget_alert' AND pause.status = 'open' AND pause.payload ? 'spendPause')
+          RETURNING id`,
+      );
+      await saidWithdrawn(tx, companyId, rows, 'spend_paused');
+    });
     return { state: 'paused', spend };
   }
 
@@ -320,7 +367,11 @@ export async function evaluateSpendLimit(
     if (await claimSlot(companyId, 'spend_period_warning', spend.periodStart)) {
       const card = spendWarnedCard(await withTenant(companyId, ownerReadingWithin),
         { spentCents: spend.cents, limitCents: spend.limitCents, since: spend.periodStart });
-      await inbox.raiseBudgetAlert({ companyId, title: card.title, detail: card.detail });
+      // The month it is about is what closes it (`withdrawEarlierWarnings`).
+      await inbox.raiseBudgetAlert({
+        companyId, title: card.title, detail: card.detail,
+        payload: { spendWarning: { periodStart: spend.periodStart.toISOString() } },
+      });
     }
     return { state: 'warned', spend };
   }

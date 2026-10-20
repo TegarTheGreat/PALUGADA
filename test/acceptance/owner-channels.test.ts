@@ -1419,6 +1419,9 @@ test('what the owner decided, and why an item closed, are said in their language
     ['superseded', 'Withdrawn: the agent changed what it proposes and asked again about the new one.'],
     ['stage_changed', 'Withdrawn: the company is no longer at the stage this proposal would move it from.'],
     ['decided_elsewhere', 'Withdrawn: it was already decided in the app.'],
+    ['task_rerun', 'Withdrawn: the task it was about was run again.'],
+    ['day_ended', 'Withdrawn: the day it was about has ended.'],
+    ['spend_paused', 'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.'],
     ['something_new', 'Withdrawn. Nothing left to press here.'],
     ['task_waiting', 'Withdrawn. Nothing left to press here.'],
   ] as const) {

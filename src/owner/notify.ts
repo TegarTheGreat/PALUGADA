@@ -1027,6 +1027,10 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
     case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');
     case 'ticket_closed': return say(language, 'Withdrawn: the ticket it was about was closed.');
+    case 'task_rerun': return say(language, 'Withdrawn: the task it was about was run again.');
+    case 'day_ended': return say(language, 'Withdrawn: the day it was about has ended.');
+    case 'spend_paused':
+      return say(language, 'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.');
     default: return say(language, 'Withdrawn. Nothing left to press here.');
   }
 }

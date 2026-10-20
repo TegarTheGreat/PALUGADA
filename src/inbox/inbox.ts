@@ -431,6 +431,14 @@ export interface IncidentInput {
    * is not raised beside it.
    */
   once?: string | undefined;
+  /**
+   * Anything else the item carries, merged into its payload. `aboutTask: true`
+   * says the incident is about the task it names -- that task stopping --
+   * rather than about something the task only met, such as its role frozen or
+   * the company's model key refused; running the task again answers it and
+   * closes it (`rerunTask`).
+   */
+  payload?: Record<string, unknown> | undefined;
 }
 
 export async function raiseIncident(input: IncidentInput): Promise<string> {
@@ -455,7 +463,8 @@ export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput
           consequence_if_denied, payload, notify_after)
        VALUES ($1,$2,'incident',$3,$3,$4,'', $5, now())
        RETURNING id`,
-      [input.companyId, input.taskId ?? null, input.title, input.detail, JSON.stringify(input.once ? { once: input.once } : {})],
+      [input.companyId, input.taskId ?? null, input.title, input.detail,
+       JSON.stringify({ ...(input.payload ?? {}), ...(input.once ? { once: input.once } : {}) })],
     );
     const id = rows[0]!.id;
     await appendEvent(tx, {
@@ -1192,7 +1201,11 @@ export async function raiseBudgetAlert(input: {
   companyId: string;
   title: string;
   detail: string;
-  /** What the alert is about, for whatever closes it: `spendPause` for the month's pause (M6). */
+  /**
+   * What the alert is about, for whatever closes it: `spendPause` for the
+   * month's pause (M6), `spendWarning` for its 80% warning, `alert` and `day`
+   * for a daily alert (alerts.ts).
+   */
   payload?: Record<string, unknown>;
 }): Promise<string> {
   const notifyAfter = await notifyAfterFor('budget_alert', {});

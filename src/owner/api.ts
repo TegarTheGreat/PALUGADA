@@ -5877,11 +5877,14 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/alert-thresholds',
         handle: async ({ params, body }) => {
           const thresholds: Record<string, number> = {};
-          for (const field of [
-            'dailyCostCents', 'taskFailureRate', 'policyDenialsPerDay',
-            'verificationFailuresPerDay', 'roleFreezeDenialsPerDay',
+          // No `verificationFailuresPerDay`: every failed read-back is its own
+          // incident (F8.4), so a daily count of them is no longer a threshold,
+          // and a field that changed nothing would read as if it did.
+          const fields = [
+            'dailyCostCents', 'taskFailureRate', 'policyDenialsPerDay', 'roleFreezeDenialsPerDay',
             'spendRateMultiple', 'spendRateFloorCents',
-          ] as const) {
+          ] as const;
+          for (const field of fields) {
             if (body[field] === undefined) continue;
             // `Number(null)`, `Number('')` and `Number([])` are all zero, and a
             // daily cost ceiling of zero makes the alert fire every day. A
@@ -5895,7 +5898,7 @@ export class OwnerApi {
             thresholds[field] = value;
           }
           if (Object.keys(thresholds).length === 0) {
-            throw new PalugadaError('contract.violation', 'no threshold was given', {});
+            throw new PalugadaError('contract.violation', `no threshold was given; the thresholds are ${fields.join(', ')}`, {});
           }
           await setThresholds(params.companyId!, thresholds);
           return { ok: true };

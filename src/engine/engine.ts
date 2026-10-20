@@ -1870,9 +1870,10 @@ export class Engine {
       await this.#onHalt(companyId, settled, haltReason, error, agentRunId);
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an
-        // incident, not a retry.
+        // incident, not a retry. About this task: the card asks the owner to
+        // look before running it again, and running it again closes it.
         const card = writeUnverifiedCard(await withTenant(companyId, ownerReadingWithin), { record: (error as Error).message });
-        await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
+        await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail, payload: { aboutTask: true } });
       }
       // Section 6.3: a task its budget stopped goes to the owner. A month's
       // money running out halts the same way and has its own item, raised by

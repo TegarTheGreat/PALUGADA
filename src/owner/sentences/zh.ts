@@ -208,12 +208,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '今天 {finished} 个任务中有 {failed} 个失败或被停止（{rate}%），超过了 {limit}% 的阈值。',
   'Unusual number of policy refusals': '策略拒绝次数异常',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': '今天被策略拒绝的操作：{count} 次，超过了 {limit} 次的阈值。要么是某个智能体在试探自己的权限边界，要么是某项策略设置不当。',
-  'External writes failed verification': '外部写入未通过核验',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': '报告成功、但读回结果不一致的外部写入：{count} 次。有东西在以未经要求的方式改动它们。',
-  'A capability stopped being usable': '某项能力已无法使用',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': '今天因角色所需的能力未通过检查而无法启动的任务：{count} 个。可能是凭据已过期，或配额已用尽。',
-  'A worker stopped reporting mid-run': '某个工作进程在运行中途停止了上报',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': '今天停止上报并被收回的运行：{count} 次。工作已被重新领取；它们已消耗的 token 无法收回。',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} 今天被拒绝了 {denials} 次，已达到 {limit} 次的限制。在您解冻之前，不会有任务以此角色运行。常见原因是缺少某项能力的授权、角色章程没有考虑到某项策略，或者这项工作是该角色从未具备条件去做的。',
   'Role {role} is frozen after repeated denials': '角色 {role} 因屡次被拒绝而冻结',
   'What it was refused: {capabilities}': '被拒绝的内容：{capabilities}',
@@ -407,4 +401,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已撤回：它涉及的工单已关闭。',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '发票 {number}（{amount}，{customer}）自 {due} 起逾期，且开具时没有可发送提醒的电子邮件地址。请自行跟进，或告诉 CEO 您想怎么处理。',
+  'Runs picked up again after their worker stopped: {count}':
+    '工作进程停止后重新接手的运行：{count}',
+  'Withdrawn: the task it was about was run again.':
+    '已撤回：它涉及的任务已重新运行。',
+  'Withdrawn: the day it was about has ended.':
+    '已撤回：它涉及的那一天已经过去。',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    '已撤回：本月上限已达到，由说明公司已暂停的卡片取而代之。',
 };

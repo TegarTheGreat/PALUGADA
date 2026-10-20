@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'आज {finished} में से {failed} कार्य विफल हुए या रोके गए ({rate}%), जो {limit}% की सीमा से ज़्यादा है।',
   'Unusual number of policy refusals': 'नीति द्वारा असामान्य संख्या में अस्वीकृतियाँ',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'आज किसी नीति द्वारा अस्वीकार की गई कार्रवाइयाँ: {count}, जो {limit} की सीमा से ज़्यादा है। या तो कोई एजेंट अपनी सीमाएँ परख रहा है, या कोई नीति ठीक से तय नहीं है।',
-  'External writes failed verification': 'बाहर लिखे गए बदलाव जाँच में विफल',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'बाहर लिखे गए ऐसे बदलाव जिन्होंने सफलता बताई, पर वापस पढ़ने पर अलग निकले: {count}। कोई चीज़ उन्हें माँगे गए से अलग तरह से बदल रही है।',
-  'A capability stopped being usable': 'एक क्षमता इस्तेमाल लायक नहीं रही',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'आज जो कार्य इसलिए शुरू नहीं हो सके क्योंकि उनकी भूमिका के लिए ज़रूरी एक क्षमता अपनी जाँच में विफल रही: {count}। शायद कोई क्रेडेंशियल समाप्त हो गया है या कोई कोटा खत्म हो गया है।',
-  'A worker stopped reporting mid-run': 'रन के बीच में एक वर्कर ने रिपोर्ट करना बंद कर दिया',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'आज जिन रनों ने रिपोर्ट करना बंद किया और जिन्हें वापस लिया गया: {count}। काम फिर से उठा लिया गया; जो टोकन वे पहले ही खर्च कर चुके थे, वे वापस नहीं मिले।',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'आज {role} को {denials} बार अस्वीकार किया गया, जो {limit} की सीमा है। जब तक आप इसे अनफ़्रीज़ नहीं करते, इस भूमिका से कोई कार्य नहीं चलेगा। आम कारण होते हैं: किसी क्षमता की अनुमति न होना, कोई ऐसी नीति जिसका भूमिका के चार्टर में ध्यान नहीं रखा गया, या ऐसा काम जिसके लिए भूमिका कभी तैयार ही नहीं की गई।',
   'Role {role} is frozen after repeated denials': 'बार-बार अस्वीकृति के बाद भूमिका {role} फ़्रीज़ की गई',
   'What it was refused: {capabilities}': 'जो अस्वीकार किया गया: {capabilities}',
@@ -408,4 +402,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस टिकट के बारे में था, वह बंद हो गया।',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'चालान {number} ({amount}, {customer}) {due} से बकाया है, और यह बिना किसी ईमेल पते के जारी हुआ था जिस पर अनुस्मारक भेजा जा सके। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
+  'Runs picked up again after their worker stopped: {count}':
+    'वर्कर रुकने के बाद फिर से उठाए गए रन: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'वापस लिया गया: जिस कार्य के बारे में था, उसे फिर से चलाया गया।',
+  'Withdrawn: the day it was about has ended.':
+    'वापस लिया गया: जिस दिन के बारे में था, वह बीत गया।',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'वापस लिया गया: महीने की सीमा पूरी हो गई, और इसकी जगह वह कार्ड है जो बताता है कि कंपनी रोक दी गई है।',
 };

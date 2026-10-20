@@ -18,6 +18,7 @@ import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { killCapability } from '../../src/engine/control.ts';
+import { rerunTask } from '../../src/engine/owner-control.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
@@ -197,6 +198,13 @@ test('a read-back mismatch halts the task and raises an incident', async () => {
   const incidents = open.filter((item) => item.kind === 'incident');
   assert.equal(incidents.length, 1);
   assert.match(incidents[0]!.title, /verification/i);
+
+  // The card says to look before running it again; running it again is the
+  // owner's answer, and the card closes with it.
+  await rerunTask(fixture.companyId, task.id, 'The record was checked by hand.');
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [incidents[0]!.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'task_rerun' });
 });
 
 /**

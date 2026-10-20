@@ -212,12 +212,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'Tâches échouées ou arrêtées aujourd’hui : {failed} sur {finished} ({rate} %), au-delà du seuil de {limit} %.',
   'Unusual number of policy refusals': 'Nombre inhabituel de refus par une politique',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Actions refusées par une politique aujourd’hui : {count}, au-delà du seuil de {limit}. Soit un agent teste ses limites, soit une politique est mal calibrée.',
-  'External writes failed verification': 'Des écritures externes ont échoué à la relecture',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Écritures externes signalées comme réussies mais relues différemment : {count}. Quelque chose les modifie autrement que ce qui a été demandé.',
-  'A capability stopped being usable': 'Une capacité n’est plus utilisable',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tâches qui n’ont pas pu démarrer aujourd’hui parce qu’une capacité nécessaire à leur rôle a échoué à sa vérification : {count}. Un identifiant a probablement expiré ou un quota est épuisé.',
-  'A worker stopped reporting mid-run': 'Un exécutant a cessé de répondre en cours d’exécution',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Exécutions qui ont cessé de donner signe de vie et ont été retirées à leur exécutant aujourd’hui : {count}. Le travail a été repris ; les tokens qu’elles avaient déjà dépensés n’ont pas été récupérés.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'Refus essuyés par {role} aujourd’hui : {denials}, soit la limite de {limit}. Aucune tâche ne s’exécutera sous ce rôle tant que vous ne l’aurez pas dégelé. Les causes habituelles sont une autorisation de capacité manquante, une politique que la charte du rôle ne prend pas en compte, ou un travail pour lequel le rôle n’a jamais été équipé.',
   'Role {role} is frozen after repeated denials': 'Le rôle {role} est gelé après des refus répétés',
   'What it was refused: {capabilities}': 'Ce qui lui a été refusé : {capabilities}',
@@ -411,4 +405,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Retiré : le ticket dont il s’agissait a été fermé.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'La facture {number} ({amount}, {customer}) est en retard depuis le {due}, et elle a été émise sans adresse e-mail à laquelle envoyer un rappel. Relancez-la vous-même, ou dites au CEO ce que vous voulez.',
+  'Runs picked up again after their worker stopped: {count}':
+    'Exécutions reprises après l’arrêt de leur exécutant : {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Retiré : la tâche qu’il concernait a été relancée.',
+  'Withdrawn: the day it was about has ended.':
+    'Retiré : la journée qu’il concernait est terminée.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Retiré : le plafond du mois a été atteint, et la carte qui indique que l’entreprise est en pause prend sa place.',
 };

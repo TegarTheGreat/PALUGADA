@@ -452,7 +452,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/memories',
     // Written as the owner's word, which no lesson outranks and nothing
     // expires: only what the owner asked to be kept, in their words.
-    what: 'Remember what the owner told you to remember, in their words: a fact or a way to work. No need to read memory first: a repeat does no harm.',
+    what: 'Remember what the owner told you to remember, in their words: a fact or a way to work. No need to read memory first: a repeat is kept once.',
     fields: { body: 'the fact, or the way to work', kind: 'semantic (a fact) or procedural (a way to work)', divisionId: 'optional; company-wide when left out' },
     factor: 'never', chat: true, auto: true,
   },

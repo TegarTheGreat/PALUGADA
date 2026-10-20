@@ -409,3 +409,59 @@ test('after reading what the company remembers, what the owner said to remember 
     await api.close();
   }
 });
+
+/*
+ * The review of the change above. The memory action told the model it need
+ * not read memory first because a repeat did no harm, and a repeat was a
+ * second row: the pack gives the owner's word five places of each kind, so
+ * "remember, copy me on supplier emails" said again pushed another of the
+ * owner's ways to work out of every run. Said again in the same place, it
+ * is now the same memory.
+ */
+test('what the owner says again is kept once, so a repeat takes no other of their words\' place', async () => {
+  const fixture = await createCompany('ceo-remembers-again');
+  const model = new ScriptedModel([
+    uses(['propose', {
+      path: `/api/companies/${fixture.companyId}/memories`,
+      body: { body: 'always copy me on supplier emails', kind: 'procedural' },
+      summary: 'Remember to copy the owner on supplier emails.',
+    }]),
+    says('Sudah saya ingat.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const told = await api.call('POST', `/api/companies/${fixture.companyId}/memories`, token,
+      { body: 'Always copy me on supplier emails.', kind: 'procedural' });
+    assert.equal(told.status, 200, JSON.stringify(told.body));
+
+    const said = await api.call('POST', `/api/companies/${fixture.companyId}/conversation/messages`, token,
+      { text: 'Ingat, selalu tembuskan saya di email ke pemasok.' });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    assert.match(model.requests[0]!.system, /a repeat is kept once/);
+    const [kept] = results(model, 1);
+    assert.match(kept!.content, /^Done: /);
+    assert.equal(JSON.parse(kept!.content.slice(kept!.content.indexOf('{'))).id, told.body.id, 'the same memory, in other letters and stops');
+
+    const ways = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ id: string; scope_type: string }>(
+      `SELECT id, scope_type FROM memories
+        WHERE source = 'owner' AND memory_type = 'procedural' AND approval_state = 'active' AND superseded_by IS NULL
+        ORDER BY valid_from`))).rows;
+    assert.deepEqual((await ways()).map((row) => row.id), [told.body.id], 'one way to work, not two');
+    const told2 = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM events WHERE type = 'memory.told'"));
+    assert.equal(told2.rows.length, 1, 'and told once');
+
+    // Somewhere else, it is a memory of its own.
+    const division = await api.call('POST', `/api/companies/${fixture.companyId}/memories`, token,
+      { body: 'Always copy me on supplier emails.', kind: 'procedural', divisionId: fixture.divisionId });
+    assert.notEqual(division.body.id, told.body.id);
+    // Taken back and said again, it is kept again.
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/memories/${told.body.id}/retract`, token, {})).status, 200);
+    const again = await api.call('POST', `/api/companies/${fixture.companyId}/memories`, token,
+      { body: 'Always copy me on supplier emails.', kind: 'procedural' });
+    assert.notEqual(again.body.id, told.body.id);
+    assert.deepEqual((await ways()).map((row) => row.scope_type), ['division', 'company']);
+  } finally {
+    await api.close();
+  }
+});

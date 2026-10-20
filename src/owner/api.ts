@@ -98,7 +98,7 @@ import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, 
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
-import { remember, retract, supersede } from '../memory/store.ts';
+import { ownerSaidAlready, remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
@@ -4507,12 +4507,18 @@ export class OwnerApi {
               throw new PalugadaError('contract.violation', 'no such division in this company', { field: 'divisionId' });
             }
           }
+          const words = requireText(body.body, 'body');
+          const scopeType = divisionId ? 'division' : 'company';
+          // Said again in the same place, it is what they said before: told
+          // once, and kept once (`ownerSaidAlready`).
+          const held = await ownerSaidAlready(tx, { memoryType: body.kind, scopeType, scopeId: divisionId, body: words });
+          if (held) return { id: held, already: true };
           const id = await remember(tx, {
             companyId: params.companyId!,
             memoryType: body.kind,
-            scopeType: divisionId ? 'division' : 'company',
+            scopeType,
             ...(divisionId ? { scopeId: divisionId } : {}),
-            body: requireText(body.body, 'body'),
+            body: words,
             confidence: 1,
             source: 'owner',
           });

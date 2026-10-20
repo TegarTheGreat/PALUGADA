@@ -18,7 +18,9 @@ import { registerPlatformCapabilities } from '../../src/broker/platform-capabili
 import { platformCapabilities } from '../../src/capabilities/platform.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { Worker } from '../../src/worker.ts';
-import { getTask } from '../../src/engine/tasks.ts';
+import { getTask, transition } from '../../src/engine/tasks.ts';
+import { rerunTask } from '../../src/engine/owner-control.ts';
+import { AdapterRegistry } from '../../src/runtime/protocol.ts';
 import { CachedSecretManager } from '../../src/secrets/rotation.ts';
 import { DivisionSecrets } from '../../src/secrets/manager.ts';
 import { COLLECTIONS_EVERY_MS, ensureCollections } from '../../src/duties/collections.ts';
@@ -135,6 +137,71 @@ test('an overdue invoice whose reminder is due is made a task, which writes the 
     const [card] = await cards(fixture);
     assert.match(card!.title, /^Invoice INV-0005 needs you: Toko Kopi Senja has not paid$/);
     assert.match(card!.rationale, /there is no email address to send a reminder to/);
+  } finally {
+    await close();
+  }
+});
+
+/** A runtime that is an agent in another process: it counts what it is handed, and must be handed nothing here. */
+function agentCli() {
+  const handed = { runs: 0 };
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'claude-code',
+    backends: ['local'],
+    async health() { return { ok: true, detail: 'test' }; },
+    async run() {
+      handed.runs += 1;
+      return { output: { summary: 'I wrote to the customers myself.' } };
+    },
+  });
+  return { adapters, handed };
+}
+
+test('a duty is the platform\'s procedure whatever runtime its role names, on a deployment with no model at all', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-cli');
+  const { smtp, broker, close } = await office(fixture);
+  try {
+    // Roles that run on an agent CLI, and no model key: the in-process runtime is not there.
+    await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET runtime = 'claude-code' WHERE id = $1", [fixture.roleId]));
+    const { adapters, handed } = agentCli();
+    const engine = new Engine({ broker, adapters, workerId: 'collector-cli' });
+    const invoice = await overdue(fixture, 5);
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.ok(look.task);
+    const outcome = await engine.runTask(fixture.companyId, look.task!, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    assert.equal(handed.runs, 0, 'no agent was handed the reminders to write as it saw fit');
+    assert.equal(smtp.sent.length, 1);
+    assert.deepEqual((await statusOf(fixture, look.task!)).output, {
+      summary: `Reminded the customers of: ${invoice.number}.`, reminded: [invoice.number], left: [],
+    });
+  } finally {
+    await close();
+  }
+});
+
+test('the owner\'s Run again on a duty runs the duty again, not a model over its input', { skip: SKIP }, async () => {
+  const fixture = await createCompany('duty-rerun');
+  const { smtp, model, engine, close } = await office(fixture);
+  try {
+    const invoice = await overdue(fixture, 5);
+    const look = await ensureCollections(fixture.companyId, later());
+    assert.ok(look.task);
+    await transition(fixture.companyId, look.task!, 'halted', { haltReason: 'capability_unhealthy' });
+
+    // Pressed twice, one rerun; and a rerun of that rerun is the duty still.
+    const first = await rerunTask(fixture.companyId, look.task!);
+    assert.equal(await rerunTask(fixture.companyId, look.task!), first);
+    await transition(fixture.companyId, first, 'halted', { haltReason: 'capability_unhealthy' });
+    const again = await rerunTask(fixture.companyId, first);
+    const outcome = await engine.runTask(fixture.companyId, again, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    assert.equal(model.requests.length, 0, 'no model was asked anything');
+    assert.equal(smtp.sent.length, 1);
+    assert.deepEqual((await statusOf(fixture, again)).output, {
+      summary: `Reminded the customers of: ${invoice.number}.`, reminded: [invoice.number], left: [],
+    });
   } finally {
     await close();
   }

@@ -43,6 +43,7 @@ import {
   type RunServices,
 } from '../runtime/protocol.ts';
 import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
+import { DutyRuntime, dutyOf } from '../duties/duties.ts';
 import { ProviderFailure } from '../runtime/wire.ts';
 import { proposeNegativeCase } from '../eval/role-eval.ts';
 import { buildContext, type ContextSection } from '../context/builder.ts';
@@ -661,9 +662,16 @@ export class Engine {
       };
     }
 
-    // F13.1: which runtime executes this role, on what, with which models.
-    const runtime = await this.#loadRuntimeConfig(companyId, task.roleId);
-    const adapter = this.#adapters.get(runtime.runtime);
+    // F13.1: which runtime executes this role, on what, with which models. A
+    // duty first, whatever runtime the role names (src/duties): it is the
+    // platform's procedure, run in this process with no model, and handed to
+    // the role's runtime an agent decided for itself what to write to
+    // customers. As this process's own code it is journalled by place and
+    // calls what its procedure calls, as an in-process handler does.
+    const duty = await withTenant(companyId, (tx) => dutyOf(tx, task));
+    const configured = await this.#loadRuntimeConfig(companyId, task.roleId);
+    const runtime = duty ? { ...configured, runtime: 'in-process' } : configured;
+    const adapter = duty ? new DutyRuntime(duty) : this.#adapters.get(runtime.runtime);
     if (!adapter) {
       // Loud rather than falling back to whatever is registered: running a
       // role on a runtime nobody chose for it is how a role calibrated for one

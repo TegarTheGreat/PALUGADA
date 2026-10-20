@@ -215,15 +215,16 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 
 /**
  * A halted task (`t`) the platform may go on with by itself, whatever its
- * room (self-heal.ts): not run again by the owner, whose new task does the
- * work -- said by the event on it, or, in the moment before that is written,
- * by the new task's key; one whose run retention has not cleared, so there is
- * something to go on from; and not a child its parent abandoned -- a parent
- * that failed, was cancelled, or was stopped for good while the child waited,
- * so the answer would go nowhere. A parent that completed abandoned nothing:
- * it is the ordinary state of a follow-up, of a hand-off's successor and of
- * work a coordinator handed down and left. A parent stopped for its budget
- * goes on too, and the child with it.
+ * room (self-heal.ts), and so a reviewer its review waits for rather than
+ * asking the owner about (review.ts): not run again by the owner, whose new
+ * task does the work -- said by the event on it, or, in the moment before
+ * that is written, by the new task's key; one whose run retention has not
+ * cleared, so there is something to go on from; and not a child its parent
+ * abandoned -- a parent that failed, was cancelled, or was stopped for good
+ * while the child waited, so the answer would go nowhere. A parent that
+ * completed abandoned nothing: it is the ordinary state of a follow-up, of a
+ * hand-off's successor and of work a coordinator handed down and left. A
+ * parent stopped for its budget goes on too, and the child with it.
  */
 export const GOES_ON_BY_ITSELF = `
   NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')

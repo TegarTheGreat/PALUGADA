@@ -19,6 +19,7 @@ import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
+import { GOES_ON_BY_ITSELF } from '../engine/owner-control.ts';
 import { LEARNED_CONFIDENCE, MEMORY_BODY_MAX, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, reviewDeadlockedCard, reviewUnreadableCard, stageMoveStoppedCard } from '../owner/platform-cards.ts';
@@ -533,6 +534,18 @@ export async function settleCompletedReviews(companyId: string): Promise<
   Array<{ reviewRequestId: string; decision: ReviewDecision | 'unreadable' }>
 > {
   const finished = await withTenant(companyId, async (tx) => {
+    // A reviewer its budget stopped has not finished while the platform will
+    // go on with it by itself (`GOES_ON_BY_ITSELF`, with `t` the reviewer): a
+    // reviewer is a sub-task on its proposer's account, so its budget card
+    // already tells the owner, and self-heal or that card's "go on with all"
+    // continues it once there is room. Escalated here as well, the owner had
+    // two cards for one event -- the second a dead end, since approving it
+    // only sent the proposer back to a review already closed -- and the
+    // verdict the continued reviewer then returned was paid for and never
+    // read. One the owner ran again, or whose proposer was given up, nothing
+    // will go on with, so it settles now; and so does a reviewer stopped for
+    // anything else, a hop limit or a model that did not answer, which no one
+    // continues by itself.
     const { rows } = await tx.query<{
       id: string;
       review_task_id: string;
@@ -540,13 +553,20 @@ export async function settleCompletedReviews(companyId: string): Promise<
       task_status: string;
       capability_name: string;
       proposer_task_id: string;
+      proposer_ended: boolean;
     }>(
-      `SELECT r.id, r.review_task_id, t.output, t.status AS task_status,
-              r.capability_name, r.proposer_task_id
-         FROM review_requests r
-         JOIN tasks t ON t.id = r.review_task_id
-        WHERE r.status = 'pending' AND t.status IN ('completed', 'failed', 'halted', 'cancelled')
-        ORDER BY r.created_at`,
+      `SELECT review.id, review.review_task_id, t.output, t.status AS task_status,
+              review.capability_name, review.proposer_task_id,
+              (proposer.status IN ('completed', 'failed', 'cancelled')
+               OR (proposer.status = 'halted' AND proposer.halt_reason IS DISTINCT FROM 'budget_exhausted')) AS proposer_ended
+         FROM review_requests review
+         JOIN tasks t ON t.id = review.review_task_id
+         JOIN tasks proposer ON proposer.id = review.proposer_task_id
+        WHERE review.status = 'pending'
+          AND (t.status IN ('completed', 'failed', 'cancelled')
+               OR (t.status = 'halted'
+                   AND (t.halt_reason IS DISTINCT FROM 'budget_exhausted' OR NOT (${GOES_ON_BY_ITSELF}))))
+        ORDER BY review.created_at`,
     );
     return rows;
   });
@@ -563,8 +583,13 @@ export async function settleCompletedReviews(companyId: string): Promise<
           [row.id],
         );
       });
-      const card = reviewUnreadableCard(await withTenant(companyId, ownerReadingWithin), { capability: row.capability_name });
-      await inbox.raiseEscalation({ companyId, taskId: row.proposer_task_id, title: card.title, detail: card.detail });
+      // Work that has ended waits for no verdict, so the owner is not asked
+      // for one. Its cards were withdrawn when it ended (0036), and one raised
+      // now would stay open on a task nothing can move.
+      if (!row.proposer_ended) {
+        const card = reviewUnreadableCard(await withTenant(companyId, ownerReadingWithin), { capability: row.capability_name });
+        await inbox.raiseEscalation({ companyId, taskId: row.proposer_task_id, title: card.title, detail: card.detail });
+      }
       settled.push({ reviewRequestId: row.id, decision: 'unreadable' });
       continue;
     }

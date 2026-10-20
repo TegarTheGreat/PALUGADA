@@ -28,6 +28,7 @@ import { createCompanyFromTemplate, type CreatedCompany } from '../../src/templa
 import { FOUNDING_TEMPLATE_SLUG, installFoundingTemplate } from '../../src/templates/founding.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import type { ArchiveLine } from '../../src/audit/export.ts';
+import type { HaltReason } from '../../src/domain/task.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -735,4 +736,65 @@ test('an ended card about work its budget stopped closes when the work goes on, 
   assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' });
   await handEscalations(company.companyId);
   assert.match((await cardsOf(company.companyId))[0]!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
+});
+
+/**
+ * A card about a task names it for good, and ended.ts counted any card that
+ * names a task as having told of it, whatever had happened since. Going on
+ * is the same task: the card that said its budget stopped it -- the
+ * account's, or one raised as ended work -- closes or stays, and either way
+ * still named it, so the next time the same work ended badly, another way,
+ * nothing was raised and nobody heard.
+ */
+test('work gone on with that ends badly again is reported, whatever became of the card about its stop', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const company = await founded('ended-gone-on');
+  const goneOnAndRefused = async (task: { id: string }, haltReason: HaltReason, detail: string) => {
+    await continueHalted(company.companyId, task.id);
+    await transition(company.companyId, task.id, 'running');
+    await transition(company.companyId, task.id, 'halted', { haltReason, detail });
+  };
+  const listing = async (id: string) => (await cardsOf(company.companyId)).filter((card) =>
+    card.status === 'open' && (card.payload.endedTaskIds as string[] | undefined)?.includes(id));
+
+  // An ended card that the work going on closed.
+  const october = await stoppedForBudget(company, 'post the October invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  await goneOnAndRefused(october, 'policy_denied', 'email.send was refused by a policy');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'the second ending reaches somebody');
+  assert.match(String((await listing(october.id))[0]?.payload.endedKey), /:policy_denied$/);
+
+  // The account's own card, which going on closed: the same, before any of this.
+  const november = await stoppedForBudget(company, 'post the November invoices');
+  await inbox.raiseBudgetHalt(company.companyId, november.id);
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'the account\'s card tells of it');
+  await goneOnAndRefused(november, 'hop_limit', 'too many hand-offs');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal((await listing(november.id)).length, 1);
+
+  // A card still open for other work it names, and one another answer closed
+  // after the work went on.
+  const december = await stoppedForBudget(company, 'post the December invoices');
+  const january = await stoppedForBudget(company, 'post the January invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'one card for both');
+  const [both] = await listing(december.id);
+  await goneOnAndRefused(december, 'deadline_passed', 'its deadline passed');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'not swallowed by the card still open for January');
+  assert.equal((await listing(december.id)).filter((card) => card.id !== both!.id).length, 1);
+  await rerunTask(company.companyId, january.id, null);
+  const closed = (await cardsOf(company.companyId)).find((card) => card.id === both!.id)!;
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'task_rerun'],
+    'December went on, and January was run again: nothing on it is left');
+
+  // Stopped again for its budget, with nothing covering it: back on the card
+  // that says so, and not on a second one beside it.
+  const february = await stoppedForBudget(company, 'post the February invoices');
+  const march = await stoppedForBudget(company, 'post the March invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  await goneOnAndRefused(february, 'budget_exhausted', 'its account has no room left');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'on the card already open for its cause');
+  const [again, ...more] = await listing(february.id);
+  assert.equal(more.length, 0);
+  assert.deepEqual(again!.payload.endedTaskIds, [february.id, march.id], 'named once');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and told');
 });

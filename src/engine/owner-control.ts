@@ -261,13 +261,16 @@ async function stopHandling(
  * has been answered by the work itself -- run again, or no longer stopped
  * because it was gone on with (`continueHalted`) -- so nothing on it is left
  * for anyone. Both, so that a card about one task run again and another gone
- * on with closes with whichever comes last.
+ * on with closes with whichever comes last. A task that went on and has
+ * stopped again since is answered here too: this card was about the stop it
+ * went on from (`continuedTaskIds`), and the new one is told on its own.
  */
 function endedAllAnswered(card: string): string {
   return `NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(${card}.payload->'endedTaskIds') AS listed(id)
       JOIN tasks s ON s.id = listed.id::uuid AND s.company_id = ${card}.company_id
      WHERE s.status IN ('halted', 'failed')
+       AND NOT coalesce(${card}.payload->'continuedTaskIds', '[]'::jsonb) ? listed.id
        AND NOT EXISTS (SELECT 1 FROM tasks r
                         WHERE r.company_id = ${card}.company_id AND r.idempotency_key = 'rerun:' || listed.id))`;
 }
@@ -515,6 +518,22 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
         payload: { inboxItemId: item.id, closedReason: closedBecause },
       });
     }
+    // Every card that names it, open or closed, was about the stop it now
+    // goes on from, and is not about how it ends next (ALREADY_TOLD in
+    // ended.ts): the same task, ending another way, is told anew. One left
+    // open for other work it names keeps naming this one, as what it was.
+    // Only ended.ts puts a task back on a card that marks it; a cause's card
+    // (`holdEndedOn`) names no task and holds only work its cause stopped,
+    // which is never gone on with, so none is ever marked.
+    await tx.query(
+      `UPDATE inbox_items
+          SET payload = jsonb_set(payload, '{continuedTaskIds}',
+                                  coalesce(payload->'continuedTaskIds', '[]'::jsonb) || to_jsonb($1::text))
+        WHERE company_id = $2 AND kind IN ('incident', 'escalation', 'budget_alert')
+          AND (task_id = $1::uuid OR payload->'endedTaskIds' ? $1::text)
+          AND NOT coalesce(payload->'continuedTaskIds', '[]'::jsonb) ? $1::text`,
+      [taskId, companyId],
+    );
     // A ticket the halt put back on the board, and nobody has taken since,
     // is this task's again (0070).
     const { rows: tickets } = await tx.query<{ id: string }>(

@@ -51,15 +51,6 @@ export class PersonAdapter implements Adapter {
     if (!bound?.person_name) {
       throw new PalugadaError('contract.violation', `role ${request.roleSlug} runs on a person and names none`, { roleId: task.roleId });
     }
-    const seated = (await askableSeats(task.companyId)).find((one) => one.seatId === bound.person_seat);
-    if (!seated) {
-      // Terminal, and the owner is told by the halt: the same refusal would
-      // follow a retry, and a model must not do a person's work unasked.
-      throw new PalugadaError('policy.denied',
-        `${bound.person_name} is no longer seated, so there is no one to do this: seat them again, or give the work to another role`,
-        { roleId: task.roleId });
-    }
-
     // The brief as it was given, in the words it was given in: the goal is the
     // question, and what depends on it is the context. Nothing is added in a
     // language the platform chose.
@@ -67,21 +58,35 @@ export class PersonAdapter implements Adapter {
     if (!goal) {
       throw new PalugadaError('contract.violation', 'work for a person needs a goal to put to them', { taskId: task.id });
     }
+    const question = goal.length > BRIEF_MAX ? `${goal.slice(0, BRIEF_MAX - 1)}…` : goal;
+    const seated = (await askableSeats(task.companyId)).find((one) => one.seatId === bound.person_seat);
+    // A question already put is read before anyone is looked for: an answer
+    // the person gave before they were unseated, or one the owner gave in
+    // their place, is the work done, and halting for want of a seat threw it
+    // away (the review of 20 October).
+    if (!seated && !(await alreadyAsked(task.companyId, task.id, question))) {
+      // Terminal, and the owner is told by the halt: the same refusal would
+      // follow a retry, and a model must not do a person's work unasked.
+      throw new PalugadaError('policy.denied',
+        `${bound.person_name} is no longer seated, so there is no one to do this: seat them again, or give the work to another role`,
+        { roleId: task.roleId });
+    }
+    const name = seated?.name ?? bound.person_name;
     const context = text(task.input.context);
     const asked = await askOwner({
       companyId: task.companyId,
       taskId: task.id,
-      question: goal.length > BRIEF_MAX ? `${goal.slice(0, BRIEF_MAX - 1)}…` : goal,
+      question,
       why: context ? context.slice(0, CONTEXT_MAX) : null,
       options: null,
-      addressee: { seatId: seated.seatId, name: seated.name, escalateAfterHours: QUESTION_ESCALATES_AFTER_HOURS },
+      ...(seated ? { addressee: { seatId: seated.seatId, name: seated.name, escalateAfterHours: QUESTION_ESCALATES_AFTER_HOURS } } : {}),
     });
 
     if (asked.state === 'answered') {
       return {
         output: {
-          summary: asked.answer || `${seated.name} did it`,
-          answeredBy: seated.name,
+          summary: asked.answer || `${name} did it`,
+          answeredBy: name,
           ...(asked.files.length > 0 ? { files: asked.files.map((one) => ({ kind: one.kind, name: one.name, path: one.path })) } : {}),
         },
         // A person's answer is not a model's report on criteria it met: it is
@@ -90,11 +95,20 @@ export class PersonAdapter implements Adapter {
       };
     }
     if (asked.state === 'unanswered') {
-      throw new PalugadaError('policy.denied', `${seated.name} did not take this on: it was closed without an answer`, { roleId: task.roleId });
+      throw new PalugadaError('policy.denied', `${name} did not take this on: it was closed without an answer`, { roleId: task.roleId });
     }
     // The task is parked on the question already; this says so to the engine.
-    throw new PalugadaError('owner.asked', `${seated.name} has been asked; this task waits for the answer and resumes with it`, {
+    throw new PalugadaError('owner.asked', `${name} has been asked; this task waits for the answer and resumes with it`, {
       inboxItemId: asked.inboxItemId,
     });
   }
+}
+
+/** Whether this question has been put on this task already: then it is read, not asked. */
+async function alreadyAsked(companyId: string, taskId: string, question: string): Promise<boolean> {
+  const { rowCount } = await withTenant(companyId, (tx) => tx.query(
+    `SELECT 1 FROM inbox_items
+      WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent' AND payload->>'question' = $2`,
+    [taskId, question.trim()]));
+  return rowCount !== 0;
 }

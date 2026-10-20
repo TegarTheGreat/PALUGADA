@@ -206,6 +206,27 @@ test('a page cut short by a crash is drawn again, not served as the invoice', { 
   }
 });
 
+test('a link where the page goes is refused, and what it points to is left alone', { skip: SKIP }, async () => {
+  // Found reviewing the redraw: the broken page was removed by the path it
+  // pointed to, so a link at invoices/inv-0001.pdf to an upload deleted the
+  // upload. Every other delete in the files refuses a link; this one does too.
+  const { api, issue, print, mine } = await owned();
+  try {
+    const { mkdir, readFile, symlink, writeFile } = await import('node:fs/promises');
+    await mkdir(join(mine, 'invoices'), { recursive: true });
+    await mkdir(join(mine, 'uploads'), { recursive: true });
+    await writeFile(join(mine, 'uploads', 'contract.docx'), 'the owner\'s contract');
+    await symlink(join(mine, 'uploads', 'contract.docx'), join(mine, 'invoices', 'inv-0001.pdf'));
+    const invoice = await issue();
+    const made = await print(invoice.invoiceId);
+    assert.equal(made.status, 400, JSON.stringify(made.body));
+    assert.match(String(made.body.error), /is a link, not the invoice/);
+    assert.equal(await readFile(join(mine, 'uploads', 'contract.docx'), 'utf8'), 'the owner\'s contract', 'the upload is where it was');
+  } finally {
+    await api.close();
+  }
+});
+
 test('a hostile name prints as plain text, and nothing it names is fetched', { skip: SKIP }, async () => {
   const { api, fixture, root, browser, issue, print } = await owned();
   const requests: string[] = [];

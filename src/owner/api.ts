@@ -146,7 +146,7 @@ import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
 import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
 import {
-  DOWNLOAD_MAX_BYTES, UPLOAD_FOLDER, UPLOAD_MAX_BYTES, keepCompanyFile, listCompanyDirectory, mimeOf, plainFileName, readCompanyFile,
+  DOWNLOAD_MAX_BYTES, UPLOAD_FOLDER, UPLOAD_MAX_BYTES, companyRoot, keepCompanyFile, listCompanyDirectory, mimeOf, plainFileName, readCompanyFile,
   removeCompanyFile,
 } from '../capabilities/files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
@@ -3859,8 +3859,17 @@ export class OwnerApi {
             const whole = (bytes: Buffer) => bytes.subarray(0, 5).toString('latin1') === '%PDF-' && bytes.subarray(-1024).includes('%%EOF');
             if (there && whole(there.bytes)) return { path };
             if (there) {
-              const { unlink } = await import('node:fs/promises');
-              await unlink(there.real);
+              // The entry under invoices/ is removed, and only when it is the platform's own file: removed by the
+              // path a link points to, a link there would take an upload or a contract with it (the review of 20
+              // October), and every other delete in the files refuses a link too.
+              const { lstat, unlink } = await import('node:fs/promises');
+              const entry = join(await companyRoot(root, companyId), 'invoices', name);
+              const info = await lstat(entry);
+              if (info.isSymbolicLink() || !info.isFile()) {
+                throw new PalugadaError('contract.violation',
+                  `${path} is a link, not the invoice: remove it under Files, then print again`, { field: 'invoice' });
+              }
+              await unlink(entry);
             }
             const bytes = await browsers.print(invoiceHtml(made.invoice, made.company, made.language));
             // Not held to the uploads' room: one page per invoice, each at most PRINT_MAX_BYTES, and none taken out.

@@ -166,8 +166,24 @@ export function carryFor(companyId: string): CostCarry {
   return carry;
 }
 
-function matches(pattern: string, model: string): boolean {
-  return pattern.endsWith('*') ? model.startsWith(pattern.slice(0, -1)) : model === pattern;
+/**
+ * A dated snapshot, as a provider names the model that answered: OpenAI's
+ * `gpt-5-2025-08-07`, Anthropic's `claude-sonnet-4-5-20250929`, Vertex's
+ * `claude-sonnet-4-5@20250929`.
+ */
+const SNAPSHOT = /[-@](?:\d{4}-\d{2}-\d{2}|\d{8})$/;
+
+/**
+ * Whether a price list's pattern prices a model: a wildcard by its start, a
+ * name exactly -- or that name's dated snapshot. A call is priced by the model
+ * the provider says answered, and asking for "gpt-5" is answered by
+ * "gpt-5-2025-08-07": priced by name alone, every such call fell to the
+ * fallback, many times the price the owner was shown (the review of 20
+ * October). Only a date is taken off, so "gpt-5-mini" is never "gpt-5".
+ */
+export function matchesModel(pattern: string, model: string): boolean {
+  if (pattern.endsWith('*')) return model.startsWith(pattern.slice(0, -1));
+  return model === pattern || model.replace(SNAPSHOT, '') === pattern;
 }
 
 /**
@@ -263,7 +279,7 @@ export function withConsolePrices(table: PriceTable, raw: string | undefined): P
 
 /** Which row prices a model, and at what rate: its pattern, or `fallback`. */
 export function rateFor(table: PriceTable, model: string): { rate: ModelRate; basis: string } {
-  const row = table.rates.find((candidate) => matches(candidate.pattern, model));
+  const row = table.rates.find((candidate) => matchesModel(candidate.pattern, model));
   return row ? { rate: row.rate, basis: row.pattern } : { rate: table.fallback, basis: 'fallback' };
 }
 

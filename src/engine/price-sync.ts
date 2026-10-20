@@ -115,16 +115,17 @@ export async function syncIfStale(options: SyncOptions & { force?: boolean }): P
   const now = options.now ?? new Date();
   const kept = await options.read();
   if (!options.force && kept) {
+    const failed = kept.problem !== null;
+    const tried = kept.triedAt ? Date.parse(kept.triedAt) : null;
+    const synced = kept.syncedAt ? Date.parse(kept.syncedAt) : null;
+    // A try that failed waits its hour whatever is asked: to a catalogue
+    // never read every model is unknown, and that read as a reason to fetch it
+    // again at every poll, every five minutes for as long as it was down.
+    if (failed && tried !== null && now.getTime() - tried < RETRY_AFTER_MS) return { ran: false, catalogue: kept };
     const wanted = options.models.filter((model) => model.trim() !== '');
     const known = new Set([...Object.keys(kept.models), ...kept.unpriced]);
     const unknown = wanted.some((model) => !known.has(model));
-    if (!unknown) {
-      const failed = kept.problem !== null;
-      const tried = kept.triedAt ? Date.parse(kept.triedAt) : null;
-      const synced = kept.syncedAt ? Date.parse(kept.syncedAt) : null;
-      if (failed && tried !== null && now.getTime() - tried < RETRY_AFTER_MS) return { ran: false, catalogue: kept };
-      if (!failed && synced !== null && now.getTime() - synced < MAX_AGE_MS) return { ran: false, catalogue: kept };
-    }
+    if (!unknown && !failed && synced !== null && now.getTime() - synced < MAX_AGE_MS) return { ran: false, catalogue: kept };
   }
   return { ran: true, catalogue: await syncPrices(options) };
 }

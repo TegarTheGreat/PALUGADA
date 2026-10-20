@@ -215,6 +215,53 @@ test('what the owner and the operator say wins; the catalogue is next; a model n
   near(costOf(book, 'gpt-5.4', { input: 1_000, output: 100, cacheRead: 9_000 }).cents, (1_000 * 250 + 100 * 1_500 + 9_000 * 25) / 1_000_000);
 });
 
+test('a call is priced as the model asked for when the provider answers with that model\'s dated snapshot', async () => {
+  // The deployment asks for "gpt-5"; OpenAI answers that "gpt-5-2025-08-07"
+  // did the work, and every call was priced at the fallback -- twelve times
+  // the input price -- while the console showed the catalogue's.
+  const catalogue: Catalogue = {
+    source: 'models.dev', syncedAt: '2026-10-01T00:00:00.000Z', problem: null, changes: [], unpriced: [],
+    models: {
+      'gpt-5': { input: 125, output: 1_000, provider: 'OpenAI' },
+      'claude-sonnet-4-5': { input: 300, output: 1_500, provider: 'Anthropic' },
+    },
+  };
+  const book = new PriceBook(DEFAULT_PRICE_TABLE, { catalogue: async () => catalogue });
+  await book.refresh();
+  for (const answered of ['gpt-5-2025-08-07', 'gpt-5-20250807']) {
+    assert.deepEqual(costOf(book, answered, { input: 1_000_000, output: 0 }), { cents: 125, basis: 'gpt-5' }, answered);
+    assert.equal(book.describe(answered).layer, 'catalogue');
+  }
+  for (const answered of ['claude-sonnet-4-5-20250929', 'claude-sonnet-4-5@20250929']) {
+    assert.equal(costOf(book, answered, { input: 1_000_000, output: 0 }).basis, 'claude-sonnet-4-5', answered);
+  }
+  // Another model whose name begins the same is not the same model.
+  assert.equal(costOf(book, 'gpt-5-mini', { input: 1_000_000, output: 0 }).basis, 'fallback');
+  assert.equal(costOf(book, 'gpt-5-mini-2025-08-07', { input: 1_000_000, output: 0 }).basis, 'fallback');
+  // An operator's exact price for a model covers its snapshots too.
+  const file = parsePriceTable({ models: { 'deepseek-chat': { input: 27, output: 110 } } });
+  assert.equal(costOf(file, 'deepseek-chat-2026-01-01', { input: 1_000_000, output: 0 }).cents, 27);
+});
+
+test('a catalogue that cannot be read is tried again an hour after a failure, even for a model it has not priced yet', async () => {
+  const api = await mirror(full());
+  try {
+    api.down();
+    const kept = store();
+    const base = { models: ['claude-sonnet-4-5'], where, source: api.url, ...kept };
+    const t0 = new Date('2026-10-01T00:00:00Z');
+    assert.equal((await syncIfStale({ ...base, now: t0 })).ran, true, 'never read: tried, and failed');
+    // Every model is unknown to a catalogue never read: that is no reason to
+    // fetch 32 MB again every five minutes while it is down.
+    assert.equal((await syncIfStale({ ...base, now: new Date(t0.getTime() + 5 * 60_000) })).ran, false, 'not again in five minutes');
+    assert.equal((await syncIfStale({ ...base, models: ['claude-sonnet-4-5', 'deepseek-chat'], now: new Date(t0.getTime() + 10 * 60_000) })).ran, false,
+      'nor for another model, while the last try was a failure a moment ago');
+    assert.equal((await syncIfStale({ ...base, now: new Date(t0.getTime() + RETRY_AFTER_MS + 1_000) })).ran, true, 'an hour after, again');
+  } finally {
+    await api.close();
+  }
+});
+
 test('the book is the table the engine and the clients hold: what a refresh learns, they price by at once, with no restart', async () => {
   let owner: string | undefined;
   let catalogue: Catalogue | null = null;

@@ -21,7 +21,7 @@
  * "from the next start". A source that fails to read leaves the layer as it
  * was: a database that blinks is not a reason to price at the fallback.
  */
-import { withConsolePrices, type ModelRate, type PriceTable } from './pricing.ts';
+import { matchesModel, withConsolePrices, type ModelRate, type PriceTable } from './pricing.ts';
 
 /** What the catalogue says of one model, in cents per million tokens. */
 export interface CatalogueEntry {
@@ -84,10 +84,6 @@ interface Row {
   provider?: string;
 }
 
-function matches(pattern: string, model: string): boolean {
-  return pattern.endsWith('*') ? model.startsWith(pattern.slice(0, -1)) : model === pattern;
-}
-
 export class PriceBook implements PriceTable {
   readonly #file: PriceTable;
   readonly #sources: PriceSources;
@@ -144,7 +140,7 @@ export class PriceBook implements PriceTable {
 
   /** Which layer prices a model, and at what. */
   describe(model: string): Described {
-    const row = this.#rows.find((candidate) => matches(candidate.pattern, model));
+    const row = this.#rows.find((candidate) => matchesModel(candidate.pattern, model));
     if (!row) return { rate: this.#fallback, layer: 'fallback', pattern: 'fallback' };
     return {
       rate: row.rate, layer: row.layer, pattern: row.pattern,

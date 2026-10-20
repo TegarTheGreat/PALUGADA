@@ -16,7 +16,8 @@ import { hashInput } from '../engine/hash.ts';
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { createRootTask, getTask, transitionWithin } from '../engine/tasks.ts';
+import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
+import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
 import { releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
@@ -532,13 +533,13 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
   // not have the owner told in one, and an owner asleep should not be told at
   // three because a division's clock ran out.
   //
-  // Only when the division actually names somebody, though. `afterMinutes` has
-  // a company-wide default and `roleSlug` does not, so a division that never
-  // set a policy still reads back as "four hours" -- and holding the owner's
-  // notification for four hours is granting a grace period to nobody. Through
-  // that window no role has been asked, no one is working on it, and the item
-  // simply waits. Without a named role the escalation has no home, and F2.1's
-  // own default for that case is the owner, now.
+  // Only when somebody is asked, though. `afterMinutes` has a company-wide
+  // default, so a division whose owner said "straight to me" still reads back
+  // as "four hours" -- and holding the owner's notification for four hours is
+  // granting a grace period to nobody. Through that window no role has been
+  // asked, no one is working on it, and the item simply waits. Without a role
+  // the escalation has no home, and F2.1's own default for that case is the
+  // owner, now. (A division that never said is its CEO's to hear first.)
   const handledBy = policy?.roleSlug ? policy : null;
   const askedFirst = handledBy?.roleSlug
     ? askedFirstSaid(await ownerReadingWithin(tx), { role: await roleCalledWithin(tx, { slug: handledBy.roleSlug }), minutes: handledBy.afterMinutes })
@@ -603,7 +604,8 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
 const HANDLED_NOTE_LIMIT = 1_000;
 
 /**
- * Hands each escalation to the role its division names (F2.1), and adds what
+ * Hands each escalation to the role its division names (F2.1) -- the
+ * company's CEO, unless the owner named another or nobody -- and adds what
  * that role did to the item the owner reads.
  *
  * The item already said "ops-lead was asked first and has had 45 minutes", and
@@ -671,10 +673,18 @@ async function handOver(companyId: string, item: {
       `SELECT id FROM goals WHERE status = 'active'
         ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1`);
     const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1');
+    // F8.9: the brief is the card, and the card carries the stuck task's own
+    // words -- what it was asked, and the record its halt left, which a run
+    // may have written after reading an email or a customer's message. Work
+    // made from them is that outside text's work, as a rerun or a filed
+    // ticket's is: an injected "not done" must not become clean work for the
+    // coordinator that a standing approval covers.
+    const carried = item.task_id ? await outsideContentIn(tx, item.task_id) : null;
     return {
       role: roles[0] ?? null,
       goalId: stuck[0]?.goal_id ?? goal[0]?.id ?? null,
       projectId: stuck[0]?.project_id ?? project[0]?.id ?? null,
+      carried,
     };
   });
 
@@ -705,11 +715,18 @@ async function handOver(companyId: string, item: {
       goalId: found.goalId, createdBy: 'event', idempotencyKey: `escalation:${item.id}`,
       input: {
         goal: `Escalated to you: ${item.title}`,
+        // How the handling ends decides the card: work marked done closes a
+        // card about a task that ended badly (`noteHandling`), so a "neither
+        // is possible" written into a done summary closed it, and the owner
+        // never saw a failure nobody could mend. Not done keeps it theirs.
         context:
           `${item.rationale}\n\nDo what you can about it before ${until}; the owner is told then, ` +
-          'with what you did. You cannot decide it for them: fix the cause, hand it to the role ' +
-          'that can, or say plainly why neither is possible.',
+          'with what you did. You cannot decide it for them: fix the cause, or hand it to the role ' +
+          'that can. If you can do neither, end with "notDone" saying why, and do not count it as done.',
       },
+      ...(found.carried === null ? {} : {
+        carriesOutside: { capability: 'the escalation it was given', from: found.carried, escalationOf: item.task_id },
+      }),
     });
     taskId = task.id;
   } catch (error) {
@@ -733,10 +750,14 @@ async function noteHandling(companyId: string, item: {
     // Only finished tasks are asked about, and a finished task stays finished.
     const task = await getTask(tx, item.payload.handedTaskId!);
     if (!task) return;
+    // A role that could not mend it says why under `notDone`, as its brief
+    // asks: that reason, written for the owner, is what the owner reads, and
+    // not a summary of what it looked at on the way.
+    const notDone = task.haltReason === 'not_done' && task.output ? saidNotDone(task.output) : null;
+    const account = notDone || (typeof task.output?.summary === 'string' ? task.output.summary.trim() : '');
     const said = handledSaid(await ownerReadingWithin(tx), {
       role: await roleCalledWithin(tx, { slug: item.payload.escalationRole }),
-      summary: typeof task.output?.summary === 'string' && task.output.summary.trim()
-        ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT) : null,
+      summary: account ? account.slice(0, HANDLED_NOTE_LIMIT) : null,
       status: task.status, haltReason: task.haltReason ?? null,
     });
     // Guarded on the marker, so a second pass -- or a second worker -- adds

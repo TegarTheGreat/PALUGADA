@@ -224,9 +224,12 @@ is, delegates it with a brief that says what done looks like, waits for the
 result and reports what came back. It does operations work itself, and it
 does not contact anyone outside the company or ship anything.
 
-It is also the first stop for trouble: in the standard template every other
-division escalates to the coordinator, which gets an hour to fix the cause or
-hand it on before you are told, with what it did.
+It is also the first stop for trouble: work of another role that ends badly
+goes to the CEO first, in every division where you have not named someone
+else (or nobody) under **Who hears about trouble first**. The CEO gets an
+hour to fix the cause or hand it on before you are told, with what it did;
+if it fixed it, the card closes and stays readable, and if it could not, it
+says why and the card is yours. The CEO's own failures come straight to you.
 
 ## Capabilities and the catalogue
 

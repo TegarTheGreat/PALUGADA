@@ -270,6 +270,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO ของคุณเสนอบทบาทที่บริษัทยังไม่มี การจ้างเป็นการตัดสินใจของคุณ: CEO เขียนบทบาทร่วมกับคุณในการสนทนา และคุณจะเห็นก่อนที่บทบาทจะเริ่มทำงาน",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO ของคุณคิดด้วยโมเดล และยังไม่ได้ตั้งค่าไว้ เลือกผู้ให้บริการแล้ววางคีย์ของมัน คุณเปลี่ยนได้ภายหลังที่ “ระบบนี้”",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "เช่น เราคั่วกาแฟกาโยแล้วขายให้คาเฟ่และออฟฟิศในบันดุง ส่งภายในวันเดียว",
+  "the escalation it was given": "เรื่องยกระดับที่ได้รับมอบหมาย",
   "{capability}, every time {schedule} does exactly this": "{capability} ทุกครั้งที่ {schedule} ทำสิ่งนี้ทุกประการ",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "อนุมัติแล้ว และอนุญาตทุกครั้งที่ {schedule} ทำสิ่งนี้ทุกประการ เป็นเวลาเก้าสิบวัน",
   "Taken back. The next time {schedule} does it, you are asked again.": "ถอนคืนแล้ว ครั้งถัดไปที่ {schedule} ทำ ระบบจะถามคุณอีกครั้ง",

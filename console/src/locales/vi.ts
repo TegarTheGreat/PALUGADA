@@ -275,6 +275,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO của bạn đề xuất một vai trò công ty chưa có. Việc tuyển là do bạn quyết định: CEO cùng bạn viết vai trò trong cuộc trò chuyện, và bạn xem nó trước khi bắt đầu.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO của bạn suy nghĩ bằng một mô hình, và chưa có mô hình nào được thiết lập. Hãy chọn nhà cung cấp và dán khóa của nó. Bạn có thể đổi sau trong Hệ thống này.",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "vd. Chúng tôi rang cà phê Gayo và bán cho quán cà phê và văn phòng ở Bandung, giao trong ngày.",
+  "the escalation it was given": "vụ chuyển cấp được giao",
   "{capability}, every time {schedule} does exactly this": "{capability}, mỗi lần {schedule} làm đúng việc này",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "Đã phê duyệt, và cho phép mỗi lần {schedule} làm đúng việc này, trong chín mươi ngày.",
   "Taken back. The next time {schedule} does it, you are asked again.": "Đã rút lại. Lần tới khi {schedule} thực hiện, hệ thống sẽ hỏi lại bạn.",

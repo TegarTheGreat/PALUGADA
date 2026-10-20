@@ -221,6 +221,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "आपके CEO एक ऐसी भूमिका का प्रस्ताव रखते हैं जो कंपनी में नहीं है। भर्ती का निर्णय आपका है: CEO बातचीत में आपके साथ भूमिका लिखते हैं, और शुरू होने से पहले आप उसे देखते हैं।",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "आपका CEO मॉडल से सोचता है, और अभी कोई मॉडल सेट नहीं है। प्रदाता चुनिए और उसकी कुंजी चिपकाइए। बाद में इसे यहाँ बदला जा सकता है: यह डिप्लॉयमेंट।",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "जैसे: हम गायो कॉफ़ी भूनकर बांडुंग के कैफ़े और दफ़्तरों को बेचते हैं, उसी दिन डिलीवर करते हैं।",
+  "the escalation it was given": "इसे सौंपा गया एस्केलेशन",
   "{capability}, every time {schedule} does exactly this": "{capability}, हर बार जब {schedule} ठीक यही करे",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "स्वीकृत, और नब्बे दिनों तक हर बार अनुमति, जब {schedule} ठीक यही करे।",
   "Taken back. The next time {schedule} does it, you are asked again.": "वापस ली गई। अगली बार जब {schedule} इसे करेगा, आपसे फिर पूछा जाएगा।",

@@ -246,6 +246,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "CEO が会社にない役割を提案しています。採用を決めるのはあなたです。CEO が会話の中であなたと役割を書き、始まる前にあなたが確認します。",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "CEO はモデルを使って考えますが、まだ設定されていません。プロバイダーを選び、そのキーを貼り付けてください。あとで「このインスタンス」から変更できます。",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "例：ガヨ産のコーヒーを焙煎し、バンドンのカフェやオフィスに当日配達で販売しています。",
+  "the escalation it was given": "引き渡されたエスカレーション",
   "{capability}, every time {schedule} does exactly this": "{capability}（{schedule} がまったく同じ操作をするたびに）",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "承認しました。{schedule} がまったく同じ操作をするたびに、90 日間許可します。",
   "Taken back. The next time {schedule} does it, you are asked again.": "取り消しました。次に {schedule} が実行するときは、再びあなたに確認します。",

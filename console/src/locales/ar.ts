@@ -248,6 +248,7 @@ export const DICTIONARY: Dictionary = {
   "Your CEO proposes a role the company does not have. Hiring is yours: the CEO writes the role with you in conversation, and you see it before it starts.": "يقترح الرئيس التنفيذي دورًا لا تملكه الشركة. التوظيف قرارك: يكتب الرئيس التنفيذي الدور معك في المحادثة، وتراه قبل أن يبدأ.",
   "Your CEO thinks with a model, and none is set up yet. Choose a provider and paste its key. You can change it later under This deployment.": "يفكر الرئيس التنفيذي بواسطة نموذج، ولم يُعدّ أي نموذج بعد. يُرجى اختيار مزوّد ولصق مفتاحه. يمكنك تغيير ذلك لاحقًا من «هذه المنصة».",
   "e.g. We roast Gayo coffee and sell it to cafés and offices in Bandung, delivered the same day.": "مثال: نحمّص قهوة غايو ونبيعها للمقاهي والمكاتب في باندونغ، مع التوصيل في اليوم نفسه.",
+  "the escalation it was given": "التصعيد الذي أُسند إليه",
   "{capability}, every time {schedule} does exactly this": "{capability}، في كل مرة ينفّذ فيها {schedule} هذا الإجراء نفسه تمامًا",
   "Approved, and allowed every time {schedule} does exactly this, for ninety days.": "تمت الموافقة، والسماح في كل مرة ينفّذ فيها {schedule} هذا الإجراء نفسه تمامًا، لمدة تسعين يومًا.",
   "Taken back. The next time {schedule} does it, you are asked again.": "سُحبت. في المرة القادمة التي ينفّذه فيها {schedule} سيُطلب منك مجددًا.",

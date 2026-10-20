@@ -11,24 +11,28 @@
  * A root task that ended badly -- halted or failed, with nothing above it to
  * hear of it -- and has no card about it, now raises one escalation. Through
  * `raiseEscalationWithin` with its division, which is F2.1: the coordinator
- * the division names is asked first, has its grace before the owner is told,
- * and the owner then reads what it did. A coordinator that finishes what it
- * was handed closes the card (`handledSaid` in inbox.ts); one that could not
- * leaves it for the owner.
+ * the division names -- the company's CEO, unless the owner named another or
+ * nobody -- is asked first, has its grace before the owner is told, and the
+ * owner then reads what it did. A coordinator that finishes what it was
+ * handed closes the card (`noteHandling` in inbox.ts); one that says it could
+ * not, or fails, leaves it for the owner.
  *
- * Three things keep it from becoming noise or a loop. It is asked once per
+ * Four things keep it from becoming noise or a loop. It is asked once per
  * task, and once per cause under a goal while a card for that cause is open:
  * ten tasks halting on the same hop limit are one card that names them all.
  * It looks only at the last day, so a deployment that starts running this
- * does not report its history. And work the coordinator was itself handed
- * goes to the owner and not back to the coordinator, which would otherwise
- * be asked to fix its own failing.
+ * does not report its history. Work the coordinator was itself handed is not
+ * a failure of its own: how it ended is written on the card it was handling,
+ * and no second card is raised about it. And the coordinator's own work, or
+ * an errand the platform made for it, goes to the owner and not back to the
+ * coordinator, which would otherwise be asked to fix its own failing.
  *
  * Driven from state, not from the halt: a worker that was down when the task
  * halted reports it when it comes back, and the grace is a minute so that the
  * card the halt raises for itself comes first and this one is not a second.
  */
 import { withTenant } from '../db/tenant.ts';
+import { escalationPolicyFor } from '../governance/structure.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { endedBadlyCard, ownerReadingWithin, taskCalledWithin } from '../owner/platform-cards.ts';
 
@@ -49,18 +53,36 @@ const HANDLED_KEYS = /^(escalation|triage|outcome):/;
 interface Ended {
   taskId: string;
   divisionId: string;
+  /** The role whose work it was, by the slug a division's policy names a role with. */
+  roleSlug: string;
   goalId: string | null;
   haltReason: string | null;
   idempotencyKey: string;
 }
 
+/**
+ * Already somebody's to hear of: a card about it, or one it was handed to
+ * handle. The handling task's end -- done, not done, halted -- is written on
+ * the card it was handed (`noteHandling`), which stays open for the owner
+ * unless it was done; a second card about the same trouble would only say it
+ * again, and a CEO that said "not done" as it was told would raise one every
+ * time.
+ */
+const ALREADY_TOLD = `(
+  EXISTS (SELECT 1 FROM inbox_items i
+           WHERE i.kind IN ('incident', 'escalation', 'budget_alert')
+             AND (i.task_id = t.id OR i.payload->'endedTaskIds' ? t.id::text))
+  OR EXISTS (SELECT 1 FROM inbox_items i
+              WHERE i.kind = 'escalation' AND i.payload->>'handedTaskId' = t.id::text))`;
+
 async function findEnded(companyId: string, now: Date): Promise<Ended[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; division_id: string; goal_id: string | null; halt_reason: string | null; idempotency_key: string;
+      id: string; division_id: string; role_slug: string; goal_id: string | null; halt_reason: string | null; idempotency_key: string;
     }>(
-      `SELECT t.id, t.division_id, t.goal_id, t.halt_reason, t.idempotency_key
+      `SELECT t.id, t.division_id, r.slug AS role_slug, t.goal_id, t.halt_reason, t.idempotency_key
          FROM tasks t
+         JOIN roles r ON r.id = t.role_id
         WHERE t.status IN ('halted', 'failed')
           -- A root task, and a follow-up (task.follow_up): it is a child by
           -- its parentage and a root by its work, since the run that made it
@@ -71,15 +93,13 @@ async function findEnded(companyId: string, now: Date): Promise<Ended[]> {
           AND coalesce(t.halt_reason, '') NOT IN ('owner_stop', 'owner_cancel')
           AND t.finished_at <= $1::timestamptz - make_interval(secs => $2)
           AND t.finished_at >  $1::timestamptz - make_interval(secs => $3)
-          AND NOT EXISTS (
-                SELECT 1 FROM inbox_items i
-                 WHERE i.kind IN ('incident', 'escalation', 'budget_alert')
-                   AND (i.task_id = t.id OR i.payload->'endedTaskIds' ? t.id::text))
+          AND NOT ${ALREADY_TOLD}
         ORDER BY t.finished_at`,
       [now, ENDED_AFTER_MS / 1000, ENDED_WITHIN_MS / 1000],
     );
     return rows.map((row) => ({
-      taskId: row.id, divisionId: row.division_id, goalId: row.goal_id, haltReason: row.halt_reason, idempotencyKey: row.idempotency_key,
+      taskId: row.id, divisionId: row.division_id, roleSlug: row.role_slug, goalId: row.goal_id,
+      haltReason: row.halt_reason, idempotencyKey: row.idempotency_key,
     }));
   });
 }
@@ -101,19 +121,30 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
   return withTenant(companyId, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('ended:' || $1))", [task.taskId]);
     const { rows: told } = await tx.query(
-      `SELECT 1 FROM inbox_items
-        WHERE kind IN ('incident', 'escalation', 'budget_alert')
-          AND (task_id = $1 OR payload->'endedTaskIds' ? $1::text) LIMIT 1`,
-      [task.taskId]);
+      `SELECT 1 FROM tasks t WHERE t.id = $1 AND ${ALREADY_TOLD}`, [task.taskId]);
     if (told.length > 0) return false;
 
-    // The same cause under the same goal, while a card for it is open, is on that card.
+    // Who is asked first: the coordinator the division's policy names, unless
+    // this is what a coordinator was handed, or the coordinator's own work --
+    // the CEO, by default, would be asked to fix its own failing. Then the
+    // owner hears at once.
+    const policy = await escalationPolicyFor(tx, task.divisionId);
+    const askFirst = !HANDLED_KEYS.test(task.idempotencyKey) && policy.roleSlug !== task.roleSlug;
+    const askedFirst = askFirst ? policy.roleSlug ?? '' : '';
+
+    // The same cause under the same goal, while a card for it is open, is on
+    // that card -- one going to the same place. Not on a card about the
+    // coordinator's own failing, which the coordinator would then be handed,
+    // nor on one already handed and not yet answered: its brief is written,
+    // and a task added after it would close with the card unread by anyone.
     const key = `${task.goalId ?? 'none'}:${task.haltReason ?? 'failed'}`;
     const { rows: open } = await tx.query<{ id: string; ids: number }>(
       `SELECT id, jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) AS ids FROM inbox_items
         WHERE kind = 'escalation' AND status = 'open' AND payload->>'endedKey' = $1
+          AND coalesce(payload->>'escalationRole', '') = $2
+          AND NOT (payload ? 'handedTaskId' AND NOT payload ? 'handledOutcome')
         ORDER BY created_at LIMIT 1`,
-      [key]);
+      [key, askedFirst]);
     if (open[0]) {
       if (open[0].ids < MOST_GROUPED) {
         await tx.query(
@@ -136,8 +167,8 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
     });
     await inbox.raiseEscalationWithin(tx, {
       companyId, taskId: task.taskId, title: card.title, detail: card.detail,
-      // The coordinator first -- unless this is what the coordinator was handed.
-      ...(HANDLED_KEYS.test(task.idempotencyKey) ? {} : { divisionId: task.divisionId }),
+      // With its division, whose policy then names who is asked first.
+      ...(askFirst ? { divisionId: task.divisionId } : {}),
       payload: { endedKey: key, endedTaskIds: [task.taskId], handledCloses: true },
     });
     return true;

@@ -188,8 +188,10 @@ export interface Division {
   name: string;
   depth: number;
   maxConcurrency: number;
+  /** Who hears first about the division's trouble, in force: the CEO where the owner named nobody, null for straight to the owner. */
   escalationRole: string | null;
-  escalateAfterMinutes: number | null;
+  /** How long that role has before the owner is told. */
+  escalateAfterMinutes: number;
   openTasks: number;
   grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
 }

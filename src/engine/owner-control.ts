@@ -216,20 +216,24 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
 /**
  * A halted task (`t`) the platform may go on with by itself, whatever its
  * room (self-heal.ts): not run again by the owner, whose new task does the
- * work; one whose run retention has not cleared, so there is something to go
- * on from; and, when it is a child, one with a parent still waiting for it --
- * a parent not yet ended, or one stopped for its budget too, which goes on
- * with it. A child whose parent failed or was cancelled while it waited would
- * spend money on an answer that goes nowhere.
+ * work -- said by the event on it, or, in the moment before that is written,
+ * by the new task's key; one whose run retention has not cleared, so there is
+ * something to go on from; and not a child its parent abandoned -- a parent
+ * that failed, was cancelled, or was stopped for good while the child waited,
+ * so the answer would go nowhere. A parent that completed abandoned nothing:
+ * it is the ordinary state of a follow-up, of a hand-off's successor and of
+ * work a coordinator handed down and left. A parent stopped for its budget
+ * goes on too, and the child with it.
  */
 export const GOES_ON_BY_ITSELF = `
   NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id AND e.type = 'task.rerun')
+  AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.idempotency_key = 'rerun:' || t.id::text)
   AND NOT EXISTS (SELECT 1 FROM task_steps s
                    WHERE s.task_id = t.id AND s.kind = 'llm' AND s.output = '{"redacted":"retention"}'::jsonb)
-  AND (t.parent_task_id IS NULL OR EXISTS (
+  AND NOT EXISTS (
         SELECT 1 FROM tasks p WHERE p.id = t.parent_task_id
-           AND (p.status NOT IN ('completed', 'failed', 'halted', 'cancelled')
-                OR (p.status = 'halted' AND p.halt_reason = 'budget_exhausted'))))`;
+           AND (p.status IN ('failed', 'cancelled')
+                OR (p.status = 'halted' AND p.halt_reason IS DISTINCT FROM 'budget_exhausted')))`;
 
 /**
  * Goes on with a task its budget stopped, from where it stopped.
@@ -292,7 +296,7 @@ export async function continueHalted(companyId: string, taskId: string, by: 'own
       const { rowCount } = await tx.query(`SELECT 1 FROM tasks t WHERE t.id = $1 AND ${GOES_ON_BY_ITSELF}`, [taskId]);
       if (rowCount === 0) {
         throw new PalugadaError('task.not_continuable',
-          `task ${taskId} was run again by the owner, or its parent has ended: nothing waits for it to go on`,
+          `task ${taskId} was run again by the owner, or its parent was given up: nothing waits for it to go on`,
           { taskId, status: row.status, haltReason: row.halt_reason });
       }
     }

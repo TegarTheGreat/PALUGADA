@@ -235,6 +235,38 @@ test('work the owner already ran again, and a child whose parent has ended, are 
   assert.equal(await statusOf(fixture, orphan.id), 'pending');
 });
 
+test('a child whose parent finished its own work goes on: a follow-up, a hand-off, work handed down', async () => {
+  // The review of this fix: "its parent has ended" counted a parent that
+  // completed, which is the ordinary state of a follow-up (made by a run that
+  // finished long ago), of a hand-off's successor (made from a task that
+  // completed) and of work a coordinator handed down and left. Only a parent
+  // that failed, was cancelled or was stopped for good abandons its child.
+  const fixture = await createCompany('heal-finished-parent', { tokensMax: 5_000_000 });
+  const parent = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'Plan the launch' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, parent.id, 'running');
+  const handedDown = await haltedOn(fixture, fixture.budgetAccountId, parent.id);
+  await transition(fixture.companyId, parent.id, 'completed', { output: { summary: 'Handed on.' } });
+  assert.deepEqual(await resumeBudgetStopped(fixture.companyId), { continued: 1, waiting: 0 });
+  assert.equal(await statusOf(fixture, handedDown.id), 'pending');
+});
+
+test('work the owner is running again is left alone from the moment the new task exists', async () => {
+  // rerunTask makes the new task and then says so on the old one: between
+  // the two, the new task's key is what tells the platform it was run again.
+  const fixture = await createCompany('heal-rerun-window', { tokensMax: 5_000_000 });
+  const stopped = await haltedOn(fixture);
+  await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'Stopped, again' }, createdBy: 'owner',
+    reserveTokens: 1_000, idempotencyKey: `rerun:${stopped.id}`,
+  });
+  assert.deepEqual(await resumeBudgetStopped(fixture.companyId), { continued: 0, waiting: 0 });
+  assert.equal(await statusOf(fixture, stopped.id), 'halted');
+});
+
 test('work that cannot go on does not keep newer work from going on', async () => {
   const fixture = await createCompany('heal-head', { tokensMax: 50_000_000 });
   // More stopped tasks than one look takes up, each already gone on three

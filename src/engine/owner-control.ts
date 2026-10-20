@@ -79,8 +79,8 @@ async function taskHere(companyId: string, taskId: string) {
 /**
  * Cancels a task and every task under it that has not ended, and returns how
  * many that was. By the owner, or by the platform (`work_taken_up`), which
- * stops a coordinator whose work was taken up another way and says so: the
- * owner is not told they cancelled what they never touched.
+ * stops a coordinator whose card was answered before the card named it and
+ * says so: the owner is not told they cancelled what they never touched.
  *
  * The sub-tasks too, because a child exists to serve its parent and one left
  * running would spend money on an answer nobody will read. Nothing else: a
@@ -101,7 +101,7 @@ export async function cancelTask(
   if (isTerminal(root.status)) {
     throw new PalugadaError('contract.violation', `task ${taskId} is already ${root.status}`, { taskId });
   }
-  return cancelTree(companyId, taskId, reason, by, false);
+  return cancelTree(companyId, taskId, reason, by, by === 'owner' ? 'owner_cancel' : 'work_taken_up', false);
 }
 
 /**
@@ -112,16 +112,21 @@ export async function cancelTask(
  * has been taken up (`stopHandling`), whether it was working or waiting for
  * room, and so is what it handed on. A task that has ended any other way,
  * meanwhile included, is left as it ended, and nothing under it is touched.
+ *
+ * `haltReason` says what happened, and `by` who pressed: the owner's Run
+ * again on the work stops the CEO handling it as work taken up, by the
+ * owner's press. Told by who pressed, it was "Cancelled by you" of a CEO the
+ * owner never cancelled.
  */
 async function cancelTree(
   companyId: string,
   taskId: string,
   reason: string | null | undefined,
   by: 'owner' | 'system',
+  haltReason: HaltReason,
   stopped: boolean,
 ): Promise<number> {
   const why = reason?.trim() ? reason.trim().slice(0, INSTRUCTION_MAX) : null;
-  const haltReason: HaltReason = by === 'owner' ? 'owner_cancel' : 'work_taken_up';
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; project_id: string; budget_account_id: string | null; released: string;
@@ -285,7 +290,7 @@ async function stopHandling(
   why: string,
   by: 'owner' | 'system',
 ): Promise<void> {
-  for (const id of taskIds) await cancelTree(companyId, id, why, by, true);
+  for (const id of taskIds) await cancelTree(companyId, id, why, by, 'work_taken_up', true);
 }
 
 /**

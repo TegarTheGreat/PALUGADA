@@ -697,8 +697,11 @@ test('Run again on a card the CEO is handling stops the CEO\'s task, and the car
   await rerunTask(company.companyId, task.id, null);
   const [closed] = await cardsOf(company.companyId);
   assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_rerun']);
-  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' },
-    'the CEO does not do beside the owner what the owner has run again');
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'work_taken_up' },
+    'the CEO does not do beside the owner what the owner has run again, and is not said to be cancelled by them');
+  assert.deepEqual((await withTenant(company.companyId, (tx) => tx.query(
+    "SELECT actor, payload->>'haltReason' AS said FROM events WHERE task_id = $1 AND type = 'task.cancelled'",
+    [handling.id]))).rows, [{ actor: 'owner', said: 'work_taken_up' }], 'the owner\'s press, and what it did');
 
   await handEscalations(company.companyId);
   const [noted] = await cardsOf(company.companyId);
@@ -840,7 +843,7 @@ test('an ended card about work its budget stopped closes when the work goes on, 
   await continueHalted(company.companyId, task.id);
   const [closed] = await cardsOf(company.companyId);
   assert.deepEqual([closed!.status, closed!.closed_reason], ['withdrawn', 'task_continued']);
-  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'owner_cancel' });
+  assert.deepEqual(await taskState(company.companyId, handling.id), { status: 'cancelled', halt_reason: 'work_taken_up' });
   await handEscalations(company.companyId);
   assert.match((await cardsOf(company.companyId))[0]!.rationale, /Arka was stopped: the work on this card has been taken up again\./);
 });

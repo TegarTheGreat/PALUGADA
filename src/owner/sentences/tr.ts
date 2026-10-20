@@ -226,12 +226,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” görevi {since} itibarıyla bekliyor. {why} Kaldığı yerden yeniden çalıştırmak için “Onayla”, iptal etmek için “Reddet” seçeneğini kullanın.',
   'A task keeps stopping the worker running it': 'Bir görev, onu çalıştıran işleyiciyi sürekli durduruyor',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” görevi işleyicisini {lost} kez kaybetti: her seferinde onu çalıştıran işleyici iş bitmeden yanıt vermeyi bıraktı. Yaptıkları saklanır. Başka bir işleyiciyi de çökertmemesi için durduruldu; neden bulununca yeniden çalıştırın ya da iptal edin.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'Ulaşılamadı: {services}; buna ihtiyaç duyan iş durduruldu',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Görev yaklaşık {minutes} dakika bekledi, her seferinde yeniden baktı ve durdu. Hizmet yanıt verdiğinde yeniden çalıştırın.',
   'It was tried {tries} times over about {minutes} minutes.': 'Yaklaşık {minutes} dakika içinde {tries} kez denendi.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Bu rol geri alınamayan eylemler yapabildiği için çalıştırma sessizce başka bir modele aktarılmadı.',
   'No fallback model is left for this role.': 'Bu rol için yedek model kalmadı.',
-  'Model {model} failed and the run was not moved': '{model} modeli başarısız oldu ve çalıştırma başka bir modele aktarılmadı',
   'External write failed verification': 'Dış yazma işlemi doğrulamadan geçemedi',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Görev dış bir hizmete yazdı ve geri okudu, ama okuduğu şey eşleşmedi. Yeniden çalıştırmadan önce yazdığı yeri kontrol edin: yazma işlemi gerçekleşmiş olabilir.',
   'Review deadlocked after {rounds} revisions: {capability}': 'İnceleme {rounds} revizyondan sonra tıkandı: {capability}',
@@ -256,7 +253,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': '“{schedule}” zamanlaması sürekli aynı sonucu üretiyor',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'Son {runs} çalıştırmanın hepsi aynı çıktıyla bitti. Bu bazen tam olarak doğrudur — söyleyecek yeni bir şeyi olmayan bir rapor gibi — ama çoğu zaman artık işe yarar bir şey yapmayan, yine de parası ödenen bir zamanlamadır. “Reddet” zamanlamayı kapatır; “Onayla” çalışmaya devam ettirir ve bu sonuç için size bir daha sorulmaz.',
   'Capability {capability} failed preflight': '“{capability}” yeteneği ön kontrolden geçemedi',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Buna ihtiyaç duyan iş başlatılmak yerine durduruluyor: nedeni giderin, sonra o işi yeniden çalıştırın. Bunun nedeni genellikle süresi dolmuş ya da kapsamı yanlış ayarlanmış bir kimlik bilgisi, biten bir kota ya da yanlış bir adrestir.',
   'Batch guard stopped {capability}': 'Toplu işlem denetimi “{capability}” yeteneğini durdurdu',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Çalıştırmanın kaydettiği planla eşleşmedi. Hiçbir şey gönderilmedi ve hiçbir hizmet çağrılmadı.',
   '{role} was asked first and has had {minutes} minutes.': 'Önce {role} rolüne soruldu ve ona {minutes} dakika verildi.',
@@ -344,8 +340,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} yapay zekâ modelinin anahtarını reddetti ({status}); bu yüzden modele ihtiyaç duyan hiçbir iş çalışamıyor. Ayarlar, Bu kurulum, Yapay zekâ modeli bölümünü açın, çalışan bir anahtar yapıştırın, deneyin ve kaydedin.',
   '{host} refused the model key, and work is waiting': '{host} modelin anahtarını reddetti ve iş bekliyor',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder.',
   'A task ended before it was done: {task}':
     'Bir görev bitmeden sona erdi: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -409,4 +403,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: ilgili bilet kapatıldı.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hatırlatma gönderilecek bir e-posta adresi olmadan kesilmiş. Kendiniz takip edin ya da CEO\'ya ne istediğinizi söyleyin.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Yaklaşık {hours} saat sonra hâlâ bekleyen iş durur ve bu kart, işi yeniden çalıştırabilmeniz için açık kalır.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} yanıt vermiyor ve buna ihtiyaç duyan iş bekliyor',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'İş, her seferinde yeniden bakarak yaklaşık {minutes} dakika bekledi ve hâlâ bekliyor: hizmet yanıt verir vermez kendiliğinden devam eder ve bu kart da kendiliğinden kapanır.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'İş bekler ve model yanıt verir vermez kendiliğinden devam eder; bu kart da kendiliğinden kapanır.',
+  'Model {model} is not answering, and work is waiting for it':
+    '{model} modeli yanıt vermiyor ve onu bekleyen iş var',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder ve bu kart da kendiliğinden kapanır.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Buna ihtiyaç duyan iş başlatılmak yerine bekler ve kontrol geçilir geçilmez kendiliğinden devam eder; bu kart da kendiliğinden kapanır. Bunun nedeni genellikle süresi dolmuş ya da kapsamı yanlış ayarlanmış bir kimlik bilgisi, biten bir kota ya da yanlış bir adrestir.',
 };

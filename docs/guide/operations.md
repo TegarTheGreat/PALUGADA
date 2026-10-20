@@ -445,8 +445,18 @@ When the model does not answer -- a provider's outage, a local model
 restarting -- a call is tried three times, and then the role's fallback
 models if it has any and may use them. A task whose models are all down
 waits for them: half a minute, then twice as long each time, five times.
-Only a model still down after about a quarter of an hour halts the task,
-with one incident.
+A model still down after about a quarter of an hour is one incident for the
+company, and the work goes on waiting for it, looking again a quarter of an
+hour later, then half an hour, then every hour. When a task that waited gets
+through, the incident is withdrawn and the rest of the work is called back.
+A service a capability needs is waited for the same way, after half an hour
+of shorter waits, and so is a capability whose check fails for a reason that
+does not pass by itself, such as a refused credential -- that one from the
+first look, and called back when a check finds it well, as the sweep after a
+rotation does. A task still waiting a day after its first long wait halts,
+and is named on the incident, which then stays open. A refused model key is
+waited for on its own longer steps, about ten hours, and the work waiting for
+it is called back when the deployment starts again, which saving a key does.
 
 ## Monitoring
 

@@ -125,6 +125,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Izin sementara dicabut",
   "Added to every reminder. Left out when empty.": "Ditambahkan ke setiap pengingat. Dikosongkan bila tidak diisi.",
   "Approve, and allow exactly this without asking": "Setujui, dan izinkan persis tindakan ini tanpa bertanya",
+  "Called back to look again: what it was waiting for may work now": "Dipanggil kembali untuk memeriksa lagi: yang ditunggunya mungkin sudah berfungsi",
   "Check the prices now": "Periksa harga sekarang",
   "Days after the due date": "Hari setelah jatuh tempo",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Dolar per sejuta token. Platform membaca models.dev setiap hari untuk model yang Anda pakai dan menjaga harganya tetap mutakhir. Harga yang Anda ketik di sini adalah milik Anda, dan yang berlaku.",

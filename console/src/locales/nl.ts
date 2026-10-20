@@ -206,6 +206,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Tijdelijke toestemming ingetrokken",
   "Added to every reminder. Left out when empty.": "Wordt aan elke herinnering toegevoegd. Weggelaten als het leeg is.",
   "Approve, and allow exactly this without asking": "Goedkeuren, en precies dit toestaan zonder te vragen",
+  "Called back to look again: what it was waiting for may work now": "Teruggeroepen om opnieuw te kijken: waar de taak op wachtte, werkt nu misschien",
   "Check the prices now": "Prijzen nu controleren",
   "Days after the due date": "Dagen na de vervaldatum",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Dollars per miljoen tokens. Het platform leest elke dag models.dev voor de modellen die u gebruikt en houdt hun prijzen actueel. Een prijs die u hier typt is van u, en gaat voor.",

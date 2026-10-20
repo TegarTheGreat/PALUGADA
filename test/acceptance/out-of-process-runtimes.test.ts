@@ -35,7 +35,8 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
-import { Engine, MODEL_KEY_WAITS_MS, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
+import { Engine, MODEL_KEY_WAITS_MS, MODEL_OUTAGE_WAITS_MS, OUTAGE_PARK_WAITS_MS } from '../../src/engine/engine.ts';
+import { OUTAGE_PARK_CEILING_MS } from '../../src/engine/recovered.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { takePlace } from '../../src/broker/in-flight.ts';
@@ -487,10 +488,15 @@ test('a model that is down for a moment parks the task, and the same model finis
  * Tier 2 is where an action changes something outside the company and cannot
  * be undone. Running one on a model the owner did not choose, and did not
  * calibrate the role for, is exactly what the PRD's word *silently* forbids.
- * It waits for its own model, as every role does; one that stays down halts
- * it, and the owner is told once.
+ * It waits for its own model, as every role does.
+ *
+ * And a model that stays down is one card, not one a task: past its short
+ * waits every task in flight raised an urgent card of its own and halted, to
+ * be run again by hand, one by one, once the provider was back. Now the work
+ * waits on longer looks, the card is the model's, and when the model answers
+ * the card closes and the rest of the work is called back.
  */
-test('a role holding a tier 2 tool waits for its own model and never falls back; one that stays down halts it (F13.6)', async () => {
+test('a role holding a tier 2 tool waits for its own model and never falls back; a model that stays down is one card, and the work goes on when it answers (F13.6)', async () => {
   const fixture = await createCompany('fallback-refused');
   const broker = await brokerFor(fixture, ['dns.write']);
   await configureRole(fixture, {
@@ -499,6 +505,7 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
     fallback: ['test-model-b'],
   });
 
+  const state = { down: true };
   const attempts: string[] = [];
   const adapter = {
     name: 'script',
@@ -508,42 +515,108 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
     },
     async run(request: { modelRouting: { primary: string } }) {
       attempts.push(request.modelRouting.primary);
-      const { ProviderFailure } = await import('../../src/runtime/wire.ts');
-      throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
+      if (state.down) {
+        const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+        throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
+      }
+      return { output: { done: DONE } };
     },
   };
 
-  const task = await newTask(fixture, {});
   const engine = engineWith(broker, adapter);
-  const outcomes: string[] = [];
   const { workOf } = await import('../../src/owner/views.ts');
-  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
-    outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
-    if (run === 0) {
-      assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'model', 'it says it waits for the model (N9)');
+  const tasks = [await newTask(fixture, {}), await newTask(fixture, {})];
+  for (const task of tasks) {
+    const outcomes: string[] = [];
+    for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+      const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+      outcomes.push(outcome.status);
+      if (run === 0) {
+        assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'model', 'it says it waits for the model (N9)');
+      }
+      if (run === MODEL_OUTAGE_WAITS_MS.length) {
+        assert.ok(Math.abs(outcome.waitUntil!.getTime() - Date.now() - OUTAGE_PARK_WAITS_MS[0]!) < 2_000, 'past the short waits, the long ones');
+      }
     }
+    assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'waiting_window'], 'nothing halts');
   }
+  assert.deepEqual(attempts, Array(2 * (MODEL_OUTAGE_WAITS_MS.length + 1)).fill('test-model'), 'the fallback model was never tried');
 
-  assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
-  assert.deepEqual(attempts, Array(MODEL_OUTAGE_WAITS_MS.length + 1).fill('test-model'), 'the fallback model was never tried');
-
-  const types = await eventTypes(fixture.companyId, task.id);
+  const types = await eventTypes(fixture.companyId, tasks[0]!.id);
   assert.ok(types.includes('model.fallback_refused'));
   assert.equal(types.includes('model.fell_back'), false);
 
-  // F13.6 asks for an incident, not a statistic.
-  const incidents = await withTenant(fixture.companyId, async (tx) => {
-    const { rows } = await tx.query<{ title: string }>(
-      "SELECT title FROM inbox_items WHERE task_id = $1 AND kind = 'incident'",
-      [task.id],
-    );
-    return rows;
-  });
-  assert.equal(incidents.length, 1, 'told once, when the waiting was over');
-  assert.match(incidents[0]!.title, /was not moved/);
-  const detail = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
-    "SELECT rationale FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
-  assert.match(detail.rows[0]!.rationale, /tried 6 times over about 16 minutes\. This role can take actions that cannot be undone/);
+  // F13.6 asks for an incident, not a statistic: one, for the model.
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ title: string; rationale: string }>(
+    "SELECT title, rationale FROM inbox_items WHERE kind = 'incident' AND status = 'open'"));
+  assert.equal(cards.rows.length, 1, 'one card however many tasks wait on the model');
+  assert.equal(cards.rows[0]!.title, 'Model test-model is not answering, and work is waiting for it');
+  assert.match(cards.rows[0]!.rationale, /tried 6 times over about 16 minutes\. This role can take actions that cannot be undone/);
+  assert.match(cards.rows[0]!.rationale, /carries on by itself once the model answers, and this card then closes itself/);
+
+  // The model answers the first task's next look. The platform's next look
+  // closes the card and calls the other task back, at once and once.
+  state.down = false;
+  assert.equal((await engine.runTask(fixture.companyId, tasks[0]!.id, 'worker')).status, 'completed');
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  assert.equal(await closeRecovered(fixture.companyId), 1, 'the other task is called back');
+  assert.equal(await closeRecovered(fixture.companyId), 0, 'and only once');
+  const closed = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
+  assert.deepEqual(closed.rows, [{ status: 'withdrawn', closed_reason: 'model_answered' }]);
+  const due = await withTenant(fixture.companyId, (tx) => tx.query<{ due: boolean }>(
+    'SELECT wait_until <= now() AS due FROM tasks WHERE id = $1', [tasks[1]!.id]));
+  assert.equal(due.rows[0]!.due, true);
+  assert.equal((await engine.runTask(fixture.companyId, tasks[1]!.id, 'worker')).status, 'completed');
+  for (const task of tasks) {
+    assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.attempt, 0, 'waiting for the model is not failing');
+  }
+});
+
+/**
+ * A wait has an end: a deadline gives a waiting task its wait back (2.158),
+ * so without one of its own a park could last for ever. A day after its first
+ * long wait the task halts, named on the model's card rather than raising
+ * another of its own.
+ */
+test('work that has waited a day for its model halts on the model\'s card, and raises no card of its own (F13.6)', async () => {
+  const fixture = await createCompany('model-outage-ceiling');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(request: { modelRouting: { primary: string } }): Promise<never> {
+      throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const task = await newTask(fixture, {});
+  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  }
+  // What a day of waiting leaves behind: its first long wait, a day ago.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
+     VALUES ($1, $2, 'task.model_waited', 'engine', '{"long": true, "model": "test-model"}',
+             now() - $3 * interval '1 millisecond')`,
+    [fixture.companyId, task.id, OUTAGE_PARK_CEILING_MS + 60_000]));
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'halted', outcome.reason);
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.haltReason, 'runtime_unavailable');
+
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ ended: string[] }>(
+    "SELECT payload->'endedTaskIds' AS ended FROM inbox_items WHERE kind = 'incident' AND status = 'open'"));
+  assert.equal(cards.rows.length, 1);
+  assert.deepEqual(cards.rows[0]!.ended, [task.id], 'the halt is on the card that says why');
+  const { reportEndedBadly } = await import('../../src/engine/ended.ts');
+  assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + 5 * 60_000)), 0);
+  const escalations = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation'"));
+  assert.equal(escalations.rows.length, 0, 'no second card for the same cause');
 });
 
 /**
@@ -632,15 +705,143 @@ test('a key that stays refused halts the task when the waits are spent, and does
     outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
   }
   assert.deepEqual(outcomes, [...MODEL_KEY_WAITS_MS.map(() => 'waiting_window'), 'halted']);
-  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>("SELECT rationale FROM inbox_items WHERE kind = 'incident'"));
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string; ended: string[] }>(
+    "SELECT rationale, payload->'endedTaskIds' AS ended FROM inbox_items WHERE kind = 'incident'"));
   assert.equal(cards.rows.length, 1);
   assert.match(cards.rows[0]!.rationale, /refused the model key \(403\)/);
+  // The halt is on the key's card, which says why: no second card for it.
+  assert.deepEqual(cards.rows[0]!.ended, [task.id]);
+  const { reportEndedBadly } = await import('../../src/engine/ended.ts');
+  assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + 5 * 60_000)), 0);
 
   // Answered by the owner, and refused again: a new card, not a silence.
   await withTenant(fixture.companyId, (tx) => tx.query("UPDATE inbox_items SET status = 'decided', decision = 'approve', decided_at = now() WHERE kind = 'incident'"));
   const next = await newTask(fixture, {});
   await engine.runTask(fixture.companyId, next.id, 'worker');
   assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident' AND status = 'open'"))).rows.length, 1);
+});
+
+/**
+ * One card for a cause, though two workers meet it in the same instant: each
+ * found no card open and raised its own.
+ */
+test('workers meeting the same cause at the same moment raise one card between them', async () => {
+  const fixture = await createCompany('once-race');
+  // Each its own transaction on its own connection, as six workers' would be.
+  await Promise.all(Array.from({ length: 6 }, () => inbox.raiseIncident({
+    companyId: fixture.companyId, title: 'openrouter.ai refused the model key, and work is waiting', detail: 'the key', once: 'model_key_refused',
+  })));
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident'"));
+  assert.equal(cards.rows.length, 1);
+});
+
+/**
+ * A card says work is waiting. When none is -- the owner cancelled what
+ * waited -- it closes, rather than saying so for good.
+ */
+test('a model\'s card whose waiting work the owner cancelled closes itself', async () => {
+  const fixture = await createCompany('model-card-nothing-waits');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(request: { modelRouting: { primary: string } }): Promise<never> {
+      throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const task = await newTask(fixture, {});
+  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  }
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  await closeRecovered(fixture.companyId);
+  assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident' AND status = 'open'"))).rows.length, 1,
+    'open while the work waits');
+  const { cancelTask } = await import('../../src/engine/owner-control.ts');
+  await cancelTask(fixture.companyId, task.id);
+  await closeRecovered(fixture.companyId);
+  const closed = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
+  assert.deepEqual(closed.rows, [{ status: 'withdrawn', closed_reason: 'nothing_waits' }]);
+});
+
+/**
+ * 2.140 left the waiting work to find a key put right at its own next look,
+ * which could be hours on. A saved key starts the deployment again, so the
+ * start calls the work waiting for a key back -- without closing the card,
+ * since a key saved is not yet a key that works; the first call that works
+ * closes it. A look made because it was called back keeps the task's place
+ * on its waits: starting again with the key still refused, however often,
+ * neither spends them nor moves the task up them.
+ */
+test('a key put right while work waits: the start calls the work back, and the card closes after a call that works', async () => {
+  const fixture = await createCompany('model-key-fixed');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  let keyWorks = false;
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run() {
+      if (!keyWorks) {
+        throw new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (401): User not found.', {
+          model: 'test-model', keyRefused: true, status: 401, host: 'openrouter.ai', providerSaid: 'User not found.', keySetting: 'PALUGADA_MODEL_KEY_REF',
+        });
+      }
+      return { output: { done: DONE } };
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const first = await newTask(fixture, {});
+  const second = await newTask(fixture, {});
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'waiting_window');
+  assert.equal((await engine.runTask(fixture.companyId, second.id, 'worker')).status, 'waiting_window');
+  const card = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
+    "SELECT rationale FROM inbox_items WHERE kind = 'incident' AND status = 'open'"));
+  assert.match(card.rows[0]!.rationale, /carries on by itself once a key that works is in use, and this card then closes itself/);
+
+  // Started again with the key still refused, twice: each start calls the
+  // work back once, the card stays, and each look waits as long as the one
+  // before it would have.
+  const { Worker } = await import('../../src/worker.ts');
+  for (let start = 0; start < 2; start += 1) {
+    const worker = new Worker({ engine, companyId: fixture.companyId });
+    const report = await worker.tick(new Date(), { runs: false });
+    assert.deepEqual(report.errors, []);
+    const due = await withTenant(fixture.companyId, (tx) => tx.query<{ due: boolean }>(
+      'SELECT wait_until <= now() AS due FROM tasks WHERE id = $1', [first.id]));
+    assert.equal(due.rows[0]!.due, true, 'called back when the deployment starts');
+    const look = await engine.runTask(fixture.companyId, first.id, 'worker');
+    assert.equal(look.status, 'waiting_window');
+    assert.ok(Math.abs(look.waitUntil!.getTime() - Date.now() - MODEL_KEY_WAITS_MS[1]!) < 2_000,
+      'the place it had on its waits, not the next one');
+  }
+  assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident' AND status = 'open'"))).rows.length, 1);
+
+  // The key that works is saved, and the deployment starts again.
+  keyWorks = true;
+  const worker = new Worker({ engine, companyId: fixture.companyId });
+  await worker.tick(new Date(), { runs: false });
+  assert.equal((await engine.runTask(fixture.companyId, second.id, 'worker')).status, 'completed');
+  const report = await worker.tick(new Date(), { runs: false });
+  assert.deepEqual(report.errors, []);
+  const closed = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
+  assert.deepEqual(closed.rows, [{ status: 'withdrawn', closed_reason: 'key_works' }]);
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'completed');
+  for (const task of [first, second]) {
+    assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.attempt, 0, 'a refused key is not the task failing');
+  }
 });
 
 /* ------------------------------------------------------------------ http --- */

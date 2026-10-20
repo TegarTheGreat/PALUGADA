@@ -175,6 +175,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "कुछ समय की स्वीकृति वापस ली गई",
   "Added to every reminder. Left out when empty.": "हर अनुस्मारक में जोड़ा जाता है। खाली होने पर छोड़ दिया जाता है।",
   "Approve, and allow exactly this without asking": "स्वीकृत करें, और ठीक यही काम बिना पूछे होने दें",
+  "Called back to look again: what it was waiting for may work now": "फिर से जाँचने के लिए वापस बुलाया गया: जिसका इंतज़ार था, वह शायद अब काम करे",
   "Check the prices now": "अभी कीमतें जाँचें",
   "Days after the due date": "देय तिथि के बाद के दिन",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "प्रति दस लाख टोकन डॉलर में। प्लेटफ़ॉर्म आपके उपयोग के मॉडलों के लिए हर दिन models.dev पढ़ता है और उनकी कीमतें अद्यतन रखता है। यहाँ आप जो कीमत लिखते हैं वह आपकी अपनी है, और वही लागू होती है।",

@@ -209,6 +209,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Временное разрешение отозвано",
   "Added to every reminder. Left out when empty.": "Добавляется в каждое напоминание. Не вставляется, если пусто.",
   "Approve, and allow exactly this without asking": "Одобрить и разрешать ровно это без вопросов",
+  "Called back to look again: what it was waiting for may work now": "Возвращена, чтобы проверить снова: то, чего она ждала, возможно, уже работает",
   "Check the prices now": "Проверить цены сейчас",
   "Days after the due date": "Дней после срока оплаты",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Доллары за миллион токенов. Платформа каждый день читает models.dev для используемых вами моделей и поддерживает их цены актуальными. Цена, которую вы вводите здесь, принадлежит вам и имеет приоритет.",

@@ -229,12 +229,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” đã chờ từ {since}. {why} Phê duyệt để chạy lại từ chỗ đã dừng, hoặc từ chối để hủy.',
   'A task keeps stopping the worker running it': 'Một nhiệm vụ liên tục làm dừng bộ thực thi đang chạy nó',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” đã mất bộ thực thi {lost} lần: mỗi lần, bộ thực thi đang chạy nó ngừng phản hồi trước khi công việc xong. Những gì đã làm vẫn được giữ lại. Nhiệm vụ bị dừng hẳn để không kéo sập thêm bộ thực thi khác; hãy chạy lại khi đã tìm ra nguyên nhân, hoặc hủy nó.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} vẫn không kết nối được, và công việc cần đến nó đã dừng',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Nhiệm vụ đã chờ khoảng {minutes} phút, mỗi lần đều kiểm tra lại, và giờ đã dừng. Khi dịch vụ phản hồi, hãy chạy lại.',
   'It was tried {tries} times over about {minutes} minutes.': 'Đã thử {tries} lần trong khoảng {minutes} phút.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Vai trò này có thể thực hiện những hành động không thể hoàn tác, nên lượt chạy không bị âm thầm chuyển sang mô hình khác.',
   'No fallback model is left for this role.': 'Vai trò này không còn mô hình dự phòng nào.',
-  'Model {model} failed and the run was not moved': 'Mô hình {model} gặp lỗi và lượt chạy không được chuyển đi',
   'External write failed verification': 'Thao tác ghi ra bên ngoài không qua được xác minh',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Nhiệm vụ đã ghi vào một dịch vụ bên ngoài rồi đọc lại, và nội dung đọc được không khớp. Hãy xem nơi nó đã ghi vào trước khi chạy lại: thao tác ghi có thể đã diễn ra.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Rà soát rơi vào bế tắc sau {rounds} lần sửa: {capability}',
@@ -259,7 +256,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Lịch chạy “{schedule}” liên tục cho ra cùng một kết quả',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '{runs} lượt chạy gần nhất của nó đều kết thúc với cùng một đầu ra. Đôi khi như vậy là hoàn toàn đúng — một báo cáo không có gì mới để nói — nhưng thường là một lịch chạy đã không còn làm được gì hữu ích mà vẫn tốn tiền. Từ chối để tắt nó; phê duyệt để nó tiếp tục chạy và không bị hỏi lại về kết quả này.',
   'Capability {capability} failed preflight': 'Năng lực {capability} không qua được kiểm tra',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Công việc cần đến nó bị dừng thay vì được bắt đầu: hãy khắc phục nguyên nhân, rồi chạy lại công việc đó. Nguyên nhân thường gặp là thông tin xác thực đã hết hạn hoặc sai phạm vi, hạn ngạch đã dùng hết, hoặc địa chỉ bị sai.',
   'Batch guard stopped {capability}': 'Lớp chặn theo lô đã dừng {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Nó không khớp với kế hoạch mà lượt chạy đã ghi lại. Không có gì được gửi đi, và không dịch vụ nào được gọi.',
   '{role} was asked first and has had {minutes} minutes.': '{role} đã được hỏi trước và đã có {minutes} phút.',
@@ -347,8 +343,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} đã từ chối khóa mô hình ({status}), nên không công việc nào cần mô hình có thể chạy. Mở Cài đặt, Hệ thống này, Mô hình, dán khóa hợp lệ, kiểm tra rồi lưu.',
   '{host} refused the model key, and work is waiting': '{host} đã từ chối khóa mô hình, và công việc đang chờ',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Công việc đang chờ mô hình sẽ tự tiếp tục khi khóa hợp lệ được dùng.',
   'A task ended before it was done: {task}':
     'Một tác vụ kết thúc trước khi xong: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -412,4 +406,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã rút lại: phiếu liên quan đã được đóng.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Hóa đơn {number} ({amount}, {customer}) đã quá hạn từ {due}, và được lập mà không có địa chỉ email để gửi nhắc nhở. Hãy tự theo dõi, hoặc cho CEO biết bạn muốn làm gì.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Công việc vẫn còn chờ sau khoảng {hours} giờ sẽ dừng, và khi đó thẻ này vẫn mở để bạn chạy lại công việc.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} không phản hồi, và công việc cần đến nó đang chờ',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Công việc đã chờ khoảng {minutes} phút, mỗi lần đều kiểm tra lại, và vẫn đang chờ: công việc sẽ tự tiếp tục ngay khi dịch vụ phản hồi, và khi đó thẻ này sẽ tự đóng.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Công việc sẽ chờ và tự tiếp tục ngay khi mô hình phản hồi, và khi đó thẻ này sẽ tự đóng.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Mô hình {model} không phản hồi, và có công việc đang chờ nó',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Công việc đang chờ mô hình sẽ tự tiếp tục khi khóa hợp lệ được dùng, và khi đó thẻ này sẽ tự đóng.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Công việc cần đến nó sẽ chờ thay vì bắt đầu, và tự tiếp tục ngay khi vượt qua kiểm tra; khi đó thẻ này sẽ tự đóng. Nguyên nhân thường gặp là thông tin xác thực đã hết hạn hoặc sai phạm vi, hạn ngạch đã dùng hết, hoặc địa chỉ bị sai.',
 };

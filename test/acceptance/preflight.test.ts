@@ -20,7 +20,8 @@ import {
   preflightForRole,
   preflightGrants,
 } from '../../src/broker/preflight.ts';
-import { Engine } from '../../src/engine/engine.ts';
+import { CAPABILITY_OUTAGE_WAITS_MS, Engine, OUTAGE_PARK_WAITS_MS } from '../../src/engine/engine.ts';
+import { OUTAGE_PARK_CEILING_MS } from '../../src/engine/recovered.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { CachedSecretManager, rotateCredential } from '../../src/secrets/rotation.ts';
@@ -104,7 +105,7 @@ function engineFor(registry: CapabilityRegistry, ran: string[]) {
   });
 }
 
-test('a task whose capability fails preflight does not start (F8.12)', async () => {
+test('a task whose capability fails preflight does not start, and waits for it rather than halting (F8.12)', async () => {
   const fixture = await createCompany('preflight-halt');
   const { capability, probes } = probedCapability({ healthy: false });
   const registry = await registryWith(fixture, capability as Capability<never, never>);
@@ -112,12 +113,20 @@ test('a task whose capability fails preflight does not start (F8.12)', async () 
 
   const ran: string[] = [];
   const task = await newTask(fixture);
-  const outcome = await engineFor(registry, ran).runTask(fixture.companyId, task.id, 'worker');
+  const engine = engineFor(registry, ran);
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
 
-  assert.equal(outcome.status, 'halted');
-  assert.match(outcome.reason ?? '', /preflight failed for dns\.read/);
+  // Not started, as F8.12 says, and not halted either: a credential is put
+  // right by the owner, and the work it stopped was each to be run again by
+  // hand once it was.
+  assert.equal(outcome.status, 'waiting_window', outcome.reason);
+  assert.equal(outcome.reason, 'capability.unhealthy');
+  assert.ok(Math.abs(outcome.waitUntil!.getTime() - Date.now() - OUTAGE_PARK_WAITS_MS[0]!) < 2_000,
+    'on the long waits at once: a refused credential is not asked again within the minute');
   assert.deepEqual(ran, [], 'no tokens are spent assembling context for work that cannot succeed');
   assert.equal(probes.count, 1);
+  const { workOf } = await import('../../src/owner/views.ts');
+  assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'service');
 
   // An incident, not a retry. A broken credential does not get better by being
   // asked again, and retrying is what turned a five-minute fix into half a day.
@@ -126,19 +135,28 @@ test('a task whose capability fails preflight does not start (F8.12)', async () 
   assert.equal(incidents.length, 1);
   assert.match(incidents[0]!.title, /Read a domain's records failed preflight/);
   assert.match(incidents[0]!.rationale, /API token was rejected/);
-  assert.match(incidents[0]!.rationale, /Work that needs it is stopped rather than started/);
+  assert.match(incidents[0]!.rationale,
+    /Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself/);
+
+  // Looking again inside the reading's quarter hour asks the vendor nothing:
+  // a refused login is not tried more often than before.
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  assert.equal(probes.count, 1);
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1);
 });
 
 /**
  * H2 (the audit of 30 September, open on 2 October). Any 429, 5xx or dropped
  * connection made a capability unhealthy for fifteen minutes, and every task
  * that needed it in that window was halted -- terminal, each one to be run
- * again by hand -- while the incident told the owner that no task would
- * start "until it passes", as if they were waiting. A vendor's bad moment is
- * not a revoked key: the task waits for it, looking again, and halts only
- * when it stays down.
+ * again by hand. A vendor's bad moment is not a revoked key: the task waits
+ * for it, looking again. And one that stays down is still the vendor's,
+ * only longer: each task that had waited half an hour raised a card of its
+ * own and halted, so an afternoon's outage was a card and a "Run again" for
+ * every piece of work in flight. It is one card now, for the service, and
+ * the work goes on by itself when the service answers.
  */
-test('a vendor down for a moment parks the task and it looks again; one that stays down halts it, with one incident (H2)', async () => {
+test('a vendor down for forty minutes is one card, nothing halts, and the work goes on when it answers (H2)', async () => {
   const fixture = await createCompany('preflight-blip');
   const state = { down: true, probes: 0 };
   const capability: Capability<{ zone: string }, { records: string[] }> = {
@@ -154,20 +172,19 @@ test('a vendor down for a moment parks the task and it looks again; one that sta
   const ran: string[] = [];
   const engine = engineFor(registry, ran);
   const { workOf } = await import('../../src/owner/views.ts');
-  const { CAPABILITY_OUTAGE_WAITS_MS } = await import('../../src/engine/engine.ts');
   // What a worker does once the wait is over: the task is due again, and the
   // reading is old enough to be taken again.
   const later = async (taskId: string) => withTenant(fixture.companyId, async (tx) => {
     await tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [taskId]);
     await tx.query("UPDATE capability_health SET checked_at = checked_at - interval '2 minutes'");
   });
+  const incidents = async () => (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
 
   const task = await newTask(fixture);
   const first = await engine.runTask(fixture.companyId, task.id, 'worker');
   assert.equal(first.status, 'waiting_window', first.reason);
   assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'service');
-  assert.deepEqual((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident'), [],
-    'a moment is not an incident');
+  assert.deepEqual(await incidents(), [], 'a moment is not an incident');
   // Its reading stands for a minute, not fifteen: the next look asks again.
   assert.equal((await healthFor(fixture.companyId, fixture.divisionId))[0]!.status, 'unhealthy');
 
@@ -177,24 +194,156 @@ test('a vendor down for a moment parks the task and it looks again; one that sta
   assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
   assert.deepEqual(ran, [task.id]);
 
-  // Down for good, once the well reading has had its fifteen minutes: it
-  // waits each time, longer, and halts when the waits are spent.
+  // Down for forty minutes, with three pieces of work waiting for it. Each
+  // waits its short waits, and then the long ones -- and none halts.
   state.down = true;
   await withTenant(fixture.companyId, (tx) => tx.query("UPDATE capability_health SET checked_at = checked_at - interval '16 minutes'"));
-  const stuck = await newTask(fixture);
-  const outcomes: string[] = [];
-  for (let look = 0; look <= CAPABILITY_OUTAGE_WAITS_MS.length; look += 1) {
-    outcomes.push((await engine.runTask(fixture.companyId, stuck.id, 'worker')).status);
-    await later(stuck.id);
+  const waiting = [await newTask(fixture), await newTask(fixture), await newTask(fixture)];
+  for (const one of waiting) {
+    const outcomes: string[] = [];
+    for (let look = 0; look <= CAPABILITY_OUTAGE_WAITS_MS.length; look += 1) {
+      const outcome = await engine.runTask(fixture.companyId, one.id, 'worker');
+      outcomes.push(outcome.status);
+      if (look < CAPABILITY_OUTAGE_WAITS_MS.length) await later(one.id);
+      else assert.ok(Math.abs(outcome.waitUntil!.getTime() - Date.now() - OUTAGE_PARK_WAITS_MS[0]!) < 2_000, 'on the long waits');
+    }
+    assert.deepEqual(outcomes, [...CAPABILITY_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'waiting_window']);
   }
-  assert.deepEqual(outcomes, [...CAPABILITY_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
+  const card = await incidents();
+  assert.equal(card.length, 1, 'one card for the service, however much work waits for it');
+  assert.match(card[0]!.title, /Read a domain's records is not answering, and the work that needs it is waiting/,
+    'the capability by what it does, not its code');
+  assert.match(card[0]!.rationale, /carries on by itself once the service answers, and this card then closes itself/);
+  assert.match(card[0]!.rationale, /answered 503/);
+  const statuses = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
+    'SELECT status FROM tasks WHERE id = ANY($1::uuid[])', [waiting.map((one) => one.id)]));
+  assert.deepEqual(statuses.rows.map((row) => row.status), ['waiting_window', 'waiting_window', 'waiting_window']);
+
+  // The owner cancels one of them while it waits: it is not called back.
+  const { cancelTask } = await import('../../src/engine/owner-control.ts');
+  await cancelTask(fixture.companyId, waiting[2]!.id);
+
+  // The service answers. The look that finds it so closes the card and calls
+  // the waiting work back at once, rather than at its next look an hour on.
+  state.down = false;
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE capability_health SET checked_at = checked_at - interval '2 minutes'"));
+  const fresh = await newTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, fresh.id, 'worker')).status, 'completed');
+  assert.deepEqual(await incidents(), [], 'the card closed itself');
+  const closed = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
+  assert.deepEqual(closed.rows, [{ status: 'withdrawn', closed_reason: 'capability_healthy' }]);
+  const due = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; due: boolean; called: string }>(
+    `SELECT t.status, coalesce(t.wait_until <= now(), false) AS due,
+            (SELECT count(*) FROM events e WHERE e.task_id = t.id AND e.type = 'task.called_back')::text AS called
+       FROM tasks t WHERE t.id = ANY($1::uuid[]) ORDER BY t.created_at`, [waiting.map((one) => one.id)]));
+  assert.deepEqual(due.rows.map((row) => [row.status, row.due, row.called]), [
+    ['waiting_window', true, '1'], ['waiting_window', true, '1'], ['cancelled', false, '0'],
+  ]);
+  for (const one of waiting.slice(0, 2)) {
+    assert.equal((await engine.runTask(fixture.companyId, one.id, 'worker')).status, 'completed');
+  }
+  const attempts = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
+    'SELECT attempt FROM tasks WHERE id = ANY($1::uuid[])', [waiting.map((one) => one.id)]));
+  assert.deepEqual(attempts.rows.map((row) => row.attempt), [0, 0, 0], 'waiting for a service is not failing');
+});
+
+/**
+ * F12.3's rotation is how the owner puts a credential right, and the sweep it
+ * takes is what finds it right: the work that waited for it is called back,
+ * and the card that asked for it closes.
+ */
+test('work waiting for a refused credential goes on when a rotation puts it right, and its card closes itself (F8.12, F12.3)', async () => {
+  const fixture = await createCompany('preflight-rotation-heals');
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token')`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+  const capability: Capability<{ zone: string }, { records: string[] }> = {
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0,
+    async preflight(ctx) {
+      const token = await ctx.credential!('dns', 'dns.read');
+      return token === 'dns-token-good' ? { ok: true } : { ok: false, detail: 'the API token was rejected' };
+    },
+    async execute() { return { records: [] }; },
+  };
+  const registry = await registryWith(fixture, capability as Capability<never, never>);
+  await giveRoleTools(fixture, ['dns.read']);
+  const secrets = new CachedSecretManager(new InMemorySecretManager({
+    'vault://acme/dns-token': 'dns-token-expired', 'vault://acme/dns-token-v2': 'dns-token-good',
+  }));
+  const broker = new CapabilityBroker(registry, undefined, secrets);
+  const ran: string[] = [];
+  const engine = new Engine({
+    broker, llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => { ran.push(ctx.task.id); return { done: true }; }]]),
+  });
+
+  const task = await newTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1);
+
+  await rotateCredential({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, alias: 'dns',
+    newSecretRef: 'vault://acme/dns-token-v2', registry,
+    credential: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
+  });
+
+  const card = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
+  assert.deepEqual(card.rows, [{ status: 'withdrawn', closed_reason: 'capability_healthy' }]);
+  const called = await withTenant(fixture.companyId, (tx) => tx.query<{ due: boolean }>(
+    'SELECT wait_until <= now() AS due FROM tasks WHERE id = $1', [task.id]));
+  assert.equal(called.rows[0]!.due, true, 'called back at once, not at its next look');
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  assert.deepEqual(ran, [task.id]);
+});
+
+/**
+ * A wait has an end. A task given back its waits by its deadline (2.158)
+ * would otherwise wait for good: a day after its first long wait it halts,
+ * named on the card already open for the cause rather than raising one of
+ * its own. That card then stays: closing it when the service came back would
+ * hide the work that stopped.
+ */
+test('work that has waited a day for a capability halts on the card open for it, and that card does not close over it', async () => {
+  const fixture = await createCompany('preflight-ceiling');
+  const state = { healthy: false };
+  const { capability } = probedCapability(state);
+  const registry = await registryWith(fixture, capability as Capability<never, never>);
+  await giveRoleTools(fixture, ['dns.read']);
+  const ran: string[] = [];
+  const engine = engineFor(registry, ran);
+
+  const task = await newTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  // What a day of waiting leaves behind: its first long wait, a day ago.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
+     VALUES ($1, $2, 'task.capability_waited', 'engine', '{"long": true, "capabilities": ["dns.read"]}',
+             now() - $3 * interval '1 millisecond')`,
+    [fixture.companyId, task.id, OUTAGE_PARK_CEILING_MS + 60_000]));
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'halted', outcome.reason);
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ halt_reason: string }>(
-    'SELECT halt_reason FROM tasks WHERE id = $1', [stuck.id]));
+    'SELECT halt_reason FROM tasks WHERE id = $1', [task.id]));
   assert.equal(rows[0]!.halt_reason, 'capability_unhealthy');
-  const incidents = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
-  assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /Read a domain's records/, 'the capability by what it does, not its code');
-  assert.match(incidents[0]!.rationale, /answered 503/);
+
+  const card = await withTenant(fixture.companyId, (tx) => tx.query<{ ended: string[] }>(
+    "SELECT payload->'endedTaskIds' AS ended FROM inbox_items WHERE kind = 'incident' AND status = 'open'"));
+  assert.equal(card.rows.length, 1);
+  assert.deepEqual(card.rows[0]!.ended, [task.id], 'the halt is on the card that says why');
+  const { reportEndedBadly } = await import('../../src/engine/ended.ts');
+  assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + 5 * 60_000)), 0, 'no second card for the same cause');
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation').length, 0);
+
+  state.healthy = true;
+  await checkCapability(registry, { companyId: fixture.companyId, divisionId: fixture.divisionId }, 'dns.read', { force: true });
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1,
+    'the card names work that stopped, so it stays for the owner');
 });
 
 test('a healthy capability lets the task run', async () => {
@@ -298,7 +447,7 @@ test('the incident is raised on the way into unhealthy, not on every check', asy
   assert.equal(open.filter((item) => item.kind === 'incident').length, 1);
 });
 
-test('a capability that recovers lets its work through again', async () => {
+test('a capability that recovers lets its work through again, and calls back the work that waited, once', async () => {
   const fixture = await createCompany('preflight-recovers');
   const state = { healthy: false };
   const { capability } = probedCapability(state);
@@ -308,7 +457,7 @@ test('a capability that recovers lets its work through again', async () => {
   const ran: string[] = [];
   const engine = engineFor(registry, ran);
   const first = await newTask(fixture);
-  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'halted');
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'waiting_window');
 
   state.healthy = true;
   await checkCapability(
@@ -321,7 +470,13 @@ test('a capability that recovers lets its work through again', async () => {
   const second = await newTask(fixture);
   const outcome = await engine.runTask(fixture.companyId, second.id, 'worker');
   assert.equal(outcome.status, 'completed');
-  assert.deepEqual(ran, [second.id]);
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'completed');
+  assert.deepEqual(ran, [second.id, first.id]);
+  // A second check that finds it well again calls nothing back twice.
+  await checkCapability(registry, { companyId: fixture.companyId, divisionId: fixture.divisionId }, 'dns.read', { force: true });
+  const called = await withTenant(fixture.companyId, (tx) => tx.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM events WHERE type = 'task.called_back'"));
+  assert.equal(called.rows[0]!.count, '1');
 });
 
 test('a rotation takes a new reading (F12.3)', async () => {

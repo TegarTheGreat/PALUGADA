@@ -202,6 +202,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "한시적 승인 철회됨",
   "Added to every reminder. Left out when empty.": "모든 알림에 추가됩니다. 비워 두면 넣지 않습니다.",
   "Approve, and allow exactly this without asking": "승인하고, 정확히 이 작업은 묻지 않고 허용",
+  "Called back to look again: what it was waiting for may work now": "다시 확인하도록 불려 왔습니다. 기다리던 것이 이제 될 수도 있습니다",
   "Check the prices now": "지금 가격 확인",
   "Days after the due date": "기한 후 일수",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "100만 토큰당 달러 가격입니다. 플랫폼이 사용 중인 모델에 대해 매일 models.dev를 읽어 가격을 최신으로 유지합니다. 여기에 직접 입력한 가격은 당신의 것이며 우선 적용됩니다.",

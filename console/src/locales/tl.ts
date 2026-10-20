@@ -185,6 +185,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Binawi ang pansamantalang pag-apruba",
   "Added to every reminder. Left out when empty.": "Idinadagdag sa bawat paalala. Hindi isinasama kapag walang laman.",
   "Approve, and allow exactly this without asking": "I-approve, at payagan ang eksaktong ito nang hindi nagtatanong",
+  "Called back to look again: what it was waiting for may work now": "Ibinalik para tumingin ulit: maaaring gumagana na ang hinihintay nito",
   "Check the prices now": "Suriin ang mga presyo ngayon",
   "Days after the due date": "Mga araw pagkatapos ng takdang petsa",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Dolyar kada milyong token. Binabasa ng platform ang models.dev araw-araw para sa mga modelong ginagamit mo at pinananatiling napapanahon ang mga presyo nito. Ang presyong tina-type mo rito ay sa iyo, at iyon ang masusunod.",

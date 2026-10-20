@@ -202,6 +202,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "سُحبت موافقة مؤقتة",
   "Added to every reminder. Left out when empty.": "تُضاف إلى كل تذكير. تُترك إن كانت فارغة.",
   "Approve, and allow exactly this without asking": "وافق، واسمح بهذا الإجراء نفسه تمامًا دون سؤال",
+  "Called back to look again: what it was waiting for may work now": "استُدعيت لتعاود المحاولة: ما كانت تنتظره قد يعمل الآن",
   "Check the prices now": "تحقق من الأسعار الآن",
   "Days after the due date": "أيام بعد تاريخ الاستحقاق",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "بالدولار لكل مليون رمز. تقرأ المنصة models.dev كل يوم للنماذج التي تستخدمها وتُبقي أسعارها محدَّثة. السعر الذي تكتبه هنا هو سعرك، وله الأولوية.",

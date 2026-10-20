@@ -360,28 +360,45 @@ export function crashLoopCard(reading: OwnerReading, facts: { task: string; lost
   };
 }
 
-export function serviceUnreachableCard(reading: OwnerReading, facts: { failures: ReadonlyArray<{ capability: string; detail: string }>; minutes: number }): Card {
+/**
+ * What becomes of work that waits for a cause past its ceiling, said on every
+ * card about one (src/engine/recovered.ts): it stops, and the card is where
+ * it is reported, so the card stays.
+ */
+function stopsAfterSaid(reading: OwnerReading, hours: number): string {
+  return say(reading.language, 'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.',
+    { hours: number(reading, hours) });
+}
+
+/**
+ * One card for a service that stays down, however much work waits for it
+ * (src/engine/recovered.ts). The work waits, and the card closes itself
+ * when the service answers.
+ */
+export function serviceUnreachableCard(reading: OwnerReading, facts: { capability: string; detail: string; minutes: number; hours: number }): Card {
   const { language } = reading;
-  const services = [...new Set(facts.failures.map((failure) => capabilitySaid(language, failure.capability)))];
+  const service = capabilitySaid(language, facts.capability);
   return {
-    title: say(language, '{services} stayed unreachable, and the work that needs it stopped', { services: services.join(', ') }),
-    detail: withRecord(say(language,
-      'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.',
-      { minutes: number(reading, facts.minutes) }),
-    facts.failures.map((failure) => `${capabilitySaid(language, failure.capability)}: ${failure.detail}`).join('\n')),
+    title: say(language, '{service} is not answering, and the work that needs it is waiting', { service }),
+    detail: withRecord(`${say(language,
+      'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.',
+      { minutes: number(reading, facts.minutes) })} ${stopsAfterSaid(reading, facts.hours)}`,
+    `${service}: ${facts.detail}`),
   };
 }
 
-export function modelFailedCard(reading: OwnerReading, facts: { model: string; tries: number; minutes: number; irreversible: boolean; record: string }): Card {
+/** One card for a model that stays down, however much work waits for it, as for a service. */
+export function modelFailedCard(reading: OwnerReading, facts: { model: string; tries: number; minutes: number; irreversible: boolean; record: string; hours: number }): Card {
   const { language } = reading;
   const tried = say(language, 'It was tried {tries} times over about {minutes} minutes.',
     { tries: number(reading, facts.tries), minutes: number(reading, facts.minutes) });
   const why = facts.irreversible
     ? say(language, 'This role can take actions that cannot be undone, so the run was not silently moved to a different model.')
     : say(language, 'No fallback model is left for this role.');
+  const waits = say(language, 'The work waits and carries on by itself once the model answers, and this card then closes itself.');
   return {
-    title: say(language, 'Model {model} failed and the run was not moved', { model: facts.model }),
-    detail: withRecord(`${tried} ${why}`, facts.record),
+    title: say(language, 'Model {model} is not answering, and work is waiting for it', { model: facts.model }),
+    detail: withRecord(`${tried} ${why} ${waits} ${stopsAfterSaid(reading, facts.hours)}`, facts.record),
   };
 }
 
@@ -397,11 +414,12 @@ export function modelKeyRefusedSaid(language: string | null, facts: { host: stri
     { host: facts.host, status: String(facts.status) }), facts.providerSaid);
 }
 
-export function modelKeyRefusedCard(reading: OwnerReading, facts: { host: string; status: number; providerSaid: string | null }): Card {
+export function modelKeyRefusedCard(reading: OwnerReading, facts: { host: string; status: number; providerSaid: string | null; hours: number }): Card {
   const { language } = reading;
   return {
     title: say(language, '{host} refused the model key, and work is waiting', { host: facts.host }),
-    detail: `${modelKeyRefusedSaid(language, facts)}\n\n${say(language, 'What is waiting for the model carries on by itself once a key that works is in use.')}`,
+    detail: `${modelKeyRefusedSaid(language, facts)}\n\n${say(language,
+      'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.')} ${stopsAfterSaid(reading, facts.hours)}`,
   };
 }
 
@@ -509,12 +527,12 @@ export function scheduleRepeatsCard(reading: OwnerReading, facts: { schedule: st
   };
 }
 
-export function capabilityFailedCard(reading: OwnerReading, facts: { capability: string; record: string }): Card {
+export function capabilityFailedCard(reading: OwnerReading, facts: { capability: string; record: string; hours: number }): Card {
   const { language } = reading;
   return {
     title: say(language, 'Capability {capability} failed preflight', { capability: capabilitySaid(language, facts.capability) }),
-    detail: withRecord(say(language,
-      'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.'),
+    detail: withRecord(`${say(language,
+      'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.')} ${stopsAfterSaid(reading, facts.hours)}`,
     facts.record),
   };
 }

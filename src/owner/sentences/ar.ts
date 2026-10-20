@@ -222,12 +222,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '«{task}» تنتظر منذ {since}. {why} «موافقة» تُعيد تشغيلها من حيث توقفت، و«رفض» يُلغيها.',
   'A task keeps stopping the worker running it': 'مهمة تتسبب مرارًا في توقف العامل الذي يشغّلها',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': 'عدد مرات فقدان «{task}» لعاملها: {lost}؛ ففي كل مرة توقف العامل الذي يشغّلها عن الرد قبل انتهاء العمل. وما أنجزته محفوظ. أُوقفت كي لا تُسقط عاملًا آخر؛ ويمكن إعادة تشغيلها بعد معرفة السبب، أو إلغاؤها.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'تعذّر الوصول إلى {services}، فتوقف العمل الذي يعتمد على ذلك',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'انتظرت المهمة نحو {minutes} من الدقائق، تعاود المحاولة في كل مرة، ثم توقفت. ويمكن إعادة تشغيلها حين تستجيب الخدمة.',
   'It was tried {tries} times over about {minutes} minutes.': 'عدد المحاولات: {tries}، خلال نحو {minutes} من الدقائق.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'يستطيع هذا الدور اتخاذ إجراءات لا رجعة فيها، لذا لم يُنقل التشغيل بصمت إلى نموذج آخر.',
   'No fallback model is left for this role.': 'لم يتبقَّ نموذج بديل لهذا الدور.',
-  'Model {model} failed and the run was not moved': 'فشل النموذج {model} ولم يُنقل التشغيل',
   'External write failed verification': 'فشلت عملية كتابة خارجية في القراءة للتحقق',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'كتبت المهمة إلى خدمة خارجية ثم قرأت ما كتبته للتحقق، فلم يتطابق ما قرأته. يُرجى فحص المكان الذي كتبت إليه قبل إعادة تشغيلها: فقد تكون الكتابة قد تمّت.',
   'Review deadlocked after {rounds} revisions: {capability}': 'تعثّرت المراجعة بعد {rounds} من جولات التعديل: {capability}',
@@ -252,7 +249,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'الجدول الزمني «{schedule}» يُنتج النتيجة نفسها مرارًا',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'عمليات التشغيل الأخيرة، وعددها {runs}، انتهت كلها بالمُخرَج نفسه. وهذا أحيانًا هو الصواب تمامًا — تقرير ليس فيه جديد — وكثيرًا ما يكون جدولًا زمنيًا كفّ عن فعل أي شيء مفيد بينما لا يزال يُدفع ثمنه. «رفض» يوقفه؛ و«موافقة» تُبقيه يعمل دون السؤال عن هذه النتيجة مرة أخرى.',
   'Capability {capability} failed preflight': 'فشلت القدرة {capability} في الفحص المسبق',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'العمل الذي يحتاجها يُوقف بدلًا من أن يبدأ: يُرجى إصلاح السبب، ثم إعادة تشغيل ذلك العمل. والأسباب المعتادة: بيانات اعتماد منتهية الصلاحية أو بنطاق صلاحيات خاطئ، أو حصة نفدت، أو عنوان خاطئ.',
   'Batch guard stopped {capability}': 'أوقف فحصُ حجم الدفعة {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'لم يطابق الخطة التي سجّلها تشغيله. لم يُرسَل شيء، ولم تُستدعَ أي خدمة.',
   '{role} was asked first and has had {minutes} minutes.': 'أُحيل هذا إلى {role} أولًا، وقد مضى على ذلك {minutes} من الدقائق.',
@@ -340,8 +336,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     'رفض {host} مفتاح النموذج ({status})، لذا لا يمكن تشغيل أي عمل يحتاج إلى النموذج. افتح الإعدادات، هذه المنصة، النموذج، والصق مفتاحًا صالحًا، ثم اختبره واحفظه.',
   '{host} refused the model key, and work is waiting': 'رفض {host} مفتاح النموذج، والعمل في انتظار',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح.',
   'A task ended before it was done: {task}':
     'انتهت مهمة قبل إتمامها: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -405,4 +399,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سُحب: أُغلقت التذكرة التي كان يتعلق بها.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، وقد صدرت دون عنوان بريد إلكتروني يُرسل إليه تذكير. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'العمل الذي يظل منتظرًا بعد نحو {hours} من الساعات يتوقف، وتبقى هذه البطاقة عندئذٍ مفتوحة لتتمكن من إعادة تشغيله.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} لا يستجيب، والعمل الذي يحتاجه في الانتظار',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'انتظر العمل نحو {minutes} من الدقائق، يعاود المحاولة في كل مرة، وما زال ينتظر: سيستأنف من تلقاء نفسه بمجرد أن تستجيب الخدمة، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'ينتظر العمل ويستأنف من تلقاء نفسه بمجرد أن يستجيب النموذج، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
+  'Model {model} is not answering, and work is waiting for it':
+    'النموذج {model} لا يستجيب، والعمل في انتظاره',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'العمل الذي يحتاجها ينتظر بدلًا من أن يبدأ، ويستأنف من تلقاء نفسه بمجرد نجاح الفحص؛ وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها. والأسباب المعتادة: بيانات اعتماد منتهية الصلاحية أو بنطاق صلاحيات خاطئ، أو حصة نفدت، أو عنوان خاطئ.',
 };

@@ -224,6 +224,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "ถอนการอนุมัติชั่วคราวแล้ว",
   "Added to every reminder. Left out when empty.": "เพิ่มในทุกการเตือน ไม่ใส่หากว่างเปล่า",
   "Approve, and allow exactly this without asking": "อนุมัติ และอนุญาตการกระทำนี้ทุกประการโดยไม่ต้องถาม",
+  "Called back to look again: what it was waiting for may work now": "ถูกเรียกกลับมาตรวจอีกครั้ง: สิ่งที่รออยู่อาจใช้ได้แล้ว",
   "Check the prices now": "ตรวจราคาตอนนี้",
   "Days after the due date": "จำนวนวันหลังครบกำหนด",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "ดอลลาร์ต่อหนึ่งล้านโทเคน แพลตฟอร์มอ่าน models.dev ทุกวันสำหรับโมเดลที่คุณใช้ และคงราคาให้ทันสมัยอยู่เสมอ ราคาที่คุณพิมพ์ที่นี่เป็นของคุณ และใช้ราคานั้นเป็นหลัก",

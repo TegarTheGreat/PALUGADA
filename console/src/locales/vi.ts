@@ -229,6 +229,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Đã thu hồi phê duyệt tạm thời",
   "Added to every reminder. Left out when empty.": "Thêm vào mọi nhắc nhở. Bỏ qua nếu để trống.",
   "Approve, and allow exactly this without asking": "Phê duyệt, và cho phép đúng hành động này mà không cần hỏi",
+  "Called back to look again: what it was waiting for may work now": "Được gọi lại để kiểm tra lần nữa: thứ nó đang chờ có thể đã hoạt động",
   "Check the prices now": "Kiểm tra giá ngay",
   "Days after the due date": "Số ngày sau hạn thanh toán",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Đô la mỗi triệu token. Nền tảng đọc models.dev mỗi ngày cho các mô hình bạn dùng và giữ giá luôn cập nhật. Giá bạn nhập ở đây là của bạn, và được ưu tiên.",

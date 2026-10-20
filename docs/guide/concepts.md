@@ -255,8 +255,9 @@ which writes down a recording in the company's files; and the tools a run uses t
   message that says a vendor is needed.
 - Every call goes through the broker, which checks the grant, the tier, the
   policies and the budget; a write is read back afterwards to verify it
-  happened. A capability whose health check fails stops the task before it
-  starts and raises an incident.
+  happened. A capability whose health check fails keeps the task from
+  starting and raises one incident for the capability; the task waits, and
+  goes on by itself when a check finds the capability well again.
 - Work that has read something written outside the company, such as an
   email, a web page or a customer record, carries that fact, and any tier 2
   or higher action in it asks you first.

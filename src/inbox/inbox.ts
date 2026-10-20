@@ -426,9 +426,10 @@ export interface IncidentInput {
   detail: string;
   /**
    * A name for what the incident is about, for a fault that every task meets
-   * at once -- a refused model key. While an incident with this name is open
-   * in the company, it is that one the owner has to deal with, and another
-   * is not raised beside it.
+   * at once -- a refused model key, a model or a service that is down
+   * (`ONCE` in src/engine/recovered.ts). While an incident with this name is
+   * open in the company, it is that one the owner has to deal with, and
+   * another is not raised beside it.
    */
   once?: string | undefined;
 }
@@ -441,6 +442,10 @@ export async function raiseIncident(input: IncidentInput): Promise<string> {
 export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput): Promise<string> {
   {
     if (input.once) {
+      // Two tasks meeting the same outage in two workers at once each found
+      // no card open and each raised one. The second now waits for the first
+      // and finds its card.
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`incident-once:${input.companyId}:${input.once}`]);
       const { rows: open } = await tx.query<{ id: string }>(
         `SELECT id FROM inbox_items
           WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = $1
@@ -467,6 +472,69 @@ export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput
     });
     return id;
   }
+}
+
+/** The most stopped tasks one card about a cause names; the rest are reported as any ended work is. */
+const MOST_HELD = 50;
+
+/**
+ * Names a task that stopped for a cause on the open card about it (`once`),
+ * and says whether it is named there. That card already says why, so the
+ * task is reported on it (`endedTaskIds`, which src/engine/ended.ts reads)
+ * rather than on a card of its own: work that waited a day on a model that
+ * never came back is one card, not one a task. With no card open -- the owner
+ * answered it -- the task is reported as any ended work is.
+ */
+export async function holdEndedOn(companyId: string, onces: readonly string[], taskId: string): Promise<boolean> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; held: boolean; count: number }>(
+      `SELECT id, coalesce(payload->'endedTaskIds', '[]'::jsonb) ? $2 AS held,
+              jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) AS count
+         FROM inbox_items
+        WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = ANY($1::text[])
+        ORDER BY created_at LIMIT 1
+        FOR UPDATE`,
+      [onces, taskId],
+    );
+    const card = rows[0];
+    if (!card) return false;
+    if (card.held) return true;
+    if (card.count >= MOST_HELD) return false;
+    await tx.query(
+      `UPDATE inbox_items
+          SET payload = jsonb_set(payload, '{endedTaskIds}', coalesce(payload->'endedTaskIds', '[]'::jsonb) || to_jsonb($2::text))
+        WHERE id = $1`,
+      [card.id, taskId],
+    );
+    return true;
+  });
+}
+
+/**
+ * Withdraws the open cards about a cause that has passed (`once`), saying
+ * why, and returns how many. Not a card that names work which stopped while
+ * it was open (`holdEndedOn`): it is where that work is reported, and stays
+ * for the owner.
+ */
+export async function withdrawOnceWithin(
+  tx: TenantClient,
+  companyId: string,
+  onces: readonly string[],
+  reason: 'capability_healthy' | 'model_answered' | 'key_works' | 'nothing_waits',
+): Promise<number> {
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
+      WHERE company_id = $1 AND kind = 'incident' AND status = 'open' AND payload->>'once' = ANY($2::text[])
+        AND jsonb_array_length(coalesce(payload->'endedTaskIds', '[]'::jsonb)) = 0
+      RETURNING id`,
+    [companyId, onces, reason],
+  );
+  for (const item of rows) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
+    });
+  }
+  return rows.length;
 }
 
 /**

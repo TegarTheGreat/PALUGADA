@@ -231,6 +231,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Geçici onay geri alındı",
   "Added to every reminder. Left out when empty.": "Her hatırlatmaya eklenir. Boşsa konmaz.",
   "Approve, and allow exactly this without asking": "Onayla ve tam olarak bunu sormadan yapmaya izin ver",
+  "Called back to look again: what it was waiting for may work now": "Yeniden bakması için geri çağrıldı: beklediği şey artık çalışıyor olabilir",
   "Check the prices now": "Fiyatları şimdi kontrol et",
   "Days after the due date": "Vadeden sonraki günler",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Milyon token başına dolar. Platform, kullandığınız modeller için her gün models.dev'i okur ve fiyatlarını güncel tutar. Buraya yazdığınız fiyat sizindir ve önceliklidir.",

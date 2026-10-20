@@ -205,6 +205,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Autorización temporal revocada",
   "Added to every reminder. Left out when empty.": "Se añade a cada recordatorio. Se omite si está vacío.",
   "Approve, and allow exactly this without asking": "Aprobar y permitir exactamente esto sin preguntar",
+  "Called back to look again: what it was waiting for may work now": "Reactivada para volver a intentarlo: lo que esperaba puede que ya funcione",
   "Check the prices now": "Comprobar los precios ahora",
   "Days after the due date": "Días después del vencimiento",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Dólares por millón de tokens. La plataforma lee models.dev cada día para los modelos que usa y mantiene sus precios al día. Un precio que escribe aquí es suyo y prevalece.",

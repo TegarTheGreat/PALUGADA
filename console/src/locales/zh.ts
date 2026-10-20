@@ -191,6 +191,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "已收回限时许可",
   "Added to every reminder. Left out when empty.": "添加到每条提醒中。留空则不添加。",
   "Approve, and allow exactly this without asking": "批准，并允许完全相同的操作无需再问",
+  "Called back to look again: what it was waiting for may work now": "已被唤回重新检查：它等待的东西现在可能已可用",
   "Check the prices now": "立即检查价格",
   "Days after the due date": "到期后的天数",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "每百万 token 的美元价格。平台每天为你使用的模型读取 models.dev，并保持价格最新。你在这里输入的价格属于你，并且优先生效。",

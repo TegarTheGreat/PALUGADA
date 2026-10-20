@@ -200,6 +200,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "期限付き承認を取り消しました",
   "Added to every reminder. Left out when empty.": "すべてのリマインドに追加されます。空欄なら入りません。",
   "Approve, and allow exactly this without asking": "承認し、まったく同じ操作なら確認なしで許可",
+  "Called back to look again: what it was waiting for may work now": "再確認のため呼び戻されました。待っていたものが使えるようになった可能性があります",
   "Check the prices now": "今すぐ価格を確認",
   "Days after the due date": "期限後の日数",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "100万トークンあたりのドル価格です。プラットフォームは、お使いのモデルについて毎日 models.dev を読み取り、価格を最新に保ちます。ここに入力した価格はあなたのもので、優先されます。",

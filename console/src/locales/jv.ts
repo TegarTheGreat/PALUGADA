@@ -222,6 +222,7 @@ export const DICTIONARY: Dictionary = {
   "A yes for a while taken back": "Persetujuan sawetawis dipuntarik wangsul",
   "Added to every reminder. Left out when empty.": "Ditambahake ing saben pangeling. Dilirwakake yen kosong.",
   "Approve, and allow exactly this without asking": "Setujoni, lan parengaken tumindak punika persis tanpa nyuwun pirsa",
+  "Called back to look again: what it was waiting for may work now": "Dipuntimbali malih kangge mriksa malih: ingkang dipunentosi saged sampun lumampah",
   "Check the prices now": "Priksa rega saiki",
   "Days after the due date": "Dina sawise tenggat",
   "Dollars per million tokens. The platform reads models.dev every day for the models you use and keeps their prices current. A price you type here is yours, and wins.": "Dolar saben sejuta token. Platform maca models.dev saben dina kanggo model sing sampeyan nggunakake lan njaga regane tetep anyar. Rega sing sampeyan ketik ing kene iku duwekmu, lan sing kanggo.",

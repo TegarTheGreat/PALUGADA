@@ -798,3 +798,55 @@ test('work gone on with that ends badly again is reported, whatever became of th
   assert.deepEqual(again!.payload.endedTaskIds, [february.id, march.id], 'named once');
   assert.equal(await reportEndedBadly(company.companyId, later()), 0, 'and told');
 });
+
+/**
+ * Run again, or going on, closes a card once nothing on it is left, and
+ * stops the CEO handling it. Answering only some of its work left the card
+ * open, rightly, and the CEO's task running on a brief that still named
+ * what the owner had already taken up -- "send invoice 7", which the owner's
+ * rerun was sending -- with nothing to tell it so.
+ */
+test('the CEO handling a card is told, at every run, of the work on it that has been taken up again', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { buildContext } = await import('../../src/context/builder.ts');
+  const company = await founded('ceo-told-taken-up');
+  const toldOf = async (handlingId: string) => {
+    const pack = await withTenant(company.companyId, (tx) => buildContext(tx, {
+      companyId: company.companyId, divisionId: company.divisionIds.management!, taskId: handlingId,
+    }));
+    return pack.sections.filter((section) => /taken up/.test(section.title)).map((section) => section.body).join('\n');
+  };
+
+  // Run again.
+  const seven = await rootOf(company, company.hiredId, 'send invoice 7 to PT Maju');
+  const eight = await rootOf(company, company.hiredId, 'send invoice 8 to PT Jaya');
+  await transition(company.companyId, seven.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 7' });
+  await transition(company.companyId, eight.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs for invoice 8' });
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+  assert.equal(await handEscalations(company.companyId), 1);
+  const [card] = await cardsOf(company.companyId);
+  const handling = (await handlingOf(company.companyId, card!.id))!;
+  assert.match(handling.input.goal, /send invoice 7 to PT Maju/);
+  assert.equal(await toldOf(handling.id), '', 'nothing yet');
+
+  const rerun = await rerunTask(company.companyId, seven.id, null);
+  assert.equal((await cardsOf(company.companyId))[0]!.status, 'open', 'invoice 8 is still stopped');
+  assert.equal((await taskState(company.companyId, handling.id)).status, 'pending', 'and the CEO still has it');
+  const told = await toldOf(handling.id);
+  assert.match(told, new RegExp(`send invoice 7 to PT Maju \\(task ${seven.id}\\): it was run again, as task ${rerun}`));
+  assert.match(told, /Do not do it, or hand it to anyone, a second time/);
+  assert.doesNotMatch(told, /invoice 8/, 'what is still stopped is still the CEO\'s');
+
+  // Gone on with.
+  const nine = await stoppedForBudget(company, 'post the September invoices');
+  const ten = await stoppedForBudget(company, 'post the October invoices');
+  assert.equal(await reportEndedBadly(company.companyId, later()), 1, 'no budget card covers them');
+  assert.equal(await handEscalations(company.companyId), 1);
+  const budgetCard = (await cardsOf(company.companyId)).find((item) => (item.payload.endedTaskIds as string[]).includes(nine.id))!;
+  const handlingBudget = (await handlingOf(company.companyId, budgetCard.id))!;
+  await continueHalted(company.companyId, nine.id);
+  assert.equal((await taskState(company.companyId, ten.id)).status, 'halted');
+  const goneOn = await toldOf(handlingBudget.id);
+  assert.match(goneOn, new RegExp(`post the September invoices \\(task ${nine.id}\\): it went on from where it stopped`));
+  assert.doesNotMatch(goneOn, /October/);
+});

@@ -1040,6 +1040,65 @@ async function noteHandling(companyId: string, item: {
   });
 }
 
+/** A task on a card a coordinator was handed that has been taken up since it stopped, and how. */
+export interface TakenUp {
+  taskId: string;
+  /** What the task was asked, as the brief named it. */
+  called: string;
+  how: { by: 'run_again'; rerunTaskId: string } | { by: 'gone_on'; stoppedAgain: boolean } | { by: 'cancelled' };
+}
+
+/**
+ * The work on the card a coordinator's task was handed (`handOver`) that has
+ * been taken up since it stopped: run again (`rerunTask`), gone on with
+ * (`continueHalted`), or cancelled. Read for each of its runs (context
+ * builder), so the coordinator leaves it be.
+ *
+ * Run again, or going on, closes the card once nothing on it is left and
+ * stops the coordinator (`stopHandling` in owner-control.ts). Answering only
+ * some of it leaves the card open, rightly, and the coordinator's task on a
+ * brief that still named the rest as work to fix -- "send invoice 7", which
+ * the owner's rerun was already sending. Read from the card and the tasks as
+ * they stand when the run starts, rather than written to the task as each
+ * answer comes: a press in the moment of the hand-over, before the card names
+ * its coordinator, is read all the same, a second press says nothing twice,
+ * and none of it counts against the owner's own instructions. The card is
+ * found by the key its coordinator's task was made under, which is set as
+ * the task is made, for the same moment.
+ */
+export async function takenUpOnHandedCard(tx: TenantClient, taskId: string): Promise<TakenUp[]> {
+  const { rows } = await tx.query<{ id: string; rerun_id: string | null; gone_on: boolean; status: string }>(
+    `SELECT b.id,
+            (SELECT r.id FROM tasks r WHERE r.idempotency_key = 'rerun:' || b.id ORDER BY r.created_at LIMIT 1) AS rerun_id,
+            coalesce(i.payload->'continuedTaskIds', '[]'::jsonb) ? b.id AS gone_on,
+            s.status
+       FROM tasks h
+       JOIN inbox_items i
+         ON i.id = CASE WHEN h.idempotency_key ~ '^escalation:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        THEN substr(h.idempotency_key, 12)::uuid END
+        AND i.kind = 'escalation'
+      CROSS JOIN LATERAL jsonb_array_elements_text(
+              coalesce(i.payload->'briefedTaskIds', i.payload->'endedTaskIds', '[]'::jsonb)) WITH ORDINALITY AS b(id, n)
+       JOIN tasks s ON s.id = b.id::uuid
+      WHERE h.id = $1
+      ORDER BY b.n`,
+    [taskId],
+  );
+  const taken: TakenUp[] = [];
+  for (const row of rows) {
+    const stopped = row.status === 'halted' || row.status === 'failed';
+    const how: TakenUp['how'] | null = row.rerun_id ? { by: 'run_again', rerunTaskId: row.rerun_id }
+      // Gone on, and stopped again since: that stop is on a card of its own
+      // (ALREADY_TOLD in ended.ts), not this coordinator's to fix.
+      : row.gone_on ? { by: 'gone_on', stoppedAgain: stopped }
+      : row.status === 'cancelled' ? { by: 'cancelled' }
+      : stopped ? null
+      : { by: 'gone_on', stoppedAgain: false };
+    if (how) taken.push({ taskId: row.id, called: await taskCalledWithin(tx, row.id), how });
+  }
+  return taken;
+}
+
 /** How many questions one task may put to the owner. */
 export const QUESTIONS_PER_TASK = 3;
 

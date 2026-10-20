@@ -881,6 +881,86 @@ test('a CEO a close did not stop, its worker gone in between, is stopped at the 
 });
 
 /**
+ * The CEO handling a card can itself be stopped by its budget, and a task so
+ * stopped has ended as far as stopping it goes: Run again, or going on, that
+ * closed the card left it halted, and self-heal then set it going again --
+ * the CEO back at "send invoice 7" on a card the owner had answered, and
+ * what it handed on with it, its account written nowhere.
+ */
+test('a CEO its budget stopped is stopped with the card the work answered, and is not set going again on it', async () => {
+  const { continueHalted, rerunTask } = await import('../../src/engine/owner-control.ts');
+  const { resumeBudgetStopped } = await import('../../src/engine/self-heal.ts');
+  /** The CEO's task on the card, and what it handed on, both stopped for their budget. */
+  const stoppedHandling = async (company: Founded, cardId: string) => {
+    const handling = (await handlingOf(company.companyId, cardId))!;
+    await transition(company.companyId, handling.id, 'running');
+    const handedOn = await createSubTask(handling.id, {
+      companyId: company.companyId, projectId: company.projectIds.main!, divisionId: company.divisionIds.management!,
+      roleId: company.hiredId, goalId: company.goalIds.mission!, input: { goal: 'the part handed on' }, reserveTokens: 100,
+    });
+    await transition(company.companyId, handedOn.id, 'running');
+    await transition(company.companyId, handedOn.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+    await transition(company.companyId, handling.id, 'halted', { haltReason: 'budget_exhausted', detail: 'its account has no room left' });
+    await handEscalations(company.companyId);
+    return [handling.id, handedOn.id];
+  };
+  const states = async (companyId: string, ids: string[]) => {
+    const all = [];
+    for (const id of ids) all.push((await taskState(companyId, id)).status);
+    return all;
+  };
+  const cardOn = async (company: Founded, goal: string) => {
+    const task = await rootOf(company, company.hiredId, goal);
+    await transition(company.companyId, task.id, 'halted', { haltReason: 'hop_limit', detail: 'too many hand-offs' });
+    assert.equal(await reportEndedBadly(company.companyId, later()), 1);
+    assert.equal(await handEscalations(company.companyId), 1);
+    return { task, card: (await cardsOf(company.companyId)).find((item) => item.task_id === task.id)! };
+  };
+
+  // Run again.
+  const rerun = await founded('ceo-budget-rerun');
+  const seven = await cardOn(rerun, 'send invoice 7 to PT Maju');
+  const ceo = await stoppedHandling(rerun, seven.card.id);
+  assert.equal((await cardsOf(rerun.companyId))[0]!.payload.handledOutcome, 'halted');
+  await rerunTask(rerun.companyId, seven.task.id, null);
+  assert.deepEqual(await states(rerun.companyId, ceo), ['cancelled', 'cancelled'], 'the CEO, and what it handed on');
+  assert.deepEqual(await resumeBudgetStopped(rerun.companyId), { continued: 0, waiting: 0 });
+
+  // Going on, by self-heal, with the CEO stopped on the same account.
+  const goneOn = await founded('ceo-budget-gone-on');
+  const work = await stoppedForBudget(goneOn, 'post the October invoices');
+  assert.equal(await reportEndedBadly(goneOn.companyId, later()), 1);
+  assert.equal(await handEscalations(goneOn.companyId), 1);
+  const [card] = await cardsOf(goneOn.companyId);
+  const handlers = await stoppedHandling(goneOn, card!.id);
+  assert.equal((await resumeBudgetStopped(goneOn.companyId)).continued, 1, 'the work, and not the CEO beside it');
+  assert.equal((await taskState(goneOn.companyId, work.id)).status, 'pending');
+  assert.deepEqual([(await cardsOf(goneOn.companyId))[0]!.status, (await cardsOf(goneOn.companyId))[0]!.closed_reason],
+    ['withdrawn', 'budget_room']);
+  assert.deepEqual(await states(goneOn.companyId, handlers), ['cancelled', 'cancelled']);
+  await assert.rejects(continueHalted(goneOn.companyId, handlers[0]!, 'system'), { code: 'task.not_continuable' });
+
+  // A card the owner answered themselves: nobody reads the CEO's account any
+  // more, so neither it nor what it handed on goes on by itself.
+  const answered = await founded('ceo-budget-answered');
+  const nine = await cardOn(answered, 'send invoice 9 to PT Sinar');
+  const left = await stoppedHandling(answered, nine.card.id);
+  await withTenant(answered.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'decided', decision = 'deny', decided_at = now() WHERE id = $1", [nine.card.id]));
+  assert.deepEqual(await resumeBudgetStopped(answered.companyId), { continued: 0, waiting: 0 });
+  assert.deepEqual(await states(answered.companyId, left), ['halted', 'halted']);
+
+  // A press that stopped before it stopped them: the next look does.
+  const interrupted = await founded('ceo-budget-interrupted');
+  const ten = await cardOn(interrupted, 'send invoice 10 to PT Sinar');
+  const waiting = await stoppedHandling(interrupted, ten.card.id);
+  await withTenant(interrupted.companyId, (tx) => tx.query(
+    "UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_rerun' WHERE id = $1", [ten.card.id]));
+  await handEscalations(interrupted.companyId);
+  assert.deepEqual(await states(interrupted.companyId, waiting), ['cancelled', 'cancelled']);
+});
+
+/**
  * An account has one card, on the work it stopped first, and ended.ts counts
  * the rest of what it stopped as told while that card is open. Going on with
  * the card's own work -- the owner's Continue on it, or self-heal with room

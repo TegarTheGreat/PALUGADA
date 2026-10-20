@@ -8,7 +8,9 @@
  * get right. The files a role names are copied into the container under
  * `in/`; what its code writes to `out/` is kept in the company's files under
  * a folder of its own (`computed/<date>-<id>/`), each file read back by its
- * digest; what it prints comes back to the role.
+ * digest; what it prints comes back to the role. What it made from a file a
+ * stranger sent is kept with what strangers sent (`received/computed/...`):
+ * a letter never takes from there, and a copy is no less the stranger's.
  *
  * **The boundary is the container's flags**, the same ones a role's runtime
  * gets in `src/runtime/container.ts` and for the same reason: `--network
@@ -327,8 +329,12 @@ export function codeCompute(options: ComputeOptions): Capability<ComputeInput, C
     });
   }
 
-  /** What the code wrote, kept in the company's files under a folder of its own; or why none of it was. */
-  async function keep(answer: Answer, companyId: string): Promise<{ files: ComputeOutput['files'] } | { said: string }> {
+  /**
+   * What the code wrote, kept in the company's files under a folder of its own; or why none of it was. Made
+   * from a file a stranger sent, it is kept under what strangers sent, which `email.send` does not take from:
+   * kept under `computed`, a copy of a stranger's file was sent on as the company's own work.
+   */
+  async function keep(answer: Answer, companyId: string, fromStrangers: boolean): Promise<{ files: ComputeOutput['files'] } | { said: string }> {
     if (answer.refused) return { said: refusalSaid(answer.refused) };
     if (answer.files.length > FILES_OUT_MAX) return { said: refusalSaid({ why: 'too-many' }) };
     const decoded = answer.files.map((file) => ({ path: file.path, bytes: Buffer.from(file.data, 'base64') }));
@@ -344,7 +350,7 @@ export function codeCompute(options: ComputeOptions): Capability<ComputeInput, C
     const { mkdir, realpath, unlink, writeFile } = await import('node:fs/promises');
     const { dirname, join, sep } = await import('node:path');
     const base = await companyRoot(options.root, companyId);
-    const folder = join('computed', `${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`);
+    const folder = join(...(fromStrangers ? ['received', 'computed'] : ['computed']), `${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`);
     const kept: ComputeOutput['files'] = [];
     const written: string[] = [];
     try {
@@ -352,7 +358,7 @@ export function codeCompute(options: ComputeOptions): Capability<ComputeInput, C
         const relative = join(folder, file.path);
         const directory = join(base, dirname(relative));
         await mkdir(directory, { recursive: true, mode: 0o700 });
-        // A link left where `computed` was would carry the write outside the company.
+        // A link left where the folder was would carry the write outside the company.
         const real = await realpath(directory);
         if (real !== base && !real.startsWith(base + sep)) throw new Error(`${dirname(relative)} leads outside the company's files`);
         const target = join(real, file.path.split('/').at(-1)!);
@@ -437,7 +443,7 @@ export function codeCompute(options: ComputeOptions): Capability<ComputeInput, C
         return { ...result, said: `the code was ended by signal ${signalled}${signalled === 9 ? OUT_OF_MEMORY : ''}; nothing it wrote was kept` };
       }
       if (answer.exit !== 0) return { ...result, said: `the code exited ${answer.exit}: what it printed to stderr says why; nothing it wrote was kept` };
-      const kept = await keep(answer, ctx.companyId);
+      const kept = await keep(answer, ctx.companyId, files.some((file) => file.path.split(/[\\/]/)[0] === 'received'));
       if ('said' in kept) return { ...result, said: kept.said };
       return { ...result, ok: true, files: kept.files };
     },

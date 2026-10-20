@@ -412,8 +412,11 @@ test('a card the CEO dealt with after it reached the chat keeps the CEO\'s accou
     deliver: async () => ({ ref: '7' }),
     retract: async (closed: Closed) => { rewritten.push(closed); return 'retracted' as const; },
   };
-  // The CEO's hour is up and the owner has been told.
-  assert.equal((await dispatch(company.companyId, chat, { now: new Date(Date.now() + 2 * 3_600_000) })).delivered, 1);
+  // The CEO's hour is up and the owner has been told: at the moment the card
+  // was due, which is the next opening of the owner's window when the hour
+  // ends outside it. A fixed two hours from now failed every evening.
+  const [due] = await cardsOf(company.companyId);
+  assert.equal((await dispatch(company.companyId, chat, { now: new Date(due!.notify_after.getTime() + 60_000) })).delivered, 1);
 
   assert.equal(await handEscalations(company.companyId), 1);
   const [card] = await cardsOf(company.companyId);

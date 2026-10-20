@@ -421,4 +421,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '等待模型的工作会在换用可用密钥后自动继续，此卡片随后也会自动关闭。',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     '需要它的工作会等待而不是启动，检查一通过就会自动继续；此卡片随后会自动关闭。常见原因是凭据过期或权限范围有误、配额用尽，或地址错误。',
+  'Withdrawn: the month it was about has ended.':
+    '已撤回：它涉及的那个月已经过去。',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    '已撤回：暂停已解除，工作继续进行。',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    '已撤回：模型已恢复响应，等待它的工作已被唤回。',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    '已撤回：模型密钥已恢复可用，等待它的工作已被唤回。',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    '已撤回：该服务已再次通过检查，等待它的工作已被唤回。',
+  'Withdrawn: no work is waiting on it any more.':
+    '已撤回：已没有工作在等待它。',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    '已撤回：接手它的角色已经处理好，没有需要你决定的事了。',
 };

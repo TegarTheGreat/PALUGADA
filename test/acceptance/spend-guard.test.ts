@@ -292,6 +292,46 @@ test("last month's 80% warning closes itself in the new month, paused or not (F1
   assert.deepEqual(said.map((row) => row.payload.inboxItemId), [warning.id]);
 });
 
+/**
+ * Both of a month's cards close when it ends, and only one of them still says
+ * something true: what the month spent is still what it spent, and "the
+ * company is paused" is not. The chat keeps the warning's figure above why it
+ * closed, as it does a day's card, and says of each why it went rather than a
+ * bare "withdrawn".
+ */
+test('in the chat, last month\'s warning keeps its figure and its pause card does not, each saying why it closed (F1.7, F10.9)', async () => {
+  const { dispatch, retractClosed, closureText } = await import('../../src/owner/notify.ts');
+  type Closed = Parameters<typeof closureText>[0] & { said?: string | null };
+  const warned = await createCompany('spend-chat-warned');
+  const paused = await createCompany('spend-chat-paused');
+  const now = new Date();
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12));
+  await seedTrace(warned, (await newTask(warned)).id, 16_500, lastMonth);
+  await seedTrace(paused, (await newTask(paused)).id, 20_000, lastMonth);
+  assert.equal((await evaluateSpendLimit(warned.companyId, lastMonth)).state, 'warned');
+  assert.equal((await evaluateSpendLimit(paused.companyId, lastMonth)).state, 'paused');
+
+  const rewritten: Closed[] = [];
+  const chat = {
+    name: 'chat:telegram',
+    carries: () => true,
+    deliver: async () => ({ ref: '7' }),
+    retract: async (closed: Closed) => { rewritten.push(closed); return 'retracted' as const; },
+  };
+  for (const fixture of [warned, paused]) {
+    assert.equal((await dispatch(fixture.companyId, chat, { now: new Date(Date.now() + 86_400_000) })).delivered, 1);
+    await evaluateSpendLimit(fixture.companyId, now);
+    assert.deepEqual(await retractClosed(fixture.companyId, chat), { retracted: 1, failed: 0 });
+  }
+  const [warning, pause] = rewritten;
+  assert.equal(warning!.closedReason, 'period_started');
+  assert.match(warning!.said ?? '', /^\$165\.00 of \$200\.00 spent since /, 'what the month spent is still what it spent');
+  assert.equal(closureText(warning!), 'Withdrawn: the month it was about has ended.');
+  assert.equal(pause!.closedReason, 'period_started');
+  assert.equal(pause!.said, null, 'the company is not paused any more, so that is not said again');
+  assert.equal(closureText(pause!), 'Withdrawn: the month it was about has ended.');
+});
+
 test('the 80% warning gives way to the pause card when the ceiling is reached (F1.7)', async () => {
   const fixture = await createCompany('spend-warning-paused');
   const task = await newTask(fixture);

@@ -423,4 +423,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder ve bu kart da kendiliğinden kapanır.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Buna ihtiyaç duyan iş başlatılmak yerine bekler ve kontrol geçilir geçilmez kendiliğinden devam eder; bu kart da kendiliğinden kapanır. Bunun nedeni genellikle süresi dolmuş ya da kapsamı yanlış ayarlanmış bir kimlik bilgisi, biten bir kota ya da yanlış bir adrestir.',
+  'Withdrawn: the month it was about has ended.':
+    'Geri çekildi: ilgili ay sona erdi.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Geri çekildi: duraklatma kaldırıldı ve iş devam ediyor.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Geri çekildi: model yeniden yanıt veriyor ve onu bekleyen iş geri çağrıldı.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Geri çekildi: modelin anahtarı yeniden çalışıyor ve onu bekleyen iş geri çağrıldı.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Geri çekildi: hizmet denetimini yeniden geçti ve onu bekleyen iş geri çağrıldı.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Geri çekildi: artık onu bekleyen bir iş yok.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Geri çekildi: devredildiği rol bununla ilgilendi ve karar vermeniz gereken bir şey kalmadı.',
 };

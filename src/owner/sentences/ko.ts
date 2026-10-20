@@ -420,4 +420,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '모델을 기다리던 작업은 사용할 수 있는 키가 적용되면 자동으로 이어지고, 이 카드도 저절로 닫혀요.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     '이를 필요로 하는 일은 시작되지 않고 기다리다가, 검사를 통과하면 자동으로 이어져요. 이 카드도 저절로 닫혀요. 흔한 원인은 만료되었거나 범위가 잘못 지정된 자격 증명, 다 쓴 할당량, 잘못된 주소예요.',
+  'Withdrawn: the month it was about has ended.':
+    '철회됨: 해당 달이 지났습니다.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    '철회됨: 일시 중지가 풀려 작업이 계속됩니다.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    '철회됨: 모델이 다시 응답하고 있으며, 이를 기다리던 작업은 다시 불러왔습니다.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    '철회됨: 모델 키가 다시 작동하며, 이를 기다리던 작업은 다시 불러왔습니다.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    '철회됨: 서비스가 다시 점검을 통과했으며, 이를 기다리던 작업은 다시 불러왔습니다.',
+  'Withdrawn: no work is waiting on it any more.':
+    '철회됨: 이를 기다리는 작업이 더 이상 없습니다.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    '철회됨: 넘겨받은 역할이 처리했으므로 결정할 일이 남아 있지 않습니다.',
 };

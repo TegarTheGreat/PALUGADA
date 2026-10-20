@@ -422,4 +422,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Arbeit, die auf das Modell wartet, läuft von selbst weiter, sobald ein funktionierender Schlüssel verwendet wird, und diese Karte schließt sich dann von selbst.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Arbeit, die sie braucht, wartet, statt zu starten, und läuft von selbst weiter, sobald die Prüfung besteht; diese Karte schließt sich dann von selbst. Die üblichen Ursachen sind abgelaufene oder mit falschem Umfang ausgestellte Zugangsdaten, ein aufgebrauchtes Kontingent oder eine falsche Adresse.',
+  'Withdrawn: the month it was about has ended.':
+    'Zurückgezogen: Der Monat, um den es ging, ist vorbei.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Zurückgezogen: Die Pause wurde aufgehoben, und die Arbeit geht weiter.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Zurückgezogen: Das Modell antwortet wieder, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Zurückgezogen: Der Modellschlüssel funktioniert wieder, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Zurückgezogen: Der Dienst hat seine Prüfung wieder bestanden, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Zurückgezogen: Es wartet keine Arbeit mehr darauf.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Zurückgezogen: Die Rolle, der es übergeben wurde, hat sich darum gekümmert, und für Sie bleibt nichts zu entscheiden.',
 };

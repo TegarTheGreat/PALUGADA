@@ -899,13 +899,15 @@ async function noteHandling(companyId: string, item: {
       status: task.status, haltReason: task.haltReason ?? null,
     });
     // Guarded on the marker, so a second pass -- or a second worker -- adds
-    // the note once.
+    // the note once. Kept on its own as well, for the owner's chat, which
+    // rewrites the message of a card this closes with the note in it
+    // (`retractClosed`): in the rationale it is only the end of a longer text.
     await tx.query(
       `UPDATE inbox_items
           SET rationale = rationale || $2,
-              payload = payload || jsonb_build_object('handledOutcome', $3::text)
+              payload = payload || jsonb_build_object('handledOutcome', $3::text, 'handledSaid', $4::text)
         WHERE id = $1 AND NOT payload ? 'handledOutcome'`,
-      [item.id, `\n\n${said}`, task.status],
+      [item.id, `\n\n${said}`, task.status, said],
     );
     // A task that ended badly, handed to the coordinator, which finished what
     // it was handed: there is nothing left for the owner to decide, and its

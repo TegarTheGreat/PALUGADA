@@ -422,4 +422,18 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Работа, ожидающая модель, продолжится сама, как только начнёт использоваться рабочий ключ, и тогда эта карточка закроется сама.',
   'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
     'Работа, которой она нужна, ждёт, а не запускается, и продолжится сама, как только проверка будет пройдена; тогда эта карточка закроется сама. Обычные причины: истёкшие или выданные с неверными правами учётные данные, исчерпанная квота или неверный адрес.',
+  'Withdrawn: the month it was about has ended.':
+    'Отозвано: месяц, о котором шла речь, закончился.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Отозвано: пауза снята, и работа продолжается.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Отозвано: модель снова отвечает, и работа, которая её ждала, возвращена.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Отозвано: ключ модели снова работает, и работа, которая его ждала, возвращена.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Отозвано: сервис снова прошёл проверку, и работа, которая его ждала, возвращена.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Отозвано: этого больше не ждёт никакая работа.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Отозвано: роль, которой это передали, с этим разобралась, и решать вам больше нечего.',
 };

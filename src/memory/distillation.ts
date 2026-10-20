@@ -37,6 +37,8 @@ import * as inbox from '../inbox/inbox.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
 import { outputFrom } from '../llm/json.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
+import { PLATFORM_CAPABILITIES } from '../broker/platform-capabilities.ts';
+import { DUTY_KEY_PREFIX } from '../duties/duties.ts';
 
 /** How many times a pattern must recur before it is worth proposing as an SOP. */
 export const DEFAULT_MIN_OCCURRENCES = 3;
@@ -44,13 +46,25 @@ export const DEFAULT_MIN_OCCURRENCES = 3;
 /**
  * The platform's own tools, which every run uses and no procedure is about:
  * searching memory, recording a plan or a number, asking the owner, handing
- * work on. Counted, they made "how to use memory.search" the first SOP every
- * division was offered.
+ * work on, filing a ticket, proposing a schedule. Counted, they made "how to
+ * use memory.search" the first SOP every division was offered; and the CEO's
+ * charter and the goal review already say how to file a ticket and propose a
+ * schedule, so a card proposing that was noise.
+ *
+ * Taken from what the platform registers rather than written out again here:
+ * the copy written out by hand fell behind when `ticket.create` and
+ * `schedule.propose` were added.
  */
-const HOUSEKEEPING_CAPABILITIES = [
-  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await', 'task.follow_up',
-  'stage.propose', 'goal.propose', 'ticket.list',
-];
+const HOUSEKEEPING_CAPABILITIES: readonly string[] = PLATFORM_CAPABILITIES;
+
+/**
+ * What every task a duty began is keyed with, as a LIKE pattern. A duty is the
+ * platform's own procedure (src/duties), already written as code, so the
+ * capabilities it calls are that code running, not a way of working a
+ * division fell into: counted, three collection runs proposed a procedure for
+ * `invoice.remind`. The prefix is plain text, with no `%` or `_` in it.
+ */
+const DUTY_TASKS = `${DUTY_KEY_PREFIX}%`;
 
 /**
  * Events this module writes itself, excluded from its own corpus.
@@ -378,6 +392,7 @@ export async function distillSemanticToProcedural(
         WHERE e.type = 'tool.called'
           AND t.division_id = $1
           AND t.status = 'completed'
+          AND t.idempotency_key NOT LIKE $4
           AND e.payload->>'capability' IS NOT NULL
           AND NOT (e.payload->>'capability' = ANY($3::text[]))
           AND e.occurred_at > coalesce(
@@ -394,7 +409,7 @@ export async function distillSemanticToProcedural(
         GROUP BY 1
        HAVING count(DISTINCT e.task_id) >= $2
         ORDER BY count(DISTINCT e.task_id) DESC`,
-      [input.divisionId, minOccurrences, HOUSEKEEPING_CAPABILITIES],
+      [input.divisionId, minOccurrences, HOUSEKEEPING_CAPABILITIES, DUTY_TASKS],
     );
     return rows.map((row) => ({ capability: row.capability, occurrences: Number(row.occurrences) }));
   });
@@ -424,11 +439,11 @@ export async function distillSemanticToProcedural(
       const { rows } = await tx.query<{ goal: string | null; summary: string | null }>(
         `SELECT done.payload->>'goal' AS goal, done.payload->>'summary' AS summary
            FROM events done JOIN tasks t ON t.id = done.task_id
-          WHERE done.type = 'task.completed' AND t.division_id = $1
+          WHERE done.type = 'task.completed' AND t.division_id = $1 AND t.idempotency_key NOT LIKE $3
             AND EXISTS (SELECT 1 FROM events used WHERE used.task_id = t.id AND used.type = 'tool.called'
                          AND used.payload->>'capability' = $2)
           ORDER BY done.occurred_at DESC LIMIT 5`,
-        [input.divisionId, pattern.capability]);
+        [input.divisionId, pattern.capability, DUTY_TASKS]);
       return rows.filter((row) => row.goal || row.summary)
         .map((row) => `- For: ${row.goal ?? '(not said)'}\n  Produced: ${row.summary ?? '(not said)'}`).join('\n');
     });

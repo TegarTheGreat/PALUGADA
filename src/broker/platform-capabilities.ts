@@ -1334,8 +1334,12 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
   };
 }
 
-/** The names this module implements, for a caller that needs to know. */
+/**
+ * The names this module implements, every one `registerPlatformCapabilities`
+ * registers, for a caller that needs to know: the deployment's notes, and
+ * distillation, which proposes no procedure for any of them.
+ */
 export const PLATFORM_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await', 'task.follow_up',
-  'stage.propose', 'goal.propose', 'schedule.propose',
+  'stage.propose', 'goal.propose', 'schedule.propose', 'ticket.create', 'ticket.list',
 ] as const;

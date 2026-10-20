@@ -280,9 +280,12 @@ function InvoiceView({ companyId, id, owner, close, depositOptions, changed }: {
                 {invoice.held && <Badge size="xs" variant="outline" color="gray">{t('Left alone')}</Badge>}
               </Group>
               {invoice.reminders.map((one) => (
-                <Text key={one.step} size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-                  {t('Reminder {step} · {date} · {address}', { step: one.step, date: dayShown(one.sentOn), address: one.to })}
-                </Text>
+                <Group key={one.step} gap={6} wrap="wrap">
+                  <Text size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
+                    {t('Reminder {step} · {date} · {address}', { step: one.step, date: dayShown(one.sentOn), address: one.to })}
+                  </Text>
+                  {!one.confirmed && <Badge size="xs" variant="light" color="yellow">{t('Not confirmed by the mail server')}</Badge>}
+                </Group>
               ))}
             </Stack>
           )}

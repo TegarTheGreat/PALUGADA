@@ -396,4 +396,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'जिन ग्राहकों के चालान बकाया हैं उन्हें याद दिलाना',
   'each customer whose next reminder is due has been written to once':
     'जिन ग्राहकों का अगला अनुस्मारक देय है, सभी को एक-एक बार पत्र लिखा गया है',
+  'Reminder for invoice {number} not confirmed':
+    'चालान {number} का अनुस्मारक पुष्ट नहीं हुआ',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'मेल सर्वर ने चालान {number} के लिए {customer} ({to}) को {of} में से अनुस्मारक {step} की पुष्टि नहीं की, जो उसे {day} को सौंपा गया था। हो सकता है वह पहुँचा हो, हो सकता है नहीं। प्लेटफ़ॉर्म उसे दोबारा नहीं भेजेगा: अगर {customer} कहें कि उन्हें नहीं मिला, तो उसे स्वयं भेजें, या CEO को बताएँ।',
 };

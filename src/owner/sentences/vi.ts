@@ -400,4 +400,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Nhắc các khách hàng có hóa đơn quá hạn',
   'each customer whose next reminder is due has been written to once':
     'mỗi khách hàng đến hạn nhắc tiếp theo đã được viết thư một lần',
+  'Reminder for invoice {number} not confirmed':
+    'Thư nhắc cho hóa đơn {number} chưa được xác nhận',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Máy chủ thư không xác nhận thư nhắc thứ {step}/{of} cho hóa đơn {number} gửi {customer} ({to}), được giao cho nó vào {day}. Thư có thể đã đến, cũng có thể chưa. Nền tảng sẽ không gửi lại: nếu {customer} nói chưa nhận được, hãy tự gửi, hoặc báo cho CEO.',
 };

@@ -394,4 +394,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ngingetkeun palanggan anu fakturna telat',
   'each customer whose next reminder is due has been written to once':
     'unggal palanggan anu panginget salajengna geus waktuna geus dikirim sakali',
+  'Reminder for invoice {number} not confirmed':
+    'Panginget pikeun invoice {number} teu acan dikonfirmasi',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Server surélék henteu ngonfirmasi panginget {step} ti {of} pikeun invoice {number} ka {customer} ({to}), anu dipasrahkeun ka dinya dina {day}. Bisa jadi parantos dugi, bisa jadi henteu. Platform moal ngirimkeun deui: upami {customer} nyarios teu nampi, kirimkeun nyalira, atanapi wartosan CEO.',
 };

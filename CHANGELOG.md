@@ -342,6 +342,13 @@ The first version. What it holds, in the order an owner meets it.
   get it wrong. It stops when the invoice is paid, never writes twice in a week, and tells you once, in your
   language, about an invoice a letter did not mend. Switch it on under Books, Invoices (it gives the job to the
   roles that bill customers, or hires a bookkeeper); leave one invoice alone with a press (STATUS 2.178).
+- An entry, an invoice, a customer, a deal or a note is never made twice because the platform stopped between making
+  it and hearing that it had. A reminder is never sent twice: if the mail server hangs up before it says it took a
+  letter, the invoice shows the letter as not confirmed and you are told once, instead of the customer being written
+  to again (STATUS 2.180).
+- Every model call is paid for: a picture read (`image.describe`) and the company's documents being searched by
+  meaning were charged nothing and are now on the Money page at the provider's price. A month whose money is spent
+  asks the model nothing more, and a call the budget refused after it was made is still counted (STATUS 2.180).
 - Money is written with two decimal places everywhere it is read -- invoices, reminders, cards, the console -- so the
   same invoice reads the same after a Node upgrade. A deployment's first browser start on a fresh server is waited
   for a minute instead of failing at fifteen seconds (STATUS 2.179).

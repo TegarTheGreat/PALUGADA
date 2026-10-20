@@ -399,4 +399,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'เตือนลูกค้าที่ใบแจ้งหนี้เกินกำหนด',
   'each customer whose next reminder is due has been written to once':
     'ลูกค้าทุกรายที่ถึงกำหนดเตือนครั้งถัดไปได้รับจดหมายหนึ่งครั้ง',
+  'Reminder for invoice {number} not confirmed':
+    'ยังไม่ได้รับการยืนยันจดหมายแจ้งเตือนของใบแจ้งหนี้ {number}',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'เซิร์ฟเวอร์อีเมลไม่ได้ยืนยันจดหมายแจ้งเตือนฉบับที่ {step} จาก {of} ฉบับของใบแจ้งหนี้ {number} ถึง {customer} ({to}) ที่ส่งให้เมื่อ {day} จดหมายอาจถึงหรือไม่ถึงก็ได้ แพลตฟอร์มจะไม่ส่งซ้ำ: หาก {customer} บอกว่าไม่ได้รับ โปรดส่งเอง หรือแจ้ง CEO',
 };

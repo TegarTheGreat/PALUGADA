@@ -396,4 +396,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Klanten met verlopen facturen herinneren',
   'each customer whose next reminder is due has been written to once':
     'elke klant wiens volgende herinnering is verschuldigd, is één keer aangeschreven',
+  'Reminder for invoice {number} not confirmed':
+    'Herinnering voor factuur {number} niet bevestigd',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'De mailserver heeft herinnering {step} van {of} voor factuur {number} aan {customer} ({to}), overgedragen op {day}, niet bevestigd. Misschien is ze aangekomen, misschien niet. Het platform stuurt haar niet nog eens: als {customer} zegt dat ze niet is aangekomen, stuur haar dan zelf, of zeg het tegen de CEO.',
 };

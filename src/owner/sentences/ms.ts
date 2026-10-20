@@ -395,4 +395,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Mengingatkan pelanggan yang invoisnya lewat tempoh',
   'each customer whose next reminder is due has been written to once':
     'setiap pelanggan yang peringatan seterusnya sudah tiba masa telah dihantar sekali',
+  'Reminder for invoice {number} not confirmed':
+    'Peringatan untuk invois {number} tidak disahkan',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Pelayan e-mel tidak mengesahkan peringatan {step} daripada {of} untuk invois {number} kepada {customer} ({to}), yang diserahkan kepadanya pada {day}. Ia mungkin sampai, mungkin tidak. Platform tidak akan menghantarnya lagi: jika {customer} berkata mereka tidak menerimanya, hantar sendiri, atau beritahu CEO.',
 };

@@ -223,6 +223,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "Меню",
   "More options": "Дополнительные параметры",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "Пока ни одна роль не может отправлять напоминания. Это позволит ролям, выставляющим счета, отправлять их, а если таких нет, будет нанят бухгалтер.",
+  "Not confirmed by the mail server": "Не подтверждено почтовым сервером",
   "Not read from models.dev yet.": "Из models.dev ещё не читали.",
   "Parked: its role is paused; it goes on when the role does": "Отложено: её роль на паузе; задача продолжится, когда продолжит работу роль",
   "Remind a customer about an invoice": "Напомнить клиенту о счёте",

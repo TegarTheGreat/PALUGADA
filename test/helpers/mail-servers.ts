@@ -245,12 +245,23 @@ export interface Smtp {
   size: number | null;
   /** How long, in milliseconds, it takes to say it has accepted a message after the last dot: a busy server's. */
   acceptsAfter: number;
+  /**
+   * Takes the message and hangs up before saying so: the one moment SMTP
+   * leaves a sender unable to tell whether a letter went. The message is kept
+   * in `sent`, since a real server may well deliver it.
+   */
+  dropsAfterData: boolean;
+  /** Refuses every recipient (550), as a server does an address it will not send to. */
+  refusesRecipients: boolean;
   close(): Promise<void>;
 }
 
 /** An SMTP server on a plain port that a client must upgrade with STARTTLS before it may sign in. */
 export async function smtpServer(certificate: Certificate, account: { user: string; password: string }): Promise<Smtp> {
-  const state: Smtp = { port: 0, sent: [], commands: [], size: null, acceptsAfter: 0, close:() => new Promise<void>((resolve) => server.close(() => resolve())) };
+  const state: Smtp = {
+    port: 0, sent: [], commands: [], size: null, acceptsAfter: 0, dropsAfterData: false, refusesRecipients: false,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
   const server: Server = createPlainServer((plain) => {
     let socket: Socket = plain;
     let secure = false;
@@ -272,6 +283,10 @@ export async function smtpServer(certificate: Certificate, account: { user: stri
             if (line === '.') {
               state.sent.push({ from, to, data: Buffer.from(data, 'latin1').toString('utf8'), user });
               data = null;
+              if (state.dropsAfterData) {
+                socket.destroy();
+                return;
+              }
               if (state.acceptsAfter > 0) setTimeout(() => say('250 2.0.0 OK queued as T1'), state.acceptsAfter);
               else say('250 2.0.0 OK queued as T1');
             } else {
@@ -308,6 +323,7 @@ export async function smtpServer(certificate: Certificate, account: { user: stri
             to = [];
             say('250 2.1.0 OK');
           } else if (verb === 'RCPT') {
+            if (state.refusesRecipients) { say('550 5.1.1 The recipient is not accepted'); continue; }
             to.push(/<([^>]*)>/.exec(line)?.[1] ?? '');
             say('250 2.1.5 OK');
           } else if (verb === 'DATA') {

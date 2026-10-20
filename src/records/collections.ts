@@ -238,6 +238,13 @@ export async function setPolicy(
   return { enabled, stepsDays, paymentNote };
 }
 
+/**
+ * How long a letter handed to the mail server may wait for the server's answer
+ * before it is taken to be one the server may or may not have sent: a send
+ * takes seconds, so a quarter of an hour is not a slow server any more.
+ */
+export const IN_FLIGHT_MINUTES = 15;
+
 export interface Reminder {
   step: number;
   sentOn: string;
@@ -245,31 +252,105 @@ export interface Reminder {
   to: string;
   outstandingCents: number;
   daysOverdue: number;
+  /**
+   * False for a letter handed to the mail server that never said it took it.
+   * It counts as sent -- its step is taken and the next is counted from it --
+   * because a letter cannot be called back, and one written twice is worse
+   * than one the owner is told may not have arrived.
+   */
+  confirmed: boolean;
 }
 
-/** The letters sent about an invoice, in order. */
+/** The letters sent about an invoice, in order: those the server took, and those it may have. */
 export async function remindersOf(tx: TenantClient, companyId: string, invoiceId: string): Promise<Reminder[]> {
-  const { rows } = await tx.query<{ step: number; sent_on: string; sent_at: Date; to_address: string; outstanding_cents: string; days_overdue: number }>(
-    `SELECT step, to_char(sent_on, 'YYYY-MM-DD') AS sent_on, sent_at, to_address, outstanding_cents, days_overdue
-       FROM invoice_reminders WHERE company_id = $1 AND invoice_id = $2 ORDER BY step`, [companyId, invoiceId]);
+  const { rows } = await tx.query<{ step: number; sent_on: string; sent_at: Date; to_address: string; outstanding_cents: string; days_overdue: number; confirmed: boolean }>(
+    `SELECT step, to_char(sent_on, 'YYYY-MM-DD') AS sent_on, sent_at, to_address, outstanding_cents, days_overdue, true AS confirmed
+       FROM invoice_reminders WHERE company_id = $1 AND invoice_id = $2
+     UNION ALL
+     SELECT step, to_char((started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD'), started_at, to_address, outstanding_cents, days_overdue, false
+       FROM invoice_reminder_attempts WHERE company_id = $1 AND invoice_id = $2
+     ORDER BY step`, [companyId, invoiceId]);
   return rows.map((row) => ({
     step: row.step, sentOn: row.sent_on, sentAt: row.sent_at, to: row.to_address,
-    outstandingCents: Number(row.outstanding_cents), daysOverdue: row.days_overdue,
+    outstandingCents: Number(row.outstanding_cents), daysOverdue: row.days_overdue, confirmed: row.confirmed,
   }));
 }
 
+/** The letters of each of these invoices as the steps count them, by invoice: what `whatIsNext` is given. */
+export async function lettersOf(tx: TenantClient, companyId: string, invoiceIds: string[]): Promise<Map<string, Array<{ step: number; day: string }>>> {
+  const out = new Map<string, Array<{ step: number; day: string }>>();
+  if (invoiceIds.length === 0) return out;
+  const { rows } = await tx.query<{ invoice_id: string; step: number; day: string }>(
+    `SELECT invoice_id, step, to_char(sent_on, 'YYYY-MM-DD') AS day FROM invoice_reminders
+      WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
+     UNION ALL
+     SELECT invoice_id, step, to_char((started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') FROM invoice_reminder_attempts
+      WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
+     ORDER BY invoice_id, step`, [companyId, invoiceIds]);
+  for (const row of rows) out.set(row.invoice_id, [...(out.get(row.invoice_id) ?? []), { step: row.step, day: row.day }]);
+  return out;
+}
+
 /**
- * Writes that a letter went. The unique key on (invoice, step) is the last
- * word on a step written twice: the caller holds a lock on the invoice
- * (`lockInvoice`) from reading what was sent to here, so it is never reached.
+ * Takes a step before its letter goes, and commits it: from here the step is
+ * this letter's, whatever happens to the letter. The caller holds the
+ * invoice's lock (`lockInvoice`) from reading the letters to here.
  */
-export async function recordReminder(tx: TenantClient, companyId: string, input: {
-  invoiceId: string; step: number; day: string; to: string; messageId: string; outstandingCents: number; daysOverdue: number; taskId: string | null;
-}): Promise<void> {
-  await tx.query(
-    `INSERT INTO invoice_reminders (company_id, invoice_id, step, sent_on, to_address, message_id, outstanding_cents, days_overdue, task_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [companyId, input.invoiceId, input.step, input.day, input.to, input.messageId, input.outstandingCents, input.daysOverdue, input.taskId]);
+export async function takeStep(tx: TenantClient, companyId: string, input: {
+  invoiceId: string; step: number; to: string; outstandingCents: number; daysOverdue: number; taskId: string | null;
+}): Promise<string> {
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO invoice_reminder_attempts (company_id, invoice_id, step, to_address, outstanding_cents, days_overdue, task_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [companyId, input.invoiceId, input.step, input.to, input.outstandingCents, input.daysOverdue, input.taskId]);
+  return rows[0]!.id;
+}
+
+/** The mail server refused the letter: nothing went, and the step is free again. */
+export async function giveStepBack(tx: TenantClient, companyId: string, attemptId: string): Promise<void> {
+  await tx.query('DELETE FROM invoice_reminder_attempts WHERE company_id = $1 AND id = $2', [companyId, attemptId]);
+}
+
+/**
+ * The mail server took the letter: it is written as sent, on the day it was
+ * handed over and with the mail's identity, and is no longer in flight. False
+ * when there was no such letter in flight any more.
+ */
+export async function confirmStep(tx: TenantClient, companyId: string, attemptId: string, messageId: string): Promise<boolean> {
+  const { rowCount } = await tx.query(
+    `INSERT INTO invoice_reminders (company_id, invoice_id, step, sent_on, sent_at, to_address, message_id, outstanding_cents, days_overdue, task_id)
+     SELECT company_id, invoice_id, step, (started_at AT TIME ZONE 'UTC')::date, started_at, to_address, $3, outstanding_cents, days_overdue, task_id
+       FROM invoice_reminder_attempts WHERE company_id = $1 AND id = $2`,
+    [companyId, attemptId, messageId]);
+  await tx.query('DELETE FROM invoice_reminder_attempts WHERE company_id = $1 AND id = $2', [companyId, attemptId]);
+  return (rowCount ?? 0) > 0;
+}
+
+export interface Unconfirmed {
+  attemptId: string;
+  invoiceId: string;
+  number: string;
+  customer: string;
+  to: string;
+  step: number;
+  /** How many letters the policy has: the step's place, as the owner reads it. */
+  of: number;
+  day: string;
+}
+
+/** Letters handed to the mail server long enough ago that it is not going to say any more about them. */
+export async function unconfirmedLetters(tx: TenantClient, companyId: string): Promise<Unconfirmed[]> {
+  const policy = await policyOf(tx, companyId);
+  const { rows } = await tx.query<{ id: string; invoice_id: string; number: string; customer_name: string; to_address: string; step: number; day: string }>(
+    `SELECT a.id, a.invoice_id, i.number, i.customer_name, a.to_address, a.step,
+            to_char((a.started_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS day
+       FROM invoice_reminder_attempts a JOIN invoices i ON i.company_id = a.company_id AND i.id = a.invoice_id
+      WHERE a.company_id = $1 AND a.started_at < now() - make_interval(mins => $2)
+      ORDER BY a.started_at`, [companyId, IN_FLIGHT_MINUTES]);
+  return rows.map((row) => ({
+    attemptId: row.id, invoiceId: row.invoice_id, number: row.number, customer: row.customer_name, to: row.to_address,
+    step: row.step, of: Math.max(policy.stepsDays.length, row.step), day: row.day,
+  }));
 }
 
 /**
@@ -322,9 +403,14 @@ export interface InvoiceReminding {
 export async function remindingOf(tx: TenantClient, companyId: string, invoiceIds: string[]): Promise<Record<string, InvoiceReminding>> {
   const out: Record<string, InvoiceReminding> = {};
   if (invoiceIds.length === 0) return out;
+  // A letter the server may have sent is one of the letters: the owner reads
+  // it on the invoice as such (`remindersOf`).
   const { rows: sent } = await tx.query<{ invoice_id: string; n: number; last_on: string }>(
-    `SELECT invoice_id, count(*)::int AS n, to_char(max(sent_on), 'YYYY-MM-DD') AS last_on FROM invoice_reminders
-      WHERE company_id = $1 AND invoice_id = ANY($2::uuid[]) GROUP BY invoice_id`, [companyId, invoiceIds]);
+    `SELECT invoice_id, count(*)::int AS n, to_char(max(sent_on), 'YYYY-MM-DD') AS last_on FROM (
+       SELECT invoice_id, sent_on FROM invoice_reminders WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
+       UNION ALL
+       SELECT invoice_id, (started_at AT TIME ZONE 'UTC')::date FROM invoice_reminder_attempts WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])
+     ) letters GROUP BY invoice_id`, [companyId, invoiceIds]);
   const { rows: flags } = await tx.query<{ invoice_id: string; held: boolean; told: boolean }>(
     `SELECT invoice_id, held_at IS NOT NULL AS held, escalated_at IS NOT NULL AS told FROM invoice_collections
       WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])`, [companyId, invoiceIds]);

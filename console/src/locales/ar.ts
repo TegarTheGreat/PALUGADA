@@ -216,6 +216,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "القائمة",
   "More options": "خيارات أخرى",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "لا يوجد دور يستطيع إرسال التذكيرات بعد. هذا يتيح للأدوار التي تصدر الفواتير إرسالها، أو يوظّف محاسبًا إن لم يوجد.",
+  "Not confirmed by the mail server": "لم يؤكده خادم البريد",
   "Not read from models.dev yet.": "لم يُقرأ من models.dev بعد.",
   "Parked: its role is paused; it goes on when the role does": "مؤجّلة: دورها متوقف مؤقتًا؛ وتستمر حين يستأنف الدور",
   "Remind a customer about an invoice": "ذكّر عميلًا بفاتورة",

@@ -187,6 +187,25 @@ export function invoiceUnpaidCard(reading: OwnerReading, facts: {
   };
 }
 
+/**
+ * A reminder handed to the mail server that the server never said it took
+ * (`invoice.remind`): it counts as sent and is not sent again, and the owner
+ * is told it may not have arrived.
+ */
+export function reminderUnconfirmedCard(reading: OwnerReading, facts: {
+  number: string; customer: string; to: string; step: number; of: number; day: string;
+}): Card {
+  const { language } = reading;
+  const values = {
+    number: facts.number, customer: facts.customer, to: facts.to, step: String(facts.step), of: String(facts.of),
+    day: day({ ...reading, timezone: 'UTC' }, new Date(`${facts.day}T00:00:00Z`)),
+  };
+  return {
+    title: say(language, 'Reminder for invoice {number} not confirmed', values),
+    detail: say(language, 'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.', values),
+  };
+}
+
 /** Invoices are overdue and no role can write the reminders: where to switch that on. */
 export function nobodyRemindsCard(reading: OwnerReading): Card {
   const { language } = reading;

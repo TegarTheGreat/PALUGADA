@@ -205,6 +205,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "菜单",
   "More options": "更多选项",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "还没有角色能发送提醒。此操作让开具发票的角色来发送，没有这样的角色时会雇用一名记账员。",
+  "Not confirmed by the mail server": "邮件服务器未确认",
   "Not read from models.dev yet.": "尚未从 models.dev 读取。",
   "Parked: its role is paused; it goes on when the role does": "已搁置：其角色已暂停，角色恢复后会继续",
   "Remind a customer about an invoice": "就发票提醒客户",

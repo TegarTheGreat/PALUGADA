@@ -14,6 +14,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { addDocument, searchDocuments } from '../../src/knowledge/documents.ts';
 import { embedBacklog, queryMeaning, useMeaning } from '../../src/knowledge/meaning.ts';
+import { CONSERVATIVE_FALLBACK } from '../../src/engine/pricing.ts';
 import { embedProvider, type EmbedBinding } from '../../src/capabilities/embed.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { Worker } from '../../src/worker.ts';
@@ -37,7 +38,7 @@ after(async () => {
  * An embeddings server whose vectors are three ideas: money coming back,
  * coffee being roasted, and anything else. Written the way OpenAI's answers.
  */
-async function fakeEmbeddings(): Promise<{ url: string; asked: Array<{ model: string; input: string[]; authorization: string | undefined }>; close: () => Promise<void> }> {
+async function fakeEmbeddings(tokensEach = 0): Promise<{ url: string; asked: Array<{ model: string; input: string[]; authorization: string | undefined }>; close: () => Promise<void> }> {
   const asked: Array<{ model: string; input: string[]; authorization: string | undefined }> = [];
   const idea = (text: string): number[] => {
     const lower = text.toLowerCase();
@@ -55,6 +56,8 @@ async function fakeEmbeddings(): Promise<{ url: string; asked: Array<{ model: st
       res.end(JSON.stringify({
         object: 'list', model: body.model,
         data: body.input.map((text, index) => ({ object: 'embedding', index, embedding: idea(text) })).reverse(),
+        // What it used, where OpenAI's answer says it.
+        ...(tokensEach > 0 ? { usage: { prompt_tokens: tokensEach * body.input.length, total_tokens: tokensEach * body.input.length } } : {}),
       }));
     });
   });
@@ -186,4 +189,41 @@ test('a provider on the owner\'s own server without its address is named, not bo
   const bound = toolBindingsFrom({ PALUGADA_EMBED_PROVIDER: 'ollama' }, async () => '');
   assert.equal(bound.embed, undefined);
   assert.ok(bound.notes.some((note) => /document meaning is unbound: Ollama is your own server, and PALUGADA_EMBED_URL gives no address/.test(note)), bound.notes.join('\n'));
+});
+
+test('what the passages and the questions cost to embed is the company\'s, counted where its month is', async () => {
+  const fixture = await createCompany('meaning-cost');
+  // Each text 1.25 million tokens, so the cents are whole: OpenAI's small model
+  // is two cents a million, and two passages are 2.5 million.
+  const server = await fakeEmbeddings(1_250_000);
+  try {
+    await documents(fixture.companyId);
+    const openai: EmbedBinding = { provider: embedProvider('openai')!, url: server.url, model: null, key: async () => 'k' };
+    assert.equal(await embedBacklog(fixture.companyId, openai), 2);
+    const traced = () => withTenant(fixture.companyId, async (tx) => (await tx.query<{ model: string; input_tokens: number; output_tokens: number; cost_cents: number; task_id: string | null }>(
+      'SELECT model, input_tokens, output_tokens, cost_cents, task_id FROM llm_traces ORDER BY occurred_at, input_tokens')).rows);
+    assert.deepEqual(await traced(), [
+      { model: 'openai:text-embedding-3-small', input_tokens: 2_500_000, output_tokens: 0, cost_cents: 5, task_id: null },
+    ]);
+
+    // A question asked of the documents is embedded too, and charged to the
+    // company whose role asked it.
+    useMeaning(openai);
+    assert.ok(await queryMeaning('refund policy', undefined, fixture.companyId));
+    assert.deepEqual((await traced()).map((one) => [one.input_tokens, one.cost_cents]), [[2_500_000, 5], [1_250_000, 2]]);
+
+    // The deployment's price list is the better word when it knows the model.
+    const listed: EmbedBinding = {
+      ...openai, model: 'text-embedding-3-large',
+      prices: { rates: [{ pattern: 'text-embedding-3-large', rate: { inputCentsPerMTok: 13, outputCentsPerMTok: 0 } }], fallback: CONSERVATIVE_FALLBACK },
+    };
+    await addDocument(fixture.companyId, { title: 'Opening hours', divisionId: null, body: 'Open every day but Sunday.' });
+    assert.equal(await embedBacklog(fixture.companyId, listed), 3, 'every passage again, for the new model');
+    // 13 cents a million for 3.75 million is 48.75, with the half cent the
+    // question left over: 49 now, a quarter carried.
+    const last = (await traced()).at(-1)!;
+    assert.deepEqual([last.model, last.input_tokens, last.cost_cents], ['openai:text-embedding-3-large', 3_750_000, 49]);
+  } finally {
+    await server.close();
+  }
 });

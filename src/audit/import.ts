@@ -176,6 +176,7 @@ const SECTIONS: ImportSection[] = [
   // Reminding customers (0130), after the invoices and the tasks that wrote to them.
   { name: 'collections_policy', table: 'collections_policy', references: [] },
   { name: 'invoice_reminders', table: 'invoice_reminders', references: ['invoice_id', 'task_id'] },
+  { name: 'invoice_reminder_attempts', table: 'invoice_reminder_attempts', references: ['invoice_id', 'task_id'] },
   { name: 'invoice_collections', table: 'invoice_collections', references: ['invoice_id'] },
   {
     // A customer channel is not left open by a restore: it arrives closed,

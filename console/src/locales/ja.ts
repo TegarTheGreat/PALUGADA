@@ -214,6 +214,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "メニュー",
   "More options": "その他のオプション",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "リマインドを送れるロールがまだありません。これで、請求書を発行するロールが送れるようになります。いなければ経理担当を採用します。",
+  "Not confirmed by the mail server": "メールサーバー未確認",
   "Not read from models.dev yet.": "models.dev からまだ読み取っていません。",
   "Parked: its role is paused; it goes on when the role does": "保留中：担当ロールが一時停止中です。ロールが再開すると続行します",
   "Remind a customer about an invoice": "請求書についてお客様にリマインド",

@@ -30,11 +30,11 @@ import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { languagesFor } from '../domain/language.ts';
 import { isPalugadaError, type PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { invoiceUnpaidCard, nobodyRemindsCard, ownerReadingWithin, remindedSaid, reminderMailboxAsked, reminderPlanSaid } from '../owner/platform-cards.ts';
+import { invoiceUnpaidCard, nobodyRemindsCard, ownerReadingWithin, remindedSaid, reminderMailboxAsked, reminderPlanSaid, reminderUnconfirmedCard } from '../owner/platform-cards.ts';
 import { ADDRESS } from '../capabilities/mailbox.ts';
 import type { RemindResult } from '../capabilities/collections.ts';
 import { createRootTask } from '../engine/tasks.ts';
-import { noteEscalated, policyOf, whatIsNext } from '../records/collections.ts';
+import { lettersOf, noteEscalated, policyOf, unconfirmedLetters, whatIsNext } from '../records/collections.ts';
 import { listInvoices } from '../records/invoices.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 
@@ -70,9 +70,9 @@ async function read(tx: TenantClient, companyId: string, today: string): Promise
   const { invoices } = await listInvoices(tx, companyId, { status: 'open', limit: 500 });
   if (invoices.length === 0) return { due: [], person: [] };
   const ids = invoices.map((invoice) => invoice.id);
-  const { rows: sent } = await tx.query<{ invoice_id: string; step: number; sent_on: string }>(
-    `SELECT invoice_id, step, to_char(sent_on, 'YYYY-MM-DD') AS sent_on FROM invoice_reminders
-      WHERE company_id = $1 AND invoice_id = ANY($2::uuid[]) ORDER BY invoice_id, step`, [companyId, ids]);
+  // The letters the server took and those it may have: a step in flight or
+  // unconfirmed is a step taken (`invoice.remind`).
+  const sent = await lettersOf(tx, companyId, ids);
   const { rows: flags } = await tx.query<{ invoice_id: string; held: boolean; told: boolean }>(
     `SELECT invoice_id, held_at IS NOT NULL AS held, escalated_at IS NOT NULL AS told FROM invoice_collections
       WHERE company_id = $1 AND invoice_id = ANY($2::uuid[])`, [companyId, ids]);
@@ -82,8 +82,7 @@ async function read(tx: TenantClient, companyId: string, today: string): Promise
   for (const invoice of invoices) {
     const flag = flags.find((one) => one.invoice_id === invoice.id);
     if (flag?.held) continue;
-    const letters = sent.filter((one) => one.invoice_id === invoice.id).map((one) => ({ step: one.step, day: one.sent_on }));
-    const next = whatIsNext({ dueDate: invoice.dueDate, today, steps: policy.stepsDays, sent: letters });
+    const next = whatIsNext({ dueDate: invoice.dueDate, today, steps: policy.stepsDays, sent: sent.get(invoice.id) ?? [] });
     const reachable = invoice.customerEmail !== null && new RegExp(ADDRESS).test(invoice.customerEmail);
     const about = { id: invoice.id, number: invoice.number, customer: invoice.customerName, cents: invoice.outstandingCents, currency: invoice.currency, dueDate: invoice.dueDate };
     if (next.action === 'remind') {
@@ -105,6 +104,21 @@ export async function ensureCollections(companyId: string, now = new Date()): Pr
   if (before !== undefined && now.getTime() - before < COLLECTIONS_EVERY_MS && now.getTime() >= before) return NOTHING;
   lastLook.set(companyId, now.getTime());
   const today = now.toISOString().slice(0, 10);
+
+  // A letter the mail server never said it took is told to the owner once,
+  // whether or not the company still reminds: it was written either way.
+  await withTenant(companyId, async (tx) => {
+    for (const letter of await unconfirmedLetters(tx, companyId)) {
+      const once = `reminder_unconfirmed:${letter.attemptId}`;
+      const { rows: told } = await tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' = $1", [once]);
+      if (told.length > 0) continue;
+      const card = reminderUnconfirmedCard(await ownerReadingWithin(tx), letter);
+      await inbox.raiseEscalationWithin(tx, {
+        companyId, title: card.title, detail: card.detail,
+        payload: { once, invoiceId: letter.invoiceId, number: letter.number, step: letter.step },
+      });
+    }
+  });
 
   const found = await withTenant(companyId, (tx) => read(tx, companyId, today));
   if (!found) return NOTHING;

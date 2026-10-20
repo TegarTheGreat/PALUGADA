@@ -236,6 +236,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "Menu",
   "More options": "Pilihan sanesipun",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "Durung ana peran sing bisa ngirim pangeling. Iki ngolehake peran sing nerbitake faktur ngirim, utawa nyewa bookkeeper yen ora ana.",
+  "Not confirmed by the mail server": "Durung dikonfirmasi server email",
   "Not read from models.dev yet.": "Durung diwaca saka models.dev.",
   "Parked: its role is paused; it goes on when the role does": "Dipun tundha: peranipun dipun jeda; lajeng manawi peranipun lajeng",
   "Remind a customer about an invoice": "Elingake pelanggan bab faktur",

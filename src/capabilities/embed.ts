@@ -15,6 +15,7 @@
  * says (checked in September 2026). None was called with a live key.
  */
 import { PalugadaError } from '../errors.ts';
+import { rateFor, type PriceTable } from '../engine/pricing.ts';
 import type { ToolKeyUse } from './search.ts';
 
 export interface EmbedProvider {
@@ -27,36 +28,43 @@ export interface EmbedProvider {
   base: string | null;
   urlExample?: string;
   defaultModel: string;
+  /**
+   * What its default model costs, in cents a million tokens, as the provider
+   * published it (checked October 2026): what a call is charged when the
+   * deployment's price list does not know the model. A server of the owner's
+   * own is theirs to pay for, and costs the company nothing here.
+   */
+  centsPerMTok: number;
 }
 
 export const EMBED_PROVIDERS: readonly EmbedProvider[] = [
   {
     id: 'openai', name: 'OpenAI', key: 'required', keyUrl: 'https://platform.openai.com/api-keys',
-    base: 'https://api.openai.com/v1', defaultModel: 'text-embedding-3-small',
+    base: 'https://api.openai.com/v1', defaultModel: 'text-embedding-3-small', centsPerMTok: 2,
   },
   {
     id: 'gemini', name: 'Google Gemini', key: 'required', keyUrl: 'https://aistudio.google.com/apikey',
-    base: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-embedding-001',
+    base: 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-embedding-001', centsPerMTok: 15,
   },
   {
     id: 'mistral', name: 'Mistral', key: 'required', keyUrl: 'https://console.mistral.ai/api-keys',
-    base: 'https://api.mistral.ai/v1', defaultModel: 'mistral-embed',
+    base: 'https://api.mistral.ai/v1', defaultModel: 'mistral-embed', centsPerMTok: 10,
   },
   {
     id: 'voyage', name: 'Voyage AI', key: 'required', keyUrl: 'https://dashboard.voyageai.com/api-keys',
-    base: 'https://api.voyageai.com/v1', defaultModel: 'voyage-3.5',
+    base: 'https://api.voyageai.com/v1', defaultModel: 'voyage-3.5', centsPerMTok: 6,
   },
   {
     id: 'jina', name: 'Jina AI', key: 'required', keyUrl: 'https://jina.ai/api-dashboard/',
-    base: 'https://api.jina.ai/v1', defaultModel: 'jina-embeddings-v3',
+    base: 'https://api.jina.ai/v1', defaultModel: 'jina-embeddings-v3', centsPerMTok: 1.8,
   },
   {
     id: 'ollama', name: 'Ollama', key: 'none', base: null, urlExample: 'http://localhost:11434/v1',
-    defaultModel: 'nomic-embed-text',
+    defaultModel: 'nomic-embed-text', centsPerMTok: 0,
   },
   {
     id: 'openai-compatible', name: 'Another OpenAI-compatible server', key: 'optional', base: null,
-    urlExample: 'http://localhost:8000/v1', defaultModel: 'bge-m3',
+    urlExample: 'http://localhost:8000/v1', defaultModel: 'bge-m3', centsPerMTok: 0,
   },
 ];
 
@@ -71,6 +79,8 @@ export interface EmbedBinding {
   key: () => Promise<string | null>;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
+  /** The deployment's price list, which prices a model it knows before the provider's own figure does. */
+  prices?: PriceTable;
 }
 
 /** What one call may carry: a provider's batch limit is in the hundreds, and a worker's tick should stay short. */
@@ -88,7 +98,16 @@ export function embedModel(binding: EmbedBinding): string {
  * vectors is confident nonsense.
  */
 export async function embed(binding: EmbedBinding, texts: readonly string[], signal?: AbortSignal): Promise<number[][]> {
-  if (texts.length === 0) return [];
+  return (await embedAndCount(binding, texts, signal)).vectors;
+}
+
+/**
+ * The vectors, and what the call used: the tokens the provider says it read,
+ * or, from one that does not say, a quarter of the characters it was sent --
+ * an embedding is paid for whether or not the answer counts it.
+ */
+export async function embedAndCount(binding: EmbedBinding, texts: readonly string[], signal?: AbortSignal): Promise<{ vectors: number[][]; tokens: number }> {
+  if (texts.length === 0) return { vectors: [], tokens: 0 };
   if (texts.length > EMBED_BATCH) {
     throw new PalugadaError('contract.violation', `at most ${EMBED_BATCH} texts are embedded at once`, { count: texts.length });
   }
@@ -118,7 +137,7 @@ export async function embed(binding: EmbedBinding, texts: readonly string[], sig
         : `${binding.provider.name} answered ${response.status}${detail ? `: ${detail}` : ''}`,
       { status: response.status });
   }
-  const answer = (await response.json().catch(() => null)) as { data?: Array<{ embedding?: unknown; index?: unknown }> } | null;
+  const answer = (await response.json().catch(() => null)) as { data?: Array<{ embedding?: unknown; index?: unknown }>; usage?: { prompt_tokens?: unknown; total_tokens?: unknown } } | null;
   const data = [...(answer?.data ?? [])].sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
   const vectors = data.map((one) => one.embedding);
   const length = Array.isArray(vectors[0]) ? vectors[0].length : 0;
@@ -126,5 +145,22 @@ export async function embed(binding: EmbedBinding, texts: readonly string[], sig
     || !vectors.every((one) => Array.isArray(one) && one.length === length && one.every((x) => typeof x === 'number' && Number.isFinite(x)))) {
     throw new PalugadaError('capability.unreachable', `${binding.provider.name} answered without a vector for each text`, {});
   }
-  return vectors as number[][];
+  const said = [answer?.usage?.prompt_tokens, answer?.usage?.total_tokens].find((one) => typeof one === 'number' && Number.isFinite(one) && one >= 0);
+  const tokens = typeof said === 'number' ? said : Math.ceil(texts.reduce((sum, text) => sum + text.length, 0) / 4);
+  return { vectors: vectors as number[][], tokens };
+}
+
+/**
+ * What embedding `tokens` cost, exactly, in cents: at the deployment's price
+ * list when it knows the model, and otherwise at the provider's own figure.
+ */
+export function embeddingCents(binding: EmbedBinding, tokens: number): number {
+  const model = binding.model ?? binding.provider.defaultModel;
+  if (binding.prices) {
+    const { rate, basis } = rateFor(binding.prices, model);
+    // The list's ceiling for a model it does not know is a frontier model's
+    // price, a thousand times an embedding's: the provider's figure is nearer.
+    if (basis !== 'fallback') return (tokens * rate.inputCentsPerMTok) / 1_000_000;
+  }
+  return (tokens * binding.provider.centsPerMTok) / 1_000_000;
 }

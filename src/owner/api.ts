@@ -3784,7 +3784,7 @@ export class OwnerApi {
             if (!found) throw new PalugadaError('contract.violation', `no invoice ${params.invoiceId} in these books`, { field: 'invoice' });
             return {
               ...found,
-              reminders: (await remindersOf(tx, companyId, found.id)).map((one) => ({ step: one.step, sentOn: one.sentOn, to: one.to })),
+              reminders: (await remindersOf(tx, companyId, found.id)).map((one) => ({ step: one.step, sentOn: one.sentOn, to: one.to, confirmed: one.confirmed })),
               held: await isHeld(tx, companyId, found.id),
             };
           });

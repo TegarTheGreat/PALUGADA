@@ -226,6 +226,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "Menu",
   "More options": "Plus d’options",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "Aucun rôle ne peut encore envoyer de rappels. Cela permet aux rôles qui émettent des factures de les envoyer, ou recrute un comptable s’il n’y en a pas.",
+  "Not confirmed by the mail server": "Non confirmé par le serveur de messagerie",
   "Not read from models.dev yet.": "models.dev n'a pas encore été lu.",
   "Parked: its role is paused; it goes on when the role does": "En attente : son rôle est en pause ; elle reprend quand le rôle reprend",
   "Remind a customer about an invoice": "Rappeler une facture à un client",

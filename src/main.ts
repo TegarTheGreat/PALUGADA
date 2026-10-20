@@ -762,7 +762,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     }
   }
   // Searching and reading pages, through the providers the owner chose.
-  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot);
+  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot, prices);
   // Figures worked out in Python, in a container that reaches no network:
   // the operator's, since it needs a docker this process can reach.
   const compute = computeFrom(env, filesRoot);

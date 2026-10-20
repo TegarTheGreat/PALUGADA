@@ -27,6 +27,7 @@ import { mailboxCapabilities } from '../../src/capabilities/mailbox.ts';
 import { invoiceRemind } from '../../src/capabilities/collections.ts';
 import { setCompanyLanguages } from '../../src/domain/language.ts';
 import { holdInvoice, remindersOf, setPolicy } from '../../src/records/collections.ts';
+import { ensureCollections } from '../../src/duties/collections.ts';
 import { issueInvoice, payInvoice, voidInvoice } from '../../src/records/invoices.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -249,6 +250,72 @@ test('a letter that could not be sent leaves the step free for the next try, and
     await servers.smtp.close();
     await assert.rejects(broker.invoke(at(fixture, taskId, 'down'), 'invoice.remind', { invoice: second.number }), (error: unknown) => isPalugadaError(error));
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => remindersOf(tx, fixture.companyId, second.invoiceId)), []);
+  } finally {
+    await close();
+  }
+});
+
+test('a letter the mail server took but never confirmed is not sent again: the step counts, and the owner is told once', { skip: SKIP }, async () => {
+  const fixture = await createCompany('remind-unconfirmed');
+  const { servers, broker, close } = await wired(fixture);
+  try {
+    const invoice = await overdue(fixture, 5);
+    const taskId = await runningTask(fixture);
+    // The server takes the letter and hangs up before it says so: whether it
+    // went cannot be known from here.
+    servers.smtp.dropsAfterData = true;
+    await assert.rejects(broker.invoke(at(fixture, taskId, 'cut'), 'invoice.remind', { invoice: invoice.number }),
+      (error: unknown) => isPalugadaError(error, 'capability.unreachable'));
+    assert.equal(servers.smtp.sent.length, 1, 'the server has the letter');
+
+    // Tried again -- the same call after a crash, or the next look -- it is
+    // not sent twice: the step is taken, and the next is not due.
+    servers.smtp.dropsAfterData = false;
+    const again = await broker.invoke(at(fixture, taskId, 'cut'), 'invoice.remind', { invoice: invoice.number });
+    assert.equal((again.output as Result).status, 'skipped');
+    const other = await broker.invoke(at(fixture, taskId, 'next-look'), 'invoice.remind', { invoice: invoice.number });
+    assert.equal((other.output as Result).status, 'skipped');
+    assert.equal(servers.smtp.sent.length, 1, 'one letter, whatever the server did with it');
+
+    // It is on the invoice as a letter that may have gone, not as one that did.
+    const kept = await withTenant(fixture.companyId, (tx) => remindersOf(tx, fixture.companyId, invoice.invoiceId));
+    assert.deepEqual(kept.map((one) => [one.step, one.sentOn, one.confirmed]), [[1, day(0), false]]);
+
+    // Once it is clearly not in flight any more, the owner is told, once, in words.
+    await withControlPlane((tx) => tx.query(
+      "UPDATE invoice_reminder_attempts SET started_at = now() - interval '1 hour' WHERE company_id = $1", [fixture.companyId]));
+    const now = new Date();
+    await ensureCollections(fixture.companyId, now);
+    await ensureCollections(fixture.companyId, new Date(now.getTime() + 31 * 60_000));
+    const { rows: cards } = await withTenant(fixture.companyId, (tx) => tx.query<{ title: string; detail: string }>(
+      "SELECT title, rationale AS detail FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' LIKE 'reminder_unconfirmed:%'"));
+    assert.equal(cards.length, 1, 'told once');
+    assert.match(cards[0]!.title, /INV-0001/);
+    assert.match(cards[0]!.detail, /did not confirm reminder 1 of 3 for invoice INV-0001 to Toko Kopi Senja \(bu\.sari@kopisenja\.example\)/);
+    assert.match(cards[0]!.detail, /will not send it again/);
+  } finally {
+    await close();
+  }
+});
+
+test('a letter the mail server refused leaves the step free, and the next try sends it', { skip: SKIP }, async () => {
+  const fixture = await createCompany('remind-refused');
+  const { servers, broker, close } = await wired(fixture);
+  try {
+    const invoice = await overdue(fixture, 5);
+    const taskId = await runningTask(fixture);
+    servers.smtp.refusesRecipients = true;
+    await assert.rejects(broker.invoke(at(fixture, taskId, 'refused'), 'invoice.remind', { invoice: invoice.number }),
+      (error: unknown) => isPalugadaError(error, 'contract.violation') && /refused the letter/.test((error as Error).message));
+    assert.deepEqual(await withTenant(fixture.companyId, (tx) => remindersOf(tx, fixture.companyId, invoice.invoiceId)), [],
+      'nothing went, so nothing is kept');
+    servers.smtp.refusesRecipients = false;
+    const sent = await broker.invoke(at(fixture, taskId, 'retry'), 'invoice.remind', { invoice: invoice.number });
+    assert.deepEqual([(sent.output as Result).status, (sent.output as Result).step], ['sent', 1]);
+    const kept = await withTenant(fixture.companyId, (tx) => remindersOf(tx, fixture.companyId, invoice.invoiceId));
+    assert.deepEqual(kept.map((one) => [one.step, one.confirmed]), [[1, true]]);
+    assert.deepEqual((await withTenant(fixture.companyId, (tx) => tx.query('SELECT 1 FROM invoice_reminder_attempts'))).rows, [],
+      'nothing is left in flight');
   } finally {
     await close();
   }

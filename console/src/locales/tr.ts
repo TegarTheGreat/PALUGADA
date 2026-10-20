@@ -245,6 +245,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "Menü",
   "More options": "Daha fazla seçenek",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "Henüz hatırlatma gönderebilecek bir rol yok. Bu, fatura kesen rollerin göndermesine izin verir; yoksa bir muhasebeci işe alır.",
+  "Not confirmed by the mail server": "E-posta sunucusu onaylamadı",
   "Not read from models.dev yet.": "models.dev'den henüz okunmadı.",
   "Parked: its role is paused; it goes on when the role does": "Beklemede: rolü duraklatıldı; rol sürdürüldüğünde devam eder",
   "Remind a customer about an invoice": "Müşteriye bir faturayı hatırlat",

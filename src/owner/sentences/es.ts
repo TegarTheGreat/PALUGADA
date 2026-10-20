@@ -395,4 +395,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Recordar a los clientes cuyas facturas están vencidas',
   'each customer whose next reminder is due has been written to once':
     'a cada cliente cuyo próximo recordatorio toca se le ha escrito una vez',
+  'Reminder for invoice {number} not confirmed':
+    'Recordatorio de la factura {number} sin confirmar',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'El servidor de correo no confirmó el recordatorio {step} de {of} de la factura {number} a {customer} ({to}), entregado el {day}. Puede que haya llegado o no. La plataforma no lo enviará de nuevo: si {customer} dice que no lo recibió, envíelo usted o dígaselo al CEO.',
 };

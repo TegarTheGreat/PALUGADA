@@ -212,6 +212,11 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
   const first = implicit ? await secureSocket(login.host, login.port, login) : await plainSocket(login.host, login.port, timeoutMs);
   const talk = new Conversation(first);
   const name = login.username.split('@')[1] ?? 'palugada.invalid';
+  // Whether the whole letter has been handed over and the server's answer is
+  // what is awaited: from then until that answer, a failure leaves it unknown
+  // whether the server took the letter (it may already be on its way).
+  let handedOver = false;
+  let taken: string | null = null;
   try {
     if ((await talk.reply()).code !== 220) throw new MailRefused('the server did not greet');
     let offered = await talk.send(`EHLO ${name}`, [250]);
@@ -234,7 +239,6 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
       await talk.send(Buffer.from(login.username, 'utf8').toString('base64'), [334], 'AUTH LOGIN');
       await talk.send(Buffer.from(login.password, 'utf8').toString('base64'), [235], 'AUTH LOGIN');
     }
-    let taken: string | null = null;
     if (message) {
       // A server says how large a message it takes (RFC 1870): said before the
       // message is sent, and not after the whole of it has gone for nothing.
@@ -249,6 +253,7 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
       // after the server took it would invite a second send of the same letter.
       if (message.raw.length > 1_048_576) talk.patience(Math.max(timeoutMs, 60_000));
       talk.write(stuffed(message.raw));
+      handedOver = true;
       const answer = await talk.send('.', [250], 'DATA');
       talk.patience(timeoutMs);
       taken = `${answer.code} ${answer.lines.join(' ')}`.slice(0, 300);
@@ -257,6 +262,13 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
     return taken;
   } catch (failure) {
     if (failure instanceof PalugadaError || failure instanceof MailRefused) throw failure;
+    if (handedOver && taken === null) {
+      // Said so, for a caller that must not send the same letter twice
+      // (`invoice.remind`): the server may have it, and may send it.
+      throw new PalugadaError('capability.unreachable',
+        `the mail server at ${where} was handed the letter and stopped answering before it said whether it took it: ${(failure as Error).message}`,
+        { delivery: 'unknown' });
+    }
     throw new PalugadaError('capability.unreachable', `the mail server at ${where} stopped answering: ${(failure as Error).message}`, {});
   } finally {
     talk.close();

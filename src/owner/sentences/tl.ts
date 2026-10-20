@@ -393,4 +393,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Paalalahanan ang mga kliyenteng lampas na sa takda ang invoice',
   'each customer whose next reminder is due has been written to once':
     'ang bawat kliyenteng dapat nang bigyan ng susunod na paalala ay nasulatan nang isang beses',
+  'Reminder for invoice {number} not confirmed':
+    'Hindi nakumpirma ang paalala para sa invoice {number}',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'Hindi kinumpirma ng mail server ang paalala {step} ng {of} para sa invoice {number} kay {customer} ({to}), na ibinigay rito noong {day}. Maaaring dumating ito, maaaring hindi. Hindi na ito muling ipapadala ng platform: kung sabihin ni {customer} na hindi nila ito natanggap, ipadala mo ito mismo, o sabihan ang CEO.',
 };

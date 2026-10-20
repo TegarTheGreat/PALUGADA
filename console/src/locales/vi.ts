@@ -243,6 +243,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "Menu",
   "More options": "Thêm tùy chọn",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "Chưa có vai trò nào gửi được nhắc nhở. Việc này cho phép các vai trò xuất hóa đơn gửi chúng, hoặc thuê một kế toán sổ sách nếu không có.",
+  "Not confirmed by the mail server": "Máy chủ thư chưa xác nhận",
   "Not read from models.dev yet.": "Chưa đọc từ models.dev.",
   "Parked: its role is paused; it goes on when the role does": "Tạm hoãn: vai trò của nó đang tạm dừng; nó tiếp tục khi vai trò tiếp tục",
   "Remind a customer about an invoice": "Nhắc khách hàng về một hóa đơn",

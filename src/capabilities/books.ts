@@ -16,6 +16,7 @@
  * Issuing an invoice is tier 2, as the catalogue says: the customer has seen
  * the number, which is slow to undo.
  */
+import { once } from '../broker/once.ts';
 import type { Capability } from '../broker/registry.ts';
 import { withTenant } from '../db/tenant.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
@@ -161,7 +162,9 @@ export function ledgerRecord(): Capability<Record<string, unknown>, { entryId: s
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
       const entry = entryInput(input);
-      return withTenant(ctx.companyId, async (tx) => {
+      // Once for each call: the same call made again after a crash is the
+      // entry already posted, not a second one (src/broker/once.ts).
+      return withTenant(ctx.companyId, (tx) => once(tx, ctx, 'ledger.record', async () => {
         const written = {
           taskId: ctx.taskId,
           // A memo a stranger's words may have shaped is read back as data.
@@ -173,7 +176,7 @@ export function ledgerRecord(): Capability<Record<string, unknown>, { entryId: s
           return { entryId: (await payInvoiceByEntry(tx, ctx.companyId, input.invoice, entry, 'agent', written)).entryId };
         }
         return { entryId: await postEntry(tx, ctx.companyId, entry, 'agent', written) };
-      });
+      }));
     },
     async verify(_input, result, ctx) {
       return withTenant(ctx.companyId, async (tx) => (await tx.query(
@@ -226,10 +229,12 @@ export function invoiceIssue(): Capability<Record<string, unknown>, { invoiceId:
     fallback: true,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
-      return withTenant(ctx.companyId, async (tx) => issueInvoice(tx, ctx.companyId, input, 'agent', {
+      // Once for each call: a customer is not billed twice because the run
+      // stopped between issuing and hearing that it had (src/broker/once.ts).
+      return withTenant(ctx.companyId, (tx) => once(tx, ctx, 'invoice.issue', async () => issueInvoice(tx, ctx.companyId, input, 'agent', {
         taskId: ctx.taskId,
         outside: (await outsideContentIn(tx, ctx.taskId)) !== null,
-      }));
+      })));
     },
     async verify(_input, result, ctx) {
       return withTenant(ctx.companyId, async (tx) => (await invoiceWith(tx, ctx.companyId, result.invoiceId))?.number === result.number);

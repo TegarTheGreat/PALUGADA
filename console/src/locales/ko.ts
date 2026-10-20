@@ -216,6 +216,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "메뉴",
   "More options": "옵션 더 보기",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "알림을 보낼 수 있는 역할이 아직 없습니다. 이렇게 하면 청구서를 발행하는 역할이 보내고, 없으면 경리 담당을 채용합니다.",
+  "Not confirmed by the mail server": "메일 서버가 확인하지 않음",
   "Not read from models.dev yet.": "아직 models.dev에서 읽지 않았습니다.",
   "Parked: its role is paused; it goes on when the role does": "보류: 담당 역할이 일시 중지되었습니다. 역할이 재개되면 이어서 진행합니다",
   "Remind a customer about an invoice": "청구서에 대해 고객에게 알림",

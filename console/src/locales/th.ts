@@ -238,6 +238,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "เมนู",
   "More options": "ตัวเลือกเพิ่มเติม",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "ยังไม่มีบทบาทใดส่งการเตือนได้ การเปิดนี้จะให้บทบาทที่ออกใบแจ้งหนี้ส่งได้ หรือจ้างผู้ทำบัญชีหากไม่มี",
+  "Not confirmed by the mail server": "เซิร์ฟเวอร์อีเมลยังไม่ยืนยัน",
   "Not read from models.dev yet.": "ยังไม่เคยอ่านจาก models.dev",
   "Parked: its role is paused; it goes on when the role does": "พักไว้: บทบาทของงานนี้ถูกหยุดชั่วคราว งานจะไปต่อเมื่อบทบาทนั้นไปต่อ",
   "Remind a customer about an invoice": "เตือนลูกค้าเรื่องใบแจ้งหนี้",

@@ -199,6 +199,7 @@ export const DICTIONARY: Dictionary = {
   "Menu": "Menu",
   "More options": "Higit pang opsyon",
   "No role can send reminders yet. This lets the roles that issue invoices send them, or hires a bookkeeper when none does.": "Wala pang role na makapagpapadala ng mga paalala. Pinapayagan nito ang mga role na nag-iisyu ng invoice na magpadala nito, o kumukuha ng bookkeeper kung wala.",
+  "Not confirmed by the mail server": "Hindi kinumpirma ng mail server",
   "Not read from models.dev yet.": "Hindi pa nababasa mula sa models.dev.",
   "Parked: its role is paused; it goes on when the role does": "Naka-park: naka-pause ang role nito; magpapatuloy ito kapag nagpatuloy ang role",
   "Remind a customer about an invoice": "Paalalahanan ang kliyente tungkol sa isang invoice",

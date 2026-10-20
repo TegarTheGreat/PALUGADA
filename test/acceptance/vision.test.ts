@@ -21,6 +21,8 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
 import { imageDescribe, VISION_PROVIDERS } from '../../src/capabilities/vision.ts';
+import { estimateFor } from '../../src/broker/cost.ts';
+import { CONSERVATIVE_FALLBACK, type PriceTable } from '../../src/engine/pricing.ts';
 import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
@@ -208,4 +210,40 @@ test('the owner chooses a vision provider in the console, tries it on a picture,
   } finally {
     await api.close();
   }
+});
+
+test('image.describe is charged what the provider says it used, at the model\'s price, and never nothing', async () => {
+  const { root, mine, ctx: files } = await companyFiles();
+  await writeFile(join(mine, 'nota', 'kopi.png'), PIXEL);
+  const ctx = { ...(files as object), idempotencyKey: 'look-1' } as never;
+  const provider = VISION_PROVIDERS.find((one) => one.id === 'openai')!;
+  // Each provider's answer says what it used, where its reference says it does.
+  const used: Record<string, unknown> = {
+    openai: { usage: { prompt_tokens: 100_000, completion_tokens: 20_000 } },
+    gemini: { usageMetadata: { promptTokenCount: 100_000, candidatesTokenCount: 15_000, thoughtsTokenCount: 5_000 } },
+    anthropic: { usage: { input_tokens: 100_000, output_tokens: 20_000 } },
+  };
+  for (const one of VISION_PROVIDERS) {
+    const shape = one.id === 'gemini' || one.id === 'anthropic' ? one.id : 'openai';
+    assert.deepEqual(one.usage(used[shape]), { input: 100_000, output: 20_000 }, one.id);
+    assert.equal(one.usage({}), null, `${one.id}: an answer that says nothing used is not read as free`);
+  }
+
+  // Before the call, what is reserved is the provider's figure, not nothing: a
+  // call estimated at nothing was charged nothing.
+  const prices: PriceTable = { rates: [{ pattern: 'gpt-4.1-mini', rate: { inputCentsPerMTok: 40, outputCentsPerMTok: 160 } }], fallback: CONSERVATIVE_FALLBACK };
+  const { fetch } = providerFetch({ ...(ANSWERS.openai!.answer as object), ...(used.openai as object) });
+  const priced = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root, prices });
+  assert.equal(estimateFor(priced, { path: 'nota/kopi.png' }), provider.reserveCents);
+  assert.ok(provider.reserveCents > 0);
+
+  // After it, what the provider used at the model's price: 100k in at 40 and
+  // 20k out at 160 a million is 7.2 cents, 7 now and the rest carried.
+  const output = await priced.execute({ path: 'nota/kopi.png' }, ctx);
+  assert.equal(await priced.actualCostCents!({ path: 'nota/kopi.png' }, output, ctx), 7);
+
+  // With no price list there is nothing to price it with: the estimate stands.
+  const unpriced = imageDescribe({ provider, url: null, key: async () => 'k', model: null, fetch, root });
+  const again = await unpriced.execute({ path: 'nota/kopi.png' }, { ...(ctx as object), idempotencyKey: 'look-2' } as never);
+  assert.equal(await unpriced.actualCostCents!({ path: 'nota/kopi.png' }, again, { ...(ctx as object), idempotencyKey: 'look-2' } as never), null);
 });

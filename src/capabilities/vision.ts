@@ -17,6 +17,7 @@
  * The picture goes as a `data:` address inside the request, so no provider
  * is ever handed a link to fetch.
  */
+import { carryFor, costOf, type PriceTable } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
 import type { Capability } from '../broker/registry.ts';
 import { readCompanyFile } from './files.ts';
@@ -40,6 +41,11 @@ export interface VisionProvider {
   request(picture: Picture, question: string, key: string | null, model: string, base: string | null): { url: string; headers: Record<string, string>; body: unknown };
   /** What the model said, from its answer. */
   text(answer: unknown): unknown;
+  /**
+   * What the call used, from its answer, as the provider bills it; null when
+   * the answer does not say, and then the call is charged what was reserved.
+   */
+  usage(answer: unknown): { input: number; output: number } | null;
 }
 
 /** The most a picture may be: Anthropic's limit for one, and more than a receipt needs. */
@@ -81,12 +87,21 @@ function chat(url: string, picture: Picture, question: string, key: string | nul
 }
 const chatText = (answer: unknown) => at(answer, ['choices', 0, 'message', 'content']);
 
+/** Two counts of tokens, when both are there and are counts. */
+function counted(input: unknown, output: unknown): { input: number; output: number } | null {
+  const whole = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  return whole(input) && whole(output) ? { input: input as number, output: output as number } : null;
+}
+/** OpenAI's `usage`, which the others that speak its chat completions answer with too. */
+const chatUsage = (answer: unknown) => counted(at(answer, ['usage', 'prompt_tokens']), at(answer, ['usage', 'completion_tokens']));
+
 export const VISION_PROVIDERS: readonly VisionProvider[] = [
   {
     id: 'openai', name: 'OpenAI', about: 'GPT, reads most scripts and handwriting', key: 'required', keyUrl: 'https://platform.openai.com/api-keys',
     defaultModel: 'gpt-4.1-mini', reserveCents: 1,
     request: (picture, question, key, model) => chat('https://api.openai.com/v1/chat/completions', picture, question, key, model),
     text: chatText,
+    usage: chatUsage,
   },
   {
     id: 'gemini', name: 'Google Gemini', about: 'A generous free tier', key: 'required', keyUrl: 'https://aistudio.google.com/apikey',
@@ -102,6 +117,13 @@ export const VISION_PROVIDERS: readonly VisionProvider[] = [
     text: (answer) => {
       const parts = at(answer, ['candidates', 0, 'content', 'parts']);
       return Array.isArray(parts) ? parts.map((part) => (part as { text?: unknown }).text).filter((text) => typeof text === 'string').join('') : undefined;
+    },
+    // A thinking model's thoughts are billed as what it wrote.
+    usage: (answer) => {
+      const thoughts = at(answer, ['usageMetadata', 'thoughtsTokenCount']);
+      const written = at(answer, ['usageMetadata', 'candidatesTokenCount']);
+      return counted(at(answer, ['usageMetadata', 'promptTokenCount']),
+        typeof written === 'number' ? written + (typeof thoughts === 'number' ? thoughts : 0) : written);
     },
   },
   {
@@ -126,18 +148,21 @@ export const VISION_PROVIDERS: readonly VisionProvider[] = [
       const blocks = at(answer, ['content']);
       return Array.isArray(blocks) ? blocks.filter((block) => (block as { type?: unknown }).type === 'text').map((block) => (block as { text: string }).text).join('') : undefined;
     },
+    usage: (answer) => counted(at(answer, ['usage', 'input_tokens']), at(answer, ['usage', 'output_tokens'])),
   },
   {
     id: 'openrouter', name: 'OpenRouter', about: 'Vision models from several labs, one key', key: 'required', keyUrl: 'https://openrouter.ai/settings/keys',
     defaultModel: 'google/gemini-3.8-flash', reserveCents: 1,
     request: (picture, question, key, model) => chat('https://openrouter.ai/api/v1/chat/completions', picture, question, key, model),
     text: chatText,
+    usage: chatUsage,
   },
   {
     id: 'groq', name: 'Groq', about: 'Llama 4, very fast and cheap', key: 'required', keyUrl: 'https://console.groq.com/keys',
     defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct', reserveCents: 1,
     request: (picture, question, key, model) => chat('https://api.groq.com/openai/v1/chat/completions', picture, question, key, model),
     text: chatText,
+    usage: chatUsage,
   },
   {
     id: 'mistral', name: 'Mistral', about: 'Mistral Small, reads documents well', key: 'required', keyUrl: 'https://console.mistral.ai/api-keys',
@@ -145,12 +170,14 @@ export const VISION_PROVIDERS: readonly VisionProvider[] = [
     // Mistral's reference gives the picture's address as a string, not an object.
     request: (picture, question, key, model) => chat('https://api.mistral.ai/v1/chat/completions', picture, question, key, model, true),
     text: chatText,
+    usage: chatUsage,
   },
   {
     id: 'openai-compatible', name: 'A vision model of your own', about: 'Ollama, llama.cpp or vLLM, OpenAI-compatible', key: 'optional',
     urlExample: 'http://localhost:11434/v1', defaultModel: 'qwen2.5vl', reserveCents: 0,
     request: (picture, question, key, model, base) => chat(`${(base ?? '').replace(/\/+$/, '')}/chat/completions`, picture, question, key, model),
     text: chatText,
+    usage: chatUsage,
   },
 ];
 
@@ -165,6 +192,12 @@ export interface VisionBinding {
   key: () => Promise<string | null>;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
+  /**
+   * The deployment's price list (the one that prices the model calls), by
+   * which what a call used is charged. Without it, a call is charged what
+   * was reserved for it.
+   */
+  prices?: PriceTable;
 }
 
 /** What kind of picture the bytes are, by what they begin with; null for anything else. */
@@ -178,6 +211,13 @@ export function pictureKind(bytes: Buffer): string | null {
 
 /** What the model says the picture shows, answering the question. */
 export async function describePicture(binding: VisionBinding, picture: Picture, question: string, signal?: AbortSignal): Promise<string> {
+  return (await lookAt(binding, picture, question, signal)).text;
+}
+
+/** What the model says, which model said it, and what the call used, as the provider says. */
+async function lookAt(binding: VisionBinding, picture: Picture, question: string, signal?: AbortSignal): Promise<{
+  text: string; model: string; usage: { input: number; output: number } | null;
+}> {
   const model = binding.model ?? binding.provider.defaultModel;
   const call = binding.provider.request(picture, question, await binding.key(), model, binding.url);
   const timeout = AbortSignal.timeout(binding.timeoutMs ?? 60_000);
@@ -201,9 +241,10 @@ export async function describePicture(binding: VisionBinding, picture: Picture, 
         : `${binding.provider.name} answered ${response.status}${detail ? `: ${detail}` : ''}`,
       { status: response.status });
   }
-  const said = binding.provider.text(await response.json());
+  const answer: unknown = await response.json();
+  const said = binding.provider.text(answer);
   if (typeof said !== 'string' || !said.trim()) throw new PalugadaError('capability.unreachable', `${binding.provider.name} answered without saying anything`, {});
-  return said.trim();
+  return { text: said.trim(), model, usage: binding.provider.usage(answer) };
 }
 
 /**
@@ -216,6 +257,10 @@ export async function describePicture(binding: VisionBinding, picture: Picture, 
  * not a picture.
  */
 export function imageDescribe(binding: VisionBinding & { root: string }): Capability<{ path: string; question?: string }, { path: string; provider: string; text: string }> {
+  // What each call used, from its execution to its settlement, by its key: the
+  // broker asks what a call cost after it answered, and the answer carries
+  // only what the role reads.
+  const used = new Map<string, { model: string; usage: { input: number; output: number } }>();
   return {
     name: 'image.describe',
     inputSchema: {
@@ -230,14 +275,27 @@ export function imageDescribe(binding: VisionBinding & { root: string }): Capabi
     adapter: `vision:${binding.provider.id}`,
     defaultTier: 0,
     readsOutside: true,
+    // A model call is paid for: what is reserved before it is the provider's
+    // figure. Once a `describe` that said nothing ($0) stood in front of it,
+    // and every picture described was charged nothing.
     estimatedCostCents: binding.provider.reserveCents,
-    describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
       const file = await readCompanyFile(binding.root, ctx.companyId, input.path, PICTURE_MAX_BYTES, 'image.describe sends pictures up to 5 MB');
       const mime = pictureKind(file.bytes);
       if (!mime) throw new PalugadaError('contract.violation', `${file.path} is not a picture: a PNG, JPEG, WebP or GIF is`, { path: file.path });
       const question = typeof input.question === 'string' && input.question.trim() ? input.question.trim() : DEFAULT_QUESTION;
-      return { path: file.path, provider: binding.provider.name, text: await describePicture(binding, { bytes: file.bytes, mime }, question, ctx.signal) };
+      const looked = await lookAt(binding, { bytes: file.bytes, mime }, question, ctx.signal);
+      if (looked.usage) used.set(ctx.idempotencyKey, { model: looked.model, usage: looked.usage });
+      return { path: file.path, provider: binding.provider.name, text: looked.text };
+    },
+    // What the provider says it used, at the model's price, in whole cents as
+    // they fall due (`CostCarry`): the rest of a cent is the next call's.
+    // Null -- the reservation stands -- with no price list or no usage said.
+    async actualCostCents(_input, _output, ctx) {
+      const call = used.get(ctx.idempotencyKey);
+      used.delete(ctx.idempotencyKey);
+      if (!call || !binding.prices) return null;
+      return carryFor(ctx.companyId).charge(costOf(binding.prices, call.model, call.usage).cents);
     },
   };
 }

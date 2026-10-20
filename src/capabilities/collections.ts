@@ -18,10 +18,16 @@
  * rate limit and the same plan (F8.11) as any tier 2 action; it only does not
  * ask when asking would protect against nothing.
  *
- * **A step is written once.** The invoice is locked from reading what was sent
- * to writing what is (a second caller at the same moment waits, then finds the
- * step taken and sends nothing), and a letter that could not be sent writes
- * nothing, so the next try is a first.
+ * **A letter goes at most once.** The step is taken, and committed, before a
+ * word goes to the mail server (`takeStep`), under a lock on the invoice, so
+ * a second caller at the same moment finds it taken and sends nothing. When
+ * the server says it took the letter, the step is confirmed with the mail's
+ * identity; when it refuses, the step is given back and the next try is a
+ * first. A server that hangs up after the letter and before its answer, or a
+ * platform that stops in between, leaves the step taken and unconfirmed: it
+ * counts as sent, and the owner is told it may not have arrived
+ * (`src/duties/collections.ts`) rather than the customer being written to
+ * twice.
  */
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { appendEvent } from '../audit/event-log.ts';
@@ -30,7 +36,7 @@ import { languagesFor } from '../domain/language.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MailOptions } from '../chats/mail.ts';
 import {
-  isHeld, lockInvoice, policyOf, recordReminder, reminderLetter, remindersOf, whatIsNext,
+  confirmStep, giveStepBack, isHeld, lettersOf, lockInvoice, policyOf, reminderLetter, takeStep, whatIsNext,
 } from '../records/collections.ts';
 import { invoiceWith } from '../records/invoices.ts';
 import { ADDRESS, MAILBOX_ALIAS, credentialForm, deliver, preflightFor } from './mailbox.ts';
@@ -76,17 +82,18 @@ export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: 
 
     async execute(input, ctx: CapabilityContext) {
       const reference = String(input.invoice ?? '').trim();
-      // One transaction from reading what was sent to writing what is sent,
-      // under a lock on the invoice: a second caller at the same moment waits,
-      // then reads a list that has the first one's letter in it. A letter that
-      // cannot be sent rolls the whole of it back, so the step is still free.
-      return withTenant(ctx.companyId, async (tx): Promise<RemindResult> => {
+      // What is due is decided, and the step taken, in one transaction under a
+      // lock on the invoice, and committed before the letter goes: a second
+      // caller waits, then finds the step taken.
+      const decided = await withTenant(ctx.companyId, async (tx) => {
         const known = await invoiceWith(tx, ctx.companyId, reference);
         if (!known) throw new PalugadaError('contract.violation', `no invoice ${reference} in these books`, { field: 'invoice' });
         await lockInvoice(tx, known.id);
         const invoice = (await invoiceWith(tx, ctx.companyId, known.id))!;
         const policy = await policyOf(tx, ctx.companyId);
-        const skipped = (reason: Extract<RemindResult, { status: 'skipped' }>['reason']): RemindResult => ({ status: 'skipped', invoice: invoice.number, reason });
+        const skipped = (reason: Extract<RemindResult, { status: 'skipped' }>['reason']) => ({
+          result: { status: 'skipped', invoice: invoice.number, reason } as RemindResult,
+        });
 
         if (invoice.status === 'void') return skipped('void');
         if (invoice.outstandingCents <= 0) return skipped('paid');
@@ -95,11 +102,10 @@ export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: 
         const to = invoice.customerEmail;
         if (!to || !new RegExp(ADDRESS).test(to)) return skipped('no_email');
 
-        const day = today();
-        const sent = await remindersOf(tx, ctx.companyId, invoice.id);
-        const next = whatIsNext({
-          dueDate: invoice.dueDate, today: day, steps: policy.stepsDays, sent: sent.map((one) => ({ step: one.step, day: one.sentOn })),
-        });
+        // The letters the server took and those it may have: a step in flight
+        // or unconfirmed is a step taken.
+        const sent = (await lettersOf(tx, ctx.companyId, [invoice.id])).get(invoice.id) ?? [];
+        const next = whatIsNext({ dueDate: invoice.dueDate, today: today(), steps: policy.stepsDays, sent });
         if (next.action === 'escalate') return skipped('for_a_person');
         if (next.action === 'wait') return skipped(next.why);
 
@@ -110,23 +116,41 @@ export function invoiceRemind(options: MailOptions = {}): Capability<{ invoice: 
           outstandingCents: invoice.outstandingCents, currency: invoice.currency, dueDate: invoice.dueDate,
           company: company?.name ?? '', paymentNote: policy.paymentNote,
         });
+        const attemptId = await takeStep(tx, ctx.companyId, {
+          invoiceId: invoice.id, step: next.step, to, outstandingCents: invoice.outstandingCents, daysOverdue: next.daysOverdue, taskId: ctx.taskId,
+        });
+        return { go: { attemptId, invoice, to, letter, step: next.step, of: next.of, daysOverdue: next.daysOverdue } };
+      });
+      if ('result' in decided) return decided.result;
+      const { attemptId, invoice, to, letter, step, of, daysOverdue } = decided.go;
+
+      let messageId: string;
+      try {
         const delivered = await deliver(options, ctx, { to: [to], cc: [], subject: letter.subject, text: letter.text, inReplyTo: null, files: [] });
         if (!/^250\b/.test(delivered.queued)) {
           throw new PalugadaError('capability.unreachable', `the mail server did not accept the reminder for ${invoice.number}: ${delivered.queued || 'no answer'}`, { invoice: invoice.number });
         }
-        await recordReminder(tx, ctx.companyId, {
-          invoiceId: invoice.id, step: next.step, day, to, messageId: delivered.messageId,
-          outstandingCents: invoice.outstandingCents, daysOverdue: next.daysOverdue, taskId: ctx.taskId,
-        });
+        messageId = delivered.messageId;
+      } catch (error) {
+        // Refused, or never reached: nothing went, and the step is free. A
+        // server that may have taken it keeps the step taken.
+        const unknown = error instanceof PalugadaError && error.details.delivery === 'unknown';
+        if (!unknown) await withTenant(ctx.companyId, (tx) => giveStepBack(tx, ctx.companyId, attemptId));
+        throw error;
+      }
+
+      await withTenant(ctx.companyId, async (tx) => {
+        await lockInvoice(tx, invoice.id);
+        await confirmStep(tx, ctx.companyId, attemptId, messageId);
         await appendEvent(tx, {
           companyId: ctx.companyId, taskId: ctx.taskId, type: 'invoice.reminded', actor: 'agent_run',
           payload: {
-            invoiceId: invoice.id, number: invoice.number, step: next.step, of: next.of, daysOverdue: next.daysOverdue,
-            outstandingCents: invoice.outstandingCents, currency: invoice.currency, to, messageId: delivered.messageId,
+            invoiceId: invoice.id, number: invoice.number, step, of, daysOverdue,
+            outstandingCents: invoice.outstandingCents, currency: invoice.currency, to, messageId,
           },
         });
-        return { status: 'sent', invoice: invoice.number, step: next.step, of: next.of, to, messageId: delivered.messageId, daysOverdue: next.daysOverdue };
       });
+      return { status: 'sent', invoice: invoice.number, step, of, to, messageId, daysOverdue };
     },
 
     // The read-back: a letter said to be sent has its step written, with the mail's identity.

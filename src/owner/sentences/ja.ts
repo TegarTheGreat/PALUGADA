@@ -392,4 +392,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '請求書が期限超過のお客様にリマインドする',
   'each customer whose next reminder is due has been written to once':
     '次のリマインドの時期が来たお客様全員に、一度ずつ手紙が送られている',
+  'Reminder for invoice {number} not confirmed':
+    '請求書 {number} の督促状が確認されていません',
+  'The mail server did not confirm reminder {step} of {of} for invoice {number} to {customer} ({to}), handed to it on {day}. It may or may not have arrived. The platform will not send it again: if {customer} says they did not get it, send it yourself, or tell the CEO.':
+    'メールサーバーは、{day} に渡された請求書 {number} の {customer}（{to}）宛て督促状（{of} 通中 {step} 通目）を受け取ったと確認しませんでした。届いているかもしれませんし、届いていないかもしれません。プラットフォームは再送しません。{customer} が受け取っていないと言う場合は、ご自身で送るか、CEO に伝えてください。',
 };

@@ -256,9 +256,19 @@ const SECTIONS: Section[] = [
             FROM invoice_reminders ORDER BY invoice_id, step`,
   },
   {
+    // A letter handed to the mail server that it never said it took (0131):
+    // it counts as sent, and a restore without it would send it again.
+    name: 'invoice_reminder_attempts',
+    sql: `SELECT id, invoice_id, step, to_address, outstanding_cents, days_overdue, started_at, task_id
+            FROM invoice_reminder_attempts ORDER BY invoice_id, step`,
+  },
+  {
     name: 'invoice_collections',
     sql: `SELECT invoice_id, held_at, escalated_at FROM invoice_collections ORDER BY invoice_id`,
   },
+  // \`call_answers\` (0131) does not travel: an answer is kept under a key made
+  // from the task that made the call, and a restored task has a new identity,
+  // so no call in the restored company could ever be answered from one.
   {
     name: 'chats',
     sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id

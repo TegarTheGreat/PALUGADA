@@ -150,7 +150,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       // And by meaning, when the deployment has a provider for it: the
       // query's vector is made before the transaction, which a network call
       // should not hold open.
-      const meaning = await queryMeaning(input.query);
+      const meaning = await queryMeaning(input.query, ctx.signal, ctx.companyId);
       const passages = await withTenant(ctx.companyId, (tx) => searchDocuments(tx, {
         divisionId: ctx.divisionId, query: input.query, limit: 3, ...(meaning ? { meaning } : {}),
       }));

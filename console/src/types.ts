@@ -888,7 +888,8 @@ export interface InvoiceDetail extends InvoiceRow {
   lines: Array<{ description: string; quantity: number; unitCents: number; amountCents: number }>;
   payments: Array<{ id: string; paidOn: string; amountCents: number; entryId: string; reversed: boolean; writtenBy: 'owner' | 'agent' }>;
   /** The reminders sent, in order, and whether the owner asked that it be left alone. */
-  reminders: Array<{ step: number; sentOn: string; to: string }>;
+  /** `confirmed` false: handed to the mail server, which never said it took it; it counts as sent and is not sent again. */
+  reminders: Array<{ step: number; sentOn: string; to: string; confirmed: boolean }>;
   held: boolean;
 }
 

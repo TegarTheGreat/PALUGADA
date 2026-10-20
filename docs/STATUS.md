@@ -10714,7 +10714,8 @@ cannot settle goes to a person, once. Tools (3), checks (4) and the person (5) w
   letter, still unpaid, it is a person's too.
 - **A step is written once.** The invoice is locked (`pg_advisory_xact_lock`) from reading what was sent to writing
   what is, so two callers at once send one letter; a letter the mail server did not accept writes nothing, so the
-  next try is a first. `invoice_reminders` is insert-only for the application role.
+  next try is a first. `invoice_reminders` is insert-only for the application role. (2.180 makes it *at most once*
+  across a crash too: the step is taken before the letter goes.)
 - **The look (`ensureCollections`, in the worker's tick, at most every half hour for a company).** It reads the books
   and makes **one task** for the role that holds `invoice.remind` (key `duty:collections:<hash of the day and the
   invoices>`, so two workers make one), whose handler calls the capability once for each invoice named. The
@@ -10789,6 +10790,50 @@ mended, in a copy of CI's environment -- its Node (22.23.3, ICU 78) and a databa
   it, and passed only when an earlier file had.
 - **Tested.** The four failing tests failed in the copy of CI's environment, and pass there and here; the browser test
   passed from a cold font cache.
+
+## 2.180 A write is made once, a letter goes at most once, and every model call is paid for (the audit of 10 October)
+
+The audit that asked whether PALUGADA is a chatbot or an operating system for a company
+(`chatbot-or-company-os`, eight auditors, a skeptic for each and a debate) found, beside its verdict, defects in what
+is built. These are the ones about correctness and money.
+
+- **A write the platform keeps itself is made once for each call (`src/broker/once.ts`, 0131).** The engine keys a
+  tool call by what it does (`callKey`) and journals it when the broker answers; a worker that died between a
+  capability committing and that answer being kept ran the step again, and `ledger.record` posted the entry twice,
+  `invoice.issue` billed the customer twice, `crm.record` kept two of one person. The books, the invoices and the
+  customer records now keep their answer under the call's key, in the transaction that writes (`call_answers`), and a
+  call they have answered is answered the same way. The key is the call's, not the words': the same entry asked in
+  another call is another entry (tested), and a key in one company writes nothing in another.
+- **A reminder goes at most once (`invoice_reminder_attempts`, 0131).** The step is taken and committed *before* the
+  letter goes to the mail server. The server says it took it: the letter is written as sent. The server refuses, or is
+  not there: the step is given back. The SMTP client now says when it handed the whole letter over and the connection
+  failed before the server's answer -- the one moment a sender cannot know whether a letter went -- and then the step
+  stays taken: it counts as sent, is shown on the invoice as *not confirmed by the mail server*, and once it is a
+  quarter of an hour old the owner is told, once, in their language, that it may not have arrived and will not be sent
+  again. A letter written twice to a customer is worse than one the owner is told about.
+- **`image.describe` was free.** Its `describe()` said it cost nothing, which wins over the provider's figure, so every
+  picture read was charged nothing and traced nowhere. The estimate is the provider's again, and the charge is what
+  the provider says it used -- each provider's answer read where its reference puts the count, a thinking model's
+  thoughts as output -- at the model's price in the deployment's list, in whole cents as they fall due.
+- **Embeddings were free.** Every passage the worker gives a vector to, and every question a role asks the documents,
+  is now traced to its company like the CEO's chat (N8), so the month's ceiling, the alerts and the Money page count
+  it: the tokens the provider says, or a quarter of the characters from one that does not, at the deployment's price
+  when it knows the model and otherwise at the provider's published figure (checked in October: OpenAI's small model
+  2 cents a million, Gemini 15, Mistral 10, Voyage 6, Jina 1.8, one's own server nothing).
+- **Money is looked at before a model is asked.** The room a turn is checked against was tokens alone; a month whose
+  money was spent let every running task ask the model once more. An account with no money left -- at a ceiling above
+  nothing, or past one -- now leaves no room. An account allowed nothing still lets a call that costs nothing go.
+- **A call the budget refused is still on the books.** When the charge after a call was refused, the trace was
+  written and the account was not, so the Money page and the next check were short by what the provider billed. The
+  bill now reaches every account the charge would have, above the ceiling (`budget_settle`).
+- **Tested.** `writes-once.test.ts` (the entry, the invoice and its payment, the contact, deal and note, a key in two
+  companies), `collections.test.ts` (a server that hangs up after the letter, and one that refuses the address),
+  `vision.test.ts` (every provider's count, the estimate, the price, no price list), `meaning.test.ts` (passages,
+  questions, the price list over the provider's figure, the carried fraction) and `money-before-the-call.test.ts`
+  (no call with the money spent, a refused call's bill). Each was seen to fail first.
+- **Not done.** Money is still checked against what is spent, not reserved before a call: a call can overshoot a
+  ceiling by its own cost, which is recorded. `metric.record`, `ticket.create` and the platform's other writers either
+  write what is the same however often they are called or are not money; they are not keyed.
 
 ## 3. Decisions, deviations, and what is unverified
 

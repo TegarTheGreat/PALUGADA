@@ -1188,6 +1188,13 @@ export class Engine {
             drawn,
           ]);
         }
+        // Refused, the call still happened and the provider billed it: the
+        // bill reaches every account the charge would have, above its
+        // ceiling (`budget_settle`, 0037), so the Money page and the next
+        // check see it. The refusal stops the next call, not this record.
+        if (!ok && costCents > 0) {
+          await tx.query('SELECT app.budget_settle($1, $2)', [task.budgetAccountId, costCents]);
+        }
         // The run's own count, which the orphan sweep and the export read:
         // nothing wrote it, so every run said it had used none.
         await tx.query('UPDATE agent_runs SET tokens_used = tokens_used + $2 WHERE id = $1', [agentRunId, tokens]);
@@ -1265,13 +1272,22 @@ export class Engine {
     const processes = processLedger(companyId, agentRunId, this.#workerId);
     // The task's own reservation, which its calls draw on first, and the
     // least any account above it has free: what `budget_spend` would allow.
+    //
+    // Money too: an account whose money is spent leaves no room, however many
+    // tokens it has, or every running task would ask the model once more and
+    // be billed for it. Spent means at a ceiling above nothing, or past one:
+    // an account allowed nothing still lets a call that costs nothing go.
     const tokensLeft = async (): Promise<number> => withTenant(companyId, async (tx) => {
-      const { rows } = await tx.query<{ left: string | null }>(
+      const { rows } = await tx.query<{ left: string | null; spent: boolean }>(
         `SELECT (SELECT tokens_reserved FROM tasks WHERE id = $2)
               + (SELECT min(tokens_max - tokens_spent - tokens_reserved) FROM budget_accounts
-                  WHERE id = ANY(app.budget_chain($1))) AS left`,
+                  WHERE id = ANY(app.budget_chain($1))) AS left,
+                EXISTS (SELECT 1 FROM budget_accounts WHERE id = ANY(app.budget_chain($1))
+                         AND (money_spent_cents > money_max_cents
+                              OR (money_max_cents > 0 AND money_spent_cents >= money_max_cents))) AS spent`,
         [task.budgetAccountId, taskId],
       );
+      if (rows[0]?.spent) return 0;
       return Math.max(0, Number(rows[0]?.left ?? 0));
     });
     const services: RunServices = {

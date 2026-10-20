@@ -119,6 +119,22 @@ async function readHealth(
   };
 }
 
+/**
+ * A capability's reading in a division, taken under the lock every check of
+ * it takes: what is done on the strength of it -- a card raised, the work
+ * waiting for it called back -- cannot then be undone by a check that wrote
+ * a different reading in the same moment. The lock is taken before the row
+ * exists, too.
+ */
+export async function readingWithin(
+  tx: TenantClient,
+  divisionId: string,
+  capabilityName: string,
+): Promise<HealthRow | null> {
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`capability-health:${divisionId}:${capabilityName}`]);
+  return readHealth(tx, divisionId, capabilityName);
+}
+
 export async function healthFor(
   companyId: string,
   divisionId: string,
@@ -211,13 +227,11 @@ export async function checkCapability(
 
   const transient = !result.ok && result.transient === true;
   await withTenant(ctx.companyId, async (tx) => {
-    // What the reading was, taken again under a lock for this capability in
-    // this division: the change from one reading to the next is what raises
-    // the card and what closes it, and two checks that both read "unhealthy"
-    // before either wrote would each call the waiting work back, or each
-    // raise a card. The lock is taken before the row exists, too.
-    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`capability-health:${ctx.divisionId}:${capabilityName}`]);
-    const before = await readHealth(tx, ctx.divisionId, capabilityName);
+    // What the reading was, taken again under the reading's lock: the
+    // change from one reading to the next is what raises the card and what
+    // closes it, and two checks that both read "unhealthy" before either
+    // wrote would each call the waiting work back, or each raise a card.
+    const before = await readingWithin(tx, ctx.divisionId, capabilityName);
     await tx.query(
       `INSERT INTO capability_health
          (company_id, division_id, capability_name, status, detail, checked_at, transient)
@@ -254,8 +268,11 @@ export async function checkCapability(
     // down closes itself -- whichever it was, the vendor's outage the engine
     // raised or the failure raised below. In this transaction, so the change
     // is seen once: by a task's own look or the sweep after a rotation,
-    // whichever takes the reading.
-    if (result.ok && before?.status === 'unhealthy') {
+    // whichever takes the reading. And on a division's first reading, not
+    // only after one that failed: a company restored from its archive has
+    // its cards and none of its readings (src/audit/import.ts), and a card
+    // waiting for a change from "unhealthy" would wait for good.
+    if (result.ok && before?.status !== 'healthy') {
       await callBackWithin(tx, ctx.companyId, {
         reason: 'service', divisionId: ctx.divisionId, capability: capabilityName, because: 'capability_healthy',
       });
@@ -270,6 +287,8 @@ export async function checkCapability(
     // engine raises one if it does not pass. One that turns into a lasting
     // failure is new. Named by its cause (`ONCE`), so the work that waits for
     // it can be told on it if it stops, and so it can be closed when it passes.
+    // Closed while the check still fails -- the owner answered it -- the work
+    // still waiting raises it again at its next look (the engine).
     if (!result.ok && !transient && (before?.status !== 'unhealthy' || before.transient)) {
       const card = capabilityFailedCard(await ownerReadingWithin(tx),
         { capability: capabilityName, record: result.detail ?? '', hours: OUTAGE_PARK_CEILING_MS / 3_600_000 });

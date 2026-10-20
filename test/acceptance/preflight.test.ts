@@ -27,6 +27,7 @@ import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { CachedSecretManager, rotateCredential } from '../../src/secrets/rotation.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import type { ArchiveLine } from '../../src/audit/export.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -320,11 +321,13 @@ test('work that has waited a day for a capability halts on the card open for it,
 
   const task = await newTask(fixture);
   assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
-  // What a day of waiting leaves behind: its first long wait, a day ago.
+  // What a day of waiting leaves behind: a long wait every hour since the
+  // first, a day ago.
   await withTenant(fixture.companyId, (tx) => tx.query(
     `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
-     VALUES ($1, $2, 'task.capability_waited', 'engine', '{"long": true, "capabilities": ["dns.read"]}',
-             now() - $3 * interval '1 millisecond')`,
+     SELECT $1, $2, 'task.capability_waited', 'engine', '{"long": true, "capabilities": ["dns.read"]}',
+            now() - $3 * interval '1 millisecond' + make_interval(hours => hour)
+       FROM generate_series(0, 23) hour`,
     [fixture.companyId, task.id, OUTAGE_PARK_CEILING_MS + 60_000]));
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
   assert.equal(outcome.status, 'halted', outcome.reason);
@@ -344,6 +347,161 @@ test('work that has waited a day for a capability halts on the card open for it,
   await checkCapability(registry, { companyId: fixture.companyId, divisionId: fixture.divisionId }, 'dns.read', { force: true });
   assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1,
     'the card names work that stopped, so it stays for the owner');
+});
+
+/** A capability whose vendor the test takes down and brings back: a 503 while down. */
+function vendorCapability(state: { down: boolean }, name = 'dns.read'): Capability<never, never> {
+  const capability: Capability<{ zone: string }, { records: string[] }> = {
+    name, adapter: 'test:dns', defaultTier: 0,
+    async preflight() {
+      return state.down ? { ok: false, detail: 'the provider answered 503', transient: true } : { ok: true };
+    },
+    async execute() { return { records: [] }; },
+  };
+  return capability as Capability<never, never>;
+}
+async function openCards(companyId: string): Promise<string[]> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ once: string }>(
+    "SELECT payload->>'once' AS once FROM inbox_items WHERE kind = 'incident' AND status = 'open' ORDER BY created_at"));
+  return rows.map((row) => row.once);
+}
+/** Takes a task through its short waits for a vendor that stays down, to its first long one. */
+async function toTheLongWaits(fixture: Fixture, engine: Engine, taskId: string): Promise<void> {
+  for (let look = 0; look <= CAPABILITY_OUTAGE_WAITS_MS.length; look += 1) {
+    assert.equal((await engine.runTask(fixture.companyId, taskId, 'worker')).status, 'waiting_window');
+    await withTenant(fixture.companyId, async (tx) => {
+      await tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [taskId]);
+      await tx.query("UPDATE capability_health SET checked_at = checked_at - interval '2 minutes'");
+    });
+  }
+}
+
+/**
+ * A vendor that answers for a moment and drops again. The card closed on the
+ * reading that found it well, and the work still parked went straight back
+ * to its long waits with no card: only the move from the short waits to the
+ * long ones raised one.
+ */
+test('a vendor that answers and drops again: the work still waiting has its card again (H2)', async () => {
+  const fixture = await createCompany('preflight-flaps');
+  const state = { down: true };
+  const registry = await registryWith(fixture, vendorCapability(state));
+  await giveRoleTools(fixture, ['dns.read']);
+  const engine = engineFor(registry, []);
+  const task = await newTask(fixture);
+  await toTheLongWaits(fixture, engine, task.id);
+  const card = `service_down:${fixture.divisionId}:dns.read`;
+  assert.deepEqual(await openCards(fixture.companyId), [card]);
+
+  state.down = false;
+  await checkCapability(registry, { companyId: fixture.companyId, divisionId: fixture.divisionId }, 'dns.read', { force: true });
+  assert.deepEqual(await openCards(fixture.companyId), [], 'well again, the card closed itself');
+
+  // Down again before the task it called back looks.
+  state.down = true;
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE capability_health SET checked_at = checked_at - interval '16 minutes'"));
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  assert.deepEqual(await openCards(fixture.companyId), [card], 'the work that waits has its card');
+});
+
+/**
+ * A vendor's card says work is waiting for it. When none is -- the owner
+ * cancelled what waited -- it closes, rather than saying so until something
+ * happens to need the service again.
+ */
+test("a vendor's card whose waiting work the owner cancelled closes itself", async () => {
+  const fixture = await createCompany('preflight-nothing-waits');
+  const registry = await registryWith(fixture, vendorCapability({ down: true }));
+  await giveRoleTools(fixture, ['dns.read']);
+  const engine = engineFor(registry, []);
+  const task = await newTask(fixture);
+  await toTheLongWaits(fixture, engine, task.id);
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  await closeRecovered(fixture.companyId);
+  assert.equal((await openCards(fixture.companyId)).length, 1, 'open while the work waits');
+
+  const { cancelTask } = await import('../../src/engine/owner-control.ts');
+  await cancelTask(fixture.companyId, task.id);
+  await closeRecovered(fixture.companyId);
+  const closed = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
+  assert.deepEqual(closed.rows, [{ status: 'withdrawn', closed_reason: 'nothing_waits' }]);
+});
+
+/**
+ * The vendor's card is raised after the task's own look, and a check made in
+ * between -- another task's, or the sweep after a rotation -- may have found
+ * the service well and closed what was open. Raised then, the card said for
+ * good that work waited on a service that answered, and the task sat out a
+ * long wait for nothing, since the check had called back only what was
+ * parked when it ran.
+ */
+test('a vendor found well while a task was looking raises no card, and the task is called back (H2)', async () => {
+  const fixture = await createCompany('preflight-raise-race');
+  const state = { down: true };
+  const registry = new CapabilityRegistry();
+  registry.register(vendorCapability(state));
+  // The role's other tool, checked after dns.read: what another worker's
+  // check does in the moment between this task's look and its wait.
+  registry.register({
+    name: 'whois.read', adapter: 'test:whois', defaultTier: 0,
+    async preflight(ctx) {
+      state.down = false;
+      await checkCapability(registry, { companyId: ctx.companyId, divisionId: ctx.divisionId }, 'dns.read', { force: true });
+      return { ok: true };
+    },
+    async execute() { return {}; },
+  } as Capability<unknown, unknown>);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await grantCapability(fixture, 'whois.read');
+  await giveRoleTools(fixture, ['dns.read', 'whois.read']);
+  const ran: string[] = [];
+  const engine = engineFor(registry, ran);
+  const task = await newTask(fixture);
+  // On the long waits already, for an outage that began an hour ago.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
+     VALUES ($1, $2, 'task.capability_waited', 'engine', '{"long": true, "capabilities": ["dns.read"]}', now() - interval '10 minutes')`,
+    [fixture.companyId, task.id]));
+
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+  assert.deepEqual(await openCards(fixture.companyId), [], 'no card for a service that answers');
+  const called = await withTenant(fixture.companyId, (tx) => tx.query<{ due: boolean; called: string }>(
+    `SELECT wait_until <= now() AS due,
+            (SELECT count(*) FROM events WHERE task_id = $1 AND type = 'task.called_back')::text AS called
+       FROM tasks WHERE id = $1`, [task.id]));
+  assert.deepEqual(called.rows[0], { due: true, called: '1' }, 'called back at once');
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  assert.deepEqual(ran, [task.id]);
+});
+
+/**
+ * A card's name holds the division it is about, and a company restored from
+ * its archive has new ids. Restored as it was, a credential's card never
+ * closed itself in the restored company, and another for the same cause was
+ * raised beside it.
+ */
+test("a capability's card restored from an archive closes itself in the restored company (F11.6)", async () => {
+  const fixture = await createCompany('preflight-card-restored');
+  const state = { healthy: false };
+  const { capability } = probedCapability(state);
+  const registry = await registryWith(fixture, capability as Capability<never, never>);
+  await checkCapability(registry, { companyId: fixture.companyId, divisionId: fixture.divisionId }, 'dns.read', { force: true });
+  assert.deepEqual(await openCards(fixture.companyId), [`capability:${fixture.divisionId}:dns.read`]);
+
+  const { exportCompany } = await import('../../src/audit/export.ts');
+  const { importCompany } = await import('../../src/audit/import.ts');
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: 'preflight-card-restored-copy' });
+  const { rows: [division] } = await withTenant(restored.companyId, (tx) => tx.query<{ id: string }>('SELECT id FROM divisions'));
+  assert.deepEqual(await openCards(restored.companyId), [`capability:${division!.id}:dns.read`], 'named for the restored division');
+
+  state.healthy = true;
+  await checkCapability(registry, { companyId: restored.companyId, divisionId: division!.id }, 'dns.read', { force: true });
+  assert.deepEqual(await openCards(restored.companyId), [], 'well in the restored company, its card closes');
+  assert.equal((await openCards(fixture.companyId)).length, 1, 'the source keeps its own');
 });
 
 test('a healthy capability lets the task run', async () => {

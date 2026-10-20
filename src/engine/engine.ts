@@ -48,14 +48,16 @@ import { ProviderFailure } from '../runtime/wire.ts';
 import { proposeNegativeCase } from '../eval/role-eval.ts';
 import { buildContext, type ContextSection } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
-import { preflightForRole } from '../broker/preflight.ts';
+import { preflightForRole, readingWithin } from '../broker/preflight.ts';
 import {
   DEFAULT_LEASE_MS, adoptLease, claimTask, clearLease, giveBack, handBack, recordRunHeartbeat, renewLease,
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { modelFailedCard, modelKeyRefusedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard } from '../owner/platform-cards.ts';
-import { ONCE, OUTAGE_PARK_CEILING_MS } from './recovered.ts';
+import {
+  capabilityFailedCard, modelFailedCard, modelKeyRefusedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard,
+} from '../owner/platform-cards.ts';
+import { ONCE, OUTAGE_PARK_CEILING_MS, callBackWithin } from './recovered.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
 import type { LlmClient } from '../llm/client.ts';
 
@@ -191,7 +193,8 @@ export const OUTAGE_PARK_WAITS_MS: readonly number[] = [900_000, 1_800_000, 3_60
 /**
  * A task last on the long waits within this long is still on them, and does
  * not go back to the short ones: twice the longest wait, for a look a busy
- * worker took late.
+ * worker took late. A long wait further than this from the one before it
+ * begins another outage, whose day is counted from it.
  */
 const OUTAGE_PARK_LAPSE_MS = 2 * OUTAGE_PARK_WAITS_MS[OUTAGE_PARK_WAITS_MS.length - 1]!;
 
@@ -199,12 +202,16 @@ const OUTAGE_PARK_LAPSE_MS = 2 * OUTAGE_PARK_WAITS_MS[OUTAGE_PARK_WAITS_MS.lengt
 interface ParkState {
   /** Short waits in the last hour, not counting looks it was called back for. */
   short: number;
-  /** Long waits in the last two days, not counting looks it was called back for. */
+  /** Its last long wait was within `OUTAGE_PARK_LAPSE_MS`: it is still on the long waits. */
+  onLong: boolean;
+  /** Long waits in this outage, not counting looks it was called back for; none when it is not on them. */
   long: number;
-  /** Its first long wait in the last two days: the day is counted from it. */
+  /** The first long wait of this outage: the day is counted from it. Null when it is not on the long waits. */
   since: Date | null;
-  /** Its last long wait. */
-  lastLong: Date | null;
+  /** Every wait in this outage, short or long, called back or not: how often it has been tried. */
+  looks: number;
+  /** The first of them: since when. */
+  first: Date | null;
   /** This look is one it was called back for (src/engine/recovered.ts). */
   calledBack: boolean;
 }
@@ -1616,11 +1623,12 @@ export class Engine {
    * moment is waited out on the short waits, looking again each time, and a
    * vendor that stays down past them, or a check that failed in a way no
    * moment explains -- a refused credential -- on the long ones. The owner is
-   * told once, on one card for the cause: the vendor's is raised here, as the
-   * short waits run out; a failed check's by the check itself
-   * (`checkCapability`), which also closes either card and calls the work
-   * back when the capability is well again. Null when a day of waiting is
-   * spent, for the caller's halt; the task is then named on the card.
+   * told once, on one card for the cause, which every long look raises when
+   * none is open (`#tellCapability`); a failed check's is first raised by the
+   * check itself (`checkCapability`), which also closes either card and calls
+   * the work back when the capability is well again. Null when a day of
+   * waiting is spent, for the caller's halt; the task is then named on the
+   * card.
    */
   async #waitForCapability(
     companyId: string,
@@ -1630,7 +1638,7 @@ export class Engine {
     const taskId = task.id;
     const park = await this.#parkState(companyId, taskId, 'service');
     const now = Date.now();
-    const onLong = park.lastLong !== null && now - park.lastLong.getTime() < OUTAGE_PARK_LAPSE_MS;
+    const onLong = park.onLong;
     // A refused credential is not a moment: asked again within the minute, a
     // shared host's guard against repeated failed logins can lock the
     // account. It goes to the long waits at once.
@@ -1654,35 +1662,79 @@ export class Engine {
         ? ONCE.service(task.divisionId, failure.capability) : ONCE.capability(task.divisionId, failure.capability)), taskId);
       return null;
     }
-    // The vendor's card, as the short waits run out: one for each service
-    // that stays down, however many tasks wait for it.
-    if (!lasting && !onLong) {
-      const reading = await withTenant(companyId, ownerReadingWithin);
-      const minutes = Math.round(CAPABILITY_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
-      for (const failure of failures) {
-        const card = serviceUnreachableCard(reading, {
-          capability: failure.capability, detail: failure.detail, minutes, hours: OUTAGE_PARK_CEILING_MS / 3_600_000,
-        });
-        await inbox.raiseIncident({
-          companyId, title: card.title, detail: card.detail, once: ONCE.service(task.divisionId, failure.capability),
-        });
-      }
-    }
-    return this.#parkLong(companyId, taskId, park, since, {
+    const parked = await this.#parkLong(companyId, taskId, park, since, {
       type: 'task.capability_waited', reason: 'service', payload,
       code: 'capability.unhealthy',
     });
+    const minutes = Math.max(
+      Math.round(CAPABILITY_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000),
+      Math.round((now - (park.first ?? new Date(now)).getTime()) / 60_000),
+    );
+    return (await this.#tellCapability(companyId, task, failures, minutes)) ? { ...parked, waitUntil: new Date() } : parked;
+  }
+
+  /**
+   * The card for each capability a parked task waits for, raised when none
+   * is open, at every long look: one for each service that stays down, and
+   * for each check that failed for good, however many tasks wait for it. Not
+   * only as the short waits run out: a card closed by a reading that found
+   * the service well, with the service gone again, left the work still
+   * parked waiting with nobody told. After the task is parked, and from the
+   * reading as it is now, under the lock every check of it takes: a check
+   * that found the service well in the moment between this task's look and
+   * its wait closed what was open and called back only what was parked
+   * already, so a card raised then would say for good that work waits on a
+   * service that answers, and the task would sit out its wait for nothing.
+   * Found well now, nothing is raised and the task is called back; true
+   * then. One transaction a capability, each taking its own reading's lock,
+   * so two tasks waiting on the same two take them in no order that can
+   * deadlock.
+   */
+  async #tellCapability(
+    companyId: string,
+    task: TaskRow,
+    failures: ReadonlyArray<{ capability: string; detail: string }>,
+    minutes: number,
+  ): Promise<boolean> {
+    const hours = OUTAGE_PARK_CEILING_MS / 3_600_000;
+    let down = 0;
+    for (const failure of failures) {
+      const stillDown = await withTenant(companyId, async (tx) => {
+        const health = await readingWithin(tx, task.divisionId, failure.capability);
+        if (health?.status !== 'unhealthy') return false;
+        const reading = await ownerReadingWithin(tx);
+        const card = health.transient
+          ? serviceUnreachableCard(reading, { capability: failure.capability, detail: health.detail, minutes, hours })
+          : capabilityFailedCard(reading, { capability: failure.capability, record: health.detail, hours });
+        await inbox.raiseIncidentWithin(tx, {
+          companyId, title: card.title, detail: card.detail,
+          once: health.transient ? ONCE.service(task.divisionId, failure.capability) : ONCE.capability(task.divisionId, failure.capability),
+        });
+        return true;
+      });
+      if (stillDown) down += 1;
+    }
+    if (down > 0 || failures.length === 0) return false;
+    // Each park is called back once, so this calls back nothing a check has
+    // already called back: what it finds is this task, and any other parked
+    // in the same moment.
+    const called = await withTenant(companyId, (tx) => callBackWithin(tx, companyId, {
+      reason: 'service', divisionId: task.divisionId, capability: failures[0]!.capability, because: 'capability_healthy',
+    }));
+    return called > 0;
   }
 
   /**
    * F13.6, when the model is down: the task parks and tries the same model
    * again, waiting longer each time, and a model still down after the short
-   * waits is waited for on the long ones. The owner is told once, as the
-   * short waits run out, on one card for the model however many tasks wait
-   * for it, and `closeRecovered` (src/engine/recovered.ts) closes it and
-   * calls the rest back when the work is seen to get through. Null when a
-   * day of waiting is spent, for the caller's halt; the task is then named
-   * on the card.
+   * waits is waited for on the long ones. The owner is told once, on one card
+   * for the model however many tasks wait for it, which every long look
+   * raises when none is open -- not only the first: a card closed because
+   * the model answered one task, with the model gone again, left the rest
+   * waiting with nobody told. `closeRecovered` (src/engine/recovered.ts)
+   * closes it and calls the rest back when the work is seen to get through.
+   * Null when a day of waiting is spent, for the caller's halt; the task is
+   * then named on the card.
    */
   async #waitForModel(
     companyId: string,
@@ -1692,7 +1744,7 @@ export class Engine {
     const model = String(error.details.model ?? 'the model');
     const park = await this.#parkState(companyId, taskId, 'model');
     const now = Date.now();
-    const onLong = park.lastLong !== null && now - park.lastLong.getTime() < OUTAGE_PARK_LAPSE_MS;
+    const onLong = park.onLong;
     if (!onLong && park.short < MODEL_OUTAGE_WAITS_MS.length) {
       const waitUntil = new Date(now + MODEL_OUTAGE_WAITS_MS[park.short]!);
       await withTenant(companyId, async (tx) => {
@@ -1715,56 +1767,85 @@ export class Engine {
       await inbox.holdEndedOn(companyId, [ONCE.model(model)], taskId);
       return null;
     }
-    if (!onLong) {
-      const minutes = Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
-      const card = modelFailedCard(await withTenant(companyId, ownerReadingWithin), {
-        model, tries: park.short + 1, minutes, irreversible: error.details.reason === 'tier_2_or_above', record: error.message,
-        hours: OUTAGE_PARK_CEILING_MS / 3_600_000,
-      });
-      await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail, once: ONCE.model(model) });
-    }
-    return this.#parkLong(companyId, taskId, park, since, {
+    const parked = await this.#parkLong(companyId, taskId, park, since, {
       type: 'task.model_waited', reason: 'model', payload: { model, error: error.message },
       code: 'model.unavailable',
     });
+    // After the wait is written, so the card is never open with no work on
+    // record as waiting for it, which is what closes it as speaking for
+    // nothing. Raised against the card's name, so an open one is that one.
+    const minutes = Math.max(
+      Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000),
+      Math.round((now - (park.first ?? new Date(now)).getTime()) / 60_000),
+    );
+    const card = modelFailedCard(await withTenant(companyId, ownerReadingWithin), {
+      model, tries: park.looks + 1, minutes, irreversible: error.details.reason === 'tier_2_or_above', record: error.message,
+      hours: OUTAGE_PARK_CEILING_MS / 3_600_000,
+    });
+    await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail, once: ONCE.model(model) });
+    return parked;
   }
 
   /**
    * Where a task stands on its waits for a model or a service, read from the
    * events those waits wrote, so a worker that starts again reads the same:
-   * its short waits in the last hour, its long ones and when the first of
-   * them was (the day is counted from it), when the last was, and whether
-   * this look is one it was called back for (src/engine/recovered.ts). A look
-   * it was called back for keeps the task's place -- it is not counted, and
-   * the wait after it is the one it had -- so being called back early, at a
-   * start or when the cause looked to pass, neither moves it up its waits
-   * nor spends them. Two days of events: a long wait ends in one.
+   * its short waits in the last hour; whether it is on the long waits, how
+   * many it has had and when the first was (the day is counted from it);
+   * every wait in this outage and the first of those (what its card says was
+   * tried); and whether this look is one it was called back for
+   * (src/engine/recovered.ts). A look it was called back for keeps the
+   * task's place -- it is not counted, and the wait after it is the one it
+   * had -- so being called back early, at a start or when the cause looked to
+   * pass, neither moves it up its waits nor spends them.
+   *
+   * This outage's: its long waits since the last that came more than
+   * `OUTAGE_PARK_LAPSE_MS` after the one before it, which no look on the long
+   * waits does. Counted from the first long wait in two days, a task that
+   * waited out an outage yesterday and got through halted at its first long
+   * look in today's, without the day it is given. Two days of events: a long
+   * wait ends in one.
    */
   async #parkState(companyId: string, taskId: string, kind: 'model' | 'service'): Promise<ParkState> {
     return withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<{
-        short: string; long: string; since: Date | null; last_long: Date | null; called_back: boolean;
+        short: string; on_long: boolean; long: string; since: Date | null; looks: string; first: Date | null;
+        called_back: boolean;
       }>(
         `WITH waits AS (
            SELECT occurred_at, payload FROM events
             WHERE task_id = $1 AND type = $2 AND payload->>'keyRefused' IS NULL
-              AND occurred_at > now() - $3 * interval '1 millisecond')
+              AND occurred_at > now() - $3 * interval '1 millisecond'),
+         longs AS (
+           SELECT occurred_at, payload, lag(occurred_at) OVER (ORDER BY occurred_at) AS previous
+             FROM waits WHERE payload->>'long' = 'true'),
+         outage AS (
+           SELECT CASE WHEN (SELECT max(occurred_at) FROM longs) > now() - $5 * interval '1 millisecond'
+                       THEN (SELECT max(occurred_at) FROM longs
+                              WHERE previous IS NULL OR occurred_at - previous > $5 * interval '1 millisecond') END AS since),
+         tried AS (
+           SELECT waits.occurred_at FROM waits, outage
+            WHERE waits.occurred_at > coalesce(outage.since, now()) - interval '1 hour')
          SELECT (SELECT count(*) FROM waits
                   WHERE payload->>'long' IS NULL AND payload->>'calledBack' IS NULL
                     AND occurred_at > now() - interval '1 hour')::text AS short,
-                (SELECT count(*) FROM waits WHERE payload->>'long' = 'true' AND payload->>'calledBack' IS NULL)::text AS long,
-                (SELECT min(occurred_at) FROM waits WHERE payload->>'long' = 'true') AS since,
-                (SELECT max(occurred_at) FROM waits WHERE payload->>'long' = 'true') AS last_long,
+                (SELECT since IS NOT NULL FROM outage) AS on_long,
+                (SELECT count(*) FROM longs, outage
+                  WHERE longs.occurred_at >= outage.since AND longs.payload->>'calledBack' IS NULL)::text AS long,
+                (SELECT since FROM outage) AS since,
+                (SELECT count(*) FROM tried)::text AS looks,
+                (SELECT min(occurred_at) FROM tried) AS first,
                 EXISTS (
                   SELECT 1 FROM events c
                    WHERE c.task_id = $1 AND c.type = 'task.called_back' AND c.payload->>'reason' = $4
                      AND c.occurred_at > (SELECT max(w.occurred_at) FROM events w
                                            WHERE w.task_id = $1 AND w.type = $2 AND w.payload->>'keyRefused' IS NULL)) AS called_back`,
-        [taskId, kind === 'model' ? 'task.model_waited' : 'task.capability_waited', 2 * OUTAGE_PARK_CEILING_MS, kind],
+        [taskId, kind === 'model' ? 'task.model_waited' : 'task.capability_waited', 2 * OUTAGE_PARK_CEILING_MS, kind,
+          OUTAGE_PARK_LAPSE_MS],
       );
       const row = rows[0]!;
       return {
-        short: Number(row.short), long: Number(row.long), since: row.since, lastLong: row.last_long, calledBack: row.called_back,
+        short: Number(row.short), onLong: row.on_long, long: Number(row.long), since: row.since,
+        looks: Number(row.looks), first: row.first, calledBack: row.called_back,
       };
     });
   }
@@ -2158,8 +2239,19 @@ export class Engine {
       });
       await keepBriefing(companyId, input.agentRunId, request);
 
+      // The model's first answer in this attempt, or the run's end, is said
+      // to be its answer to the wait it was tried again for (`#answered`).
+      const answered = this.#answered(companyId, task, model);
       try {
-        return await adapter.run(request, services);
+        const result = await adapter.run(request, {
+          ...services,
+          reportUsage: async (usage) => {
+            await answered();
+            await services.reportUsage(usage);
+          },
+        });
+        await answered();
+        return result;
       } catch (error) {
         if (!(error instanceof ProviderFailure)) throw error;
 
@@ -2215,6 +2307,45 @@ export class Engine {
     throw new PalugadaError('model.unavailable', 'no model produced a run', {
       models,
     });
+  }
+
+  /**
+   * Says, once in an attempt, that the model this task last waited for has
+   * answered it (`model.answered`): what a model's card closes on
+   * (src/engine/recovered.ts). Said here because only the engine knows which
+   * of a role's models an attempt is on. A call is traced under the name the
+   * provider billed it as -- the model an alias such as "standard" stands
+   * for, a dated snapshot for a name -- and a role that may fall back waits
+   * on the last model it tried, so a task getting through on its first model
+   * is no answer from the last: taken as one, it closed that model's card
+   * while the model was still down for the work that has only it. Only for
+   * the model of the task's last wait, and only once after that wait: said
+   * of every answer, it would be a line on every task's timeline.
+   */
+  #answered(companyId: string, task: TaskRow, model: string): () => Promise<void> {
+    let asked = false;
+    return async () => {
+      if (asked) return;
+      asked = true;
+      // Lost rather than in the way: without it the card waits for the next
+      // answer, or closes when nothing waits on it; a run, or the charge for
+      // a call, lost for it would be worse.
+      await withTenant(companyId, async (tx) => {
+        const { rows } = await tx.query<{ model: string | null }>(
+          `SELECT w.payload->>'model' AS model FROM events w
+            WHERE w.task_id = $1 AND w.type = 'task.model_waited' AND w.payload->>'keyRefused' IS NULL
+              AND w.occurred_at > now() - $2 * interval '1 millisecond'
+              AND NOT EXISTS (SELECT 1 FROM events a
+                               WHERE a.task_id = $1 AND a.type = 'model.answered' AND a.occurred_at >= w.occurred_at)
+            ORDER BY w.occurred_at DESC LIMIT 1`,
+          [task.id, 2 * OUTAGE_PARK_CEILING_MS],
+        );
+        if (rows[0]?.model !== model) return;
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'model.answered', actor: 'engine', payload: { model },
+        });
+      }).catch(() => undefined);
+    };
   }
 
   /**

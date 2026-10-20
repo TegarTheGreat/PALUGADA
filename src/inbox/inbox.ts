@@ -129,6 +129,15 @@ export interface InboxItem {
   /** A role the CEO proposes hiring (a ticket of kind `hire`, 0132): the owner hires it with the CEO, or closes the ticket. */
   hire?: { ticketId: string; role: string; why: string };
   /**
+   * Work that stopped and is reported on this card rather than on one of its
+   * own (`endedTaskIds`: work that waited a day for a cause, `holdEndedOn`;
+   * work that ended the same way under one goal, src/engine/ended.ts), with
+   * whose it was, for the owner to open and run again. A card about a cause
+   * has no task of its own, so this is the only way to the work from it. The
+   * card's own task is not listed again.
+   */
+  stopped?: Array<{ taskId: string; role: string; roleName: string | null }>;
+  /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
    * the capability's name. Null for anything that is not an action.
@@ -438,6 +447,17 @@ export async function raiseIncident(input: IncidentInput): Promise<string> {
   return withTenant(input.companyId, (tx) => raiseIncidentWithin(tx, input));
 }
 
+/**
+ * The lock on a card's name (`once`), held to the end of the transaction:
+ * by whoever raises the card, and by whoever closes it on what it has read
+ * (src/engine/recovered.ts), so that a task refused in the moment the card
+ * closes either raised against it before the reading -- and is read -- or
+ * finds it closed and raises its own.
+ */
+export async function lockOnceWithin(tx: TenantClient, companyId: string, once: string): Promise<void> {
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`incident-once:${companyId}:${once}`]);
+}
+
 /** The same, inside a transaction that also changed what the incident is about. */
 export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput): Promise<string> {
   {
@@ -445,7 +465,7 @@ export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput
       // Two tasks meeting the same outage in two workers at once each found
       // no card open and each raised one. The second now waits for the first
       // and finds its card.
-      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`incident-once:${input.companyId}:${input.once}`]);
+      await lockOnceWithin(tx, input.companyId, input.once);
       const { rows: open } = await tx.query<{ id: string }>(
         `SELECT id FROM inbox_items
           WHERE kind = 'incident' AND status = 'open' AND payload->>'once' = $1
@@ -1396,6 +1416,7 @@ export async function listOpen(
       key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
       addressee: { seatId: string; name: string } | null; escalated: boolean;
       hire: { ticketId: string; role: string; why: string } | null;
+      stopped: Array<{ taskId: string; role: string; roleName: string | null }> | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1417,7 +1438,14 @@ export async function listOpen(
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
               CASE WHEN i.kind = 'skill_candidate'
-                   THEN coalesce(jsonb_array_length(i.payload->'skillVersionIds'), 1) END AS skill_count
+                   THEN coalesce(jsonb_array_length(i.payload->'skillVersionIds'), 1) END AS skill_count,
+              CASE WHEN jsonb_typeof(i.payload->'endedTaskIds') = 'array' THEN (
+                SELECT jsonb_agg(jsonb_build_object('taskId', st.id, 'role', sr.slug, 'roleName', sr.display_name)
+                                 ORDER BY st.finished_at, st.id)
+                  FROM tasks st JOIN roles sr ON sr.id = st.role_id
+                 WHERE st.id IN (SELECT ended::uuid FROM jsonb_array_elements_text(i.payload->'endedTaskIds') ended
+                                  WHERE ended ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+                   AND st.id IS DISTINCT FROM i.task_id) END AS stopped
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -1459,6 +1487,7 @@ export async function listOpen(
         ...(r.addressee ? { addressee: r.addressee } : {}),
         ...(r.escalated ? { escalated: true } : {}),
         ...(r.hire ? { hire: r.hire } : {}),
+        ...(r.stopped && r.stopped.length > 0 ? { stopped: r.stopped } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,

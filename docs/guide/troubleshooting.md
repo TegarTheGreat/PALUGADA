@@ -345,8 +345,8 @@ one card for the capability however much work waits for it.
 the credential; **Rotate a credential** repoints it. The check the rotation
 takes calls the waiting work back at once, and the card closes itself.
 Work still waiting a day after its first long wait stops instead, and is
-reported on the card, which then stays open: run that work again from its
-page.
+listed on the card under **Work that stopped**, which then stays open: open
+each task from there and run it again.
 
 ### "… is not answering, and the work that needs it is waiting"
 
@@ -355,9 +355,12 @@ waited for it, and is still not. The work keeps waiting, looking again up to
 an hour apart, and there is one card for the service.
 
 **Fix.** Usually nothing: when the service answers, the look that finds it
-so calls the waiting work back and the card closes itself. Check the
-service's own status page if it lasts. Work still waiting after a day stops,
-and the card then stays open for you to run it again.
+so calls the waiting work back and the card closes itself, and it closes too
+when no work waits for the service any more. If the service drops again, the
+work still waiting raises the card again. Check the service's own status
+page if it lasts. Work still waiting after a day stops, and is listed on the
+card under **Work that stopped**, which then stays open for you to run it
+again.
 
 ### "Model … is not answering, and work is waiting for it"
 
@@ -367,10 +370,12 @@ model that is down -- and the role has no fallback it may use. The work
 waits for that same model, looking again up to an hour apart; there is one
 card for the model however much work waits on it.
 
-**Fix.** Usually nothing: when a task that waited gets through, the card
-closes itself and the rest of the waiting work is called back. Work still
-waiting after a day stops, and the card then stays open for you to run it
-again.
+**Fix.** Usually nothing: when the model answers a task that waited for it,
+and nothing it was asked since was refused, the card closes itself and the
+rest of the waiting work is called back. If the model goes down again, the
+work still waiting raises the card again. Work still waiting after a day
+stops, and is listed on the card under **Work that stopped**, which then
+stays open for you to run it again.
 
 ### An agent says `… needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`
 

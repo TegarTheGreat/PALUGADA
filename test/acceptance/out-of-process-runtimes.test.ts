@@ -599,11 +599,13 @@ test('work that has waited a day for its model halts on the model\'s card, and r
   for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
     assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
   }
-  // What a day of waiting leaves behind: its first long wait, a day ago.
+  // What a day of waiting leaves behind: a long wait every hour since the
+  // first, a day ago.
   await withTenant(fixture.companyId, (tx) => tx.query(
     `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
-     VALUES ($1, $2, 'task.model_waited', 'engine', '{"long": true, "model": "test-model"}',
-             now() - $3 * interval '1 millisecond')`,
+     SELECT $1, $2, 'task.model_waited', 'engine', '{"long": true, "model": "test-model"}',
+            now() - $3 * interval '1 millisecond' + make_interval(hours => hour)
+       FROM generate_series(0, 23) hour`,
     [fixture.companyId, task.id, OUTAGE_PARK_CEILING_MS + 60_000]));
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
   assert.equal(outcome.status, 'halted', outcome.reason);
@@ -617,6 +619,39 @@ test('work that has waited a day for its model halts on the model\'s card, and r
   assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + 5 * 60_000)), 0);
   const escalations = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation'"));
   assert.equal(escalations.rows.length, 0, 'no second card for the same cause');
+  // And the owner reads which work stopped, on the card, to open and run it
+  // again: the card has no task of its own to link to.
+  const [card] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
+  assert.equal(card!.taskId, null);
+  assert.deepEqual(card!.stopped, [{ taskId: task.id, role: 'worker', roleName: null }]);
+});
+
+/**
+ * The day is this outage's. Counted from the first long wait in two days, a
+ * task that waited out an outage the day before and got through halted at
+ * its first long look in the next one, without the day it is given -- and
+ * went straight to the hour's wait, as if it had been waiting all along.
+ */
+test('a model down again the next day: the work waits its day again, from the start of its waits (F13.6)', async () => {
+  const fixture = await createCompany('model-outage-next-day');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const engine = engineWith(broker, switchedModels(new Set(['test-model'])));
+  const task = await newTask(fixture, {});
+  // Yesterday's outage: a day of hourly long waits, the last three hours ago.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, task_id, type, actor, payload, occurred_at)
+     SELECT $1, $2, 'task.model_waited', 'engine', '{"long": true, "model": "test-model"}', now() - make_interval(hours => hour)
+       FROM generate_series(3, 27) hour`,
+    [fixture.companyId, task.id]));
+  for (let run = 0; run < MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'waiting_window', outcome.reason);
+    assert.ok(Math.abs(outcome.waitUntil!.getTime() - Date.now() - MODEL_OUTAGE_WAITS_MS[run]!) < 2_000, 'its short waits first');
+  }
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'waiting_window', outcome.reason);
+  assert.ok(Math.abs(outcome.waitUntil!.getTime() - Date.now() - OUTAGE_PARK_WAITS_MS[0]!) < 2_000, 'and the first of its long ones');
 });
 
 /**
@@ -769,6 +804,139 @@ test('a model\'s card whose waiting work the owner cancelled closes itself', asy
   const closed = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
     "SELECT status, closed_reason FROM inbox_items WHERE kind = 'incident'"));
   assert.deepEqual(closed.rows, [{ status: 'withdrawn', closed_reason: 'nothing_waits' }]);
+});
+
+/** A model whose answers the test switches, per model name, and the open cards by name. */
+function switchedModels(down: Set<string>) {
+  return {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(request: { modelRouting: { primary: string } }) {
+      if (down.has(request.modelRouting.primary)) {
+        const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+        throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
+      }
+      return { output: { done: DONE } };
+    },
+  };
+}
+async function openCards(companyId: string): Promise<string[]> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ once: string }>(
+    "SELECT payload->>'once' AS once FROM inbox_items WHERE kind = 'incident' AND status = 'open' ORDER BY created_at"));
+  return rows.map((row) => row.once);
+}
+
+/**
+ * A provider that answers for a moment and goes again. The card closed when
+ * the first task got through, and the work still parked went straight back
+ * to its long waits with no card: only the move from the short waits to the
+ * long ones raised one. Work waiting a day with nobody told is the silent
+ * retry F13.6 forbids, so a long look raises the model's card when none is
+ * open.
+ */
+test('a model that answers and goes down again: the work still waiting has its card again (F13.6)', async () => {
+  const fixture = await createCompany('model-flaps');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const down = new Set(['test-model']);
+  const engine = engineWith(broker, switchedModels(down));
+  const tasks = [await newTask(fixture, {}), await newTask(fixture, {})];
+  for (const task of tasks) {
+    for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+      assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+    }
+  }
+  assert.deepEqual(await openCards(fixture.companyId), ['model_down:test-model']);
+
+  down.clear();
+  assert.equal((await engine.runTask(fixture.companyId, tasks[0]!.id, 'worker')).status, 'completed');
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  assert.equal(await closeRecovered(fixture.companyId), 1, 'the other task is called back');
+  assert.deepEqual(await openCards(fixture.companyId), [], 'the card closed itself');
+
+  // Down again before the called-back task looks.
+  down.add('test-model');
+  assert.equal((await engine.runTask(fixture.companyId, tasks[1]!.id, 'worker')).status, 'waiting_window');
+  assert.deepEqual(await openCards(fixture.companyId), ['model_down:test-model'], 'the work that waits has its card');
+  await closeRecovered(fixture.companyId);
+  assert.deepEqual(await openCards(fixture.companyId), ['model_down:test-model'], 'and keeps it while nothing gets through');
+});
+
+/**
+ * What got through is weighed against what failed after it. The card was
+ * withdrawn on the strength of one task's call, though another was refused
+ * after it -- and that one, waiting, was not called back, so it waited with
+ * no card until its own next look.
+ */
+test("a model's card stays open when work is refused after the work that got through", async () => {
+  const fixture = await createCompany('model-refused-after');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const down = new Set(['test-model']);
+  const engine = engineWith(broker, switchedModels(down));
+  const tasks = [await newTask(fixture, {}), await newTask(fixture, {})];
+  for (const task of tasks) {
+    for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+      assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+    }
+  }
+  down.clear();
+  assert.equal((await engine.runTask(fixture.companyId, tasks[0]!.id, 'worker')).status, 'completed');
+  // The second task's own look comes before the platform's, and is refused.
+  down.add('test-model');
+  await withTenant(fixture.companyId, (tx) => tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [tasks[1]!.id]));
+  assert.equal((await engine.runTask(fixture.companyId, tasks[1]!.id, 'worker')).status, 'waiting_window');
+
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  assert.equal(await closeRecovered(fixture.companyId), 0, 'nothing is called back to be refused again');
+  assert.deepEqual(await openCards(fixture.companyId), ['model_down:test-model']);
+});
+
+/**
+ * A role that may fall back is told about the last model it tried, so its
+ * wait is for that model's card. Getting through on the first model is not
+ * that model answering: the card for the second closed while the second was
+ * still down, and the work waiting on it alone was left with none.
+ */
+test("work that gets through on another model does not close a model's card (F13.6)", async () => {
+  const fixture = await createCompany('model-card-other-model');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'], fallback: ['test-model-b'] });
+  const { addRole } = await import('../helpers/fixtures.ts');
+  const second = await addRole(fixture, 'second');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `UPDATE roles SET runtime = 'script', backend = 'local', tools = ARRAY['dns.read'], model = 'test-model-b',
+                      model_fallback = ARRAY[]::text[] WHERE id = $1`, [second]));
+  const down = new Set(['test-model', 'test-model-b']);
+  const engine = engineWith(broker, switchedModels(down));
+  const first = await newTask(fixture, {});
+  const other = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: second,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { run: 'second' }, createdBy: 'owner', reserveTokens: 20_000,
+  });
+  for (const task of [first, other]) {
+    for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+      assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_window');
+    }
+  }
+  assert.deepEqual(await openCards(fixture.companyId), ['model_down:test-model-b'], 'both wait on the model they tried last');
+
+  // The first model answers; the second does not.
+  down.delete('test-model');
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'completed');
+  const { closeRecovered } = await import('../../src/engine/recovered.ts');
+  assert.equal(await closeRecovered(fixture.companyId), 0);
+  assert.deepEqual(await openCards(fixture.companyId), ['model_down:test-model-b'], 'test-model-b has not answered');
+
+  // When it does, the card closes.
+  down.clear();
+  await withTenant(fixture.companyId, (tx) => tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [other.id]));
+  assert.equal((await engine.runTask(fixture.companyId, other.id, 'worker')).status, 'completed');
+  await closeRecovered(fixture.companyId);
+  assert.deepEqual(await openCards(fixture.companyId), []);
 });
 
 /**

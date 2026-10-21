@@ -10,14 +10,14 @@
 # of node:22-bookworm-slim on 2026-09-30 (Node 22.23.3), as Docker Hub and
 # its mirror both served it; Dependabot proposes the next one.
 
-FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS console
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS console
 WORKDIR /app/console
 COPY console/package.json console/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY console/ ./
 RUN npm run build
 
-FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 ENV NODE_ENV=production
 # tini is PID 1, and Node its child. An agent CLI's own children outlive it
 # now and then -- a tool process, a shell -- and are handed to PID 1 when it

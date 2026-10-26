@@ -18,6 +18,7 @@ import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { killCapability } from '../../src/engine/control.ts';
+import { rerunTask } from '../../src/engine/owner-control.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
@@ -197,6 +198,65 @@ test('a read-back mismatch halts the task and raises an incident', async () => {
   const incidents = open.filter((item) => item.kind === 'incident');
   assert.equal(incidents.length, 1);
   assert.match(incidents[0]!.title, /verification/i);
+
+  // The card says to look before running it again; running it again is the
+  // owner's answer, and the card closes with it.
+  await rerunTask(fixture.companyId, task.id, 'The record was checked by hand.');
+  const { rows: closed } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [incidents[0]!.id]));
+  assert.deepEqual(closed[0], { status: 'withdrawn', closed_reason: 'task_rerun' });
+});
+
+/**
+ * The card is the halt's own record, not something said after it. It was
+ * raised in a transaction of its own after the halt and after the halt's
+ * hooks, so a worker stopped in between -- a deploy, a crash -- left a task
+ * halted for a write that may have happened and no card saying so. Nothing
+ * tried again, because the task had ended; the daily count that used to
+ * notice is gone; and a child task is not reported by ended.ts at all. The
+ * hook stands in for the worker stopping: what it finds committed is all a
+ * restart would find.
+ */
+test('the failed read-back card is committed with the halt, before anything after it runs (F8.4)', async () => {
+  const fixture = await createCompany('dns-drift-atomic');
+  const { capability } = dnsCapability({ corruptWrite: true });
+  const registry = new CapabilityRegistry();
+  registry.register(capability);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.update');
+
+  const task = await newTask(fixture);
+  const engine = engineFor(registry, async (ctx) => {
+    await ctx.callCapability('dns.update', { record: 'www', value: '1.2.3.4' });
+    return {};
+  });
+  let reached!: () => void;
+  const atHalt = new Promise<void>((resolve) => { reached = resolve; });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  engine.hooks.add({
+    name: 'test.worker_stops_here',
+    on: 'on_halt',
+    run: async () => {
+      reached();
+      await held;
+      return { allow: true };
+    },
+  });
+
+  const running = engine.runTask(fixture.companyId, task.id, 'worker');
+  await atHalt;
+  try {
+    const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+    assert.deepEqual([stored!.status, stored!.haltReason], ['halted', 'verification_failed']);
+    const incidents = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
+    assert.deepEqual(incidents.map((item) => item.taskId), [task.id], 'the card is there the moment the halt is');
+  } finally {
+    release();
+  }
+  assert.equal((await running).reason, 'verification_failed');
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1,
+    'and raised once');
 });
 
 /**

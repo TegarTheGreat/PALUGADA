@@ -31,7 +31,7 @@ after(async () => {
 });
 
 type Structure = {
-  divisions: Array<{ slug: string; name: string }>;
+  divisions: Array<{ slug: string; name: string; escalationRole: string | null; escalateAfterMinutes: number | null }>;
   roles: Array<{ slug: string; title: string | null; displayName: string | null; tools: string[]; division: string }>;
   goals: Array<{ kind: string; slug: string; statement: string }>;
 };
@@ -54,6 +54,9 @@ test('a company that names no template starts with one division, its CEO and one
     assert.deepEqual(structure.divisions.map((one) => one.slug), ['management']);
     assert.deepEqual(structure.roles.map((one) => [one.slug, one.title, one.displayName]), [['coordinator', 'CEO', 'Arka']]);
     assert.deepEqual(structure.goals.map((one) => one.kind), ['mission']);
+    // Who hears first about the division's trouble, as the Organization page
+    // says it: the CEO, for an hour, then the owner -- though nobody set it.
+    assert.deepEqual(structure.divisions.map((one) => [one.escalationRole, one.escalateAfterMinutes]), [['coordinator', 60]]);
     // The CEO can hand work on and look again later, and holds the most tools a role may.
     const ceo = structure.roles[0]!;
     for (const tool of ['task.delegate', 'task.await', 'ticket.create', 'ticket.list', 'task.follow_up', 'schedule.propose', 'owner.ask']) {

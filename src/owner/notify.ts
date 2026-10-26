@@ -134,7 +134,32 @@ export interface ClosedItem {
   closedReason: string | null;
   /** As for `NotifiableItem`. */
   language?: string;
+  /**
+   * What the message should still say above why it closed (`STILL_SAID`).
+   * Absent for every other close, whose message is replaced by what became of
+   * it.
+   */
+  said?: string | null;
 }
+
+/**
+ * What a closed item's message keeps, above why it closed, as an expression
+ * over `i` (an inbox item); null when the close leaves nothing of it true.
+ *
+ * A day's card closes because the day is over (alerts.ts), and the 80% warning
+ * because its month is (spend-guard.ts): each figure is still that day's or
+ * that month's, and the owner reading back through the chat should find it
+ * there rather than a title and "withdrawn". The month's pause card closes at
+ * the month's end too, and says nothing still true: the company is not paused.
+ * A card the role it was handed to dealt with keeps that role's account
+ * (`noteHandling`), which is the news its message now carries -- the summary
+ * it was sent with is its title again.
+ */
+const STILL_SAID = `CASE
+  WHEN i.closed_reason = 'day_ended' OR (i.closed_reason = 'period_started' AND i.payload ? 'spendWarning')
+    THEN ${CHANNEL_SUMMARY}
+  WHEN i.closed_reason = 'handled_by_coordinator' THEN i.payload->>'handledSaid'
+END`;
 
 /**
  * What became of the message.
@@ -908,9 +933,10 @@ export async function retractClosed(
       id: string; kind: string; title: string; status: ClosedItem['status'];
       decision: string | null; closed_reason: string | null;
       external_ref: string | null; retract_attempts: number; language: string | null; capability_name: string | null;
+      said: string | null;
     }>(
       `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason, i.capability_name,
-              n.external_ref, n.retract_attempts,
+              ${STILL_SAID} AS said, n.external_ref, n.retract_attempts,
               (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
@@ -954,6 +980,9 @@ export async function retractClosed(
       decision: row.decision,
       closedReason: row.closed_reason,
       language: row.language ?? 'en',
+      // What the message carried, from the same expression `dispatch` sent,
+      // or the account written on it since.
+      said: row.said === null ? null : actionSaid(row.language, row.said, row.capability_name),
     };
     try {
       await channel.retract(closed, row.external_ref);
@@ -1027,6 +1056,21 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
     case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');
     case 'ticket_closed': return say(language, 'Withdrawn: the ticket it was about was closed.');
+    case 'task_rerun': return say(language, 'Withdrawn: the task it was about was run again.');
+    case 'day_ended': return say(language, 'Withdrawn: the day it was about has ended.');
+    case 'spend_paused':
+      return say(language, 'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.');
+    case 'period_started': return say(language, 'Withdrawn: the month it was about has ended.');
+    case 'spend_resumed': return say(language, 'Withdrawn: the pause was lifted, and work goes on.');
+    case 'model_answered':
+      return say(language, 'Withdrawn: the model is answering again, and any work waiting for it was called back.');
+    case 'key_works':
+      return say(language, 'Withdrawn: the model key works again, and any work waiting for it was called back.');
+    case 'capability_healthy':
+      return say(language, 'Withdrawn: the service passed its check again, and any work waiting for it was called back.');
+    case 'nothing_waits': return say(language, 'Withdrawn: no work is waiting on it any more.');
+    case 'handled_by_coordinator':
+      return say(language, 'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.');
     default: return say(language, 'Withdrawn. Nothing left to press here.');
   }
 }

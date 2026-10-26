@@ -29,7 +29,8 @@ export interface TemplateDivision {
   maxConcurrency?: number;
   /**
    * F2.1: who is asked first when something in this division is stuck, and
-   * for how long before the owner is told. Omitted, the owner is told at once.
+   * for how long before the owner is told. Omitted, the company's CEO is
+   * asked first, for an hour (`escalationPolicyFor`).
    */
   escalateTo?: { role: string; afterMinutes: number };
 }
@@ -529,10 +530,12 @@ async function insertDivisions(
     ...template.divisions.filter((division) => division.parent),
   ];
   for (const division of ordered) {
+    // A template that names who hears first has said so; one that does not
+    // leaves it to the company's CEO (`escalationPolicyFor`, 0133).
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO divisions (company_id, parent_division_id, slug, name, max_concurrency,
-                              escalation_role_slug, escalate_after_minutes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+                              escalation_role_slug, escalate_after_minutes, escalation_set)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [
         companyId,
         division.parent ? ids[division.parent] : null,
@@ -541,6 +544,7 @@ async function insertDivisions(
         division.maxConcurrency ?? 4,
         division.escalateTo?.role ?? null,
         division.escalateTo?.afterMinutes ?? null,
+        division.escalateTo !== undefined,
       ],
     );
     ids[division.slug] = rows[0]!.id;

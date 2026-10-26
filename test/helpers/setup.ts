@@ -8,7 +8,7 @@
  * intended production behaviour (section 7.4 admits no deletion, only freeze
  * and export) and must not be relaxed to make tests convenient.
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
@@ -155,6 +155,28 @@ export async function resetData(): Promise<void> {
               display_rate = NULL`,
     );
   });
+}
+
+/**
+ * Runs a migration's text again, as `migrate` runs it: as the tables' owner,
+ * in one transaction. A backfill reads rows the code before it left, and the
+ * suite's database ran it before any test wrote one: a test writes rows in
+ * that old shape and runs it again over them. Only for a migration that
+ * changes rows, which is the same done twice.
+ */
+export async function runMigrationAgain(file: string): Promise<void> {
+  const sql = readFileSync(new URL(`../../db/migrations/${file}`, import.meta.url), 'utf8');
+  const client = await ownerPool().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(sql);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function closeSetup(): Promise<void> {

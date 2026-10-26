@@ -869,6 +869,41 @@ test('scopes, goal status, escalation policy, charter and watermark are restored
 });
 
 /**
+ * F2.1: a division that never said who hears first is the CEO's to hear
+ * first, and one whose owner said "straight to me" is not. Both read back as
+ * no role, so what tells them apart -- `escalation_set` -- has to travel, or a
+ * restore hands the CEO what the owner kept. An archive written before the
+ * column existed still says it: the owner's setting left an event.
+ */
+test('whether the owner said who hears first survives a restore, from an older archive too (F2.1, F16.4)', async () => {
+  const fixture = await createCompany('export-escalation-set');
+  const { setEscalationPolicy } = await import('../../src/governance/structure.ts');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "INSERT INTO divisions (company_id, slug, name) VALUES ($1, 'sales', 'Sales')", [fixture.companyId]));
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: null });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+  const setIn = async (companyId: string) => Object.fromEntries((await withControlPlane((tx) => tx.query<{ slug: string; escalation_set: boolean }>(
+    'SELECT slug, escalation_set FROM divisions WHERE company_id = $1', [companyId]))).rows.map((row) => [row.slug, row.escalation_set]));
+
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  assert.deepEqual(await setIn(restored.companyId), { ops: true, sales: false });
+
+  const older = lines.map((line) => {
+    if (line.section !== 'divisions') return line;
+    const { escalation_set: _dropped, ...row } = line.row;
+    return { ...line, row };
+  });
+  assert.ok(older.some((line) => line.section === 'divisions' && !('escalation_set' in line.row)));
+  const fromOlder = await importCompany(older, { slug: `${fixture.slug}-older` });
+  assert.deepEqual(await setIn(fromOlder.companyId), { ops: true, sales: false },
+    'the owner\'s "straight to me" is read from the event it left');
+});
+
+/**
  * The terminal's restore reads the same file the console downloads, and the
  * line-per-row form a streaming export writes, and says plainly what is wrong
  * with anything else.

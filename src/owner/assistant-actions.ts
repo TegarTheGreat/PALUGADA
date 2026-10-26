@@ -59,7 +59,9 @@ export interface AssistantAction {
    * Done at once when the owner has asked, with no card to press: a CEO that
    * answers "give the team this" with a card for the owner to apply is a
    * chatbot that fills in a form for them. Everyday work, anywhere (a `chat`
-   * action: give it, file it, tell it, stop it, run it again), and building
+   * action: give it, file it, tell it, stop it, run it again, remember this,
+   * this is the number -- the last two the owner's own word, written as the
+   * console's Memory page and a measure's form write it), and building
    * the team in the owner's conversation in the app, where they are signed in
    * (open a division, hire a role, change one, let a division use a tool, set a
    * goal): never an action that takes a key, and never one that loosens money
@@ -403,7 +405,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/alert-thresholds',
     what: 'When the owner is alerted.',
     fields: {
-      dailyCostCents: 'number', taskFailureRate: '0-1', policyDenialsPerDay: 'number', verificationFailuresPerDay: 'number',
+      dailyCostCents: 'number', taskFailureRate: '0-1', policyDenialsPerDay: 'number',
       roleFreezeDenialsPerDay: 'number', spendRateMultiple: 'number', spendRateFloorCents: 'number',
     },
     factor: 'never',
@@ -440,13 +442,19 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/metrics/:metricId/observations',
-    what: 'Record a measured value.', fields: { value: 'number', note: 'optional' }, factor: 'never', chat: true,
+    // Recorded as the owner's, which counts as verified: only a figure the
+    // owner gave, never one read in the work.
+    what: 'Record a figure the owner gave you for a measure, as theirs: never one you read in the work or a report. The measures and their ids are in GET /api/companies/:companyId/structure (goals[].metrics).',
+    fields: { value: 'number', note: 'optional' },
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/memories',
-    what: 'Tell a company something to remember.',
+    // Written as the owner's word, which no lesson outranks and nothing
+    // expires: only what the owner asked to be kept, in their words.
+    what: 'Remember what the owner told you to remember, in their words: a fact or a way to work. No need to read memory first: a repeat is kept once.',
     fields: { body: 'the fact, or the way to work', kind: 'semantic (a fact) or procedural (a way to work)', divisionId: 'optional; company-wide when left out' },
-    factor: 'never', chat: true,
+    factor: 'never', chat: true, auto: true,
   },
   {
     pattern: '/api/companies/:companyId/memories/:memoryId/retract',

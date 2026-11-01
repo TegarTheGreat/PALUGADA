@@ -181,9 +181,11 @@ export interface ChatConversation {
   moveTo(companyId: string | null): Promise<void>;
   /**
    * The owner said something; the answer, and the cards it put in front of
-   * them -- or, when the signal stopped it first, that it was stopped.
+   * them -- or, when the signal stopped it first, that it was stopped. `kept`
+   * is what the answer wrote as the owner's own word, each a line in their
+   * language with the words as they were written, for the chat to show.
    */
-  talk(companyId: string | null, text: string, signal?: AbortSignal): Promise<{ answer: string; cards: ChatCard[]; stopped?: boolean }>;
+  talk(companyId: string | null, text: string, signal?: AbortSignal): Promise<{ answer: string; cards: ChatCard[]; kept?: string[]; stopped?: boolean }>;
   hear(audio: Heard): Promise<string>;
   speak(text: string): Promise<Heard>;
   /** A card pressed in the chat: applied, or why not. */
@@ -416,7 +418,8 @@ export class TelegramChannel implements OwnerChannel {
   }
 
   /**
-   * Replaces a closed item's message with what happened to it.
+   * Replaces a closed item's message with what happened to it, under what it
+   * said when that is still true (`ClosedItem.said`).
    *
    * `editMessageText` without a `reply_markup` is what removes the inline
    * keyboard -- Telegram drops the buttons of an edited message unless new
@@ -439,6 +442,7 @@ export class TelegramChannel implements OwnerChannel {
         text: [
           `*${escapeMarkdown(closed.title)}*`,
           '',
+          ...(closed.said ? [escapeMarkdown(closed.said), ''] : []),
           escapeMarkdown(closureText(closed)),
         ].join('\n'),
       });
@@ -824,7 +828,7 @@ export class TelegramChannel implements OwnerChannel {
       await this.#tell(say(language, 'Stopped.'), thread);
       return;
     }
-    const { answer, cards } = said;
+    const { answer, cards, kept = [] } = said;
     const name = (await conversation.partners()).find((one) => one.companyId === companyId)?.name ?? 'PALUGADA';
     const heard = say(language, 'You said: "{words}"', { words });
     const inApp = say(language, 'in the app');
@@ -833,6 +837,12 @@ export class TelegramChannel implements OwnerChannel {
     // escaped; what the model wrote is Markdown already, less any HTML.
     const plain = [name, '', ...(voice ? [heard, ''] : []), answer];
     const rich = [`**${escapeRich(name)}**`, '', ...(voice ? [heard.split('\n').map((line) => `>${escapeRich(line)}`).join('\n'), ''] : []), cleanRich(answer)];
+    // What was kept as the owner's word, as it was kept: the answer is the
+    // model's account of it, and only this shows a fact it got wrong.
+    if (kept.length > 0) {
+      plain.push('', ...kept);
+      rich.push('', ...kept.map((line) => escapeRich(line.replace(/\s+/g, ' '))));
+    }
     if (cards.length > 0) {
       plain.push('', ...cards.map((card) => `• ${card.summary}${card.here ? '' : ` (${inApp})`}`));
       rich.push('', ...cards.map((card) => `- ${escapeRich(card.summary.replace(/\s+/g, ' '))}${card.here ? '' : ` _(${escapeRich(inApp)})_`}`));

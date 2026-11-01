@@ -19,6 +19,8 @@ import { isPalugadaError } from '../../src/errors.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createRootTask, createSubTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { cancelTask, giveFeedback, instructTask, rerunTask } from '../../src/engine/owner-control.ts';
+import { MAX_RECLAIMS, reclaimExpiredLeases } from '../../src/engine/checkout.ts';
+import { ENDED_AFTER_MS, reportEndedBadly } from '../../src/engine/ended.ts';
 import { taskDetailOf } from '../../src/owner/views.ts';
 import { pauseRole } from '../../src/governance/role-freeze.ts';
 import { buildContext } from '../../src/context/builder.ts';
@@ -171,6 +173,91 @@ test('a stopped task is done again, once, with the owner\'s note in front of the
   await transition(fixture.companyId, running.id, 'running');
   await assert.rejects(rerunTask(fixture.companyId, running.id, 'again'), (error: unknown) =>
     isPalugadaError(error, 'contract.violation') && /still running; cancel it first/.test((error as Error).message));
+});
+
+/** A card's state, and what the event log says closed it. */
+async function closure(fixture: Fixture, itemId: string) {
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; closed_reason: string | null }>(
+    'SELECT status, closed_reason FROM inbox_items WHERE id = $1', [itemId]));
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ closed: string }>(
+    "SELECT payload->>'closedReason' AS closed FROM events WHERE type = 'inbox.withdrawn' AND payload->>'inboxItemId' = $1", [itemId]));
+  return { status: rows[0]!.status, reason: rows[0]!.closed_reason, said: said.map((row) => row.closed) };
+}
+
+/**
+ * "Run again" is the owner's answer to a card about a task that stopped, and
+ * the card stayed open after it: the owner pressed it, then went and found the
+ * card and dismissed it by hand. The cards that are about the task close when
+ * it is run again. The ones that only carry its id -- a role frozen for its
+ * refusals, a model key the provider refused for the whole company -- are
+ * about something running it again does not change, and stay.
+ */
+test('running a task again closes the cards about it, and leaves those about something else', async () => {
+  const fixture = await createCompany('control-rerun-cards');
+  const looping = await task(fixture, 'resize the product photos');
+  // A worker lost MAX_RECLAIMS times: the crash loop halts it with its card.
+  for (let n = 1; n <= MAX_RECLAIMS; n += 1) {
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `UPDATE tasks SET status = 'running', lease_holder = 'dead-worker', lease_expires_at = now() - interval '1 minute'
+        WHERE id = $1`, [looping.id]));
+    await reclaimExpiredLeases(fixture.companyId);
+  }
+  assert.deepEqual(await state(fixture, looping.id), { status: 'halted', haltReason: 'crash_loop' });
+  const [crashLoop] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
+  assert.ok(crashLoop);
+  // Raised the way the role freeze and the refused key raise theirs: with the task on them.
+  const frozen = await inbox.raiseIncident({
+    companyId: fixture.companyId, taskId: looping.id, title: 'Role is frozen after repeated denials', detail: 'refused ten times',
+  });
+  const keyRefused = await inbox.raiseIncident({
+    companyId: fixture.companyId, taskId: looping.id, title: 'The model key was refused', detail: 'for every task',
+    once: 'model_key_refused',
+  });
+
+  const again = await rerunTask(fixture.companyId, looping.id, 'The photos are smaller now.');
+  assert.deepEqual(await closure(fixture, crashLoop.id), { status: 'withdrawn', reason: 'task_rerun', said: ['task_rerun'] });
+  assert.equal((await closure(fixture, frozen)).status, 'open', 'the role is still frozen');
+  assert.equal((await closure(fixture, keyRefused)).status, 'open', 'the key is still refused');
+
+  // A second press is the same task, and closes nothing twice.
+  assert.equal(await rerunTask(fixture.companyId, looping.id, 'pressed twice'), again);
+  assert.deepEqual((await closure(fixture, crashLoop.id)).said, ['task_rerun']);
+});
+
+/**
+ * Ten tasks halting on one cause under one goal are one card that names them
+ * all (ended.ts), so running one of them again leaves the card for the rest.
+ * Its list is how a task is known to have been reported, so it keeps every
+ * id: one taken off would be reported again, as if it had just ended.
+ */
+test('a card for several ended tasks stays until each is run again, and none is reported twice', async () => {
+  const fixture = await createCompany('control-rerun-ended');
+  const later = () => new Date(Date.now() + ENDED_AFTER_MS + 60_000);
+  const first = await task(fixture, 'first');
+  const second = await task(fixture, 'second');
+  for (const one of [first, second]) {
+    await transition(fixture.companyId, one.id, 'running');
+    await transition(fixture.companyId, one.id, 'halted', { haltReason: 'hop_limit' });
+  }
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 1);
+  const [card] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'escalation');
+  assert.ok(card);
+
+  await rerunTask(fixture.companyId, first.id);
+  assert.equal((await closure(fixture, card.id)).status, 'open', 'the second is still stopped');
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 0, 'and the first is not reported again');
+
+  await rerunTask(fixture.companyId, second.id);
+  assert.deepEqual(await closure(fixture, card.id), { status: 'withdrawn', reason: 'task_rerun', said: ['task_rerun'] });
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 0);
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 0);
+
+  // One run again before its card was raised is not reported at all.
+  const third = await task(fixture, 'third');
+  await transition(fixture.companyId, third.id, 'running');
+  await transition(fixture.companyId, third.id, 'halted', { haltReason: 'deadline_passed' });
+  await rerunTask(fixture.companyId, third.id);
+  assert.equal(await reportEndedBadly(fixture.companyId, later()), 0, 'the owner already answered it');
 });
 
 test('the owner can tell a task something, and the next run of it reads it', async () => {

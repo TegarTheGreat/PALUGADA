@@ -37,9 +37,17 @@ after(async () => {
 
 const DAY = 86_400_000;
 
-/** Every goal of the company set up `days` ago. */
+/**
+ * Every goal of the company set up `days` ago, and a minute more. The minute
+ * is for the two clocks: the database's now() is the start of the update's
+ * transaction to the microsecond, the test's new Date() after it is cut to the
+ * millisecond, and taken within the same millisecond it reads as before it --
+ * which made exactly `days` days a fraction short of `days` whole days, and
+ * the count one less (CI, 26 October).
+ */
 const goalsAged = (fixture: Fixture, days: number) => withControlPlane((tx) => tx.query(
-  'UPDATE goals SET created_at = now() - make_interval(days => $2) WHERE company_id = $1', [fixture.companyId, days]));
+  "UPDATE goals SET created_at = now() - make_interval(days => $2) - interval '1 minute' WHERE company_id = $1",
+  [fixture.companyId, days]));
 
 /** A piece of work under the fixture's objective, made `days` ago, in the state given. */
 async function work(fixture: Fixture, days: number, status: 'pending' | 'completed' = 'completed', goalId = fixture.goalId) {

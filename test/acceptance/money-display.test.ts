@@ -55,7 +55,7 @@ test('the owner chooses a currency and a rate to read money in, and can go back 
 test("the chat's digest reads its spend in the owner's currency, and says it is converted", () => {
   const digest: DailyDigest = {
     companyId: 'c', day: '2026-10-02', moneySpentCents: 215, tasksCompleted: 1, tasksFailed: 0, tasksHalted: 0,
-    openInboxItems: 0, openIncidents: 0, stopped: [],
+    openInboxItems: 0, openIncidents: 0, orphanedRuns: 0, stopped: [],
   };
   const rupiah = renderDailyDigest(digest, 'id', { currency: 'IDR', rate: 16_500 });
   assert.match(rupiah, /Rp\s?35\.475/u, '2.15 dollars at 16,500 rupiah each');

@@ -382,7 +382,9 @@ async function haltIfCrashLooping(tx: TenantClient, companyId: string, taskId: s
   if (live[0]?.status !== 'pending') return false;
   await transitionWithin(tx, companyId, taskId, 'halted', { haltReason: 'crash_loop' });
   const card = crashLoopCard(await ownerReadingWithin(tx), { task: await taskCalledWithin(tx, taskId), lost });
-  await raiseIncidentWithin(tx, { companyId, taskId, title: card.title, detail: card.detail });
+  // About the task: running it again, once the cause is found, is the answer
+  // the card asks for, and closes it (`rerunTask`).
+  await raiseIncidentWithin(tx, { companyId, taskId, title: card.title, detail: card.detail, payload: { aboutTask: true } });
   return true;
 }
 

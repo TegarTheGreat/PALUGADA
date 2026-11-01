@@ -262,7 +262,10 @@ test('the owner\'s own words go to the conversation, and its answer comes back o
       partners: async () => [], current: async () => null, moveTo: async () => undefined,
       talk: async (companyId: string | null, text: string) => {
         heard.push({ companyId, text });
-        return { answer: 'Sales are up 12% this week.', cards: [{ id: 'card-1', summary: 'Raise the ad budget', here: false }] };
+        return {
+          answer: 'Sales are up 12% this week.', cards: [{ id: 'card-1', summary: 'Raise the ad budget', here: false }],
+          kept: ['Kept as your word: The supplier closes on Fridays.'],
+        };
       },
       hear: async () => '', speak: async () => { throw new Error('no voice'); },
       apply: async () => ({ outcome: 'unknown' as const }),
@@ -277,6 +280,7 @@ test('the owner\'s own words go to the conversation, and its answer comes back o
     const answer = String((graph.sent.at(-1)!.body.text as { body: string }).body);
     assert.match(answer, /Sales are up 12% this week\./);
     assert.match(answer, /Raise the ad budget/, 'a proposal is named, to be applied in the app');
+    assert.match(answer, /\nKept as your word: The supplier closes on Fridays\.\n/, 'and what was kept as the owner\'s word, as it was kept');
   } finally {
     await graph.close();
   }

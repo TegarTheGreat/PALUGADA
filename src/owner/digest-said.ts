@@ -35,6 +35,11 @@ export function renderDailyDigest(
     say(language, 'Inbox: {open} waiting (incidents: {incidents})', {
       open: String(digest.openInboxItems), incidents: String(digest.openIncidents),
     }),
+    // Only on a day it happened: a line that says zero every day is read as
+    // part of the furniture by the day it says one.
+    ...(digest.orphanedRuns > 0
+      ? [say(language, 'Runs picked up again after their worker stopped: {count}', { count: String(digest.orphanedRuns) })]
+      : []),
     ...digest.stopped.map((one) => say(language, 'Stopped ({count}): {reason}', {
       count: String(one.count), reason: haltSaid(language, one.reason),
     })),

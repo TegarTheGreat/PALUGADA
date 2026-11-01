@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} von {finished} Aufgaben sind heute fehlgeschlagen oder wurden gestoppt ({rate} %), über der Schwelle von {limit} %.',
   'Unusual number of policy refusals': 'Ungewöhnlich viele Ablehnungen durch Richtlinien',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Heute von einer Richtlinie abgelehnte Aktionen: {count}, über der Schwelle von {limit}. Entweder testet ein Agent seine Grenzen aus, oder eine Richtlinie ist falsch eingestellt.',
-  'External writes failed verification': 'Externe Schreibvorgänge haben die Prüfung nicht bestanden',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Schreibvorgänge nach außen, die als erfolgreich gemeldet wurden, beim Zurücklesen aber anders aussahen: {count}. Etwas verändert sie anders als verlangt.',
-  'A capability stopped being usable': 'Eine Fähigkeit ist nicht mehr nutzbar',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Aufgaben, die heute nicht starten konnten, weil eine Fähigkeit, die ihre Rolle braucht, ihre Prüfung nicht bestanden hat: {count}. Wahrscheinlich sind Zugangsdaten abgelaufen oder ein Kontingent ist aufgebraucht.',
-  'A worker stopped reporting mid-run': 'Ein Worker hat sich mitten im Lauf nicht mehr gemeldet',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Läufe, die sich heute nicht mehr gemeldet haben und zurückgeholt wurden: {count}. Die Arbeit wurde wieder aufgenommen; die Tokens, die sie bereits verbraucht hatten, sind verloren.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} wurde heute {denials}-mal abgelehnt und hat damit die Grenze von {limit} erreicht. Keine Aufgabe läuft mehr als diese Rolle, bis Sie das Einfrieren aufheben. Die üblichen Ursachen sind eine fehlende Berechtigung für eine Fähigkeit, eine Richtlinie, die die Charta der Rolle nicht berücksichtigt, oder Arbeit, für die die Rolle nie ausgestattet war.',
   'Role {role} is frozen after repeated denials': 'Rolle {role} nach wiederholten Ablehnungen eingefroren',
   'What it was refused: {capabilities}': 'Abgelehnt wurde: {capabilities}',
@@ -225,12 +219,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': 'Die Aufgabe „{task}“ wartet seit {since}. {why} Mit „Genehmigen“ wird sie ab der Stelle, an der sie stehen geblieben ist, erneut ausgeführt; mit „Ablehnen“ wird sie abgebrochen.',
   'A task keeps stopping the worker running it': 'Eine Aufgabe bringt ihren Worker immer wieder zum Absturz',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': 'Die Aufgabe „{task}“ hat ihren Worker {lost}-mal verloren: Jedes Mal hat der ausführende Worker nicht mehr geantwortet, bevor die Arbeit fertig war. Was sie bereits erledigt hatte, bleibt erhalten. Sie ist angehalten, damit sie keinen weiteren Worker lahmlegt; führen Sie sie erneut aus, sobald die Ursache gefunden ist, oder brechen Sie sie ab.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'Nicht erreichbar: {services} – die Arbeit, die darauf angewiesen ist, wurde gestoppt',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Die Aufgabe hat etwa {minutes} Min. gewartet, immer wieder nachgesehen und ist jetzt gestoppt. Sobald der Dienst antwortet, führen Sie sie erneut aus.',
   'It was tried {tries} times over about {minutes} minutes.': 'Es wurde {tries}-mal in etwa {minutes} Min. versucht.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Diese Rolle kann unumkehrbare Aktionen ausführen, deshalb wurde der Lauf nicht stillschweigend auf ein anderes Modell verlegt.',
   'No fallback model is left for this role.': 'Für diese Rolle ist kein Ausweichmodell mehr übrig.',
-  'Model {model} failed and the run was not moved': 'Modell {model} ist ausgefallen, und der Lauf wurde nicht verlegt',
   'External write failed verification': 'Externer Schreibvorgang hat die Prüfung nicht bestanden',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Die Aufgabe hat in einen externen Dienst geschrieben und es zurückgelesen, und das Gelesene stimmte nicht überein. Sehen Sie dort nach, wohin sie geschrieben hat, bevor Sie sie noch einmal ausführen: Der Schreibvorgang ist vielleicht schon erfolgt.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Prüfung nach {rounds} Überarbeitungen festgefahren: {capability}',
@@ -255,7 +246,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Der Zeitplan „{schedule}“ liefert immer wieder dasselbe Ergebnis',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'Seine letzten {runs} Läufe endeten alle mit derselben Ausgabe. Manchmal ist das genau richtig – ein Bericht, der nichts Neues zu sagen hat –, oft aber ist es ein Zeitplan, der nichts Nützliches mehr tut und trotzdem bezahlt wird. „Ablehnen“ schaltet ihn aus; „Genehmigen“ lässt ihn weiterlaufen, und Sie werden zu diesem Ergebnis nicht mehr gefragt.',
   'Capability {capability} failed preflight': 'Fähigkeit „{capability}“ hat die Vorabprüfung nicht bestanden',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Arbeit, die sie braucht, wird gestoppt statt gestartet: Beheben Sie die Ursache und führen Sie diese Arbeit dann erneut aus. Die üblichen Ursachen sind abgelaufene oder mit falschem Umfang ausgestellte Zugangsdaten, ein aufgebrauchtes Kontingent oder eine falsche Adresse.',
   'Batch guard stopped {capability}': 'Stapelprüfung hat „{capability}“ gestoppt',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Der Aufruf passte nicht zu dem Plan, den sein Lauf erfasst hatte. Es wurde nichts gesendet und kein Dienst aufgerufen.',
   '{role} was asked first and has had {minutes} minutes.': '{role} wurde zuerst gefragt und hatte {minutes} Min. Zeit.',
@@ -343,8 +333,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} hat den Schlüssel des Modells abgelehnt ({status}), daher kann keine Arbeit laufen, die das Modell braucht. Öffnen Sie Einstellungen, Diese Instanz, Modell, fügen Sie einen funktionierenden Schlüssel ein, testen Sie ihn und speichern Sie.',
   '{host} refused the model key, and work is waiting': '{host} hat den Modellschlüssel abgelehnt, und die Arbeit wartet',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Arbeit, die auf das Modell wartet, läuft von selbst weiter, sobald ein funktionierender Schlüssel verwendet wird.',
   'A task ended before it was done: {task}':
     'Eine Aufgabe endete, bevor sie fertig war: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -408,4 +396,50 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Zurückgezogen: Das Ticket, um das es ging, wurde geschlossen.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Rechnung {number} ({amount}, {customer}) ist seit {due} überfällig und wurde ohne E-Mail-Adresse ausgestellt, an die eine Erinnerung gehen könnte. Verfolgen Sie sie selbst, oder sagen Sie dem CEO, was geschehen soll.',
+  'Kept as your word: {words}':
+    'Als Ihr Wort gespeichert: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Als Ihre Zahl erfasst: {value} für {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Läufe, die nach dem Ausfall ihres Workers weitergingen: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Zurückgezogen: Die Aufgabe, um die es ging, wurde erneut ausgeführt.',
+  'Withdrawn: the day it was about has ended.':
+    'Zurückgezogen: Der Tag, um den es ging, ist vorbei.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Zurückgezogen: Die Obergrenze des Monats wurde erreicht, und an ihre Stelle tritt die Karte, die sagt, dass das Unternehmen pausiert ist.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Arbeit, die nach etwa {hours} Std. noch wartet, wird gestoppt, und diese Karte bleibt dann offen, damit Sie sie erneut ausführen können.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} antwortet nicht, und die Arbeit, die darauf angewiesen ist, wartet',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Die Arbeit hat etwa {minutes} Min. gewartet, immer wieder nachgesehen und wartet weiter: Sie läuft von selbst weiter, sobald der Dienst antwortet, und diese Karte schließt sich dann von selbst.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Die Arbeit wartet und läuft von selbst weiter, sobald das Modell antwortet, und diese Karte schließt sich dann von selbst.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Modell {model} antwortet nicht, und Arbeit wartet darauf',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Arbeit, die auf das Modell wartet, läuft von selbst weiter, sobald ein funktionierender Schlüssel verwendet wird, und diese Karte schließt sich dann von selbst.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Arbeit, die sie braucht, wartet, statt zu starten, und läuft von selbst weiter, sobald die Prüfung besteht; diese Karte schließt sich dann von selbst. Die üblichen Ursachen sind abgelaufene oder mit falschem Umfang ausgestellte Zugangsdaten, ein aufgebrauchtes Kontingent oder eine falsche Adresse.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} wurde gestoppt: Die Arbeit auf dieser Karte wurde wieder aufgenommen.',
+  'Withdrawn: the month it was about has ended.':
+    'Zurückgezogen: Der Monat, um den es ging, ist vorbei.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Zurückgezogen: Die Pause wurde aufgehoben, und die Arbeit geht weiter.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Zurückgezogen: Das Modell antwortet wieder, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Zurückgezogen: Der Modellschlüssel funktioniert wieder, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Zurückgezogen: Der Dienst hat seine Prüfung wieder bestanden, und Arbeit, die darauf wartete, wurde zurückgeholt.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Zurückgezogen: Es wartet keine Arbeit mehr darauf.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Zurückgezogen: Die Rolle, der es übergeben wurde, hat sich darum gekümmert, und für Sie bleibt nichts zu entscheiden.',
+  'Work finished: {count}':
+    'Erledigte Arbeiten: {count}',
+  'Stopped: its work was taken up another way':
+    'Gestoppt: Die Arbeit wurde auf anderem Weg aufgenommen',
 };

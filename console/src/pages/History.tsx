@@ -30,6 +30,19 @@ const WITHDRAWN: Record<string, string> = {
   superseded: N('withdrawn · the agent changed its proposal'),
   stage_changed: N('withdrawn · the company changed stage'),
   decided_elsewhere: N('withdrawn · decided elsewhere in the app'),
+  task_continued: N('withdrawn · you continued its task'),
+  budget_room: N('withdrawn · the budget had room again'),
+  ticket_closed: N('withdrawn · its ticket was closed'),
+  task_rerun: N('withdrawn · its task was run again'),
+  day_ended: N('withdrawn · its day ended'),
+  spend_paused: N('withdrawn · the pause card took its place'),
+  period_started: N('withdrawn · its month ended'),
+  spend_resumed: N('withdrawn · the pause was lifted'),
+  model_answered: N('withdrawn · the model answered again'),
+  key_works: N('withdrawn · the model key works again'),
+  capability_healthy: N('withdrawn · the service passed its check again'),
+  nothing_waits: N('withdrawn · no work waits on it any more'),
+  handled_by_coordinator: N('withdrawn · dealt with by the role it was handed to'),
 };
 
 function outcome(item: ClosedDecision): { label: string; color: string } {

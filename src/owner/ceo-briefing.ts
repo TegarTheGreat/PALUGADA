@@ -16,7 +16,13 @@
  * CEO's own message, and the model reads its history back as its own words; an
  * agent's summary there would be where a stranger's instruction got in, which
  * is why a task's result is one question away rather than quoted here, and why
- * only the owner's own tasks are named, never a webhook's or a schedule's.
+ * a goal is quoted only when the owner wrote it. Finished work a webhook or a
+ * schedule set going is not told at all. Work the owner gave from words they
+ * did not write -- a ticket an agent filed, read from a customer's email or
+ * not, a schedule's work they pressed Run now on, or a run again of a
+ * webhook's work or of an agent's brief to a sub-task -- is counted and not
+ * quoted: it was the owner's press, not the owner's words, and the next
+ * answer, which reads nothing, could keep them as the owner's.
  */
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { ceoSaysIn } from './ceo-language.ts';
@@ -35,7 +41,10 @@ const GOAL_CHARS = 120;
 const THEIR_OWN_STOPS = ['owner_stop', 'owner_cancel'];
 
 interface News {
-  finished: string[];
+  /** The owner's own words for finished work they gave, in the order it finished. */
+  named: string[];
+  /** Finished work the owner gave whose words are somebody else's. */
+  counted: number;
   stopped: Array<{ reason: string | null; count: number }>;
   waiting: number;
   fresh: number;
@@ -45,11 +54,51 @@ async function newsSince(companyId: string, since: string): Promise<News> {
   return withTenant(companyId, async (tx) => {
     // Root tasks only: what the owner gave, and what the company set going
     // itself. A step an agent handed on is part of one of these, not news.
-    const finished = await tx.query<{ goal: string | null }>(
-      `SELECT t.input->>'goal' AS goal FROM tasks t
-        WHERE t.company_id = $1 AND t.parent_task_id IS NULL AND t.created_by = 'owner'
-          AND t.status = 'completed' AND t.finished_at > $2::timestamptz
-        ORDER BY t.finished_at`,
+    //
+    // The owner's press is not always the owner's words: a task given from a
+    // ticket has the ticket's title for its goal, Run now on a schedule has
+    // the schedule's, and a run again has the goal of the task it runs again.
+    // So a goal is the owner's only where the first task of its chain --
+    // reruns followed back, as `whatWasAsked` in broker/guardian.ts follows
+    // them -- was work the owner gave, not a schedule's, and, if it was given
+    // from a ticket, a ticket the owner filed. No schedule's goal is quoted,
+    // whoever made the schedule: the owner's yes to a run's proposal makes
+    // one whose goal is the run's instruction word for word, and a bundle's
+    // carries its author's, and nothing on the schedule keeps which -- the
+    // approval's event is deleted by retention. Told by the task's key, which
+    // removing the schedule leaves, as it does not leave `schedule_id`. The
+    // clock's own runs of a schedule are not told at all, so this costs only
+    // the line for a press.
+    // Asked as a yes, so that what cannot be found -- a ticket or a first
+    // task deleted, a chain longer than eight -- is counted, not quoted. Not
+    // asked of the events: a run that read an email after it was made did not
+    // write its goal, and retention deletes them.
+    const finished = await tx.query<{ goal: string | null; owners: boolean }>(
+      `WITH RECURSIVE finished AS (
+         SELECT t.id, t.finished_at, t.input->>'goal' AS goal FROM tasks t
+          WHERE t.company_id = $1 AND t.parent_task_id IS NULL AND t.created_by = 'owner'
+            AND t.status = 'completed' AND t.finished_at > $2::timestamptz
+       ), line AS (
+         SELECT f.id AS finished_id, t.id, t.parent_task_id, t.created_by, t.idempotency_key, t.input, 0 AS depth
+           FROM finished f JOIN tasks t ON t.id = f.id
+         UNION ALL
+         SELECT line.finished_id, t.id, t.parent_task_id, t.created_by, t.idempotency_key, t.input, line.depth + 1
+           FROM line JOIN tasks t
+             ON t.id = CASE WHEN line.idempotency_key ~ '^rerun:[0-9a-f-]{36}$' THEN substr(line.idempotency_key, 7)::uuid END
+          WHERE line.depth < 8
+       )
+       SELECT f.goal,
+              EXISTS (SELECT 1 FROM line o
+                       WHERE o.finished_id = f.id
+                         AND coalesce(o.idempotency_key, '') NOT LIKE 'rerun:%'
+                         AND coalesce(o.idempotency_key, '') NOT LIKE 'schedule:%'
+                         AND o.parent_task_id IS NULL AND o.created_by = 'owner'
+                         AND (coalesce(o.idempotency_key, '') NOT LIKE 'ticket:%'
+                              OR EXISTS (SELECT 1 FROM tickets k
+                                          WHERE k.id::text = o.input->>'ticketId'
+                                            AND k.opened_by = 'owner' AND NOT k.outside))) AS owners
+         FROM finished f
+        ORDER BY f.finished_at`,
       [companyId, since]);
     const stopped = await tx.query<{ reason: string | null; count: string }>(
       `SELECT t.halt_reason AS reason, count(*)::text AS count FROM tasks t
@@ -63,7 +112,9 @@ async function newsSince(companyId: string, since: string): Promise<News> {
         WHERE company_id = $1 AND status = 'open' AND (snoozed_until IS NULL OR snoozed_until <= now())`,
       [companyId, since]);
     return {
-      finished: finished.rows.map((row) => (row.goal ?? '').replace(/\s+/g, ' ').trim().slice(0, GOAL_CHARS)),
+      named: finished.rows.filter((row) => row.owners)
+        .map((row) => (row.goal ?? '').replace(/\s+/g, ' ').trim().slice(0, GOAL_CHARS)),
+      counted: finished.rows.filter((row) => !row.owners).length,
       stopped: stopped.rows.map((row) => ({ reason: row.reason, count: Number(row.count) })),
       waiting: Number(waiting.rows[0]!.open),
       fresh: Number(waiting.rows[0]!.fresh),
@@ -74,11 +125,13 @@ async function newsSince(companyId: string, since: string): Promise<News> {
 /** What the CEO says, in `language`: a heading and one line for each thing that happened. */
 export function briefingSaid(language: string, news: News): string {
   const lines = [say(language, 'Since we last spoke:')];
-  for (const goal of news.finished.slice(0, NAMED)) {
+  const named = news.named.slice(0, NAMED);
+  for (const goal of named) {
     lines.push(`- ${say(language, 'Done: {goal}', { goal: goal || say(language, 'a task') })}`);
   }
-  if (news.finished.length > NAMED) {
-    lines.push(`- ${say(language, 'More finished: {count}', { count: String(news.finished.length - NAMED) })}`);
+  const rest = news.named.length - named.length + news.counted;
+  if (rest > 0) {
+    lines.push(`- ${say(language, named.length > 0 ? 'More finished: {count}' : 'Work finished: {count}', { count: String(rest) })}`);
   }
   for (const stop of news.stopped) {
     lines.push(`- ${say(language, 'Stopped ({count}): {reason}', { count: String(stop.count), reason: haltSaid(language, stop.reason) })}`);
@@ -109,7 +162,7 @@ export async function ceoBriefsOwner(companyId: string, options: { now?: Date } 
   if (!hasCeo) return false;
 
   const news = await newsSince(companyId, last.at);
-  if (news.finished.length === 0 && news.stopped.length === 0 && news.fresh === 0) return false;
+  if (news.named.length + news.counted === 0 && news.stopped.length === 0 && news.fresh === 0) return false;
 
   const body = briefingSaid(await ceoSaysIn(companyId), news);
   const written = await withControlPlane(async (tx) => {

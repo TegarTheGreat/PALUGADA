@@ -19,10 +19,17 @@
  *  - **Each ticket once until it changes.** A ticket the CEO could not hand on
  *    stays open for the owner to see and is not offered again every ten
  *    minutes; it is offered again when somebody changes it.
- *  - **A ticket an agent filed carries what it may hold.** The triage task
- *    begins as outside content (F8.9), as a ticket the owner hands out does,
- *    so what the CEO delegates carries it too and an action that would ask
- *    the owner still asks.
+ *  - **A ticket from outside carries what it may hold.** A ticket filed by
+ *    work that had read something from outside (F8.9, 0134) makes the triage
+ *    task begin as outside content, as it makes the task the owner gives it
+ *    to from the board, so what the CEO delegates carries it too and an
+ *    action that would ask the owner still asks. The owner's own tickets,
+ *    and those clean work filed, do not: triaged or given out by hand, the
+ *    same ticket makes the same work. The brief names the tickets' ids, and
+ *    `ticket.list` given them reads only those, so the rest of the board --
+ *    a hire proposed from outside, a ticket worked after a customer wrote --
+ *    does not taint a pass that has nothing to do with it. A listing that
+ *    returns any ticket from outside is tainted as a whole.
  *  - **Not while the company winds down**, which starts nothing new.
  *
  * The key is made from the tickets and when they last changed, so two workers
@@ -45,7 +52,8 @@ interface Owed {
   project_id: string;
   title: string;
   priority: number;
-  opened_by: 'owner' | 'agent';
+  /** Filed by work that had read something from outside (0134). */
+  outside: boolean;
   updated_at: Date;
 }
 
@@ -69,7 +77,7 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
     if (recent.length > 0) return null;
 
     const { rows: owed } = await tx.query<Owed>(
-      `SELECT k.id, k.project_id, k.title, k.priority, k.opened_by, k.updated_at
+      `SELECT k.id, k.project_id, k.title, k.priority, k.outside, k.updated_at
          FROM tickets k
         WHERE k.status = 'open' AND k.working_task_id IS NULL
           -- A hire is the owner's to decide (0132), never work to hand on.
@@ -93,6 +101,7 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
   if (!found) return null;
 
   const { ceo, goalId, owed } = found;
+  const fromOutside = owed.filter((one) => one.outside).map((one) => one.id);
   const fingerprint = createHash('sha256')
     .update(owed.map((one) => `${one.id}@${one.updated_at.toISOString()}`).join('|'))
     .digest('hex')
@@ -104,13 +113,16 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
       input: {
         goal: 'Work the ticket backlog: give each open ticket to the role whose job it is, or close it with a reason.',
         context:
-          'These tickets are owed and not yet given to anyone. Read them with ticket.list, then hand each on with '
-          + 'task.delegate (naming the ticket) or leave it open and say why. Do not do their work yourself.\n\n'
+          'These tickets are owed and not yet given to anyone. Read them with ticket.list, giving it these ids '
+          + `(ids: ${JSON.stringify(owed.map((one) => one.id))}), then hand each on with task.delegate (naming the `
+          + 'ticket) or leave it open and say why. Do not do their work yourself.\n\n'
           + owed.map((one) => `- (priority ${one.priority}) ${one.title.slice(0, TITLE_SHOWN)}`).join('\n'),
         ticketIds: owed.map((one) => one.id),
       },
-      ...(owed.some((one) => one.opened_by === 'agent')
-        ? { carriesOutside: { capability: 'the tickets it was given', ticketIds: owed.filter((one) => one.opened_by === 'agent').map((one) => one.id) } }
+      // The titles above are in the brief from its first step: a ticket from
+      // outside makes it outside content then, recorded with the task.
+      ...(fromOutside.length > 0
+        ? { carriesOutside: { capability: 'the tickets it was given', ticketIds: fromOutside } }
         : {}),
     });
     return task.id;

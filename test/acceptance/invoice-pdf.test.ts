@@ -145,7 +145,9 @@ test('the owner prints an invoice: it is drawn, kept under its number, says what
     }
     assert.match(text, /29,415\.56/, 'the total, in the currency of the invoice');
     assert.match(text, /2,914\.06|2,915\.06/, 'and the tax');
-    assert.match(text, /October 20, 2026|October \d+, 2026/, 'the dates are dates');
+    // Issued today, so any month: the October this was written in failed on 1 November.
+    assert.match(text, /(January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}/,
+      'the dates are dates');
 
     // And it is the file the owner takes from the Files tab and a role attaches by path.
     const taken = await api.call('GET', `/api/companies/${fixture.companyId}/files/download?path=${encodeURIComponent(first.body.path)}`, (await api.signIn()));

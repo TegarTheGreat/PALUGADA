@@ -7203,10 +7203,6 @@ function chatKindNamed(name: string): WebhookChatKind {
 }
 
 /**
- * Who a role is, from a request: its name, its title and its persona, each
- * only when present, and each cleared by an explicit null or empty string.
- */
-/**
  * A seat's accountabilities as sent (F18.3): a list of text, one each. Checked
  * for text rather than cast, as done criteria are: `String(null)` would be an
  * accountability reading "null". Trimmed and bounded in governance/structure.ts.
@@ -7225,6 +7221,10 @@ function accountabilityLines(value: unknown): string[] {
   });
 }
 
+/**
+ * Who a role is, from a request: its name, its title and its persona, each
+ * only when present, and each cleared by an explicit null or empty string.
+ */
 function whoFrom(body: Record<string, unknown>): { displayName?: string | null; title?: string | null; persona?: RolePersona | null } {
   const who: { displayName?: string | null; title?: string | null; persona?: RolePersona | null } = {};
   for (const [field, key] of [['displayName', 'displayName'], ['title', 'title']] as const) {

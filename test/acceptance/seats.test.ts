@@ -163,6 +163,31 @@ test('every run of a seat is told what it is accountable for, and a delegating s
   assert.doesNotMatch(quiet.sections.find((section) => section.kind === 'role_charter')!.body, /accountable for/);
 });
 
+test('the team list cuts each accountability short, and the seat itself is told them whole', async () => {
+  // The team section is never dropped to fit the pack, so a line of it has to
+  // stay short: five accountabilities of the full 200 characters on each of
+  // sixty seats would otherwise push out the delegating run's own memory.
+  const fixture = await createCompany('seat-team-bound');
+  const sales = await addRole(fixture, 'sales');
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query("UPDATE roles SET tools = ARRAY['task.delegate'] WHERE id = $1", [fixture.roleId]));
+  const long = [1, 2, 3, 4, 5].map((n) => `Result ${n} ${'x'.repeat(190)}`);
+  await setAccountabilities(fixture, sales, long);
+
+  const team = (await packFor(fixture, fixture.roleId)).sections.find((section) => section.kind === 'team')!.body;
+  const line = team.split('\n').find((one) => one.startsWith('- sales:'))!;
+  const owns = line.slice(line.indexOf(' Accountable for: ') + ' Accountable for: '.length);
+  const items = owns.replace(/\.$/, '').split('; ');
+  assert.equal(items.length, 5, 'every accountability is still named');
+  for (const [index, item] of items.entries()) {
+    assert.ok(item.length <= 80, `item ${index + 1} on the team line is ${item.length} characters`);
+    assert.match(item, new RegExp(`^Result ${index + 1} x+…$`));
+  }
+
+  const charter = (await packFor(fixture, sales)).sections.find((section) => section.kind === 'role_charter')!.body;
+  for (const item of long) assert.ok(charter.includes(`- ${item}`), 'the seat\'s own run has each one whole');
+});
+
 test('the chart names a seat with no accountabilities and an accountability two seats both claim, and refuses neither', async () => {
   const fixture = await createCompany('seat-chart');
   const sales = await addRole(fixture, 'sales');

@@ -502,8 +502,11 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
     // the result rather than to whichever charter sounds closest; a seat
     // with none beside seats that have some is said to have none, so the
     // CEO knows it is guessing there.
+    // Each is cut to a clause here, since this section is never dropped and
+    // sixty seats of five whole lines would push the delegating run's own
+    // memory out of the pack; the seat's own run is told them whole.
     const owns = role.accountabilities.length > 0
-      ? ` Accountable for: ${role.accountabilities.join('; ')}.`
+      ? ` Accountable for: ${role.accountabilities.map(clause).join('; ')}.`
       : seated ? ' No accountabilities yet.' : '';
     const frozen = role.frozen ? ' (Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so.)' : '';
     // A person is slower than a model and answers in their own words: the one who hands work over should know.
@@ -530,6 +533,14 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
         : '') +
       `\n\n${lines.join('\n')}`,
   }];
+}
+
+/** Longest an accountability is on a team line; enough to tell which seat owns a result, not to restate it. */
+const TEAM_ACCOUNTABILITY_CHARACTERS = 80;
+
+/** An accountability cut to fit a team line, marked when it was cut. */
+function clause(text: string): string {
+  return text.length <= TEAM_ACCOUNTABILITY_CHARACTERS ? text : `${text.slice(0, TEAM_ACCOUNTABILITY_CHARACTERS - 1).trimEnd()}…`;
 }
 
 /** The first sentence of a charter, which in every template says what the role does. */

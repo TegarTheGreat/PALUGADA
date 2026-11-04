@@ -1762,7 +1762,7 @@ there.
 
 Every run of the seat is told "You are accountable for:" and the list. The
 CEO, and any role that hands work on, sees every other seat's list beside its
-name, and is told to hand work about a result to the seat accountable for
+name, each line cut to its first eighty characters, and is told to hand work about a result to the seat accountable for
 it. When the CEO proposes a hire, it says in the proposal what the new seat
 would be accountable for. You decide that on the card and then in the seat.
 

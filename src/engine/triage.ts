@@ -37,8 +37,15 @@
  */
 import { createHash } from 'node:crypto';
 import { withTenant } from '../db/tenant.ts';
-import { isPalugadaError } from '../errors.ts';
+import { appendEvent } from '../audit/event-log.ts';
+import { PalugadaError, isPalugadaError } from '../errors.ts';
+import { TERMINAL_STATUSES } from '../domain/task.ts';
+import { assignTask } from '../scheduler/wake.ts';
 import { createRootTask } from './tasks.ts';
+import { startTicket } from './tickets.ts';
+
+/** The statuses work does not come back from, as SQL. */
+const TERMINAL = `(${TERMINAL_STATUSES.map((status) => `'${status}'`).join(', ')})`;
 
 /** The least time between one triage and the next for a company. */
 export const TRIAGE_EVERY_MS = 10 * 60_000;
@@ -80,8 +87,14 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
       `SELECT k.id, k.project_id, k.title, k.priority, k.outside, k.updated_at
          FROM tickets k
         WHERE k.status = 'open' AND k.working_task_id IS NULL
-          -- A hire is the owner's to decide (0132), never work to hand on.
+          -- A hire is the owner's to decide (0132), and an issue is solved,
+          -- not handed out (0139): neither is work to hand on.
           AND k.kind = 'work'
+          -- A to-do with a seat is that seat's, handed it by \`handTodos\`; it
+          -- is the CEO's only once that work has ended without finishing it.
+          AND (k.assignee_role_id IS NULL OR EXISTS (
+                SELECT 1 FROM tasks t
+                 WHERE t.idempotency_key = 'todo:' || k.id::text AND t.status IN ${TERMINAL}))
           AND NOT EXISTS (
                 SELECT 1 FROM tasks t
                  WHERE t.idempotency_key LIKE 'triage:%'
@@ -132,4 +145,97 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
     if (isPalugadaError(error)) return null;
     throw error;
   }
+}
+
+/** The most to-dos one pass hands out; the rest are next tick. */
+const MOST_TODOS = 10;
+
+interface Todo {
+  id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  priority: number;
+  outside: boolean;
+  due_on: string | null;
+  role_id: string;
+  division_id: string;
+  goal_id: string;
+  issue_title: string | null;
+  decision: string | null;
+}
+
+/**
+ * Hands each to-do that names its seat to that seat (F18.5): the CEO filed
+ * it with one owner, so it goes to that owner straight away, by
+ * \`assignTask\`, and not round through the CEO's triage to be handed again.
+ *
+ * Once. The task is keyed \`todo:<ticket>\`, so a to-do whose work ended
+ * without finishing it -- reopened by \`settleTicketsOf\`, saying why -- is
+ * not handed to the same seat again and again; it is then the CEO's, through
+ * triage, or the owner's, from the board. A to-do whose task was made and
+ * whose ticket was not yet marked taken (a worker stopped in between) is
+ * found again and marked. A seat that cannot take work now -- frozen, its
+ * money spent -- is said so on the record, and asked again ten minutes on.
+ */
+export async function handTodos(companyId: string, now = new Date()): Promise<number> {
+  const owed = await withTenant(companyId, async (tx) => {
+    const { rows: stage } = await tx.query<{ stage: string | null }>('SELECT stage FROM companies WHERE id = $1', [companyId]);
+    if (stage[0]?.stage === 'wind_down') return [];
+    const { rows } = await tx.query<Todo>(
+      `SELECT k.id, k.project_id, k.title, k.body, k.priority, k.outside OR coalesce(i.outside, false) AS outside,
+              k.due_on::text AS due_on, r.id AS role_id, r.division_id, i.title AS issue_title,
+              CASE WHEN i.status = 'done' THEN i.closed_reason END AS decision,
+              -- The goal the issue is about while it is open; else the company's own purpose, as a triage's is.
+              coalesce((SELECT g.id FROM goals g WHERE g.id = k.goal_id AND g.status = 'active'),
+                       (SELECT g.id FROM goals g WHERE g.status = 'active'
+                         ORDER BY CASE g.kind WHEN 'mission' THEN 0 ELSE 1 END, g.created_at LIMIT 1)) AS goal_id
+         FROM tickets k
+         JOIN roles r ON r.id = k.assignee_role_id
+         LEFT JOIN tickets i ON i.id = k.solves_ticket_id
+        WHERE k.kind = 'work' AND k.status = 'open' AND k.working_task_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.idempotency_key = 'todo:' || k.id::text AND t.status IN ${TERMINAL})
+          AND NOT EXISTS (SELECT 1 FROM events e
+                           WHERE e.type = 'ticket.not_handed' AND e.payload->>'ticketId' = k.id::text
+                             AND e.occurred_at > $1::timestamptz - make_interval(secs => $2))
+        ORDER BY k.priority, k.created_at
+        LIMIT ${MOST_TODOS}`,
+      [now, TRIAGE_EVERY_MS / 1000]);
+    return rows;
+  });
+
+  let handed = 0;
+  for (const todo of owed) {
+    try {
+      if (!todo.goal_id) {
+        throw new PalugadaError('goal.required', 'the company has no open goal for the to-do to serve (PRD F2.7)', { ticketId: todo.id });
+      }
+      const context = [
+        todo.body,
+        todo.issue_title ? `It carries out the decision on the issue "${todo.issue_title}"${todo.decision ? `: ${todo.decision}` : '.'}` : '',
+        todo.due_on ? `Due ${todo.due_on}.` : '',
+      ].filter(Boolean).join('\n\n');
+      const { task } = await assignTask({
+        companyId, projectId: todo.project_id, divisionId: todo.division_id, roleId: todo.role_id, goalId: todo.goal_id,
+        createdBy: 'event', idempotencyKey: `todo:${todo.id}`, priority: todo.priority,
+        input: { goal: todo.title, ...(context ? { context } : {}), ticketId: todo.id },
+        // A to-do filed by work that had read something from outside, or for
+        // an issue that was, carries what it may hold (F8.9), as a ticket
+        // given out from the board does.
+        ...(todo.outside ? { carriesOutside: { capability: 'the to-do it was given', ticketId: todo.id } } : {}),
+        detail: `its to-do ${todo.id}`,
+      });
+      await withTenant(companyId, (tx) => startTicket(tx, companyId, todo.id, task.id));
+      handed += 1;
+    } catch (error) {
+      // A seat frozen, a month paused, money spent: a reason nothing starts
+      // now, said once on the record, and the next look in ten minutes.
+      if (!isPalugadaError(error)) throw error;
+      await withTenant(companyId, (tx) => appendEvent(tx, {
+        companyId, projectId: todo.project_id, type: 'ticket.not_handed', actor: 'system',
+        payload: { ticketId: todo.id, roleId: todo.role_id, reason: (error as Error).message.slice(0, 300) },
+      }));
+    }
+  }
+  return handed;
 }

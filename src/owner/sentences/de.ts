@@ -442,4 +442,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Erledigte Arbeiten: {count}',
   'Stopped: its work was taken up another way':
     'Gestoppt: Die Arbeit wurde auf anderem Weg aufgenommen',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Ihre Arbeit hielt an, und jedes Mal riss sie den Worker mit, der sie ausführte.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Ein Schreibvorgang bei einem externen Dienst ist vielleicht erfolgt, aber nicht so wie gemeint.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Arbeit, die demselben Budgetkonto belastet wird, steht still, bis es wieder Spielraum hat.',
+  'Its work stopped before it was done.':
+    'Ihre Arbeit hielt an, bevor sie fertig war.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Die Plattform zählte {lost} verlorene Worker, so viele, wie eine Aufgabe höchstens verlieren darf.',
+  'The platform read back what was written, and it did not match.':
+    'Die Plattform las zurück, was geschrieben wurde, und es stimmte nicht überein.',
+  'The budget account had nothing left to reserve for the work.':
+    'Auf dem Budgetkonto war nichts mehr übrig, das für die Arbeit reserviert werden konnte.',
+  'The platform found it ended with no card raised for it.':
+    'Die Plattform fand sie beendet, ohne dass eine Karte für sie angelegt war.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Die Karte ging an den, den die Abteilung dafür benennt, und danach an Sie.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Die Aufgabe wurde angehalten, und Sie wurden mit einer Karte im Posteingang informiert.',
+  'Postmortem: {cause} ({about})':
+    'Nachbetrachtung: {cause} ({about})',
+  'What happened':
+    'Was passiert ist',
+  'Impact':
+    'Auswirkung',
+  'Trigger':
+    'Auslöser',
+  'Detection':
+    'Erkennung',
+  'What was done':
+    'Was getan wurde',
+  'A task of {role} stopped before it was done.':
+    'Eine Aufgabe von {role} hielt an, bevor sie fertig war.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'So wird es gelöst: die Grundursache finden, indem man bei jeder Antwort nach dem Warum fragt und sie an den Aufzeichnungen prüft, einmal entscheiden und die To-dos anlegen, die die Entscheidung umsetzen, jedes mit einem Sitz.',
 };

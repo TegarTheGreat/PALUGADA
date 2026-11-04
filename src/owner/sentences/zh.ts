@@ -441,4 +441,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已完成的工作：{count}',
   'Stopped: its work was taken up another way':
     '已停止：其工作已通过其他方式接手',
+  'Its work stopped, and each time it took down the worker running it.':
+    '它的工作停止了，而且每次都让运行它的 worker 一起停掉。',
+  'A write to an outside service may have happened without being what was meant.':
+    '对外部服务的写入可能已经发生，但与本意不符。',
+  'Work charged to the same budget account stops until it has room again.':
+    '记在同一预算账户上的工作会停下，直到该账户重新有余额。',
+  'Its work stopped before it was done.':
+    '它的工作在完成前停止了。',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    '平台统计到 {lost} 次丢失 worker，这是一个任务最多可丢失的次数。',
+  'The platform read back what was written, and it did not match.':
+    '平台回读了写入的内容，结果不一致。',
+  'The budget account had nothing left to reserve for the work.':
+    '预算账户已没有可为这项工作预留的余额。',
+  'The platform found it ended with no card raised for it.':
+    '平台发现它已结束，却没有为它提出任何卡片。',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    '卡片先交给部门指定的处理者，之后交给您。',
+  'The task was halted, and you were told on a card in the inbox.':
+    '该任务已被停止，并通过收件箱中的卡片告知了您。',
+  'Postmortem: {cause} ({about})':
+    '事后复盘：{cause}（{about}）',
+  'What happened':
+    '发生了什么',
+  'Impact':
+    '影响',
+  'Trigger':
+    '触发因素',
+  'Detection':
+    '发现方式',
+  'What was done':
+    '已采取的措施',
+  'A task of {role} stopped before it was done.':
+    '{role} 的一项任务在完成前停止了。',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    '解决办法：对每个答案追问为什么，并与记录核对，找出根本原因；只做一次决定；再创建执行该决定的待办，每项只交给一个席位。',
 };

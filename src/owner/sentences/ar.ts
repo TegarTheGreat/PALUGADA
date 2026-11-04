@@ -439,4 +439,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'أعمال اكتملت: {count}',
   'Stopped: its work was taken up another way':
     'أُوقفت: تُولّي عملها بطريقة أخرى',
+  'Its work stopped, and each time it took down the worker running it.':
+    'توقف عمله، وفي كل مرة أسقط العامل الذي يشغّله.',
+  'A write to an outside service may have happened without being what was meant.':
+    'ربما حدثت كتابة إلى خدمة خارجية على غير ما كان مقصوداً.',
+  'Work charged to the same budget account stops until it has room again.':
+    'يتوقف العمل المحمّل على حساب الميزانية نفسه حتى يتسع مجدداً.',
+  'Its work stopped before it was done.':
+    'توقف عمله قبل أن يكتمل.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'أحصت المنصة {lost} من العمال المفقودين، وهو أقصى ما يجوز لمهمة أن تفقده.',
+  'The platform read back what was written, and it did not match.':
+    'قرأت المنصة ما كُتب، ولم يتطابق.',
+  'The budget account had nothing left to reserve for the work.':
+    'لم يبقَ في حساب الميزانية ما يُحجز للعمل.',
+  'The platform found it ended with no card raised for it.':
+    'وجدت المنصة أنها انتهت دون رفع بطاقة لها.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'ذهبت البطاقة إلى من يسمّيه القسم للتعامل معها، ثم إليك بعد ذلك.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'أُوقفت المهمة، وأُبلغت ببطاقة في صندوق الوارد.',
+  'Postmortem: {cause} ({about})':
+    'تحليل ما بعد الحادث: {cause} ({about})',
+  'What happened':
+    'ما حدث',
+  'Impact':
+    'الأثر',
+  'Trigger':
+    'المسبب',
+  'Detection':
+    'الاكتشاف',
+  'What was done':
+    'ما تم فعله',
+  'A task of {role} stopped before it was done.':
+    'توقفت مهمة لـ {role} قبل أن تكتمل.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'لحلها: جد السبب الجذري بالسؤال «لماذا» عن كل جواب ومطابقته مع السجل، وقرر مرة واحدة، وافتح مهام المتابعة التي تنفذ القرار، لكل منها مقعد واحد.',
 };

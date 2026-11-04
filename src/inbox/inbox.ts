@@ -34,6 +34,7 @@ import {
   runQuestionCard, skillCard, skillsCard, taskCalledWithin,
 } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
+import { filePostmortemWithin } from '../engine/postmortem.ts';
 import type { AnswerFile } from '../chats/attachments.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
@@ -1654,6 +1655,12 @@ export async function raiseBudgetHaltWithin(
   await appendEvent(tx, {
     companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
     payload: { inboxItemId: id, budgetAccountId: account.id },
+  });
+  // Why the money ran out is the company's to find (F18.4): one issue for
+  // the account while it is open, however often its card is raised again.
+  await filePostmortemWithin(tx, {
+    companyId, taskId, how: 'budget', reason: 'budget_exhausted', inboxItemId: id,
+    budget: { accountId: account.id, name: account.name },
   });
   return id;
 }

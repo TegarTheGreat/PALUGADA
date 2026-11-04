@@ -44,6 +44,7 @@ export const STAFF_READS: readonly string[] = [
   '/api/companies/:companyId/handoffs',
   '/api/companies/:companyId/triggers',
   '/api/companies/:companyId/tickets',
+  '/api/companies/:companyId/tickets/:ticketId',
   '/api/companies/:companyId/divisions/:divisionId/roles/:roleId/budget',
   '/api/companies/:companyId/goals/:goalId',
   '/api/companies/:companyId/documents',

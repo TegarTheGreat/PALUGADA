@@ -440,4 +440,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Padamelan anu réngsé: {count}',
   'Stopped: its work was taken up another way':
     'Dieureunkeun: pagawéanana parantos diurus ku cara séjén',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Pagawéanana eureun, sarta unggal waktu ngajatuhkeun worker anu ngajalankeunana.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Panulisan ka layanan luar meureun geus kajadian, tapi henteu sakumaha anu dimaksud.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Pagawéan anu ditanggungkeun ka akun anggaran anu sarua eureun nepi ka akun éta boga rohangan deui.',
+  'Its work stopped before it was done.':
+    'Pagawéanana eureun saméméh réngsé.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform ngitung {lost} worker anu leungit, wates pangseueurna pikeun hiji tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform maca deui naon anu ditulis, sarta hasilna teu cocog.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akun anggaran teu boga sésa pikeun dicadangkeun pikeun pagawéan éta.',
+  'The platform found it ended with no card raised for it.':
+    'Platform mendakan éta réngsé tanpa aya kartu anu dijieun pikeun éta.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kartuna dibikeun ka saha waé anu ditunjuk divisi pikeun nanganana, tuluy ka anjeun.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugasna dieureunkeun, sarta anjeun dibéjaan ngaliwatan kartu dina kotak asup.',
+  'Postmortem: {cause} ({about})':
+    'Telaah sanggeus kajadian: {cause} ({about})',
+  'What happened':
+    'Anu kajadian',
+  'Impact':
+    'Dampak',
+  'Trigger':
+    'Pamicu',
+  'Detection':
+    'Deteksi',
+  'What was done':
+    'Anu dilakukeun',
+  'A task of {role} stopped before it was done.':
+    'Hiji tugas {role} eureun saméméh réngsé.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara ngarengsekeunana: téangan akar pasualan ku nanya naha dina unggal jawaban jeung nyocogkeunana jeung catetan, putuskeun sakali, lajeng jieun tindakan anu ngalaksanakeun putusan éta, masing-masing ku hiji korsi.',
 };

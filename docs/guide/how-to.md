@@ -1746,3 +1746,50 @@ PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
 authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
 Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
 own descriptions of published methods, and none of their templates is copied.
+
+### Solve an issue: root cause, decision, actions
+
+**Work**, **Tickets**, with **Issues** chosen above the board, is the issues
+list: problems the company solves rather than work it hands out. The list
+**This week** is what the weekly meeting solves; **Long term** is read at
+quarterly planning. To-dos, chosen beside it, are what the solving left
+behind: each with one seat and a due date.
+
+1. **File an issue.** **New ticket**, then **An issue to solve**. Say what
+   happened, what it costs and what is known, not the fix: the cause comes
+   first. Choose its list. An issue is never given to a role as work, so it
+   has no **Give to a role**.
+2. **Let the CEO solve it.** The CEO asks why of each answer until the cause
+   is found, and checks every answer against the record -- the task, its
+   events, the numbers -- rather than guessing; not literally five times, and
+   several branches are fine. It decides once, in proportion: never a rewrite
+   for a small problem. Then it files the to-dos that carry the decision out,
+   each naming one seat. The issue is solved only with both its root cause and
+   its decision; the database refuses it otherwise.
+3. **Read what was decided.** **See the issue** opens its page: the root
+   cause, the decision, and each to-do with its seat, its due date and its
+   work. The decision is also kept in the company's memory, for the
+   division's runs, or the whole company's when the issue is the company's.
+4. **The seats do their to-dos.** A to-do is due seven days out unless the
+   CEO gave a date. It goes straight to its seat, which is woken for it, and
+   closes when the work does. One whose work ends unfinished opens again,
+   saying why, and is then the CEO's to hand on; it is not handed to the same
+   seat again.
+5. **Close or reopen.** **Close** drops an issue that is not a problem after
+   all; it is closed, not solved. **Open again** brings back one whose fix
+   did not hold.
+
+The platform files an issue itself, **filed by PALUGADA**, when work fails
+with a cause worth finding: a task that keeps stopping the worker running it,
+a write that did not read back as written, a budget account that ran out, or
+root work that ended badly with nothing else raised for it. Its body is a
+short postmortem -- what happened, impact, trigger, detection, what was done
+-- in your language, blameless, and with no customer's name in it: the task is
+linked by **Why it exists**, and what a service said is on the card in the
+inbox. While the issue is open, the same failure in the same seat, or the
+same account running out again, is recorded against it rather than filing a
+second one.
+
+The issues list follows Gino Wickman's in *Traction*, the root cause follows
+Toyota's and Eric Ries's Five Whys, and the postmortem the blameless review in
+Google's *Site Reliability Engineering*; the words are PALUGADA's own.

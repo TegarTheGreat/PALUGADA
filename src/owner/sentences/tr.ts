@@ -443,4 +443,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Tamamlanan işler: {count}',
   'Stopped: its work was taken up another way':
     'Durduruldu: işi başka bir yoldan ele alındı',
+  'Its work stopped, and each time it took down the worker running it.':
+    'İşi durdu ve her seferinde onu çalıştıran worker\'ı da çökertti.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Dış bir hizmete yazma işlemi, amaçlanandan farklı biçimde gerçekleşmiş olabilir.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Aynı bütçe hesabına yazılan iş, hesapta yeniden yer açılana kadar durur.',
+  'Its work stopped before it was done.':
+    'İşi bitmeden durdu.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform {lost} kayıp worker saydı; bir görevin kaybedebileceği en fazla sayı bu.',
+  'The platform read back what was written, and it did not match.':
+    'Platform yazılanı geri okudu ve eşleşmedi.',
+  'The budget account had nothing left to reserve for the work.':
+    'Bütçe hesabında iş için ayrılacak bir şey kalmamıştı.',
+  'The platform found it ended with no card raised for it.':
+    'Platform, onun için hiçbir kart açılmadan bittiğini buldu.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kart, bölümün bununla ilgilenmesi için belirlediği kişiye, ardından size gitti.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Görev durduruldu ve gelen kutusundaki bir kartla size bildirildi.',
+  'Postmortem: {cause} ({about})':
+    'Olay sonrası inceleme: {cause} ({about})',
+  'What happened':
+    'Ne oldu',
+  'Impact':
+    'Etki',
+  'Trigger':
+    'Tetikleyici',
+  'Detection':
+    'Tespit',
+  'What was done':
+    'Ne yapıldı',
+  'A task of {role} stopped before it was done.':
+    '{role} rolünün bir görevi bitmeden durdu.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Çözmek için: her yanıta neden diye sorup kayıtlarla karşılaştırarak kök nedeni bulun, bir kez karar verin ve kararı uygulayacak yapılacakları, her biri tek koltukla, açın.',
 };

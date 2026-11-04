@@ -442,4 +442,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Werk klaar: {count}',
   'Stopped: its work was taken up another way':
     'Gestopt: het werk is op een andere manier opgepakt',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Het werk stopte, en elke keer nam het de worker die het uitvoerde mee.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Er is misschien naar een externe dienst geschreven, maar niet zoals bedoeld.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Werk dat op dezelfde budgetrekening drukt, staat stil tot die weer ruimte heeft.',
+  'Its work stopped before it was done.':
+    'Het werk stopte voordat het af was.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Het platform telde {lost} verloren workers, het hoogste aantal dat een taak mag verliezen.',
+  'The platform read back what was written, and it did not match.':
+    'Het platform las terug wat er geschreven was, en het kwam niet overeen.',
+  'The budget account had nothing left to reserve for the work.':
+    'Op de budgetrekening was niets meer over om voor het werk te reserveren.',
+  'The platform found it ended with no card raised for it.':
+    'Het platform zag dat het eindigde zonder dat er een kaart voor was aangemaakt.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'De kaart ging naar wie de afdeling ervoor aanwijst, en daarna naar u.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'De taak werd stilgezet, en u kreeg het te horen op een kaart in de inbox.',
+  'Postmortem: {cause} ({about})':
+    'Nabeschouwing: {cause} ({about})',
+  'What happened':
+    'Wat er gebeurde',
+  'Impact':
+    'Gevolgen',
+  'Trigger':
+    'Aanleiding',
+  'Detection':
+    'Ontdekking',
+  'What was done':
+    'Wat er gedaan is',
+  'A task of {role} stopped before it was done.':
+    'Een taak van {role} stopte voordat hij af was.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Zo los je het op: zoek de hoofdoorzaak door bij elk antwoord te vragen waarom en het te toetsen aan wat is vastgelegd, besluit één keer, en maak de acties aan die het besluit uitvoeren, elk met één zetel.',
 };

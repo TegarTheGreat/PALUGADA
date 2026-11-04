@@ -804,17 +804,27 @@ export interface PolicyRow {
 export interface Ticket {
   id: string;
   projectId: string;
-  /** `hire`: a role the company lacks, which the owner decides (0132). */
-  kind: 'work' | 'hire';
+  /** `hire`: a role the company lacks, which the owner decides (0132). `issue`: a problem to solve (0139). */
+  kind: 'work' | 'hire' | 'issue';
   divisionId: string | null;
   title: string;
   body: string;
   status: 'open' | 'in_progress' | 'done' | 'closed';
   priority: number;
-  openedBy: 'owner' | 'agent';
+  /** `platform`: PALUGADA filed it itself, as a postmortem. */
+  openedBy: 'owner' | 'agent' | 'platform';
   openedByTaskId: string | null;
   workingTaskId: string | null;
+  /** Why it was closed; on a solved issue, the decision. */
   closedReason: string | null;
+  /** An issue's list: this week's, or the one read at quarterly planning. */
+  horizon: 'now' | 'long_term';
+  /** A solved issue's root cause. */
+  rootCause: string | null;
+  /** A to-do's issue, its one seat and the day it is due (YYYY-MM-DD). */
+  solvesTicketId: string | null;
+  assigneeRoleId: string | null;
+  dueOn: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;

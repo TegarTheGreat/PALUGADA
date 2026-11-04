@@ -282,8 +282,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/tickets',
-    what: 'File a ticket: something that needs doing and is not given to anyone yet. The CEO hands tickets on.',
-    fields: { title: 'what needs doing, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)', divisionId: 'optional division it belongs to' },
+    what: 'File a ticket: something that needs doing and is not given to anyone yet, which the CEO hands on; or an issue, a problem the CEO solves with a root cause, a decision and to-dos.',
+    fields: {
+      title: 'what needs doing, or the problem, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)',
+      divisionId: 'optional division it belongs to', kind: 'optional: work (the default) or issue',
+      horizon: 'optional, for an issue: now (the weekly list, the default) or long_term (read at quarterly planning)',
+    },
     factor: 'never', chat: true, auto: true,
   },
   {

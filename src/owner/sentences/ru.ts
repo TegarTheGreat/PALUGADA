@@ -442,4 +442,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Завершено работ: {count}',
   'Stopped: its work was taken up another way':
     'Остановлена: работу продолжили другим путём',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Работа остановилась и каждый раз роняла воркер, который её выполнял.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Запись во внешний сервис, возможно, произошла, но не такая, как задумывалось.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Работа, оплачиваемая с того же бюджетного счёта, стоит, пока на нём снова не появится запас.',
+  'Its work stopped before it was done.':
+    'Работа остановилась, не будучи доделанной.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Платформа насчитала {lost} потерянных воркеров — больше задача терять не может.',
+  'The platform read back what was written, and it did not match.':
+    'Платформа перечитала записанное, и оно не совпало.',
+  'The budget account had nothing left to reserve for the work.':
+    'На бюджетном счёте не осталось ничего, что можно зарезервировать под работу.',
+  'The platform found it ended with no card raised for it.':
+    'Платформа обнаружила, что она завершилась, а карточки о ней не было.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Карточка ушла тому, кого отдел назначает разбираться с этим, а затем вам.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Задача остановлена, и вам сообщили карточкой во входящих.',
+  'Postmortem: {cause} ({about})':
+    'Разбор после сбоя: {cause} ({about})',
+  'What happened':
+    'Что случилось',
+  'Impact':
+    'Последствия',
+  'Trigger':
+    'Причина срабатывания',
+  'Detection':
+    'Обнаружение',
+  'What was done':
+    'Что сделано',
+  'A task of {role} stopped before it was done.':
+    'Задача роли {role} остановилась, не будучи доделанной.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Как решить: найти первопричину, спрашивая «почему» о каждом ответе и сверяя его с записями, решить один раз и завести дела, которые выполняют решение, у каждого — одно место.',
 };

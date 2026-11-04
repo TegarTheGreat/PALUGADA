@@ -751,3 +751,23 @@ The first version. What it holds, in the order an owner meets it.
   as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
   update to or go back to that release, and CI runs for a merge queue
   ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).
+
+### Operating rhythm (F18)
+
+- An issues list on the Tickets board. An issue is a problem the company solves rather than work it hands out:
+  file one yourself (New ticket, An issue to solve), on this week's list or the long-term one, and the CEO solves
+  it by naming its root cause and the decision taken and filing the to-dos that carry the decision out. An issue
+  cannot be marked solved without both, and it is never handed to a role as work. Its page shows the root cause,
+  the decision and every to-do with its seat, its due date and how it went. Each decision is kept in the company's
+  memory, so the division's runs are told what was decided and why (STATUS 2.193).
+- To-dos: each goes to one seat, is due seven days out unless the CEO says otherwise, and is handed to that seat
+  straight away instead of waiting for the CEO's triage. A to-do whose work ends unfinished opens again with the
+  reason and is then the CEO's to hand on, not handed to the same seat again (STATUS 2.193).
+- Postmortems: when a task keeps stopping its worker, a write does not read back as written, a budget account runs
+  out, or root work ends badly, the platform files an issue beside the card it shows you. The issue is a short
+  postmortem (what happened, impact, trigger, detection, what was done) in your language, with no customer's name
+  in it. While it is open, the same failure in the same seat, or the same account running out again, is recorded
+  against it instead of filing a second issue (STATUS 2.193).
+- The board's Issues and To-dos filters, and "filed by PALUGADA" on what the platform filed. Archives carry issues
+  and to-dos whole, with the card each came from and the seat each names mapped to the restored company
+  (STATUS 2.193).

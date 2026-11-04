@@ -483,8 +483,8 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     name: 'ticket.create',
     adapter: 'platform',
     tier: TIER.REVERSIBLE_WRITE,
-    summary: 'Files a ticket: work that is owed and not yet given to anyone.',
-    calibration: 'A ticket can be closed. It reaches colleagues and the owner, not customers.',
+    summary: 'Files a ticket: work that is owed and not yet given to anyone, an issue to solve, or the to-dos that solve one.',
+    calibration: 'A ticket can be closed, and a solved issue opened again. It reaches colleagues and the owner, not customers.',
   },
   {
     name: 'ticket.list',

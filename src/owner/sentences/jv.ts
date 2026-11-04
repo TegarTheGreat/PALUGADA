@@ -440,4 +440,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Pakaryan ingkang rampung: {count}',
   'Stopped: its work was taken up another way':
     'Dimandhegaké: gawéané wis ditangani kanthi cara liya',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Padamelanipun mandheg, lan saben wekdal ndadosaken worker ingkang nglampahaken ugi mandheg.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Panyeratan dhateng layanan njawi saged sampun kedadosan, nanging mboten kados ingkang dipunkajengaken.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Padamelan ingkang dipuntanggelaken dhateng akun anggaran ingkang sami mandheg ngantos akun punika gadhah ruang malih.',
+  'Its work stopped before it was done.':
+    'Padamelanipun mandheg saderengipun rampung.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform ngetang {lost} worker ingkang ical, watesan paling kathah kangge setunggal tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform maos malih punapa ingkang dipunserat, lan asilipun mboten cocok.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akun anggaran mboten gadhah sisa kangge dipuncadhangaken tumrap padamelan punika.',
+  'The platform found it ended with no card raised for it.':
+    'Platform manggihaken punika rampung tanpa wonten kertu ingkang dipunajengaken.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kertu punika dipunparingaken dhateng sinten kemawon ingkang dipuntunjuk divisi kangge nanganinipun, lajeng dhateng panjenengan.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugas punika dipunkendelaken, lan panjenengan dipunparingi pirsa lumantar kertu ing kothak mlebet.',
+  'Postmortem: {cause} ({about})':
+    'Telaah sasampunipun kedadosan: {cause} ({about})',
+  'What happened':
+    'Ingkang kedadosan',
+  'Impact':
+    'Dampak',
+  'Trigger':
+    'Pemicu',
+  'Detection':
+    'Pandeteksian',
+  'What was done':
+    'Ingkang dipuntindakaken',
+  'A task of {role} stopped before it was done.':
+    'Setunggal tugas {role} mandheg saderengipun rampung.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara ngrampungaken: padosi oyot prekawis kanthi takon kenging punapa ing saben wangsulan lan nyocogaken kaliyan cathetan, putusaken sepisan, lajeng damel tumindak ingkang nindakaken putusan punika, saben setunggal kaliyan setunggal kursi.',
 };

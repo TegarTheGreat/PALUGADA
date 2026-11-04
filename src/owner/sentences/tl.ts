@@ -439,4 +439,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Mga gawaing natapos: {count}',
   'Stopped: its work was taken up another way':
     'Itinigil: inasikaso na ang trabaho nito sa ibang paraan',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Huminto ang trabaho nito, at sa bawat pagkakataon ay pinabagsak nito ang worker na nagpapatakbo rito.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Maaaring may naisulat na sa serbisyong panlabas na hindi ayon sa nilayon.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Humihinto ang trabahong nakasingil sa parehong budget account hanggang magkaroon ulit ito ng puwang.',
+  'Its work stopped before it was done.':
+    'Huminto ang trabaho nito bago natapos.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Nabilang ng platform ang {lost} nawalang worker, ang pinakamaraming maaaring mawala sa isang gawain.',
+  'The platform read back what was written, and it did not match.':
+    'Binasa muli ng platform ang naisulat, at hindi ito tumugma.',
+  'The budget account had nothing left to reserve for the work.':
+    'Wala nang natitira sa budget account na maireserba para sa trabaho.',
+  'The platform found it ended with no card raised for it.':
+    'Natuklasan ng platform na natapos ito nang walang card na itinaas para rito.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Napunta ang card sa itinatalaga ng dibisyon na humawak nito, at sa iyo pagkatapos.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Itinigil ang gawain, at sinabihan ka sa pamamagitan ng card sa inbox.',
+  'Postmortem: {cause} ({about})':
+    'Pagsusuri pagkatapos ng insidente: {cause} ({about})',
+  'What happened':
+    'Ang nangyari',
+  'Impact':
+    'Epekto',
+  'Trigger':
+    'Nag-udyok',
+  'Detection':
+    'Pagtuklas',
+  'What was done':
+    'Ang ginawa',
+  'A task of {role} stopped before it was done.':
+    'Huminto ang isang gawain ng {role} bago natapos.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Para lutasin: hanapin ang ugat na sanhi sa pagtatanong kung bakit sa bawat sagot at pagsuri nito sa talaan, magpasya nang isang beses, at isampa ang mga gagawing magsasagawa ng pasya, bawat isa ay may isang upuan.',
 };

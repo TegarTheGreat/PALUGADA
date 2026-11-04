@@ -445,4 +445,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'งานที่เสร็จแล้ว: {count}',
   'Stopped: its work was taken up another way':
     'หยุดแล้ว: งานนี้ถูกดำเนินการต่อด้วยวิธีอื่น',
+  'Its work stopped, and each time it took down the worker running it.':
+    'งานหยุดลง และทุกครั้งทำให้ worker ที่รันอยู่ล่มไปด้วย',
+  'A write to an outside service may have happened without being what was meant.':
+    'การเขียนไปยังบริการภายนอกอาจเกิดขึ้นแล้ว แต่ไม่ตรงกับที่ตั้งใจ',
+  'Work charged to the same budget account stops until it has room again.':
+    'งานที่เรียกเก็บจากบัญชีงบประมาณเดียวกันจะหยุดจนกว่าบัญชีจะมีที่ว่างอีกครั้ง',
+  'Its work stopped before it was done.':
+    'งานหยุดก่อนจะเสร็จ',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'แพลตฟอร์มนับ worker ที่หายไปได้ {lost} ตัว ซึ่งเป็นจำนวนสูงสุดที่งานหนึ่งเสียได้',
+  'The platform read back what was written, and it did not match.':
+    'แพลตฟอร์มอ่านสิ่งที่เขียนกลับมา และไม่ตรงกัน',
+  'The budget account had nothing left to reserve for the work.':
+    'บัญชีงบประมาณไม่เหลืออะไรให้จองไว้สำหรับงาน',
+  'The platform found it ended with no card raised for it.':
+    'แพลตฟอร์มพบว่ามันจบลงโดยไม่มีการ์ดใดถูกเปิดให้',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'การ์ดส่งไปให้ผู้ที่แผนกกำหนดให้จัดการ แล้วจึงถึงคุณ',
+  'The task was halted, and you were told on a card in the inbox.':
+    'งานถูกหยุด และแจ้งคุณด้วยการ์ดในกล่องข้อความ',
+  'Postmortem: {cause} ({about})':
+    'การทบทวนหลังเหตุการณ์: {cause} ({about})',
+  'What happened':
+    'เกิดอะไรขึ้น',
+  'Impact':
+    'ผลกระทบ',
+  'Trigger':
+    'ตัวกระตุ้น',
+  'Detection':
+    'การตรวจพบ',
+  'What was done':
+    'สิ่งที่ทำไปแล้ว',
+  'A task of {role} stopped before it was done.':
+    'งานหนึ่งของ {role} หยุดก่อนจะเสร็จ',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'วิธีแก้: หาสาเหตุที่แท้จริงโดยถามว่าทำไมกับทุกคำตอบและตรวจกับบันทึก ตัดสินใจครั้งเดียว แล้วเปิดสิ่งที่ต้องทำที่ลงมือตามการตัดสินใจ โดยแต่ละข้อมีที่นั่งเดียว',
 };

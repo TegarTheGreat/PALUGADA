@@ -423,6 +423,57 @@ export function writeUnverifiedCard(reading: OwnerReading, facts: { record: stri
   };
 }
 
+/* ---------------------------------------------------------- postmortems --- */
+
+/** How the platform learned of a failure it files a postmortem for (src/engine/postmortem.ts). */
+export type PostmortemHow = 'crash_loop' | 'verification' | 'budget' | 'ended';
+
+/**
+ * A failure the platform files as an issue (F18.4): a short blameless
+ * postmortem -- what happened, its impact, what triggered it, how it was
+ * detected and what was done -- and how to solve it, in the owner's language.
+ *
+ * Only the platform's own facts. The task is linked on the ticket, not
+ * quoted: what a task was asked can name a customer ("reply to Budi about his
+ * refund"), and an issue is read at every weekly meeting and by every run
+ * that lists the board, long after the customer's own conversation is gone.
+ * A record a service or a check gave is on the card the issue links, for the
+ * same reason, and for another: it can be a stranger's words.
+ */
+export function postmortemIssue(reading: OwnerReading, facts: {
+  how: PostmortemHow; reason: string | null; role: string; about: string; lost?: number;
+}): { title: string; body: string } {
+  const { language } = reading;
+  const cause = haltSaid(language, facts.reason);
+  const impact = {
+    crash_loop: () => say(language, 'Its work stopped, and each time it took down the worker running it.'),
+    verification: () => say(language, 'A write to an outside service may have happened without being what was meant.'),
+    budget: () => say(language, 'Work charged to the same budget account stops until it has room again.'),
+    ended: () => say(language, 'Its work stopped before it was done.'),
+  }[facts.how]();
+  const detection = {
+    crash_loop: () => say(language, 'The platform counted {lost} lost workers, the most a task may lose.',
+      { lost: number(reading, facts.lost ?? 0) }),
+    verification: () => say(language, 'The platform read back what was written, and it did not match.'),
+    budget: () => say(language, 'The budget account had nothing left to reserve for the work.'),
+    ended: () => say(language, 'The platform found it ended with no card raised for it.'),
+  }[facts.how]();
+  const done = facts.how === 'ended'
+    ? say(language, 'The card went to whoever the division names to deal with it, and to you after.')
+    : say(language, 'The task was halted, and you were told on a card in the inbox.');
+  return {
+    title: say(language, 'Postmortem: {cause} ({about})', { cause, about: facts.about }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, 'A task of {role} stopped before it was done.', { role: facts.role })}`,
+      `${say(language, 'Impact')}: ${impact}`,
+      `${say(language, 'Trigger')}: ${cause}`,
+      `${say(language, 'Detection')}: ${detection}`,
+      `${say(language, 'What was done')}: ${done}`,
+      say(language, 'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.'),
+    ].join('\n\n'),
+  };
+}
+
 /* -------------------------------------------------------------- reviews --- */
 
 export function reviewDeadlockedCard(reading: OwnerReading, facts: { capability: string; rounds: number; note: string | null; criteria: string }): Card {

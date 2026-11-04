@@ -441,4 +441,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Trabalhos concluídos: {count}',
   'Stopped: its work was taken up another way':
     'Interrompida: o trabalho foi retomado de outra forma',
+  'Its work stopped, and each time it took down the worker running it.':
+    'O trabalho parou, e a cada vez derrubou o worker que o executava.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Uma gravação em um serviço externo pode ter acontecido sem ser o que se pretendia.',
+  'Work charged to the same budget account stops until it has room again.':
+    'O trabalho cobrado da mesma conta de orçamento para até ela ter margem de novo.',
+  'Its work stopped before it was done.':
+    'O trabalho parou antes de terminar.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'A plataforma contou {lost} workers perdidos, o máximo que uma tarefa pode perder.',
+  'The platform read back what was written, and it did not match.':
+    'A plataforma releu o que foi gravado, e não batia.',
+  'The budget account had nothing left to reserve for the work.':
+    'A conta de orçamento não tinha mais nada a reservar para o trabalho.',
+  'The platform found it ended with no card raised for it.':
+    'A plataforma constatou que terminou sem nenhum cartão aberto para ele.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'O cartão foi para quem a divisão indica para cuidar disso, e depois para você.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'A tarefa foi interrompida, e você foi avisado por um cartão na caixa de entrada.',
+  'Postmortem: {cause} ({about})':
+    'Análise pós-incidente: {cause} ({about})',
+  'What happened':
+    'O que aconteceu',
+  'Impact':
+    'Impacto',
+  'Trigger':
+    'Gatilho',
+  'Detection':
+    'Detecção',
+  'What was done':
+    'O que foi feito',
+  'A task of {role} stopped before it was done.':
+    'Uma tarefa de {role} parou antes de terminar.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Para resolver: encontrar a causa raiz perguntando por quê a cada resposta e conferindo-a com o registro, decidir uma vez e abrir as ações que executam a decisão, cada uma com um posto.',
 };

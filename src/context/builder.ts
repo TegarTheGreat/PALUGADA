@@ -398,8 +398,10 @@ async function roleSections(
   const { rows } = await tx.query<{
     slug: string; system_prompt: string; done_criteria: string[] | null; output_schema: Record<string, unknown> | null;
     display_name: string | null; title: string | null; persona: RolePersona | null; company: string;
+    accountabilities: string[];
   }>(
-    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company
+    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company,
+            r.accountabilities
        FROM tasks t JOIN roles r ON r.id = t.role_id JOIN companies c ON c.id = t.company_id WHERE t.id = $1`,
     [taskId],
   );
@@ -416,6 +418,12 @@ async function roleSections(
     body: [
       ...(who ? [who, ''] : []),
       role.system_prompt.trim() || `You are the company's ${role.slug}.`,
+      // What the seat answers for (F18.3), after what it does and before
+      // what done means: the charter says how it works, this says which
+      // results are its own to see through, and done is about one task.
+      ...(role.accountabilities.length > 0
+        ? ['', 'You are accountable for:', ...role.accountabilities.map((line) => `- ${line}`)]
+        : []),
       ...(done.length > 0 ? ['', 'Done means:', ...done.map((criterion) => `- ${criterion}`)] : []),
     ].join('\n'),
   };
@@ -469,9 +477,10 @@ const TEAM_LIMIT = 60;
 async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
   const { rows } = await tx.query<{
     slug: string; display_name: string | null; title: string | null; system_prompt: string; division: string; frozen: boolean;
-    person_name: string | null;
+    person_name: string | null; accountabilities: string[]; proposes_hires: boolean;
   }>(
-    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen, r.person_name
+    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen, r.person_name,
+            r.accountabilities, 'ticket.create' = ANY(me.tools) AS proposes_hires
        FROM tasks t
        JOIN roles me ON me.id = t.role_id
        JOIN roles r ON r.company_id = t.company_id AND r.id <> me.id
@@ -481,16 +490,27 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
     [taskId],
   );
   if (rows.length === 0) return [];
+  // Said only in a company that has begun naming them: where no seat has
+  // any, "none yet" on every line is noise, and routing by charter is all
+  // there is to go on.
+  const seated = rows.some((role) => role.accountabilities.length > 0);
   const lines = rows.slice(0, TEAM_LIMIT).map((role) => {
     const who = [role.display_name, role.title].filter(Boolean).join(', ');
     const where = who ? `${who}, in ${role.division}.` : `In ${role.division}.`;
     const job = firstSentence(role.system_prompt);
+    // What the seat answers for (F18.3), so work goes to the seat that owns
+    // the result rather than to whichever charter sounds closest; a seat
+    // with none beside seats that have some is said to have none, so the
+    // CEO knows it is guessing there.
+    const owns = role.accountabilities.length > 0
+      ? ` Accountable for: ${role.accountabilities.join('; ')}.`
+      : seated ? ' No accountabilities yet.' : '';
     const frozen = role.frozen ? ' (Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so.)' : '';
     // A person is slower than a model and answers in their own words: the one who hands work over should know.
     const person = role.person_name
       ? ` (A person, ${role.person_name}, not an agent: the work is put to them as a question and may take a day or more to be answered, so allow for it.)`
       : '';
-    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${person}${frozen}`;
+    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${owns}${person}${frozen}`;
   });
   const more = rows.length - lines.length;
   return [{
@@ -502,6 +522,12 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
         ? 'These are all the other roles the company has; there is no role that is not on this list.'
         : `These are ${lines.length} of the company's ${rows.length} other roles; ` +
           'task.delegate names the rest when asked for one it does not know.') +
+      (seated ? ' Each is a seat: where work is about a result a seat is accountable for, hand it to the seat accountable for it.' : '') +
+      // Only to a role that can file the ticket: told of a tool it lacks, a run tries it and is refused.
+      (rows[0]!.proposes_hires
+        ? ' When you propose a seat the company lacks with ticket.create of kind hire, say in its body what the seat ' +
+          'would be accountable for, at most five results; the owner decides.'
+        : '') +
       `\n\n${lines.join('\n')}`,
   }];
 }

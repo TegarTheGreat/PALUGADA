@@ -751,3 +751,14 @@ The first version. What it holds, in the order an owner meets it.
   as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
   update to or go back to that release, and CI runs for a merge queue
   ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).
+
+### Operating rhythm (F18)
+
+- Seats and accountabilities: each role says, in at most five lines, what
+  its seat answers for. The owner sets them from the role, or when hiring,
+  and each change is versioned like the charter. Every run of the seat is
+  told them, and the CEO's list of the roles it can hand work to shows every
+  seat's, so work about a result goes to the seat accountable for it. The
+  Team page shows them on the chart and warns of a seat with none and of an
+  accountability two seats both claim. It never refuses either (F18.3,
+  STATUS 2.192).

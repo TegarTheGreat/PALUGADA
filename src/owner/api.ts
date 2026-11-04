@@ -5021,6 +5021,7 @@ export class OwnerApi {
             tools: body.tools === undefined ? [] : textList(body.tools, 'tools'),
             doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
             ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
+            ...(body.accountabilities === undefined ? {} : { accountabilities: accountabilityLines(body.accountabilities) }),
             ...whoFrom(body),
           }, { ownerApproved: true, grantTools: body.grantTools === true });
         },
@@ -5261,6 +5262,11 @@ export class OwnerApi {
                 { field: 'maxRunMinutes' });
             }
             fields.maxRunSeconds = minutes === 0 ? null : minutes * 60;
+          }
+          if (body.accountabilities !== undefined) {
+            // What the seat answers for (F18.3): bounded where the change is
+            // made, and versioned with the charter.
+            fields.accountabilities = accountabilityLines(body.accountabilities);
           }
           if (body.runtime !== undefined) {
             // Only one this deployment runs. A role moved onto a runtime
@@ -7200,6 +7206,25 @@ function chatKindNamed(name: string): WebhookChatKind {
  * Who a role is, from a request: its name, its title and its persona, each
  * only when present, and each cleared by an explicit null or empty string.
  */
+/**
+ * A seat's accountabilities as sent (F18.3): a list of text, one each. Checked
+ * for text rather than cast, as done criteria are: `String(null)` would be an
+ * accountability reading "null". Trimmed and bounded in governance/structure.ts.
+ */
+function accountabilityLines(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new PalugadaError('contract.violation',
+      'accountabilities must be an array: one line each for what the seat answers for, at most five, or none',
+      { field: 'accountabilities' });
+  }
+  return value.map((line, index) => {
+    if (typeof line !== 'string') {
+      throw new PalugadaError('contract.violation', `accountabilities[${index}] must be text`, { field: 'accountabilities' });
+    }
+    return line;
+  });
+}
+
 function whoFrom(body: Record<string, unknown>): { displayName?: string | null; title?: string | null; persona?: RolePersona | null } {
   const who: { displayName?: string | null; title?: string | null; persona?: RolePersona | null } = {};
   for (const [field, key] of [['displayName', 'displayName'], ['title', 'title']] as const) {

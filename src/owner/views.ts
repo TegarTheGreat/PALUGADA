@@ -14,6 +14,7 @@
  * counted -- so the page holds no queries and no rules.
  */
 import { metricsIn, type MetricView } from '../domain/metrics.ts';
+import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
 import { withTenant } from '../db/tenant.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -93,7 +94,11 @@ export interface StructureView {
     doneCriteria: string[];
     /** How long one run may take (0084); null is no limit beyond the task's deadline. */
     maxRunSeconds: number | null;
+    /** What the seat answers for (F18.3, 0138), at most five. */
+    accountabilities: string[];
   }>;
+  /** What the chart warns of (F18.3): a seat with no accountabilities, and one two seats claim. */
+  seatChecks: SeatChecks;
 }
 
 /** The company's shape: goal ladder, divisions with their grants, roles. */
@@ -147,11 +152,12 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       frozen_at: Date | null; frozen_reason: string | null; frozen_by: string | null;
       open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
       display_name: string | null; title: string | null; persona: { preset?: string; notes?: string } | null;
-      max_run_seconds: number | null;
+      max_run_seconds: number | null; accountabilities: string[];
     }>(
       `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
               r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
               r.frozen_at, r.frozen_reason, r.frozen_by, r.system_prompt, r.done_criteria, r.max_run_seconds,
+              r.accountabilities,
               r.display_name, r.title, r.persona,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
@@ -254,7 +260,9 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         displayName: role.display_name,
         title: role.title,
         persona: role.persona,
+        accountabilities: role.accountabilities,
       })),
+      seatChecks: seatChecksOf(roles.rows),
     };
   });
 }

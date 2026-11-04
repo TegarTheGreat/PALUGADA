@@ -1725,6 +1725,8 @@ the recipe for each is in the sections that follow it:
   Andy Grove.
 - **The weekly scorecard**, after Wickman's scorecard and Grove's paired
   indicators.
+- **Seats and accountabilities**, after the seats Wickman draws a company
+  as in *Traction*, each with a few accountabilities and one name.
 - **The issues list and to-dos**, after Wickman's issues list, Toyota's and
   Eric Ries's Five Whys, and the blameless postmortem in Google's *Site
   Reliability Engineering*.
@@ -1746,3 +1748,32 @@ PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
 authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
 Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
 own descriptions of published methods, and none of their templates is copied.
+
+### Say what each seat is accountable for
+
+Each role is a seat with one occupant, an agent or a person you hired. A seat
+answers for at most five results. On **Team**, open a role, then open **What
+its seat is accountable for** and write one result per line, such as
+"Newsletters sent on time" or "Invoices paid within thirty days". Then
+confirm with your authenticator, because what a seat answers for changes how
+it works, as its charter does. **Hire a role** takes the same list. Each
+change is a version in the role's **History** and can be put back from
+there.
+
+Every run of the seat is told "You are accountable for:" and the list. The
+CEO, and any role that hands work on, sees every other seat's list beside its
+name, and is told to hand work about a result to the seat accountable for
+it. When the CEO proposes a hire, it says in the proposal what the new seat
+would be accountable for. You decide that on the card and then in the seat.
+
+The chart on **Divisions & roles** shows each seat's list under its name.
+**Seats to look at**, above the chart, names two things to fix, and refuses
+neither:
+
+- a seat with no accountabilities yet, marked under its name too;
+- an accountability two seats both claim in the same words, whatever their
+  case or spacing. Give it to one of them.
+
+Press a seat's name to open it. This follows how *Traction* by Gino Wickman
+draws a company as seats, each with a few accountabilities. You are the
+visionary and the CEO is the integrator, and neither is a seat of its own.

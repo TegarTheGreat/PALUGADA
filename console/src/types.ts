@@ -222,6 +222,8 @@ export interface Role {
   displayName: string | null;
   title: string | null;
   persona: RolePersona | null;
+  /** What the seat answers for (F18.3, migration 0138): at most five lines, told to every run of it. */
+  accountabilities: string[];
 }
 
 /** The persona a role takes after, and the owner's own words about how it should be. */
@@ -251,6 +253,13 @@ export interface Structure {
   goals: Goal[];
   divisions: Division[];
   roles: Role[];
+  /** What the chart warns of (F18.3): shown, never refused. */
+  seatChecks: {
+    /** Seats, by role id, that answer for nothing yet. */
+    withoutAccountabilities: string[];
+    /** An accountability two or more seats claim in the same words, as the first of them wrote it. */
+    sharedAccountabilities: Array<{ accountability: string; roleIds: string[] }>;
+  };
 }
 
 export type WorkGroup = 'active' | 'waiting' | 'done' | 'stopped';

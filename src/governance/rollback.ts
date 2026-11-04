@@ -92,6 +92,8 @@ export async function rollBack(
       ...(Array.isArray(snapshot.doneCriteria) ? { doneCriteria: snapshot.doneCriteria as string[] } : {}),
       // And how long a run could take (0084).
       ...('maxRunSeconds' in snapshot ? { maxRunSeconds: (snapshot.maxRunSeconds as number | null) ?? null } : {}),
+      // And what the seat answered for (0138).
+      ...(Array.isArray(snapshot.accountabilities) ? { accountabilities: snapshot.accountabilities as string[] } : {}),
     }, { ownerApproved: true, summary, restoring: true });
   }
 

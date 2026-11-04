@@ -442,7 +442,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       baseline: 'number now', target: 'number wanted', dueOn: 'optional date', sourceCapability: 'optional capability that reads it',
       reviewEvery: 'optional: week puts it on the weekly scorecard, and the target is then the weekly goal',
       ownerRoleId: 'optional: the id of the role (seat) that answers for it',
-      pairedWith: 'optional: the id of the measure to watch it with, the one that would suffer if this were pushed',
+      pairedWith: 'optional: the id of a measure with no pair yet to watch it with, the one that would suffer if this were pushed; re-pairing a measure that has a pair is a change to that measure',
     },
     factor: 'never',
   },

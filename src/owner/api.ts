@@ -4429,7 +4429,10 @@ export class OwnerApi {
       {
         // What a goal is measured by (0053). The owner's, like the goal: an
         // agent that could set its own target could meet any target. No
-        // factor, because adding a measure loosens nothing.
+        // factor, because adding a measure loosens nothing -- which is why a
+        // new measure may be paired only with one that has no pair (0137):
+        // taking a partner from an existing pair is a change to that measure,
+        // and the change route below asks for the factor.
         method: 'POST',
         pattern: '/api/companies/:companyId/goals/:goalId/metrics',
         handle: async ({ params, body }) => {

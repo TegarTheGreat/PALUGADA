@@ -21,6 +21,7 @@ import { useFactor } from '../factor.tsx';
 import { locale, t } from '../i18n.ts';
 import { numberSeparators, relative, roleLabel } from '../format.ts';
 import type { Goal, Metric, Role } from '../types.ts';
+import { rhythmChanges, rhythmOf, type Rhythm } from '../rhythm.ts';
 
 /**
  * What the forms choose a seat and a pair from: the company's roles, and every
@@ -111,31 +112,29 @@ export function MetricLine({ metric, companyId, changed, team, goalKind }: {
       {wantsPair(metric, goalKind) && (
         <Text size="xs" c="orange" mt={4}>{t('Not paired: nothing watches what this number could be bought with.')}</Text>
       )}
-      {changed && (
-        <>
-          <RecordValue companyId={companyId} metric={metric} opened={recording} close={() => setRecording(false)} done={changed} />
-          <ChangeMetric companyId={companyId} metric={metric} opened={editing} close={() => setEditing(false)} done={changed}
-            {...(team ? { team } : {})} {...(goalKind ? { goalKind } : {})} />
-        </>
+      {/* Mounted only while open, so each opening starts from the measure as
+          it is now: pairing another measure may have changed this one's
+          partner since the form was last open. */}
+      {changed && recording && (
+        <RecordValue companyId={companyId} metric={metric} opened close={() => setRecording(false)} done={changed} />
+      )}
+      {changed && editing && (
+        <ChangeMetric companyId={companyId} metric={metric} opened close={() => setEditing(false)} done={changed}
+          {...(team ? { team } : {})} {...(goalKind ? { goalKind } : {})} />
       )}
     </div>
   );
 }
 
 /**
- * The weekly scorecard's three fields (0137): how often the measure is
- * reviewed, the seat that answers for it, and the measure it is watched with.
+ * The weekly scorecard's three fields (0137). A new measure (no `self`) is
+ * offered only partners with no pair: taking one from an existing pair is a
+ * change to that measure, made from its own form, under the owner's factor.
  */
-interface Rhythm {
-  reviewEvery: 'week' | null;
-  ownerRoleId: string | null;
-  pairedWith: string | null;
-}
-
 function RhythmFields({ value, onChange, team, self, unit, goalKind }: {
   value: Rhythm; onChange: (next: Rhythm) => void; team: MetricTeam; self?: string; unit: string | null; goalKind?: string;
 }) {
-  const others = team.metrics.filter((one) => one.id !== self && !one.retiredAt);
+  const others = team.metrics.filter((one) => one.id !== self && !one.retiredAt && (self !== undefined || !one.pairedWith));
   return (
     <Stack gap="xs">
       <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -171,9 +170,9 @@ export function ChangeMetric({ companyId, metric, opened, close, done, team, goa
   companyId: string; metric: Metric; opened: boolean; close: () => void; done: () => void; team?: MetricTeam; goalKind?: string;
 }) {
   const requireFactor = useFactor();
-  const [rhythm, setRhythm] = useState<Rhythm>({
-    reviewEvery: metric.reviewEvery, ownerRoleId: metric.ownerRoleId, pairedWith: metric.pairedWith,
-  });
+  // What the form opened with, so Save sends only what the owner changed.
+  const [started] = useState<Rhythm>(() => rhythmOf(metric));
+  const [rhythm, setRhythm] = useState<Rhythm>(started);
   const [name, setName] = useState(metric.name);
   const [target, setTarget] = useState<number | string>(metric.target);
   const [baseline, setBaseline] = useState<number | string>(metric.baseline);
@@ -210,7 +209,7 @@ export function ChangeMetric({ companyId, metric, opened, close, done, team, goa
           <Group gap="xs">
             <Button variant="default" onClick={close}>{t('Cancel')}</Button>
             <Button disabled={!name.trim() || target === ''} onClick={() => void send(
-              { name, target: Number(target), baseline: Number(baseline), dueOn: dueOn || null, ...(team ? rhythm : {}) },
+              { name, target: Number(target), baseline: Number(baseline), dueOn: dueOn || null, ...(team ? rhythmChanges(started, rhythm) : {}) },
               t('Changed. Agents working on this goal are told the new figure.'),
             )}>{t('Save')}</Button>
           </Group>
@@ -337,7 +336,9 @@ export function GoalMetrics({ companyId, goal, changed, team }: { companyId: str
         </Button>
         {goal.metrics.length === 0 && <Badge variant="light" color="gray">{t('Progress is counted in tasks until then')}</Badge>}
       </Group>
-      <AddMetric companyId={companyId} goal={goal} opened={adding} close={() => setAdding(false)} done={changed} {...(team ? { team } : {})} />
+      {adding && (
+        <AddMetric companyId={companyId} goal={goal} opened close={() => setAdding(false)} done={changed} {...(team ? { team } : {})} />
+      )}
     </Stack>
   );
 }

@@ -763,6 +763,10 @@ The first version. What it holds, in the order an owner meets it.
 - **Paired measures.** A measure can be watched with the one that would
   suffer if it were pushed. The two are shown together on the scorecard and
   in every run's context, the database refuses half a pair, and a key
-  result counted in units or money with no pair says so (STATUS 2.191).
-- A weekly goal met is not a milestone: it starts no outcome task, and a
-  short week does not stop a goal being proposed met (STATUS 2.191).
+  result counted in units or money with no pair says so. A new measure
+  pairs only with one that has no pair; re-pairing is a change, under the
+  second factor, and a change form sends only what was changed in it
+  (STATUS 2.191).
+- A weekly goal met is not a milestone: it starts no outcome task, a
+  short week does not stop a goal being proposed met, and a weekly line is
+  never the portfolio's headline (STATUS 2.191).

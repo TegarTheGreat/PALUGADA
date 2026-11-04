@@ -17,7 +17,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { buildContext } from '../../src/context/builder.ts';
-import { changeMetric, defineMetric, metricsIn, recordObservation, scorecardOf } from '../../src/domain/metrics.ts';
+import { changeMetric, defineMetric, headlines, metricsIn, recordObservation, scorecardOf } from '../../src/domain/metrics.ts';
 import { ensureOutcomes } from '../../src/engine/outcomes.ts';
 import { proposeGoalChange } from '../../src/domain/goals.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
@@ -25,6 +25,7 @@ import { importCompany } from '../../src/audit/import.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { rhythmChanges, rhythmOf } from '../../console/src/rhythm.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -315,4 +316,115 @@ test('the scorecard travels with the company', async () => {
   assert.equal(bySlug.get('calls')!.ownerRoleId, rows[0]!.id, 'the seat is the restored role, not the source');
   assert.equal(bySlug.get('calls')!.pairedWith, bySlug.get('complaints')!.id);
   assert.equal(bySlug.get('complaints')!.pairedWith, bySlug.get('calls')!.id);
+});
+
+test('a change form opened before its measure was paired does not undo the pair', async () => {
+  // Pairing writes two rows, so pairing sign-ups with churn changes churn
+  // behind a form the owner opened on churn earlier. Saving that form for
+  // another reason -- its target -- must leave the pair as it now is.
+  const fixture = await createCompany('scorecard-stale-form');
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const define = (slug: string, name: string) => defineMetric(fixture.companyId, {
+      goalId: fixture.goalId, slug, name, unit: 'count', target: 100, reviewEvery: 'week',
+    });
+    const signups = await define('signups', 'New sign-ups');
+    const churn = await define('churn', 'Churn');
+    const visits = await define('visits', 'Site visits');
+    const opened = async () => new Map((await withTenant(fixture.companyId, (tx) => metricsIn(tx)))
+      .map((metric) => [metric.id, rhythmOf(metric)]));
+    const before = await opened();
+    // A form sends what the owner changed in it since it was opened.
+    const save = (metricId: string, started: Map<string, ReturnType<typeof rhythmOf>>,
+      form: ReturnType<typeof rhythmOf>, target: number) =>
+      api.call('POST', `/api/companies/${fixture.companyId}/metrics/${metricId}`, token,
+        { target, ...rhythmChanges(started.get(metricId)!, form), proof: { totp: api.code() } });
+    const pairs = async () => Object.fromEntries((await withTenant(fixture.companyId, (tx) => metricsIn(tx)))
+      .map((metric) => [metric.slug, metric.pairedWith]));
+
+    // The owner pairs sign-ups with churn from sign-ups' form.
+    const paired = await save(signups, before, { ...before.get(signups)!, pairedWith: churn }, 100);
+    assert.equal(paired.status, 200, JSON.stringify(paired.body));
+    assert.deepEqual(await pairs(), { signups: churn, churn: signups, visits: null });
+    const afterPairing = await opened();
+
+    // Then moves churn's target from the form opened before the pair was made.
+    const moved = await save(churn, before, before.get(churn)!, 120);
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.deepEqual(await pairs(), { signups: churn, churn: signups, visits: null },
+      'a form that did not touch the pair does not send it');
+
+    // Nor does a form opened while sign-ups was paired remake that pair once
+    // churn has been paired with visits instead.
+    await changeMetric(fixture.companyId, visits, { pairedWith: churn });
+    const again = await save(signups, afterPairing, afterPairing.get(signups)!, 110);
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual(await pairs(), { signups: null, churn: visits, visits: churn });
+    assert.deepEqual(rhythmChanges(afterPairing.get(signups)!, afterPairing.get(signups)!), {});
+
+    // What the owner did change in a form is sent.
+    assert.deepEqual(rhythmChanges(before.get(visits)!, { ...before.get(visits)!, ownerRoleId: fixture.roleId }),
+      { ownerRoleId: fixture.roleId });
+  } finally {
+    await api.close();
+  }
+});
+
+test('adding a measure does not re-pair one that is already paired', async () => {
+  // Adding a measure takes no second factor, because it loosens nothing.
+  // Naming a partner that already has a pair would undo that pair, which the
+  // change route guards with the factor; so the add route refuses it, and
+  // says where the change is made instead.
+  const fixture = await createCompany('scorecard-add-pair');
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const signups = await defineMetric(fixture.companyId, {
+      goalId: fixture.goalId, slug: 'signups', name: 'New sign-ups', unit: 'count', target: 100, reviewEvery: 'week',
+    });
+    const churn = await defineMetric(fixture.companyId, {
+      goalId: fixture.goalId, slug: 'churn', name: 'Churn', unit: 'percent', direction: 'down', baseline: 30, target: 10,
+      reviewEvery: 'week', pairedWith: signups,
+    });
+    const add = (body: Record<string, unknown>) =>
+      api.call('POST', `/api/companies/${fixture.companyId}/goals/${fixture.goalId}/metrics`, token, body);
+
+    const refused = await add({ slug: 'x', name: 'X', unit: 'count', target: 5, reviewEvery: 'week', pairedWith: signups });
+    assert.equal(refused.status, 400, JSON.stringify(refused.body));
+    assert.match(String(refused.body.error), /signups is already paired with churn/);
+    assert.match(String(refused.body.error), /change signups/);
+    const pairs = async () => Object.fromEntries((await withTenant(fixture.companyId, (tx) => metricsIn(tx)))
+      .map((metric) => [metric.slug, metric.pairedWith]));
+    assert.deepEqual(await pairs(), { signups: churn, churn: signups }, 'nothing was added and the pair stands');
+
+    // A partner with no pair yet is paired with the new measure, as before.
+    const visits = await defineMetric(fixture.companyId, {
+      goalId: fixture.goalId, slug: 'visits', name: 'Site visits', unit: 'count', target: 5_000, reviewEvery: 'week',
+    });
+    const made = await add({ slug: 'bounce', name: 'Bounce rate', unit: 'percent', direction: 'down', baseline: 60, target: 40,
+      reviewEvery: 'week', pairedWith: visits });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    assert.equal((await pairs()).visits, made.body.id);
+  } finally {
+    await api.close();
+  }
+});
+
+test('a weekly line is not the number the portfolio judges a company by', async () => {
+  // The headline is progress from a baseline to a target. A weekly line's
+  // target is a weekly goal, and its latest reading may be from any week, so
+  // it is not progress toward anything; the scorecard is where it is read.
+  const fixture = await createCompany('scorecard-headline');
+  const mission = await missionOf(fixture);
+  const calls = await defineMetric(fixture.companyId, {
+    goalId: mission, slug: 'calls', name: 'Sales calls made', unit: 'count', target: 50, reviewEvery: 'week',
+  });
+  await readingAt(fixture, calls, 55, '2026-09-01T10:00:00Z');
+  assert.equal((await withControlPlane((tx) => headlines(tx))).get(fixture.companyId), undefined,
+    'a company measured only weekly has no headline yet');
+  await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'mrr', name: 'Monthly recurring revenue', unit: 'currency', target: 10_000_000,
+  });
+  assert.equal((await withControlPlane((tx) => headlines(tx))).get(fixture.companyId)?.name, 'Monthly recurring revenue');
 });

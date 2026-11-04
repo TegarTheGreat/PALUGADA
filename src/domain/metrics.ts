@@ -111,7 +111,24 @@ export async function defineMetric(companyId: string, input: MetricDefinition): 
       ],
     );
     const id = rows[0]!.id;
-    if (input.pairedWith) await pair(tx, companyId, id, input.pairedWith);
+    if (input.pairedWith) {
+      // Adding a measure takes no second factor because it loosens nothing;
+      // taking a partner from a pair that exists would undo that pair, which
+      // only a change to the measure -- under the factor -- may do.
+      const taken = await tx.query<{ slug: string; partner: string }>(
+        `SELECT m.slug, p.slug AS partner FROM goal_metrics m
+           JOIN goal_metrics p ON p.company_id = m.company_id AND p.id = m.paired_metric_id
+          WHERE m.company_id = $1 AND m.id::text = $2`,
+        [companyId, input.pairedWith]);
+      const held = taken.rows[0];
+      if (held) {
+        throw new PalugadaError('contract.violation',
+          `the measure ${held.slug} is already paired with ${held.partner}; a new measure may be paired only with one that has no pair. ` +
+          `To pair ${held.slug} with this one instead, add it unpaired and then change ${held.slug}, which takes your second factor`,
+          { field: 'pairedWith' });
+      }
+      await pair(tx, companyId, id, input.pairedWith);
+    }
     await appendEvent(tx, {
       companyId,
       type: 'metric.defined',
@@ -575,7 +592,7 @@ export interface Headline {
 /**
  * Each company's headline, on the control plane: the first metric set on its
  * highest active goal -- a mission's before an objective's before a key
- * result's -- with where it stands.
+ * result's -- with where it stands. Only a measure aimed at a target counts.
  *
  * One human running several companies decides where attention goes by
  * comparing them, and a count of finished tasks does not compare: ten done in
@@ -596,8 +613,10 @@ export async function headlines(tx: TenantClient): Promise<Map<string, Headline>
               SELECT value, verified FROM metric_observations o
                WHERE o.company_id = m.company_id AND o.metric_id = m.id
                ORDER BY observed_at DESC LIMIT 1) o ON true
-      -- A retired measure is history (0069), not what a company is judged by.
-      WHERE m.retired_at IS NULL
+      -- A retired measure is history (0069), not what a company is judged by;
+      -- and a weekly line (0137) has a weekly goal, not a target to make
+      -- progress toward, so the scorecard is where it is read.
+      WHERE m.retired_at IS NULL AND m.review_every IS NULL
       ORDER BY m.company_id,
                CASE g.kind WHEN 'mission' THEN 0 WHEN 'objective' THEN 1 ELSE 2 END,
                m.created_at`,

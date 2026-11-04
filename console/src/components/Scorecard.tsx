@@ -182,8 +182,12 @@ export function Scorecard({ companyId, structure, changed, compact, more }: {
       )}
       {structure && (
         <>
-          <AddMetric companyId={companyId} goal={null} goals={goals} weekly team={team!} opened={adding}
-            close={() => setAdding(false)} done={after} />
+          {/* Mounted only while open, so each line starts from an empty form and
+              is offered only the partners that have no pair now. */}
+          {adding && (
+            <AddMetric companyId={companyId} goal={null} goals={goals} weekly team={team!} opened
+              close={() => setAdding(false)} done={after} />
+          )}
           {recording && (
             <RecordValue companyId={companyId} metric={recording} opened close={() => setRecording(null)} done={after} />
           )}

@@ -1769,7 +1769,9 @@ Grove's *High Output Management*.
    were: sign-ups with the share gone within a month, calls with complaints.
    Choose it under **Watched with**. The two are always shown together, here
    and to every run working on either. A key result counted in units or
-   money with no pair says so.
+   money with no pair says so. A new line is offered only numbers that have
+   no pair yet; to pair a number that already has one with another, press
+   **Change** on it, which asks for your second factor.
 5. A measure you already have goes on the scorecard from its goal: on
    **Goals**, press **Change** on the measure and set **Reviewed** to *Every
    week*. Setting it back takes it off, and keeps its history.

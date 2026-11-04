@@ -1712,3 +1712,37 @@ jumps to pages and commands and, after two characters, finds tasks,
 decisions and memory across every company. **History** has its own search
 over titles, summaries and your notes, and **Memory** searches what one
 company knows.
+
+## Run the company by known methods
+
+A company runs by the operating methods most small companies already use,
+rather than by ones PALUGADA invented. Each part is named in plain words, and
+the recipe for each is in the sections that follow it:
+
+- **Quarterly priorities and this year's goals**, after the Rocks and the
+  one-year plan in *Traction* by Gino Wickman, and objectives and key results
+  as in *Measure What Matters* by John Doerr and *High Output Management* by
+  Andy Grove.
+- **The weekly scorecard**, after Wickman's scorecard and Grove's paired
+  indicators.
+- **The issues list and to-dos**, after Wickman's issues list, Toyota's and
+  Eric Ries's Five Whys, and the blameless postmortem in Google's *Site
+  Reliability Engineering*.
+- **The weekly operating meeting**, run by the CEO, after Wickman's weekly
+  meeting and the meeting rhythm in *Scaling Up* by Verne Harnish.
+- **Quarterly planning and grades**, after the quarterly cycle both *Traction*
+  and the OKR books describe, and Deming's plan-do-study-act.
+- **Channel testing**, after the Bullseye framework in *Traction* by Gabriel
+  Weinberg and Justin Mares.
+- **Learning priorities**, after validated learning in *The Lean Startup* by
+  Eric Ries.
+
+The owner is the visionary: they write the vision in the company's charter,
+approve every goal, and decide whatever cannot be undone. The CEO is the
+integrator: it runs the meeting, holds each seat to its numbers and solves
+issues between seats.
+
+PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
+authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
+Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
+own descriptions of published methods, and none of their templates is copied.

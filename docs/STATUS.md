@@ -73,8 +73,10 @@ means less than that, the row says so.
 | F15 skills | F15.1–F15.8 | — | — |
 | F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
+| F18 operating rhythm | — | — | F18.1–F18.15 (section 2.189: the frameworks adopted, the parts rejected and why, and the order they are built in) |
 
-Read as a whole: every requirement in v2 section 8 is built, the owner has a
+Read as a whole: every requirement in v2 sections 8.1 to 8.17 is built (F18,
+the operating rhythm, is being built in the order section 2.189 gives), the owner has a
 console to run it from (`npm start`), and the two rows still marked partial are
 partial in one specific way — a vendor account this repository cannot hold.
 
@@ -11207,6 +11209,48 @@ A model down for an afternoon, a vendor's outage, or a credential that expired o
   - The assistant's taint is still decided one answer at a time, and an external skill's review task still carries no taint. Both predate this change and are only named in the threat model.
   - A schedule the owner wrote themselves is counted, not named, when they press Run now.
   - A restored task's input is kept as the archive had it, so the ticket it was given from is named by the archive's id. The CEO's briefing finds no ticket by it and counts that work rather than naming it, the safe way round. Its key is mapped (2.187), its input is not, since the input's hash is what the cycle check compares.
+
+## 2.189 The company runs by methods that are known to work (F18; the owner's request of 4 November)
+
+The owner asked for "something already very well known, used and valid, like the book Traction" to be built into PALUGADA. A company of agents had a goal ladder, measures, tickets, a weekly business review and a CEO that wakes when a goal goes idle. It had no period on a goal, no owner for a number, no weekly rhythm that looks at the numbers, no place where a problem is solved rather than reported, and nothing that grades a quarter. Those are the parts every operating method for a small company has in common, so they are what PALUGADA adopts.
+
+**Read from their sources.** Each method was read from its authors' own pages before anything was designed: EOS Worldwide on *Traction* (Wickman), whatmatters.com and Google's re:Work on OKRs (Doerr, Grove), tractionbook.com on the Bullseye framework and its 19 channels (Weinberg and Mares), Ries on validated learning and Five Whys, Maurya's Lean Canvas (CC BY-SA), the Sean Ellis survey, McClure's funnel, Harnish on the meeting rhythm and the Power of One, Deming's PDCA, Google's SRE book on blameless postmortems, and Bezos's letters on one-way and two-way doors. Where sources disagree, the code names the value it chose and why.
+
+**Names.** EOS®, Rocks™, Level 10 Meeting™, V/TO®, Accountability Chart™ and IDS® are marks of EOS Worldwide; BHAG® is Collins and Porras's; Scaling Up's forms are copyrighted. PALUGADA uses plain names (quarterly priorities, weekly scorecard, issues list, weekly operating meeting, vision and plan, seats and accountabilities, channel testing), attributes each method where it is used, and copies no template or text. The guide says plainly that PALUGADA is not affiliated with or endorsed by any of them.
+
+**Who is who.** The owner is the visionary: they write the vision, approve every goal (F3.10, enforced by the SELECT-only grant on `goals`) and decide every one-way door (tier 3). The CEO is the integrator: it runs the weekly meeting, holds each seat to its numbers and solves issues between seats. A role is a seat with one occupant. No seat is added for either part.
+
+**What is built, in this order**, each with its own section:
+
+| Requirement | What it becomes | Section |
+|---|---|---|
+| F18.1, F18.11 (column) | a period, a seat, a commitment, a definition of done and a channel on `goals` | 2.190 |
+| F18.2 | `goal_metrics` reviewed weekly, owned, paired; a 13-week scorecard | 2.191 |
+| F18.3 | at most five accountabilities on a role; the seat's own numbers in every run | 2.192 |
+| F18.4, F18.5 | issues and to-dos as tickets, solved with a root cause and a decision; postmortems filed by the platform | 2.193 |
+| F18.6 | the CEO's weekly operating meeting, from facts the platform builds | 2.194 |
+| F18.7 | a plan of new goals proposed in one card, approved line by line | 2.195 |
+| F18.8, F18.9 | grades the platform writes at a period's end; quarterly and annual planning | 2.196 |
+| F18.10, F18.11 (panel) | the vision and plan page | 2.197 |
+| F18.11 (skill), F18.15 | channel testing and three drafting skills in `company-os` | 2.198 |
+| F18.12 | the monthly money review | 2.199 |
+| F18.13 | the owner's headline metric and funnel steps | 2.200 |
+| F18.14 | core processes as owned skills | 2.201 |
+
+**What is not adopted, and why.** Each is a discipline for people sharing a room, or a measure the platform cannot observe:
+
+- *People Analyzer, GWC, quarterly conversations, CFRs and one-on-ones.* They rate a person's character and desire. An agent has no "wants it", and what they are for is already done on evidence: evals (F17), reviews, done criteria and freezing a role.
+- *The meeting's social parts*: the segue, the 1–10 rating, the attendance rule, fixed minutes per section. Agents need hard states (on or off track, done or not) and counts, which the platform records. Fixed minutes would only spend tokens.
+- *The daily huddle.* Agents have no working day (F9.6), and a daily task with nothing to say breaks F9.10. The owner already has the daily digest.
+- *Separate visionary and integrator seats.* The owner and the CEO already are them.
+- *Grades that feed budgets, trust tiers, model routing or freezing.* Both OKR sources call tying grades to rewards harmful, since it invites sandbagging. With agents it also invites risk taken to catch up. Grades are information for the owner and the next plan.
+- *Agents setting their own targets.* That breaks F3.10. Agents propose; the owner approves.
+- *RACI as a stored matrix, GTD, the Eisenhower matrix.* The single accountable owner is kept as one seat on every priority and measure; capture, triage, priorities and deadlines already exist as tickets.
+- *Six-page memos, "disagree and commit" between agents, the 70% rule.* Owner-facing writing stays a brief in the owner's language; the tiers decide how careful a decision must be, and no agent overrides a decision reserved for the owner.
+- *Hedgehog, flywheel, Seven Strata, the One-Page Strategic Plan as a form.* Metaphors or branded forms with nothing to check. Positioning already lives in the positioning skill.
+- *Benchmark numbers as norms.* McClure's example conversions are labelled "not actuals" by him. The thresholds that ship (40% on the fit survey, 0.6–0.7 on an aspirational grade, 80% of priorities done) are named as heuristics with their source.
+- *Agents answering customer interviews or surveys.* The method depends on real people. Agents draft and tally; customers answer; outreach stays tier 2.
+- *New tables for meetings, scorecards and postmortems, or a new inbox kind for issues.* The owner's inbox is for decisions (F10.1). Issues are tickets, the scorecard is `goal_metrics`, and a meeting is a task with its facts and its record.
 
 ## 3. Decisions, deviations, and what is unverified
 

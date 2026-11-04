@@ -101,8 +101,10 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'goal_metrics',
+    // With its place on the weekly scorecard (0137): how often it is
+    // reviewed, the seat that owns it, and the measure it is watched with.
     sql: `SELECT id, goal_id, slug, name, unit, direction, baseline, target, due_on,
-                 source_capability, created_at, retired_at
+                 source_capability, created_at, retired_at, review_every, owner_role_id, paired_metric_id
             FROM goal_metrics ORDER BY created_at`,
   },
   {

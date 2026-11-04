@@ -1746,3 +1746,37 @@ PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
 authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
 Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
 own descriptions of published methods, and none of their templates is copied.
+
+### Keep a weekly scorecard
+
+The weekly scorecard is the handful of numbers you read every week to know
+whether the company is on course before it shows in the money. It is after
+the scorecard in Gino Wickman's *Traction* and the paired indicators in Andy
+Grove's *High Output Management*.
+
+1. Open **Team**, then **Weekly scorecard**, and press **Add a line**. Choose
+   the goal the number serves (the mission or an objective, usually), name
+   it, and set its unit, which way is better and its **Target**: on the
+   scorecard the target is the goal for each week. **Reviewed** is already
+   *Every week*.
+2. Choose **The seat that answers for it**: the role that records the number
+   and is held to it. A line with no seat says so on the scorecard.
+3. Set **Read from** to the capability whose answer is the number, if there
+   is one. A number a run records is counted only when that run read it
+   there; otherwise it is shown as claimed, outlined, and judged neither
+   way. A figure you record yourself counts.
+4. Pair a number that can be pushed with the one that would suffer if it
+   were: sign-ups with the share gone within a month, calls with complaints.
+   Choose it under **Watched with**. The two are always shown together, here
+   and to every run working on either. A key result counted in units or
+   money with no pair says so.
+5. A measure you already have goes on the scorecard from its goal: on
+   **Goals**, press **Change** on the measure and set **Reviewed** to *Every
+   week*. Setting it back takes it off, and keeps its history.
+
+Each week is counted Monday to Sunday where the company is: the time zone it
+was made in, which the scorecard names under its title. Each week shows its
+last checked figure: green on track, red off track, and a dashed empty cell
+when nothing was reported, which is not the same as off track. The scorecard
+reads best with 5 to 15 lines and says so when it has fewer or more; it never
+refuses one. The Overview shows the first eight lines once there is one.

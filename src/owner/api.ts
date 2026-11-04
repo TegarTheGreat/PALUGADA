@@ -99,7 +99,9 @@ import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { ownerSaidAlready, remember, retract, supersede } from '../memory/store.ts';
-import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
+import {
+  changeMetric, defineMetric, headlines, recordObservation, scorecardOf, type Headline, type MetricChange, type MetricUnit,
+} from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
@@ -4443,9 +4445,18 @@ export class OwnerApi {
             target,
             dueOn: typeof body.dueOn === 'string' && body.dueOn ? body.dueOn : null,
             sourceCapability: typeof body.sourceCapability === 'string' && body.sourceCapability ? body.sourceCapability : null,
+            ...scorecardFields(body),
           });
           return { id };
         },
+      },
+
+      {
+        // The weekly scorecard (F18.2): the measures reviewed every week, by
+        // week, in the company's time zone, with this week's state of each.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/scorecard',
+        handle: async ({ params }) => withTenant(params.companyId!, (tx) => scorecardOf(tx, params.companyId!, new Date())),
       },
 
       {
@@ -4466,6 +4477,7 @@ export class OwnerApi {
             change.sourceCapability = typeof body.sourceCapability === 'string' && body.sourceCapability ? body.sourceCapability : null;
           }
           if (body.retired !== undefined) change.retired = body.retired === true;
+          Object.assign(change, scorecardFields(body));
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
           await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
           await changeMetric(params.companyId!, params.metricId!, change);
@@ -7606,6 +7618,26 @@ function pick(body: Record<string, unknown>, fields: readonly string[]): Record<
 }
 
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */
+/**
+ * What a measure's body says about the weekly scorecard (0137): how often it
+ * is reviewed, the seat that owns it, and the measure it is watched with. A
+ * field left out is left as it is; null clears it. The domain checks each.
+ */
+function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith'> {
+  const fields: Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith'> = {};
+  const idOrNull = (value: unknown, field: string): string | null => {
+    if (value === null || value === '') return null;
+    if (typeof value !== 'string') {
+      throw new PalugadaError('contract.violation', `${field} must be an id, or null to clear it`, { field });
+    }
+    return value.trim();
+  };
+  if (body.reviewEvery !== undefined) fields.reviewEvery = (body.reviewEvery === '' ? null : body.reviewEvery) as 'week' | null;
+  if (body.ownerRoleId !== undefined) fields.ownerRoleId = idOrNull(body.ownerRoleId, 'ownerRoleId');
+  if (body.pairedWith !== undefined) fields.pairedWith = idOrNull(body.pairedWith, 'pairedWith');
+  return fields;
+}
+
 function requireText(value: unknown, field: string): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) {

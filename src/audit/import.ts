@@ -111,8 +111,10 @@ const SECTIONS: ImportSection[] = [
   { name: 'projects', table: 'projects', references: [] },
   { name: 'divisions', table: 'divisions', references: ['parent_division_id'] },
   { name: 'goals', table: 'goals', references: ['parent_goal_id'] },
-  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
   { name: 'roles', table: 'roles', references: ['division_id'] },
+  // After the roles, which own a line on the weekly scorecard (0137). A pair
+  // names a sibling in either order; its key is checked when the import ends.
+  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id', 'owner_role_id', 'paired_metric_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
     // F12.1: what travels is the reference and its division, never a value --

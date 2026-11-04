@@ -181,6 +181,39 @@ export interface Metric {
   history: Array<{ value: number; observedAt: string; verified: boolean }>;
   /** When the owner retired it; its history is kept and it takes no more values. */
   retiredAt: string | null;
+  /** `week` for a line on the weekly scorecard, whose target is then the weekly goal. */
+  reviewEvery: 'week' | null;
+  /** The seat that answers for it. */
+  ownerRoleId: string | null;
+  ownerRoleSlug: string | null;
+  /** The measure it is watched with, which names this one back. */
+  pairedWith: string | null;
+}
+
+/** Where a week of a scorecard line stands; `claimed` is an agent's number nobody read from its source. */
+export type WeekState = 'on_track' | 'off_track' | 'claimed' | 'not_reported';
+
+/** GET /api/companies/:companyId/scorecard (src/domain/metrics.ts `scorecardOf`). */
+export interface Scorecard {
+  timezone: string;
+  /** The Mondays of the weeks shown, oldest first, ending with this week. */
+  weeks: string[];
+  lines: Array<{
+    metricId: string;
+    goalId: string;
+    slug: string;
+    name: string;
+    unit: Metric['unit'];
+    direction: 'up' | 'down';
+    target: number;
+    sourceCapability: string | null;
+    ownerRole: { id: string; slug: string; displayName: string | null; title: string | null } | null;
+    pairedWith: string | null;
+    pair: { id: string; slug: string; name: string } | null;
+    weeks: Array<{ week: string; value: number | null; verified: boolean | null; state: WeekState }>;
+    state: WeekState;
+  }>;
+  warning: { kind: 'too_few' | 'too_many'; lines: number; fewest: number; most: number } | null;
 }
 
 export interface Division {

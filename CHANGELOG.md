@@ -751,3 +751,18 @@ The first version. What it holds, in the order an owner meets it.
   as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
   update to or go back to that release, and CI runs for a merge queue
   ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).
+
+### Operating rhythm (F18)
+
+- **The weekly scorecard** (F18.2). A measure can be reviewed every week:
+  its target is then the weekly goal, a seat answers for it, and Team shows
+  thirteen weeks of it, on track, off track, claimed or not reported,
+  counted in the company's time zone. An agent's number nobody read from its
+  source is shown as claimed and judged neither way. The owner is warned
+  below 5 lines or above 15 (STATUS 2.191).
+- **Paired measures.** A measure can be watched with the one that would
+  suffer if it were pushed. The two are shown together on the scorecard and
+  in every run's context, the database refuses half a pair, and a key
+  result counted in units or money with no pair says so (STATUS 2.191).
+- A weekly goal met is not a milestone: it starts no outcome task, and a
+  short week does not stop a goal being proposed met (STATUS 2.191).

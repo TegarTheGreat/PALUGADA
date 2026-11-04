@@ -27,7 +27,8 @@ import { N, locale, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
-import { GoalMetrics } from '../components/Metrics.tsx';
+import { GoalMetrics, type MetricTeam } from '../components/Metrics.tsx';
+import { Scorecard } from '../components/Scorecard.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects, useWorkLanguage } from '../components/Projects.tsx';
@@ -74,10 +75,12 @@ export function Organization({ ctx, route }: PageProps) {
     <Stack gap="lg">
       {header}
 
-      <Tabs defaultValue="chart" keepMounted={false}>
+      {/* The Overview's scorecard opens the whole of it here. */}
+      <Tabs defaultValue={route.item === 'scorecard' ? 'scorecard' : 'chart'} keepMounted={false}>
         <Tabs.List mb="lg">
           <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>{t('Divisions & roles')}</Tabs.Tab>
           <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>{t('Goals')}</Tabs.Tab>
+          <Tabs.Tab value="scorecard" leftSection={<IconChartBar size={16} />}>{t('Weekly scorecard')}</Tabs.Tab>
           <Tabs.Tab value="projects" leftSection={<IconFolders size={16} />}>{t('Projects')}</Tabs.Tab>
           <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
           <Tabs.Tab value="handoffs" leftSection={<IconArrowsRight size={16} />}>{t('Handoffs')}</Tabs.Tab>
@@ -91,7 +94,11 @@ export function Organization({ ctx, route }: PageProps) {
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
-          <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
+          <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload}
+            team={{ roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics) }} />
+        </Tabs.Panel>
+        <Tabs.Panel value="scorecard">
+          <Scorecard companyId={companyId} structure={structure} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="projects">
           <Projects companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
@@ -1193,7 +1200,7 @@ function DivisionDrawer({
 
 /* ------------------------------------------------------------------- goals --- */
 
-function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: Goal[]; changed: () => void }) {
+function GoalLadder({ companyId, goals, changed, team }: { companyId: string; goals: Goal[]; changed: () => void; team: MetricTeam }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Goal | null>(null);
   const roots = goals.filter((goal) => goal.parentId === null);
@@ -1229,7 +1236,7 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
           // a measure is its own action, including inside the modals it opens,
           // whose events still bubble through React to this card.
           <div onClick={(event) => event.stopPropagation()}>
-            <GoalMetrics companyId={companyId} goal={goal} changed={changed} />
+            <GoalMetrics companyId={companyId} goal={goal} changed={changed} team={team} />
           </div>
         )}
       </Paper>

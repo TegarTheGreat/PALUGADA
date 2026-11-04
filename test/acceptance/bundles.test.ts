@@ -43,8 +43,11 @@ import {
 import { exportCompany } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import {
+  approveSkillVersion,
   importExternalSkill,
   liftSkillQuarantine,
+  recordSkillReview,
+  runSkillEvals,
   skillSummariesFor,
 } from '../../src/skills/skills.ts';
 import { runDueSchedules } from '../../src/scheduler/scheduler.ts';
@@ -737,6 +740,191 @@ test("each of the kit's frameworks says what its eval asks for", () => {
     }
     assert.ok(skill.source.split('\n').length <= 60, `${skill.slug} is longer than a run should read`);
   }
+});
+
+/* ---------------------------------------------------- F18.11, F18.15 --- */
+
+/**
+ * The four skills 1.6.0 brings, and the stage gates it changes, with what
+ * each one's eval must hold it to. A phrase here is a rule of the method
+ * that a rewrite must not lose: the test above already checks that a skill
+ * says every phrase its eval asks for, so asking for it here makes it stay.
+ */
+const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
+  'channel-bullseye': [
+    'every one of the 19 channels', 'about three', 'drops off',
+    'what one customer costs', 'how many customers', 'customers the company wants now',
+    'before any work starts', 'budget account', 'about a month',
+    'average of the three', 'core channel', 'feeds the core one', 'saturates', 'critical path',
+  ],
+  'one-page-model': ['riskiest assumption', 'Leave it blank rather than invent one', 'CC BY-SA', 'same licence'],
+  'fit-survey': [
+    'at least twice in the last two weeks', 'never ask the same person twice', 'about 40 or more answers',
+    'very disappointed', 'a heuristic', 'never answer in place of a customer', 'tier 2',
+  ],
+  'working-backwards': [
+    'press release', 'questions and answers', 'Before the company builds a new offer', 'never invent a customer', 'critic',
+  ],
+  'stage-gates': ['learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment'],
+};
+
+/**
+ * The channels in the order Weinberg and Mares's 2015 edition gives them,
+ * in PALUGADA's words: the skill must name every one, because the method's
+ * first rule is that no channel is dismissed unread.
+ */
+const NINETEEN_CHANNELS = [
+  'niche blogs', 'publicity', 'unconventional publicity', 'search ads', 'social and display ads', 'offline ads',
+  'search engine optimisation', 'content', 'email', 'free tools', 'referrals', 'business development',
+  'direct sales', 'affiliates', 'existing platforms', 'trade shows', 'offline events', 'speaking', 'community',
+];
+
+test('the kit tests channels and drafts the one-page model, the fit survey and the press release, in its own words (F18.11, F18.15)', () => {
+  assert.equal(COMPANY_OS.version, '1.6.0');
+  const skill = (slug: string) => {
+    const found = COMPANY_OS.body.skills.find((one) => one.slug === slug);
+    assert.ok(found, `the kit has no ${slug} skill`);
+    return found;
+  };
+
+  for (const [slug, phrases] of Object.entries(CHANNEL_AND_DRAFTING_RULES)) {
+    const one = skill(slug);
+    for (const phrase of phrases) {
+      assert.ok(one.evals.some((evalCase) => evalCase.expectContains.includes(phrase)), `${slug}'s eval does not ask for "${phrase}"`);
+    }
+  }
+
+  // Each new skill names the method it follows in its description, the line
+  // every run is shown, and none takes the method's name for its own title:
+  // the attribution is the one place the source's name appears.
+  const attributions: Record<string, RegExp> = {
+    'channel-bullseye': /after the Bullseye framework in Traction by Gabriel Weinberg and Justin Mares/,
+    'one-page-model': /adapted from Lean Canvas by Ash Maurya, CC BY-SA/,
+    'fit-survey': /after Sean Ellis/,
+    'working-backwards': /after Amazon's working backwards/,
+  };
+  for (const [slug, attribution] of Object.entries(attributions)) {
+    const source = skill(slug).source;
+    const description = source.split('\n').find((line) => line.startsWith('description:'))!;
+    assert.match(description, attribution, `${slug} does not say whose method it follows`);
+    const title = source.split('\n').find((line) => line.startsWith('# '))!;
+    assert.doesNotMatch(title, /Bullseye|Lean Canvas|Working Backwards|Sean Ellis|Traction/, `${slug}'s title is a method's name`);
+  }
+
+  // Every channel, in the book's order, and none dismissed.
+  const channels = skill('channel-bullseye').source;
+  let from = 0;
+  for (const channel of NINETEEN_CHANNELS) {
+    const at = channels.indexOf(channel, from);
+    assert.ok(at >= 0, `channel testing does not name "${channel}" after the channel before it`);
+    from = at + channel.length;
+  }
+  // ICE as GrowthHackers defines it, an average, said so where a product
+  // is the common misreading.
+  assert.match(channels, /ICE/);
+  assert.match(channels, /not their product/);
+
+  // The share-alike notice travels with the adapted text.
+  assert.match(skill('one-page-model').source, /creativecommons\.org\/licenses\/by-sa\/3\.0/);
+
+  // The strategist is told to run channel tests and to propose new goals,
+  // a test or a plan, to the owner -- never to start one.
+  const strategist = COMPANY_OS.body.roles.find((role) => role.slug === 'strategist')!;
+  assert.match(strategist.systemPrompt, /channel-bullseye skill/);
+  assert.match(strategist.systemPrompt, /channel test/);
+  assert.match(strategist.systemPrompt, /plan/);
+  assert.match(strategist.systemPrompt, /before any work starts/);
+  // Twelve tools is the most a role may hold (F2.6), and the skills name
+  // none it does not already hold.
+  assert.equal(strategist.tools?.length, 12);
+  for (const tool of ['doc.draft', 'goal.propose', 'metric.record', 'task.delegate', 'task.await', 'owner.ask']) {
+    assert.ok(strategist.tools?.includes(tool), `the strategist does not hold ${tool}, which the skills name`);
+  }
+});
+
+/** The kit as 1.5.0 shipped it: without the four skills, with the stage gates and the strategist as they were. */
+function kitBeforeChannelTesting(): Bundle {
+  const added = ['channel-bullseye', 'one-page-model', 'fit-survey', 'working-backwards'];
+  const body = COMPANY_OS.body;
+  const stageGates = body.skills.find((one) => one.slug === 'stage-gates')!;
+  return {
+    ...COMPANY_OS,
+    version: '1.5.0',
+    body: {
+      ...body,
+      roles: body.roles.map((one) => one.slug === 'strategist'
+        ? { ...one, systemPrompt: 'You decide what the company should do next and whether what it is doing is working.' }
+        : one),
+      skills: body.skills.filter((one) => !added.includes(one.slug)).map((one) => one.slug === 'stage-gates'
+        ? {
+          ...one,
+          source: '---\nname: stage-gates\ndescription: When the company moves from one stage to the next.\n---\n\n'
+            + '# Stage gates\n\nValidate to build needs willingness to pay, a premortem, and a NO-GO said plainly.\n',
+          evals: [stageGates.evals[0]!],
+        }
+        : one),
+    },
+  };
+}
+
+test('installing 1.6.0 over 1.5.0 brings the new skills as candidates and leaves the live stage gates live (F18.15, F15.3)', async () => {
+  const fixture = await createCompany('bundle-company-os-channels');
+  const { companyId } = fixture;
+  await registerStandardCatalogue();
+  const keys = publisher();
+  await trustPublisher({ publicKeyPem: keys.publicKey, label: 'the test publisher', ownerApproved: true });
+  const before = kitBeforeChannelTesting();
+  await publishBundle(signBundle(before, keys));
+  await installBundle({ companyId, slug: before.slug, version: before.version });
+
+  // The owner had switched the stage gates on.
+  const versionsOf = (slug: string) => withTenant(companyId, (tx) => tx.query<{
+    id: string; skill_id: string; version: number; state: string; body: string; active_version: number | null;
+  }>(
+    `SELECT v.id, v.skill_id, v.version, v.state, v.body, s.active_version
+       FROM skill_versions v JOIN skills s ON s.id = v.skill_id WHERE s.slug = $1 ORDER BY v.version`, [slug]));
+  const [live] = (await versionsOf('stage-gates')).rows;
+  await recordSkillReview(companyId, live!.id, { approved: true });
+  await approveSkillVersion(companyId, live!.id);
+  const strategistBefore = (await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM roles WHERE slug = 'strategist'"))).rows[0]!;
+
+  await publishBundle(COMPANY_OS);
+  const upgraded = await installBundle({ companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.equal(upgraded.quarantined, false, 'the kit as shipped installs as written');
+
+  // The four new skills, each a candidate with its evals, which it passes.
+  for (const slug of ['channel-bullseye', 'one-page-model', 'fit-survey', 'working-backwards']) {
+    assert.ok(upgraded.skills.includes(slug), `${slug} was not installed`);
+    const { rows } = await versionsOf(slug);
+    assert.deepEqual(rows.map((row) => [row.version, row.state, row.active_version]), [[1, 'candidate', null]], slug);
+    const shipped = COMPANY_OS.body.skills.find((one) => one.slug === slug)!;
+    assert.equal(rows[0]!.body, shipped.source);
+    const evals = await runSkillEvals(companyId, rows[0]!.id);
+    assert.ok(evals.passed, `${slug} fails its own eval: ${JSON.stringify(evals.cases)}`);
+    assert.equal(evals.cases.length, shipped.evals.length);
+  }
+
+  // The stage gates are upgraded in place: the same skill, a second version
+  // waiting for review and the owner, and the version the owner approved
+  // still the one every run reads until they approve the new one.
+  const gates = (await versionsOf('stage-gates')).rows;
+  assert.deepEqual(gates.map((row) => [row.skill_id, row.version, row.state]),
+    [[live!.skill_id, 1, 'active'], [live!.skill_id, 2, 'candidate']]);
+  assert.ok(gates.every((row) => row.active_version === 1));
+  assert.match(gates[1]!.body, /living dead/);
+  const newGates = await runSkillEvals(companyId, gates[1]!.id);
+  assert.ok(newGates.passed, JSON.stringify(newGates.cases));
+
+  // The strategist is the same role, told the new prompt.
+  const { rows: strategist } = await withTenant(companyId, (tx) => tx.query<{ id: string; system_prompt: string }>(
+    "SELECT id, system_prompt FROM roles WHERE slug = 'strategist'"));
+  assert.equal(strategist[0]!.id, strategistBefore.id);
+  assert.equal(strategist[0]!.system_prompt, COMPANY_OS.body.roles.find((one) => one.slug === 'strategist')!.systemPrompt);
+
+  const { rows: installs } = await withTenant(companyId, (tx) => tx.query<{ version: string; quarantined: boolean }>(
+    "SELECT version, quarantined FROM bundle_installs WHERE slug = 'company-os'"));
+  assert.deepEqual(installs, [{ version: '1.6.0', quarantined: false }]);
 });
 
 /* ------------------------------------------------------------------ F14.4 --- */

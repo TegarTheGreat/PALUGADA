@@ -22,7 +22,8 @@ export interface Field {
   name: string;
   label: string;
   /** `money` is typed in US dollars, with the currency shown as `money` shows it. */
-  type?: 'text' | 'number' | 'money' | 'textarea' | 'select' | 'datetime';
+  /** `date` is a day, sent as YYYY-MM-DD. */
+  type?: 'text' | 'number' | 'money' | 'textarea' | 'select' | 'datetime' | 'date';
   required?: boolean;
   placeholder?: string;
   description?: string;
@@ -116,6 +117,8 @@ export function ActionForm({
                 return <Select {...common} data={field.options ?? []} value={value || null} onChange={(v) => set(field.name, v ?? '')} searchable clearable={!field.required} />;
               case 'datetime':
                 return <TextInput {...common} type="datetime-local" value={value} onChange={(e) => set(field.name, e.currentTarget.value)} />;
+              case 'date':
+                return <TextInput {...common} type="date" value={value} onChange={(e) => set(field.name, e.currentTarget.value)} />;
               default:
                 return <TextInput {...common} value={value} onChange={(e) => set(field.name, e.currentTarget.value)} />;
             }

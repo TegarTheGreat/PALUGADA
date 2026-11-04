@@ -1746,3 +1746,56 @@ PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
 authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
 Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
 own descriptions of published methods, and none of their templates is copied.
+
+### Set this year's goals and the quarterly priorities
+
+After the one-year plan and the Rocks in *Traction* by Gino Wickman, and
+objectives and key results as *Measure What Matters* by John Doerr and *High
+Output Management* by Andy Grove describe them. A goal on the ladder can say
+by when, whose it is, how firmly it is meant and what done looks like; you
+set all four, and agents read them.
+
+1. Open the company, then **Organization**, **Goals**, and press **Add a
+   goal**.
+2. For one of this year's goals, choose **Objective** under the mission and
+   give it a period of the year: **Starts on** the first day, **Due on** the
+   last. A period of more than a quarter and at most a year makes it one of
+   this year's goals.
+3. For a quarterly priority, choose **Key result** under one of those
+   objectives, with a period of a quarter or less (92 days at most), and an
+   **Owning seat**: the one role that answers for it. Say when it is done in
+   **Done when** ("Ten cafes in Bandung have paid an invoice"), or measure it
+   by a number afterwards. The database refuses a quarterly priority without
+   a seat, or without either.
+4. Choose its **Commitment**:
+   - **Committed**: it is done in full by the due date, or it is a miss;
+   - **Aspirational**: a stretch, graded from 0.0 to 1.0 at the end, where
+     0.6 to 0.7 is a good result;
+   - **Learning**: a test, whose prediction is written before the work
+     starts, as a target on its measure.
+5. To test a way of finding customers, choose the **Channel it tests**, one
+   of the nineteen of channel testing, after the Bullseye framework in
+   *Traction* by Gabriel Weinberg and Justin Mares: targeting blogs,
+   publicity, unconventional PR, search engine marketing, social and display
+   ads, offline ads, search engine optimization, content marketing, email
+   marketing, engineering as marketing, viral marketing, business
+   development, sales, affiliate programs, existing platforms, trade shows,
+   offline events, speaking engagements and community building. A cheap
+   test is a learning priority with a channel and a measure.
+
+Each card on the ladder shows the period, the commitment, the seat, the
+channel and when it is done. A company keeps few goals in view, so the card
+also says when a limit is passed: more than five of this year's goals, more
+than five key results under one objective, more than seven quarterly
+priorities at once, or more than five for one seat. These are warnings, not
+refusals: the sources disagree on the numbers, and the choice is yours.
+
+Click a goal to change any of it, with your authenticator code; empty a field
+to clear it. Every run under the goal is told its period, commitment, seat
+and what done is, so the work can say whether it is on the path to it.
+
+From a file or a script, the same fields go to
+`POST /api/companies/:companyId/goals` as `startsOn`, `dueOn` (both
+`YYYY-MM-DD`), `ownerRoleId`, `commitment`, `doneWhen` and `channel`, whose
+values are the names above written with underscores, such as
+`search_engine_optimization`.

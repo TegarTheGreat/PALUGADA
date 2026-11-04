@@ -8,10 +8,11 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import {
+  ancestryFor,
   ancestryForTask,
   applyGoalChange,
   createGoal,
@@ -29,7 +30,12 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { defineMetric, recordObservation } from '../../src/domain/metrics.ts';
-import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
+import { CHANNELS } from '../../src/domain/channels.ts';
+import { structureOf } from '../../src/owner/views.ts';
+import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
+import { importCompany } from '../../src/audit/import.ts';
+import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { addRole, createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -532,4 +538,269 @@ test("one company's goals are invisible to another", async () => {
   });
   assert.equal(seen.length, 2);
   assert.equal(seen.includes(theirs.goalId), false);
+});
+
+/* ------------------------------------------- F18.1, F18.11: periods and seats --- */
+
+/** A quarterly priority under `parent`: a key result with a quarter's period, one seat and a finish line. */
+function priority(fixture: Fixture, slug: string, options: { parentGoalId?: string; ownerRoleId?: string } = {}) {
+  return createGoal({
+    companyId: fixture.companyId,
+    kind: 'key_result',
+    slug,
+    statement: `Priority ${slug}.`,
+    parentGoalId: options.parentGoalId ?? fixture.goalId,
+    startsOn: '2026-10-01',
+    dueOn: '2026-12-31',
+    ownerRoleId: options.ownerRoleId ?? fixture.roleId,
+    commitment: 'committed',
+    doneWhen: `${slug} is live.`,
+  });
+}
+
+test('a quarter key result without a seat is refused by the database (F18.1)', async () => {
+  // Refused by the trigger, not by createGoal: the ladder is the owner's,
+  // written on the control plane, and a rule in the code would be one a
+  // migration, an import or psql could step round.
+  const fixture = await createCompany('goal-seat');
+  const insert = (columns: Record<string, unknown>) => withControlPlane(async (tx) => {
+    const names = ['company_id', 'parent_goal_id', 'kind', 'slug', 'statement', ...Object.keys(columns)];
+    const values = [fixture.companyId, fixture.goalId, 'key_result', `kr-${Object.keys(columns).join('-')}-${sequence += 1}`, 'A priority.',
+      ...Object.values(columns)];
+    await tx.query(
+      `INSERT INTO goals (${names.join(', ')}) VALUES (${names.map((_name, index) => `$${index + 1}`).join(', ')})`,
+      values);
+  });
+
+  await assert.rejects(insert({ starts_on: '2026-10-01', due_on: '2026-12-31', done_when: 'It ships.' }),
+    /a key result of a quarter or less is a quarterly priority, and has one owning seat/);
+  await assert.rejects(insert({ starts_on: '2026-10-01', due_on: '2026-12-31', owner_role_id: fixture.roleId }),
+    /the quarterly priority "kr-.*" says when it is done: write what is true once it is done, or measure it by a number/);
+  await assert.rejects(insert({ starts_on: '2026-10-01' }), /a period has a start and a due date, or neither/);
+  await assert.rejects(insert({ starts_on: '2026-12-31', due_on: '2026-10-01' }), /a goal is due after it starts/);
+  await assert.rejects(insert({ commitment: 'committed' }), /a committed goal has a period/);
+  await assert.rejects(insert({ commitment: 'certain', starts_on: '2026-01-01', due_on: '2026-12-31' }), /goals_commitment_known/);
+  await assert.rejects(insert({ channel: 'billboards' }), /goals_channel_known/);
+  await assert.rejects(insert({ done_when: 'x'.repeat(501) }), /goals_done_when_short/);
+  await assert.rejects(withControlPlane((tx) => tx.query(
+    `UPDATE goals SET starts_on = '2026-01-01', due_on = '2026-12-31'
+      WHERE company_id = $1 AND kind = 'mission'`, [fixture.companyId])),
+  /a mission is the company's direction and has no period, seat, commitment, definition of done or channel/);
+
+  // The seat is a role of the same company, whatever id is sent.
+  const other = await createCompany('goal-seat-other');
+  await assert.rejects(insert({ starts_on: '2026-10-01', due_on: '2026-12-31', done_when: 'It ships.', owner_role_id: other.roleId }),
+    /goals_owner_role_fkey/);
+
+  // A measure is a finish line too, and it can only be written after its
+  // goal: the two in one transaction are checked together, at commit.
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement, starts_on, due_on, owner_role_id)
+       VALUES ($1, $2, 'key_result', 'measured', 'Revenue grows.', '2026-10-01', '2026-12-31', $3) RETURNING id`,
+      [fixture.companyId, fixture.goalId, fixture.roleId]);
+    await tx.query(
+      `INSERT INTO goal_metrics (company_id, goal_id, slug, name, unit, target) VALUES ($1, $2, 'revenue', 'Revenue', 'currency', 100)`,
+      [fixture.companyId, rows[0]!.id]);
+  });
+  // A year's key result is not a quarterly priority, and needs neither.
+  await insert({ starts_on: '2026-01-01', due_on: '2026-12-31' });
+  // And a goal with neither period nor seat is what it always was.
+  await insert({});
+
+  // createGoal says the same, and checks what the owner typed before the database does.
+  await assert.rejects(createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'no-seat', statement: 'x', parentGoalId: fixture.goalId,
+    startsOn: '2026-10-01', dueOn: '2026-12-31', doneWhen: 'Done.',
+  }), /has one owning seat/);
+  await assert.rejects(createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'bad-day', statement: 'x', parentGoalId: fixture.goalId,
+    startsOn: '1 October', dueOn: '2026-12-31',
+  }), /startsOn is a day written YYYY-MM-DD, such as 2026-10-01; got 1 October/);
+  await assert.rejects(createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'bad-channel', statement: 'x', parentGoalId: fixture.goalId,
+    channel: 'billboards',
+  }), /channel is one of targeting_blogs, publicity, .*community_building; got billboards/);
+  await assert.rejects(createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'their-seat', statement: 'x', parentGoalId: fixture.goalId,
+    ownerRoleId: other.roleId,
+  }), /no role .* in this company: the owning seat is one of this company's roles/);
+});
+
+test('more than 7 priorities in a quarter warns and does not refuse (F18.1)', async () => {
+  // Soft limits: the sources disagree on the number, and a company that
+  // holds eight priorities has made a choice the owner may want to make. So
+  // the platform says so, on the answer and on the card, and stores the goal.
+  const fixture = await createCompany('goal-limits');
+  const second = await addRole(fixture, 'second-seat');
+  const otherObjective = await createGoal({
+    companyId: fixture.companyId, kind: 'objective', slug: 'second-objective', statement: 'A second objective.',
+    parentGoalId: (await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+      "SELECT id FROM goals WHERE kind = 'mission'"))).rows[0]!.id,
+  });
+  // Four under each objective and four for each seat: only the quarter is full.
+  const made = [];
+  for (let index = 1; index <= 8; index += 1) {
+    made.push(await priority(fixture, `p${index}`, {
+      parentGoalId: index % 2 ? fixture.goalId : otherObjective.id,
+      ownerRoleId: index <= 4 ? fixture.roleId : second,
+    }));
+  }
+  assert.deepEqual(made[6]!.warnings, [], 'seven is within the limit');
+  assert.deepEqual(made[7]!.warnings, [{ kind: 'quarter_priorities', count: 8, limit: 7 }]);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ count: number }>(
+    "SELECT count(*)::int AS count FROM goals WHERE kind = 'key_result'"));
+  assert.equal(rows[0]!.count, 8, 'and every one of them is kept');
+
+  // A sixth for one seat, and a sixth under one objective, say so as well.
+  const ninth = await priority(fixture, 'p9');
+  assert.deepEqual(ninth.warnings, [{ kind: 'quarter_priorities', count: 9, limit: 7 }], 'five for a seat and under an objective is within');
+  const tenth = await priority(fixture, 'p10');
+  assert.deepEqual(tenth.warnings, [
+    { kind: 'objective_key_results', count: 6, limit: 5, goalId: fixture.goalId },
+    { kind: 'quarter_priorities', count: 10, limit: 7 },
+    { kind: 'seat_priorities', count: 6, limit: 5, roleId: fixture.roleId },
+  ]);
+
+  // This year's goals: more than five objectives with a year's period.
+  for (let index = 1; index <= 6; index += 1) {
+    const year = await createGoal({
+      companyId: fixture.companyId, kind: 'objective', slug: `year-${index}`, statement: `Year goal ${index}.`,
+      parentGoalId: otherObjective.parentGoalId, startsOn: '2026-01-01', dueOn: '2026-12-31', commitment: 'aspirational',
+    });
+    assert.deepEqual(year.warnings, index <= 5 ? [] : [{ kind: 'year_goals', count: 6, limit: 5 }]);
+  }
+
+  // The owner's card is drawn from the structure, which carries the same warnings.
+  const structure = await structureOf(fixture.companyId);
+  const card = structure.goals.find((goal) => goal.slug === 'p10')!;
+  assert.deepEqual(card.warnings.map((warning) => warning.kind), ['quarter_priorities', 'seat_priorities']);
+  assert.deepEqual(structure.goals.find((goal) => goal.slug === 'objective')!.warnings,
+    [{ kind: 'objective_key_results', count: 6, limit: 5, goalId: fixture.goalId }], 'the crowded objective says so on its own card');
+  assert.deepEqual(
+    { ...card, warnings: undefined, metrics: undefined, tasksDone: undefined, tasksTotal: undefined, id: undefined, parentId: undefined },
+    {
+      id: undefined, parentId: undefined, ownerRole: 'worker', kind: 'key_result', slug: 'p10', statement: 'Priority p10.', status: 'active',
+      startsOn: '2026-10-01', dueOn: '2026-12-31', ownerRoleId: fixture.roleId, commitment: 'committed', doneWhen: 'p10 is live.',
+      channel: null, period: 'quarter', warnings: undefined, metrics: undefined, tasksDone: undefined, tasksTotal: undefined,
+    });
+});
+
+test('the run context shows the period, commitment and seat (F18.1)', async () => {
+  const fixture = await createCompany('goal-period-context');
+  const keyResult = await createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'ten-cafes', statement: 'Ten cafes pay for the service.',
+    parentGoalId: fixture.goalId, startsOn: '2026-10-01', dueOn: '2026-12-31', ownerRoleId: fixture.roleId,
+    commitment: 'learning', doneWhen: 'Ten cafes have paid an invoice.', channel: 'sales',
+  });
+  const task = await newTask(fixture, keyResult.id);
+  await transition(fixture.companyId, task.id, 'running');
+  const context = await withTenant(fixture.companyId, (tx) => buildContext(tx, {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+  }));
+  const ancestry = context.sections.find((section) => section.kind === 'goal_ancestry')!.body;
+  assert.match(ancestry,
+    /→ key result \(quarterly priority; 2026-10-01 to 2026-12-31; learning; owned by worker; done when: Ten cafes have paid an invoice\.; tests the channel Sales: finding, talking to and closing customers one by one\): Ten cafes pay/);
+  // The objective above it has none of these, and reads as it did.
+  assert.match(ancestry, /→ objective: Keep the work moving/);
+});
+
+test('the export round-trips the columns (F18.1, F16.4)', async () => {
+  const fixture = await createCompany('goal-period-export');
+  const keyResult = await createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'first-sale', statement: 'The first sale.',
+    parentGoalId: fixture.goalId, startsOn: '2026-10-01', dueOn: '2026-12-31', ownerRoleId: fixture.roleId,
+    commitment: 'aspirational', doneWhen: 'A customer has paid.', channel: 'targeting_blogs',
+  });
+  // And one measured rather than worded, whose measure is restored after it.
+  const measured = await createGoal({
+    companyId: fixture.companyId, kind: 'key_result', slug: 'measured', statement: 'Revenue grows.',
+    parentGoalId: fixture.goalId, startsOn: '2026-10-01', dueOn: '2026-12-31', ownerRoleId: fixture.roleId,
+    commitment: 'committed', doneWhen: 'Revenue is 100.',
+  });
+  await defineMetric(fixture.companyId, { goalId: measured.id, slug: 'revenue', name: 'Revenue', unit: 'currency', target: 100 });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: measured.id, doneWhen: null });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const row = lines.find((line) => line.section === 'goals' && line.row.id === keyResult.id)!.row;
+  assert.deepEqual(
+    [row.starts_on, row.due_on, row.owner_role_id, row.commitment, row.done_when, row.channel],
+    ['2026-10-01', '2026-12-31', fixture.roleId, 'aspirational', 'A customer has paid.', 'targeting_blogs']);
+
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  const { rows } = await withTenant(restored.companyId, (tx) => tx.query<{
+    slug: string; starts_on: string; due_on: string; commitment: string; done_when: string | null; channel: string | null; seat: string;
+  }>(
+    `SELECT g.slug, g.starts_on::text, g.due_on::text, g.commitment, g.done_when, g.channel, r.slug AS seat
+       FROM goals g JOIN roles r ON r.id = g.owner_role_id ORDER BY g.slug`));
+  assert.deepEqual(rows, [
+    { slug: 'first-sale', starts_on: '2026-10-01', due_on: '2026-12-31', commitment: 'aspirational',
+      done_when: 'A customer has paid.', channel: 'targeting_blogs', seat: 'worker' },
+    { slug: 'measured', starts_on: '2026-10-01', due_on: '2026-12-31', commitment: 'committed',
+      done_when: null, channel: null, seat: 'worker' },
+  ]);
+});
+
+test('the owner sets and changes a goal\'s period, seat, commitment, finish line and channel (F18.1)', async () => {
+  const fixture = await createCompany('goal-period-api');
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const base = `/api/companies/${fixture.companyId}/goals`;
+    const made = await api.call('POST', base, token, {
+      kind: 'key_result', slug: 'launch', statement: 'Launch the shop.', parentGoalId: fixture.goalId,
+      startsOn: '2026-10-01', dueOn: '2026-12-31', ownerRoleId: fixture.roleId, commitment: 'committed',
+      doneWhen: 'The shop takes an order.', channel: 'existing_platforms',
+    });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    assert.deepEqual(made.body.warnings, []);
+    assert.equal(made.body.period, 'quarter');
+
+    const refused = await api.call('POST', base, token, {
+      kind: 'key_result', slug: 'nobody', statement: 'Nobody owns it.', parentGoalId: fixture.goalId,
+      startsOn: '2026-10-01', dueOn: '2026-12-31', doneWhen: 'Done.',
+    });
+    assert.equal(refused.status, 400);
+    assert.match(String(refused.body.error), /has one owning seat/);
+
+    // Nothing sent is nothing changed, and the owner's code is not spent on it.
+    const empty = await api.call('POST', `${base}/${made.body.id}`, token, {});
+    assert.equal(empty.status, 400);
+    const changed = await api.call('POST', `${base}/${made.body.id}`, token, {
+      dueOn: '2026-11-30', commitment: 'aspirational', channel: null, proof: { totp: api.code() },
+    });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    const now = await api.call('GET', `${base}/${made.body.id}`, token);
+    assert.deepEqual(
+      [now.body.startsOn, now.body.dueOn, now.body.ownerRoleId, now.body.ownerRole, now.body.commitment, now.body.doneWhen, now.body.channel],
+      ['2026-10-01', '2026-11-30', fixture.roleId, 'worker', 'aspirational', 'The shop takes an order.', null]);
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: Record<string, unknown> }>(
+      "SELECT payload FROM events WHERE type = 'goal.changed' ORDER BY occurred_at DESC LIMIT 1"));
+    assert.deepEqual(rows[0]!.payload.changed, ['dueOn', 'commitment', 'channel']);
+  } finally {
+    await api.close();
+  }
+});
+
+test('goal.propose still proposes a change to a goal with a period and a seat (F3.10, F18.1)', async () => {
+  const fixture = await createCompany('goal-period-propose');
+  const keyResult = await priority(fixture, 'kept');
+  const proposal = await proposeGoalChange({
+    companyId: fixture.companyId, goal: 'kept', proposedStatement: 'Kept, and sooner.', rationale: 'The first two shipped early.',
+  });
+  assert.equal(proposal.proposed, true);
+  await withTenant(fixture.companyId, async (tx) => {
+    const goal = (await ancestryFor(tx, keyResult.id)).at(-1)!;
+    assert.equal(goal.ownerRole, 'worker');
+    assert.equal(goal.dueOn, '2026-12-31');
+  });
+});
+
+test('the console offers the nineteen channels the platform knows, in its order (F18.11)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../../console/src/channels.ts', import.meta.url), 'utf8');
+  const offered = [...source.matchAll(/value: '([a-z_]+)'/g)].map((match) => match[1]);
+  assert.equal(CHANNELS.length, 19);
+  assert.deepEqual(offered, CHANNELS.map((channel) => channel.slug));
 });

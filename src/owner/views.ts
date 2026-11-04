@@ -14,6 +14,8 @@
  * counted -- so the page holds no queries and no rules.
  */
 import { metricsIn, type MetricView } from '../domain/metrics.ts';
+import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalWarning } from '../domain/goals.ts';
+import type { ChannelSlug } from '../domain/channels.ts';
 import { withTenant } from '../db/tenant.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -49,6 +51,17 @@ export interface StructureView {
     slug: string;
     statement: string;
     status: string;
+    /** Its period, seat, commitment, finish line and channel (F18.1, F18.11); null where it has none. */
+    startsOn: string | null;
+    dueOn: string | null;
+    period: GoalPeriod | null;
+    ownerRoleId: string | null;
+    ownerRole: string | null;
+    commitment: GoalCommitment | null;
+    doneWhen: string | null;
+    channel: ChannelSlug | null;
+    /** The soft limits it is past: warnings for the owner, never refusals. */
+    warnings: GoalWarning[];
     /**
      * How far the work under this goal has got: tasks hanging from it or from
      * any goal under it, finished and in all. A goal's progress is what its
@@ -112,13 +125,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
               (SELECT coalesce(sum(${TASK_COST_SQL('t.id')}), 0) FROM tasks t WHERE t.project_id = p.id)::text AS cost_cents
          FROM projects p ORDER BY p.archived_at IS NOT NULL, p.created_at`,
     );
-    const goals = await tx.query<{
-      id: string; parent_goal_id: string | null; kind: string; slug: string;
-      statement: string; status: string;
-    }>(
-      `SELECT id, parent_goal_id, kind, slug, statement, status
-         FROM goals ORDER BY created_at`,
-    );
+    const ladder = await goalsIn(tx, companyId);
     const divisions = await tx.query<{
       id: string; parent_division_id: string | null; slug: string; name: string;
       depth: number; max_concurrency: number; open_tasks: number;
@@ -177,10 +184,12 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     // Rolled up the ladder: a goal counts its own tasks and every goal's under it.
     const own = new Map(goalWork.rows.map((row) => [row.goal_id, row]));
     const children = new Map<string, string[]>();
-    for (const goal of goals.rows) {
-      if (!goal.parent_goal_id) continue;
-      children.set(goal.parent_goal_id, [...(children.get(goal.parent_goal_id) ?? []), goal.id]);
+    for (const goal of ladder) {
+      if (!goal.parentGoalId) continue;
+      children.set(goal.parentGoalId, [...(children.get(goal.parentGoalId) ?? []), goal.id]);
     }
+    // F18.1's soft limits, on the card of the goal that is past one.
+    const warnings = goalWarnings(ladder);
     const rolled = new Map<string, { done: number; total: number }>();
     const roll = (id: string, seen: Set<string>): { done: number; total: number } => {
       const cached = rolled.get(id);
@@ -210,13 +219,22 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         id: row.id, slug: row.slug, name: row.name, description: row.description, archivedAt: row.archived_at,
         workLanguage: row.work_language, openTasks: row.open_tasks, doneTasks: row.done_tasks, costCents: Number(row.cost_cents),
       })),
-      goals: goals.rows.map((goal) => ({
+      goals: ladder.map((goal) => ({
         id: goal.id,
-        parentId: goal.parent_goal_id,
+        parentId: goal.parentGoalId,
         kind: goal.kind,
         slug: goal.slug,
         statement: goal.statement,
         status: goal.status,
+        startsOn: goal.startsOn,
+        dueOn: goal.dueOn,
+        period: goal.period,
+        ownerRoleId: goal.ownerRoleId,
+        ownerRole: goal.ownerRole,
+        commitment: goal.commitment,
+        doneWhen: goal.doneWhen,
+        channel: goal.channel,
+        warnings: warnings.get(goal.id) ?? [],
         tasksDone: roll(goal.id, new Set()).done,
         tasksTotal: roll(goal.id, new Set()).total,
         metrics: metrics.filter((metric) => metric.goalId === goal.id),

@@ -11252,6 +11252,41 @@ The owner asked for "something already very well known, used and valid, like the
 - *Agents answering customer interviews or surveys.* The method depends on real people. Agents draft and tally; customers answer; outreach stays tier 2.
 - *New tables for meetings, scorecards and postmortems, or a new inbox kind for issues.* The owner's inbox is for decisions (F10.1). Issues are tickets, the scorecard is `goal_metrics`, and a meeting is a task with its facts and its record.
 
+## 2.190 A goal has a period, one seat, a commitment and a finish line (F18.1, and F18.11's column)
+
+The ladder said what the company wanted and nothing about by when, who answers for it, or how anyone would know it was done. So there was no such thing as this year's goals or the quarter's priorities, only a mission, objectives and key results that never ended, and a run under one was told the words and nothing else. Every method 2.189 adopts starts from those four facts, so they come first.
+
+- **On the goal, not a new table (0136).** `goals` gains `starts_on` and `due_on` (the period, its due date the last day), `owner_role_id` (the one seat that answers for it, a composite key to `roles (company_id, id)`), `commitment` (`committed`, `aspirational` or `learning`), `done_when` (a sentence of at most 500 characters) and `channel` (one of the nineteen traction channels, F18.11). The kinds and their ladder are unchanged: a quarterly priority is a key result with a quarter's period, and one of this year's goals is an objective with a year's. The application role still only reads goals (F3.10).
+- **The rules are the database's.** `app.goals_respect_the_ladder` is replaced in the same migration and gains them, in the order a person would fix them: a mission has no period, seat, commitment, finish line or channel; a period has both ends or neither, and is due after it starts; a goal with a commitment has a period; a key result of a quarter or less has an owning seat. Each refusal says what was wrong and what is accepted, and reaches the owner as the route's 400.
+- **Where the design and the code disagreed, the code won.** Two changes from the plan:
+  - *No fiscal year exists in the schema*, so "a quarter's period" is read from its length: 92 days or fewer from start to due (a calendar quarter is 90 to 92). An objective of up to 366 days is one of this year's goals, and a longer one is where the company means to be in a few years. "In a quarter" and "in a year", for the soft limits, are the goals whose periods overlap. Quarters cut by a fiscal calendar arrive with quarterly planning (2.196).
+  - *"Done when, or a measure" cannot be checked before the insert*, because a measure hangs from its goal and is written after it. So it is a deferred constraint trigger of its own, `goals_say_when_done`, read at commit: a quarterly priority and its measure written in one transaction pass, which is what an archive's import and a plan approved at once (2.195) do. The owner's console writes the goal first and the measure after, so a new priority there is given its finish line in words; an existing key result that already has a measure can be given a quarter without one.
+- **Soft limits warn and never refuse.** The sources disagree, so one value each is chosen and the reason is in `src/domain/goals.ts`: more than 5 of this year's goals, more than 5 key results under one objective, more than 7 quarterly priorities at once, more than 5 for one seat. `goalWarnings` works them out; `createGoal` answers with the new goal's and those of the objective it crowded, and the structure carries each goal's, so the owner's card shows them in their language.
+- **A run is told the period, the commitment and the seat.** `renderAncestry`, which the context's `goal_ancestry` section and the guardian use, now reads `key result (quarterly priority; 2026-10-01 to 2026-12-31; committed; owned by sales; done when: ...; tests the channel Sales: ...): ...`. A goal with none of them reads as it did. The seat is named by its slug, as a run names roles to `task.delegate`.
+- **The owner sets them.** POST `/goals` and POST `/goals/:goalId` take `startsOn`, `dueOn`, `ownerRoleId`, `commitment`, `doneWhen` and `channel`; on a change, a field left out is kept and null clears it, and `goal.changed` names what was sent. Each value is checked by name before the database's rules (a day written YYYY-MM-DD, a role of this company, one of the commitments or channels). The second factor is as it was: none to add a goal, the owner's device to change one. The owner's assistant knows the fields. The Goals tab's add and change forms have them, and each card shows its period, commitment, seat, channel, finish line and warnings, in all 20 languages.
+- **The channels (`src/domain/channels.ts`).** The nineteen in the 2015 edition's names and order, after the Bullseye framework in *Traction* by Gabriel Weinberg and Justin Mares, each with a line in PALUGADA's own words; the 2014 edition's differences are noted there. The slugs are also the column's CHECK and the console's list, which a test holds to the module. The rings are not stored: they are read from the goals that name a channel, on the plan page (2.197).
+- **The archive carries the columns.** `src/audit/export.ts` exports them, and the import now restores goals and their measures after the roles, with the seat mapped to the restored role.
+- **`goal.propose` reads the new columns and changes none of them.** A proposal about a goal with a period and a seat is filed as before.
+- **Tested** in `goals.test.ts`:
+  - a quarter key result without a seat is refused by the database, and so is every other rule, with a priority and its measure written together passing at commit;
+  - more than 7 priorities in a quarter warns and does not refuse, with the seat's, the objective's and the year's limits, on the answer and on the card;
+  - the run context shows the period, commitment and seat;
+  - the export round-trips the columns, a measured priority included;
+  - the owner sets and clears them through the routes, and an empty change spends no code;
+  - `goal.propose` still files a change to such a goal;
+  - the console offers the same nineteen channels in the same order.
+
+  Each was seen to fail first.
+- **Not done here**, each with the section that does it:
+  - a plan of new goals proposed in one card (2.195);
+  - grades at a period's end, and quarters cut by the company's fiscal year (2.196);
+  - the seat told its own priorities in every run (2.192);
+  - the plan page and its channel rings (2.197);
+  - the channel testing skill (2.198).
+- **Not done, and named.**
+  - Retiring a quarterly priority's last measure, where it has no words for done, is not refused: the rule is checked when the goal is written.
+  - A template or a bundle cannot give its goals a period or a seat yet; a company founded from one has none until the owner sets them.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

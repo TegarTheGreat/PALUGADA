@@ -20,6 +20,7 @@
  * about the assistant as well.
  */
 import { AGENT_CATALOGUE } from '../settings/agents.ts';
+import { CHANNEL_SLUGS } from '../domain/channels.ts';
 
 /**
  * The kinds of key an agent CLI signs in with, from the catalogue itself: a
@@ -75,6 +76,18 @@ export interface AssistantAction {
 }
 
 const COMPANY = 'companyId comes from GET /api/companies.';
+
+/**
+ * A goal's period, seat, commitment, finish line and channel (F18.1, F18.11),
+ * as both goal routes take them.
+ */
+const GOAL_PLAN = {
+  startsOn: 'optional day, YYYY-MM-DD', dueOn: 'optional day, YYYY-MM-DD, the last of the period; with startsOn or not at all',
+  ownerRoleId: 'optional id of the role that owns it, from GET /api/companies/:companyId/structure',
+  commitment: 'optional: committed, aspirational or learning; needs a period',
+  doneWhen: 'optional sentence of at most 500 characters: what is true once it is done',
+  channel: `optional traction channel it tests: ${CHANNEL_SLUGS.join(', ')}`,
+};
 
 export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   /* ------------------------------------------------ the whole deployment --- */
@@ -412,14 +425,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/goals',
-    what: 'Add a goal.',
-    fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it' },
+    what: 'Add a goal. A key result due 92 days or less after it starts is a quarterly priority: it needs ownerRoleId, and doneWhen or a measure. The answer lists the soft limits it is past (warnings), which refuse nothing.',
+    fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it', ...GOAL_PLAN },
     factor: 'never', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/goals/:goalId',
-    what: 'Reword a goal, or close it. Closing one pauses the schedules and triggers under it.',
-    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always', auto: true,
+    what: 'Reword a goal, close it, or change its period, seat, commitment, finish line or channel; null clears one. Closing one pauses the schedules and triggers under it.',
+    fields: { statement: 'optional', status: 'optional: active, met or abandoned', ...GOAL_PLAN }, factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/metrics/:metricId',

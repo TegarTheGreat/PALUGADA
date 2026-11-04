@@ -158,12 +158,31 @@ export interface Goal {
   slug: string;
   statement: string;
   status: string;
+  /** Its period (YYYY-MM-DD, both or neither) and what its length makes it (F18.1). */
+  startsOn: string | null;
+  dueOn: string | null;
+  period: 'quarter' | 'year' | 'longer' | null;
+  /** The one seat that answers for it. */
+  ownerRoleId: string | null;
+  ownerRole: string | null;
+  commitment: 'committed' | 'aspirational' | 'learning' | null;
+  doneWhen: string | null;
+  /** The traction channel it tests (F18.11). */
+  channel: string | null;
+  /** The soft limits it is past: shown to the owner, never refused. */
+  warnings: GoalWarning[];
   /** Tasks under this goal or any goal beneath it: finished, and in all. */
   tasksDone: number;
   tasksTotal: number;
   /** What the goal is measured by, with where each stands. */
   metrics: Metric[];
 }
+
+export type GoalWarning =
+  | { kind: 'year_goals'; count: number; limit: number }
+  | { kind: 'objective_key_results'; count: number; limit: number; goalId: string }
+  | { kind: 'quarter_priorities'; count: number; limit: number }
+  | { kind: 'seat_priorities'; count: number; limit: number; roleId: string };
 
 export interface Metric {
   id: string;

@@ -95,8 +95,11 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'goals',
-    // `status`, or an abandoned goal comes back active and its work with it.
-    sql: `SELECT id, parent_goal_id, kind, slug, statement, status, created_at
+    // `status`, or an abandoned goal comes back active and its work with it;
+    // and its period, seat, commitment, finish line and channel (0136), or a
+    // quarterly priority comes back as a goal with no end and nobody's.
+    sql: `SELECT id, parent_goal_id, kind, slug, statement, status, created_at,
+                 starts_on, due_on, owner_role_id, commitment, done_when, channel
             FROM goals ORDER BY created_at`,
   },
   {

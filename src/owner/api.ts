@@ -126,7 +126,7 @@ import {
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
 import { base64Bytes, keepAnswerFiles } from '../chats/attachments.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
-import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
+import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal, type GoalPlan } from '../domain/goals.ts';
 import {
   addDivision,
   addProject,
@@ -4926,6 +4926,9 @@ export class OwnerApi {
           ...(body.parentGoalId === undefined
             ? {}
             : { parentGoalId: body.parentGoalId === null ? null : String(body.parentGoalId) }),
+          // F18.1: its period, seat, commitment and finish line, and the
+          // channel it tests; the answer carries the soft limits it is past.
+          ...goalPlanFrom(body),
         }),
       },
 
@@ -4941,8 +4944,10 @@ export class OwnerApi {
           // Before the factor. A TOTP code is one-shot, so an empty edit would
           // spend the owner's code, write a `goal.changed` event, and change
           // nothing -- and the next real attempt would need a new code.
-          if (body.statement === undefined && body.status === undefined) {
-            throw new PalugadaError('contract.violation', 'no goal field was given', {});
+          const plan = goalPlanFrom(body);
+          if (body.statement === undefined && body.status === undefined && Object.keys(plan).length === 0) {
+            throw new PalugadaError('contract.violation',
+              `no goal field was given; a goal change sends any of statement, status, ${GOAL_PLAN_FIELDS.join(', ')}`, {});
           }
           await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
           const changed = await applyGoalChange({
@@ -4952,6 +4957,7 @@ export class OwnerApi {
             ...(body.status === undefined
               ? {}
               : { status: oneOf(body.status, GOAL_STATUSES, 'status') }),
+            ...plan,
           });
           return { ok: true, paused: changed.paused };
         },
@@ -7651,6 +7657,19 @@ function roleChange(value: unknown): RoleChange {
 }
 
 const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
+const GOAL_PLAN_FIELDS = ['startsOn', 'dueOn', 'ownerRoleId', 'commitment', 'doneWhen', 'channel'] as const;
+
+/**
+ * A goal's period, seat, commitment, finish line and channel, as sent: a
+ * field left out is not in the answer, and an empty one is null, which
+ * clears it. The values are checked by the goal's own code (`planFrom`), so
+ * a change made by a proposal's approval is held to the same.
+ */
+function goalPlanFrom(body: Record<string, unknown>): GoalPlan {
+  return Object.fromEntries(GOAL_PLAN_FIELDS
+    .filter((field) => body[field] !== undefined)
+    .map((field) => [field, body[field] === null || body[field] === '' ? null : String(body[field])]));
+}
 const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
 
 /** A skill's check (F15.4), as the owner writes one: a name and what the skill must say. */

@@ -751,3 +751,17 @@ The first version. What it holds, in the order an owner meets it.
   as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
   update to or go back to that release, and CI runs for a merge queue
   ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).
+
+### Operating rhythm (F18)
+
+- A goal has a period, one owning seat, a commitment (committed,
+  aspirational or learning), a sentence saying when it is done, and the
+  traction channel it tests. A key result of a quarter or less is a
+  quarterly priority, and the database refuses one without a seat, or
+  without words or a measure for done; an objective of a year is one of
+  this year's goals (STATUS 2.190).
+- More than 7 quarterly priorities at once, more than 5 for one seat or
+  under one objective, or more than 5 of this year's goals is said on the
+  goal's card and in the answer, and refuses nothing (STATUS 2.190).
+- Every run under such a goal is told its period, commitment, seat, finish
+  line and channel, and the archive carries them (STATUS 2.190).

@@ -25,7 +25,8 @@ import { count, dateTime, goalKind, money, relative, roleLabel } from '../format
 import type { PageProps } from '../App.tsx';
 import { N, locale, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
-import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { ActionButton, ActionForm, type Field } from '../components/ActionForm.tsx';
+import { CHANNELS, channelName } from '../channels.ts';
 import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics } from '../components/Metrics.tsx';
 import { Triggers } from '../components/Triggers.tsx';
@@ -91,7 +92,7 @@ export function Organization({ ctx, route }: PageProps) {
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
-          <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
+          <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="projects">
           <Projects companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
@@ -1193,11 +1194,67 @@ function DivisionDrawer({
 
 /* ------------------------------------------------------------------- goals --- */
 
-function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: Goal[]; changed: () => void }) {
+const COMMITMENT: Record<string, string> = { committed: N('Committed'), aspirational: N('Aspirational'), learning: N('Learning') };
+
+/** A goal's period as the owner's calendar writes a range of days. */
+function periodSaid(startsOn: string, dueOn: string): string {
+  // Read as days, in UTC: a day read as midnight here is the day before west of UTC.
+  const format = new Intl.DateTimeFormat(locale(), { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return format.formatRange(new Date(`${startsOn}T00:00:00Z`), new Date(`${dueOn}T00:00:00Z`));
+}
+
+/** A soft limit a goal is past (F18.1), as the owner reads it on the goal's card. */
+function warningSaid(warning: Goal['warnings'][number], roles: Role[]): string {
+  const values = { count: warning.count, limit: warning.limit };
+  switch (warning.kind) {
+    case 'year_goals': return t('Goals for this year: {count}, more than the {limit} a company keeps in view.', values);
+    case 'objective_key_results': return t('Key results under this objective: {count}, more than the {limit} one objective keeps in view.', values);
+    case 'quarter_priorities': return t('Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.', values);
+    case 'seat_priorities': {
+      const role = roles.find((one) => one.id === warning.roleId);
+      return t('Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.',
+        { ...values, seat: role ? roleLabel(role) : warning.roleId });
+    }
+  }
+}
+
+/** The fields of a goal's period, seat and finish line (F18.1, F18.11), with what a goal already has. */
+function goalPlanFields(roles: Role[], goal: Goal | null): Field[] {
+  return [
+    { name: 'startsOn', label: t('Starts on'), type: 'date', initial: goal?.startsOn ?? null },
+    { name: 'dueOn', label: t('Due on'), type: 'date', initial: goal?.dueOn ?? null },
+    {
+      name: 'commitment', label: t('Commitment'), type: 'select', initial: goal?.commitment ?? null,
+      description: t('Committed is done in full or missed; aspirational is graded; learning tests a prediction.'),
+      options: Object.entries(COMMITMENT).map(([value, label]) => ({ value, label: t(label) })),
+    },
+    {
+      name: 'ownerRoleId', label: t('Owning seat'), type: 'select', initial: goal?.ownerRoleId ?? null,
+      description: t('The one role that answers for it. A quarterly priority needs one.'),
+      options: roles.map((role) => ({ value: role.id, label: roleLabel(role) })),
+    },
+    {
+      name: 'channel', label: t('Channel it tests'), type: 'select', initial: goal?.channel ?? null, wide: true,
+      options: CHANNELS.map((channel) => ({ value: channel.value, label: t(channel.label) })),
+    },
+    {
+      name: 'doneWhen', label: t('Done when'), type: 'textarea', initial: goal?.doneWhen ?? null,
+      description: t('What is true once it is done. A key result of a quarter or less needs this, or a measure.'),
+    },
+  ];
+}
+
+const GOAL_PLAN = ['startsOn', 'dueOn', 'commitment', 'ownerRoleId', 'channel', 'doneWhen'] as const;
+
+function GoalLadder({ companyId, goals, roles, changed }: { companyId: string; goals: Goal[]; roles: Role[]; changed: () => void }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Goal | null>(null);
   const roots = goals.filter((goal) => goal.parentId === null);
   const childrenOf = (id: string) => goals.filter((goal) => goal.parentId === id);
+  const seatOf = (goal: Goal) => {
+    const role = roles.find((one) => one.id === goal.ownerRoleId);
+    return role ? roleLabel(role) : goal.ownerRole;
+  };
 
   const renderGoal = (goal: Goal, depth: number): React.ReactNode => (
     <Box key={goal.id} ps={depth * 28}>
@@ -1208,7 +1265,10 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
               {goal.kind === 'mission' ? <IconFlag size={16} /> : <IconTarget size={16} />}
             </ThemeIcon>
             <div style={{ minWidth: 0 }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{goalKind(goal.kind)}</Text>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                {goal.kind === 'key_result' && goal.period === 'quarter' ? t('Quarterly priority')
+                  : goal.kind === 'objective' && goal.period === 'year' ? t("This year's goal") : goalKind(goal.kind)}
+              </Text>
               <Text size="sm" fw={600}>{goal.statement}</Text>
             </div>
           </Group>
@@ -1224,6 +1284,18 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
             <Badge color={goal.status === 'active' ? 'brand' : goal.status === 'met' ? 'teal' : 'gray'} variant="light">{goalStatus(goal.status)}</Badge>
           </Group>
         </Group>
+        {(goal.startsOn || goal.commitment || goal.ownerRoleId || goal.channel) && (
+          <Group gap={6} mt={6} ps={44}>
+            {goal.startsOn && goal.dueOn && <Badge variant="outline" color="gray" size="sm">{periodSaid(goal.startsOn, goal.dueOn)}</Badge>}
+            {goal.commitment && <Badge variant="light" color="grape" size="sm">{t(COMMITMENT[goal.commitment] ?? goal.commitment)}</Badge>}
+            {goal.ownerRoleId && <Badge variant="light" color="blue" size="sm">{t('Owned by {seat}', { seat: seatOf(goal) ?? '' })}</Badge>}
+            {goal.channel && <Badge variant="light" color="orange" size="sm">{t('Tests the channel {channel}', { channel: channelName(goal.channel) })}</Badge>}
+          </Group>
+        )}
+        {goal.doneWhen && <Text size="xs" c="dimmed" mt={4} ps={44}>{t('Done when: {done}', { done: goal.doneWhen })}</Text>}
+        {goal.warnings.map((warning) => (
+          <Text key={warning.kind} size="xs" c="yellow.8" mt={4} ps={44}>{warningSaid(warning, roles)}</Text>
+        ))}
         {(goal.kind !== 'mission' || goal.metrics.length > 0) && (
           // The goal opens its editor on a click; recording a value or adding
           // a measure is its own action, including inside the modals it opens,
@@ -1254,6 +1326,7 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'grow-revenue' },
             { name: 'parentGoalId', label: t('Under'), type: 'select', options: goals.map((goal) => ({ value: goal.id, label: `${goalKind(goal.kind)}: ${goal.statement}` })), wide: true },
             { name: 'statement', label: t('Statement'), type: 'textarea', required: true },
+            ...goalPlanFields(roles, null),
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/goals`, values)}
           action={t('Add it')}
@@ -1261,12 +1334,12 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
           done={() => { setAdding(false); changed(); }}
         />
       </Modal>
-      <GoalEditor companyId={companyId} goal={editing} close={() => setEditing(null)} changed={changed} />
+      <GoalEditor companyId={companyId} goal={editing} roles={roles} close={() => setEditing(null)} changed={changed} />
     </Section>
   );
 }
 
-function GoalEditor({ companyId, goal, close, changed }: { companyId: string; goal: Goal | null; close: () => void; changed: () => void }) {
+function GoalEditor({ companyId, goal, roles, close, changed }: { companyId: string; goal: Goal | null; roles: Role[]; close: () => void; changed: () => void }) {
   const detail = useLoad(async () => {
     if (!goal) return null;
     const answer: { kind: string; slug: string; status: string; statement: string; parentGoalId: string | null } =
@@ -1279,14 +1352,23 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
         <Stack>
           {detail.data && <Text size="sm" c="dimmed">{goalKind(detail.data.kind)} · {detail.data.slug} · {goalStatus(detail.data.status)}</Text>}
           <ActionForm
-            columns={1}
+            columns={2}
             fields={[
               { name: 'statement', label: t('Statement'), type: 'textarea', initial: goal.statement },
-              { name: 'status', label: t('Status'), type: 'select', initial: goal.status, options: [
+              { name: 'status', label: t('Status'), type: 'select', initial: goal.status, wide: true, options: [
                 { value: 'active', label: t('Active') }, { value: 'met', label: t('Met') }, { value: 'abandoned', label: t('Abandoned') },
               ] },
+              // A mission is the company's direction: it has no period, seat or finish line.
+              ...(goal.kind === 'mission' ? [] : goalPlanFields(roles, goal)),
             ]}
-            submit={(values, proof) => api('POST', `/api/companies/${companyId}/goals/${goal.id}`, { ...values, proof })}
+            submit={(values, proof) => {
+              // A field the owner emptied is sent as null, which clears it;
+              // the form leaves an empty field out, which would keep it.
+              const cleared = goal.kind === 'mission' ? {} : Object.fromEntries(GOAL_PLAN
+                .filter((field) => values[field] === undefined && goal[field] !== null)
+                .map((field) => [field, null]));
+              return api('POST', `/api/companies/${companyId}/goals/${goal.id}`, { ...values, ...cleared, proof });
+            }}
             factor={t('Change a goal')}
             action={t('Change it')}
             done={(result) => {

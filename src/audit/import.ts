@@ -110,9 +110,12 @@ interface ImportSection {
 const SECTIONS: ImportSection[] = [
   { name: 'projects', table: 'projects', references: [] },
   { name: 'divisions', table: 'divisions', references: ['parent_division_id'] },
-  { name: 'goals', table: 'goals', references: ['parent_goal_id'] },
-  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
   { name: 'roles', table: 'roles', references: ['division_id'] },
+  // After the roles, since a goal names the seat that owns it (0136). A
+  // quarterly priority measured rather than worded is checked against its
+  // measure at commit, so the measure coming after it is in time.
+  { name: 'goals', table: 'goals', references: ['parent_goal_id', 'owner_role_id'] },
+  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
     // F12.1: what travels is the reference and its division, never a value --

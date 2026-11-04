@@ -1764,9 +1764,13 @@ set all four, and agents read them.
 3. For a quarterly priority, choose **Key result** under one of those
    objectives, with a period of a quarter or less (92 days at most), and an
    **Owning seat**: the one role that answers for it. Say when it is done in
-   **Done when** ("Ten cafes in Bandung have paid an invoice"), or measure it
-   by a number afterwards. The database refuses a quarterly priority without
-   a seat, or without either.
+   **Done when** ("Ten cafes in Bandung have paid an invoice"): a new
+   quarterly priority needs it, because a measure can only be added to a
+   goal that already exists. Once you have defined a measure for it, you may
+   clear **Done when** and let the number say when it is done; that measure
+   then cannot be retired, while it is the last one, until you write
+   **Done when** again. The database refuses a quarterly priority without a
+   seat, or one still open with neither words nor a live measure.
 4. Choose its **Commitment**:
    - **Committed**: it is done in full by the due date, or it is a miss;
    - **Aspirational**: a stretch, graded from 0.0 to 1.0 at the end, where

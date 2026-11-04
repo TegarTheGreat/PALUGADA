@@ -85,7 +85,7 @@ const GOAL_PLAN = {
   startsOn: 'optional day, YYYY-MM-DD', dueOn: 'optional day, YYYY-MM-DD, the last of the period; with startsOn or not at all',
   ownerRoleId: 'optional id of the role that owns it, from GET /api/companies/:companyId/structure',
   commitment: 'optional: committed, aspirational or learning; needs a period',
-  doneWhen: 'optional sentence of at most 500 characters: what is true once it is done',
+  doneWhen: 'optional sentence of at most 500 characters: what is true once it is done; a new quarterly priority needs it, and it may be cleared only while a live measure says when the priority is done',
   channel: `optional traction channel it tests: ${CHANNEL_SLUGS.join(', ')}`,
 };
 
@@ -425,7 +425,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/goals',
-    what: 'Add a goal. A key result due 92 days or less after it starts is a quarterly priority: it needs ownerRoleId, and doneWhen or a measure. The answer lists the soft limits it is past (warnings), which refuse nothing.',
+    what: 'Add a goal. A key result due 92 days or less after it starts is a quarterly priority: it needs ownerRoleId and doneWhen when it is added, because a measure can only be defined for a goal that exists; once a measure is defined, doneWhen may be cleared with POST /api/companies/:companyId/goals/:goalId. The answer lists the soft limits it is past (warnings), which refuse nothing.',
     fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it', ...GOAL_PLAN },
     factor: 'never', auto: true,
   },

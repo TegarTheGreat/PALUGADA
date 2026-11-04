@@ -962,7 +962,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Hội chợ thương mại",
   "Unconventional PR": "PR khác thường",
   "Viral marketing": "Tiếp thị lan truyền",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Điều gì đúng khi nó xong. Một kết quả then chốt trong một quý hoặc ngắn hơn cần điều này, hoặc một thước đo.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Điều gì đúng khi nó xong. Một kết quả then chốt mới trong một quý hoặc ngắn hơn cần điều này; khi đã có thước đo cho nó, có thể để trống.",
   "Goal given a measure": "Đã gắn chỉ số cho mục tiêu",
   "Goal ladder": "Thang mục tiêu",
   "Goals": "Mục tiêu",

@@ -938,7 +938,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Fachmessen",
   "Unconventional PR": "Unkonventionelle PR",
   "Viral marketing": "Virales Marketing",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Was wahr ist, sobald es erreicht ist. Ein Schlüsselergebnis von einem Quartal oder weniger braucht das oder eine Kennzahl.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Was wahr ist, sobald es erreicht ist. Ein neues Schlüsselergebnis von einem Quartal oder weniger braucht das; sobald eine Kennzahl dafür festgelegt ist, darf es geleert werden.",
   "Goal given a measure": "Ziel mit Kennzahl versehen",
   "Goal ladder": "Zielhierarchie",
   "Goals": "Ziele",

@@ -924,7 +924,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "行业展会",
   "Unconventional PR": "非常规公关",
   "Viral marketing": "病毒式营销",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "完成时什么为真。为期一个季度或更短的关键结果需要写明这一点，或者用一个指标衡量。",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "完成时什么为真。为期一个季度或更短的新关键结果需要写明这一点；为它定义指标后，可以清空。",
   "Goal given a measure": "已为目标设定指标",
   "Goal ladder": "目标层级",
   "Goals": "目标",

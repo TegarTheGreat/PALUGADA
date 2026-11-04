@@ -146,18 +146,40 @@ END $$;
 -- goal and so can only be written after it: a goal and its measure written
 -- in one transaction (an archive's import, a plan approved at once) are
 -- checked together. The row is read again, as it stands at commit.
+--
+-- Checked from both sides. A goal written with no words is checked against
+-- its live measures; a measure retired (or removed) is checked against its
+-- goal, so the words cannot be cleared on the strength of a measure that is
+-- then retired. Without the second side a company reached a state that the
+-- first refuses on replay, and could not be restored from its own archive.
+--
+-- Only an active goal is held to it: the rule is about work still to be
+-- done, and a met or abandoned priority is history that can be reworded,
+-- exported and restored as it stands. Reopening one is checked again, which
+-- is why the trigger watches status too.
 CREATE FUNCTION app.goals_say_when_done() RETURNS trigger
 LANGUAGE plpgsql AS $$
-DECLARE goal record;
+DECLARE goal record; target uuid; measure text;
 BEGIN
-  SELECT id, slug, kind, starts_on, due_on, done_when INTO goal FROM goals WHERE id = NEW.id;
-  IF goal.id IS NULL THEN
+  IF TG_TABLE_NAME = 'goals' THEN
+    target := NEW.id;
+  ELSIF TG_OP = 'DELETE' THEN
+    target := OLD.goal_id; measure := OLD.slug;
+  ELSE
+    target := NEW.goal_id; measure := NEW.slug;
+  END IF;
+  SELECT id, company_id, slug, kind, status, starts_on, due_on, done_when INTO goal FROM goals WHERE id = target;
+  IF goal.id IS NULL OR goal.status <> 'active' THEN
     RETURN NULL;
   END IF;
   IF goal.kind = 'key_result' AND goal.starts_on IS NOT NULL
      AND goal.due_on - goal.starts_on <= 92 AND goal.done_when IS NULL
      AND NOT EXISTS (SELECT 1 FROM goal_metrics m
-                      WHERE m.company_id = NEW.company_id AND m.goal_id = goal.id AND m.retired_at IS NULL) THEN
+                      WHERE m.company_id = goal.company_id AND m.goal_id = goal.id AND m.retired_at IS NULL) THEN
+    IF measure IS NOT NULL THEN
+      RAISE EXCEPTION 'the measure "%" is the last one the quarterly priority "%" is measured by, and the priority does not say in words when it is done: write what is true once it is done, or define another measure, before retiring this one', measure, goal.slug
+        USING ERRCODE = '23514', CONSTRAINT = 'goals_say_when_done';
+    END IF;
     RAISE EXCEPTION 'the quarterly priority "%" says when it is done: write what is true once it is done, or measure it by a number', goal.slug
       USING ERRCODE = '23514', CONSTRAINT = 'goals_say_when_done';
   END IF;
@@ -165,7 +187,12 @@ BEGIN
 END $$;
 
 CREATE CONSTRAINT TRIGGER goals_say_when_done
-  AFTER INSERT OR UPDATE OF kind, starts_on, due_on, done_when ON goals
+  AFTER INSERT OR UPDATE OF kind, status, starts_on, due_on, done_when ON goals
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION app.goals_say_when_done();
+
+CREATE CONSTRAINT TRIGGER goal_metrics_leave_a_finish_line
+  AFTER UPDATE OF retired_at OR DELETE ON goal_metrics
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION app.goals_say_when_done();
 

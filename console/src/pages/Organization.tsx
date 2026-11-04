@@ -1239,7 +1239,7 @@ function goalPlanFields(roles: Role[], goal: Goal | null): Field[] {
     },
     {
       name: 'doneWhen', label: t('Done when'), type: 'textarea', initial: goal?.doneWhen ?? null,
-      description: t('What is true once it is done. A key result of a quarter or less needs this, or a measure.'),
+      description: t('What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.'),
     },
   ];
 }

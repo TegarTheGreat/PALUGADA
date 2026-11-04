@@ -955,7 +955,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Pameran dagang",
   "Unconventional PR": "PR ingkang boten limrah",
   "Viral marketing": "Pemasaran viral",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Punapa ingkang leres sasampunipun rampung. Asil utami triwulan utawi langkung cekak mbetahaken punika, utawi satunggaling ukuran.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Punapa ingkang leres sasampunipun rampung. Asil utami énggal triwulan utawi langkung cekak mbetahaken punika; sasampunipun wonten ukuran kangge, punika saged dipunkosongaken.",
   "Goal given a measure": "Ancas dipunparingi ukuran",
   "Goal ladder": "Undhak-undhakan ancas",
   "Goals": "Ancas",

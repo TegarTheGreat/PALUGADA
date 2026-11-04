@@ -858,7 +858,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Pameran dagang",
   "Unconventional PR": "PR tak lazim",
   "Viral marketing": "Pemasaran viral",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Apa yang benar setelah ini selesai. Hasil kunci berjangka satu kuartal atau kurang wajib punya ini, atau sebuah ukuran.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Apa yang benar setelah ini selesai. Hasil kunci baru berjangka satu kuartal atau kurang wajib punya ini; setelah sebuah ukuran ditetapkan untuknya, isian ini boleh dikosongkan.",
   "Goal given a measure": "Sasaran diberi ukuran",
   "Goal ladder": "Tangga sasaran",
   "Goals": "Sasaran",

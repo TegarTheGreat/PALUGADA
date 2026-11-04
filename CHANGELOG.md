@@ -760,6 +760,11 @@ The first version. What it holds, in the order an owner meets it.
   quarterly priority, and the database refuses one without a seat, or
   without words or a measure for done; an objective of a year is one of
   this year's goals (STATUS 2.190).
+- A new quarterly priority is given its finish line in words; once a
+  measure is defined they may be cleared, and that measure, while it is the
+  last, cannot be retired until the words are back. A met or abandoned
+  priority is not held to the rule, so any company the console reaches can
+  be restored from its archive (STATUS 2.190).
 - More than 7 quarterly priorities at once, more than 5 for one seat or
   under one objective, or more than 5 of this year's goals is said on the
   goal's card and in the answer, and refuses nothing (STATUS 2.190).

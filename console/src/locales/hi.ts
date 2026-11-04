@@ -908,7 +908,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "व्यापार मेले",
   "Unconventional PR": "अनोखा पीआर",
   "Viral marketing": "वायरल मार्केटिंग",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "पूरा होने पर क्या सच होगा। एक तिमाही या उससे कम के मुख्य परिणाम के लिए यह, या कोई माप, ज़रूरी है।",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "पूरा होने पर क्या सच होगा। एक तिमाही या उससे कम के नए मुख्य परिणाम के लिए यह ज़रूरी है; उसके लिए कोई माप तय हो जाने के बाद इसे खाली किया जा सकता है।",
   "Goal given a measure": "लक्ष्य को माप दिया गया",
   "Goal ladder": "लक्ष्यों की सीढ़ी",
   "Goals": "लक्ष्य",

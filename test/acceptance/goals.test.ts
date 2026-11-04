@@ -29,7 +29,7 @@ import { COMPANY_OS } from '../../src/bundles/builtin.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { defineMetric, recordObservation } from '../../src/domain/metrics.ts';
+import { changeMetric, defineMetric, recordObservation } from '../../src/domain/metrics.ts';
 import { CHANNELS } from '../../src/domain/channels.ts';
 import { structureOf } from '../../src/owner/views.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
@@ -740,6 +740,56 @@ test('the export round-trips the columns (F18.1, F16.4)', async () => {
     { slug: 'measured', starts_on: '2026-10-01', due_on: '2026-12-31', commitment: 'committed',
       done_when: null, channel: null, seat: 'worker' },
   ]);
+});
+
+test('a quarterly priority cannot lose its last finish line by retiring its measure (F18.1)', async () => {
+  // Words cleared because a measure says when it is done, then the measure
+  // retired, was a priority no route could make again: the archive's import
+  // replays it and the commit refused it, so the company could not be
+  // restored from its own archive (F16.4). The retire is where it is refused.
+  const fixture = await createCompany('goal-retire-last');
+  const measured = await priority(fixture, 'measured');
+  const revenue = await defineMetric(fixture.companyId, { goalId: measured.id, slug: 'revenue', name: 'Revenue', unit: 'currency', target: 100 });
+  const orders = await defineMetric(fixture.companyId, { goalId: measured.id, slug: 'orders', name: 'Orders', unit: 'count', target: 10 });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: measured.id, doneWhen: null });
+
+  // One of two may go: the other still says when it is done.
+  await changeMetric(fixture.companyId, orders, { retired: true });
+  await assert.rejects(changeMetric(fixture.companyId, revenue, { retired: true }),
+    /the measure "revenue" is the last one the quarterly priority "measured" is measured by, and the priority does not say in words when it is done: write what is true once it is done, or define another measure, before retiring this one/);
+  const live = await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM goal_metrics WHERE retired_at IS NULL ORDER BY slug'));
+  assert.deepEqual(live.rows.map((row) => row.slug), ['revenue']);
+
+  // With the words back, the last measure may be retired.
+  await applyGoalChange({ companyId: fixture.companyId, goalId: measured.id, doneWhen: 'Revenue is 100.' });
+  await changeMetric(fixture.companyId, revenue, { retired: true });
+});
+
+test('a closed priority is not held to a finish line, and round-trips through the archive (F18.1, F16.4)', async () => {
+  // The rule is about work still to do. A priority abandoned with only a
+  // measure, whose measure was retired afterwards, is history: it can be
+  // reworded, exported and restored, and only reopening it asks for words.
+  const fixture = await createCompany('goal-closed-finish');
+  const closed = await priority(fixture, 'closed');
+  const revenue = await defineMetric(fixture.companyId, { goalId: closed.id, slug: 'revenue', name: 'Revenue', unit: 'currency', target: 100 });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: closed.id, doneWhen: null });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: closed.id, status: 'abandoned' });
+  await changeMetric(fixture.companyId, revenue, { retired: true });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: closed.id, statement: 'Closed: the market was not there.' });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  const { rows } = await withTenant(restored.companyId, (tx) => tx.query<{ status: string; done_when: string | null; retired: boolean }>(
+    `SELECT g.status, g.done_when, m.retired_at IS NOT NULL AS retired
+       FROM goals g JOIN goal_metrics m ON m.goal_id = g.id WHERE g.slug = 'closed'`));
+  assert.deepEqual(rows, [{ status: 'abandoned', done_when: null, retired: true }]);
+
+  // Reopened, it is work again, and says when it is done.
+  await assert.rejects(applyGoalChange({ companyId: fixture.companyId, goalId: closed.id, status: 'active' }),
+    /the quarterly priority "closed" says when it is done: write what is true once it is done, or measure it by a number/);
+  await applyGoalChange({ companyId: fixture.companyId, goalId: closed.id, status: 'active', doneWhen: 'Ten cafes pay.' });
 });
 
 test('the owner sets and changes a goal\'s period, seat, commitment, finish line and channel (F18.1)', async () => {

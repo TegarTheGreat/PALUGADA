@@ -933,7 +933,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "展示会",
   "Unconventional PR": "型破りなPR",
   "Viral marketing": "バイラルマーケティング",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "完了したときに何が成り立っているか。四半期以下の主要な成果には、これか指標が必要です。",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "完了したときに何が成り立っているか。四半期以下の新しい主要な成果にはこれが必要です。指標を定義したあとは空にできます。",
   "Goal given a measure": "目標に指標を設定しました",
   "Goal ladder": "目標の階層",
   "Goals": "目標",

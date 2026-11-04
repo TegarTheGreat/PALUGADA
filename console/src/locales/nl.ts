@@ -939,7 +939,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Vakbeurzen",
   "Unconventional PR": "Onconventionele pr",
   "Viral marketing": "Virale marketing",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Wat waar is zodra het klaar is. Een kernresultaat van een kwartaal of korter heeft dit nodig, of een maatstaf.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Wat waar is zodra het klaar is. Een nieuw kernresultaat van een kwartaal of korter heeft dit nodig; zodra er een maatstaf voor is vastgelegd, mag het leeg.",
   "Goal given a measure": "Doel kreeg een meetwaarde",
   "Goal ladder": "Doelenhiërarchie",
   "Goals": "Doelen",

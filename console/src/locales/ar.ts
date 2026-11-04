@@ -935,7 +935,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "المعارض التجارية",
   "Unconventional PR": "علاقات عامة غير تقليدية",
   "Viral marketing": "التسويق الفيروسي",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "ما يكون صحيحًا عند اكتماله. تحتاج النتيجة الرئيسية لربع سنة أو أقل إلى هذا، أو إلى مقياس.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "ما يكون صحيحًا عند اكتماله. تحتاج النتيجة الرئيسية الجديدة لربع سنة أو أقل إلى هذا؛ وبعد تعريف مقياس لها يمكن إفراغه.",
   "Goal given a measure": "أُعطي الهدف مقياسًا",
   "Goal ladder": "سُلّم الأهداف",
   "Goals": "الأهداف",

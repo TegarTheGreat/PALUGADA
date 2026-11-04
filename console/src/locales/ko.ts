@@ -935,7 +935,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "전시회",
   "Unconventional PR": "색다른 PR",
   "Viral marketing": "바이럴 마케팅",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "완료되면 무엇이 사실이 되는지 적어요. 한 분기 이하의 핵심 결과에는 이것이나 지표가 필요해요.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "완료되면 무엇이 사실이 되는지 적어요. 한 분기 이하의 새 핵심 결과에는 이것이 필요해요. 지표를 정한 뒤에는 비워도 돼요.",
   "Goal given a measure": "목표에 지표 설정됨",
   "Goal ladder": "목표 계층",
   "Goals": "목표",

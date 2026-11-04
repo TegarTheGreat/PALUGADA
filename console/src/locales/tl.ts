@@ -918,7 +918,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Mga trade show",
   "Unconventional PR": "Kakaibang PR",
   "Viral marketing": "Viral na pagmemerkado",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Ang totoo kapag tapos na ito. Kailangan ito, o isang sukatan, ng pangunahing resulta na isang quarter o mas maikli.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Ang totoo kapag tapos na ito. Kailangan ito ng bagong pangunahing resulta na isang quarter o mas maikli; kapag may sukatan na para rito, puwede na itong alisan ng laman.",
   "Goal given a measure": "Nabigyan ng sukatan ang layunin",
   "Goal ladder": "Hagdan ng mga layunin",
   "Goals": "Mga layunin",

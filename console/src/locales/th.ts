@@ -957,7 +957,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "งานแสดงสินค้า",
   "Unconventional PR": "PR แหวกแนว",
   "Viral marketing": "การตลาดแบบบอกต่อ",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "สิ่งที่เป็นจริงเมื่อเสร็จแล้ว ผลลัพธ์หลักที่ยาวหนึ่งไตรมาสหรือสั้นกว่าต้องมีสิ่งนี้ หรือมีตัวชี้วัด",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "สิ่งที่เป็นจริงเมื่อเสร็จแล้ว ผลลัพธ์หลักใหม่ที่ยาวหนึ่งไตรมาสหรือสั้นกว่าต้องมีสิ่งนี้ เมื่อกำหนดตัวชี้วัดให้แล้วจึงเว้นว่างได้",
   "Goal given a measure": "กำหนดตัวชี้วัดให้เป้าหมายแล้ว",
   "Goal ladder": "ลำดับชั้นเป้าหมาย",
   "Goals": "เป้าหมาย",

@@ -942,7 +942,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Отраслевые выставки",
   "Unconventional PR": "Нестандартный PR",
   "Viral marketing": "Вирусный маркетинг",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Что будет верно, когда она выполнена. Ключевому результату на квартал или меньше нужно это или показатель.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Что будет верно, когда она выполнена. Новому ключевому результату на квартал или меньше это нужно; когда для него задан показатель, поле можно очистить.",
   "Goal given a measure": "Для цели задан показатель",
   "Goal ladder": "Лестница целей",
   "Goals": "Цели",

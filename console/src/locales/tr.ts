@@ -964,7 +964,7 @@ export const DICTIONARY: Dictionary = {
   "Trade shows": "Ticaret fuarları",
   "Unconventional PR": "Alışılmadık halkla ilişkiler",
   "Viral marketing": "Viral pazarlama",
-  "What is true once it is done. A key result of a quarter or less needs this, or a measure.": "Tamamlandığında ne doğru olur. Bir çeyrek ya da daha kısa süreli bir anahtar sonuç bunu ya da bir ölçüyü gerektirir.",
+  "What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.": "Tamamlandığında ne doğru olur. Bir çeyrek ya da daha kısa süreli yeni bir anahtar sonuç bunu gerektirir; bunun için bir ölçü tanımlandıktan sonra boş bırakılabilir.",
   "Goal given a measure": "Hedefe bir metrik verildi",
   "Goal ladder": "Hedef merdiveni",
   "Goals": "Hedefler",

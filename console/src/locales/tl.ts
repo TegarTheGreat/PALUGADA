@@ -1589,6 +1589,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Na-pause ang iskedyul: sarado na ang layunin nito",
   "Schedule removed": "Inalis ang iskedyul",
   "Schedule skipped a run: nothing happened that week to review": "Nilaktawan ng iskedyul ang isang takbo: walang nangyari sa linggong iyon na dapat suriin",
+  "Schedule skipped a run: that month had nothing in the books to review": "Nilaktawan ng iskedyul ang isang takbo: walang laman ang mga libro ng buwang iyon na dapat suriin",
   "Schedule skipped a run: the last one was still going": "Nilaktawan ng iskedyul ang isang takbo: tumatakbo pa ang huli",
   "Schedule turned off": "Na-off ang iskedyul",
   "Schedule turned on or off": "Na-on o na-off ang iskedyul",

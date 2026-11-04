@@ -1593,6 +1593,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Agendamento pausado: a meta foi encerrada",
   "Schedule removed": "Agendamento removido",
   "Schedule skipped a run: nothing happened that week to review": "O agendamento pulou uma execução: nada aconteceu naquela semana para revisar",
+  "Schedule skipped a run: that month had nothing in the books to review": "O agendamento pulou uma execução: naquele mês não havia nada nos livros para revisar",
   "Schedule skipped a run: the last one was still going": "O agendamento pulou uma execução: a anterior ainda estava em andamento",
   "Schedule turned off": "Agendamento desligado",
   "Schedule turned on or off": "Agendamento ligado ou desligado",

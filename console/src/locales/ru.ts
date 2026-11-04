@@ -1613,6 +1613,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Расписание приостановлено: его цель закрыта",
   "Schedule removed": "Расписание удалено",
   "Schedule skipped a run: nothing happened that week to review": "Расписание пропустило запуск: за ту неделю нечего было разбирать",
+  "Schedule skipped a run: that month had nothing in the books to review": "Расписание пропустило запуск: за тот месяц в книгах нечего было разбирать",
   "Schedule skipped a run: the last one was still going": "Расписание пропустило запуск: предыдущий ещё выполнялся",
   "Schedule turned off": "Расписание выключено",
   "Schedule turned on or off": "Расписание включено или выключено",

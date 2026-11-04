@@ -1604,6 +1604,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "スケジュールを一時停止しました：目標が終了しています",
   "Schedule removed": "スケジュールを削除しました",
   "Schedule skipped a run: nothing happened that week to review": "スケジュールが実行をスキップしました：その週は振り返ることが何もありませんでした",
+  "Schedule skipped a run: that month had nothing in the books to review": "スケジュールが実行をスキップしました：その月は帳簿に振り返ることが何もありませんでした",
   "Schedule skipped a run: the last one was still going": "スケジュールが実行をスキップしました：前回の実行がまだ続いていました",
   "Schedule turned off": "スケジュールをオフにしました",
   "Schedule turned on or off": "スケジュールのオン・オフを切り替えました",

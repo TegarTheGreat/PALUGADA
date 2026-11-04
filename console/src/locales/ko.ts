@@ -1606,6 +1606,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "일정 일시 중지됨: 목표가 종료됨",
   "Schedule removed": "일정 삭제됨",
   "Schedule skipped a run: nothing happened that week to review": "일정이 실행을 건너뜀: 그 주에는 검토할 일이 없었음",
+  "Schedule skipped a run: that month had nothing in the books to review": "일정이 실행을 건너뜀: 그 달에는 장부에 검토할 내용이 없었음",
   "Schedule skipped a run: the last one was still going": "일정이 실행을 건너뜀: 이전 실행이 아직 진행 중이었음",
   "Schedule turned off": "일정 꺼짐",
   "Schedule turned on or off": "일정이 켜지거나 꺼짐",

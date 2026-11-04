@@ -1609,6 +1609,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Zeitplan pausiert: Sein Ziel ist abgeschlossen",
   "Schedule removed": "Zeitplan entfernt",
   "Schedule skipped a run: nothing happened that week to review": "Zeitplan hat einen Lauf übersprungen: in dieser Woche gab es nichts zu prüfen",
+  "Schedule skipped a run: that month had nothing in the books to review": "Zeitplan hat einen Lauf übersprungen: in diesem Monat stand in den Büchern nichts zu prüfen",
   "Schedule skipped a run: the last one was still going": "Zeitplan hat einen Lauf übersprungen: der letzte dauerte noch an",
   "Schedule turned off": "Zeitplan ausgeschaltet",
   "Schedule turned on or off": "Zeitplan ein- oder ausgeschaltet",

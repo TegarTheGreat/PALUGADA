@@ -1610,6 +1610,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Schema gepauzeerd: het doel is gesloten",
   "Schedule removed": "Schema verwijderd",
   "Schedule skipped a run: nothing happened that week to review": "Schema heeft een uitvoering overgeslagen: die week gebeurde er niets om te bekijken",
+  "Schedule skipped a run: that month had nothing in the books to review": "Schema heeft een uitvoering overgeslagen: die maand stond er niets in de boeken om te bekijken",
   "Schedule skipped a run: the last one was still going": "Schema heeft een uitvoering overgeslagen: de vorige liep nog",
   "Schedule turned off": "Schema uitgeschakeld",
   "Schedule turned on or off": "Schema in- of uitgeschakeld",

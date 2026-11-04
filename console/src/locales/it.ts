@@ -1630,6 +1630,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Pianificazione in pausa: il suo obiettivo è chiuso",
   "Schedule removed": "Pianificazione rimossa",
   "Schedule skipped a run: nothing happened that week to review": "Pianificazione: esecuzione saltata, quella settimana non c'era nulla da esaminare",
+  "Schedule skipped a run: that month had nothing in the books to review": "Pianificazione: esecuzione saltata, quel mese nei libri non c'era nulla da esaminare",
   "Schedule skipped a run: the last one was still going": "Pianificazione: esecuzione saltata, la precedente era ancora in corso",
   "Schedule turned off": "Pianificazione disattivata",
   "Schedule turned on or off": "Pianificazione attivata o disattivata",

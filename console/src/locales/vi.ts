@@ -1633,6 +1633,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Đã tạm dừng lịch chạy: mục tiêu của nó đã đóng",
   "Schedule removed": "Đã gỡ lịch chạy",
   "Schedule skipped a run: nothing happened that week to review": "Lịch chạy đã bỏ qua một lượt: tuần đó không có gì để xem lại",
+  "Schedule skipped a run: that month had nothing in the books to review": "Lịch chạy đã bỏ qua một lượt: tháng đó sổ sách không có gì để xem lại",
   "Schedule skipped a run: the last one was still going": "Lịch chạy đã bỏ qua một lượt: lượt trước vẫn đang chạy",
   "Schedule turned off": "Đã tắt lịch chạy",
   "Schedule turned on or off": "Đã bật hoặc tắt lịch chạy",

@@ -410,17 +410,23 @@ test('the operating kit brings a strategist, its frameworks for review, and a we
   assert.deepEqual(installed.roles, ['strategist', 'critic']);
 
   const { rows: schedules } = await withTenant(fixture.companyId, (tx) => tx.query<{
-    slug: string; cron_expression: string; timezone: string; enabled: boolean; goal: string; kind: string; role: string;
+    slug: string; cron_expression: string; timezone: string; enabled: boolean; goal: string; kind: string; role: string; facts: string;
   }>(
-    `SELECT s.slug, s.cron_expression, s.timezone, s.enabled, s.input->>'goal' AS goal, g.kind, r.slug AS role
-       FROM schedules s JOIN goals g ON g.id = s.goal_id JOIN roles r ON r.id = s.role_id`,
+    `SELECT s.slug, s.cron_expression, s.timezone, s.enabled, s.input->>'goal' AS goal, s.input->>'facts' AS facts,
+            g.kind, r.slug AS role
+       FROM schedules s JOIN goals g ON g.id = s.goal_id JOIN roles r ON r.id = s.role_id
+      ORDER BY s.slug DESC`,
   ));
-  assert.equal(schedules.length, 1);
   assert.deepEqual(
-    [schedules[0]!.slug, schedules[0]!.cron_expression, schedules[0]!.timezone, schedules[0]!.enabled, schedules[0]!.kind, schedules[0]!.role],
-    ['weekly-business-review', '45 7 * * 1', 'Asia/Jakarta', true, 'mission', 'strategist'],
+    schedules.map((one) => [one.slug, one.cron_expression, one.timezone, one.enabled, one.kind, one.role, one.facts]),
+    [
+      ['weekly-business-review', '45 7 * * 1', 'Asia/Jakarta', true, 'mission', 'strategist', 'week'],
+      // F18.12: the first of the month, ten to eight, handed the month's money.
+      ['monthly-review', '50 7 1 * *', 'Asia/Jakarta', true, 'mission', 'strategist', 'month'],
+    ],
   );
   assert.match(schedules[0]!.goal, /Weekly business review/);
+  assert.match(schedules[1]!.goal, /Monthly money review/);
 
   // The frameworks arrive as candidates: somebody reviews them and the owner
   // approves before any agent reads one.
@@ -510,10 +516,10 @@ test("the platform's own kit installs as shipped, and a copy somebody changed do
   await assert.rejects(publishBundle(orphan), /names role nobody/);
   const unknownFacts = {
     ...COMPANY_OS,
-    slug: 'company-os-month',
-    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, facts: 'month' as never }] },
+    slug: 'company-os-year',
+    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, facts: 'year' as never }] },
   };
-  await assert.rejects(publishBundle(unknownFacts), /asks to be handed month; a cadence can be handed week, or nothing/);
+  await assert.rejects(publishBundle(unknownFacts), /asks to be handed year; a cadence can be handed week, month, or nothing/);
 });
 
 /**

@@ -1606,6 +1606,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "أُوقف جدول زمني مؤقتًا: هدفه مغلق",
   "Schedule removed": "أُزيل جدول زمني",
   "Schedule skipped a run: nothing happened that week to review": "جدول زمني تخطّى تشغيلًا: لم يحدث في ذلك الأسبوع ما يستحق المراجعة",
+  "Schedule skipped a run: that month had nothing in the books to review": "جدول زمني تخطّى تشغيلًا: لم يكن في الدفاتر لذلك الشهر ما يستحق المراجعة",
   "Schedule skipped a run: the last one was still going": "جدول زمني تخطّى تشغيلًا: كان التشغيل السابق لا يزال جاريًا",
   "Schedule turned off": "عُطّل جدول زمني",
   "Schedule turned on or off": "فُعّل جدول زمني أو عُطّل",

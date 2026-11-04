@@ -1628,6 +1628,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Jadual dijeda: matlamatnya telah ditutup",
   "Schedule removed": "Jadual dialih keluar",
   "Schedule skipped a run: nothing happened that week to review": "Jadual melangkau satu larian: tiada apa-apa berlaku minggu itu untuk disemak",
+  "Schedule skipped a run: that month had nothing in the books to review": "Jadual melangkau satu larian: tiada apa-apa dalam buku akaun bulan itu untuk disemak",
   "Schedule skipped a run: the last one was still going": "Jadual melangkau satu larian: larian sebelumnya masih berjalan",
   "Schedule turned off": "Jadual dimatikan",
   "Schedule turned on or off": "Jadual dihidupkan atau dimatikan",

@@ -1595,6 +1595,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "定时计划已暂停：其目标已关闭",
   "Schedule removed": "定时计划已移除",
   "Schedule skipped a run: nothing happened that week to review": "定时计划跳过了一次运行：那一周没有需要回顾的内容",
+  "Schedule skipped a run: that month had nothing in the books to review": "定时计划跳过了一次运行：那个月的账簿中没有需要回顾的内容",
   "Schedule skipped a run: the last one was still going": "定时计划跳过了一次运行：上一次仍在进行",
   "Schedule turned off": "定时计划已关闭",
   "Schedule turned on or off": "定时计划已开启或关闭",

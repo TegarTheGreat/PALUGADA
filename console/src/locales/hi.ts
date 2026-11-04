@@ -1579,6 +1579,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "शेड्यूल रोका गया: इसका लक्ष्य बंद हो चुका है",
   "Schedule removed": "शेड्यूल हटाया गया",
   "Schedule skipped a run: nothing happened that week to review": "शेड्यूल ने एक रन छोड़ा: उस हफ़्ते समीक्षा के लिए कुछ नहीं हुआ",
+  "Schedule skipped a run: that month had nothing in the books to review": "शेड्यूल ने एक रन छोड़ा: उस महीने खातों में समीक्षा के लिए कुछ नहीं था",
   "Schedule skipped a run: the last one was still going": "शेड्यूल ने एक रन छोड़ा: पिछला रन अब भी चल रहा था",
   "Schedule turned off": "शेड्यूल बंद किया गया",
   "Schedule turned on or off": "शेड्यूल चालू या बंद किया गया",

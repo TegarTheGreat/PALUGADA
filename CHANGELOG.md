@@ -751,3 +751,17 @@ The first version. What it holds, in the order an owner meets it.
   as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
   update to or go back to that release, and CI runs for a merge queue
   ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).
+
+### Operating rhythm (F18)
+
+- **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
+  first of each month the strategist reviews the last whole month from the
+  company's own books -- profit beside the month before, cash at its start
+  and end, every invoice owed and late, spend against the monthly ceiling,
+  each measure's month, and what one per cent on price, volume, cost of goods
+  and overhead, or one day of receivables, stock and payables, is worth on
+  them. The figures are read from the books as the review starts, not worked
+  out by a model; a lever whose account the books do not keep says so. A
+  month with nothing in the books and nothing late is passed over, and says
+  so. Until now nothing looked at a month of money, although the monthly
+  budget review was graded built (F18.12, F9.4; STATUS 2.199).

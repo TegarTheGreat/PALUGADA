@@ -1635,6 +1635,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "Zamanlama duraklatıldı: hedefi kapandı",
   "Schedule removed": "Zamanlama kaldırıldı",
   "Schedule skipped a run: nothing happened that week to review": "Zamanlama bir çalıştırmayı atladı: o hafta gözden geçirilecek bir şey olmadı",
+  "Schedule skipped a run: that month had nothing in the books to review": "Zamanlama bir çalıştırmayı atladı: o ay defterlerde gözden geçirilecek bir şey yoktu",
   "Schedule skipped a run: the last one was still going": "Zamanlama bir çalıştırmayı atladı: önceki hâlâ sürüyordu",
   "Schedule turned off": "Zamanlama kapatıldı",
   "Schedule turned on or off": "Zamanlama açıldı ya da kapatıldı",

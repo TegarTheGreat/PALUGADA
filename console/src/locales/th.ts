@@ -1628,6 +1628,7 @@ export const DICTIONARY: Dictionary = {
   "Schedule paused: its goal is closed": "หยุดกำหนดการชั่วคราว: เป้าหมายปิดแล้ว",
   "Schedule removed": "นำกำหนดการออกแล้ว",
   "Schedule skipped a run: nothing happened that week to review": "กำหนดการข้ามหนึ่งรอบ: สัปดาห์นั้นไม่มีอะไรให้ทบทวน",
+  "Schedule skipped a run: that month had nothing in the books to review": "กำหนดการข้ามหนึ่งรอบ: เดือนนั้นไม่มีอะไรในบัญชีให้ทบทวน",
   "Schedule skipped a run: the last one was still going": "กำหนดการข้ามหนึ่งรอบ: รอบก่อนหน้ายังทำงานอยู่",
   "Schedule turned off": "ปิดกำหนดการแล้ว",
   "Schedule turned on or off": "เปิดหรือปิดกำหนดการแล้ว",

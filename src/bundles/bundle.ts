@@ -107,11 +107,15 @@ export interface BundleCadence {
   /**
    * What each occurrence is handed from the company's own records as it
    * fires, beside the brief: `week` is the week's numbers, finished work,
-   * spend and what waits for the owner (reporting/week.ts). A run sees the
-   * metrics of its own goal chain and nothing else, so a review told to
-   * report every number against its target could see almost none of them.
+   * spend and what waits for the owner (reporting/week.ts); `month` is the
+   * last whole month's money from the company's own books -- profit, cash,
+   * what is owed and late, spend against the ceiling and the levers that
+   * move them (reporting/month.ts). A run sees the metrics of its own goal
+   * chain and nothing else, so a review told to report every number against
+   * its target could see almost none of them, and no run sees the books
+   * unless it reads them.
    */
-  facts?: 'week';
+  facts?: 'week' | 'month';
   /**
    * F9.1: what an occurrence does while the cadence's last run is live, as
    * a schedule takes it; `skip` when not given.
@@ -122,7 +126,7 @@ export interface BundleCadence {
 }
 
 /** What a cadence may be handed as it fires. */
-const CADENCE_FACTS = ['week'] as const;
+const CADENCE_FACTS = ['week', 'month'] as const;
 
 /**
  * A rule the bundle brings (F3.4, F16.1).

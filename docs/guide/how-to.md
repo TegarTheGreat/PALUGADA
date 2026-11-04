@@ -1746,3 +1746,46 @@ PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
 authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
 Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
 own descriptions of published methods, and none of their templates is copied.
+
+### Review the month's money
+
+The operating kit (`company-os` 1.6.0) brings a **monthly money review**,
+after Verne Harnish's Power of One. On the first of every month at 07:50 in
+the company's time zone, the strategist reviews the last whole month from the
+company's own books -- the ones on **Books** -- and writes you one page:
+
+1. **Profit**: the month's sales, cost of goods, overhead and profit, beside
+   the month before's.
+2. **Cash**: what the bank accounts held when the month began and when it
+   ended, and why it moved.
+3. **What is owed**: every invoice owed and late today, the oldest first,
+   with its days late, and how many days of sales customers still owe.
+4. **Spend**: what the agents spent in the calendar month against your
+   **Monthly ceiling** on **Money**.
+5. **The levers**: what one per cent more on price or volume, one per cent
+   less on the cost of goods or on overhead, one day fewer of receivables or
+   of stock, and one day more of payables would be worth on this month's
+   books, and the one or two worth pulling first.
+6. **Issues for the weekly meeting**, for the CEO to take up.
+
+Every figure is read from the books and handed to the review as it starts;
+no model works one out. The review proposes; spending stays your decision,
+and a change to a goal comes to you as a card.
+
+The books open with one account of expenses and none for stock, which suits a
+company that sells its time. A company that sells goods adds two accounts
+under **Books**, **Add an account**: an expense account coded from 5000 to
+5099 for the cost of goods sold (5000 *Cost of goods sold*, say), and an
+asset account coded 1300 to 1399 for stock (1300 *Stock*). The review reads
+accounts by those numbers, as an accountant reads a chart; every other
+expense is overhead, and every asset account coded 1100 to 1199 is cash, so a
+second bank account opened as 1110 counts. Until both exist, the levers that
+need them -- volume, cost of goods, stock days and payable days -- say so
+rather than guess.
+
+A month with nothing dated in the books and nothing owed and late is passed
+over, and the schedule's history says *that month had nothing in the books to
+review*. To read a month's review before the first comes round -- or of a
+quiet month -- press **Run now** on its row under **Team**, **Schedules**: it
+reviews the last whole month. The schedule is `monthly-review`; turn it off
+there if you keep the books elsewhere.

@@ -757,11 +757,14 @@ The first version. What it holds, in the order an owner meets it.
 - The operating kit (`company-os` 1.6.0) tests channels: the strategist
   writes one strategy for each of the 19 channels, promotes about three,
   ranks them by the ICE average, and proposes a cheap test of each to you
-  with its prediction written before any work starts, paid for from the
-  budget account you give it, for about a month. The channel that meets
-  its prediction is proposed as the core one, and the round runs again
-  when it saturates. Paid ads before launch are still refused (STATUS
-  2.198).
+  with its prediction and the most it may spend written before any work
+  starts. Nothing of a test starts before you approve it. It has no
+  account of its own: the work it hands to the role holding the channel's
+  tool is charged to the account the strategist's task is charged to, a
+  day at a time, and the test is read against its prediction at every
+  weekly review for about a month. The channel that meets its prediction
+  is proposed as the core one, and the round runs again when it
+  saturates. Paid ads before launch are still refused (STATUS 2.198).
 - Three skills for drafting before spending: a one-page business model
   (nine boxes, the riskiest assumption first, adapted from Lean Canvas
   under CC BY-SA), a fit survey that asks only recent users, once each, and

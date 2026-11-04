@@ -592,10 +592,10 @@ export const COMPANY_OS: Bundle = {
           // F18.11, F18.7: a test or a plan is new goals, which only the
           // owner makes, and its prediction counts only if it was written
           // before the work could colour it.
-          'To find the channel that brings customers, run channel tests by the channel-bullseye ' +
+          'To find the channel that brings customers, run channel tests by the channel-testing ' +
           'skill. Propose each channel test, and any plan of new goals, to the owner with ' +
           'goal.propose, each with its measure and a target set before any work starts; never ' +
-          'start one yourself. ' +
+          'start one before the owner approves it. ' +
           'Write for the owner in the company\'s language, briefly.',
         // Twelve, the most a role may hold (F2.6). `metrics.read` made way
         // for `goal.propose`: it needs a vendor bound before it answers
@@ -996,10 +996,10 @@ what was found in memory, so the next run does not start again from nothing.
       // and names the method it follows once, in its description; the
       // method's own name is never the skill's title.
       {
-        slug: 'channel-bullseye',
+        slug: 'channel-testing',
         scope: 'company',
         source: `---
-name: channel-bullseye
+name: channel-testing
 description: Finding the channel that brings the company its customers, by cheap tests with a prediction written first; after the Bullseye framework in Traction by Gabriel Weinberg and Justin Mares.
 ---
 
@@ -1030,12 +1030,18 @@ a task that is not on the path is not done.
 3. **Test cheaply.** For each one, the smallest test that answers three
    questions: what one customer costs through it, how many customers it can
    reach, and whether they are the customers the company wants now. Write
-   the prediction -- the target for cost per customer and customers gained
-   -- before any work starts, and propose the test to the owner with
-   goal.propose, as a learning priority under the traction goal. It spends
-   only from the budget account the owner gives it and runs about a month.
-   The role that holds the channel's tool runs it, by task.delegate. Paid
-   ads before launch are refused by the stage rules: test the others first.
+   the prediction -- the target for cost per customer and customers gained,
+   and the most the test may spend -- before any work starts, and propose
+   the test to the owner with goal.propose, as a learning priority under
+   the traction goal. Start nothing before then: once the owner approves it,
+   hand each piece of the test to the role that holds the channel's tool,
+   by task.delegate. The test has no account or goal of its own: a piece
+   spends from the account of the task that hands it on, is filed under
+   that task's goal, and lasts a day at most. So a test is short pieces over
+   about a month: record its spend and customers on its measures with
+   metric.record, read them against the prediction at each weekly review,
+   and stop it when it has spent what it may. Paid ads before launch are
+   refused by the stage rules: test the others first.
 4. **Working.** When a test meets its prediction, propose that channel as
    the core channel, a committed priority, and put the effort there. Keep
    another only where it feeds the core one: publicity that earns links for
@@ -1060,7 +1066,8 @@ confirmed, likely or speculative, with where the number came from.
             input: { channel: 'search ads' },
             expectContains: [
               'what one customer costs', 'how many customers', 'customers the company wants now',
-              'before any work starts', 'budget account', 'about a month',
+              'before any work starts', 'once the owner approves it', 'account of the task that hands it on',
+              'a day at most', 'about a month',
             ],
           },
           {
@@ -1098,7 +1105,7 @@ speculative, and say where it came from.
 4. **Solution.** The smallest thing that answers each problem. Keep it thin
    until the problem is confirmed.
 5. **Channels.** How the company reaches the early adopters now. Any channel
-   that teaches is enough at first; the channel-bullseye skill tests them.
+   that teaches is enough at first; the channel-testing skill tests them.
 6. **Revenue.** What is charged, along what, from when. Do not leave the
    price for later: being paid is the first proof.
 7. **Costs.** What the next three to six months cost: building and
@@ -1203,10 +1210,10 @@ many answered, who was asked and when.
         ],
       },
       {
-        slug: 'working-backwards',
+        slug: 'press-release-first',
         scope: 'company',
         source: `---
-name: working-backwards
+name: press-release-first
 description: Writing the announcement and its questions and answers before a new offer is built, so the customer's view decides what is built; after Amazon's working backwards practice.
 ---
 
@@ -1334,7 +1341,7 @@ A message that breaks these is not sent, whatever the campaign.
         scope: 'company',
         source: `---
 name: stage-gates
-description: When the company moves from one stage to the next, and what the move must carry.
+description: When the company moves from one stage to the next, and what the move must carry; pivots and learning priorities after The Lean Startup by Eric Ries.
 ---
 
 # Stage gates

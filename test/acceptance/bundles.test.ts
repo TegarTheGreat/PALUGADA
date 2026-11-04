@@ -55,7 +55,7 @@ import { changeMetric, defineMetric } from '../../src/domain/metrics.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { setStage } from '../../src/domain/stage.ts';
-import { stageProposeCapability } from '../../src/broker/platform-capabilities.ts';
+import { stageProposeCapability, taskDelegateCapability } from '../../src/broker/platform-capabilities.ts';
 import type { WeekFacts } from '../../src/reporting/week.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
@@ -751,10 +751,11 @@ test("each of the kit's frameworks says what its eval asks for", () => {
  * says every phrase its eval asks for, so asking for it here makes it stay.
  */
 const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
-  'channel-bullseye': [
+  'channel-testing': [
     'every one of the 19 channels', 'about three', 'drops off',
     'what one customer costs', 'how many customers', 'customers the company wants now',
-    'before any work starts', 'budget account', 'about a month',
+    'before any work starts', 'once the owner approves it', 'account of the task that hands it on',
+    'a day at most', 'about a month',
     'average of the three', 'core channel', 'feeds the core one', 'saturates', 'critical path',
   ],
   'one-page-model': ['riskiest assumption', 'Leave it blank rather than invent one', 'CC BY-SA', 'same licence'],
@@ -762,7 +763,7 @@ const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
     'at least twice in the last two weeks', 'never ask the same person twice', 'about 40 or more answers',
     'very disappointed', 'a heuristic', 'never answer in place of a customer', 'tier 2',
   ],
-  'working-backwards': [
+  'press-release-first': [
     'press release', 'questions and answers', 'Before the company builds a new offer', 'never invent a customer', 'critic',
   ],
   'stage-gates': ['learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment'],
@@ -798,10 +799,12 @@ test('the kit tests channels and drafts the one-page model, the fit survey and t
   // every run is shown, and none takes the method's name for its own title:
   // the attribution is the one place the source's name appears.
   const attributions: Record<string, RegExp> = {
-    'channel-bullseye': /after the Bullseye framework in Traction by Gabriel Weinberg and Justin Mares/,
+    'channel-testing': /after the Bullseye framework in Traction by Gabriel Weinberg and Justin Mares/,
     'one-page-model': /adapted from Lean Canvas by Ash Maurya, CC BY-SA/,
     'fit-survey': /after Sean Ellis/,
-    'working-backwards': /after Amazon's working backwards/,
+    'press-release-first': /after Amazon's working backwards/,
+    // Its pivots and learning priorities are Ries's, so it names him too.
+    'stage-gates': /pivots and learning priorities after The Lean Startup by Eric Ries/,
   };
   for (const [slug, attribution] of Object.entries(attributions)) {
     const source = skill(slug).source;
@@ -812,7 +815,7 @@ test('the kit tests channels and drafts the one-page model, the fit survey and t
   }
 
   // Every channel, in the book's order, and none dismissed.
-  const channels = skill('channel-bullseye').source;
+  const channels = skill('channel-testing').source;
   let from = 0;
   for (const channel of NINETEEN_CHANNELS) {
     const at = channels.indexOf(channel, from);
@@ -830,7 +833,8 @@ test('the kit tests channels and drafts the one-page model, the fit survey and t
   // The strategist is told to run channel tests and to propose new goals,
   // a test or a plan, to the owner -- never to start one.
   const strategist = COMPANY_OS.body.roles.find((role) => role.slug === 'strategist')!;
-  assert.match(strategist.systemPrompt, /channel-bullseye skill/);
+  assert.match(strategist.systemPrompt, /channel-testing skill/);
+  assert.match(strategist.systemPrompt, /never start one before the owner approves it/);
   assert.match(strategist.systemPrompt, /channel test/);
   assert.match(strategist.systemPrompt, /plan/);
   assert.match(strategist.systemPrompt, /before any work starts/);
@@ -842,9 +846,54 @@ test('the kit tests channels and drafts the one-page model, the fit survey and t
   }
 });
 
+/**
+ * What the owner reads as the feature's name: the slug, which the Skills
+ * page shows in bold and every context pack titles its section with, and
+ * every sentence a run reads. A method's own name -- Bullseye is a name its
+ * authors use, and working backwards is Amazon's -- belongs in the one
+ * attribution line and nowhere else (F18 naming).
+ */
+test('the kit names its methods plainly, keeping each source\'s name to its attribution (F18.11, F18.15)', () => {
+  const borrowed = /bullseye|working.backwards/i;
+  for (const one of COMPANY_OS.body.skills) {
+    assert.doesNotMatch(one.slug, borrowed, `the skill ${one.slug} is named after a method`);
+    const read = one.source.split('\n').filter((line) => !line.startsWith('description:')).join('\n');
+    assert.doesNotMatch(read, borrowed, `${one.slug} names a method outside its attribution`);
+  }
+  for (const one of COMPANY_OS.body.roles) {
+    assert.doesNotMatch(one.systemPrompt, borrowed, `the ${one.slug} prompt names a method`);
+  }
+});
+
+/**
+ * The skill says where a test's money comes from and how long one hand-off
+ * lasts, and both are read from task.delegate rather than hoped: it takes no
+ * account and no goal, so the child spends from the account of the task that
+ * delegates it (F5.4), and it refuses a deadline past a day.
+ */
+test('channel testing promises only what task.delegate does: the delegating task\'s account and a day at most (F18.11, F5.4)', async () => {
+  const delegate = taskDelegateCapability();
+  const properties = Object.keys((delegate.inputSchema as { properties: Record<string, unknown> }).properties);
+  assert.ok(!properties.some((name) => /budget|account|goal/i.test(name)),
+    `task.delegate now takes ${properties.join(', ')}; the channel-testing skill can say so`);
+  await assert.rejects(
+    delegate.execute({ role: 'marketer', brief: 'run the search ads test', timeoutMinutes: 1_441 },
+      { companyId: '00000000-0000-0000-0000-000000000000', taskId: '00000000-0000-0000-0000-000000000000' } as never),
+    /from 1 to 1440/);
+
+  const channels = COMPANY_OS.body.skills.find((one) => one.slug === 'channel-testing')!.source;
+  assert.doesNotMatch(channels, /spends\s+only\s+from/, 'a delegated test cannot be held to an account of its own');
+  assert.match(channels, /account\s+of\s+the\s+task\s+that\s+hands\s+it\s+on/);
+  assert.match(channels, /a\s+day\s+at\s+most/);
+  // The owner's approval comes before the first hand-off, said in that order.
+  const approves = channels.search(/once\s+the\s+owner\s+approves\s+it/);
+  assert.ok(approves >= 0 && approves < channels.indexOf('task.delegate'),
+    'channel testing hands the test on before the owner approves it');
+});
+
 /** The kit as 1.5.0 shipped it: without the four skills, with the stage gates and the strategist as they were. */
 function kitBeforeChannelTesting(): Bundle {
-  const added = ['channel-bullseye', 'one-page-model', 'fit-survey', 'working-backwards'];
+  const added = ['channel-testing', 'one-page-model', 'fit-survey', 'press-release-first'];
   const body = COMPANY_OS.body;
   const stageGates = body.skills.find((one) => one.slug === 'stage-gates')!;
   return {
@@ -894,7 +943,7 @@ test('installing 1.6.0 over 1.5.0 brings the new skills as candidates and leaves
   assert.equal(upgraded.quarantined, false, 'the kit as shipped installs as written');
 
   // The four new skills, each a candidate with its evals, which it passes.
-  for (const slug of ['channel-bullseye', 'one-page-model', 'fit-survey', 'working-backwards']) {
+  for (const slug of ['channel-testing', 'one-page-model', 'fit-survey', 'press-release-first']) {
     assert.ok(upgraded.skills.includes(slug), `${slug} was not installed`);
     const { rows } = await versionsOf(slug);
     assert.deepEqual(rows.map((row) => [row.version, row.state, row.active_version]), [[1, 'candidate', null]], slug);

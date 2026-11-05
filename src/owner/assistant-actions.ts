@@ -823,6 +823,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/skills/:skillId/scope',
     what: 'Where a skill applies.', fields: { scopeType: 'division, company or platform', scopeId: 'the division, for a division scope' }, factor: 'always',
   },
+  {
+    pattern: '/api/companies/:companyId/skills/:skillId/core',
+    what: 'Make an active skill one of the company\'s core processes, owned by one seat, or no longer one. The seat\'s runs are '
+      + 'told they own it and to follow it, and the chart shows how many of its division\'s runs read it. Five to twelve is the usual number; '
+      + 'outside it the answer warns and nothing is refused.',
+    fields: { core: 'true or false', roleId: 'the owning seat, when core is true; a role of the skill\'s division, or any role for a company-wide skill' },
+    factor: 'never',
+  },
   { pattern: '/api/companies/:companyId/skills/:skillId/quarantine/lift', what: 'Let a quarantined skill be used.', factor: 'always' },
   { pattern: '/api/companies/:companyId/evals/:caseId/accept', what: 'Accept a proposed evaluation case.', factor: 'never' },
   { pattern: '/api/companies/:companyId/devices/:deviceId/revoke', what: 'Stop a device from running work.', factor: 'never' },

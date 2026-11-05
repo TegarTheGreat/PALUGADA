@@ -166,6 +166,7 @@ import {
   setSkillScope,
   type SkillScopeTarget,
 } from '../skills/skills.ts';
+import { markCoreProcess } from '../skills/core.ts';
 import { installBundle, latestBundleVersion, verifyInstall } from '../bundles/bundle.ts';
 import {
   listTrustedPublishers,
@@ -5730,6 +5731,33 @@ export class OwnerApi {
             ownerApproved: true,
           });
           return { ok: true };
+        },
+      },
+
+      {
+        // F18.14: one of the company's core processes, and the seat that
+        // owns it, or no longer one. Marking does change what the seat's
+        // runs are told: their charter names the process with its summary
+        // and says to read it and follow it (context/builder.ts). It takes
+        // no second factor all the same, as the owner's assistant may do it
+        // (assistant-actions.ts), because nothing in that is new to the
+        // run. The summary is one its runs already carry among the skills,
+        // of a version switched on with the factor; only a process in
+        // force, not quarantined, is put in the charter; the rest is the
+        // platform's own instruction; and the route undoes it in one press.
+        // Widening a skill's scope takes the factor (/scope) because that
+        // does put its text in front of runs that never had it. The soft
+        // limit comes back as warnings, never as a refusal.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/:skillId/core',
+        handle: async ({ params, body }) => {
+          if (typeof body.core !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'core must be true or false', { field: 'core' });
+          }
+          return markCoreProcess(params.companyId!, params.skillId!, {
+            core: body.core,
+            roleId: typeof body.roleId === 'string' && body.roleId.trim() ? body.roleId.trim() : null,
+          });
         },
       },
 

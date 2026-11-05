@@ -2177,3 +2177,66 @@ set.
 From a script, `POST /api/companies/:companyId/headline` takes `metricId`, or
 `null` to clear it. The measure routes take `funnelStep` as one of
 `acquisition`, `activation`, `retention`, `referral` or `revenue`, or `null`.
+
+### Name the core processes and who keeps each
+
+A core process is one of the handful of ways the company works -- how it
+sells, how it delivers, how it keeps a customer, how it pays and is paid --
+written down as a skill and owned by one seat that keeps it current. This
+follows the process part of *Traction* by Gino Wickman: name a handful,
+write each down at about a fifth of the detail that drives most of the
+result, and see that the work follows them.
+
+A core process is a skill that is already switched on, so it has passed its
+checks, a reviewer and you (see **Skills**). To name one:
+
+1. On **Skills**, open the skill and its **Core process** tab.
+2. Choose its **Owning seat** and press **Make it a core process**. The
+   seats offered are those whose runs can read the skill: every seat for a
+   skill the whole company reads, and the seats of its division for one
+   division's.
+3. To move it, choose another seat and press **Give it this seat**. To let it
+   go, press **No longer a core process**.
+
+No authenticator is asked for, and your assistant can do it when you ask.
+Naming one does add to what the seat's runs are told: their charter lists
+the process with its summary and says to read it and follow it. Nothing in
+that is new to them, though: they already carry the summary among the
+skills, you switched that version on with your authenticator, and the rest
+is PALUGADA's own instruction. Letting it go takes it out again.
+
+Every run of the owning seat is told which core processes it owns and to read
+each with `skill.read` before it does that work. When a process no longer
+says how the work is really done, the seat says what should change, and the
+new version you write on the skill's **Change it** tab goes through its
+checks, a reviewer and you before any run follows it.
+
+On **Team**, **Divisions & roles**, the **Core processes** panel lists each
+one with its seat, when its version was last switched on, and how much of the
+work follows it: the share of the runs of its seat's division, over the last
+thirty days, that read it. *Not changed in a quarter* marks one whose version
+is older than ninety days, for the next quarterly planning to look at. A
+seat's own drawer lists the processes it owns.
+
+Two things are warned of, there and on **Skills**, and neither is refused:
+
+- fewer than five core processes, or more than twelve. The method's own
+  pages disagree (five to twelve on one, six to ten on another), so the wider
+  range is the one used;
+- a process longer than sixty lines, about two pages: the rest of the detail
+  belongs in the work, not the process.
+
+Two more are warned of because no share can be counted, and the panel says
+so in the share's place:
+
+- the seat's division cannot open the process with **skill.read**. Grant it
+  to that division under **Team**, or give the process a seat that can read
+  it;
+- the process is not in force: it was quarantined when a document from
+  outside arrived under its name, or an import brought it back waiting for
+  its checks, a reviewer and you. Until you lift the quarantine or switch a
+  version on, its seat is not told to follow it. It stays marked, so it comes
+  back as it was.
+
+The method's names for these tools are marks of EOS Worldwide, and PALUGADA
+uses its own.

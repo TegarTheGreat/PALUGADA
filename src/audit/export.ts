@@ -388,8 +388,10 @@ const SECTIONS: Section[] = [
     // restored company would treat a hub's document as its own work (F15.8).
     // The destination re-quarantines regardless; what it needs from the archive
     // is to know there is something to re-quarantine.
+    // `core` and `owner_role_id` (0143): which skills are the company's core
+    // processes and the seat that owns each, which the owner decided.
     sql: `SELECT id, slug, scope_type, scope_id, summary, active_version,
-                 provenance, origin, quarantined, created_at
+                 provenance, origin, quarantined, created_at, core, owner_role_id
             FROM skills ORDER BY slug`,
   },
   {

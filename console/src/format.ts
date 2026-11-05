@@ -227,6 +227,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'model.fell_back': N('Fell back to another model'),
   'memory.distilled': N('Memory distilled'),
   'skill.activated': N('Skill activated'),
+  'skill.read': N('A run read a skill'),
+  'skill.core_changed': N('A core process was named, given a seat, or let go'),
   'credential.rotated': N('Credential rotated'),
   'goal.created': N('Goal added'),
   'goal.changed': N('Goal changed'),

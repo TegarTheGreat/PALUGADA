@@ -345,6 +345,49 @@ export interface Structure {
   };
   /** The measure the owner chose as the company's headline (0142); null while it is inferred. */
   headlineMetricId: string | null;
+  /** The core processes (F18.14, migration 0143), with how far each is followed over the window. */
+  coreProcesses: CoreProcesses;
+}
+
+/** A warning about the core processes: shown, never refused (src/skills/core.ts). */
+export type CoreProcessWarning =
+  | { kind: 'fewer_than_five'; count: number }
+  | { kind: 'more_than_twelve'; count: number }
+  | { kind: 'longer_than_sixty_lines'; slug: string; lines: number }
+  | { kind: 'not_in_force'; slug: string; reason: 'quarantined' | 'not_active' }
+  | { kind: 'division_cannot_read'; slug: string; roleId: string };
+
+export interface CoreProcess {
+  skillId: string;
+  slug: string;
+  summary: string;
+  ownerRoleId: string;
+  ownerRole: string;
+  divisionId: string;
+  activeVersion: number | null;
+  quarantined: boolean;
+  /** Its active version is in force and it is not quarantined: what the seat's runs are told to follow. */
+  inForce: boolean;
+  /** The seat's division holds skill.read; without it no run there can open the process. */
+  divisionCanRead: boolean;
+  /** When the version the runs follow was switched on. */
+  updatedAt: string;
+  ageDays: number;
+  /** Not changed in a quarter. */
+  stale: boolean;
+  lines: number;
+  /** Runs of the seat's division in the window, and how many of them read the process. */
+  runs: number;
+  followedRuns: number;
+  /** Null where it measures nothing: no run in the window, a division that cannot read it, or not in force. */
+  followedShare: number | null;
+}
+
+export interface CoreProcesses {
+  windowDays: number;
+  since: string;
+  processes: CoreProcess[];
+  warnings: CoreProcessWarning[];
 }
 
 export type WorkGroup = 'active' | 'waiting' | 'done' | 'stopped';
@@ -567,6 +610,10 @@ export interface Skill {
   origin: string | null;
   activeVersion: number | null;
   checks: number;
+  /** One of the company's core processes (F18.14), and the seat that owns it. */
+  core: boolean;
+  ownerRoleId: string | null;
+  ownerRole: string | null;
   latest: SkillVersion | null;
 }
 

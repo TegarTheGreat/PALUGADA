@@ -410,6 +410,29 @@ async function roleSections(
   const role = rows[0];
   if (!role) return { charter: [], contract: [] };
   const seat = await yourSeat(tx, role.company_id, role.role_id);
+  // The core processes this seat owns (F18.14, 0143): the company's way of
+  // doing that work, which the seat keeps current. Only those in force: a
+  // version that is active, since a run can read nothing else, and not
+  // quarantined, since this is the charter, never dropped to fit, and says
+  // to follow them. An import can quarantine a core process, or bring an
+  // outside one's versions back as candidates (F15.8), and leave it marked;
+  // a quarantined one is still in the skills' own sections under their
+  // caveat, and the chart says it is not in force (skills/core.ts).
+  // Summaries only, as every skill travels (F15.7).
+  // Whether the run can open them is asked as the skills' section asks it
+  // (F4.8): a run told to call what its division was not granted is refused
+  // the moment it does as it was told.
+  const { rows: owned } = await tx.query<{ slug: string; summary: string; active_version: number; readable: boolean }>(
+    `SELECT s.slug, s.summary, s.active_version,
+            EXISTS (SELECT 1 FROM capability_grants g
+                     WHERE g.division_id = t.division_id AND g.capability_name = 'skill.read') AS readable
+       FROM tasks t
+       JOIN skills s ON s.company_id = t.company_id AND s.owner_role_id = t.role_id
+       JOIN skill_versions v ON v.company_id = s.company_id AND v.skill_id = s.id AND v.version = s.active_version
+      WHERE t.id = $1 AND s.core AND NOT s.quarantined AND v.state = 'active'
+      ORDER BY s.slug`,
+    [taskId],
+  );
   const done = (role.done_criteria ?? []).filter((criterion) => criterion.trim() !== '');
   // Who the role is, before what it does: the charter is then read as this
   // person's job, and the rule that a persona is not an identity travels with it.
@@ -430,6 +453,15 @@ async function roleSections(
       // And the seat's own numbers, priorities and to-dos (F18.3), beside
       // what it answers for: what it is held to at the weekly meeting.
       ...(seat.length > 0 ? ['', ...seat] : []),
+      ...(owned.length > 0
+        ? ['', 'Your seat owns these core processes, the company\'s way of doing this work:',
+            ...owned.map((process) => `- ${process.slug} (v${process.active_version}): ${process.summary}`),
+            (owned[0]!.readable
+              ? 'Read it with skill.read before you do that work, and follow it. '
+              : 'Your division cannot open them with skill.read, so work from these summaries and say when one is not enough. ') +
+              'When it no longer says how the work is really done, say what should change and name the process, so a new ' +
+              'version can be written; a new version is reviewed and approved by the owner before any run follows it.']
+        : []),
       ...(done.length > 0 ? ['', 'Done means:', ...done.map((criterion) => `- ${criterion}`)] : []),
     ].join('\n'),
   };

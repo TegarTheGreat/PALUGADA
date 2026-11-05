@@ -303,8 +303,8 @@ export interface Plan {
     id: string; slug: string; statement: string; status: string; startsOn: string; dueOn: string;
     seat: PlanSeat | null; commitment: Goal['commitment']; doneWhen: string | null; metrics: Metric[];
     priorities: number;
-    /** The grade at the period's end (F18.8), once the platform writes grades. */
-    grade: null;
+    /** Its latest grade, written when a period of it ended (F18.8); null before any. */
+    grade: GoalGrade | null;
   }>;
   priorities: {
     items: Array<{
@@ -314,7 +314,8 @@ export interface Plan {
       elapsed: number; progress: number | null; finishedThisWeek: number;
       pace: 'on_pace' | 'off_pace';
       why: 'behind' | 'no_reading' | 'no_recent_work' | null;
-      grade: null;
+      /** Its latest grade, as for a year's goal. */
+      grade: GoalGrade | null;
     }>;
     leftOut: number;
   };
@@ -338,6 +339,22 @@ export interface Plan {
     working: PlanChannel[];
   };
   coreProcesses: CoreProcesses;
+  /**
+   * The fiscal quarter today is in, and its numbers as quarterly planning is
+   * handed them (`gradeReportOf`, F18.8): shares are 0 to 1, null with nothing to count.
+   */
+  grades: {
+    quarter: string; from: string; to: string;
+    numbers: {
+      priorities: { total: number; done: number; share: number | null; aim: number };
+      committed: { graded: number; passed: number; passRate: number | null };
+      aspirational: {
+        graded: number; average: number | null; expected: [number, number];
+        reading: 'too_safe' | 'too_ambitious' | 'expected' | 'between' | null;
+      };
+      todos: { total: number; withinWeek: number; share: number | null };
+    };
+  };
   /** The last weekly operating meeting, whatever its status, and the record of the last one that completed. */
   lastMeeting: {
     taskId: string; week: string; status: string; finishedAt: string | null;

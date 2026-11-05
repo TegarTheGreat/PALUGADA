@@ -20,7 +20,7 @@ import { useMediaQuery } from '@mantine/hooks';
 import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import type { Company, Division, Goal, GoalGrade, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
+import type { Company, Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative, roleLabel } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, locale, t, tp } from '../i18n.ts';
@@ -40,6 +40,7 @@ import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox 
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { COMMITMENT, goalStatus, openGoals, periodSaid } from '../goals.ts';
 import { CoreProcessesPanel } from '../components/CoreProcesses.tsx';
+import { GradeLine } from '../components/GradeLine.tsx';
 
 export function Organization({ ctx, route }: PageProps) {
   const { companyId } = ctx;
@@ -1332,39 +1333,6 @@ function DivisionDrawer({
 
 /* ------------------------------------------------------------------- goals --- */
 
-/**
- * A goal's latest grade (F18.8), as the platform wrote it when a period of
- * it ended: a committed goal done or missed, any other its score, and a
- * learning goal its prediction beside what happened. The period and how the
- * score was reached are in the tooltip.
- */
-function GradeLine({ grade }: { grade: GoalGrade }) {
-  const figure = (value: number) => value.toLocaleString(locale(), { maximumFractionDigits: 2 });
-  const period = periodSaid(grade.periodStartsOn, grade.periodDueOn);
-  const how = [
-    grade.basis === 'measured' ? t('Graded for {period}, from its numbers.', { period }) : t('Graded for {period}, by whether you marked it met.', { period }),
-    ...(grade.note === 'no_reading' ? [t('A measure had no checked reading by the end, and counts as no progress.')] : []),
-    ...(grade.note === 'from_key_results' ? [t('From the measures of the key results under it.')] : []),
-    ...(grade.note === 'marked_met' ? [t('You marked it met, so it counts as done whatever its numbers say.')] : []),
-  ].join(' ');
-  return (
-    <Group gap={6} mt={6} ps={44}>
-      <Tooltip label={how} multiline w={280}>
-        {grade.passed === null
-          ? <Badge variant="light" color={grade.score >= 0.6 ? 'teal' : 'gray'} size="sm">{t('Graded {score}', { score: figure(grade.score) })}</Badge>
-          : <Badge variant="light" color={grade.passed ? 'teal' : 'red'} size="sm">{grade.passed ? t('Done, as committed') : t('Missed')}</Badge>}
-      </Tooltip>
-      {grade.predicted !== null && (
-        <Text size="xs" c="dimmed">
-          {grade.actual === null
-            ? t('Predicted {predicted}, no checked reading', { predicted: figure(grade.predicted) })
-            : t('Predicted {predicted}, came to {actual}', { predicted: figure(grade.predicted), actual: figure(grade.actual) })}
-        </Text>
-      )}
-    </Group>
-  );
-}
-
 /** A soft limit a goal is past (F18.1), as the owner reads it on the goal's card. */
 function warningSaid(warning: Goal['warnings'][number], roles: Role[]): string {
   const values = { count: warning.count, limit: warning.limit };
@@ -1455,7 +1423,7 @@ function GoalLadder({ companyId, goals, roles, changed, team }: { companyId: str
           </Group>
         )}
         {goal.doneWhen && <Text size="xs" c="dimmed" mt={4} ps={44}>{t('Done when: {done}', { done: goal.doneWhen })}</Text>}
-        {goal.grade && <GradeLine grade={goal.grade} />}
+        {goal.grade && <GradeLine grade={goal.grade} ps={44} />}
         {goal.warnings.map((warning) => (
           <Text key={warning.kind} size="xs" c="yellow.8" mt={4} ps={44}>{warningSaid(warning, roles)}</Text>
         ))}

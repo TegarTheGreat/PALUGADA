@@ -996,7 +996,10 @@ The first version. What it holds, in the order an owner meets it.
 - **Vision and plan** (F18.10). A new **Plan** page puts the vision beside
   the plan that serves it: the vision from the company charter, this year's
   goals, this quarter's priorities on or off pace by the rule the weekly
-  operating meeting uses, the weekly scorecard as it stood last week, the
+  operating meeting uses, each goal and priority with its latest grade, the
+  fiscal quarter's numbers (priorities done against 80%, the committed pass
+  rate, the aspirational average and what it says, to-dos finished within a
+  week), the weekly scorecard as it stood last week, the
   headline, the long-term issues, the core processes, and the last weekly
   operating meeting with the record of the last one that finished. Each part links to where it is changed: the
   charter, the goals, the scorecard and the issues list. Nothing is stored

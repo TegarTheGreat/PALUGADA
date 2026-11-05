@@ -20,6 +20,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { openTicket } from '../../src/engine/tickets.ts';
 import { createGoal } from '../../src/domain/goals.ts';
+import { fiscalQuarterOf } from '../../src/domain/fiscal.ts';
 import { chooseHeadline, defineMetric } from '../../src/domain/metrics.ts';
 import { setCompanyLanguages } from '../../src/domain/language.ts';
 import { publishCharter } from '../../src/governance/store.ts';
@@ -95,13 +96,18 @@ async function seat(api: Console, owner: string, companyId: string, name: string
   return String(joined.body.token);
 }
 
+interface Grade {
+  goalId: string; periodStartsOn: string; periodDueOn: string; commitment: string | null;
+  score: number; basis: string; predicted: number | null; actual: number | null; note: string | null; passed: boolean | null;
+}
+
 interface Plan {
   day: string;
   timezone: string;
   vision: { charterVersion: number | null; sections: Array<{ part: string; heading: string; text: string }>; whole: string | null };
-  yearGoals: Array<{ id: string; slug: string; status: string; seat: { id: string } | null; priorities: number; metrics: unknown[]; grade: null }>;
+  yearGoals: Array<{ id: string; slug: string; status: string; seat: { id: string } | null; priorities: number; metrics: unknown[]; grade: Grade | null }>;
   priorities: {
-    items: Array<{ goalId: string; goal: string; pace: string; why: string | null; progress: number | null; seatRole: { id: string } | null; channel: string | null; grade: null }>;
+    items: Array<{ goalId: string; goal: string; pace: string; why: string | null; progress: number | null; seatRole: { id: string } | null; channel: string | null; grade: Grade | null }>;
     leftOut: number;
   };
   scorecard: {
@@ -117,6 +123,15 @@ interface Plan {
     working: Array<{ channel: string; goals: Array<{ id: string; commitment: string | null }> }>;
   };
   coreProcesses: { windowDays: number; processes: unknown[] };
+  grades: {
+    quarter: string; from: string; to: string;
+    numbers: {
+      priorities: { total: number; done: number; share: number | null; aim: number };
+      committed: { graded: number; passed: number; passRate: number | null };
+      aspirational: { graded: number; average: number | null; expected: [number, number]; reading: string | null };
+      todos: { total: number; withinWeek: number; share: number | null };
+    };
+  };
   lastMeeting: {
     taskId: string; week: string; status: string; finishedAt: string | null;
     record: { taskId: string; week: string; finishedAt: string; summary: string | null } | null;
@@ -233,7 +248,7 @@ test('the plan page assembles the vision, the year, the quarter on pace, the sco
       'sales-test': ['off_pace', 'no_recent_work', fixture.roleId, 'sales'],
     }, 'the weekly meeting\'s rule: measured against the quarter gone, unmeasured by work finished this week');
     assert.equal(full.priorities.items.find((one) => one.goal === 'cafes')!.progress, 0.2);
-    assert.ok(full.priorities.items.every((one) => one.grade === null), 'a grade has its place, empty until grades are written');
+    assert.ok(full.priorities.items.every((one) => one.grade === null), 'nothing is graded yet');
 
     assert.deepEqual(full.scorecard.lines.map((one) => [one.name, one.lastWeek, one.thisWeek]), [
       ['Calls made', 'on_track', 'not_reported'],
@@ -304,6 +319,90 @@ test('the plan page assembles the vision, the year, the quarter on pace, the sco
     assert.equal((asStaff.body as Plan).channels.possible?.taskId, brainstorm);
     const other = await createCompany('plan-page-other');
     assert.notEqual((await owner.call('GET', `/api/companies/${other.companyId}/plan`, viewer)).status, 200);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('a graded goal and a graded priority carry their latest grade on the plan, beside the fiscal quarter\'s numbers', async () => {
+  const fixture = await createCompany('plan-grades');
+  await inJakarta(fixture);
+  const mission = await missionOf(fixture);
+  const quarter = fiscalQuarterOf(today(), 1);
+  const owner = await consoleWithSettings();
+  try {
+    const token = await owner.signIn();
+    const plan = async (): Promise<Plan> => {
+      const answer = await owner.call('GET', `/api/companies/${fixture.companyId}/plan`, token);
+      assert.equal(answer.status, 200, JSON.stringify(answer.body));
+      return answer.body as Plan;
+    };
+
+    // Nothing graded: the quarter is named and its numbers are empty, said as none.
+    const empty = await plan();
+    assert.deepEqual([empty.grades.quarter, empty.grades.from, empty.grades.to], [quarter.label, quarter.startsOn, quarter.endsOn]);
+    assert.deepEqual(empty.grades.numbers, {
+      priorities: { total: 0, done: 0, share: null, aim: 0.8 },
+      committed: { graded: 0, passed: 0, passRate: null },
+      aspirational: { graded: 0, average: null, expected: [0.6, 0.7], reading: null },
+      todos: { total: 0, withinWeek: 0, share: null },
+    });
+
+    const year = await createGoal({
+      companyId: fixture.companyId, kind: 'objective', slug: 'year', statement: 'Cafés across Jakarta buy from us.',
+      parentGoalId: mission, startsOn: shift(-100), dueOn: shift(264), commitment: 'aspirational',
+    });
+    // Three priorities whose period is this fiscal quarter.
+    const priority = (slug: string, commitment: 'committed' | 'aspirational') => createGoal({
+      companyId: fixture.companyId, kind: 'key_result', slug, statement: `Priority ${slug}.`, parentGoalId: year.id,
+      startsOn: quarter.startsOn, dueOn: quarter.endsOn, commitment, ownerRoleId: fixture.roleId,
+      doneWhen: `${slug} is done.`,
+    });
+    const landed = await priority('landed', 'committed');
+    const stretch = await priority('stretch', 'aspirational');
+    const open = await priority('open', 'committed');
+
+    // Grades are the platform's to write; here they are written as it writes them.
+    const grade = (goalId: string, starts: string, due: string, commitment: string, score: number, basis: string, note: string | null = null) =>
+      withControlPlane((tx) => tx.query(
+        `INSERT INTO goal_grades (company_id, goal_id, period_starts_on, period_due_on, commitment, score, basis, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [fixture.companyId, goalId, starts, due, commitment, score, basis, note]));
+    // The year's goal has two earlier periods' grades; the plan shows the later one.
+    await grade(year.id, shift(-830), shift(-466), 'aspirational', 0.2, 'measured');
+    await grade(year.id, shift(-465), shift(-101), 'aspirational', 0.5, 'measured', 'from_key_results');
+    await grade(landed.id, quarter.startsOn, quarter.endsOn, 'committed', 1, 'measured');
+    await grade(stretch.id, quarter.startsOn, quarter.endsOn, 'aspirational', 0.65, 'measured');
+
+    // Two to-dos filed today, finished today and dropped today: one kept its week.
+    for (const [title, status] of [['Call the roaster', 'done'], ['Book the fair', 'closed']] as const) {
+      const { ticket } = await withTenant(fixture.companyId, (tx) => openTicket(tx, {
+        companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title, dueOn: quarter.endsOn, openedBy: 'owner', outside: false,
+      }));
+      await withControlPlane((tx) => tx.query("UPDATE tickets SET status = $2, closed_at = now() WHERE id = $1", [ticket.id, status]));
+    }
+
+    const graded = await plan();
+    const [goal] = graded.yearGoals;
+    assert.deepEqual(goal?.grade, {
+      goalId: year.id, periodStartsOn: shift(-465), periodDueOn: shift(-101), commitment: 'aspirational',
+      score: 0.5, basis: 'measured', predicted: null, actual: null, note: 'from_key_results', passed: null,
+    }, 'this year\'s goal carries its latest grade');
+    const of = Object.fromEntries(graded.priorities.items.map((one) => [one.goalId, one.grade && [one.grade.score, one.grade.passed]]));
+    assert.deepEqual(of, { [landed.id]: [1, true], [stretch.id]: [0.65, null], [open.id]: null }, 'each priority its own grade, and none before one');
+
+    assert.deepEqual(graded.grades.numbers, {
+      priorities: { total: 3, done: 1, share: 0.33, aim: 0.8 },
+      committed: { graded: 1, passed: 1, passRate: 1 },
+      aspirational: { graded: 1, average: 0.65, expected: [0.6, 0.7], reading: 'expected' },
+      todos: { total: 2, withinWeek: 1, share: 0.5 },
+    }, 'the quarter\'s numbers, as quarterly planning is handed them; the year\'s earlier periods are outside it');
+
+    // The quarter is the company's fiscal one: moved with the month its year starts in.
+    await withControlPlane((tx) => tx.query('UPDATE companies SET fiscal_year_start_month = 2 WHERE id = $1', [fixture.companyId]));
+    const moved = fiscalQuarterOf(today(), 2);
+    const refiscal = await plan();
+    assert.deepEqual([refiscal.grades.quarter, refiscal.grades.from, refiscal.grades.to], [moved.label, moved.startsOn, moved.endsOn]);
   } finally {
     await owner.close();
   }

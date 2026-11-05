@@ -15,7 +15,7 @@
  */
 import { headlines, metricsIn, scorecardOf, type Headline, type MetricUnit, type MetricView, type Scorecard, type WeekState } from '../domain/metrics.ts';
 import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalStatus, type GoalWarning } from '../domain/goals.ts';
-import { gradeReportOf, type GoalGrade } from '../domain/grades.ts';
+import { gradeReportOf, type GoalGrade, type GradeReport } from '../domain/grades.ts';
 // Two readings of a company's day: the fiscal one says which zone it fell
 // back to, the records' one gives the day alone.
 import { dayIn as fiscalDayIn, fiscalQuarterOf } from '../domain/fiscal.ts';
@@ -323,14 +323,6 @@ export async function structureOf(companyId: string): Promise<StructureView> {
 /** A seat as a page names it: by the name the owner gave the role, and its code only where it has none. */
 export interface PlanSeat { id: string; slug: string; displayName: string | null; title: string | null }
 
-/**
- * Where a goal's end-of-period grade goes (F18.8): the grades the platform
- * writes when a period ends (`goal_grades`, 0144) are built beside this set
- * and are not on its branch, so it is always null here. The merge gives it the
- * grade's type and reads it in `planOf`.
- */
-export type PlanGrade = null;
-
 export interface PlanYearGoal {
   id: string;
   slug: string;
@@ -344,13 +336,15 @@ export interface PlanYearGoal {
   metrics: MetricView[];
   /** Its quarterly priorities whose quarter today is in. */
   priorities: number;
-  grade: PlanGrade;
+  /** Its latest grade (F18.8, 0144), written when a period of it ended; null before any. */
+  grade: GoalGrade | null;
 }
 
 export interface PlanPriority extends PacedPriority {
   /** The seat by the owner's name for it, beside the meeting's slug. */
   seatRole: PlanSeat | null;
-  grade: PlanGrade;
+  /** Its latest grade, as for a year's goal. */
+  grade: GoalGrade | null;
 }
 
 export interface PlanChannel {
@@ -405,6 +399,14 @@ export interface PlanView {
     working: PlanChannel[];
   };
   coreProcesses: CoreProcessesReport;
+  /**
+   * The fiscal quarter today is in where the company is (`fiscalQuarterOf`,
+   * from the company's fiscal year), and its numbers as quarterly planning is
+   * handed them (`gradeReportOf`): priorities done against 80%, the committed
+   * pass rate, the aspirational average with its reading, and the to-dos
+   * finished within seven days.
+   */
+  grades: { quarter: string; from: string; to: string; numbers: GradeReport['numbers'] };
   /**
    * The last weekly operating meeting made, whatever its status, and its
    * record: the last meeting that completed, with what the CEO summed up.
@@ -471,6 +473,15 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
 
     const ladder = await goalsIn(tx, companyId);
     const metrics = await metricsIn(tx);
+    // The grades and the numbers come from the one function that reads them
+    // (src/domain/grades.ts), over the fiscal quarter the company's own day is
+    // in, so the page and quarterly planning never count a quarter apart.
+    const { rows: [fiscal] } = await tx.query<{ month: number }>(
+      'SELECT fiscal_year_start_month AS month FROM companies WHERE id = $1', [companyId]);
+    const quarter = fiscalQuarterOf(day, fiscal?.month ?? 1);
+    const graded = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn }, now);
+    const latest = new Map(graded.latest.map((grade) => [grade.goalId, grade]));
+    const gradeOf = (goalId: string): GoalGrade | null => latest.get(goalId) ?? null;
     const within = (goal: { startsOn: string | null; dueOn: string | null }) =>
       goal.startsOn !== null && goal.dueOn !== null && goal.startsOn <= day && goal.dueOn >= day;
     const yearGoals = ladder
@@ -482,7 +493,7 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
         metrics: metrics.filter((metric) => metric.goalId === goal.id),
         priorities: ladder.filter((one) => one.parentGoalId === goal.id && one.kind === 'key_result' && one.status === 'active'
           && one.period === 'quarter' && within(one)).length,
-        grade: null,
+        grade: gradeOf(goal.id),
       }));
 
     const paced = await prioritiesOnPace(tx, companyId, { now, day });
@@ -589,7 +600,7 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
       },
       yearGoals,
       priorities: {
-        items: paced.items.map((item) => ({ ...item, seatRole: seatOf(item.seatRoleId), grade: null })),
+        items: paced.items.map((item) => ({ ...item, seatRole: seatOf(item.seatRoleId), grade: gradeOf(item.goalId) })),
         leftOut: paced.leftOut,
       },
       scorecard: { lines, lastWeek, warning: card.warning },
@@ -602,6 +613,7 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
       },
       channels: { possible, probable, working },
       coreProcesses,
+      grades: { quarter: quarter.label, from: graded.from, to: graded.to, numbers: graded.numbers },
       lastMeeting: meeting
         ? {
           taskId: meeting.id, week: meeting.key.slice('meeting:'.length), status: meeting.status, finishedAt: meeting.finished_at,

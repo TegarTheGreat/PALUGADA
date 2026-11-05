@@ -476,4 +476,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role}의 작업 하나가 끝나기 전에 멈췄습니다.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     '해결하려면: 답마다 왜를 묻고 기록과 대조해 근본 원인을 찾고, 한 번 결정한 뒤, 결정을 실행할 할 일을 자리 하나씩 정해 등록합니다.',
+  'Off track: {name}':
+    '목표 이탈: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}은(는) {week} 주에 {value}였으며, 주간 목표는 {target}입니다.',
+  '{role} answers for it.':
+    '{role}이(가) 책임집니다.',
+  'No seat answers for it.':
+    '책임지는 자리가 없습니다.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    '플랫폼이 주간 운영 회의 전에 주간 스코어카드에서 읽었습니다.',
+  'Not done at two meetings: {title}':
+    '두 번의 회의에서 끝나지 않음: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    '할 일 "{title}"(마감 {due})은 {previous} 주간 운영 회의에서도, 이번 회의에서도 끝나지 않았습니다.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    '플랫폼이 주간 운영 회의 전에 할 일 목록에서 읽었습니다.',
+  'Weekly operating meeting held ({week}): {where}':
+    '주간 운영 회의를 열었습니다({week}): {where}',
+  'see its task under Work':
+    '작업에서 그 작업을 보세요',
 };

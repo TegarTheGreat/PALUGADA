@@ -2028,3 +2028,59 @@ them: the strategist holds **ledger.read** and its division has the grant. If
 you take either away under **Team**, the review stops and its schedule says
 which is missing, rather than hand the books to a role that may not read
 them.
+
+### Hold the weekly operating meeting
+
+Once a week the CEO holds the company's weekly operating meeting, after the
+weekly meeting in Gino Wickman's *Traction* and the meeting rhythm in Verne
+Harnish's *Scaling Up*. You are the visionary and do not attend: the CEO is
+the integrator, holds each seat to its numbers and solves the issues between
+seats, and you read the record.
+
+1. **Choose when.** Open **Settings**, **Company**, **Weekly operating
+   meeting**. Choose the **Day of the week** and the **Hour**, on the
+   company's clock, and press **Save**. Monday at nine is the default, after
+   the operating kit's weekly business review at 07:45, so the meeting can
+   read it. **Held**, *Off*, stops it until you turn it on again.
+2. **What the CEO is given.** At that hour the platform reads the company's
+   records and hands the CEO the agenda's facts, none written by a model:
+   - the **weekly scorecard**, each line on or off track last week or not
+     reported, with its seat;
+   - the **quarterly priorities** of this quarter, each on or off pace: a
+     measured one is on pace when its numbers have come as far as the quarter
+     has gone, and one with no number when work under it finished this week;
+   - the week's **headlines**, as counts: new customer conversations, deals
+     won and lost, invoices late, incidents;
+   - the **to-dos** due by now, each done or not done, and how many of the
+     week's were done (the aim is nine in ten);
+   - the **issues** on this week's list, by priority and then age, with any
+     older than eight weeks flagged;
+   - the operating kit's **weekly business review**, when there is one.
+3. **What is on the issues list before it starts.** A line off track last
+   week, and a to-do not done at two meetings in a row, are filed as issues
+   by PALUGADA before the meeting is made, each once while it is open. The
+   second is a rule teams that run this meeting use, not one the book states.
+4. **What the CEO does.** It goes through the agenda in order and takes the
+   top three issues, solving each before the next: the root cause, the
+   decision, and the to-dos that carry it out, each with one seat (see
+   *Solve an issue* above). A decision that can be undone -- a two-way door
+   -- it takes itself. One that cannot -- a one-way door, such as spending past
+   a budget or committing the company to someone outside it -- comes to you,
+   as a question or as a tier 3 card. Work owed again and again comes to you
+   as a proposed schedule.
+5. **Read the record.** The meeting is a task, and its summary is the record.
+   It ends with **What the owner needs to know**, in the language the company
+   talks to you in. The company's card on **Home** and the meeting's settings
+   link to the last one, and the daily digest the day after a meeting points
+   to it.
+
+A week with nothing to review -- no line on the scorecard, no priority this
+quarter, no open issue and no open to-do -- has no meeting and costs nothing.
+Nor does a company winding down, or a deployment with no model. If the day
+passes with the platform stopped, that week has no meeting; it is never moved
+to another day.
+
+Every run of a seat is told its own part beside what it is accountable for:
+its lines on the scorecard and where each stands this week, its quarterly
+priorities, and its open to-dos. **Seats to look at**, on the chart, also
+names a line on the scorecard and a key result that no seat answers for.

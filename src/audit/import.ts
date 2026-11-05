@@ -447,6 +447,11 @@ export interface ImportSummary {
   skipped: string[];
 }
 
+/** A whole number in a range as the archive wrote it, or null for anything else. */
+function wholeIn(value: unknown, from: number, to: number): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= from && value <= to ? value : null;
+}
+
 /**
  * Rebuilds a company from an archive.
  *
@@ -500,8 +505,9 @@ export async function importCompany(
     try {
       ({ rows } = await tx.query<{ id: string }>(
         // A restored company is not a new one: its first hour (0109) is over.
-        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
+                                meeting_weekday, meeting_hour, meeting_enabled)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -512,6 +518,11 @@ export async function importCompany(
           isStage(source!.stage) ? source!.stage : null,
           // A safeguard the owner turned on does not come back off (0092).
           source!.guardian === true,
+          // When the CEO holds the weekly meeting (0140); an archive from
+          // before it has none, and gets Monday at nine, held.
+          wholeIn(source!.meeting_weekday, 0, 6) ?? 1,
+          wholeIn(source!.meeting_hour, 0, 23) ?? 9,
+          source!.meeting_enabled !== false,
         ],
       ));
     } catch (error) {

@@ -481,4 +481,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Une tâche de {role} s\'est arrêtée avant d\'être finie.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Pour le résoudre : trouver la cause racine en demandant pourquoi à chaque réponse et en la vérifiant dans le dossier, décider une fois, et créer les actions qui mettent la décision en œuvre, chacune avec un seul poste.',
+  'Off track: {name}':
+    'Hors trajectoire : {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} était à {value} la semaine du {week}, pour un objectif hebdomadaire de {target}.',
+  '{role} answers for it.':
+    '{role} en est responsable.',
+  'No seat answers for it.':
+    'Aucun poste n’en est responsable.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'La plateforme l’a lu dans le tableau de bord hebdomadaire avant la réunion opérationnelle hebdomadaire.',
+  'Not done at two meetings: {title}':
+    'Pas fait à deux réunions : {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'L’action « {title} », à faire pour le {due}, n’était pas faite à la réunion opérationnelle hebdomadaire du {previous}, ni à celle-ci.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'La plateforme l’a lu dans les actions avant la réunion opérationnelle hebdomadaire.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Réunion opérationnelle hebdomadaire tenue ({week}) : {where}',
+  'see its task under Work':
+    'voir sa tâche sous Travail',
 };

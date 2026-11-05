@@ -399,6 +399,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/rhythm',
+    what: 'When the CEO holds the weekly operating meeting, on the company\'s clock, or that it does not; a field left out is kept.',
+    fields: { weekday: '0-6, Sunday 0', hour: '0-23', enabled: 'true or false' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/office-hours/clear',
     what: 'Run a company round the clock again: no office hours.',
     fields: {},

@@ -469,7 +469,62 @@ export function postmortemIssue(reading: OwnerReading, facts: {
       `${say(language, 'Trigger')}: ${cause}`,
       `${say(language, 'Detection')}: ${detection}`,
       `${say(language, 'What was done')}: ${done}`,
-      say(language, 'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.'),
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/** How every issue the platform files ends: the way an issue is solved. */
+function toSolve(language: string | null): string {
+  return say(language, 'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.');
+}
+
+function seatSaid(language: string | null, seat: string | null): string {
+  return seat ? say(language, '{role} answers for it.', { role: seat }) : say(language, 'No seat answers for it.');
+}
+
+/**
+ * A line of the weekly scorecard that missed its weekly goal last week
+ * (F18.4), put on the issues list before the weekly operating meeting
+ * (src/engine/meeting.ts). The measure's name and goal are the owner's, since
+ * no agent writes a measure (0053), so nothing in it is a stranger's.
+ */
+export function offTrackIssue(reading: OwnerReading, facts: {
+  name: string; value: number; week: string; target: number; seat: string | null;
+}): { title: string; body: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Off track: {name}', { name: facts.name }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, '{name} was {value} in the week of {week}, against a weekly goal of {target}.', {
+        name: facts.name, value: number(reading, facts.value, 2), week: facts.week, target: number(reading, facts.target, 2),
+      })}`,
+      seatSaid(language, facts.seat),
+      `${say(language, 'Detection')}: ${say(language, 'The platform read it from the weekly scorecard before the weekly operating meeting.')}`,
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/**
+ * A to-do not done at two weekly meetings in a row (F18.5), put on the
+ * issues list before the second. The to-do's title is quoted, so the issue
+ * carries the to-do's provenance (the caller files it as outside when the
+ * to-do was).
+ */
+export function notDoneTwiceIssue(reading: OwnerReading, facts: {
+  title: string; due: string; previous: string; seat: string | null;
+}): { title: string; body: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Not done at two meetings: {title}', { title: facts.title }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, 'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.', {
+        title: facts.title, due: facts.due, previous: facts.previous,
+      })}`,
+      seatSaid(language, facts.seat),
+      `${say(language, 'Detection')}: ${say(language, 'The platform read it from the to-dos before the weekly operating meeting.')}`,
+      toSolve(language),
     ].join('\n\n'),
   };
 }

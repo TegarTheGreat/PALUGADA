@@ -475,4 +475,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'توقفت مهمة لـ {role} قبل أن تكتمل.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'لحلها: جد السبب الجذري بالسؤال «لماذا» عن كل جواب ومطابقته مع السجل، وقرر مرة واحدة، وافتح مهام المتابعة التي تنفذ القرار، لكل منها مقعد واحد.',
+  'Off track: {name}':
+    'خارج المسار: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    'كان {name} {value} في أسبوع {week}، مقابل هدف أسبوعي قدره {target}.',
+  '{role} answers for it.':
+    '{role} هو المسؤول عنه.',
+  'No seat answers for it.':
+    'لا يوجد منصب مسؤول عنه.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'قرأته المنصة من بطاقة الأداء الأسبوعية قبل اجتماع التشغيل الأسبوعي.',
+  'Not done at two meetings: {title}':
+    'لم تُنجز في اجتماعين: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'المهمة المتابعة «{title}»، المستحقة في {due}، لم تُنجز في اجتماع التشغيل الأسبوعي بتاريخ {previous}، ولا في هذا الاجتماع.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'قرأته المنصة من المهام المتابعة قبل اجتماع التشغيل الأسبوعي.',
+  'Weekly operating meeting held ({week}): {where}':
+    'عُقد اجتماع التشغيل الأسبوعي ({week}): {where}',
+  'see its task under Work':
+    'انظر مهمته في العمل',
 };

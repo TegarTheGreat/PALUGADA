@@ -261,7 +261,7 @@ export function Home({
               )}
             </Group>
             <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="lg">
-              {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page) => openCompany(state.company.id, page)} />)}
+              {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page, item) => openCompany(state.company.id, page, item)} />)}
             </SimpleGrid>
           </div>
         </>
@@ -270,7 +270,7 @@ export function Home({
   );
 }
 
-function CompanyCard({ state, open }: { state: CompanyState; open: (page: CompanyPage) => void }) {
+function CompanyCard({ state, open }: { state: CompanyState; open: (page: CompanyPage, item?: string | null) => void }) {
   const { company, inbox, digest, counts, spend } = state;
   const used = spend.limitCents > 0 ? Math.min(100, (spend.spentCents / spend.limitCents) * 100) : 0;
   const health = company.frozen
@@ -311,6 +311,12 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
         <Text size="xs" c="dimmed">{t('Spent today: {amount}', { amount: money(digest.moneySpentCents) })}</Text>
         <Anchor size="xs" onClick={() => open('inbox')}>{t('Open the inbox')}</Anchor>
       </Group>
+      {/* The weekly operating meeting's record is its task (F18.6). */}
+      {digest.lastMeeting && (
+        <Anchor size="xs" mt={6} display="block" onClick={() => open('work', digest.lastMeeting!.taskId)}>
+          {t('Last weekly operating meeting: {week}', { week: digest.lastMeeting.week })}
+        </Anchor>
+      )}
     </Paper>
   );
 }

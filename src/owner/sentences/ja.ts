@@ -474,4 +474,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} のタスクが終わる前に止まりました。',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     '解決するには：答えのたびに「なぜ」を問い、記録と照らし合わせて根本原因を見つけ、一度決め、その決定を実行するやることを席一つずつに作成します。',
+  'Off track: {name}':
+    '未達：{name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} は {week} の週に {value} で、週の目標は {target} でした。',
+  '{role} answers for it.':
+    '{role} が責任を持ちます。',
+  'No seat answers for it.':
+    '責任を持つ席がありません。',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'プラットフォームが週次の運営会議の前に週次スコアカードから読み取りました。',
+  'Not done at two meetings: {title}':
+    '2回の会議で未完了：{title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'やること「{title}」（期日 {due}）は、{previous} の週次運営会議でも今回の会議でも完了していませんでした。',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'プラットフォームが週次の運営会議の前にやることから読み取りました。',
+  'Weekly operating meeting held ({week}): {where}':
+    '週次運営会議を開催しました（{week}）：{where}',
+  'see its task under Work':
+    '「仕事」でそのタスクを見てください',
 };

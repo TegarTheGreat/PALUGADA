@@ -479,4 +479,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} rolünün bir görevi bitmeden durdu.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Çözmek için: her yanıta neden diye sorup kayıtlarla karşılaştırarak kök nedeni bulun, bir kez karar verin ve kararı uygulayacak yapılacakları, her biri tek koltukla, açın.',
+  'Off track: {name}':
+    'Hedefin dışında: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}, {week} haftasında {value} oldu; haftalık hedef {target}.',
+  '{role} answers for it.':
+    'Bundan {role} sorumlu.',
+  'No seat answers for it.':
+    'Bundan sorumlu bir pozisyon yok.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform bunu haftalık operasyon toplantısından önce haftalık karneden okudu.',
+  'Not done at two meetings: {title}':
+    'İki toplantıda yapılmadı: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Son tarihi {due} olan "{title}" yapılacağı, {previous} tarihli haftalık operasyon toplantısında yapılmamıştı, bu toplantıda da yapılmadı.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform bunu haftalık operasyon toplantısından önce yapılacaklardan okudu.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Haftalık operasyon toplantısı yapıldı ({week}): {where}',
+  'see its task under Work':
+    'görevini İşler altında görün',
 };

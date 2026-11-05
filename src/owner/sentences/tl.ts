@@ -475,4 +475,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Huminto ang isang gawain ng {role} bago natapos.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Para lutasin: hanapin ang ugat na sanhi sa pagtatanong kung bakit sa bawat sagot at pagsuri nito sa talaan, magpasya nang isang beses, at isampa ang mga gagawing magsasagawa ng pasya, bawat isa ay may isang upuan.',
+  'Off track: {name}':
+    'Wala sa landas: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    'Ang {name} ay {value} sa linggo ng {week}, laban sa lingguhang layunin na {target}.',
+  '{role} answers for it.':
+    'Ang {role} ang may pananagutan dito.',
+  'No seat answers for it.':
+    'Walang posisyong may pananagutan dito.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Binasa ito ng platform mula sa lingguhang scorecard bago ang lingguhang operating meeting.',
+  'Not done at two meetings: {title}':
+    'Hindi natapos sa dalawang pulong: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Ang gagawing "{title}", na dapat matapos sa {due}, ay hindi natapos sa lingguhang operating meeting ng {previous}, at hindi rin sa pulong na ito.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Binasa ito ng platform mula sa mga gagawin bago ang lingguhang operating meeting.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Naganap ang lingguhang operating meeting ({week}): {where}',
+  'see its task under Work':
+    'tingnan ang gawain nito sa Trabaho',
 };

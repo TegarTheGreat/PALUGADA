@@ -406,14 +406,25 @@ function SeatLine({ role }: { role: Role }) {
 }
 
 /**
- * What the chart warns of (F18.3): a seat with no accountabilities, and an
+ * What the chart warns of (F18.3): a seat with no accountabilities, an
  * accountability two seats both claim, which is one result nobody is sure is
- * theirs. Each seat named opens it, where the list is changed. Shown, never
- * refused; the checks are the server's (`seatChecksOf`, src/domain/seats.ts).
+ * theirs, and a line on the scorecard or a key result no seat answers for.
+ * Each seat named opens it, where the list is changed; a number is given its
+ * seat from its own form. Shown, never refused; the checks are the server's
+ * (`seatChecksOf`, src/domain/seats.ts).
  */
 function SeatWarnings({ structure, openRole }: { structure: Structure; openRole: (role: Role) => void }) {
-  const { withoutAccountabilities, sharedAccountabilities } = structure.seatChecks;
-  if (withoutAccountabilities.length === 0 && sharedAccountabilities.length === 0) return null;
+  const { withoutAccountabilities, sharedAccountabilities, linesWithoutSeat, keyResultsWithoutSeat } = structure.seatChecks;
+  if (withoutAccountabilities.length === 0 && sharedAccountabilities.length === 0
+    && linesWithoutSeat.length === 0 && keyResultsWithoutSeat.length === 0) return null;
+  // A number no seat answers for is named as the owner named it: the line's
+  // measure, or the key result's statement.
+  const lines = linesWithoutSeat
+    .map((id) => structure.goals.flatMap((goal) => goal.metrics).find((metric) => metric.id === id)?.name)
+    .filter((name): name is string => name !== undefined);
+  const results = keyResultsWithoutSeat
+    .map((id) => structure.goals.find((goal) => goal.id === id)?.statement)
+    .filter((statement): statement is string => statement !== undefined);
   const seats = (ids: string[]) => {
     const roles = ids.map((id) => structure.roles.find((role) => role.id === id)).filter((role): role is Role => role !== undefined);
     return (
@@ -440,6 +451,12 @@ function SeatWarnings({ structure, openRole }: { structure: Structure; openRole:
             {seats(shared.roleIds)}
           </Group>
         ))}
+        {lines.length > 0 && (
+          <Text size="sm"><Text span fw={600}>{t('Scorecard lines no seat answers for:')}</Text> {lines.join(' · ')}</Text>
+        )}
+        {results.length > 0 && (
+          <Text size="sm"><Text span fw={600}>{t('Key results no seat answers for:')}</Text> {results.join(' · ')}</Text>
+        )}
       </Stack>
     </Alert>
   );

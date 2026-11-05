@@ -478,4 +478,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Задача роли {role} остановилась, не будучи доделанной.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Как решить: найти первопричину, спрашивая «почему» о каждом ответе и сверяя его с записями, решить один раз и завести дела, которые выполняют решение, у каждого — одно место.',
+  'Off track: {name}':
+    'Отклонение от плана: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}: {value} за неделю с {week} при недельной цели {target}.',
+  '{role} answers for it.':
+    'За это отвечает {role}.',
+  'No seat answers for it.':
+    'За это не отвечает ни одна должность.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Платформа взяла это из еженедельной таблицы показателей перед еженедельным операционным совещанием.',
+  'Not done at two meetings: {title}':
+    'Не сделано к двум совещаниям: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Дело «{title}» со сроком {due} не было сделано ни к еженедельному операционному совещанию {previous}, ни к этому.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Платформа взяла это из списка дел перед еженедельным операционным совещанием.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Еженедельное операционное совещание проведено ({week}): {where}',
+  'see its task under Work':
+    'его задача — в разделе «Работа»',
 };

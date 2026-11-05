@@ -478,4 +478,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Een taak van {role} stopte voordat hij af was.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Zo los je het op: zoek de hoofdoorzaak door bij elk antwoord te vragen waarom en het te toetsen aan wat is vastgelegd, besluit één keer, en maak de acties aan die het besluit uitvoeren, elk met één zetel.',
+  'Off track: {name}':
+    'Niet op koers: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} was {value} in de week van {week}, tegenover een weekdoel van {target}.',
+  '{role} answers for it.':
+    '{role} is hiervoor verantwoordelijk.',
+  'No seat answers for it.':
+    'Geen functie is hiervoor verantwoordelijk.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Het platform las dit vóór het wekelijkse operationele overleg uit de wekelijkse scorecard.',
+  'Not done at two meetings: {title}':
+    'Niet gedaan bij twee overleggen: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'De actie "{title}", te doen op {due}, was niet gedaan bij het wekelijkse operationele overleg van {previous}, en ook niet bij dit overleg.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Het platform las dit vóór het wekelijkse operationele overleg uit de acties.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Wekelijks operationeel overleg gehouden ({week}): {where}',
+  'see its task under Work':
+    'zie de taak ervan onder Werk',
 };

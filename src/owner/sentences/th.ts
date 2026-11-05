@@ -481,4 +481,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'งานหนึ่งของ {role} หยุดก่อนจะเสร็จ',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'วิธีแก้: หาสาเหตุที่แท้จริงโดยถามว่าทำไมกับทุกคำตอบและตรวจกับบันทึก ตัดสินใจครั้งเดียว แล้วเปิดสิ่งที่ต้องทำที่ลงมือตามการตัดสินใจ โดยแต่ละข้อมีที่นั่งเดียว',
+  'Off track: {name}':
+    'หลุดเป้า: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} ได้ {value} ในสัปดาห์ของ {week} เทียบกับเป้าหมายรายสัปดาห์ {target}',
+  '{role} answers for it.':
+    '{role} รับผิดชอบเรื่องนี้',
+  'No seat answers for it.':
+    'ไม่มีตำแหน่งใดรับผิดชอบเรื่องนี้',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'แพลตฟอร์มอ่านจากสกอร์การ์ดรายสัปดาห์ก่อนการประชุมปฏิบัติการประจำสัปดาห์',
+  'Not done at two meetings: {title}':
+    'ไม่เสร็จในการประชุมสองครั้ง: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'สิ่งที่ต้องทำ "{title}" ครบกำหนด {due} ยังไม่เสร็จในการประชุมปฏิบัติการประจำสัปดาห์ของ {previous} และยังไม่เสร็จในครั้งนี้',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'แพลตฟอร์มอ่านจากรายการสิ่งที่ต้องทำก่อนการประชุมปฏิบัติการประจำสัปดาห์',
+  'Weekly operating meeting held ({week}): {where}':
+    'จัดการประชุมปฏิบัติการประจำสัปดาห์แล้ว ({week}): {where}',
+  'see its task under Work':
+    'ดูงานของการประชุมได้ที่ งาน',
 };

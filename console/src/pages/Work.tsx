@@ -606,8 +606,8 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
 /**
  * How the work came to carry outside content, where it is not a capability's
  * name: handed down, rerun, given a run's ticket or tickets to triage or an
- * escalation about tainted work, handed a week or a month whose records
- * outside work wrote, or told a lesson learned from outside. In the owner's
+ * escalation about tainted work, handed a week, a month or a meeting's facts
+ * whose records outside work wrote, or told a lesson learned from outside. In the owner's
  * language, like the sentence around it; `console-events.test.ts` reads the
  * server for every way it writes.
  */
@@ -620,6 +620,7 @@ function outsideLabel(name: string): string {
   if (name === 'the escalation it was given') return t('the escalation it was given');
   if (name === 'the week it was handed') return t('the week it was handed');
   if (name === 'the month it was handed') return t('the month it was handed');
+  if (name === 'the meeting facts it was handed') return t('the meeting facts it was handed');
   if (name === 'memory') return t('a lesson learned from outside');
   return name;
 }

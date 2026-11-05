@@ -472,4 +472,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Sebuah tugas {role} berhenti sebelum selesai.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Cara menyelesaikannya: cari akar masalah dengan menanyakan mengapa pada setiap jawaban dan mencocokkannya dengan catatan, putuskan sekali, lalu ajukan tindakan yang menjalankan keputusan itu, masing-masing dengan satu kursi.',
+  'Off track: {name}':
+    'Keluar jalur: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} bernilai {value} pada minggu {week}, dengan target mingguan {target}.',
+  '{role} answers for it.':
+    '{role} bertanggung jawab atasnya.',
+  'No seat answers for it.':
+    'Tidak ada kursi yang bertanggung jawab atasnya.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform membacanya dari scorecard mingguan sebelum rapat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Tidak selesai di dua rapat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tindakan "{title}", jatuh tempo {due}, tidak selesai pada rapat operasi mingguan {previous}, maupun pada rapat ini.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform membacanya dari daftar tindakan sebelum rapat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Rapat operasi mingguan diadakan ({week}): {where}',
+  'see its task under Work':
+    'lihat tugasnya di Pekerjaan',
 };

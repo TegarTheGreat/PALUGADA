@@ -28,6 +28,8 @@ export interface Company {
   } | null;
   /** The role the owner talks to (0068); null only while the company has no roles. */
   ceo: { roleId: string; slug: string; displayName: string | null } | null;
+  /** When the CEO holds the weekly operating meeting (0140): 0 Sunday to 6 Saturday, an hour on the company's clock. */
+  rhythm: { weekday: number; hour: number; enabled: boolean };
 }
 
 export interface InboxItem {
@@ -123,6 +125,8 @@ export interface Digest {
   openInboxItems: number;
   openIncidents: number;
   highlights: string[];
+  /** The last weekly operating meeting (F18.6); its task is the record. */
+  lastMeeting: { taskId: string; week: string; status: string; finishedAt: string | null; heldThisDay: boolean } | null;
 }
 
 export interface Retro {
@@ -311,6 +315,10 @@ export interface Structure {
     withoutAccountabilities: string[];
     /** An accountability two or more seats claim in the same words, as the first of them wrote it. */
     sharedAccountabilities: Array<{ accountability: string; roleIds: string[] }>;
+    /** Live lines on the weekly scorecard, by measure id, that no seat answers for. */
+    linesWithoutSeat: string[];
+    /** Open key results, by goal id, that no seat answers for. */
+    keyResultsWithoutSeat: string[];
   };
 }
 

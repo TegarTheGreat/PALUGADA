@@ -478,4 +478,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Un compito di {role} si è fermato prima di essere finito.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Per risolverlo: trovare la causa principale chiedendo perché a ogni risposta e verificandola nei registri, decidere una volta e aprire le azioni che mettono in pratica la decisione, ognuna con un solo posto.',
+  'Off track: {name}':
+    'Fuori rotta: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} è stato {value} nella settimana del {week}, contro un obiettivo settimanale di {target}.',
+  '{role} answers for it.':
+    'Ne risponde {role}.',
+  'No seat answers for it.':
+    'Nessun ruolo ne risponde.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'La piattaforma l’ha letto dalla scheda settimanale prima della riunione operativa settimanale.',
+  'Not done at two meetings: {title}':
+    'Non fatto in due riunioni: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'L’azione "{title}", in scadenza il {due}, non era fatta alla riunione operativa settimanale del {previous}, né a questa.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'La piattaforma l’ha letto dalle azioni prima della riunione operativa settimanale.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Riunione operativa settimanale tenuta ({week}): {where}',
+  'see its task under Work':
+    'vedi il suo compito in Lavoro',
 };

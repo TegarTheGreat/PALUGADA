@@ -477,4 +477,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Una tarea de {role} se detuvo antes de terminar.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Para resolverlo: encontrar la causa raíz preguntando por qué ante cada respuesta y comprobándola con el registro, decidir una vez y registrar los pendientes que llevan a cabo la decisión, cada uno con un puesto.',
+  'Off track: {name}':
+    'Fuera de rumbo: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} fue {value} en la semana del {week}, frente a un objetivo semanal de {target}.',
+  '{role} answers for it.':
+    '{role} responde por ello.',
+  'No seat answers for it.':
+    'Ningún puesto responde por ello.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'La plataforma lo leyó del cuadro de mando semanal antes de la reunión operativa semanal.',
+  'Not done at two meetings: {title}':
+    'Sin hacer en dos reuniones: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'El pendiente «{title}», con vencimiento el {due}, no estaba hecho en la reunión operativa semanal del {previous}, ni en esta.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'La plataforma lo leyó de los pendientes antes de la reunión operativa semanal.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Reunión operativa semanal celebrada ({week}): {where}',
+  'see its task under Work':
+    'consulta su tarea en Trabajo',
 };

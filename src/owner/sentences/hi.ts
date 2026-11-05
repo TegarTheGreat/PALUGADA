@@ -478,4 +478,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} का एक कार्य पूरा होने से पहले रुक गया।',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'इसे सुलझाने के लिए: हर जवाब पर ‘क्यों’ पूछकर और उसे रिकॉर्ड से जाँचकर मूल कारण खोजें, एक बार फ़ैसला करें, और फ़ैसले को लागू करने वाले काम दर्ज करें, हर काम एक सीट के साथ।',
+  'Off track: {name}':
+    'लक्ष्य से भटका: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{week} वाले सप्ताह में {name} {value} रहा, जबकि साप्ताहिक लक्ष्य {target} है।',
+  '{role} answers for it.':
+    'इसकी ज़िम्मेदारी {role} की है।',
+  'No seat answers for it.':
+    'इसकी ज़िम्मेदारी किसी पद की नहीं है।',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'प्लेटफ़ॉर्म ने इसे साप्ताहिक संचालन बैठक से पहले साप्ताहिक स्कोरकार्ड से पढ़ा।',
+  'Not done at two meetings: {title}':
+    'दो बैठकों में पूरा नहीं हुआ: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'करने का काम "{title}", जिसकी नियत तारीख {due} थी, {previous} की साप्ताहिक संचालन बैठक में पूरा नहीं हुआ, और इस बैठक में भी नहीं।',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'प्लेटफ़ॉर्म ने इसे साप्ताहिक संचालन बैठक से पहले करने के कामों से पढ़ा।',
+  'Weekly operating meeting held ({week}): {where}':
+    'साप्ताहिक संचालन बैठक हुई ({week}): {where}',
+  'see its task under Work':
+    'इसका कार्य काम में देखें',
 };

@@ -476,4 +476,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Hiji tugas {role} eureun saméméh réngsé.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Cara ngarengsekeunana: téangan akar pasualan ku nanya naha dina unggal jawaban jeung nyocogkeunana jeung catetan, putuskeun sakali, lajeng jieun tindakan anu ngalaksanakeun putusan éta, masing-masing ku hiji korsi.',
+  'Off track: {name}':
+    'Kaluar jalur: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} meunang {value} dina minggu {week}, tina target mingguan {target}.',
+  '{role} answers for it.':
+    '{role} anu tanggel waler.',
+  'No seat answers for it.':
+    'Teu aya jabatan anu tanggel waler.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform macana tina scorecard mingguan saméméh rapat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Teu réngsé dina dua rapat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tindakan "{title}", wates waktu {due}, teu réngsé dina rapat operasi mingguan {previous}, kitu deui dina rapat ieu.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform macana tina daptar tindakan saméméh rapat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Rapat operasi mingguan geus diayakeun ({week}): {where}',
+  'see its task under Work':
+    'tingali tugasna di Padamelan',
 };

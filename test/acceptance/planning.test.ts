@@ -28,7 +28,7 @@ import { ensurePeriodClose, ensureQuarterlyPlanning } from '../../src/engine/qua
 import { ensureOffPace } from '../../src/engine/outcomes.ts';
 import { openTicket } from '../../src/engine/tickets.ts';
 import { applyGoalChange, createGoal } from '../../src/domain/goals.ts';
-import { defineMetric } from '../../src/domain/metrics.ts';
+import { changeMetric, defineMetric } from '../../src/domain/metrics.ts';
 import { fiscalQuarterOf } from '../../src/domain/fiscal.ts';
 import { gradeReportOf } from '../../src/domain/grades.ts';
 import { proposeGoalPlan } from '../../src/domain/goal-plans.ts';
@@ -175,8 +175,8 @@ test('declared, committed and learning goals are graded by their own rules, and 
   assert.deepEqual(await pick(unmet), ['committed', '0', 'declared', null, null, null], 'not marked met');
   assert.deepEqual(await pick(revenue), ['committed', '0', 'measured', null, null, null], '80 of 100 is a miss, not 0.8');
   assert.deepEqual(await pick(test), ['learning', '0.75', 'measured', '40', '30', null], 'the prediction beside what happened');
-  assert.deepEqual(await pick(objective), ['aspirational', '0.78', 'measured', null, null, 'from_key_results'],
-    'an objective with no measure of its own is its key results\' measures averaged: 0.8 and 0.75');
+  assert.deepEqual(await pick(objective), ['aspirational', '0.64', 'measured', null, null, 'from_key_results'],
+    'an objective with no measure of its own is what its key results reached, averaged: 1 marked met, 0 not, 0.8 and 0.75');
   assert.equal(await pick(dropped), null, 'an abandoned goal is not graded');
   assert.equal(await pick(later), null, 'nor one still in its period');
 
@@ -228,6 +228,99 @@ test('a goal the owner marked met is graded met whatever its numbers, and the qu
   assert.deepEqual(report.numbers.committed, { graded: 2, passed: 1, passRate: 0.5 });
   assert.deepEqual(report.numbers.priorities, { total: 3, done: 2, share: 0.67, aim: 0.8 },
     'a graded priority is done by its grade, as the pass rate reads it');
+});
+
+test('a goal whose due date moves after its grade is counted once in the quarter, by its own period\'s grade', async () => {
+  const fixture = await createCompany('grade-moved');
+  await inJakarta(fixture);
+  const goal = await priority(fixture, 'q4-launch', { startsOn: '2026-10-01', dueOn: '2026-10-15', commitment: 'committed' });
+  assert.equal(await ensurePeriodClose(fixture.companyId, jakarta('2026-10-16')), 1);
+  assert.equal((await gradeOf(fixture, goal))?.score, '0', 'not met by its first due date');
+
+  // The owner moves it later: until the new period ends, its grade is the
+  // one it earned in a period it is no longer in, and says so.
+  await applyGoalChange({ companyId: fixture.companyId, goalId: goal, dueOn: '2026-11-30' });
+  const report = (at: Date) => withTenant(fixture.companyId, (tx) => gradeReportOf(tx, fixture.companyId, { from: '2026-10-01', to: '2026-12-31' }, at));
+  const between = await report(jakarta('2026-10-20'));
+  const moved = between.latest.find((one) => one.goalId === goal)!;
+  assert.deepEqual([moved.periodDueOn, moved.passed, moved.formerPeriod], ['2026-10-15', false, true]);
+
+  await applyGoalChange({ companyId: fixture.companyId, goalId: goal, status: 'met' });
+  assert.equal(await ensurePeriodClose(fixture.companyId, jakarta('2026-12-01')), 1);
+  const after = await report(jakarta('2026-12-02'));
+  assert.deepEqual(after.numbers.committed, { graded: 1, passed: 1, passRate: 1 }, 'one goal, graded by its own period');
+  assert.deepEqual(after.numbers.priorities, { total: 1, done: 1, share: 1, aim: 0.8 });
+  const latest = after.latest.find((one) => one.goalId === goal)!;
+  assert.deepEqual([latest.periodDueOn, latest.passed, latest.formerPeriod], ['2026-11-30', true, false]);
+});
+
+test('an objective with no measure of its own is graded from what its key results reached, measured or marked met', async () => {
+  const fixture = await createCompany('grade-objective-declared');
+  await inJakarta(fixture);
+  const objective = async (slug: string, commitment: 'committed' | 'aspirational') => (await createGoal({
+    companyId: fixture.companyId, kind: 'objective', slug, statement: `Objective ${slug}`,
+    parentGoalId: await missionOf(fixture), startsOn: '2026-07-01', dueOn: '2026-09-30', commitment,
+  })).id;
+  // Committed, with two key results that have words and no numbers, both met.
+  const done = await objective('q3-o', 'committed');
+  for (const slug of ['q3-o-a', 'q3-o-b']) {
+    const kr = await priority(fixture, slug, { commitment: 'committed', parentGoalId: done });
+    await applyGoalChange({ companyId: fixture.companyId, goalId: kr, status: 'met' });
+  }
+  // Aspirational, with one key result measured halfway and one marked met.
+  const mixed = await objective('q3-m', 'aspirational');
+  const half = await priority(fixture, 'q3-m-half', { parentGoalId: mixed });
+  await readingAt(fixture, await measure(fixture, half, 'half', 10), 5, jakarta('2026-09-20'));
+  const met = await priority(fixture, 'q3-m-met', { parentGoalId: mixed });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: met, status: 'met' });
+
+  await ensurePeriodClose(fixture.companyId, jakarta('2026-10-01'));
+  const pick = async (goalId: string) => {
+    const one = await gradeOf(fixture, goalId);
+    return one ? [one.commitment, one.score, one.basis, one.note] : null;
+  };
+  assert.deepEqual(await pick(done), ['committed', '1', 'declared', 'from_key_results'], 'every key result was done');
+  assert.deepEqual(await pick(mixed), ['aspirational', '0.75', 'measured', 'from_key_results'], 'half of one, and the one marked met');
+  assert.deepEqual((await issuesOf(fixture)).map((one) => one.goal_id), [], 'no postmortem for an objective whose key results were all done');
+});
+
+test('a learning goal is graded against the prediction its measure held when its period started', async () => {
+  const fixture = await createCompany('grade-prediction');
+  await inJakarta(fixture);
+  const goal = await priority(fixture, 'q3-ads-test', { commitment: 'learning' });
+  const ads = await measure(fixture, goal, 'ad-signups', 40);
+  // Set before the work: the period starts on 07-01.
+  await withControlPlane((tx) => tx.query('UPDATE goal_metrics SET created_at = $2 WHERE id = $1', [ads, jakarta('2026-06-20')]));
+  // Later the owner lowers the target after seeing the numbers.
+  await changeMetric(fixture.companyId, ads, { target: 25 });
+  await readingAt(fixture, ads, 30, jakarta('2026-09-28'));
+
+  await ensurePeriodClose(fixture.companyId, jakarta('2026-10-01'));
+  const grade = await gradeOf(fixture, goal);
+  assert.deepEqual([grade?.predicted, grade?.actual], ['40', '30'], 'the prediction is what it was when the work started');
+});
+
+test('a weekly scorecard line is not a quarterly priority\'s finish line, nor a learning goal\'s prediction', async () => {
+  const fixture = await createCompany('grade-weekly-not-target');
+  await inJakarta(fixture);
+  const goal = await priority(fixture, 'q3-w', { commitment: 'committed' });
+  await defineMetric(fixture.companyId, {
+    goalId: goal, slug: 'demos', name: 'Demos a week', unit: 'count', target: 5, reviewEvery: 'week',
+  });
+  await assert.rejects(applyGoalChange({ companyId: fixture.companyId, goalId: goal, doneWhen: null }),
+    /the quarterly priority "q3-w" says when it is done/, 'a weekly line does not say when it is done');
+
+  // Its last target measure put on the scorecard is refused, as retiring it is.
+  const sales = await measure(fixture, goal, 'sales', 100);
+  await applyGoalChange({ companyId: fixture.companyId, goalId: goal, doneWhen: null });
+  await assert.rejects(changeMetric(fixture.companyId, sales, { reviewEvery: 'week' }),
+    /the measure "sales" is the last one the quarterly priority "q3-w" is measured by/);
+
+  // A learning goal's prediction stays a target.
+  const test = await priority(fixture, 'q3-test', { commitment: 'learning' });
+  const signups = await measure(fixture, test, 'signups', 40);
+  await assert.rejects(changeMetric(fixture.companyId, signups, { reviewEvery: 'week' }),
+    /the measure signups holds the prediction of the learning goal q3-test/);
 });
 
 test('only the platform writes a grade: the application role reads them, writes none, and sees only its own company\'s', async () => {
@@ -387,7 +480,7 @@ interface QuarterFacts {
     priorities: { total: number; done: number; share: number | null; aim: number };
     committed: { graded: number; passed: number; passRate: number | null };
     aspirational: { graded: number; average: number | null; expected: [number, number]; reading: string | null };
-    todos: { total: number; withinWeek: number; share: number | null };
+    todos: { due: number; done: number; completionRate: number | null };
   };
   grades: { items: Array<{ goal: string; score: number; basis: string; commitment: string | null; passed: boolean | null; predicted: number | null; actual: number | null }>; leftOut: number };
   priorities: { items: Array<{ goal: string; seat: string | null; commitment: string | null; status: string }>; leftOut: number };
@@ -565,22 +658,20 @@ test('the quarter\'s facts are read from the rows, bounded, with outside words w
   // This quarter's priorities still open: one of the six met so far is two.
   const open = await priority(fixture, 'q4-sales', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed', parentGoalId: year });
   await priority(fixture, 'q4-hiring', { startsOn: '2026-10-01', dueOn: '2026-12-31', parentGoalId: year });
-  // To-dos filed in the quarter: one done in two days, one in ten, one open.
-  const todo = async (title: string, filed: string, closed: string | null) => {
+  // To-dos due in the quarter by the planning's day: two done, one open, one
+  // dropped and left out; one due after the planning is not counted yet.
+  const todo = async (title: string, due: string, status: 'open' | 'done' | 'closed') => {
     const { ticket } = await withTenant(fixture.companyId, (tx) => openTicket(tx, {
-      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title, dueOn: '2026-12-31', openedBy: 'owner', outside: false,
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title, dueOn: due, openedBy: 'owner', outside: false,
     }));
-    await withControlPlane((tx) => tx.query(
-      `UPDATE tickets SET created_at = $2, status = CASE WHEN $3::timestamptz IS NULL THEN status ELSE 'done' END, closed_at = $3 WHERE id = $1`,
-      [ticket.id, jakarta(filed), closed ? jakarta(closed) : null]));
+    if (status !== 'open') await withControlPlane((tx) => tx.query("UPDATE tickets SET status = $2, closed_at = now() WHERE id = $1", [ticket.id, status]));
   };
-  await todo('Call the roaster', '2026-11-02', '2026-11-04');
-  await todo('Fix the price list', '2026-11-02', '2026-11-12');
-  await todo('Write to the bank', '2026-11-20', null);
-  // Filed within the week before the planning: one done already counts, one
-  // still open is inside its week and neither finished nor missed.
-  await todo('Send the samples', '2026-12-17', '2026-12-19');
-  await todo('Book the fair', '2026-12-18', null);
+  await todo('Call the roaster', '2026-11-06', 'done');
+  await todo('Fix the price list', '2026-11-13', 'done');
+  await todo('Write to the bank', '2026-11-27', 'open');
+  await todo('Print the menus', '2026-12-04', 'open');
+  await todo('Book the fair', '2026-12-11', 'closed');
+  await todo('Send the samples', '2026-12-29', 'open');
   // The long-term list, one of them written after reading a customer's mail.
   for (let at = 0; at < 27; at += 1) {
     await withTenant(fixture.companyId, (tx) => openTicket(tx, {
@@ -611,7 +702,7 @@ test('the quarter\'s facts are read from the rows, bounded, with outside words w
   assert.deepEqual(facts.numbers.priorities, { total: 6, done: 1, share: 0.17, aim: 0.8 }, 'this quarter\'s priorities done, against 80%');
   assert.deepEqual(facts.numbers.committed, { graded: 2, passed: 1, passRate: 0.5 });
   assert.deepEqual(facts.numbers.aspirational, { graded: 2, average: 0.97, expected: [0.6, 0.7], reading: 'too_safe' });
-  assert.deepEqual(facts.numbers.todos, { total: 4, withinWeek: 2, share: 0.5 }, 'a to-do still inside its week is not counted');
+  assert.deepEqual(facts.numbers.todos, { due: 4, done: 2, completionRate: 0.5 }, 'a dropped one, and one not yet due, are not counted');
   assert.deepEqual(facts.grades.items.map((one) => [one.goal, one.score, one.passed]).sort(),
     [['oct-docs', 0, false], ['oct-launch', 1, true], ['oct-press', 0.99, null], ['oct-reach', 0.95, null]]);
   assert.ok(facts.priorities.items.some((one) => one.goal === 'q4-sales' && one.status === 'active' && one.commitment === 'committed'));
@@ -655,7 +746,7 @@ test('the owner sets the fiscal year, the ladder shows each goal\'s latest grade
   const structure = await structureOf(fixture.companyId);
   assert.deepEqual(structure.goals.find((one) => one.id === goal)!.grade, {
     goalId: goal, periodStartsOn: '2026-07-01', periodDueOn: '2026-09-30', commitment: 'learning',
-    score: 0.75, basis: 'measured', predicted: 40, actual: 30, note: null, passed: null,
+    score: 0.75, basis: 'measured', predicted: 40, actual: 30, note: null, passed: null, formerPeriod: false,
   });
   assert.equal(structure.goals.find((one) => one.id === fixture.goalId)!.grade, null);
 

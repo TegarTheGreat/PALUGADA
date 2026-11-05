@@ -129,7 +129,7 @@ interface Plan {
       priorities: { total: number; done: number; share: number | null; aim: number };
       committed: { graded: number; passed: number; passRate: number | null };
       aspirational: { graded: number; average: number | null; expected: [number, number]; reading: string | null };
-      todos: { total: number; withinWeek: number; share: number | null };
+      todos: { due: number; done: number; completionRate: number | null };
     };
   };
   lastMeeting: {
@@ -345,7 +345,7 @@ test('a graded goal and a graded priority carry their latest grade on the plan, 
       priorities: { total: 0, done: 0, share: null, aim: 0.8 },
       committed: { graded: 0, passed: 0, passRate: null },
       aspirational: { graded: 0, average: null, expected: [0.6, 0.7], reading: null },
-      todos: { total: 0, withinWeek: 0, share: null },
+      todos: { due: 0, done: 0, completionRate: null },
     });
 
     const year = await createGoal({
@@ -374,11 +374,13 @@ test('a graded goal and a graded priority carry their latest grade on the plan, 
     await grade(landed.id, quarter.startsOn, quarter.endsOn, 'committed', 1, 'measured');
     await grade(stretch.id, quarter.startsOn, quarter.endsOn, 'aspirational', 0.65, 'measured');
 
-    // Two to-dos filed today, finished today and dropped today: one kept its week.
-    for (const [title, status] of [['Call the roaster', 'done'], ['Book the fair', 'closed']] as const) {
+    // Two to-dos due today, one done and one dropped, and one due the
+    // day after: the dropped one is left out and the later one not yet due.
+    for (const [title, status, due] of [['Call the roaster', 'done', today()], ['Book the fair', 'closed', today()], ['Print the menus', 'open', shift(1)]] as const) {
       const { ticket } = await withTenant(fixture.companyId, (tx) => openTicket(tx, {
-        companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title, dueOn: quarter.endsOn, openedBy: 'owner', outside: false,
+        companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title, dueOn: due, openedBy: 'owner', outside: false,
       }));
+      if (status === 'open') continue;
       await withControlPlane((tx) => tx.query("UPDATE tickets SET status = $2, closed_at = now() WHERE id = $1", [ticket.id, status]));
     }
 
@@ -386,7 +388,7 @@ test('a graded goal and a graded priority carry their latest grade on the plan, 
     const [goal] = graded.yearGoals;
     assert.deepEqual(goal?.grade, {
       goalId: year.id, periodStartsOn: shift(-465), periodDueOn: shift(-101), commitment: 'aspirational',
-      score: 0.5, basis: 'measured', predicted: null, actual: null, note: 'from_key_results', passed: null,
+      score: 0.5, basis: 'measured', predicted: null, actual: null, note: 'from_key_results', passed: null, formerPeriod: true,
     }, 'this year\'s goal carries its latest grade');
     const of = Object.fromEntries(graded.priorities.items.map((one) => [one.goalId, one.grade && [one.grade.score, one.grade.passed]]));
     assert.deepEqual(of, { [landed.id]: [1, true], [stretch.id]: [0.65, null], [open.id]: null }, 'each priority its own grade, and none before one');
@@ -395,7 +397,7 @@ test('a graded goal and a graded priority carry their latest grade on the plan, 
       priorities: { total: 3, done: 1, share: 0.33, aim: 0.8 },
       committed: { graded: 1, passed: 1, passRate: 1 },
       aspirational: { graded: 1, average: 0.65, expected: [0.6, 0.7], reading: 'expected' },
-      todos: { total: 2, withinWeek: 1, share: 0.5 },
+      todos: { due: 1, done: 1, completionRate: 1 },
     }, 'the quarter\'s numbers, as quarterly planning is handed them; the year\'s earlier periods are outside it');
 
     // The quarter is the company's fiscal one: moved with the month its year starts in.

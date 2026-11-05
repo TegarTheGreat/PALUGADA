@@ -218,6 +218,8 @@ export interface GoalGrade {
   note: 'no_reading' | 'from_key_results' | 'marked_met' | null;
   /** A committed goal passed or missed; null for any other. */
   passed: boolean | null;
+  /** The goal's due date has moved since, and its new period has no grade yet. */
+  formerPeriod: boolean;
 }
 
 export type GoalWarning =
@@ -350,9 +352,10 @@ export interface Plan {
       committed: { graded: number; passed: number; passRate: number | null };
       aspirational: {
         graded: number; average: number | null; expected: [number, number];
-        reading: 'too_safe' | 'too_ambitious' | 'expected' | 'between' | null;
+        reading: 'too_safe' | 'too_ambitious' | 'expected' | 'below_expected' | 'above_expected' | null;
       };
-      todos: { total: number; withinWeek: number; share: number | null };
+      /** The to-dos due so far in the quarter, a dropped one left out, and how many were done: the weekly meeting's count. */
+      todos: { due: number; done: number; completionRate: number | null };
     };
   };
   /** The last weekly operating meeting, whatever its status, and the record of the last one that completed. */
@@ -481,7 +484,9 @@ export interface CoreProcess {
   /** Not changed in a quarter. */
   stale: boolean;
   lines: number;
-  /** Runs of the seat's division in the window, and how many of them read the process. */
+  /** When its count starts: the window's start, or when it came into force, if that was later. */
+  countedSince: string;
+  /** Runs of the seat's division since then, and how many of them read the process. */
   runs: number;
   followedRuns: number;
   /** Null where it measures nothing: no run in the window, a division that cannot read it, or not in force. */

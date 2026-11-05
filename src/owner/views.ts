@@ -15,7 +15,7 @@
  */
 import { headlines, metricsIn, scorecardOf, type Headline, type MetricUnit, type MetricView, type Scorecard, type WeekState } from '../domain/metrics.ts';
 import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalStatus, type GoalWarning } from '../domain/goals.ts';
-import { gradeReportOf, type GoalGrade, type GradeReport } from '../domain/grades.ts';
+import { gradeReportOf, type GradeReport, type LatestGrade } from '../domain/grades.ts';
 // Two readings of a company's day: the fiscal one says which zone it fell
 // back to, the records' one gives the day alone.
 import { dayIn as fiscalDayIn, fiscalQuarterOf } from '../domain/fiscal.ts';
@@ -83,7 +83,7 @@ export interface StructureView {
     /** What the goal is measured by, with the latest value and progress (0053). */
     metrics: MetricView[];
     /** Its latest grade, written when a period of it ended (F18.8, 0144); null before any. */
-    grade: GoalGrade | null;
+    grade: LatestGrade | null;
   }>;
   divisions: Array<{
     id: string;
@@ -337,14 +337,14 @@ export interface PlanYearGoal {
   /** Its quarterly priorities whose quarter today is in. */
   priorities: number;
   /** Its latest grade (F18.8, 0144), written when a period of it ended; null before any. */
-  grade: GoalGrade | null;
+  grade: LatestGrade | null;
 }
 
 export interface PlanPriority extends PacedPriority {
   /** The seat by the owner's name for it, beside the meeting's slug. */
   seatRole: PlanSeat | null;
   /** Its latest grade, as for a year's goal. */
-  grade: GoalGrade | null;
+  grade: LatestGrade | null;
 }
 
 export interface PlanChannel {
@@ -403,8 +403,8 @@ export interface PlanView {
    * The fiscal quarter today is in where the company is (`fiscalQuarterOf`,
    * from the company's fiscal year), and its numbers as quarterly planning is
    * handed them (`gradeReportOf`): priorities done against 80%, the committed
-   * pass rate, the aspirational average with its reading, and the to-dos
-   * finished within seven days.
+   * pass rate, the aspirational average with its reading, and the to-dos due
+   * so far that were done.
    */
   grades: { quarter: string; from: string; to: string; numbers: GradeReport['numbers'] };
   /**
@@ -481,7 +481,7 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
     const quarter = fiscalQuarterOf(day, fiscal?.month ?? 1);
     const graded = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn }, now);
     const latest = new Map(graded.latest.map((grade) => [grade.goalId, grade]));
-    const gradeOf = (goalId: string): GoalGrade | null => latest.get(goalId) ?? null;
+    const gradeOf = (goalId: string): LatestGrade | null => latest.get(goalId) ?? null;
     const within = (goal: { startsOn: string | null; dueOn: string | null }) =>
       goal.startsOn !== null && goal.dueOn !== null && goal.startsOn <= day && goal.dueOn >= day;
     const yearGoals = ladder

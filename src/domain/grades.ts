@@ -12,10 +12,13 @@
  *    reading of the period (`progressOf`, so clamped to 0..1), averaged. A
  *    measure with no verified reading counts as no progress, and the grade
  *    says so (`no_reading`): a claim nobody checked is not where a goal
- *    stands. An objective with no measure of its own is graded from its key
- *    results' measures, which is how both OKR sources score an objective
- *    (`from_key_results`). A weekly line is not a target (2.191) and is left
- *    out.
+ *    stands. A weekly line is not a target (2.191) and is left out.
+ *  - **From its key results.** An objective with no measure of its own is
+ *    graded from what its key results reached, which is how both OKR sources
+ *    score an objective (`from_key_results`): each key result by these same
+ *    rules -- its numbers, or whether the owner marked it met -- averaged,
+ *    and a committed objective passes only when every one of them did. It is
+ *    `measured` when any of them has a number, and `declared` when none has.
  *  - **Declared.** A goal with no number is 1 if the owner marked it met by
  *    the time it is graded, and 0 if not. Only the owner marks a goal met
  *    (F3.10), so an agent cannot declare itself done.
@@ -31,8 +34,10 @@
  *  - **Aspirational** keeps its score, read against the 0.6 to 0.7 both OKR
  *    sources call a good result.
  *  - **Learning** keeps, beside the score, the prediction -- its first
- *    measure's target, which a plan sets before the work starts (2.195) --
- *    and what that measure read at the end.
+ *    measure's target as it stood when the period started, or when the
+ *    measure was made if that was later (a plan sets it before the work
+ *    starts, 2.195), so a target lowered on seeing the numbers does not
+ *    become the prediction -- and what that measure read at the end.
  *
  * Grades are information for the owner and the next plan. Nothing that pays,
  * trusts or freezes reads them: both sources warn that a grade tied to a
@@ -40,6 +45,8 @@
  * up (STATUS 2.189). A test holds the list of their readers.
  */
 import type { TenantClient } from '../db/tenant.ts';
+import { todoCompletionWithin, type TodoCompletion } from '../engine/tickets.ts';
+import { dayIn } from './fiscal.ts';
 import { progressOf } from './metrics.ts';
 import type { GoalCommitment, GoalKind, GoalStatus } from './goals.ts';
 
@@ -73,8 +80,6 @@ const TOO_SAFE_FROM = 0.9;
 const TOO_AMBITIOUS_BELOW = 0.3;
 /** Wickman asks that 80% of a quarter's priorities be done. */
 export const PRIORITIES_DONE_AIM = 0.8;
-/** A to-do is a week's work: one finished in seven days of being filed kept its promise. */
-const TODO_DAYS = 7;
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
@@ -101,48 +106,63 @@ export async function gradeGoalWithin(
   goal: GoalToGrade,
   endsAt: Date,
 ): Promise<Omit<GoalGrade, 'passed'> & { progress: number | null }> {
-  const measuresOf = async (goalIds: string[]) => (await tx.query<{
-    goal_id: string; baseline: string; target: string; value: string | null;
+  const base = {
+    goalId: goal.id, periodStartsOn: goal.startsOn, periodDueOn: goal.dueOn, commitment: goal.commitment,
+    predicted: null as number | null, actual: null as number | null,
+  };
+  // The owner's met is the grade (see above); how far the numbers came stays in `progress`.
+  const settle = (reached: number, note: GradeNote | null) =>
+    (goal.status === 'met' && reached < 1 ? { score: 1, note: 'marked_met' as const } : { score: reached, note });
+
+  const { rows: measures } = await tx.query<{
+    id: string; baseline: string; target: string; value: string | null; created_at: Date;
   }>(
-    `SELECT m.goal_id, m.baseline, m.target, last.value
+    `SELECT m.id, m.baseline, m.target, last.value, m.created_at
        FROM goal_metrics m
        LEFT JOIN LATERAL (
               SELECT o.value FROM metric_observations o
                WHERE o.company_id = m.company_id AND o.metric_id = m.id AND o.verified AND o.observed_at < $3
                ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) last ON true
-      WHERE m.company_id = $1 AND m.goal_id = ANY($2::uuid[]) AND m.retired_at IS NULL AND m.review_every IS NULL
+      WHERE m.company_id = $1 AND m.goal_id = $2 AND m.retired_at IS NULL AND m.review_every IS NULL
       ORDER BY m.created_at, m.id`,
-    [companyId, goalIds, endsAt])).rows;
+    [companyId, goal.id, endsAt]);
 
-  let measures = await measuresOf([goal.id]);
-  let note: GradeNote | null = null;
   if (measures.length === 0 && goal.kind === 'objective') {
-    const { rows: children } = await tx.query<{ id: string }>(
-      "SELECT id FROM goals WHERE company_id = $1 AND parent_goal_id = $2 AND status <> 'abandoned'", [companyId, goal.id]);
-    measures = children.length > 0 ? await measuresOf(children.map((child) => child.id)) : [];
-    if (measures.length > 0) note = 'from_key_results';
+    const { rows: children } = await tx.query<{ id: string; kind: GoalKind; status: GoalStatus }>(
+      `SELECT id, kind, status FROM goals
+        WHERE company_id = $1 AND parent_goal_id = $2 AND status <> 'abandoned' ORDER BY created_at, id`,
+      [companyId, goal.id]);
+    if (children.length > 0) {
+      // Each key result as an aspirational goal is graded, so its score is
+      // how far it came, not its own pass or fail; one at a time, in the
+      // caller's transaction.
+      const reached: number[] = [];
+      let measured = false;
+      for (const child of children) {
+        const one = await gradeGoalWithin(tx, companyId, {
+          id: child.id, kind: child.kind, status: child.status, startsOn: goal.startsOn, dueOn: goal.dueOn, commitment: 'aspirational',
+        }, endsAt);
+        reached.push(one.score);
+        if (one.basis === 'measured') measured = true;
+      }
+      const average = reached.reduce((sum, one) => sum + one, 0) / reached.length;
+      const { score, note } = settle(
+        goal.commitment === 'committed' ? (reached.every((one) => one >= 1) ? 1 : 0) : round2(average), 'from_key_results');
+      // An objective graded from its key results predicted nothing itself.
+      return { ...base, score, basis: measured ? 'measured' : 'declared', note, progress: measured ? round2(average) : null };
+    }
   }
 
-  const base = {
-    goalId: goal.id, periodStartsOn: goal.startsOn, periodDueOn: goal.dueOn, commitment: goal.commitment,
-    predicted: null as number | null, actual: null as number | null,
-  };
   if (measures.length === 0) {
     return { ...base, score: goal.status === 'met' ? 1 : 0, basis: 'declared', note: null, progress: null };
   }
-  const fromKeyResults = note === 'from_key_results';
-  if (measures.some((one) => one.value === null) && note === null) note = 'no_reading';
   const progress = measures.map((one) => (one.value === null
     ? 0 : progressOf({ baseline: Number(one.baseline), target: Number(one.target) }, Number(one.value))));
   const average = progress.reduce((sum, one) => sum + one, 0) / progress.length;
-  const reached = goal.commitment === 'committed' ? (progress.every((one) => one >= 1) ? 1 : 0) : round2(average);
-  // The owner's met is the grade (see above); how far the numbers came stays in `progress`.
-  const marked = goal.status === 'met' && reached < 1;
-  const score = marked ? 1 : reached;
-  if (marked) note = 'marked_met';
-  // The prediction is the goal's own first measure: an objective graded from
-  // its key results predicted nothing itself.
-  const first = goal.commitment === 'learning' && !fromKeyResults ? measures[0] : undefined;
+  const { score, note } = settle(
+    goal.commitment === 'committed' ? (progress.every((one) => one >= 1) ? 1 : 0) : round2(average),
+    measures.some((one) => one.value === null) ? 'no_reading' : null);
+  const first = goal.commitment === 'learning' ? measures[0] : undefined;
   return {
     ...base,
     score,
@@ -150,8 +170,45 @@ export async function gradeGoalWithin(
     note,
     // How far it came, which a committed goal's pass or fail does not say.
     progress: round2(average),
-    ...(first ? { predicted: Number(first.target), actual: first.value === null ? null : Number(first.value) } : {}),
+    ...(first
+      ? { predicted: await predictionOf(tx, companyId, first, goal.startsOn), actual: first.value === null ? null : Number(first.value) }
+      : {}),
   };
+}
+
+/**
+ * A learning goal's prediction: its measure's target as it stood when the
+ * period started where the company is, or when the measure was made if that
+ * was later. Every change the owner makes to a measure records the target it
+ * had before (`metric.changed`, `metric.retired`), so the first change after
+ * that moment holds it; with none, the target is as it was then.
+ */
+async function predictionOf(
+  tx: TenantClient,
+  companyId: string,
+  measure: { id: string; target: string; created_at: Date },
+  startsOn: string,
+): Promise<number> {
+  const { rows: [held] } = await tx.query<{ target: string | null }>(
+    `SELECT (e.payload->'before'->>'target') AS target
+       FROM companies c
+       JOIN events e ON e.company_id = c.id
+      WHERE c.id = $1 AND e.type IN ('metric.changed', 'metric.retired') AND e.payload->>'metricId' = $2::text
+        AND e.occurred_at > greatest(($3::date)::timestamp AT TIME ZONE c.timezone, $4::timestamptz)
+      ORDER BY e.occurred_at, e.id
+      LIMIT 1`,
+    [companyId, measure.id, startsOn, measure.created_at]);
+  const target = held?.target ?? null;
+  return Number(target !== null && Number.isFinite(Number(target)) ? target : measure.target);
+}
+
+/** A goal's latest grade, and whether the goal has since moved out of the period it graded. */
+export interface LatestGrade extends GoalGrade {
+  /**
+   * The goal's due date is no longer this period's: it was moved after the
+   * grade, and its period now has no grade of its own yet.
+   */
+  formerPeriod: boolean;
 }
 
 /** The company's numbers over a window, and each goal's latest grade. */
@@ -165,30 +222,42 @@ export interface GradeReport {
      * and by being met before that.
      */
     priorities: { total: number; done: number; share: number | null; aim: number };
-    /** The committed goals graded in the window, and how many passed. */
+    /** The committed goals graded in the window, each once, and how many passed. */
     committed: { graded: number; passed: number; passRate: number | null };
-    /** The aspirational goals graded in the window, their average, and how it reads. */
+    /** The aspirational goals graded in the window, each once, their average, and how it reads. */
     aspirational: {
       graded: number; average: number | null; expected: readonly [number, number];
-      reading: 'too_safe' | 'too_ambitious' | 'expected' | 'between' | null;
+      reading: AspirationalReading | null;
     };
-    /**
-     * The to-dos filed in the window whose week is over by `asOf`, or that
-     * were finished or dropped already, and how many were finished within
-     * seven days. One still open inside its week is neither.
-     */
-    todos: { total: number; withinWeek: number; share: number | null };
+    /** The to-dos due in the window by today, and how many were done (`todoCompletionWithin`). */
+    todos: TodoCompletion;
   };
   /** Every goal's latest grade, whatever the window. */
-  latest: GoalGrade[];
+  latest: LatestGrade[];
+}
+
+/**
+ * How an aspirational average reads against the 0.6 to 0.7 both sources call
+ * a good result: set too safe, out of reach, as expected, or a little under or
+ * over the expected range without being either.
+ */
+type AspirationalReading = 'too_safe' | 'too_ambitious' | 'expected' | 'below_expected' | 'above_expected';
+
+function readingOf(average: number): AspirationalReading {
+  if (average >= TOO_SAFE_FROM) return 'too_safe';
+  if (average < TOO_AMBITIOUS_BELOW) return 'too_ambitious';
+  if (average < ASPIRATIONAL_EXPECTED[0]) return 'below_expected';
+  if (average > ASPIRATIONAL_EXPECTED[1]) return 'above_expected';
+  return 'expected';
 }
 
 interface RawGrade {
   goal_id: string; period_starts_on: string; period_due_on: string; commitment: GoalCommitment | null;
   score: string; basis: GradeBasis; predicted: string | null; actual: string | null; note: GradeNote | null;
+  former_period: boolean;
 }
 
-function toGrade(row: RawGrade): GoalGrade {
+function toGrade(row: RawGrade): LatestGrade {
   const score = Number(row.score);
   return {
     goalId: row.goal_id,
@@ -201,11 +270,24 @@ function toGrade(row: RawGrade): GoalGrade {
     actual: row.actual === null ? null : Number(row.actual),
     note: row.note,
     passed: row.commitment === 'committed' ? score >= 1 : null,
+    formerPeriod: row.former_period,
   };
 }
 
-const GRADE_COLUMNS = `goal_id, to_char(period_starts_on, 'YYYY-MM-DD') AS period_starts_on,
-                       to_char(period_due_on, 'YYYY-MM-DD') AS period_due_on, commitment, score, basis, predicted, actual, note`;
+/**
+ * One grade per goal: the grade of the period the goal is in now when it has
+ * one, and otherwise its latest. A goal whose due date moved after its grade
+ * is graded again at its new end (0144), and counting every row would count
+ * it twice, once missed, beside a priorities share that counts it once.
+ */
+const ONE_GRADE_PER_GOAL = `
+  SELECT DISTINCT ON (r.goal_id)
+         r.goal_id, to_char(r.period_starts_on, 'YYYY-MM-DD') AS period_starts_on,
+         to_char(r.period_due_on, 'YYYY-MM-DD') AS period_due_on, r.commitment, r.score, r.basis, r.predicted, r.actual, r.note,
+         r.period_due_on IS DISTINCT FROM g.due_on AS former_period
+    FROM goal_grades r
+    JOIN goals g ON g.company_id = r.company_id AND g.id = r.goal_id`;
+const ONE_GRADE_ORDER = 'ORDER BY r.goal_id, (r.period_due_on = g.due_on) DESC, r.period_due_on DESC';
 
 /**
  * The company-level numbers over a window of days (`from` to `to`, both
@@ -221,8 +303,9 @@ export async function gradeReportOf(
   asOf: Date,
 ): Promise<GradeReport> {
   const { rows: inWindow } = await tx.query<RawGrade>(
-    `SELECT ${GRADE_COLUMNS} FROM goal_grades
-      WHERE company_id = $1 AND period_due_on BETWEEN $2::date AND $3::date`,
+    `${ONE_GRADE_PER_GOAL}
+      WHERE r.company_id = $1 AND r.period_due_on BETWEEN $2::date AND $3::date
+      ${ONE_GRADE_ORDER}`,
     [companyId, window.from, window.to]);
   const grades = inWindow.map(toGrade);
   const committed = grades.filter((one) => one.commitment === 'committed');
@@ -245,22 +328,18 @@ export async function gradeReportOf(
         AND g.due_on BETWEEN $2::date AND $3::date`,
     [companyId, window.from, window.to]);
 
-  // A to-do is work with an issue it solves or a due date, as the board
-  // counts one. A closed one was dropped, and is counted as not finished.
-  // One still open inside its week has neither kept nor broken its promise,
-  // and is left out, or the newest week's to-dos would always read as missed.
-  const { rows: [todos] } = await tx.query<{ total: number; within: number }>(
-    `SELECT count(*)::int AS total,
-            count(*) FILTER (WHERE status = 'done' AND closed_at <= created_at + make_interval(days => $4::int))::int AS within
-       FROM tickets
-      WHERE company_id = $1 AND kind = 'work' AND (solves_ticket_id IS NOT NULL OR due_on IS NOT NULL)
-        AND created_at >= $2::date AND created_at < $3::date + 1
-        AND (closed_at IS NOT NULL OR created_at + make_interval(days => $4::int) <= $5)`,
-    [companyId, window.from, window.to, TODO_DAYS, asOf]);
+  // The to-dos due in the window, up to today where the company is: the one
+  // count the weekly meeting reads its week by (tickets.ts).
+  const { rows: [company] } = await tx.query<{ timezone: string }>('SELECT timezone FROM companies WHERE id = $1', [companyId]);
+  const today = dayIn(company?.timezone ?? 'UTC', asOf).day;
+  const todos = today < window.from
+    ? { due: 0, done: 0, completionRate: null }
+    : await todoCompletionWithin(tx, companyId, { from: window.from, to: today < window.to ? today : window.to });
 
   const { rows: latest } = await tx.query<RawGrade>(
-    `SELECT DISTINCT ON (goal_id) ${GRADE_COLUMNS} FROM goal_grades
-      WHERE company_id = $1 ORDER BY goal_id, period_due_on DESC`,
+    `${ONE_GRADE_PER_GOAL}
+      WHERE r.company_id = $1
+      ${ONE_GRADE_ORDER}`,
     [companyId]);
 
   return {
@@ -274,12 +353,9 @@ export async function gradeReportOf(
       committed: { graded: committed.length, passed, passRate: committed.length > 0 ? round2(passed / committed.length) : null },
       aspirational: {
         graded: aspirational.length, average, expected: ASPIRATIONAL_EXPECTED,
-        reading: average === null ? null
-          : average >= TOO_SAFE_FROM ? 'too_safe'
-            : average < TOO_AMBITIOUS_BELOW ? 'too_ambitious'
-              : average >= ASPIRATIONAL_EXPECTED[0] && average <= ASPIRATIONAL_EXPECTED[1] ? 'expected' : 'between',
+        reading: average === null ? null : readingOf(average),
       },
-      todos: { total: todos!.total, withinWeek: todos!.within, share: todos!.total > 0 ? round2(todos!.within / todos!.total) : null },
+      todos,
     },
     latest: latest.map(toGrade),
   };

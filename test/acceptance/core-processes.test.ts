@@ -271,7 +271,9 @@ test('the followed share is the runs of the seat\'s division that read the proce
     { slug: 'sales-process', ownerRoleId: sales, ownerRole: 'sales', divisionId: fixture.divisionId,
       runs: 4, followedRuns: 2, followedShare: 0.5, ageDays: 0, stale: false });
 
-  // A window of sixty days takes in the old run.
+  // A window of sixty days takes in the old run, of a process in force by then.
+  await withControlPlane((tx) => tx.query(
+    "UPDATE skill_versions SET activated_at = now() - interval '50 days' WHERE skill_id = $1 AND state = 'active'", [skillId]));
   const wider = await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId, { windowDays: 60 }));
   assert.equal(wider.windowDays, 60);
   assert.deepEqual([wider.processes[0]!.runs, wider.processes[0]!.followedRuns], [5, 3]);
@@ -298,6 +300,30 @@ test('the followed share is the runs of the seat\'s division that read the proce
 
   await assert.rejects(withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId, { windowDays: 0 })),
     /a window is 1 to 366 whole days; 0 was asked for/);
+});
+
+test('a process is counted against the runs since it came into force, and says since when', async () => {
+  const fixture = await createCompany('core-young');
+  const sales = await addRole(fixture, 'sales');
+  const skillId = await activeSkill(fixture, 'sales-process', { scope: 'company' });
+  await setCore(fixture, skillId, sales);
+  await grantRead(fixture, fixture.divisionId);
+  // Approved yesterday; the division ran forty tasks before it and two since, both reading it.
+  const yesterday = new Date(Date.now() - 86_400_000);
+  await withControlPlane((tx) => tx.query(
+    "UPDATE skill_versions SET activated_at = $2 WHERE skill_id = $1 AND state = 'active'", [skillId, yesterday]));
+  for (let at = 0; at < 40; at += 1) await ranTask(fixture, sales, fixture.divisionId, { daysAgo: 2 + (at % 25) });
+  for (let at = 0; at < 2; at += 1) {
+    const task = await ranTask(fixture, sales, fixture.divisionId);
+    await readIn(fixture, task, fixture.divisionId, 'sales-process');
+  }
+
+  const report = await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId));
+  const process = report.processes[0]!;
+  assert.deepEqual([process.runs, process.followedRuns, process.followedShare], [2, 2, 1],
+    'runs before it existed could not have read it');
+  assert.equal(process.countedSince.getTime(), yesterday.getTime(), 'the share says since when it counts');
+  assert.ok(report.since.getTime() < process.countedSince.getTime());
 });
 
 test('a process longer than sixty lines is warned of, and kept', async () => {

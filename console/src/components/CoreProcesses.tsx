@@ -10,7 +10,7 @@ import { Alert, Anchor, Badge, Group, Paper, Stack, Text, Tooltip } from '@manti
 import { IconRoute } from '@tabler/icons-react';
 import type { CoreProcess, CoreProcessWarning, CoreProcesses as Report, Role } from '../types.ts';
 import { locale, t } from '../i18n.ts';
-import { relative, roleLabel } from '../format.ts';
+import { day, relative, roleLabel } from '../format.ts';
 
 /** A warning in the owner's words, naming a seat by its name rather than its code. */
 export function coreWarningSaid(warning: CoreProcessWarning, roles: Role[]): string {
@@ -57,13 +57,20 @@ const percent = (share: number) =>
  * How far a process is followed, or why nothing is counted: a share is only
  * said where the division's runs could have read it (src/skills/core.ts).
  */
-function shareSaid(process: CoreProcess, days: number): string {
+function shareSaid(process: CoreProcess, days: number, since: string): string {
   if (!process.inForce) return t('Not in force: no share is counted');
   if (!process.divisionCanRead) return t('Its division cannot open it with skill.read');
-  if (process.followedShare === null) return t('No run of its division in the last {days} days', { days });
-  return t('Followed in {share} of its division\'s runs ({followed} of {runs}), last {days} days', {
-    share: percent(process.followedShare), followed: process.followedRuns, runs: process.runs, days,
-  });
+  // One that came into force inside the window counts from then: a run
+  // before it could not have read it (src/skills/core.ts).
+  const young = Date.parse(process.countedSince) > Date.parse(since);
+  const date = young ? day(process.countedSince) : '';
+  if (process.followedShare === null) {
+    return young ? t('No run of its division since it came into force on {date}', { date }) : t('No run of its division in the last {days} days', { days });
+  }
+  const counted = { share: percent(process.followedShare), followed: process.followedRuns, runs: process.runs };
+  return young
+    ? t('Followed in {share} of its division\'s runs ({followed} of {runs}) since it came into force on {date}', { ...counted, date })
+    : t('Followed in {share} of its division\'s runs ({followed} of {runs}), last {days} days', { ...counted, days });
 }
 
 /** The warning colour for what the owner can fix, dimmed for a quiet division. */
@@ -102,7 +109,7 @@ export function CoreProcessesPanel({ report, roles, openRole }: {
                 <Text size="xs" c="dimmed">{t('Changed {when}', { when: relative(process.updatedAt) })}</Text>
               </div>
               <Tooltip label={t('Runs of the seat\'s division that opened it with skill.read, over the last {days} days.', { days: report.windowDays })}>
-                <Text size="sm" c={shareColor(process)}>{shareSaid(process, report.windowDays)}</Text>
+                <Text size="sm" c={shareColor(process)}>{shareSaid(process, report.windowDays, report.since)}</Text>
               </Tooltip>
             </Group>
           );

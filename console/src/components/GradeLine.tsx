@@ -23,18 +23,25 @@ const percent = (share: number) => share.toLocaleString(locale(), { style: 'perc
 export function GradeLine({ grade, ps = 0 }: { grade: GoalGrade; ps?: number }) {
   const period = periodSaid(grade.periodStartsOn, grade.periodDueOn);
   const how = [
-    grade.basis === 'measured' ? t('Graded for {period}, from its numbers.', { period }) : t('Graded for {period}, by whether you marked it met.', { period }),
+    grade.note === 'from_key_results'
+      ? t('Graded for {period}, from the key results under it: their numbers, or whether you marked them met.', { period })
+      : grade.basis === 'measured' ? t('Graded for {period}, from its numbers.', { period }) : t('Graded for {period}, by whether you marked it met.', { period }),
     ...(grade.note === 'no_reading' ? [t('A measure had no checked reading by the end, and counts as no progress.')] : []),
-    ...(grade.note === 'from_key_results' ? [t('From the measures of the key results under it.')] : []),
     ...(grade.note === 'marked_met' ? [t('You marked it met, so it counts as done whatever its numbers say.')] : []),
   ].join(' ');
+  // A grade of a period the goal has moved out of is history, drawn quietly,
+  // so a priority back in play does not wear the "Missed" it left behind.
+  const muted = grade.formerPeriod ? 'gray' : undefined;
   return (
     <Group gap={6} mt={6} ps={ps}>
       <Tooltip label={how} multiline w={280}>
         {grade.passed === null
-          ? <Badge variant="light" color={grade.score >= 0.6 ? 'teal' : 'gray'} size="sm">{t('Graded {score}', { score: figure(grade.score) })}</Badge>
-          : <Badge variant="light" color={grade.passed ? 'teal' : 'red'} size="sm">{grade.passed ? t('Done, as committed') : t('Missed')}</Badge>}
+          ? <Badge variant="light" color={muted ?? (grade.score >= 0.6 ? 'teal' : 'gray')} size="sm">{t('Graded {score}', { score: figure(grade.score) })}</Badge>
+          : <Badge variant="light" color={muted ?? (grade.passed ? 'teal' : 'red')} size="sm">{grade.passed ? t('Done, as committed') : t('Missed')}</Badge>}
       </Tooltip>
+      {grade.formerPeriod && (
+        <Text size="xs" c="dimmed">{t('For {period}; its period has moved since', { period })}</Text>
+      )}
       {grade.predicted !== null && (
         <Text size="xs" c="dimmed">
           {grade.actual === null
@@ -64,7 +71,8 @@ function aspirationalSaid(aspirational: Plan['grades']['numbers']['aspirational'
     case 'too_safe': return t('Close to 1: these goals may be set too safe.');
     case 'too_ambitious': return t('Far under {low}: these goals may be out of reach.', range);
     case 'expected': return t('Within {low} to {high}, a good result.', range);
-    case 'between': return t('Near {low} to {high}, a good result.', range);
+    case 'below_expected': return t('Under {low}: a little short of the {low} to {high} that is a good result.', range);
+    case 'above_expected': return t('Over {high}: past the {low} to {high} that is a good result, not yet too safe.', range);
     default: return t('None graded this quarter yet. A good result is {low} to {high}.', range);
   }
 }
@@ -72,7 +80,8 @@ function aspirationalSaid(aspirational: Plan['grades']['numbers']['aspirational'
 /**
  * The fiscal quarter's numbers: the priorities done against the 80% aimed
  * for, the committed goals that passed, the aspirational average with how it
- * reads, and the to-dos finished within a week of being filed.
+ * reads, and the to-dos due so far that were done, as the weekly meeting
+ * counts them.
  */
 export function GradeNumbers({ grades }: { grades: Plan['grades'] }) {
   const { priorities, committed, aspirational, todos } = grades.numbers;
@@ -103,12 +112,12 @@ export function GradeNumbers({ grades }: { grades: Plan['grades'] }) {
         detail={aspirationalSaid(aspirational)}
       />
       <Figure
-        label={t('To-dos within a week')}
-        value={todos.share === null ? '—' : percent(todos.share)}
-        detail={todos.total === 0
-          ? t('No to-do filed this quarter has had its week yet.')
-          : tp('{within} of {count} to-do filed this quarter finished within seven days.', '{within} of {count} to-dos filed this quarter finished within seven days.',
-            todos.total, { within: todos.withinWeek })}
+        label={t('To-dos done')}
+        value={todos.completionRate === null ? '—' : percent(todos.completionRate)}
+        detail={todos.due === 0
+          ? t('No to-do has come due this quarter yet.')
+          : tp('Done: {done} of the {count} to-do due so far this quarter.', 'Done: {done} of the {count} to-dos due so far this quarter.',
+            todos.due, { done: todos.done })}
       />
     </SimpleGrid>
   );

@@ -275,7 +275,7 @@ function briefFor(due: Due, facts: QuarterFacts, language: string): { goal: stri
         + 'priority done or not; the grades so far; the share of priorities done, against the aim of 80%; the committed '
         + 'pass rate; the aspirational average, against the 0.6 to 0.7 a good stretch scores -- an average near 1.0 '
         + 'quarter after quarter means the goals were set too safe, and one under 0.3 means too ambitious; and the '
-        + 'share of to-dos finished within seven days. For each learning priority, say what was predicted, what '
+        + 'to-do completion rate, the to-dos due this quarter so far that were done. For each learning priority, say what was predicted, what '
         + 'happened, and what was learned. A grade is information, never a verdict on a seat.\n'
         + (annual
           ? `2. Review this year's goals, and plan next fiscal year's goals, from ${next.yearStartsOn} to ${next.yearEndsOn}: `

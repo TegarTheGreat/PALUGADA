@@ -55,6 +55,44 @@ export type IssueHorizon = (typeof ISSUE_HORIZONS)[number];
  */
 export const TODO_DAYS = 7;
 
+/** How many to-dos came due over some days, and how many of them were done. */
+export interface TodoCompletion {
+  due: number;
+  done: number;
+  /** done / due, two places; null with none due. */
+  completionRate: number | null;
+}
+
+/**
+ * The to-do completion rate (F18.5) over the days `from` to `to`, both
+ * YYYY-MM-DD in the company's own days and inclusive. The weekly meeting
+ * reads the seven days to its own day with it, and the plan page and
+ * quarterly planning the fiscal quarter so far (src/domain/grades.ts), so
+ * the owner and the CEO are never handed two rates for one week.
+ *
+ * A to-do is work with a due date, as the meeting lists one (every to-do
+ * filed against an issue is given a date, `openTicket`). It is counted by its
+ * due date, which is its promise -- a filer may give one more than a week --
+ * and done is done, as the meeting marks it. One closed was dropped by its
+ * owner: it is neither done nor not done, and is left out, or letting go of
+ * work nobody needs would read as failing at it. A caller passes no day
+ * after today, so a to-do whose day has not come is not counted yet. Every
+ * statement names the company.
+ */
+export async function todoCompletionWithin(
+  tx: TenantClient,
+  companyId: string,
+  days: { from: string; to: string },
+): Promise<TodoCompletion> {
+  const { rows: [counted] } = await tx.query<{ due: number; done: number }>(
+    `SELECT count(*)::int AS due, count(*) FILTER (WHERE status = 'done')::int AS done
+       FROM tickets
+      WHERE company_id = $1 AND kind = 'work' AND status <> 'closed' AND due_on BETWEEN $2::date AND $3::date`,
+    [companyId, days.from, days.to]);
+  const { due, done } = counted!;
+  return { due, done, completionRate: due > 0 ? Math.round((done / due) * 100) / 100 : null };
+}
+
 export interface Ticket {
   id: string;
   projectId: string;

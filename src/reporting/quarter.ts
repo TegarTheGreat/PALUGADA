@@ -10,8 +10,8 @@
  *
  *  - the company's numbers for the quarter (`gradeReportOf`): priorities done
  *    against Wickman's 80%, the committed pass rate, the aspirational
- *    average against the 0.6 to 0.7 both OKR sources expect, and the to-dos
- *    finished within seven days of being filed;
+ *    average against the 0.6 to 0.7 both OKR sources expect, and the to-do
+ *    completion rate, counted as the weekly meeting counts it;
  *  - every grade written so far this fiscal year, with a learning goal's
  *    prediction beside what happened;
  *  - the quarter's priorities, the candidates to keep, kill or combine;

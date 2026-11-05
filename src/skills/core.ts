@@ -12,7 +12,11 @@
  * share of the owning seat's division's runs that opened it with
  * `skill.read`.
  *
- * A share is only a measure where the runs could have read it. A division
+ * A share is only a measure where the runs could have read it. A run that
+ * ended before the version in force was switched on, or before the skill was
+ * let out of quarantine, could not have read what is in force now, so each
+ * process counts only the runs still going since then (`countedSince`), and
+ * the chart says since when. A division
  * without the `skill.read` grant (the lab and assurance are left without it
  * on purpose) is refused every read, and a process that is quarantined or
  * has no version in force is not put to its seat at all. Both are marked on
@@ -96,7 +100,12 @@ export interface CoreProcess {
   stale: boolean;
   /** Lines in the active version's body, past the front matter. */
   lines: number;
-  /** Runs of the seat's division that started in the window. */
+  /**
+   * When its count starts: the window's start, or, for a process that came
+   * into force inside the window, the moment it did.
+   */
+  countedSince: Date;
+  /** Runs of the seat's division that started in the window and were still going at `countedSince`. */
   runs: number;
   /** Of them, the runs that read the process with `skill.read`. */
   followedRuns: number;
@@ -147,7 +156,7 @@ export async function coreProcessesOf(
     skill_id: string; slug: string; summary: string; owner_role_id: string; owner_role: string; division_id: string;
     active_version: number | null; body: string | null; updated_at: Date; age_days: number;
     quarantined: boolean; version_active: boolean; division_can_read: boolean;
-    runs: number; followed_runs: number;
+    counted_since: Date; runs: number; followed_runs: number;
   }>(
     `WITH windowed AS (
             SELECT ar.task_id, ar.started_at, coalesce(ar.finished_at, $2::timestamptz) AS ended_at, t.division_id
@@ -162,9 +171,10 @@ export async function coreProcessesOf(
                        AND g.capability_name = 'skill.read') AS division_can_read,
             coalesce(v.activated_at, v.created_at, s.created_at) AS updated_at,
             floor(extract(epoch FROM $2::timestamptz - coalesce(v.activated_at, v.created_at, s.created_at)) / 86400)::int AS age_days,
-            (SELECT count(*)::int FROM windowed w WHERE w.division_id = r.division_id) AS runs,
+            c.since AS counted_since,
+            (SELECT count(*)::int FROM windowed w WHERE w.division_id = r.division_id AND w.ended_at >= c.since) AS runs,
             (SELECT count(*)::int FROM windowed w
-              WHERE w.division_id = r.division_id
+              WHERE w.division_id = r.division_id AND w.ended_at >= c.since
                 AND EXISTS (SELECT 1 FROM events e
                              WHERE e.company_id = $1 AND e.task_id = w.task_id AND e.type = 'skill.read'
                                AND e.payload->>'slug' = s.slug
@@ -172,6 +182,12 @@ export async function coreProcessesOf(
        FROM skills s
        JOIN roles r ON r.company_id = s.company_id AND r.id = s.owner_role_id
        LEFT JOIN skill_versions v ON v.company_id = s.company_id AND v.skill_id = s.id AND v.version = s.active_version
+       -- The count starts when what is in force now could first be read.
+       CROSS JOIN LATERAL (
+              SELECT greatest($3::timestamptz, coalesce(v.activated_at, v.created_at, s.created_at),
+                              (SELECT max(e.occurred_at) FROM events e
+                                WHERE e.company_id = $1 AND e.type = 'skill.quarantine_lifted'
+                                  AND e.payload->>'skillId' = s.id::text)) AS since) c
       WHERE s.company_id = $1 AND s.core
       ORDER BY s.slug`,
     [companyId, now, since],
@@ -195,6 +211,7 @@ export async function coreProcessesOf(
       ageDays: Math.max(0, row.age_days),
       stale: row.age_days >= STALE_AFTER_DAYS,
       lines: row.body === null ? 0 : linesOf(row.body),
+      countedSince: row.counted_since,
       runs: row.runs,
       followedRuns: row.followed_runs,
       followedShare: measured ? row.followed_runs / row.runs : null,

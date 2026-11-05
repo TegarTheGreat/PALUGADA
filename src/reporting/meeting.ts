@@ -27,6 +27,7 @@ import type { GoalCommitment } from '../domain/goals.ts';
 import type { ChannelSlug } from '../domain/channels.ts';
 import { daysBetween } from '../records/collections.ts';
 import { overdueInvoices } from '../records/invoices.ts';
+import { todoCompletionWithin } from '../engine/tickets.ts';
 
 const WEEK_MS = 7 * 86_400_000;
 /** The most of each the facts carry; past it, they say how many were left out. */
@@ -204,11 +205,8 @@ export async function buildMeetingFacts(tx: TenantClient, companyId: string, mee
       ORDER BY t.due_on, t.created_at, t.id
       LIMIT $4`,
     [companyId, day, weekBefore, TODOS_MAX]);
-  const { rows: [rate] } = await tx.query<{ due: number; done: number }>(
-    `SELECT count(*)::int AS due, count(*) FILTER (WHERE status = 'done')::int AS done
-       FROM tickets
-      WHERE company_id = $1 AND kind = 'work' AND status <> 'closed' AND due_on > $3::date AND due_on <= $2::date`,
-    [companyId, day, weekBefore]);
+  // The week's rate, by the one count the plan page reads a quarter by.
+  const rate = await todoCompletionWithin(tx, companyId, { from: dayAfter(weekBefore, 1), to: day });
   const todos = todoRows.map((row): MeetingTodo => {
     const title = oneLine(row.title, TITLE_MAX);
     return {
@@ -283,9 +281,7 @@ export async function buildMeetingFacts(tx: TenantClient, companyId: string, mee
     todos: {
       items: todos,
       leftOut: Math.max(0, (todoRows[0]?.total ?? 0) - todoRows.length),
-      due: rate!.due,
-      done: rate!.done,
-      completionRate: rate!.due > 0 ? round2(rate!.done / rate!.due) : null,
+      ...rate,
     },
     issues: { items: issues, leftOut: Math.max(0, (issueRows[0]?.total ?? 0) - issueRows.length) },
     businessReview,

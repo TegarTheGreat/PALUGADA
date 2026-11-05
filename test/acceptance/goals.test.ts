@@ -1097,6 +1097,35 @@ test('a plan is refused once a goal it hangs from has changed, and a plan of eve
   assert.equal((await goalSlugs(fixture)).includes('q1-newsletter'), true);
 });
 
+test('which way is better agrees with where a measure starts and where it aims, on every path (F18.7, F18.8)', async () => {
+  const fixture = await createCompany('goal-measure-direction');
+  const propose = await proposer(fixture);
+  const churn = (measure: Record<string, unknown>) => ({
+    ...QUARTER_PLAN[3], slug: 'q1-churn', statement: 'Fewer cafes leave.', doneWhen: undefined,
+    measure: { name: 'Churn', unit: 'percent', direction: 'down', target: 5, ...measure },
+  });
+  // Lower is better from 0 to 5 reads a worse number as more progress.
+  await assert.rejects(propose({ plan: [churn({})], why: 'y' }),
+    /line 1 \(q1-churn\): a measure where lower is better says where it stands now: give it a baseline above its target/);
+  await assert.rejects(propose({ plan: [churn({ baseline: 2 })], why: 'y' }),
+    /line 1 \(q1-churn\): a measure where lower is better starts above its target; baseline 2 is below target 5/);
+  await assert.rejects(propose({ plan: [churn({ direction: 'up', baseline: 8 })], why: 'y' }),
+    /line 1 \(q1-churn\): a measure where higher is better starts below its target; baseline 8 is above target 5/);
+
+  // The owner's own paths hold the same rule, naming the field.
+  const refusedOn = (field: string) => (error: unknown) =>
+    isPalugadaError(error, 'contract.violation') && (error as { details?: { field?: string } }).details?.field === field;
+  await assert.rejects(defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'churn', name: 'Churn', unit: 'percent', direction: 'down', target: 5,
+  }), refusedOn('baseline'));
+  const made = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'churn', name: 'Churn', unit: 'percent', direction: 'down', baseline: 10, target: 5,
+  });
+  await assert.rejects(changeMetric(fixture.companyId, made, { direction: 'up' }), refusedOn('direction'));
+  await assert.rejects(changeMetric(fixture.companyId, made, { target: 12 }), refusedOn('target'));
+  await changeMetric(fixture.companyId, made, { direction: 'up', baseline: 2, target: 12 });
+});
+
 test('a plan\'s measure is never paired with one already paired, nor named as a retired one (F18.7)', async () => {
   const fixture = await createCompany('goal-plan-pairs');
   const propose = await proposer(fixture);

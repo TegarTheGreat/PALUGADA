@@ -24,6 +24,8 @@ import { ensureWeeklyMeeting } from '../../src/engine/meeting.ts';
 import { fileIssue, openTicket, solveIssue } from '../../src/engine/tickets.ts';
 import { applyGoalChange, createGoal } from '../../src/domain/goals.ts';
 import { defineMetric } from '../../src/domain/metrics.ts';
+import { fiscalQuarterOf } from '../../src/domain/fiscal.ts';
+import { gradeReportOf } from '../../src/domain/grades.ts';
 import { appointCeo } from '../../src/governance/ceo.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { structureOf } from '../../src/owner/views.ts';
@@ -225,6 +227,29 @@ test('a line off track last week is on the issues list before the meeting is mad
   const recurred = await withTenant(fixture.companyId, (tx) => tx.query(
     "SELECT 1 FROM events WHERE type = 'issue.recurred' AND payload->>'ticketId' = $1", [issue!.id]));
   assert.equal(recurred.rowCount, 1);
+});
+
+test('the meeting\'s to-do rate and the quarter\'s are one count: due in the window, done or not, a dropped one left out', async () => {
+  const fixture = await createCompany('meeting-todo-rate');
+  await inJakarta(fixture);
+  const at = mondayInJakarta(1, 9);
+  const friday = dayInJakarta(new Date(at.getTime() - 3 * DAY));
+  const filed: string[] = [];
+  for (const title of ['Call the roaster', 'Book the fair']) {
+    filed.push((await withTenant(fixture.companyId, (tx) => openTicket(tx, {
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title, dueOn: friday, openedBy: 'owner', outside: false,
+    }))).ticket.id);
+  }
+  // One done; the owner dropped the other.
+  await withControlPlane((tx) => tx.query("UPDATE tickets SET status = 'done', closed_at = now() WHERE id = $1", [filed[0]]));
+  await withControlPlane((tx) => tx.query("UPDATE tickets SET status = 'closed', closed_at = now() WHERE id = $1", [filed[1]]));
+
+  assert.ok(await ensureWeeklyMeeting(fixture.companyId, at));
+  const facts = (await meetings(fixture))[0]!.input.facts;
+  assert.deepEqual([facts.todos.due, facts.todos.done, facts.todos.completionRate], [1, 1, 1]);
+  const quarter = fiscalQuarterOf(friday, 1);
+  const report = await withTenant(fixture.companyId, (tx) => gradeReportOf(tx, fixture.companyId, { from: quarter.startsOn, to: quarter.endsOn }, at));
+  assert.deepEqual(report.numbers.todos, { due: 1, done: 1, completionRate: 1 }, 'the plan page reads the same week alike');
 });
 
 test('the meeting lists each to-do done or not, and one not done at two meetings in a row is an issue', async () => {

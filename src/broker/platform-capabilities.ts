@@ -763,7 +763,7 @@ const PLAN_LINE_SCHEMA = {
         name: { type: 'string' },
         unit: { enum: ['currency', 'count', 'ratio', 'percent'] },
         direction: { enum: ['up', 'down'], description: 'Which way is better; up when left out.' },
-        baseline: { type: 'number', description: 'Where it stands now; 0 when left out.' },
+        baseline: { type: 'number', description: 'Where it stands now; 0 when left out, except where lower is better, which needs one above its target.' },
         target: { type: 'number' },
         pair: { type: 'string', description: 'The measure it is watched with, by its slug: one with no pair yet, or an earlier line\'s.' },
       },

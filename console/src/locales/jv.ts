@@ -2652,6 +2652,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "tugas ingkang ndamel",
   "the template": "cithakan",
   "the ticket it was given": "tiket ingkang dipunparingaken",
+  "the to-do it was given": "tindakan ingkang dipunparingaken",
   "the week it was handed": "minggu ingkang dipunpasrahaken",
   "the month it was handed": "wulan ingkang dipunpasrahaken",
   "the tickets it was given": "tiket-tiket ingkang dipunparingaken",

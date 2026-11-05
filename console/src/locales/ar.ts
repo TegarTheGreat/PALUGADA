@@ -2632,6 +2632,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "المهمة التي أنشأته",
   "the template": "القالب",
   "the ticket it was given": "التذكرة التي أُسندت إليه",
+  "the to-do it was given": "المهمة الصغيرة التي أُسندت إليه",
   "the week it was handed": "الأسبوع الذي سُلِّم إليه",
   "the month it was handed": "الشهر الذي سُلِّم إليه",
   "the tickets it was given": "التذاكر التي أُسندت إليه",

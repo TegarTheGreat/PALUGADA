@@ -2654,6 +2654,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "งานที่สร้างขึ้น",
   "the template": "เทมเพลต",
   "the ticket it was given": "ทิกเก็ตที่ได้รับมอบหมาย",
+  "the to-do it was given": "งานที่ต้องทำที่ได้รับมอบหมาย",
   "the week it was handed": "สัปดาห์ที่ได้รับมอบ",
   "the month it was handed": "เดือนที่ได้รับมอบ",
   "the tickets it was given": "ทิกเก็ตต่าง ๆ ที่ได้รับมอบหมาย",

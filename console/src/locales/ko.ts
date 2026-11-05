@@ -2632,6 +2632,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "이것을 만든 작업",
   "the template": "템플릿",
   "the ticket it was given": "맡은 티켓",
+  "the to-do it was given": "맡은 할 일",
   "the week it was handed": "넘겨받은 주",
   "the month it was handed": "넘겨받은 달",
   "the tickets it was given": "맡은 티켓들",

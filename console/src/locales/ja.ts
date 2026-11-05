@@ -2630,6 +2630,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "これを作成したタスク",
   "the template": "テンプレート",
   "the ticket it was given": "任されたチケット",
+  "the to-do it was given": "任された行動",
   "the week it was handed": "渡された週",
   "the month it was handed": "渡された月",
   "the tickets it was given": "任された一連のチケット",

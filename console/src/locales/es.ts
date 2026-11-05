@@ -2635,6 +2635,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "la tarea que la creó",
   "the template": "la plantilla",
   "the ticket it was given": "la solicitud que se le asignó",
+  "the to-do it was given": "la tarea que se le asignó",
   "the week it was handed": "la semana que se le entregó",
   "the month it was handed": "el mes que se le entregó",
   "the tickets it was given": "las solicitudes que se le asignaron",

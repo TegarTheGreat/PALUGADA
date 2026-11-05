@@ -2659,6 +2659,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "nhiệm vụ đã tạo ra nó",
   "the template": "mẫu",
   "the ticket it was given": "phiếu việc được giao",
+  "the to-do it was given": "việc cần làm được giao",
   "the week it was handed": "tuần được giao",
   "the month it was handed": "tháng được giao",
   "the tickets it was given": "các phiếu việc được giao",

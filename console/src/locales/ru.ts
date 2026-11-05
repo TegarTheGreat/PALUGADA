@@ -2639,6 +2639,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "задача, которая её создала",
   "the template": "шаблон",
   "the ticket it was given": "порученная ей заявка",
+  "the to-do it was given": "порученное ей действие",
   "the week it was handed": "переданная ей неделя",
   "the month it was handed": "переданный ей месяц",
   "the tickets it was given": "порученные ей заявки",

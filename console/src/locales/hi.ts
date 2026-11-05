@@ -2605,6 +2605,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "जिस कार्य ने इसे बनाया",
   "the template": "टेम्पलेट",
   "the ticket it was given": "इसे दिया गया टिकट",
+  "the to-do it was given": "इसे दिया गया काम",
   "the week it was handed": "इसे सौंपा गया सप्ताह",
   "the month it was handed": "इसे सौंपा गया महीना",
   "the tickets it was given": "इसे दिए गए टिकट",

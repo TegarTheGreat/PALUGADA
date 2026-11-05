@@ -2621,6 +2621,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "创建它的任务",
   "the template": "模板",
   "the ticket it was given": "分配给它的工单",
+  "the to-do it was given": "分配给它的待办事项",
   "the week it was handed": "交给它的那一周",
   "the month it was handed": "交给它的那个月",
   "the tickets it was given": "分配给它的那些工单",

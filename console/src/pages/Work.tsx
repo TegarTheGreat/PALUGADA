@@ -616,6 +616,7 @@ function outsideLabel(name: string): string {
   if (name === 'the task it reruns') return t('the task it reruns');
   if (name === 'the ticket it was given') return t('the ticket it was given');
   if (name === 'the tickets it was given') return t('the tickets it was given');
+  if (name === 'the to-do it was given') return t('the to-do it was given');
   if (name === 'the escalation it was given') return t('the escalation it was given');
   if (name === 'the week it was handed') return t('the week it was handed');
   if (name === 'the month it was handed') return t('the month it was handed');

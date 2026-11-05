@@ -2636,6 +2636,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "de taak die haar heeft aangemaakt",
   "the template": "het sjabloon",
   "the ticket it was given": "het ticket dat ze kreeg",
+  "the to-do it was given": "de actie die ze kreeg",
   "the week it was handed": "de week die ze kreeg",
   "the month it was handed": "de maand die ze kreeg",
   "the tickets it was given": "de tickets die ze kreeg",

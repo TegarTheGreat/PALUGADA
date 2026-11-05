@@ -2661,6 +2661,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "onu oluşturan görev",
   "the template": "şablon",
   "the ticket it was given": "verilen talep",
+  "the to-do it was given": "verilen yapılacak iş",
   "the week it was handed": "verilen hafta",
   "the month it was handed": "verilen ay",
   "the tickets it was given": "verilen talepler",

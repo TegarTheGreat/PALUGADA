@@ -2615,6 +2615,7 @@ export const DICTIONARY: Dictionary = {
   "the task that made it": "ang gawaing gumawa nito",
   "the template": "ang template",
   "the ticket it was given": "ang ticket na ibinigay dito",
+  "the to-do it was given": "ang gawaing ibinigay dito",
   "the week it was handed": "ang linggong ibinigay dito",
   "the month it was handed": "ang buwang ibinigay dito",
   "the tickets it was given": "ang mga ticket na ibinigay dito",

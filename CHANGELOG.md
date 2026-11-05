@@ -866,3 +866,17 @@ The first version. What it holds, in the order an owner meets it.
 - **How work came to carry outside content is said in your language**: "the
   week it was handed", "the month it was handed" and "the tickets it was
   given" reached the trace's warning in English (F8.9; STATUS 2.199).
+
+- **Core processes** (F18.14). A switched-on skill can be named one of the
+  company's core processes, with the one seat that keeps it current: from
+  the skill's **Core process** tab on **Skills**. Every run of that seat is
+  told which it owns and to read them before that work. The Team chart lists
+  each with its seat, when it last changed (marked once a quarter has gone
+  by), and the share of its seat's division's runs that read it over the
+  last thirty days. Fewer than five, more than twelve, or one longer than
+  sixty lines is warned of and refuses nothing. The database holds a core
+  process to one seat of its own company, only the owner may name one, and
+  the archive carries both (STATUS 2.201).
+- Every `skill.read` a run makes is now recorded on its task, naming the
+  skill, so the company can see which procedures its work follows
+  (STATUS 2.201).

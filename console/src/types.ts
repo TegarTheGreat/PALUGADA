@@ -312,6 +312,42 @@ export interface Structure {
     /** An accountability two or more seats claim in the same words, as the first of them wrote it. */
     sharedAccountabilities: Array<{ accountability: string; roleIds: string[] }>;
   };
+  /** The core processes (F18.14, migration 0143), with how far each is followed over the window. */
+  coreProcesses: CoreProcesses;
+}
+
+/** A warning about the core processes: shown, never refused (src/skills/core.ts). */
+export type CoreProcessWarning =
+  | { kind: 'fewer_than_five'; count: number }
+  | { kind: 'more_than_twelve'; count: number }
+  | { kind: 'longer_than_sixty_lines'; slug: string; lines: number };
+
+export interface CoreProcess {
+  skillId: string;
+  slug: string;
+  summary: string;
+  ownerRoleId: string;
+  ownerRole: string;
+  divisionId: string;
+  activeVersion: number | null;
+  /** When the version the runs follow was switched on. */
+  updatedAt: string;
+  ageDays: number;
+  /** Not changed in a quarter. */
+  stale: boolean;
+  lines: number;
+  /** Runs of the seat's division in the window, and how many of them read the process. */
+  runs: number;
+  followedRuns: number;
+  /** Null where the division ran nothing in the window. */
+  followedShare: number | null;
+}
+
+export interface CoreProcesses {
+  windowDays: number;
+  since: string;
+  processes: CoreProcess[];
+  warnings: CoreProcessWarning[];
 }
 
 export type WorkGroup = 'active' | 'waiting' | 'done' | 'stopped';
@@ -534,6 +570,10 @@ export interface Skill {
   origin: string | null;
   activeVersion: number | null;
   checks: number;
+  /** One of the company's core processes (F18.14), and the seat that owns it. */
+  core: boolean;
+  ownerRoleId: string | null;
+  ownerRole: string | null;
   latest: SkillVersion | null;
 }
 

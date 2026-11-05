@@ -166,6 +166,7 @@ import {
   setSkillScope,
   type SkillScopeTarget,
 } from '../skills/skills.ts';
+import { markCoreProcess } from '../skills/core.ts';
 import { installBundle, latestBundleVersion, verifyInstall } from '../bundles/bundle.ts';
 import {
   listTrustedPublishers,
@@ -5666,6 +5667,25 @@ export class OwnerApi {
             ownerApproved: true,
           });
           return { ok: true };
+        },
+      },
+
+      {
+        // F18.14: one of the company's core processes, and the seat that
+        // owns it, or no longer one. No second factor: it puts no new text
+        // in front of any run, since the skill was already switched on with
+        // the factor, and it is undone the same way. The soft limit comes
+        // back as warnings, never as a refusal.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/:skillId/core',
+        handle: async ({ params, body }) => {
+          if (typeof body.core !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'core must be true or false', { field: 'core' });
+          }
+          return markCoreProcess(params.companyId!, params.skillId!, {
+            core: body.core,
+            roleId: typeof body.roleId === 'string' && body.roleId.trim() ? body.roleId.trim() : null,
+          });
         },
       },
 

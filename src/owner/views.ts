@@ -17,6 +17,7 @@ import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalWarning } from '../domain/goals.ts';
 import type { ChannelSlug } from '../domain/channels.ts';
 import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
+import { coreProcessesOf, type CoreProcessesReport } from '../skills/core.ts';
 import { withTenant } from '../db/tenant.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -112,6 +113,8 @@ export interface StructureView {
   }>;
   /** What the chart warns of (F18.3): a seat with no accountabilities, and one two seats claim. */
   seatChecks: SeatChecks;
+  /** The core processes (F18.14, 0143): each with its seat, its age and how far its division follows it. */
+  coreProcesses: CoreProcessesReport;
 }
 
 /** The company's shape: goal ladder, divisions with their grants, roles. */
@@ -186,6 +189,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     );
 
     const metrics = await metricsIn(tx);
+    const coreProcesses = await coreProcessesOf(tx, companyId);
 
     // Rolled up the ladder: a goal counts its own tasks and every goal's under it.
     const own = new Map(goalWork.rows.map((row) => [row.goal_id, row]));
@@ -281,6 +285,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         accountabilities: role.accountabilities,
       })),
       seatChecks: seatChecksOf(roles.rows),
+      coreProcesses,
     };
   });
 }
@@ -1334,6 +1339,10 @@ export interface SkillView {
   origin: string | null;
   activeVersion: number | null;
   checks: number;
+  /** One of the company's core processes (F18.14, 0143), and the seat that owns it. */
+  core: boolean;
+  ownerRoleId: string | null;
+  ownerRole: string | null;
   /** The newest version, whatever became of it: what the owner is waiting on, or what was turned down. */
   latest: SkillVersionView | null;
 }
@@ -1375,15 +1384,16 @@ export async function skillsOf(companyId: string, options: { divisionId?: string
     const { rows } = await tx.query<RawSkillVersion & {
       skill_id: string; slug: string; summary: string; scope_type: string; scope_id: string | null;
       division_name: string | null; quarantined: boolean; origin: string | null; active_version: number | null;
-      checks: number; version_id: string | null;
+      checks: number; version_id: string | null; core: boolean; owner_role_id: string | null; owner_role: string | null;
     }>(
       `SELECT s.id AS skill_id, s.slug, s.summary, s.scope_type, s.scope_id, d.name AS division_name,
-              s.quarantined, s.origin, s.active_version,
+              s.quarantined, s.origin, s.active_version, s.core, s.owner_role_id, r.slug AS owner_role,
               (SELECT count(*)::int FROM skill_evals e WHERE e.skill_id = s.id) AS checks,
               v.id, v.id AS version_id, v.version, v.state, v.author, v.changelog, v.created_at,
               v.reviewed_at, v.review_note, v.review_task_id, v.rejected_reason, v.activated_at
          FROM skills s
          LEFT JOIN divisions d ON d.id = s.scope_id
+         LEFT JOIN roles r ON r.company_id = s.company_id AND r.id = s.owner_role_id
          LEFT JOIN LATERAL (SELECT * FROM skill_versions sv WHERE sv.skill_id = s.id
                              ORDER BY sv.version DESC LIMIT 1) v ON true
         WHERE ($1::uuid IS NULL OR s.scope_type <> 'division' OR s.scope_id = $1)
@@ -1400,6 +1410,9 @@ export async function skillsOf(companyId: string, options: { divisionId?: string
       origin: row.origin,
       activeVersion: row.active_version,
       checks: row.checks,
+      core: row.core,
+      ownerRoleId: row.owner_role_id,
+      ownerRole: row.owner_role,
       latest: row.version_id ? versionView(row) : null,
     }));
   });

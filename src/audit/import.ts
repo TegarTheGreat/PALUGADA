@@ -228,7 +228,8 @@ const SECTIONS: ImportSection[] = [
   {
     name: 'skills',
     table: 'skills',
-    references: ['scope_id'],
+    // A core process names the seat that owns it (0143); the roles come first.
+    references: ['scope_id', 'owner_role_id'],
     // `quarantined` travels as it was, and the destination's own gate is
     // applied afterwards instead of here. Forcing it true looked like the
     // stricter choice and was not: 0026 refuses a quarantined skill that is

@@ -38,6 +38,7 @@ import { Charters } from '../components/Charters.tsx';
 import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { openGoals } from '../goals.ts';
+import { CoreProcessesPanel } from '../components/CoreProcesses.tsx';
 
 export function Organization({ ctx, route }: PageProps) {
   const { companyId } = ctx;
@@ -93,6 +94,7 @@ export function Organization({ ctx, route }: PageProps) {
         <Tabs.Panel value="chart">
           <Grow companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
           <SeatWarnings structure={structure} openRole={setRole} />
+          <CoreProcessesPanel report={structure.coreProcesses} roles={structure.roles} openRole={setRole} />
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
@@ -664,6 +666,15 @@ function RoleDrawer({
                 {role.accountabilities.map((line) => <List.Item key={line}>{line}</List.Item>)}
               </List>
             ) : <Text size="sm" c="orange">{t('Nothing yet. Say what this seat answers for, so work about it comes here.')}</Text>}
+            {structure.coreProcesses.processes.some((process) => process.ownerRoleId === role.id) && (
+              <>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mt="md" mb={6}>{t('Core processes it owns')}</Text>
+                <List size="sm" spacing={4}>
+                  {structure.coreProcesses.processes.filter((process) => process.ownerRoleId === role.id)
+                    .map((process) => <List.Item key={process.skillId}>{process.slug}</List.Item>)}
+                </List>
+              </>
+            )}
           </Paper>
           <div>
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>{t('Tools')}</Text>

@@ -2028,3 +2028,50 @@ them: the strategist holds **ledger.read** and its division has the grant. If
 you take either away under **Team**, the review stops and its schedule says
 which is missing, rather than hand the books to a role that may not read
 them.
+
+### Name the core processes and who keeps each
+
+A core process is one of the handful of ways the company works -- how it
+sells, how it delivers, how it keeps a customer, how it pays and is paid --
+written down as a skill and owned by one seat that keeps it current. This
+follows the process part of *Traction* by Gino Wickman: name a handful,
+write each down at about a fifth of the detail that drives most of the
+result, and see that the work follows them.
+
+A core process is a skill that is already switched on, so it has passed its
+checks, a reviewer and you (see **Skills**). To name one:
+
+1. On **Skills**, open the skill and its **Core process** tab.
+2. Choose its **Owning seat** and press **Make it a core process**. The
+   seats offered are those whose runs can read the skill: every seat for a
+   skill the whole company reads, and the seats of its division for one
+   division's.
+3. To move it, choose another seat and press **Give it this seat**. To let it
+   go, press **No longer a core process**.
+
+No authenticator is asked for: naming one puts no new text in front of any
+run, since the skill was switched on with it.
+
+Every run of the owning seat is told which core processes it owns and to read
+each with `skill.read` before it does that work. When a process no longer
+says how the work is really done, the seat says what should change, and the
+new version you write on the skill's **Change it** tab goes through its
+checks, a reviewer and you before any run follows it.
+
+On **Team**, **Divisions & roles**, the **Core processes** panel lists each
+one with its seat, when its version was last switched on, and how much of the
+work follows it: the share of the runs of its seat's division, over the last
+thirty days, that read it. *Not changed in a quarter* marks one whose version
+is older than ninety days, for the next quarterly planning to look at. A
+seat's own drawer lists the processes it owns.
+
+Two things are warned of, there and on **Skills**, and neither is refused:
+
+- fewer than five core processes, or more than twelve. The method's own
+  pages disagree (five to twelve on one, six to ten on another), so the wider
+  range is the one used;
+- a process longer than sixty lines, about two pages: the rest of the detail
+  belongs in the work, not the process.
+
+The method's names for these tools are marks of EOS Worldwide, and PALUGADA
+uses its own.

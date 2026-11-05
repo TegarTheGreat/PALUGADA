@@ -229,6 +229,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "没有席位负责的关键结果：",
   "Last weekly operating meeting: {week}": "最近一次每周运营会议：{week}",
   "Missed": "未达成",
+  "You marked it met, so it counts as done whatever its numbers say.": "你已将其标记为已达成，所以无论数字如何都算作完成。",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "每周运营会议已关闭，所以 CEO 也不做季度规划。",
   "No weekly operating meeting yet.": "还没有每周运营会议。",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "每周一次，在公司时区的这个时间，CEO 回顾记分卡、季度优先事项、待办和问题，并解决最重要的问题。没有可回顾内容的一周不产生任何花费。",
   "Predicted {predicted}, came to {actual}": "预测 {predicted}，实际 {actual}",

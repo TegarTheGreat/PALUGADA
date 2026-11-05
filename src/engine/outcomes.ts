@@ -325,7 +325,7 @@ function briefFor(owed: Owed, readers: Array<{ slug: string; self: boolean }>, l
  * being behind says something about the quarter rather than its first days.
  */
 const OFF_PACE_FROM = 0.25;
-/** The most priorities one look reads, as the weekly meeting reads them. */
+/** The most priorities one read takes; the sweep reads page after page until none is left. */
 const OFF_PACE_PRIORITIES = 15;
 
 /**
@@ -340,6 +340,10 @@ const OFF_PACE_PRIORITIES = 15;
  * it (F2.1) is an agent asked to catch the number up, which is the risk the
  * card exists to put to the owner instead. Once a period even after the
  * owner has answered, since the answer was about this period.
+ *
+ * Every committed priority is read, a page at a time: a bound on how many
+ * are judged would hide for good the ones that come after it, since the
+ * same ones come first on every tick.
  */
 export async function ensureOffPace(companyId: string, now = new Date()): Promise<number> {
   return withTenant(companyId, async (tx) => {
@@ -347,8 +351,12 @@ export async function ensureOffPace(companyId: string, now = new Date()): Promis
       'SELECT timezone, stage FROM companies WHERE id = $1', [companyId]);
     if (!company[0] || company[0].stage === 'wind_down') return 0;
     const { day } = dayIn(company[0].timezone, now);
-    const { items } = await prioritiesOnPace(tx, companyId, { day, now, limit: OFF_PACE_PRIORITIES });
-    const behind = items.filter((one) => one.commitment === 'committed' && one.why === 'behind' && one.elapsed >= OFF_PACE_FROM);
+    const behind: Awaited<ReturnType<typeof prioritiesOnPace>>['items'] = [];
+    for (let offset = 0; ; offset += OFF_PACE_PRIORITIES) {
+      const { items } = await prioritiesOnPace(tx, companyId, { day, now, limit: OFF_PACE_PRIORITIES, offset, commitment: 'committed' });
+      behind.push(...items.filter((one) => one.why === 'behind' && one.elapsed >= OFF_PACE_FROM));
+      if (items.length < OFF_PACE_PRIORITIES) break;
+    }
     let raised = 0;
     for (const priority of behind) {
       const once = `off-pace:${priority.id}:${priority.dueOn}`;

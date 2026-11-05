@@ -240,6 +240,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "책임지는 자리가 없는 핵심 결과:",
   "Last weekly operating meeting: {week}": "최근 주간 운영 회의: {week}",
   "Missed": "미달",
+  "You marked it met, so it counts as done whatever its numbers say.": "달성으로 표시했으므로 수치가 무엇을 말하든 완료로 셉니다.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "주간 운영 회의가 꺼져 있어 CEO는 분기 계획도 하지 않습니다.",
   "No weekly operating meeting yet.": "아직 주간 운영 회의가 없습니다.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "일주일에 한 번, 회사 시간대의 이 시각에 CEO가 스코어카드, 분기 우선순위, 할 일, 이슈를 검토하고 가장 중요한 이슈를 해결합니다. 검토할 것이 없는 주에는 비용이 들지 않습니다.",
   "Predicted {predicted}, came to {actual}": "예측 {predicted}, 실제 {actual}",

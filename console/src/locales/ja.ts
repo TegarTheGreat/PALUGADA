@@ -238,6 +238,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "責任を持つ席がない主要な成果：",
   "Last weekly operating meeting: {week}": "最新の週次運営会議：{week}",
   "Missed": "未達",
+  "You marked it met, so it counts as done whatever its numbers say.": "達成済みにしたので、数値が何を示していても完了として数えます。",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "週次運営会議がオフなので、CEO は四半期計画も行いません。",
   "No weekly operating meeting yet.": "週次運営会議はまだありません。",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "週に一度、会社のタイムゾーンでこの時刻に、CEO がスコアカード、四半期の優先事項、やること、課題を確認し、上位の課題を解決します。確認することのない週は費用がかかりません。",
   "Predicted {predicted}, came to {actual}": "予測 {predicted}、実績 {actual}",

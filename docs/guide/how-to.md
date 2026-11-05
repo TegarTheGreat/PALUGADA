@@ -2263,6 +2263,9 @@ records, and no agent can write a grade.
      with no measure of its own is graded from its key results' measures;
    - a goal with no number scores 1 if you marked it met by then, and 0 if
      not;
+   - a goal with measures that you marked met by then scores 1 whatever its
+     readings say, since you may know it was reached before its source
+     records it. Its tooltip says you marked it met;
    - a **committed** goal is done or missed: 1 only when it was reached in
      full. A miss is filed as a postmortem on this week's issues list, for the
      weekly operating meeting;
@@ -2288,8 +2291,8 @@ records, and no agent can write a grade.
 4. **Quarterly planning.** Ten days before the quarter's last day, the CEO is
    handed the quarter's facts, read from the records: the grades so far, the
    share of priorities done against the aim of 80%, the committed pass rate,
-   the aspirational average, the share of to-dos finished within seven days,
-   this year's goals, the long-term issues list, thirteen weeks of the
+   the aspirational average, the share of to-dos finished within seven days
+   (a to-do still inside its week is not counted yet), this year's goals, the long-term issues list, thirteen weeks of the
    weekly scorecard, the vision from the company's charter, and the core
    processes not changed in ninety days. It reviews the quarter, keeps,
    kills or combines the candidate priorities down to at most seven, each
@@ -2303,9 +2306,13 @@ records, and no agent can write a grade.
    same plan carries next year's goals, with the priorities under them.
 
 A company winding down, one with nothing to plan (no goal under the mission,
-no grade this year and no long-term issue), and a deployment with no model
-get no planning. If the platform is stopped for all ten days, that quarter
-has none.
+no grade this year and no long-term issue), one whose weekly operating
+meeting is not held (**Settings**, **Company**, **Weekly operating meeting**,
+**Held** set to **Off**), and a deployment with no model get no planning: the meeting's switch stops the CEO's whole
+rhythm, so turning it off stops its spending too. Moving the fiscal year's
+start does not skip a quarter: each planning belongs to its quarter's dates,
+not its name. If the platform is stopped for all ten days, that quarter has
+none.
 
 From a script, `POST /api/companies/:companyId/fiscal-year` takes
 `startMonth`, 1 to 12.

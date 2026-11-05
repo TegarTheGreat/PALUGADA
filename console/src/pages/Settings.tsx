@@ -220,7 +220,8 @@ function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest
 /**
  * Where the company's fiscal year starts (F18.9, 0144). Its quarters are cut
  * from it, and the CEO plans each next one ten days before this one ends,
- * the next year with it in the last quarter.
+ * the next year with it in the last quarter. The weekly meeting's switch is
+ * the CEO's whole rhythm, so with it off the form says no planning is made.
  */
 function FiscalYear({ ctx }: { ctx: ConsoleContext }) {
   const { companyId, company } = ctx;
@@ -239,6 +240,9 @@ function FiscalYear({ ctx }: { ctx: ConsoleContext }) {
         submit={(values) => api('POST', `/api/companies/${companyId}/fiscal-year`, { startMonth: Number(values.startMonth) })}
         done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
       />
+      {!company.rhythm.enabled && (
+        <Text size="sm" c="dimmed" mt="xs">{t('The weekly operating meeting is off, so the CEO makes no quarterly planning either.')}</Text>
+      )}
     </Section>
   );
 }

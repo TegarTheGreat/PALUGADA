@@ -163,6 +163,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Key result yang tidak dipegang kursi mana pun:",
   "Last weekly operating meeting: {week}": "Rapat operasi mingguan terakhir: {week}",
   "Missed": "Meleset",
+  "You marked it met, so it counts as done whatever its numbers say.": "Anda menandainya tercapai, jadi ia dihitung selesai apa pun kata angka-angkanya.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Rapat operasi mingguan dimatikan, jadi CEO juga tidak membuat perencanaan kuartalan.",
   "No weekly operating meeting yet.": "Belum ada rapat operasi mingguan.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Sekali seminggu, pada jam ini di zona waktu perusahaan, CEO meninjau scorecard, prioritas kuartalan, tindakan, dan isu, lalu menyelesaikan isu teratas. Minggu tanpa apa pun untuk ditinjau tidak memakan biaya.",
   "Predicted {predicted}, came to {actual}": "Prediksi {predicted}, hasilnya {actual}",

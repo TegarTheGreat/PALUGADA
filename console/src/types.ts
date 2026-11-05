@@ -214,7 +214,8 @@ export interface GoalGrade {
   /** A learning goal's prediction and what happened. */
   predicted: number | null;
   actual: number | null;
-  note: 'no_reading' | 'from_key_results' | null;
+  /** How it was reached, where the score alone does not say; `marked_met` is your met over its numbers. */
+  note: 'no_reading' | 'from_key_results' | 'marked_met' | null;
   /** A committed goal passed or missed; null for any other. */
   passed: boolean | null;
 }

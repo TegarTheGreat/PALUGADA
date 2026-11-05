@@ -916,8 +916,18 @@ The first version. What it holds, in the order an owner meets it.
   goals for you to approve line by line. In the year's last quarter it plans
   next year's goals too. Choose the month the fiscal year starts in under
   Settings, Company, **Fiscal year**; January by default. A company winding
-  down, with nothing to plan, or on a deployment with no model makes none.
-  Archives carry the grades and the fiscal year (STATUS 2.196).
+  down, with nothing to plan, with its weekly operating meeting off, or on a
+  deployment with no model makes none. Archives carry the grades and the
+  fiscal year (STATUS 2.196).
+- A goal with measures that you marked met is graded met whatever its
+  readings say, with no postmortem, and the quarter's share of priorities
+  done reads a graded priority by its grade, as the committed pass rate
+  does. A to-do still inside its week is left out of the share finished
+  within seven days until its week is over or it is finished (STATUS 2.196).
+- Each quarterly planning belongs to its quarter's dates rather than its
+  name, so moving the start of the fiscal year cannot skip a quarter; and
+  every committed priority is judged for pace, however many priorities a
+  company holds (STATUS 2.196).
 - The stage gates in the operating kit (`company-os` 1.7.0) decide a pivot
   from the grade of a learning priority, its prediction beside what
   happened (STATUS 2.196).

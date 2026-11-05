@@ -144,7 +144,7 @@ export async function buildQuarterFacts(tx: TenantClient, companyId: string, pla
   quarter: FiscalQuarter;
 }): Promise<QuarterFacts> {
   const { now, day, quarter } = planning;
-  const report = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn });
+  const report = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn }, now);
 
   const { rows: gradeRows } = await tx.query<{
     slug: string; statement: string; kind: GoalKind; commitment: GoalCommitment | null; starts_on: string; due_on: string;

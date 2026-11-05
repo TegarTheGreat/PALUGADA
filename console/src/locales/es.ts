@@ -243,6 +243,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Resultados clave de los que no responde ningún puesto:",
   "Last weekly operating meeting: {week}": "Última reunión operativa semanal: {week}",
   "Missed": "No cumplida",
+  "You marked it met, so it counts as done whatever its numbers say.": "La marcaste como cumplida, así que cuenta como hecha digan lo que digan sus números.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "La reunión operativa semanal está desactivada, así que el CEO tampoco hace la planificación trimestral.",
   "No weekly operating meeting yet.": "Aún no hay ninguna reunión operativa semanal.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Una vez por semana, a esta hora en la zona horaria de la empresa, el CEO revisa el cuadro de mando, las prioridades del trimestre, los pendientes y los problemas, y resuelve los más importantes. Una semana sin nada que revisar no cuesta nada.",
   "Predicted {predicted}, came to {actual}": "Predicho {predicted}, llegó a {actual}",

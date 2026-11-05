@@ -262,6 +262,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "ผลลัพธ์หลักที่ไม่มีตำแหน่งใดรับผิดชอบ:",
   "Last weekly operating meeting: {week}": "การประชุมปฏิบัติการประจำสัปดาห์ครั้งล่าสุด: {week}",
   "Missed": "พลาด",
+  "You marked it met, so it counts as done whatever its numbers say.": "คุณทำเครื่องหมายว่าบรรลุแล้ว จึงนับว่าเสร็จไม่ว่าตัวเลขจะบอกอย่างไร",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "การประชุมปฏิบัติการประจำสัปดาห์ปิดอยู่ CEO จึงไม่ทำการวางแผนรายไตรมาสด้วย",
   "No weekly operating meeting yet.": "ยังไม่มีการประชุมปฏิบัติการประจำสัปดาห์",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "สัปดาห์ละครั้ง ในเวลานี้ตามเขตเวลาของบริษัท CEO จะทบทวนสกอร์การ์ด ลำดับความสำคัญรายไตรมาส สิ่งที่ต้องทำ และประเด็นต่าง ๆ แล้วแก้ประเด็นสำคัญที่สุด สัปดาห์ที่ไม่มีอะไรให้ทบทวนไม่มีค่าใช้จ่าย",
   "Predicted {predicted}, came to {actual}": "คาดการณ์ {predicted} ได้จริง {actual}",

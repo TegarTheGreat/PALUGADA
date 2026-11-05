@@ -1360,6 +1360,7 @@ function GradeLine({ grade }: { grade: GoalGrade }) {
     grade.basis === 'measured' ? t('Graded for {period}, from its numbers.', { period }) : t('Graded for {period}, by whether you marked it met.', { period }),
     ...(grade.note === 'no_reading' ? [t('A measure had no checked reading by the end, and counts as no progress.')] : []),
     ...(grade.note === 'from_key_results' ? [t('From the measures of the key results under it.')] : []),
+    ...(grade.note === 'marked_met' ? [t('You marked it met, so it counts as done whatever its numbers say.')] : []),
   ].join(' ');
   return (
     <Group gap={6} mt={6} ps={44}>

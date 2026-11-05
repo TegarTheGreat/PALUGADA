@@ -244,6 +244,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Kernresultaten waarvoor geen functie verantwoordelijk is:",
   "Last weekly operating meeting: {week}": "Laatste wekelijkse operationele overleg: {week}",
   "Missed": "Gemist",
+  "You marked it met, so it counts as done whatever its numbers say.": "Jij markeerde het als gehaald, dus het telt als gedaan, wat de cijfers ook zeggen.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Het wekelijks operationeel overleg staat uit, dus de CEO maakt ook geen kwartaalplanning.",
   "No weekly operating meeting yet.": "Nog geen wekelijks operationeel overleg.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Eens per week, op dit uur in de tijdzone van het bedrijf, bekijkt de CEO de scorecard, de kwartaalprioriteiten, de acties en de problemen, en lost de belangrijkste problemen op. Een week zonder iets te bekijken kost niets.",
   "Predicted {predicted}, came to {actual}": "Voorspeld {predicted}, uitgekomen op {actual}",

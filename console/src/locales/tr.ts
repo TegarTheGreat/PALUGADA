@@ -269,6 +269,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Hiçbir pozisyonun sorumlu olmadığı ana sonuçlar:",
   "Last weekly operating meeting: {week}": "Son haftalık operasyon toplantısı: {week}",
   "Missed": "Kaçırıldı",
+  "You marked it met, so it counts as done whatever its numbers say.": "Ulaşıldı olarak işaretledin, bu yüzden rakamları ne derse desin yapılmış sayılır.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Haftalık operasyon toplantısı kapalı, bu yüzden CEO çeyrek planlaması da yapmaz.",
   "No weekly operating meeting yet.": "Henüz haftalık operasyon toplantısı yok.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Haftada bir, şirketin saat diliminde bu saatte, CEO karneyi, çeyrek önceliklerini, yapılacakları ve sorunları gözden geçirir ve en öndeki sorunları çözer. Gözden geçirilecek bir şeyi olmayan hafta hiçbir şeye mal olmaz.",
   "Predicted {predicted}, came to {actual}": "Tahmin {predicted}, gerçekleşen {actual}",

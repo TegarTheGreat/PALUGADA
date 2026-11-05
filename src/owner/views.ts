@@ -200,8 +200,9 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     const coreProcesses = await coreProcessesOf(tx, companyId);
     // Each goal's latest grade (F18.8, 0144), with the numbers of the fiscal
     // quarter today is in where the company is.
-    const quarter = fiscalQuarterOf(dayIn(headline.rows[0]?.timezone ?? 'UTC', new Date()).day, headline.rows[0]?.fiscal ?? 1);
-    const graded = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn });
+    const now = new Date();
+    const quarter = fiscalQuarterOf(dayIn(headline.rows[0]?.timezone ?? 'UTC', now).day, headline.rows[0]?.fiscal ?? 1);
+    const graded = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn }, now);
     const gradeOf = new Map(graded.latest.map((grade) => [grade.goalId, grade]));
 
     // Rolled up the ladder: a goal counts its own tasks and every goal's under it.

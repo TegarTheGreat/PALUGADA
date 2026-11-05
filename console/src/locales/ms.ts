@@ -262,6 +262,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Hasil utama yang tiada jawatan bertanggungjawab:",
   "Last weekly operating meeting: {week}": "Mesyuarat operasi mingguan terakhir: {week}",
   "Missed": "Terlepas",
+  "You marked it met, so it counts as done whatever its numbers say.": "Anda menandakannya tercapai, jadi ia dikira selesai walau apa pun kata angkanya.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Mesyuarat operasi mingguan dimatikan, jadi CEO juga tidak membuat perancangan suku tahunan.",
   "No weekly operating meeting yet.": "Belum ada mesyuarat operasi mingguan.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Sekali seminggu, pada jam ini dalam zon waktu syarikat, CEO menyemak kad skor, keutamaan suku tahunan, tindakan dan isu, lalu menyelesaikan isu teratas. Minggu tanpa apa-apa untuk disemak tidak menelan kos.",
   "Predicted {predicted}, came to {actual}": "Ramalan {predicted}, hasilnya {actual}",

@@ -213,6 +213,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "मुख्य परिणाम जिनकी ज़िम्मेदारी किसी पद की नहीं:",
   "Last weekly operating meeting: {week}": "पिछली साप्ताहिक संचालन बैठक: {week}",
   "Missed": "चूक गया",
+  "You marked it met, so it counts as done whatever its numbers say.": "आपने उसे पूरा चिह्नित किया, इसलिए उसके आँकड़े कुछ भी कहें, वह पूरा गिना जाता है।",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "साप्ताहिक संचालन बैठक बंद है, इसलिए CEO तिमाही योजना भी नहीं बनाता।",
   "No weekly operating meeting yet.": "अभी तक कोई साप्ताहिक संचालन बैठक नहीं हुई।",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "सप्ताह में एक बार, कंपनी के समय क्षेत्र में इस घंटे पर, CEO स्कोरकार्ड, तिमाही प्राथमिकताओं, करने के कामों और मुद्दों की समीक्षा करता है, और सबसे ऊपर के मुद्दे सुलझाता है। जिस सप्ताह समीक्षा के लिए कुछ न हो, उसका कोई खर्च नहीं होता।",
   "Predicted {predicted}, came to {actual}": "अनुमान {predicted}, नतीजा {actual}",

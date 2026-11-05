@@ -223,6 +223,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Mga key result na walang posisyong may pananagutan:",
   "Last weekly operating meeting: {week}": "Huling lingguhang operating meeting: {week}",
   "Missed": "Hindi naabot",
+  "You marked it met, so it counts as done whatever its numbers say.": "Minarkahan mo itong naabot, kaya bilang itong tapos anuman ang sabihin ng mga numero nito.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Naka-off ang lingguhang operating meeting, kaya hindi rin gagawa ang CEO ng pagpaplano kada quarter.",
   "No weekly operating meeting yet.": "Wala pang lingguhang operating meeting.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Isang beses kada linggo, sa oras na ito sa time zone ng kumpanya, sinusuri ng CEO ang scorecard, ang mga quarterly priority, ang mga gagawin at ang mga isyu, at nilulutas ang mga pangunahing isyu. Walang gastos ang isang linggong walang dapat suriin.",
   "Predicted {predicted}, came to {actual}": "Hula {predicted}, umabot sa {actual}",

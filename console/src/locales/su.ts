@@ -268,6 +268,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Key result anu teu dicekel ku jabatan mana waé:",
   "Last weekly operating meeting: {week}": "Rapat operasi mingguan panungtungan: {week}",
   "Missed": "Lepat",
+  "You marked it met, so it counts as done whatever its numbers say.": "Anjeun nandaan éta kahontal, jadi diitung réngsé naon waé anu dicaritakeun ku angka-angkana.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Rapat operasi mingguan dipareuman, jadi CEO ogé henteu nyieun perencanaan kuartalan.",
   "No weekly operating meeting yet.": "Can aya rapat operasi mingguan.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Sakali saminggu, dina jam ieu dina zona waktu perusahaan, CEO mariksa scorecard, prioritas triwulanan, tindakan jeung pasualan, lajeng ngaréngsékeun pasualan pangluhurna. Minggu tanpa nanaon anu kudu dipariksa teu nyéépkeun biaya.",
   "Predicted {predicted}, came to {actual}": "Prediksi {predicted}, hasilna {actual}",

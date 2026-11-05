@@ -267,6 +267,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Kết quả then chốt không vị trí nào chịu trách nhiệm:",
   "Last weekly operating meeting: {week}": "Cuộc họp vận hành hằng tuần gần nhất: {week}",
   "Missed": "Trượt",
+  "You marked it met, so it counts as done whatever its numbers say.": "Bạn đã đánh dấu là đạt, nên nó được tính là xong dù số liệu nói gì.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Cuộc họp vận hành hằng tuần đang tắt, nên CEO cũng không lập kế hoạch quý.",
   "No weekly operating meeting yet.": "Chưa có cuộc họp vận hành hằng tuần nào.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Mỗi tuần một lần, vào giờ này theo múi giờ của công ty, CEO xem lại bảng điểm, các ưu tiên quý, việc cần làm và các vấn đề, rồi giải quyết những vấn đề hàng đầu. Một tuần không có gì để xem thì không tốn gì.",
   "Predicted {predicted}, came to {actual}": "Dự đoán {predicted}, thực tế {actual}",

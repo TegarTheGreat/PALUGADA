@@ -19,6 +19,13 @@
  *  - **Declared.** A goal with no number is 1 if the owner marked it met by
  *    the time it is graded, and 0 if not. Only the owner marks a goal met
  *    (F3.10), so an agent cannot declare itself done.
+ *  - **Marked met.** A measured goal the owner marked met by the time it is
+ *    graded is 1 whatever its readings say (`marked_met`). The owner can
+ *    know what a source records only later -- a sale on the last day that
+ *    lands the morning after -- and a met goal graded 0 would be a "Missed"
+ *    on the ladder beside it, and a postmortem, for a goal the owner closed.
+ *    Only the owner's yes marks a goal met: an agent can only propose it, and
+ *    its proposal is refused while a checked reading is short (goals.ts).
  *  - **Committed** is pass or fail: 1 only when the goal was reached in full,
  *    else 0. 0.8 of a committed priority is a miss, and is filed as one.
  *  - **Aspirational** keeps its score, read against the 0.6 to 0.7 both OKR
@@ -38,7 +45,7 @@ import type { GoalCommitment, GoalKind, GoalStatus } from './goals.ts';
 
 export type GradeBasis = 'measured' | 'declared';
 /** How a score was reached, where the score alone does not say. */
-export type GradeNote = 'no_reading' | 'from_key_results';
+export type GradeNote = 'no_reading' | 'from_key_results' | 'marked_met';
 
 export interface GoalGrade {
   goalId: string;
@@ -123,14 +130,19 @@ export async function gradeGoalWithin(
   if (measures.length === 0) {
     return { ...base, score: goal.status === 'met' ? 1 : 0, basis: 'declared', note: null, progress: null };
   }
+  const fromKeyResults = note === 'from_key_results';
   if (measures.some((one) => one.value === null) && note === null) note = 'no_reading';
   const progress = measures.map((one) => (one.value === null
     ? 0 : progressOf({ baseline: Number(one.baseline), target: Number(one.target) }, Number(one.value))));
   const average = progress.reduce((sum, one) => sum + one, 0) / progress.length;
-  const score = goal.commitment === 'committed' ? (progress.every((one) => one >= 1) ? 1 : 0) : round2(average);
+  const reached = goal.commitment === 'committed' ? (progress.every((one) => one >= 1) ? 1 : 0) : round2(average);
+  // The owner's met is the grade (see above); how far the numbers came stays in `progress`.
+  const marked = goal.status === 'met' && reached < 1;
+  const score = marked ? 1 : reached;
+  if (marked) note = 'marked_met';
   // The prediction is the goal's own first measure: an objective graded from
   // its key results predicted nothing itself.
-  const first = goal.commitment === 'learning' && note !== 'from_key_results' ? measures[0] : undefined;
+  const first = goal.commitment === 'learning' && !fromKeyResults ? measures[0] : undefined;
   return {
     ...base,
     score,
@@ -147,7 +159,11 @@ export interface GradeReport {
   from: string;
   to: string;
   numbers: {
-    /** The quarterly priorities due in the window, not abandoned, and how many are done: met, or graded a pass. */
+    /**
+     * The quarterly priorities due in the window, not abandoned, and how many
+     * are done: by its grade once one is graded, as the pass rate reads it,
+     * and by being met before that.
+     */
     priorities: { total: number; done: number; share: number | null; aim: number };
     /** The committed goals graded in the window, and how many passed. */
     committed: { graded: number; passed: number; passRate: number | null };
@@ -156,7 +172,11 @@ export interface GradeReport {
       graded: number; average: number | null; expected: readonly [number, number];
       reading: 'too_safe' | 'too_ambitious' | 'expected' | 'between' | null;
     };
-    /** The to-dos filed in the window, and how many were finished within seven days. */
+    /**
+     * The to-dos filed in the window whose week is over by `asOf`, or that
+     * were finished or dropped already, and how many were finished within
+     * seven days. One still open inside its week is neither.
+     */
     todos: { total: number; withinWeek: number; share: number | null };
   };
   /** Every goal's latest grade, whatever the window. */
@@ -189,14 +209,16 @@ const GRADE_COLUMNS = `goal_id, to_char(period_starts_on, 'YYYY-MM-DD') AS perio
 
 /**
  * The company-level numbers over a window of days (`from` to `to`, both
- * YYYY-MM-DD, inclusive) and each goal's latest grade: what quarterly
- * planning is handed (src/reporting/quarter.ts), what the goal ladder shows,
- * and what the plan page reads. Every statement names the company.
+ * YYYY-MM-DD, inclusive), as they stand at `asOf`, and each goal's latest
+ * grade: what quarterly planning is handed (src/reporting/quarter.ts), what
+ * the goal ladder shows, and what the plan page reads. Every statement names
+ * the company.
  */
 export async function gradeReportOf(
   tx: TenantClient,
   companyId: string,
   window: { from: string; to: string },
+  asOf: Date,
 ): Promise<GradeReport> {
   const { rows: inWindow } = await tx.query<RawGrade>(
     `SELECT ${GRADE_COLUMNS} FROM goal_grades
@@ -210,12 +232,14 @@ export async function gradeReportOf(
     ? round2(aspirational.reduce((sum, one) => sum + one.score, 0) / aspirational.length) : null;
 
   // A quarterly priority is a key result with a quarter's period (goals.ts).
+  // Once its period is graded, the grade says whether it was done, so this
+  // share and the committed pass rate never disagree about one priority; a
+  // goal marked met after its grade keeps the grade its period earned.
   const { rows: [priorities] } = await tx.query<{ total: number; done: number }>(
     `SELECT count(*)::int AS total,
-            count(*) FILTER (WHERE g.status = 'met' OR EXISTS (
-              SELECT 1 FROM goal_grades r
-               WHERE r.company_id = g.company_id AND r.goal_id = g.id AND r.period_due_on = g.due_on AND r.score >= 1))::int AS done
+            count(*) FILTER (WHERE coalesce(r.score >= 1, g.status = 'met'))::int AS done
        FROM goals g
+       LEFT JOIN goal_grades r ON r.company_id = g.company_id AND r.goal_id = g.id AND r.period_due_on = g.due_on
       WHERE g.company_id = $1 AND g.kind = 'key_result' AND g.status <> 'abandoned'
         AND g.starts_on IS NOT NULL AND g.due_on - g.starts_on <= 92
         AND g.due_on BETWEEN $2::date AND $3::date`,
@@ -223,13 +247,16 @@ export async function gradeReportOf(
 
   // A to-do is work with an issue it solves or a due date, as the board
   // counts one. A closed one was dropped, and is counted as not finished.
+  // One still open inside its week has neither kept nor broken its promise,
+  // and is left out, or the newest week's to-dos would always read as missed.
   const { rows: [todos] } = await tx.query<{ total: number; within: number }>(
     `SELECT count(*)::int AS total,
             count(*) FILTER (WHERE status = 'done' AND closed_at <= created_at + make_interval(days => $4::int))::int AS within
        FROM tickets
       WHERE company_id = $1 AND kind = 'work' AND (solves_ticket_id IS NOT NULL OR due_on IS NOT NULL)
-        AND created_at >= $2::date AND created_at < $3::date + 1`,
-    [companyId, window.from, window.to, TODO_DAYS]);
+        AND created_at >= $2::date AND created_at < $3::date + 1
+        AND (closed_at IS NOT NULL OR created_at + make_interval(days => $4::int) <= $5)`,
+    [companyId, window.from, window.to, TODO_DAYS, asOf]);
 
   const { rows: latest } = await tx.query<RawGrade>(
     `SELECT DISTINCT ON (goal_id) ${GRADE_COLUMNS} FROM goal_grades

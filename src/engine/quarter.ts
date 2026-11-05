@@ -26,12 +26,18 @@
  * one plan of new goals, proposed with `goal.propose` (goal-plans.ts), which
  * the owner approves line by line.
  *
- * It is gated as the meeting is (F9.10): not while the company winds down,
- * not where the deployment has no model (`holdsMeetings`), not while the
- * month's spending is paused or the CEO frozen, and not with nothing to plan
- * -- no goal under the mission, no grade this fiscal year and no long-term
- * issue. It is keyed `quarter:<fiscal year>-Q<n>` and made once, under a lock
- * on the key, by the platform, under the mission.
+ * It is gated as the meeting is (F9.10): not while the owner has the weekly
+ * operating meeting off (`meeting_enabled`, the one switch for the CEO's
+ * rhythm, so an owner who turned it off to stop the spending is not charged
+ * for a planning instead), not while the company winds down, not where the
+ * deployment has no model (`holdsMeetings`), not while the month's spending
+ * is paused or the CEO frozen, and not with nothing to plan -- no goal under
+ * the mission, no grade this fiscal year and no long-term issue. It is keyed
+ * by the quarter's own dates, `quarter:<first day>..<last day>`, not by its
+ * label: moving the fiscal year relabels the quarters, so a label such as
+ * 2026-Q1 can come round again in one calendar year for different months,
+ * and a key on it would skip that quarter's planning without a word. It is
+ * made once, under a lock on the key, by the platform, under the mission.
  */
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
@@ -56,12 +62,12 @@ const QUARTER_KEY = 'quarter:';
 
 /** The company's zone and today in it, its stage and where its fiscal year starts. */
 async function companyDay(tx: TenantClient, companyId: string, now: Date): Promise<{
-  timezone: string; day: string; stage: string | null; fiscalStart: number;
+  timezone: string; day: string; stage: string | null; fiscalStart: number; rhythm: boolean;
 } | null> {
-  const { rows } = await tx.query<{ timezone: string; stage: string | null; fiscal: number }>(
-    'SELECT timezone, stage, fiscal_year_start_month AS fiscal FROM companies WHERE id = $1', [companyId]);
+  const { rows } = await tx.query<{ timezone: string; stage: string | null; fiscal: number; rhythm: boolean }>(
+    'SELECT timezone, stage, fiscal_year_start_month AS fiscal, meeting_enabled AS rhythm FROM companies WHERE id = $1', [companyId]);
   if (!rows[0]) return null;
-  return { ...dayIn(rows[0].timezone, now), stage: rows[0].stage, fiscalStart: rows[0].fiscal };
+  return { ...dayIn(rows[0].timezone, now), stage: rows[0].stage, fiscalStart: rows[0].fiscal, rhythm: rows[0].rhythm };
 }
 
 /* ------------------------------------------------------------- grades --- */
@@ -169,10 +175,10 @@ interface Due {
  */
 async function planningDue(tx: TenantClient, companyId: string, now: Date): Promise<Due | null> {
   const today = await companyDay(tx, companyId, now);
-  if (!today || today.stage === 'wind_down') return null;
+  if (!today || !today.rhythm || today.stage === 'wind_down') return null;
   const quarter = fiscalQuarterOf(today.day, today.fiscalStart);
   if (daysBetween(today.day, quarter.endsOn) > PLANNING_DAYS_BEFORE) return null;
-  const key = `${QUARTER_KEY}${quarter.label}`;
+  const key = `${QUARTER_KEY}${quarter.startsOn}..${quarter.endsOn}`;
   const { rowCount } = await tx.query('SELECT 1 FROM tasks WHERE company_id = $1 AND idempotency_key = $2', [companyId, key]);
   if (rowCount !== 0) return null;
   const { rows } = await tx.query<{ any: boolean }>(
@@ -187,9 +193,9 @@ async function planningDue(tx: TenantClient, companyId: string, now: Date): Prom
 
 /**
  * The id of the planning made, or null when none is owed now: not the
- * window, planned already this quarter, winding down, nothing to plan, no
- * CEO who can take it, or a refusal (a paused month, a budget that cannot
- * cover it) that the next tick asks again.
+ * window, planned already this quarter, the rhythm off, winding down,
+ * nothing to plan, no CEO who can take it, or a refusal (a paused month, a
+ * budget that cannot cover it) that the next tick asks again.
  */
 export async function ensureQuarterlyPlanning(companyId: string, now = new Date()): Promise<string | null> {
   const due = await withTenant(companyId, (tx) => planningDue(tx, companyId, now));
@@ -197,7 +203,7 @@ export async function ensureQuarterlyPlanning(companyId: string, now = new Date(
   if (await isSpendPaused(companyId, now)) return null;
   try {
     return await withTenant(companyId, async (tx) => {
-      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`quarter:${companyId}:${due.quarter.label}`]);
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${companyId}:${due.key}`]);
       const { rowCount } = await tx.query('SELECT 1 FROM tasks WHERE company_id = $1 AND idempotency_key = $2', [companyId, due.key]);
       if (rowCount !== 0) return null;
 

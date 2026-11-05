@@ -146,9 +146,13 @@ function dayAfter(day: string, days: number): string {
  * pace for both, so the owner is never told a priority is off pace that the
  * meeting called on pace. A quarter is read from a period's length, as
  * goals.ts reads it.
+ *
+ * `commitment` keeps only priorities of that commitment and `offset` skips
+ * that many, so the outcome sweep can page through every committed one
+ * rather than judge only those that happen to come first.
  */
 export async function prioritiesOnPace(tx: TenantClient, companyId: string, at: {
-  day: string; now: Date; limit: number;
+  day: string; now: Date; limit: number; offset?: number; commitment?: GoalCommitment;
 }): Promise<{ items: Array<MeetingPriority & { id: string; ownerRoleId: string | null }>; total: number }> {
   const { day, now } = at;
   const { rows: priorityRows } = await tx.query<{
@@ -166,9 +170,10 @@ export async function prioritiesOnPace(tx: TenantClient, companyId: string, at: 
       WHERE g.company_id = $1 AND g.status = 'active' AND g.kind = 'key_result'
         AND g.starts_on IS NOT NULL AND g.due_on - g.starts_on <= 92
         AND g.starts_on <= $2::date AND g.due_on >= $2::date
+        AND ($6::text IS NULL OR g.commitment = $6)
       ORDER BY g.due_on, g.created_at, g.id
-      LIMIT $5`,
-    [companyId, day, now, PRIORITY_WORK_DAYS, at.limit]);
+      LIMIT $5 OFFSET $7`,
+    [companyId, day, now, PRIORITY_WORK_DAYS, at.limit, at.commitment ?? null, at.offset ?? 0]);
   const { rows: measureRows } = await tx.query<{ goal_id: string; baseline: string; target: string; value: string | null }>(
     `SELECT m.goal_id, m.baseline, m.target, last.value
        FROM goal_metrics m

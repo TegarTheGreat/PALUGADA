@@ -240,6 +240,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "النتائج الرئيسية التي لا يتولاها أي منصب:",
   "Last weekly operating meeting: {week}": "آخر اجتماع تشغيل أسبوعي: {week}",
   "Missed": "لم يتحقق",
+  "You marked it met, so it counts as done whatever its numbers say.": "وسمته بأنه تحقق، فيُحسب منجزًا مهما قالت أرقامه.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "اجتماع التشغيل الأسبوعي متوقف، لذا لا يُعدّ الرئيس التنفيذي تخطيطًا ربع سنوي أيضًا.",
   "No weekly operating meeting yet.": "لا يوجد اجتماع تشغيل أسبوعي بعد.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "مرة كل أسبوع، في هذه الساعة بحسب المنطقة الزمنية للشركة، يراجع الرئيس التنفيذي بطاقة الأداء والأولويات الفصلية والمهام المتابعة والمشكلات، ويحل أهم المشكلات. الأسبوع الذي لا شيء فيه للمراجعة لا يكلف شيئًا.",
   "Predicted {predicted}, came to {actual}": "المتوقع {predicted}، والفعلي {actual}",

@@ -247,6 +247,8 @@ export const DICTIONARY: Dictionary = {
   "Key results no seat answers for:": "Ключевые результаты, за которые не отвечает ни одна должность:",
   "Last weekly operating meeting: {week}": "Последнее еженедельное операционное совещание: {week}",
   "Missed": "Не выполнено",
+  "You marked it met, so it counts as done whatever its numbers say.": "Вы отметили её выполненной, поэтому она считается сделанной, что бы ни говорили её цифры.",
+  "The weekly operating meeting is off, so the CEO makes no quarterly planning either.": "Еженедельное операционное совещание выключено, поэтому CEO не проводит и квартальное планирование.",
   "No weekly operating meeting yet.": "Еженедельных операционных совещаний ещё не было.",
   "Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.": "Раз в неделю, в этот час по часовому поясу компании, CEO просматривает таблицу показателей, квартальные приоритеты, дела и проблемы и решает самые важные проблемы. Неделя, в которой нечего обсуждать, ничего не стоит.",
   "Predicted {predicted}, came to {actual}": "Прогноз {predicted}, итог {actual}",

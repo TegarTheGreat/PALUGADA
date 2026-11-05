@@ -948,10 +948,12 @@ export async function buildContext(
       // that knows the number it serves can say whether its work moved it;
       // one that knows only the goal's wording cannot.
       const onChain = new Set(chain.map((goal) => goal.id));
-      // A retired measure is history, not what the work aims at.
-      const measured = (await metricsIn(tx)).filter((metric) => onChain.has(metric.goalId) && !metric.retiredAt);
+      // A retired measure is history, not what the work aims at. A measure's
+      // pair is told beside it even from a goal off the chain (F18.2).
+      const live = (await metricsIn(tx)).filter((metric) => !metric.retiredAt);
+      const measured = live.filter((metric) => onChain.has(metric.goalId));
       if (measured.length > 0) {
-        sections.push({ kind: 'goal_measure', title: 'How this work is measured', body: renderMetrics(measured) });
+        sections.push({ kind: 'goal_measure', title: 'How this work is measured', body: renderMetrics(measured, live) });
       }
     }
 

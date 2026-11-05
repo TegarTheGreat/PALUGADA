@@ -441,6 +441,9 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       name: 'optional', unit: 'optional, only before any value is recorded: currency, count, ratio or percent', direction: 'optional: up or down',
       baseline: 'optional number', target: 'optional number', dueOn: 'optional date, or null', sourceCapability: 'optional, or null',
       retired: 'true to retire it',
+      reviewEvery: 'optional: week puts it on the weekly scorecard, its target then the weekly goal; null takes it off',
+      ownerRoleId: 'optional: the id of the role (seat) that answers for it, from GET /api/companies/:companyId/structure; null for none',
+      pairedWith: 'optional: the id of the measure to watch it with, the one that would suffer if this were pushed; null to unpair',
     },
     factor: 'always',
   },
@@ -450,6 +453,9 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       name: 'what is counted, such as revenue in IDR or signups', slug: 'short id', unit: 'currency, count, ratio or percent', direction: 'up or down',
       baseline: 'number now', target: 'number wanted', dueOn: 'optional date', sourceCapability: 'optional capability that reads it',
+      reviewEvery: 'optional: week puts it on the weekly scorecard, and the target is then the weekly goal',
+      ownerRoleId: 'optional: the id of the role (seat) that answers for it',
+      pairedWith: 'optional: the id of a measure with no pair yet to watch it with, the one that would suffer if this were pushed; re-pairing a measure that has a pair is a change to that measure',
     },
     factor: 'never',
   },
@@ -821,6 +827,8 @@ export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
 export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
   '/api/companies',
   '/api/companies/:companyId/structure',
+  // Names the owner gave and numbers: the same measures the structure carries.
+  '/api/companies/:companyId/scorecard',
   '/api/companies/:companyId/budget-accounts',
   '/api/companies/:companyId/spend',
   '/api/companies/:companyId/first-hour',

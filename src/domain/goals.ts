@@ -481,7 +481,9 @@ export async function proposeGoalChange(input: {
       ? (await metricsIn(tx)).filter((metric) => metric.goalId === current.id && !metric.retiredAt)
       : [];
     if (to.status === 'met') {
-      const short = measures.find((metric) => metric.latest?.verified === true
+      // A line on the weekly scorecard (0137) is a weekly goal, met or missed
+      // each week: a short week is shown on the card, and stops nothing.
+      const short = measures.find((metric) => metric.reviewEvery === null && metric.latest?.verified === true
         && (metric.direction === 'up' ? metric.latest.value < metric.target : metric.latest.value > metric.target));
       if (short) {
         throw new PalugadaError('contract.violation',

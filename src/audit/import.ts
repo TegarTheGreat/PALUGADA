@@ -115,7 +115,9 @@ const SECTIONS: ImportSection[] = [
   // quarterly priority measured rather than worded is checked against its
   // measure at commit, so the measure coming after it is in time.
   { name: 'goals', table: 'goals', references: ['parent_goal_id', 'owner_role_id'] },
-  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
+  // After the roles, which own a line on the weekly scorecard (0137). A pair
+  // names a sibling in either order; its key is checked when the import ends.
+  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id', 'owner_role_id', 'paired_metric_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
     // F12.1: what travels is the reference and its division, never a value --

@@ -109,7 +109,9 @@ const OWED = `
              FROM metric_observations o
             WHERE o.company_id = m.company_id AND o.metric_id = m.id AND o.verified
             ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) v ON true
-     WHERE m.retired_at IS NULL
+     -- A line on the weekly scorecard (0137) is met or missed every week, and
+     -- the weekly review reads it; it is not a milestone to start work about.
+     WHERE m.retired_at IS NULL AND m.review_every IS NULL
   ), judged AS (
     SELECT s.*, CASE
         WHEN s.read_id IS NOT NULL

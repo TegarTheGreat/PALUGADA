@@ -770,3 +770,20 @@ The first version. What it holds, in the order an owner meets it.
   goal's card and in the answer, and refuses nothing (STATUS 2.190).
 - Every run under such a goal is told its period, commitment, seat, finish
   line and channel, and the archive carries them (STATUS 2.190).
+
+- **The weekly scorecard** (F18.2). A measure can be reviewed every week:
+  its target is then the weekly goal, a seat answers for it, and Team shows
+  thirteen weeks of it, on track, off track, claimed or not reported,
+  counted in the company's time zone. An agent's number nobody read from its
+  source is shown as claimed and judged neither way. The owner is warned
+  below 5 lines or above 15 (STATUS 2.191).
+- **Paired measures.** A measure can be watched with the one that would
+  suffer if it were pushed. The two are shown together on the scorecard and
+  in every run's context, the database refuses half a pair, and a key
+  result counted in units or money with no pair says so. A new measure
+  pairs only with one that has no pair; re-pairing is a change, under the
+  second factor, and a change form sends only what was changed in it
+  (STATUS 2.191).
+- A weekly goal met is not a milestone: it starts no outcome task, a
+  short week does not stop a goal being proposed met, and a weekly line is
+  never the portfolio's headline (STATUS 2.191).

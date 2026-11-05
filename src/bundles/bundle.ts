@@ -858,6 +858,30 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
         { slug: bundle.slug },
       );
     }
+    // F18.12, F8.1: the month is the company's books, which a run reads only
+    // through `ledger.read`. A bundle that hands them to a role it does not
+    // let read them would put past the broker what an owner reviewing the
+    // bundle's tools and grants was told the role cannot see. The scheduler
+    // asks again as it fires (reporting/month.ts), since grants change.
+    if (cadence.facts === 'month') {
+      const role = bundle.body.roles.find((one) => one.slug === cadence.roleSlug)!;
+      if (!(role.tools ?? []).includes('ledger.read')) {
+        throw new PalugadaError(
+          'bundle.invalid',
+          `cadence ${cadence.slug} is handed the month's books, and role ${role.slug} does not list ledger.read among its tools; `
+            + 'list it, or hand the month to a role that reads the books',
+          { slug: bundle.slug },
+        );
+      }
+      if (!bundle.body.grants.some((grant) => grant.division === role.division && grant.capability === 'ledger.read')) {
+        throw new PalugadaError(
+          'bundle.invalid',
+          `cadence ${cadence.slug} is handed the month's books, and the bundle does not grant ledger.read to division ${role.division}; `
+            + 'grant it there, or hand the month to a role whose division the bundle grants it',
+          { slug: bundle.slug },
+        );
+      }
+    }
     // A typo fails when the bundle is published, not on Monday morning.
     assertValidCron(cadence.cron, 'UTC');
     // The same check a schedule the owner writes passes, so a bundle cannot

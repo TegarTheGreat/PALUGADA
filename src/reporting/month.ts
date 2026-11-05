@@ -40,6 +40,7 @@ import { balancesOf, profitOf, type AccountBalance } from '../records/books.ts';
 import { dayIn, daysBetween, zoneOf } from '../records/collections.ts';
 import { invoiceForRun, overdueInvoices } from '../records/invoices.ts';
 import type { MetricUnit } from '../domain/metrics.ts';
+import { PalugadaError } from '../errors.ts';
 
 /** The most of each the brief carries; past it, it says how many it left out. */
 const OVERDUE_MAX = 20;
@@ -255,10 +256,49 @@ async function measuresOf(tx: TenantClient, from: string, to: string): Promise<{
   return { measures, leftOut: Math.max(0, (rows[0]?.total ?? 0) - rows.length) };
 }
 
-export async function buildMonthFacts(companyId: string, now = new Date()): Promise<MonthFacts> {
+/**
+ * The month is the company's books -- cash, what customers owe and the names
+ * of those late with it -- and a run reads the books only through
+ * `ledger.read` (F8.1). So the role a month is handed to must hold that tool
+ * and its division the grant, as the broker would ask of the role's own
+ * call; otherwise a bundle, or a schedule written by hand, could put in a
+ * run's input what the role could never read. Asked as the facts are read,
+ * not only when a bundle is published, because the owner can take the tool
+ * or the grant away after the review was installed.
+ */
+async function assertReadsBooks(tx: TenantClient, roleId: string): Promise<void> {
+  const { rows } = await tx.query<{ slug: string; tool: boolean; granted: boolean }>(
+    `SELECT r.slug, 'ledger.read' = ANY(r.tools) AS tool,
+            EXISTS (SELECT 1 FROM capability_grants g
+                     WHERE g.company_id = r.company_id AND g.division_id = r.division_id
+                       AND g.capability_name = 'ledger.read') AS granted
+       FROM roles r WHERE r.id = $1`,
+    [roleId],
+  );
+  const role = rows[0];
+  if (!role) {
+    throw new PalugadaError('contract.violation', `no role ${roleId} in this company to hand the month's books to`, { roleId });
+  }
+  if (!role.tool) {
+    throw new PalugadaError('capability.not_granted',
+      `role ${role.slug} does not list ledger.read among its tools, so it may not be handed the month's books; `
+        + 'add ledger.read to its tools, or give the review to a role that reads the books',
+      { capability: 'ledger.read', roleId });
+  }
+  if (!role.granted) {
+    throw new PalugadaError('capability.not_granted',
+      `the division of role ${role.slug} is not granted ledger.read, so it may not be handed the month's books; `
+        + 'grant ledger.read to that division, or give the review to a role whose division has it',
+      { capability: 'ledger.read', roleId });
+  }
+}
+
+/** The last whole month's money, for a run of `roleId`, which must be able to read the books. */
+export async function buildMonthFacts(companyId: string, roleId: string, now = new Date()): Promise<MonthFacts> {
   // The ceiling is read in its own transaction, as the owner's pages read it.
   const limit = await limitFor(companyId);
   return withTenant(companyId, async (tx) => {
+    await assertReadsBooks(tx, roleId);
     const today = dayIn(await zoneOf(tx, companyId), now);
     const { month, from, to, days } = monthBefore(today);
     const previous = monthBefore(from);

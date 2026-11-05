@@ -843,7 +843,7 @@ async function createScheduledTask(
   run: { createdBy: 'scheduler' | 'owner'; idempotencyKey: string; now: Date },
 ): Promise<TaskRow> {
   const week = schedule.input.facts === 'week' ? await buildWeekFacts(schedule.company_id, run.now) : null;
-  const month = schedule.input.facts === 'month' ? await buildMonthFacts(schedule.company_id, run.now) : null;
+  const month = schedule.input.facts === 'month' ? await buildMonthFacts(schedule.company_id, schedule.role_id, run.now) : null;
   const outside = week?.finished.filter((one) => one.outside).map((one) => one.task) ?? [];
   const outsideInvoices = month ? outsideInvoicesOf(month) : [];
   return createRootTask({

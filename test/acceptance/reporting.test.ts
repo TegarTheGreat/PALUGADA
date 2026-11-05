@@ -26,7 +26,8 @@ import { addAccount, entryInput, postEntry } from '../../src/records/books.ts';
 import { issueInvoice, payInvoice } from '../../src/records/invoices.ts';
 import { buildMonthFacts, type MonthFacts } from '../../src/reporting/month.ts';
 import { runDueSchedules, runScheduleNow, upsertSchedule } from '../../src/scheduler/scheduler.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -745,9 +746,10 @@ test('the monthly money review is read from the books: profit, cash, what is lat
   });
 
   await setSpendLimit(fixture.companyId, 50_000);
+  await readsTheBooks(fixture);
 
   // The first of October, ten to eight in Jakarta: September is reviewed.
-  const facts = await buildMonthFacts(fixture.companyId, new Date('2026-10-01T00:50:00Z'));
+  const facts = await buildMonthFacts(fixture.companyId, fixture.roleId, new Date('2026-10-01T00:50:00Z'));
   assert.deepEqual([facts.month, facts.from, facts.to, facts.days], ['2026-09', '2026-09-01', '2026-09-30', 30]);
   assert.deepEqual(facts.spend, { monthCents: 2_500, previousMonthCents: 1_000, limitCents: 50_000 });
   assert.equal(facts.books.length, 1, 'one currency');
@@ -792,7 +794,8 @@ test('the monthly money review is read from the books: profit, cash, what is lat
   const service = await createCompany('money-month-service');
   await post(service, '2026-09-03', 'Consulting, paid at once', [['1100', 'dr', 2_000_000], ['4100', 'cr', 2_000_000]]);
   await post(service, '2026-09-04', 'Software', [['5100', 'dr', 500_000], ['1100', 'cr', 500_000]]);
-  const plain = (await buildMonthFacts(service.companyId, new Date('2026-10-01T09:00:00Z'))).books[0]!;
+  await readsTheBooks(service);
+  const plain = (await buildMonthFacts(service.companyId, service.roleId, new Date('2026-10-01T09:00:00Z'))).books[0]!;
   assert.deepEqual([plain.costOfGoodsCents, plain.stockCents, plain.overheadCents, plain.receivableDays], [null, null, 500_000, 0]);
   assert.deepEqual(plain.levers.map((lever) => [lever.lever, lever.cents, lever.unavailable]), [
     ['price', 20_000, null],
@@ -813,7 +816,20 @@ function lastMonthInJakarta(): { month: string; day: string } {
   return { month: lastDay.slice(0, 7), day: lastDay };
 }
 
-async function moneyReview(fixture: Fixture): Promise<string> {
+/**
+ * The month is the company's books, and the books are read through
+ * `ledger.read`: the role a review is for holds the tool, and its division
+ * the grant, as the operating kit's strategist does.
+ */
+async function readsTheBooks(fixture: Fixture): Promise<void> {
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'ledger.read');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [fixture.roleId]));
+}
+
+async function moneyReview(fixture: Fixture, options: { readsTheBooks?: boolean } = {}): Promise<string> {
+  if (options.readsTheBooks !== false) await readsTheBooks(fixture);
   await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'Asia/Jakarta' WHERE id = $1", [fixture.companyId]));
   const scheduleId = await upsertSchedule({
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
@@ -877,4 +893,42 @@ test('a quiet month is passed over, and a month with money in it is reviewed wit
     assert.equal(review!.overdue, 1);
     assert.equal(await outsideContentIn(tx, review!.id), 'read', 'a late customer named by work that read an email is data');
   });
+});
+
+/**
+ * F18.12, F8.1: the month's facts are the company's books -- cash, what is
+ * owed and the names of the customers late with it -- and nothing reads the
+ * books except through `ledger.read`. A schedule handed the month for a role
+ * that does not hold it, because the owner took the tool or the grant away
+ * after the kit installed it, or because the schedule was written by hand,
+ * is refused when it fires and when the owner runs it, naming what is
+ * missing, and no run is made with the books in its input.
+ */
+test("the month's books are handed only to a role that may read them (F18.12, F8.1)", async () => {
+  const { day } = lastMonthInJakarta();
+  const blind = await createCompany('money-blind');
+  await registerStandardCatalogue();
+  const review = await moneyReview(blind, { readsTheBooks: false });
+  await post(blind, day, 'Cash sale', [['1100', 'dr', 4_000], ['4100', 'cr', 4_000]]);
+
+  await assert.rejects(runScheduleNow(blind.companyId, review),
+    /role worker does not list ledger.read among its tools, so it may not be handed the month's books/);
+  assert.deepEqual(await runDueSchedules(), [], 'the clock makes no run either');
+  const { rows: [failed] } = await withTenant(blind.companyId, (tx) => tx.query<{ fire_failure: string | null }>(
+    'SELECT fire_failure FROM schedules WHERE id = $1', [review]));
+  assert.match(failed!.fire_failure ?? '', /does not list ledger.read/, 'the occurrence failed, saying why');
+
+  // The tool without the division's grant is not enough either: the broker
+  // would refuse the call.
+  await withTenant(blind.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [blind.roleId]));
+  await assert.rejects(runScheduleNow(blind.companyId, review),
+    /division of role worker is not granted ledger.read, so it may not be handed the month's books/);
+  const { rows: made } = await withTenant(blind.companyId, (tx) => tx.query(
+    'SELECT 1 FROM tasks WHERE schedule_id = $1', [review]));
+  assert.equal(made.length, 0);
+
+  await grantCapability(blind, 'ledger.read');
+  const ran = await runScheduleNow(blind.companyId, review);
+  assert.equal((ran.input.month as MonthFacts).books[0]!.incomeCents, 4_000);
 });

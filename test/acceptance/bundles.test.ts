@@ -520,6 +520,35 @@ test("the platform's own kit installs as shipped, and a copy somebody changed do
     body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, facts: 'year' as never }] },
   };
   await assert.rejects(publishBundle(unknownFacts), /asks to be handed year; a cadence can be handed week, month, or nothing/);
+
+  // F18.12: the month is the company's books -- cash, what customers owe and
+  // their names -- and the books are read through `ledger.read`. A cadence
+  // handed them is refused unless its role holds that tool and the bundle
+  // grants it to the role's division, or a bundle could hand the books to a
+  // role the broker would never let read them.
+  const monthly = COMPANY_OS.body.cadences!.find((cadence) => cadence.facts === 'month')!;
+  const withoutTool = {
+    ...COMPANY_OS,
+    slug: 'company-os-no-ledger-tool',
+    body: {
+      ...COMPANY_OS.body,
+      roles: COMPANY_OS.body.roles.map((role) => role.slug === monthly.roleSlug
+        ? { ...role, tools: (role.tools ?? []).filter((tool) => tool !== 'ledger.read') }
+        : role),
+    },
+  };
+  await assert.rejects(publishBundle(withoutTool),
+    /cadence monthly-review is handed the month's books, and role strategist does not list ledger.read among its tools/);
+  const withoutGrant = {
+    ...COMPANY_OS,
+    slug: 'company-os-no-ledger-grant',
+    body: {
+      ...COMPANY_OS.body,
+      grants: COMPANY_OS.body.grants.filter((grant) => !(grant.division === 'strategy' && grant.capability === 'ledger.read')),
+    },
+  };
+  await assert.rejects(publishBundle(withoutGrant),
+    /cadence monthly-review is handed the month's books, and the bundle does not grant ledger.read to division strategy/);
 });
 
 /**

@@ -29,6 +29,7 @@ import { LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../compon
 import { Prose } from '../components/Prose.tsx';
 import { metricValue } from '../components/Metrics.tsx';
 import { CoreProcessesPanel } from '../components/CoreProcesses.tsx';
+import { GradeLine, GradeNumbers } from '../components/GradeLine.tsx';
 
 const WEEK: Record<WeekState, { label: string; color: string }> = {
   on_track: { label: N('On track'), color: 'teal' },
@@ -117,6 +118,7 @@ export function Plan({ ctx }: PageProps) {
                   <Badge variant="light" color="gray" size="sm">{t('Priorities this quarter: {count}', { count: goal.priorities })}</Badge>
                 </Group>
                 {goal.doneWhen && <Text size="xs" c="dimmed" mt={4}>{t('Done when: {done}', { done: goal.doneWhen })}</Text>}
+                {goal.grade && <GradeLine grade={goal.grade} />}
               </Paper>
             ))}
           </Stack>
@@ -148,11 +150,17 @@ export function Plan({ ctx }: PageProps) {
                     <Progress value={priority.progress * 100} size="sm" mt={6} radius="xl" color={priority.pace === 'on_pace' ? 'teal' : 'red'} />
                   </Tooltip>
                 )}
+                {priority.grade && <GradeLine grade={priority.grade} />}
               </Paper>
             ))}
             {plan.priorities.leftOut > 0 && <Text size="xs" c="dimmed">{t('More not shown: {count}', { count: plan.priorities.leftOut })}</Text>}
           </Stack>
         )}
+      </Section>
+
+      <Section title={t('Numbers for {quarter}', { quarter: plan.grades.quarter })}
+        description={t('{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.', { period: periodSaid(plan.grades.from, plan.grades.to) })}>
+        <GradeNumbers grades={plan.grades} />
       </Section>
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">

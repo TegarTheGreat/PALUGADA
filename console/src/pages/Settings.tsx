@@ -17,7 +17,7 @@ import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, rete
 import { LANGUAGES, isLanguage, language, locale, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext } from '../App.tsx';
 import type { Digest, Languages } from '../types.ts';
-import { LoadFailed, Loading, Section } from '../components/ui.tsx';
+import { LoadFailed, Loading, Section, StatusBadge } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { OfficeHoursForm, dayName, type Hours } from '../components/OfficeHours.tsx';
 import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
@@ -209,8 +209,14 @@ function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest
           })}
           done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
         />
+        {/* With its status, as on the Plan page: the last meeting may be pending, failed or cancelled. */}
         {lastMeeting
-          ? <Anchor size="sm" onClick={() => ctx.open('work', { item: lastMeeting.taskId })}>{t('Last weekly operating meeting: {week}', { week: lastMeeting.week })}</Anchor>
+          ? (
+            <Group gap="xs">
+              <Anchor size="sm" onClick={() => ctx.open('work', { item: lastMeeting.taskId })}>{t('Last weekly operating meeting: {week}', { week: lastMeeting.week })}</Anchor>
+              <StatusBadge status={lastMeeting.status} />
+            </Group>
+          )
           : <Text size="sm" c="dimmed">{t('No weekly operating meeting yet.')}</Text>}
       </Stack>
     </Section>

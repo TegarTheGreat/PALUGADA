@@ -311,11 +311,16 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
         <Text size="xs" c="dimmed">{t('Spent today: {amount}', { amount: money(digest.moneySpentCents) })}</Text>
         <Anchor size="xs" onClick={() => open('inbox')}>{t('Open the inbox')}</Anchor>
       </Group>
-      {/* The weekly operating meeting's record is its task (F18.6). */}
+      {/* The weekly operating meeting's record is its task (F18.6). The last
+          one may be pending, failed or cancelled, so its status is beside it,
+          as on the Plan page: the line alone reads as a meeting held. */}
       {digest.lastMeeting && (
-        <Anchor size="xs" mt={6} display="block" onClick={() => open('work', digest.lastMeeting!.taskId)}>
-          {t('Last weekly operating meeting: {week}', { week: digest.lastMeeting.week })}
-        </Anchor>
+        <Group gap="xs" mt={6} wrap="nowrap">
+          <Anchor size="xs" onClick={() => open('work', digest.lastMeeting!.taskId)}>
+            {t('Last weekly operating meeting: {week}', { week: digest.lastMeeting.week })}
+          </Anchor>
+          <StatusBadge status={digest.lastMeeting.status} />
+        </Group>
       )}
     </Paper>
   );

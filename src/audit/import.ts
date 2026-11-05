@@ -223,7 +223,14 @@ const SECTIONS: ImportSection[] = [
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'run_notes', table: 'run_notes', references: ['task_id', 'agent_run_id'] },
-  { name: 'events', table: 'events', references: ['project_id', 'task_id'] },
+  // Its payload names rows by their ids, and the code finds state by them:
+  // an issue's earlier solves (`issue.solved`), a seat's refusal of a to-do
+  // (`ticket.not_handed`), the work a rerun replaced. Every id mapped by now
+  // is mapped in it -- the tickets' among them, which are assigned first --
+  // so a restored issue still shows what was tried before, and a to-do whose
+  // seat gave up is not offered to that seat again. A row imported after the
+  // events (a memory, a card) is still named by the archive's id.
+  { name: 'events', table: 'events', references: ['project_id', 'task_id'], remapJson: ['payload'] },
   {
     name: 'memories',
     table: 'memories',

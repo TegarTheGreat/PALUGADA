@@ -204,3 +204,57 @@ test('0141 gives an existing CEO goal.propose in place of doc.draft, only where 
     await api.close();
   }
 });
+
+/**
+ * 0141 traded the tools wherever they were the founding twelve, whether or
+ * not it could replace the charter's drafting sentence. A CEO whose owner
+ * had reworded that sentence lost doc.draft while its charter still told it
+ * to draft with doc.draft. 0147 gives doc.draft back to that CEO, and only to
+ * that one: a charter the owner rewrote is theirs, and so are the tools it
+ * names.
+ */
+test('0147 gives doc.draft back to a CEO whose rewritten charter 0141 could not change, and to no other (F18.7)', async () => {
+  const { api, owner, made } = await started();
+  try {
+    const other = await api.call('POST', '/api/companies', owner, { companySlug: 'toko-teh', name: 'Toko Teh', proof: { totp: api.code() } });
+    assert.equal(other.status, 200, JSON.stringify(other.body));
+    const rewritten = (other.body as { companyId: string }).companyId;
+    const OLD = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+      'schedule.propose', 'ticket.create', 'ticket.list', 'task.follow_up', 'doc.draft'];
+    const FOUNDED = 'You run the company. When no role does it, do the work yourself as far as your own tools reach: read, research, and write a draft with doc.draft.';
+    const OWNERS = 'You run the company. When no role does it, research it and write the draft with doc.draft for me to read.';
+    const ceoOf = async (companyId: string) => (await withControlPlane((tx) => tx.query<{ id: string; tools: string[]; system_prompt: string }>(
+      "SELECT id, tools, system_prompt FROM roles WHERE company_id = $1 AND title = 'CEO'", [companyId]))).rows[0]!;
+    // As 0141 found them: one as it was founded, one whose owner reworded the drafting sentence.
+    await withControlPlane(async (tx) => {
+      await tx.query("UPDATE roles SET tools = $2::text[], system_prompt = $3 WHERE company_id = $1 AND title = 'CEO'", [made.companyId, OLD, FOUNDED]);
+      await tx.query("UPDATE roles SET tools = $2::text[], system_prompt = $3 WHERE company_id = $1 AND title = 'CEO'", [rewritten, OLD, OWNERS]);
+    });
+    await runMigrationAgain('0141_the_ceo_proposes_goals.sql');
+    assert.deepEqual((await ceoOf(rewritten)).tools, [...OLD.slice(0, 11), 'goal.propose'], 'as 0141 left it: doc.draft gone');
+    assert.equal((await ceoOf(rewritten)).system_prompt, OWNERS, 'and its charter, which still names doc.draft, unchanged');
+    const roleVersions = async (companyId: string) => (await withControlPlane((tx) => tx.query<{ snapshot: Record<string, unknown>; summary: string; changed_by: string }>(
+      "SELECT snapshot, summary, changed_by FROM config_versions WHERE company_id = $1 AND kind = 'role' ORDER BY version", [companyId]))).rows;
+    const before = { founded: (await roleVersions(made.companyId)).length, rewritten: (await roleVersions(rewritten)).length };
+
+    await runMigrationAgain('0147_a_rewritten_ceo_keeps_doc_draft.sql');
+
+    assert.deepEqual((await ceoOf(rewritten)).tools, OLD, 'the tools its charter names are the owner\'s too');
+    assert.equal((await ceoOf(rewritten)).system_prompt, OWNERS);
+    const versions = await roleVersions(rewritten);
+    assert.equal(versions.length, before.rewritten + 1, 'the CEO as 0141 left it is a version to roll back to');
+    assert.deepEqual(versions.at(-1)!.snapshot.tools, [...OLD.slice(0, 11), 'goal.propose']);
+    assert.equal(versions.at(-1)!.changed_by, 'platform');
+    assert.match(versions.at(-1)!.summary, /\(0147\)/);
+    const founded = await ceoOf(made.companyId);
+    assert.deepEqual(founded.tools, [...OLD.slice(0, 11), 'goal.propose'], 'a CEO whose charter 0141 changed keeps goal.propose');
+    assert.match(founded.system_prompt, /propose the goals as one plan with goal\.propose/);
+    assert.equal((await roleVersions(made.companyId)).length, before.founded);
+
+    // Run twice, it does nothing twice.
+    await runMigrationAgain('0147_a_rewritten_ceo_keeps_doc_draft.sql');
+    assert.equal((await roleVersions(rewritten)).length, before.rewritten + 1);
+  } finally {
+    await api.close();
+  }
+});

@@ -8,7 +8,8 @@
  * (STATUS 2.189): the scorecard, the quarterly priorities on or off pace, the
  * week's headlines, last week's to-dos done or not, and the issues ranked.
  * The operating kit's weekly business review, when the company has one, is
- * the strategist's reading of the same week, and is passed on.
+ * the strategist's reading of the same week, and is passed on; so is its
+ * monthly money review, whose issues for the meeting end its summary.
  *
  * Built from rows, never from a model, as the week's and the month's facts
  * are (week.ts, month.ts): a meeting that held a seat to a number a model had
@@ -21,6 +22,7 @@
  */
 import type { TenantClient } from '../db/tenant.ts';
 import { wrapUntrusted } from '../context/builder.ts';
+import { wellFormed } from '../text.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import { progressOf, scorecardOf, type MetricUnit, type Scorecard, type WeekState } from '../domain/metrics.ts';
 import type { GoalCommitment } from '../domain/goals.ts';
@@ -125,6 +127,12 @@ export interface MeetingFacts {
   issues: { items: MeetingIssue[]; leftOut: number };
   /** The operating kit's weekly business review of the last seven days, when there is one. */
   businessReview: { task: string; finishedAt: string; summary: string | null; outside?: true } | null;
+  /**
+   * The operating kit's monthly money review of the last seven days, when
+   * there is one: the end of its summary, where its skill puts the issues it
+   * names for this meeting.
+   */
+  monthlyReview: { task: string; finishedAt: string; summary: string | null; outside?: true } | null;
   /** What the platform put on the issues list for this meeting before it was made. */
   filed: { offTrack: string[]; notDoneTwice: string[] };
 }
@@ -245,28 +253,12 @@ export async function buildMeetingFacts(tx: TenantClient, companyId: string, mee
   });
 
   // The weekly business review is the scheduled run that was handed the
-  // week (scheduler.ts puts `week` beside `facts: 'week'` in its input).
-  const { rows: reviews } = await tx.query<{ id: string; summary: string | null; finished_at: Date }>(
-    `SELECT id, finished_at,
-            CASE WHEN jsonb_typeof(output->'summary') = 'string' THEN output->>'summary' END AS summary
-       FROM tasks
-      WHERE company_id = $1 AND status = 'completed' AND parent_task_id IS NULL
-        AND input->>'facts' = 'week' AND input ? 'week'
-        AND finished_at > $2 AND finished_at <= $3
-      ORDER BY finished_at DESC, id
-      LIMIT 1`,
-    [companyId, from, now]);
-  let businessReview: MeetingFacts['businessReview'] = null;
-  if (reviews[0]) {
-    const summary = oneLine(reviews[0].summary, SUMMARY_MAX) || null;
-    const outside = (await outsideContentIn(tx, reviews[0].id)) !== null;
-    businessReview = {
-      task: reviews[0].id,
-      finishedAt: reviews[0].finished_at.toISOString(),
-      summary: summary && outside ? wrapUntrusted(`task:${reviews[0].id}`, summary) : summary,
-      ...(outside ? { outside: true as const } : {}),
-    };
-  }
+  // week (scheduler.ts puts `week` beside `facts: 'week'` in its input), and
+  // the monthly money review the one handed the month. The month's skill
+  // ends with the issues it names for this meeting, and the strategist that
+  // runs it cannot file them, so its summary is passed on from its end.
+  const weekly = await reviewOf(tx, companyId, 'week', from, now, 'start');
+  const monthly = await reviewOf(tx, companyId, 'month', from, now, 'end');
 
   return {
     week: meeting.week,
@@ -284,8 +276,43 @@ export async function buildMeetingFacts(tx: TenantClient, companyId: string, mee
       ...rate,
     },
     issues: { items: issues, leftOut: Math.max(0, (issueRows[0]?.total ?? 0) - issueRows.length) },
-    businessReview,
+    businessReview: weekly,
+    monthlyReview: monthly,
     filed: meeting.filed,
+  };
+}
+
+/**
+ * The latest review handed `facts` that finished in the window, its summary
+ * cut to one bounded line from its start or, for a review whose skill puts
+ * what the meeting needs last, from its end. Wrapped and marked when the
+ * review had read outside content (F8.9).
+ */
+async function reviewOf(
+  tx: TenantClient, companyId: string, facts: 'week' | 'month', from: Date, now: Date, keep: 'start' | 'end',
+): Promise<MeetingFacts['businessReview']> {
+  const { rows } = await tx.query<{ id: string; summary: string | null; finished_at: Date }>(
+    `SELECT id, finished_at,
+            CASE WHEN jsonb_typeof(output->'summary') = 'string' THEN output->>'summary' END AS summary
+       FROM tasks
+      WHERE company_id = $1 AND status = 'completed' AND parent_task_id IS NULL
+        AND input->>'facts' = $4 AND input ? $4
+        AND finished_at > $2 AND finished_at <= $3
+      ORDER BY finished_at DESC, id
+      LIMIT 1`,
+    [companyId, from, now, facts]);
+  const review = rows[0];
+  if (!review) return null;
+  const whole = oneLine(review.summary, Number.MAX_SAFE_INTEGER);
+  const summary = (keep === 'start' || whole.length <= SUMMARY_MAX
+    ? whole.slice(0, SUMMARY_MAX)
+    : `\u2026${wellFormed(whole.slice(whole.length - SUMMARY_MAX + 1))}`) || null;
+  const outside = (await outsideContentIn(tx, review.id)) !== null;
+  return {
+    task: review.id,
+    finishedAt: review.finished_at.toISOString(),
+    summary: summary && outside ? wrapUntrusted(`task:${review.id}`, summary) : summary,
+    ...(outside ? { outside: true as const } : {}),
   };
 }
 

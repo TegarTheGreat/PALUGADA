@@ -236,8 +236,8 @@ export async function ensureWeeklyMeeting(companyId: string, now = new Date()): 
 
       const ceo = await ceoOf(tx, companyId);
       if (!ceo) return null;
-      const { rows: seat } = await tx.query<{ division_id: string; frozen: boolean }>(
-        'SELECT division_id, frozen_at IS NOT NULL AS frozen FROM roles WHERE company_id = $1 AND id = $2', [companyId, ceo.id]);
+      const { rows: seat } = await tx.query<{ division_id: string; frozen: boolean; tools: string[] }>(
+        'SELECT division_id, frozen_at IS NOT NULL AS frozen, tools FROM roles WHERE company_id = $1 AND id = $2', [companyId, ceo.id]);
       if (!seat[0] || seat[0].frozen) return null;
       const { rows: mission } = await tx.query<{ id: string }>(
         "SELECT id FROM goals WHERE company_id = $1 AND kind = 'mission' AND status = 'active' ORDER BY created_at, id LIMIT 1", [companyId]);
@@ -264,7 +264,7 @@ export async function ensureWeeklyMeeting(companyId: string, now = new Date()): 
       const task = await createRootTaskWithin(tx, {
         companyId, projectId: project[0].id, divisionId: seat[0].division_id, roleId: ceo.id, goalId: mission[0].id,
         createdBy: 'event', idempotencyKey: due.key,
-        input: { ...briefFor(due.week, language), meeting: { week: due.week, day: due.day }, facts },
+        input: { ...briefFor(due.week, language, new Set(seat[0].tools)), meeting: { week: due.week, day: due.day }, facts },
         // What outside work wrote is in the facts, as data; the meeting
         // carries that, as work that read it itself would (F8.9).
         ...(outside.tickets.length + outside.tasks.length > 0
@@ -288,7 +288,7 @@ function outsideIn(facts: MeetingFacts): { tickets: string[]; tasks: string[] } 
       ...facts.issues.items.filter((one) => one.outside).map((one) => one.ticket),
       ...facts.todos.items.filter((one) => one.outside).map((one) => one.ticket),
     ],
-    tasks: facts.businessReview?.outside ? [facts.businessReview.task] : [],
+    tasks: [facts.businessReview, facts.monthlyReview].filter((review) => review?.outside).map((review) => review!.task),
   };
 }
 
@@ -296,8 +296,16 @@ function outsideIn(facts: MeetingFacts): { tickets: string[]; tasks: string[] } 
  * What the CEO is told: the agenda, in the platform's words (F8.9), and the
  * company's language for what the owner reads. The facts are in the input,
  * beside it.
+ *
+ * Each step names a tool only when the CEO holds it. The CEO is an
+ * appointment, and the owner can make any role CEO or change its tools: told
+ * to file the decisions with a ticket.create it lacks, a run tries it and is
+ * refused, and no issue is ever solved. Without the tool, the step says to
+ * put the same thing to the owner in the summary instead.
  */
-function briefFor(week: string, language: string): { goal: string; context: string } {
+function briefFor(week: string, language: string, tools: ReadonlySet<string>): { goal: string; context: string } {
+  const files = tools.has('ticket.create');
+  const toOwner = '"What the owner needs to know"';
   return {
     goal: `Weekly operating meeting for ${week}: review the scorecard, the quarterly priorities and the to-dos, and solve the top issues.`,
     context: [
@@ -314,20 +322,32 @@ function briefFor(week: string, language: string): { goal: string; context: stri
         + '3. Headlines: what changed in the week, from the counts given.\n'
         + '4. To-dos: each done or not done, and the week\'s completion rate; the aim is nine in ten. A to-do not done '
         + 'at two meetings is already on the issues list.\n'
-        + '5. Issues: take the top three issues in the order given, and solve each before you move to the next.',
+        + '5. Issues: take the top three issues in the order given, and solve each before you move to the next. When '
+        + 'the facts carry the monthly money review, it ends with the issues it names for this meeting: weigh them '
+        + 'beside the list, and '
+        + (files
+          ? 'put on the list with ticket.create, as kind issue, each one you take up and do not solve today.'
+          : `name in ${toOwner} each one you take up and do not solve today.`),
       'To solve an issue, find its root cause: ask why of each answer until you reach it, and check each answer '
         + 'against the records -- the tasks, their events, the numbers -- rather than guessing; not literally five '
-        + 'times, and several branches are fine. Discuss it once. Decide. Then file the to-dos that carry the decision '
-        + 'out with ticket.create: work that names the issue in solves, the first with rootCause and decision, each '
-        + 'with one seat in assignee -- the seat accountable for that result. Keep the fix in proportion to the '
-        + 'problem: never a rewrite for a small one.',
+        + 'times, and several branches are fine. Discuss it once. Decide. '
+        + (files
+          ? 'Then file the to-dos that carry the decision out with ticket.create: work that names the issue in solves, '
+            + 'the first with rootCause and decision, each with one seat in assignee -- the seat accountable for that result. '
+          : 'You do not hold ticket.create, so you cannot file the to-dos that carry the decision out: write each one in '
+            + `${toOwner}, with the issue it solves, its root cause and decision, and one seat -- the seat accountable `
+            + 'for that result -- for the owner to file. ')
+        + 'Keep the fix in proportion to the problem: never a rewrite for a small one.',
       'A two-way door -- a decision that can be undone, such as who does what this week or how a seat works -- is '
         + 'yours to take in this meeting. A one-way door -- one that cannot be undone, such as spending past a budget, '
         + 'committing the company to someone outside it, or changing what the company is for -- is the owner\'s: '
-        + 'ask with owner.ask, or let the action reach the owner as the tier 3 decision it is. Never decide a one-way '
+        + (tools.has('owner.ask') ? 'ask with owner.ask' : `put it to the owner in ${toOwner}`)
+        + ', or let the action reach the owner as the tier 3 decision it is. Never decide a one-way '
         + 'door by agreement among agents.',
-      'Propose work the company will owe again and again only with schedule.propose. You cannot change a goal, a '
-        + 'measure or a seat; only the owner can.',
+      (tools.has('schedule.propose')
+        ? 'Propose work the company will owe again and again only with schedule.propose. '
+        : `Work the company will owe again and again is the owner's to schedule: name it in ${toOwner}. `)
+        + 'You cannot change a goal, a measure or a seat; only the owner can.',
       'Your summary is the meeting\'s record, and the owner reads it. End it with a section headed "What the owner '
         + `needs to know": the decisions taken, the one-way doors put to the owner, and what each seat must do this `
         + `week. Write that section in ${language}.`,

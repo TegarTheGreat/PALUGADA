@@ -400,16 +400,16 @@ async function roleSections(
   const { rows } = await tx.query<{
     slug: string; system_prompt: string; done_criteria: string[] | null; output_schema: Record<string, unknown> | null;
     display_name: string | null; title: string | null; persona: RolePersona | null; company: string;
-    accountabilities: string[]; role_id: string; company_id: string;
+    accountabilities: string[]; role_id: string; company_id: string; lists_tickets: boolean;
   }>(
     `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company,
-            r.accountabilities, r.id AS role_id, t.company_id
+            r.accountabilities, r.id AS role_id, t.company_id, 'ticket.list' = ANY(r.tools) AS lists_tickets
        FROM tasks t JOIN roles r ON r.id = t.role_id JOIN companies c ON c.id = t.company_id WHERE t.id = $1`,
     [taskId],
   );
   const role = rows[0];
   if (!role) return { charter: [], contract: [] };
-  const seat = await yourSeat(tx, role.company_id, role.role_id);
+  const seat = await yourSeat(tx, role.company_id, role.role_id, role.lists_tickets);
   // The core processes this seat owns (F18.14, 0143): the company's way of
   // doing that work, which the seat keeps current. Only those in force: a
   // version that is active, since a run can read nothing else, and not
@@ -418,20 +418,27 @@ async function roleSections(
   // outside one's versions back as candidates (F15.8), and leave it marked;
   // a quarantined one is still in the skills' own sections under their
   // caveat, and the chart says it is not in force (skills/core.ts).
-  // Summaries only, as every skill travels (F15.7).
+  // Summaries only, as every skill travels (F15.7), and each cut to a
+  // clause, at most twelve of them -- the most the method names -- and how
+  // many more: more than twelve is only a warning (skills/core.ts), a
+  // summary may be 400 characters, and this is the charter, never dropped to
+  // fit, so thirty of them would push the run's own memory out of the pack.
+  // Each is in the skills' sections whole, and skill.read opens it.
   // Whether the run can open them is asked as the skills' section asks it
   // (F4.8): a run told to call what its division was not granted is refused
   // the moment it does as it was told.
-  const { rows: owned } = await tx.query<{ slug: string; summary: string; active_version: number; readable: boolean }>(
+  const { rows: owned } = await tx.query<{ slug: string; summary: string; active_version: number; readable: boolean; total: number }>(
     `SELECT s.slug, s.summary, s.active_version,
             EXISTS (SELECT 1 FROM capability_grants g
-                     WHERE g.division_id = t.division_id AND g.capability_name = 'skill.read') AS readable
+                     WHERE g.division_id = t.division_id AND g.capability_name = 'skill.read') AS readable,
+            count(*) OVER ()::int AS total
        FROM tasks t
        JOIN skills s ON s.company_id = t.company_id AND s.owner_role_id = t.role_id
        JOIN skill_versions v ON v.company_id = s.company_id AND v.skill_id = s.id AND v.version = s.active_version
       WHERE t.id = $1 AND s.core AND NOT s.quarantined AND v.state = 'active'
-      ORDER BY s.slug`,
-    [taskId],
+      ORDER BY s.slug
+      LIMIT $2`,
+    [taskId, SEAT_CORE_PROCESSES],
   );
   const done = (role.done_criteria ?? []).filter((criterion) => criterion.trim() !== '');
   // Who the role is, before what it does: the charter is then read as this
@@ -455,7 +462,8 @@ async function roleSections(
       ...(seat.length > 0 ? ['', ...seat] : []),
       ...(owned.length > 0
         ? ['', 'Your seat owns these core processes, the company\'s way of doing this work:',
-            ...owned.map((process) => `- ${process.slug} (v${process.active_version}): ${process.summary}`),
+            ...owned.map((process) => `- ${process.slug} (v${process.active_version}): ${summaryClause(process.summary)}`),
+            ...(owned[0]!.total > owned.length ? [`- and ${owned[0]!.total - owned.length} more`] : []),
             (owned[0]!.readable
               ? 'Read it with skill.read before you do that work, and follow it. '
               : 'Your division cannot open them with skill.read, so work from these summaries and say when one is not enough. ') +
@@ -499,6 +507,15 @@ async function roleSections(
 const SEAT_LINES = 10;
 const SEAT_PRIORITIES = 7;
 const SEAT_TODOS = 10;
+/** The most core processes a seat's charter names, the method's twelve, and how long each one's summary is there. */
+const SEAT_CORE_PROCESSES = 12;
+const CORE_SUMMARY_CHARACTERS = 120;
+
+/** A core process's summary cut to a clause, marked when it was cut. */
+function summaryClause(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim();
+  return line.length <= CORE_SUMMARY_CHARACTERS ? line : `${wellFormed(line.slice(0, CORE_SUMMARY_CHARACTERS - 1)).trimEnd()}\u2026`;
+}
 
 const WEEK_SAID: Record<WeekState, string> = {
   on_track: 'on track',
@@ -516,7 +533,7 @@ const WEEK_SAID: Record<WeekState, string> = {
  * them, which is then told nothing. Bounded, because the role charter is
  * never dropped to fit the pack.
  */
-async function yourSeat(tx: TenantClient, companyId: string, roleId: string): Promise<string[]> {
+async function yourSeat(tx: TenantClient, companyId: string, roleId: string, listsTickets: boolean): Promise<string[]> {
   const out: string[] = [];
   const more = (shown: number, total: number) => (total > shown ? [`- and ${total - shown} more`] : []);
 
@@ -571,7 +588,11 @@ async function yourSeat(tx: TenantClient, companyId: string, roleId: string): Pr
   // would reach every run of the seat while none of them counted as having
   // read outside content (F8.9), so their tier 2 calls would not ask the
   // owner. The seat is told it has one and which, and reads it with
-  // ticket.list, whose listing taints the run that reads it.
+  // ticket.list, whose listing taints the run that reads it -- or, for a
+  // seat that does not hold ticket.list (only the founding CEO does), is
+  // told it is handed the to-do as a task of its own (`handTodos`), which
+  // carries the words as outside content: told of a tool it lacks, a run
+  // tries it and is refused (F2.3).
   const { rows: todos } = await tx.query<{ id: string; title: string; due_on: string | null; outside: boolean; total: number }>(
     `SELECT id, title, to_char(due_on, 'YYYY-MM-DD') AS due_on, outside, count(*) OVER ()::int AS total
        FROM tickets
@@ -584,7 +605,10 @@ async function yourSeat(tx: TenantClient, companyId: string, roleId: string): Pr
     for (const todo of todos) {
       const title = todo.title.replace(/\s+/g, ' ').trim().slice(0, 200);
       const said = todo.outside
-        ? `A to-do filed by work that had read outside content, ticket ${todo.id}; its words are not shown here, and ticket.list with its id reads them as outside content`
+        ? `A to-do filed by work that had read outside content, ticket ${todo.id}; its words are not shown here, and ` +
+          (listsTickets
+            ? 'ticket.list with its id reads them as outside content'
+            : 'it is handed to you as a task of its own, which carries them as outside content')
         : withoutTemplateTokens(title);
       out.push(`- ${said}${todo.due_on ? `, due ${todo.due_on}` : ''}`);
     }

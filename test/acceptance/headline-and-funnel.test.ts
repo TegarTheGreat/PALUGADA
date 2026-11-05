@@ -312,6 +312,9 @@ test("every run is told the headline the owner chose, with its pair, and nothing
   assert.match(told.body, /The owner judges the company by Repeat orders a month \[orders\]/);
   assert.match(told.body, /from 0 to 300 count, higher is better; funnel step: retention; now 120 \(verified/);
   assert.match(told.body, /Watch it with Refund rate \[refunds\]/);
+  // Context, not an assignment: every role is told it, and a critic that
+  // holds neither tool would be told to read and record it and be refused.
+  assert.doesNotMatch(told.body, /metric\.record|Read it with/);
   // Told once, near the top, where the stage is: before the work's own goal chain.
   const kinds = (await context()).sections.map((section) => section.kind);
   assert.ok(kinds.indexOf('headline') < kinds.indexOf('goal_ancestry'));

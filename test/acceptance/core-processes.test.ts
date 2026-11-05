@@ -376,6 +376,27 @@ test('every run of the owning seat is told the core processes it owns, and other
   assert.doesNotMatch(await pack(fixture.roleId), /core process/, 'a seat that owns none is told nothing of them');
 });
 
+test('the core processes in a seat\'s charter are bounded, each to a clause, since the charter is never dropped to fit', async () => {
+  // More than twelve is only a warning (skills/core.ts), and a summary may
+  // be 400 characters: thirty of them in the one section the pack never
+  // drops would push the run's memory out of every run of the seat.
+  const fixture = await createCompany('core-bounded');
+  const sales = await addRole(fixture, 'sales');
+  for (let at = 0; at < 15; at += 1) {
+    const skillId = await activeSkill(fixture, `process-${String(at).padStart(2, '0')}`, { scope: 'company' });
+    await setCore(fixture, skillId, sales);
+  }
+  await withControlPlane((tx) => tx.query(
+    "UPDATE skills SET summary = 'Every step of this process, said at length: ' || repeat('and then the next step ', 15) WHERE company_id = $1",
+    [fixture.companyId]));
+  const charter = await charterOf(fixture.companyId, fixture.divisionId, await ranTask(fixture, sales, fixture.divisionId));
+  const listed = charter.split('\n').filter((line) => /^- process-\d\d \(v1\)/.test(line));
+  assert.equal(listed.length, 12, 'the most the method names');
+  assert.match(charter, /^- and 3 more$/m);
+  for (const line of listed) assert.ok(line.length <= 160, `a core process is told in a clause, not ${line.length} characters`);
+  assert.match(listed[0]!, /^- process-00 \(v1\): Every step of this process, said at length: and then/);
+});
+
 test('a core process stays where its seat can read it', async () => {
   const fixture = await createCompany('core-scope');
   const elsewhere = await otherDivision(fixture, 'support');

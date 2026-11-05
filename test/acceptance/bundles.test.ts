@@ -805,6 +805,8 @@ const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
     'learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment',
     // 1.7.0 (F18.8): the pivot is decided from the grade the platform wrote.
     'the platform grades it', 'predicted beside what', 'pivot or persevere',
+    // And where the strategist, which runs the stage gates, reads that grade.
+    "grades in the weekly review's input",
   ],
 };
 
@@ -884,6 +886,30 @@ test('the kit tests channels and drafts the one-page model, the fit survey and t
   for (const tool of ['doc.draft', 'goal.propose', 'metric.record', 'task.delegate', 'task.await', 'owner.ask']) {
     assert.ok(strategist.tools?.includes(tool), `the strategist does not hold ${tool}, which the skills name`);
   }
+});
+
+test('the kit says what it brings, and its skills ask for nothing a reader of them may not hold (F18.11, F18.12, F18.15)', () => {
+  // The owner reads the description before installing: a cadence that hands
+  // the strategist the books is one they are told of.
+  for (const said of [/monthly money review/, /books/, /channel tests/, /one-page model/, /fit survey/, /press release/]) {
+    assert.match(COMPANY_OS.description, said);
+  }
+  const skill = (slug: string) => COMPANY_OS.body.skills.find((one) => one.slug === slug)!.source;
+  // A company-wide skill is read by the CEO too, which no longer holds
+  // doc.draft (0141): each that drafts says what to do without it.
+  for (const one of COMPANY_OS.body.skills.filter((candidate) => candidate.source.includes('doc.draft'))) {
+    assert.match(one.source, /a role that holds it/, `${one.slug} tells every reader to call doc.draft`);
+  }
+  // A plan line carries one measure (PLAN_LINE_SCHEMA): a test is one
+  // learning priority, recorded on its one measure, and its spend and cost
+  // are reported, not recorded on measures it does not have.
+  const channels = skill('channel-testing');
+  assert.doesNotMatch(channels, /no account or goal of its own/);
+  assert.doesNotMatch(channels, /on its measures/);
+  assert.match(channels, /one learning priority/);
+  assert.match(channels, /one measure/);
+  // The monthly review's issues reach the weekly meeting by its summary's end.
+  assert.match(skill('monthly-review'), /end of this review's summary/);
 });
 
 /**

@@ -27,8 +27,8 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconPaperclip, IconRepeat, IconRoute,
-  IconTarget, IconWorldWww, IconX,
+  IconAlertTriangle, IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconPaperclip, IconRepeat,
+  IconRoute, IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { readForUpload } from '../files.ts';
@@ -43,6 +43,7 @@ import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierB
 import { ConversationOfTask } from '../components/ChatThread.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
+import { channelName } from '../channels.ts';
 
 type Filter = 'all' | 'approval' | 'incident' | 'escalation' | 'mine';
 
@@ -534,6 +535,8 @@ function Detail({
   const [answer, setAnswer] = useState('');
   // Files that go with the answer to a run's question: read when chosen, sent with the answer, kept nowhere here.
   const [attached, setAttached] = useState<Array<{ name: string; data: string }>>([]);
+  // A plan of new goals (F18.7): the lines a yes approves, every one until the owner unticks it.
+  const [chosen, setChosen] = useState<number[]>(() => (item.plan ?? []).map((line) => line.line));
   // The button keeps the files it was given until it is told to forget them, and a browser says nothing when the
   // same one is chosen again -- after it was taken off, or refused as too big.
   const forget = useRef<() => void>(null);
@@ -561,6 +564,8 @@ function Detail({
   const send = (decision: string, proof?: Proof, allowForHours?: number, forSchedule?: boolean) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
       decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}), ...(forSchedule ? { forSchedule } : {}),
+      // The lines of a plan the yes approves; the server refuses the rest.
+      ...(decision === 'approve' && item.plan ? { lines: [...chosen].sort((one, other) => one - other) } : {}),
     });
 
   // 0116: yes, and every time this schedule does exactly this. It loosens a
@@ -912,6 +917,41 @@ function Detail({
           />
         )}
 
+        {item.plan && item.plan.length > 0 && (
+          <div>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={2}>{t('Lines of the plan')}</Text>
+            <Text size="xs" c="dimmed" mb={6}>{t('Each ticked line becomes a goal, with its measure, when you approve; the rest are refused.')}</Text>
+            <Stack gap={8}>
+              {item.plan.map((line) => (
+                <Checkbox
+                  key={line.line}
+                  disabled={!decides}
+                  checked={chosen.includes(line.line)}
+                  onChange={(event) => {
+                    const on = event.currentTarget.checked;
+                    setChosen((current) => on ? [...current, line.line] : current.filter((one) => one !== line.line));
+                  }}
+                  label={<Text size="sm" style={{ overflowWrap: 'anywhere' }}>{line.line}. {line.statement}</Text>}
+                  description={(
+                    <Group gap={6} wrap="wrap" component="span">
+                      <span>{goalKind(line.kind)}</span>
+                      {line.channel && <span>· {channelName(line.channel)}</span>}
+                      {line.warned && (
+                        <Tooltip label={t('Past a soft limit: the card above says which.')}>
+                          <IconAlertTriangle size={14} color="var(--mantine-color-yellow-7)" aria-label={t('Past a soft limit: the card above says which.')} />
+                        </Tooltip>
+                      )}
+                    </Group>
+                  )}
+                />
+              ))}
+            </Stack>
+            {chosen.length === 0 && decides && (
+              <Text size="xs" c="yellow.8" mt={6}>{t('Tick at least one line to approve, or deny the whole plan.')}</Text>
+            )}
+          </div>
+        )}
+
         {item.hire && seat === null && (
           <HireCard companyId={companyId} hire={item.hire} talk={talk} settled={async (decision) => {
             await send(decision);
@@ -1000,7 +1040,8 @@ function Detail({
               </Menu>
             </Group>
           ) : (
-            <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'} onClick={() => void decide('approve')}>
+            <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
+              disabled={item.plan !== undefined && chosen.length === 0} onClick={() => void decide('approve')}>
               {t('Approve')}
             </Button>
           )}

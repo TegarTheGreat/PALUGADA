@@ -161,15 +161,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'loosens what the company may do.',
   },
   {
-    // F3.10. A run proposing that a goal say something else, or close.
+    // F3.10. A run proposing that a goal say something else, or close; and
+    // F18.7, a plan of new goals the owner approves line by line.
     name: 'goal.propose',
     adapter: 'platform',
     tier: TIER.READ_ONLY,
-    summary: 'Proposes to the owner that a goal change or close, with the evidence.',
+    summary: 'Proposes to the owner that a goal change or close, or a plan of new goals, with the evidence.',
     calibration:
       'Opens one item in the owner\'s inbox and changes nothing: agents read ' +
-      'goals and never write them, and the goal changes only when the owner ' +
-      'approves, with their device.',
+      'goals and never write them, and the goal changes, or the plan\'s goals ' +
+      'are made, only when the owner approves, with their device.',
   },
   {
     // The tools research, gap #12. A run proposing that work recur.

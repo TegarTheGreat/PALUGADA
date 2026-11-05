@@ -16,6 +16,7 @@ import {
   ancestryForTask,
   applyGoalChange,
   createGoal,
+  goalsIn,
   proposeGoalChange,
   renderAncestry,
 } from '../../src/domain/goals.ts';
@@ -27,7 +28,7 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { COMPANY_OS } from '../../src/bundles/builtin.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
-import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
+import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { changeMetric, defineMetric, recordObservation } from '../../src/domain/metrics.ts';
 import { CHANNELS } from '../../src/domain/channels.ts';
@@ -853,4 +854,204 @@ test('the console offers the nineteen channels the platform knows, in its order 
   const offered = [...source.matchAll(/value: '([a-z_]+)'/g)].map((match) => match[1]);
   assert.equal(CHANNELS.length, 19);
   assert.deepEqual(offered, CHANNELS.map((channel) => channel.slug));
+});
+
+/* ------------------------------------------------- a plan of new goals --- */
+
+/** The owner's device for a test that decides tier 3 more than twice: a clock it moves, so each code is fresh. */
+async function ownerDevice() {
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/plan-totp', secret);
+  let steps = 0;
+  const at = () => new Date(Date.now() + steps * TOTP_STEP_SECONDS * 1000);
+  const mfa = new OwnerMfa({ secrets, now: at });
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/plan-totp' });
+  return {
+    mfa,
+    approve: (companyId: string, itemId: string, lines?: number[]) => {
+      steps += 1;
+      return inbox.decide(companyId, itemId, 'approve', 'Yes to these.', {
+        channel: 'app', proof: { totp: totpCode(decodeBase32(secret), stepFor(at())) }, mfa, ...(lines ? { lines } : {}),
+      });
+    },
+  };
+}
+
+/** A broker that lets the fixture's CEO call goal.propose from a running task. */
+async function proposer(fixture: Fixture) {
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'goal.propose');
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  const broker = new CapabilityBroker(registry);
+  let key = 0;
+  return (input: Record<string, unknown>) => broker.invoke<unknown, {
+    proposed: boolean; inboxItemId: string; note?: string; warnings?: Array<{ line: number; kind: string }>;
+  }>({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: task.id, idempotencyKey: `plan-${key += 1}`,
+  }, 'goal.propose', input);
+}
+
+const goalSlugs = async (fixture: Fixture) => (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+  'SELECT slug FROM goals ORDER BY created_at, slug'))).rows.map((row) => row.slug);
+
+/** Four new goals: this year's goal, a priority under it, a learning priority paired with it, and one to refuse. */
+const QUARTER_PLAN = [
+  {
+    slug: 'year-cafes', kind: 'objective', parent: 'mission', statement: 'Become the coffee supplier Bandung cafes ask for by name.',
+    startsOn: '2027-01-01', dueOn: '2027-12-31', commitment: 'committed', seat: 'worker', doneWhen: 'Forty cafes order every month.',
+  },
+  {
+    slug: 'q1-cafes', kind: 'key_result', parent: 'year-cafes', statement: 'Ten paying cafes by the end of March.',
+    startsOn: '2027-01-01', dueOn: '2027-03-31', commitment: 'committed', seat: 'worker',
+    measure: { name: 'Paying cafes', unit: 'count', baseline: 2, target: 10 },
+  },
+  {
+    slug: 'q1-ads-test', kind: 'key_result', parent: 'objective', statement: 'Learn whether ads to cafe owners bring sign-ups.',
+    startsOn: '2027-01-01', dueOn: '2027-03-31', commitment: 'learning', seat: 'worker', channel: 'social_and_display_ads',
+    measure: { slug: 'ad-signups', name: 'Sign-ups from ads', unit: 'count', target: 40, pair: 'q1-cafes' },
+  },
+  {
+    slug: 'q1-newsletter', kind: 'key_result', parent: 'objective', statement: 'Start a monthly newsletter.',
+    startsOn: '2027-01-01', dueOn: '2027-03-31', commitment: 'aspirational', seat: 'worker', doneWhen: 'Three issues have gone out.',
+  },
+];
+
+test('a plan of new goals is one card, and the owner\'s yes makes only the lines approved (F18.7)', async () => {
+  const fixture = await createCompany('goal-plan');
+  const propose = await proposer(fixture);
+  const before = await goalSlugs(fixture);
+
+  // What a plan line must say is checked when it is proposed, by its line.
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[2], measure: undefined }], why: 'y' }),
+    /line 1 \(q1-ads-test\): a learning goal is a test, and carries a measure whose target is the prediction, set now/);
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[0], parent: 'nowhere' }], why: 'y' }),
+    /line 1 \(year-cafes\): no goal nowhere to hang from; name an active goal by its slug \(mission, objective\), or an earlier line of this plan/);
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[1], parent: 'mission' }], why: 'y' }),
+    /line 1 \(q1-cafes\): a key result hangs from an objective, and mission is a mission/);
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[3], seat: undefined }], why: 'y' }),
+    /line 1 \(q1-newsletter\): a key result of a quarter or less is a quarterly priority, and has one owning seat/);
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[3], doneWhen: undefined }], why: 'y' }),
+    /line 1 \(q1-newsletter\): a quarterly priority says when it is done: give it doneWhen, or a measure/);
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[3], seat: 'nobody' }], why: 'y' }),
+    /line 1 \(q1-newsletter\): no role nobody in this company to own it; name a seat by its slug: worker/);
+  await assert.rejects(propose({ plan: [QUARTER_PLAN[3], QUARTER_PLAN[3]], why: 'y' }),
+    /line 2 \(q1-newsletter\): the slug q1-newsletter is already line 1's/);
+  await assert.rejects(propose({ plan: [{ ...QUARTER_PLAN[3], slug: 'objective' }], why: 'y' }),
+    /line 1 \(objective\): a goal named objective already exists; give the new one a slug of its own/);
+  await assert.rejects(propose({ goal: 'objective', plan: QUARTER_PLAN, why: 'y' }),
+    /goal.propose takes a change to one goal \(goal\) or a plan of new goals \(plan\), not both/);
+  await assert.rejects(propose({ plan: [], why: 'y' }), /a plan has 1 to 20 new goals; this one has 0/);
+
+  const first = (await propose({ plan: QUARTER_PLAN, why: 'The quarter review: cafes reorder, offices do not.' })).output;
+  assert.equal(first.proposed, true);
+  assert.deepEqual(await goalSlugs(fixture), before, 'proposing makes nothing');
+  const cards = await inbox.listOpen(fixture.companyId);
+  assert.equal(cards.length, 1, 'one card for the whole plan');
+  const card = cards[0]!;
+  assert.equal(card.id, first.inboxItemId);
+  assert.deepEqual([card.kind, card.tier, card.taskId], ['escalation', 3, null]);
+  assert.match(card.title, /New goals proposed, to approve line by line/);
+  assert.match(card.rationale, /Reason given: The quarter review/);
+  assert.match(card.rationale, /Line 1: the objective "Become the coffee supplier Bandung cafes ask for by name\."/);
+  assert.match(card.rationale, /Line 2: the key result "Ten paying cafes by the end of March\."\nUnder line 1: Become the coffee supplier/);
+  assert.match(card.rationale, /Measured by Paying cafes: from 2 to 10\./);
+  assert.match(card.rationale, /Owned by: CEO/, 'the seat by the name the owner reads it by');
+  assert.match(card.rationale, /Line 3: the key result "Learn whether ads to cafe owners bring sign-ups\."/);
+  assert.match(card.rationale, /The prediction, written before the work: Sign-ups from ads reaches 40, from 0\./);
+  assert.match(card.rationale, /Watched with: Paying cafes/);
+  assert.deepEqual(card.plan!.map((line) => [line.line, line.kind, line.slug, line.channel]), [
+    [1, 'objective', 'year-cafes', null], [2, 'key_result', 'q1-cafes', null],
+    [3, 'key_result', 'q1-ads-test', 'social_and_display_ads'], [4, 'key_result', 'q1-newsletter', null],
+  ]);
+  const again = (await propose({ plan: [QUARTER_PLAN[3]], why: 'z' })).output;
+  assert.deepEqual([again.proposed, again.inboxItemId], [false, first.inboxItemId], 'one plan waits for the owner at a time');
+
+  // A line whose parent or pair is a line refused cannot be approved without it.
+  const device = await ownerDevice();
+  await assert.rejects(device.approve(fixture.companyId, first.inboxItemId, [2]),
+    /line 2 hangs from line 1, which is not approved: approve line 1 too, or refuse line 2/);
+  await assert.rejects(device.approve(fixture.companyId, first.inboxItemId, [1, 3]),
+    /line 3's measure is watched with line 2's, which is not approved: approve line 2 too, or refuse line 3/);
+  await assert.rejects(device.approve(fixture.companyId, first.inboxItemId, [1, 9]),
+    /lines are the numbers of this plan's lines, 1 to 4; got 9/);
+  await assert.rejects(inbox.decide(fixture.companyId, first.inboxItemId, 'deny', '', { lines: [1] }),
+    /lines are chosen with a yes: a no refuses the whole plan/);
+  assert.deepEqual(await goalSlugs(fixture), before);
+
+  await device.approve(fixture.companyId, first.inboxItemId, [1, 2, 3]);
+  assert.deepEqual((await goalSlugs(fixture)).sort(), [...before, 'year-cafes', 'q1-cafes', 'q1-ads-test'].sort(), 'line 4 was refused');
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 0);
+  await withTenant(fixture.companyId, async (tx) => {
+    const goals = await goalsIn(tx, fixture.companyId);
+    const year = goals.find((goal) => goal.slug === 'year-cafes')!;
+    const cafes = goals.find((goal) => goal.slug === 'q1-cafes')!;
+    const ads = goals.find((goal) => goal.slug === 'q1-ads-test')!;
+    assert.equal(cafes.parentGoalId, year.id, 'a line under a line hangs from the goal it made');
+    assert.equal(ads.parentGoalId, fixture.goalId);
+    assert.deepEqual([year.period, year.commitment, year.ownerRole, year.doneWhen], ['year', 'committed', 'worker', 'Forty cafes order every month.']);
+    assert.deepEqual([ads.period, ads.commitment, ads.channel], ['quarter', 'learning', 'social_and_display_ads']);
+    const { rows: measures } = await tx.query<{ slug: string; goal_id: string; target: string; baseline: string; owner_role_id: string; due_on: string; partner: string | null }>(
+      `SELECT m.slug, m.goal_id, m.target::text, m.baseline::text, m.owner_role_id, to_char(m.due_on, 'YYYY-MM-DD') AS due_on, p.slug AS partner
+         FROM goal_metrics m LEFT JOIN goal_metrics p ON p.id = m.paired_metric_id ORDER BY m.slug`);
+    assert.deepEqual(measures.map((row) => [row.slug, row.goal_id, row.baseline, row.target, row.owner_role_id, row.due_on, row.partner]), [
+      ['ad-signups', ads.id, '0', '40', fixture.roleId, '2027-03-31', 'q1-cafes'],
+      ['q1-cafes', cafes.id, '2', '10', fixture.roleId, '2027-03-31', 'ad-signups'],
+    ], 'each measure is the line\'s, owned by its seat, due with it, and the pair is written both ways');
+    const { rows: events } = await tx.query<{ type: string; payload: Record<string, unknown> }>(
+      "SELECT type, payload FROM events WHERE type IN ('goal.created', 'metric.defined', 'owner.decided') ORDER BY occurred_at, id");
+    const made = (type: string) => events.filter((event) => event.type === type && event.payload.inboxItemId === first.inboxItemId)
+      .map((event) => String(event.payload.slug)).sort();
+    assert.deepEqual(made('goal.created'), ['q1-ads-test', 'q1-cafes', 'year-cafes'], 'each is recorded as made by the owner\'s yes on this card');
+    assert.deepEqual(made('metric.defined'), ['ad-signups', 'q1-cafes']);
+    assert.deepEqual(events.find((event) => event.type === 'owner.decided')!.payload.lines, { approved: [1, 2, 3], refused: [4] });
+  });
+});
+
+test('a plan is refused once a goal it hangs from has changed, and a plan of every line needs no list (F18.7)', async () => {
+  const fixture = await createCompany('goal-plan-stale');
+  const propose = await proposer(fixture);
+  const device = await ownerDevice();
+  const stale = (await propose({ plan: [QUARTER_PLAN[3]], why: 'A newsletter keeps the cafes ordering.' })).output;
+  await applyGoalChange({ companyId: fixture.companyId, goalId: fixture.goalId, statement: 'The owner\'s own words.' });
+  await assert.rejects(device.approve(fixture.companyId, stale.inboxItemId),
+    /line 1 hangs from the objective "objective", which has changed since this was proposed; deny it, and ask for a new proposal/);
+  assert.equal((await goalSlugs(fixture)).includes('q1-newsletter'), false);
+  await inbox.decide(fixture.companyId, stale.inboxItemId, 'deny', 'Not this quarter.');
+  assert.equal((await goalSlugs(fixture)).includes('q1-newsletter'), false, 'a no makes nothing');
+
+  // A yes with no lines named is a yes to every line.
+  const fresh = (await propose({ plan: [QUARTER_PLAN[3]], why: 'Asked again, under the objective as it is now.' })).output;
+  assert.equal(fresh.proposed, true);
+  await device.approve(fixture.companyId, fresh.inboxItemId);
+  assert.equal((await goalSlugs(fixture)).includes('q1-newsletter'), true);
+});
+
+test('a plan\'s card shows the soft limits each line would pass, and refuses nothing for them (F18.7, F18.1)', async () => {
+  const fixture = await createCompany('goal-plan-limits');
+  const propose = await proposer(fixture);
+  const six = Array.from({ length: 6 }, (_, index) => ({
+    ...QUARTER_PLAN[3], slug: `priority-${index + 1}`, statement: `Priority ${index + 1}.`,
+  }));
+  const proposed = (await propose({ plan: six, why: 'Everything matters this quarter.' })).output;
+  assert.equal(proposed.proposed, true);
+  assert.deepEqual([...new Set(proposed.warnings!.map((warning) => warning.kind))].sort(), ['objective_key_results', 'seat_priorities']);
+  const card = (await inbox.listOpen(fixture.companyId))[0]!;
+  assert.match(card.rationale, /Key results under this objective: 6, more than the 5 one objective keeps in view\./);
+  assert.match(card.rationale, /Quarterly priorities for CEO at once: 6, more than the 5 one seat keeps in view\./);
+  assert.deepEqual(card.plan!.map((line) => line.warned), [true, true, true, true, true, true]);
+});
+
+test('an agent still cannot write a goal or a measure: the plan is the owner\'s to make (F3.10, F18.7)', async () => {
+  const fixture = await createCompany('goal-plan-readonly');
+  await assert.rejects(withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement) VALUES ($1, $2, 'key_result', 'mine', 'My own goal.')`,
+    [fixture.companyId, fixture.goalId])), /permission denied for table goals/);
+  await assert.rejects(withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO goal_metrics (company_id, goal_id, slug, name, unit, target) VALUES ($1, $2, 'mine', 'Mine', 'count', 1)`,
+    [fixture.companyId, fixture.goalId])), /permission denied for table goal_metrics/);
 });

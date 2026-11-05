@@ -475,4 +475,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Huminto ang isang gawain ng {role} bago natapos.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Para lutasin: hanapin ang ugat na sanhi sa pagtatanong kung bakit sa bawat sagot at pagsuri nito sa talaan, magpasya nang isang beses, at isampa ang mga gagawing magsasagawa ng pasya, bawat isa ay may isang upuan.',
+  'New goals proposed, to approve line by line':
+    'Mga bagong layunin ang iminumungkahi, para aprubahan bawat linya',
+  'Line {line}: the {kind} "{goal}"':
+    'Linya {line}: ang {kind} na "{goal}"',
+  'Under: {goal}':
+    'Sa ilalim ng: {goal}',
+  'Under line {line}: {goal}':
+    'Sa ilalim ng linya {line}: {goal}',
+  'Period: {from} to {to}':
+    'Panahon: {from} hanggang {to}',
+  'Committed: done in full, or missed.':
+    'Tiyak na gagawin: buong natapos, o hindi naabot.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Pinapangarap: binibigyan ng marka, at ang 0.6 hanggang 0.7 ay magandang resulta.',
+  'Learning: a test of the prediction below.':
+    'Pag-aaral: sinusubok ang hula sa ibaba.',
+  'Owned by: {role}':
+    'May-ari: {role}',
+  'Done when: {doneWhen}':
+    'Tapos kapag: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ang hula, isinulat bago ang trabaho: aabot ang {name} sa {target}, mula sa {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Sinusukat ng {name}: mula {baseline} hanggang {target}.',
+  'Watched with: {measure}':
+    'Binabantayan kasama ng: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Mga layunin ngayong taon: {count}, higit sa {limit} na kayang bantayan ng isang kumpanya.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Mga pangunahing resulta sa ilalim ng layuning ito: {count}, higit sa {limit} na kayang bantayan ng isang layunin.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Mga quarterly na prayoridad nang sabay: {count}, higit sa {limit} na kayang bantayan ng isang kumpanya.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Mga quarterly na prayoridad ni {seat} nang sabay: {count}, higit sa {limit} na kayang hawakan ng isang upuan.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Kapag inaprubahan, magiging layunin ang bawat linyang inaprubahan mo, kasama ang sukat nito; hindi gagawin ang linyang tinanggihan mo. Hanggang doon, magpapatuloy ang trabaho sa ilalim ng mga layunin gaya ng dati.',
+  'No goal is made.':
+    'Walang layuning ginawa.',
 };

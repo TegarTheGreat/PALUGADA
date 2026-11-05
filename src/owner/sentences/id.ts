@@ -472,4 +472,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Sebuah tugas {role} berhenti sebelum selesai.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Cara menyelesaikannya: cari akar masalah dengan menanyakan mengapa pada setiap jawaban dan mencocokkannya dengan catatan, putuskan sekali, lalu ajukan tindakan yang menjalankan keputusan itu, masing-masing dengan satu kursi.',
+  'New goals proposed, to approve line by line':
+    'Sasaran baru diusulkan, untuk disetujui baris demi baris',
+  'Line {line}: the {kind} "{goal}"':
+    'Baris {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Di bawah: {goal}',
+  'Under line {line}: {goal}':
+    'Di bawah baris {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periode: {from} sampai {to}',
+  'Committed: done in full, or missed.':
+    'Wajib tercapai: selesai penuh, atau meleset.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Aspirasional: diberi nilai, dan 0,6 sampai 0,7 adalah hasil yang baik.',
+  'Learning: a test of the prediction below.':
+    'Pembelajaran: menguji prediksi di bawah ini.',
+  'Owned by: {role}':
+    'Dimiliki oleh: {role}',
+  'Done when: {doneWhen}':
+    'Selesai bila: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Prediksinya, ditulis sebelum pekerjaan dimulai: {name} mencapai {target}, dari {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Diukur dengan {name}: dari {baseline} ke {target}.',
+  'Watched with: {measure}':
+    'Dipantau bersama: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Sasaran tahun ini: {count}, lebih dari {limit} yang bisa dijaga sebuah perusahaan.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Hasil kunci di bawah objektif ini: {count}, lebih dari {limit} yang bisa dijaga satu objektif.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioritas kuartalan sekaligus: {count}, lebih dari {limit} yang bisa dijaga sebuah perusahaan.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioritas kuartalan {seat} sekaligus: {count}, lebih dari {limit} yang bisa dijaga satu kursi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Menyetujui menjadikan setiap baris yang Anda setujui sebuah sasaran, beserta ukurannya; baris yang Anda tolak tidak dibuat. Sampai saat itu pekerjaan berlanjut di bawah sasaran yang sekarang.',
+  'No goal is made.':
+    'Tidak ada sasaran yang dibuat.',
 };

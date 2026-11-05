@@ -478,4 +478,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} का एक कार्य पूरा होने से पहले रुक गया।',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'इसे सुलझाने के लिए: हर जवाब पर ‘क्यों’ पूछकर और उसे रिकॉर्ड से जाँचकर मूल कारण खोजें, एक बार फ़ैसला करें, और फ़ैसले को लागू करने वाले काम दर्ज करें, हर काम एक सीट के साथ।',
+  'New goals proposed, to approve line by line':
+    'नए लक्ष्य प्रस्तावित, हर पंक्ति अलग से स्वीकृत करने के लिए',
+  'Line {line}: the {kind} "{goal}"':
+    'पंक्ति {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'इसके तहत: {goal}',
+  'Under line {line}: {goal}':
+    'पंक्ति {line} के तहत: {goal}',
+  'Period: {from} to {to}':
+    'अवधि: {from} से {to}',
+  'Committed: done in full, or missed.':
+    'पक्का: पूरा हुआ, या चूका।',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'महत्वाकांक्षी: अंक मिलते हैं, और 0.6 से 0.7 अच्छा परिणाम है।',
+  'Learning: a test of the prediction below.':
+    'सीखना: नीचे दिए अनुमान को परखता है।',
+  'Owned by: {role}':
+    'ज़िम्मेदार: {role}',
+  'Done when: {doneWhen}':
+    'पूरा तब, जब: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'अनुमान, काम से पहले लिखा गया: {name} {baseline} से {target} तक पहुँचेगा।',
+  'Measured by {name}: from {baseline} to {target}.':
+    'मापदंड {name}: {baseline} से {target} तक।',
+  'Watched with: {measure}':
+    'इसके साथ देखा जाता है: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'इस साल के लक्ष्य: {count}, जो एक कंपनी की नज़र में रह सकने वाले {limit} से ज़्यादा हैं।',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'इस उद्देश्य के मुख्य परिणाम: {count}, जो एक उद्देश्य की नज़र में रह सकने वाले {limit} से ज़्यादा हैं।',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'एक साथ चल रही तिमाही प्राथमिकताएँ: {count}, जो एक कंपनी की नज़र में रह सकने वाली {limit} से ज़्यादा हैं।',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} की एक साथ चल रही तिमाही प्राथमिकताएँ: {count}, जो एक सीट के सँभाल सकने वाली {limit} से ज़्यादा हैं।',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'स्वीकृत करने पर आपकी स्वीकृत हर पंक्ति अपने मापदंड के साथ एक लक्ष्य बन जाती है; अस्वीकृत पंक्ति नहीं बनती। तब तक काम मौजूदा लक्ष्यों के तहत ही चलता रहेगा।',
+  'No goal is made.':
+    'कोई लक्ष्य नहीं बनता।',
 };

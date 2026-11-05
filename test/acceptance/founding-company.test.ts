@@ -16,7 +16,7 @@ import { withControlPlane } from '../../src/db/tenant.ts';
 import { firstHourOpener } from '../../src/owner/first-hour.ts';
 import { installFoundingTemplate } from '../../src/templates/founding.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
-import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 
 before(ensureSchema);
@@ -59,10 +59,18 @@ test('a company that names no template starts with one division, its CEO and one
     assert.deepEqual(structure.divisions.map((one) => [one.escalationRole, one.escalateAfterMinutes]), [['coordinator', 60]]);
     // The CEO can hand work on and look again later, and holds the most tools a role may.
     const ceo = structure.roles[0]!;
-    for (const tool of ['task.delegate', 'task.await', 'ticket.create', 'ticket.list', 'task.follow_up', 'schedule.propose', 'owner.ask']) {
+    for (const tool of ['task.delegate', 'task.await', 'ticket.create', 'ticket.list', 'task.follow_up', 'schedule.propose', 'owner.ask', 'goal.propose']) {
       assert.ok(ceo.tools.includes(tool), `the CEO holds ${tool}`);
     }
-    assert.ok(ceo.tools.length <= 12);
+    // F18.7: it proposes the plan of new goals, and gave up drafting for it,
+    // so it stays at the twelve a role may hold (F2.6). Its division keeps
+    // the draft's grant, so the owner can trade it back on Team.
+    assert.equal(ceo.tools.length, 12);
+    assert.equal(ceo.tools.includes('doc.draft'), false);
+    const { rows: grants } = await withControlPlane((tx) => tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE company_id = $1', [made.companyId]));
+    const granted = grants.map((grant) => grant.capability_name);
+    assert.ok(granted.includes('goal.propose') && granted.includes('doc.draft'), granted.join(', '));
   } finally {
     await api.close();
   }
@@ -139,6 +147,59 @@ test('a company started without a mission is opened with the three questions, as
     const talk = await api.call('GET', `/api/companies/${made.companyId}/conversation`, owner);
     assert.equal(talk.body.messages[0].body, firstHourOpener('id', { ceo: 'Arka', company: 'Toko Kopi' }));
     assert.match(talk.body.messages[0].body, /apa yang dijual/);
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * A CEO started before it held goal.propose has the founding tools of then:
+ * doc.draft where goal.propose now is. 0141 trades the one for the other where
+ * the owner left the tools as they were founded, with a version to roll back
+ * to, and leaves a CEO the owner has changed as the owner left it.
+ */
+test('0141 gives an existing CEO goal.propose in place of doc.draft, only where its tools are still the founding ones (F18.7)', async () => {
+  const { api, owner, made } = await started();
+  try {
+    const other = await api.call('POST', '/api/companies', owner, { companySlug: 'toko-teh', name: 'Toko Teh', proof: { totp: api.code() } });
+    assert.equal(other.status, 200, JSON.stringify(other.body));
+    const second = { made: other.body as { companyId: string } };
+    const OLD = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+      'schedule.propose', 'ticket.create', 'ticket.list', 'task.follow_up', 'doc.draft'];
+    const ceoOf = async (companyId: string) => (await withControlPlane((tx) => tx.query<{ id: string; tools: string[]; system_prompt: string }>(
+      "SELECT id, tools, system_prompt FROM roles WHERE company_id = $1 AND title = 'CEO'", [companyId]))).rows[0]!;
+    // As 0141 finds them: the first as it was founded, the second changed by its owner.
+    await withControlPlane(async (tx) => {
+      await tx.query("UPDATE roles SET tools = $2::text[] WHERE company_id = $1 AND title = 'CEO'", [made.companyId, OLD]);
+      await tx.query("UPDATE roles SET tools = $2::text[] WHERE company_id = $1 AND title = 'CEO'", [second.made.companyId, [...OLD.slice(0, 11), 'web.search']]);
+      await tx.query("DELETE FROM capability_grants WHERE company_id = ANY($1::uuid[]) AND capability_name = 'goal.propose'", [[made.companyId, second.made.companyId]]);
+    });
+    const versionsOf = async (companyId: string, kind: string) => (await withControlPlane((tx) => tx.query<{ snapshot: Record<string, unknown>; summary: string; changed_by: string }>(
+      'SELECT snapshot, summary, changed_by FROM config_versions WHERE company_id = $1 AND kind = $2 ORDER BY version', [companyId, kind]))).rows;
+    const roleVersions = (await versionsOf(made.companyId, 'role')).length;
+
+    await runMigrationAgain('0141_the_ceo_proposes_goals.sql');
+
+    const ceo = await ceoOf(made.companyId);
+    assert.deepEqual(ceo.tools, [...OLD.slice(0, 11), 'goal.propose']);
+    const versions = await versionsOf(made.companyId, 'role');
+    assert.equal(versions.length, roleVersions + 1, 'the CEO as it was is a version to roll back to');
+    assert.deepEqual(versions.at(-1)!.snapshot.tools, OLD);
+    assert.equal(versions.at(-1)!.changed_by, 'platform');
+    assert.match(versions.at(-1)!.summary, /before it was given goal\.propose in place of doc\.draft \(0141\)/);
+    const grants = await versionsOf(made.companyId, 'grant');
+    assert.deepEqual(grants.at(-1)!.snapshot, { capability: 'goal.propose', before: null, after: { tierOverride: null, maxInFlight: null } });
+    const { rows } = await withControlPlane((tx) => tx.query<{ company_id: string; capability_name: string }>(
+      "SELECT company_id, capability_name FROM capability_grants WHERE capability_name IN ('goal.propose', 'doc.draft') AND company_id = ANY($1::uuid[]) ORDER BY capability_name",
+      [[made.companyId, second.made.companyId]]));
+    assert.deepEqual(rows.filter((row) => row.company_id === made.companyId).map((row) => row.capability_name), ['doc.draft', 'goal.propose'],
+      'the division keeps the draft\'s grant');
+    assert.equal(rows.some((row) => row.company_id === second.made.companyId && row.capability_name === 'goal.propose'), false);
+    assert.deepEqual((await ceoOf(second.made.companyId)).tools, [...OLD.slice(0, 11), 'web.search'], 'an owner\'s change is the owner\'s');
+
+    // Run twice, it does nothing twice.
+    await runMigrationAgain('0141_the_ceo_proposes_goals.sql');
+    assert.equal((await versionsOf(made.companyId, 'role')).length, roleVersions + 1);
   } finally {
     await api.close();
   }

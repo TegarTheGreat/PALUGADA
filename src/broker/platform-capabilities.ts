@@ -28,7 +28,8 @@ import { recordObservation } from '../domain/metrics.ts';
 import { QUESTION_ESCALATES_AFTER_HOURS, answerFilesSaid, approverNamed, askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { hireProposedCard, ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
-import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
+import { GOAL_STATUSES, proposeGoalChange, type GoalStatus, type GoalWarning } from '../domain/goals.ts';
+import { PLAN_LINES_MAX, proposeGoalPlan, type PlanLineInput } from '../domain/goal-plans.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
 import { assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
@@ -727,35 +728,78 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
 
 export interface GoalProposeInput {
   /** The goal, by its slug or its id. */
-  goal: string;
+  goal?: string;
   /** What the goal should say instead. */
   statement?: string;
   /** Close it as met or abandoned, or reopen it. */
   status?: GoalStatus;
+  /** Or new goals, as one plan the owner approves line by line (F18.7). */
+  plan?: PlanLineInput[];
   /** The evidence, with where each piece came from. */
   why: string;
 }
 
+/** What a run says a line of a plan is, as the schema tells it. */
+const PLAN_LINE_SCHEMA = {
+  type: 'object',
+  required: ['slug', 'kind', 'parent', 'statement'],
+  properties: {
+    slug: { type: 'string', description: 'The new goal\'s slug: lower-case letters, digits and dashes, such as q1-cafes.' },
+    kind: { enum: ['objective', 'key_result'], description: 'objective for one of this year\'s goals, key_result for a priority under one.' },
+    parent: { type: 'string', description: 'What it hangs from: an active goal\'s slug, or the slug of an earlier line of this plan.' },
+    statement: { type: 'string', description: 'What the goal says, in the company\'s language.' },
+    startsOn: { type: 'string', description: 'The first day of its period, YYYY-MM-DD.' },
+    dueOn: { type: 'string', description: 'The last day of its period, YYYY-MM-DD. A key result of 92 days or less is a quarterly priority.' },
+    seat: { type: 'string', description: 'The one role that answers for it, by its slug. A quarterly priority has one.' },
+    commitment: { enum: ['committed', 'aspirational', 'learning'], description: 'committed is done in full or missed; aspirational is graded; learning tests a prediction.' },
+    doneWhen: { type: 'string', description: 'What is true once it is done, in a sentence. A quarterly priority has this or a measure.' },
+    channel: { type: 'string', description: 'The traction channel it tests, if any, by its slug.' },
+    measure: {
+      type: 'object',
+      required: ['name', 'unit', 'target'],
+      description: 'The number it is measured by. A learning goal has one: its target is the prediction, set now.',
+      properties: {
+        slug: { type: 'string', description: 'The measure\'s slug; the goal\'s when left out.' },
+        name: { type: 'string' },
+        unit: { enum: ['currency', 'count', 'ratio', 'percent'] },
+        direction: { enum: ['up', 'down'], description: 'Which way is better; up when left out.' },
+        baseline: { type: 'number', description: 'Where it stands now; 0 when left out.' },
+        target: { type: 'number' },
+        pair: { type: 'string', description: 'The measure it is watched with, by its slug: one with no pair yet, or an earlier line\'s.' },
+      },
+    },
+  },
+} as const;
+
 /**
- * `goal.propose`: ask the owner to change a goal (F3.10).
+ * `goal.propose`: ask the owner to change a goal (F3.10), or to make a plan
+ * of new goals (F18.7).
  *
  * `proposeGoalChange` was documented as the agent's path and no agent could
  * take it -- the strategist's done criterion says a goal change is "written
  * as a proposal", and it had nothing to write one with, so it could only say
  * so in prose the owner then had to carry out by hand. Tier 0 for the reason
  * `stage.propose` is: it opens one item and changes nothing. The goal changes
- * when the owner approves, with their device, and not before.
+ * when the owner approves, with their device, and not before. A plan is the
+ * same for new goals: one card, approved or refused line by line, and the
+ * goals exist once the owner says yes to them.
  */
-export function goalProposeCapability(): Capability<GoalProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+export function goalProposeCapability(): Capability<GoalProposeInput, {
+  proposed: boolean; inboxItemId: string; note?: string; warnings?: Array<{ line: number } & GoalWarning>;
+}> {
   return {
     name: 'goal.propose',
     inputSchema: {
       type: 'object',
-      required: ['goal', 'why'],
+      required: ['why'],
       properties: {
-        goal: { type: 'string', minLength: 1, description: 'The goal, by its slug (as the weekly brief names it) or its id.' },
+        goal: { type: 'string', minLength: 1, description: 'The goal to change, by its slug (as the weekly brief names it) or its id.' },
         statement: { type: 'string', minLength: 1, description: 'What the goal should say instead.' },
         status: { enum: [...GOAL_STATUSES], description: 'met or abandoned to close it, active to reopen it.' },
+        plan: {
+          type: 'array', items: PLAN_LINE_SCHEMA,
+          description: `Instead of goal: new goals, at most ${PLAN_LINES_MAX}, as one plan the owner approves line by line.`,
+        },
         why: { type: 'string', minLength: 1, description: 'The evidence for the change, with where each piece came from.' },
       },
     },
@@ -763,6 +807,18 @@ export function goalProposeCapability(): Capability<GoalProposeInput, { proposed
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
+      if (input.plan !== undefined && input.goal !== undefined) {
+        throw new PalugadaError('contract.violation',
+          'goal.propose takes a change to one goal (goal) or a plan of new goals (plan), not both; propose them as two calls',
+          { field: 'plan' });
+      }
+      if (input.plan !== undefined) {
+        return proposeGoalPlan({ companyId: ctx.companyId, taskId: ctx.taskId, plan: input.plan, rationale: input.why });
+      }
+      if (input.goal === undefined) {
+        throw new PalugadaError('contract.violation',
+          'goal.propose names the goal to change (goal), or proposes new goals (plan)', { field: 'goal' });
+      }
       return proposeGoalChange({
         companyId: ctx.companyId,
         taskId: ctx.taskId,

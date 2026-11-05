@@ -845,6 +845,27 @@ The first version. What it holds, in the order an owner meets it.
 - A decision the CEO reaches on an issue of the whole company is kept for the CEO's own division, not for every
   division: only what you decide is kept company-wide (STATUS 2.193).
 
+- **A plan of new goals in one card.** The CEO, or any role holding
+  `goal.propose`, can propose up to twenty new goals at once: this year's
+  goals and the quarterly priorities under them, each with the goal it hangs
+  from, its period, its seat, its commitment, when it is done, the channel
+  it tests and a measure with its pair. A learning goal carries a measure
+  whose target, set in the proposal, is its prediction. Each line is checked
+  when it is proposed, and the run is told what to fix by the line's number
+  (STATUS 2.195).
+- You approve the plan line by line. The card shows every line, with the
+  soft limits it would pass, and you untick the ones you refuse. Your yes,
+  with your device, makes the lines you kept, with their measures and pairs,
+  in one step. It is refused if a goal a line hangs from has changed since
+  the proposal, and a line cannot be kept without the line it hangs from.
+  One plan waits at a time, and agents still cannot write a goal (STATUS
+  2.195).
+- The CEO now holds `goal.propose` in place of `doc.draft`, so it still has
+  twelve tools. Its division keeps the draft's grant, so you can trade it
+  back on Team. An existing CEO whose tools were still the founding ones is
+  traded the same way on upgrade, with a version to roll back to (STATUS
+  2.195).
+
 - **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
   first of each month the strategist reviews the last whole month from the
   company's own books -- profit beside the month before, cash at its start

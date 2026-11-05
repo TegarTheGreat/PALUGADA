@@ -477,4 +477,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Satu tugas {role} terhenti sebelum siap.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Cara menyelesaikannya: cari punca utama dengan bertanya mengapa pada setiap jawapan dan menyemaknya dengan rekod, putuskan sekali, dan failkan tindakan yang melaksanakan keputusan itu, setiap satu dengan satu kerusi.',
+  'New goals proposed, to approve line by line':
+    'Matlamat baharu dicadangkan, untuk diluluskan baris demi baris',
+  'Line {line}: the {kind} "{goal}"':
+    'Baris {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Di bawah: {goal}',
+  'Under line {line}: {goal}':
+    'Di bawah baris {line}: {goal}',
+  'Period: {from} to {to}':
+    'Tempoh: {from} hingga {to}',
+  'Committed: done in full, or missed.':
+    'Wajib dicapai: siap sepenuhnya, atau terlepas.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Aspirasi: diberi gred, dan 0.6 hingga 0.7 ialah hasil yang baik.',
+  'Learning: a test of the prediction below.':
+    'Pembelajaran: menguji ramalan di bawah.',
+  'Owned by: {role}':
+    'Dimiliki oleh: {role}',
+  'Done when: {doneWhen}':
+    'Siap apabila: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalannya, ditulis sebelum kerja bermula: {name} mencapai {target}, daripada {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Diukur dengan {name}: daripada {baseline} kepada {target}.',
+  'Watched with: {measure}':
+    'Dipantau bersama: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Matlamat tahun ini: {count}, lebih daripada {limit} yang dapat dipantau sebuah syarikat.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Hasil utama di bawah objektif ini: {count}, lebih daripada {limit} yang dapat dipantau satu objektif.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Keutamaan suku tahun serentak: {count}, lebih daripada {limit} yang dapat dipantau sebuah syarikat.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Keutamaan suku tahun untuk {seat} serentak: {count}, lebih daripada {limit} yang dapat dipegang satu kerusi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Meluluskan menjadikan setiap baris yang anda luluskan satu matlamat, bersama ukurannya; baris yang anda tolak tidak dibuat. Sehingga itu kerja diteruskan di bawah matlamat yang sedia ada.',
+  'No goal is made.':
+    'Tiada matlamat dibuat.',
 };

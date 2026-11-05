@@ -2028,3 +2028,46 @@ them: the strategist holds **ledger.read** and its division has the grant. If
 you take either away under **Team**, the review stops and its schedule says
 which is missing, rather than hand the books to a role that may not read
 them.
+
+### Approve a plan of new goals, line by line
+
+The CEO plans: when you ask it for this year's goals or the next quarter's
+priorities, or a quarter is ending, it proposes them as one plan rather than
+in prose for you to type in. Objectives and key results are planned this way
+in *Measure What Matters* by John Doerr, and a quarter's priorities in
+*Traction* by Gino Wickman. Agents never make a goal themselves. The plan is
+one card in **Decisions**, and nothing in it exists until you approve it.
+
+1. Open the card **New goals proposed, to approve line by line**. It gives
+   the reason, then each new goal as a numbered line: what it hangs from,
+   its period, its commitment, the seat that owns it, when it is done, and
+   its measure. A learning goal shows its prediction, the measure's target
+   written before the work starts, after validated learning in *The Lean
+   Startup* by Eric Ries. Where a line would pass a soft limit (more than
+   five of this year's goals, five key results under one objective, seven
+   quarterly priorities at once, or five for one seat), the card says so
+   under the line. These are warnings: you decide.
+2. Under **Lines of the plan**, every line starts ticked. Untick each line
+   you refuse. A line that hangs from another line, or whose measure is
+   watched with another line's, needs that line too, and the card says so if
+   you untick only one.
+3. Press **Approve** and confirm with your device. The goals you kept are
+   made with their measures, each measure due with its goal and owned by its
+   seat. The lines you unticked are not made. **Deny** refuses the whole
+   plan.
+
+If you changed a goal a line hangs from after the plan was proposed, the
+approval is refused and says which line. Deny the plan and ask the CEO for a
+new one. Only one plan waits at a time: the CEO proposes the next once you
+have answered this one.
+
+From a script, the same answer is
+`POST /api/companies/:companyId/inbox/:itemId/decide` with
+`decision: "approve"` and `lines`, the numbers of the lines to approve (such
+as `[1, 3]`). Leave `lines` out to approve every line.
+
+A CEO started before this release had `doc.draft` where `goal.propose` now
+is. If you had not changed its tools, the upgrade traded them and kept a
+version you can roll back to under **Team**. The management division still
+holds the draft's grant, so you can give the CEO `doc.draft` back there in
+place of another tool.

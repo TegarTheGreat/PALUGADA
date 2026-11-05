@@ -477,4 +477,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} 的一项任务在完成前停止了。',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     '解决办法：对每个答案追问为什么，并与记录核对，找出根本原因；只做一次决定；再创建执行该决定的待办，每项只交给一个席位。',
+  'New goals proposed, to approve line by line':
+    '提议的新目标，逐行批准',
+  'Line {line}: the {kind} "{goal}"':
+    '第 {line} 行：{kind}“{goal}”',
+  'Under: {goal}':
+    '隶属于：{goal}',
+  'Under line {line}: {goal}':
+    '隶属于第 {line} 行：{goal}',
+  'Period: {from} to {to}':
+    '周期：{from} 至 {to}',
+  'Committed: done in full, or missed.':
+    '必达：全部完成，或未达成。',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    '挑战：按分评分，0.6 至 0.7 即为好成绩。',
+  'Learning: a test of the prediction below.':
+    '学习：检验下面的预测。',
+  'Owned by: {role}':
+    '负责席位：{role}',
+  'Done when: {doneWhen}':
+    '完成标准：{doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    '预测，在工作开始前写下：{name} 从 {baseline} 达到 {target}。',
+  'Measured by {name}: from {baseline} to {target}.':
+    '衡量指标 {name}：从 {baseline} 到 {target}。',
+  'Watched with: {measure}':
+    '配对观察：{measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    '今年的目标：{count} 个，超过一家公司能顾及的 {limit} 个。',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    '此目标下的关键结果：{count} 个，超过一个目标能顾及的 {limit} 个。',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    '同时进行的季度优先事项：{count} 个，超过一家公司能顾及的 {limit} 个。',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} 同时承担的季度优先事项：{count} 个，超过一个席位能承担的 {limit} 个。',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    '批准后，您批准的每一行都会成为一个目标，并带上其衡量指标；您拒绝的行不会创建。在此之前，工作按现有目标继续进行。',
+  'No goal is made.':
+    '不会创建任何目标。',
 };

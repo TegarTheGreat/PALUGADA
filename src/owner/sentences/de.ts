@@ -478,4 +478,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Eine Aufgabe von {role} hielt an, bevor sie fertig war.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'So wird es gelöst: die Grundursache finden, indem man bei jeder Antwort nach dem Warum fragt und sie an den Aufzeichnungen prüft, einmal entscheiden und die To-dos anlegen, die die Entscheidung umsetzen, jedes mit einem Sitz.',
+  'New goals proposed, to approve line by line':
+    'Neue Ziele vorgeschlagen, Zeile für Zeile zu genehmigen',
+  'Line {line}: the {kind} "{goal}"':
+    'Zeile {line}: {kind} „{goal}“',
+  'Under: {goal}':
+    'Unter: {goal}',
+  'Under line {line}: {goal}':
+    'Unter Zeile {line}: {goal}',
+  'Period: {from} to {to}':
+    'Zeitraum: {from} bis {to}',
+  'Committed: done in full, or missed.':
+    'Verbindlich: ganz erreicht oder verfehlt.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Ambitioniert: wird benotet, und 0,6 bis 0,7 ist ein gutes Ergebnis.',
+  'Learning: a test of the prediction below.':
+    'Lernen: prüft die Vorhersage unten.',
+  'Owned by: {role}':
+    'Verantwortlich: {role}',
+  'Done when: {doneWhen}':
+    'Erreicht, wenn: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Die Vorhersage, vor der Arbeit festgehalten: {name} erreicht {target}, ausgehend von {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Gemessen an {name}: von {baseline} auf {target}.',
+  'Watched with: {measure}':
+    'Beobachtet zusammen mit: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Ziele dieses Jahres: {count}, mehr als die {limit}, die ein Unternehmen im Blick behält.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Schlüsselergebnisse unter diesem Ziel: {count}, mehr als die {limit}, die ein Ziel im Blick behält.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Quartalsprioritäten zugleich: {count}, mehr als die {limit}, die ein Unternehmen im Blick behält.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Quartalsprioritäten von {seat} zugleich: {count}, mehr als die {limit}, die ein Platz tragen kann.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Eine Genehmigung macht jede genehmigte Zeile zu einem Ziel, mit seiner Kennzahl; eine abgelehnte Zeile wird nicht angelegt. Bis dahin geht die Arbeit unter den bisherigen Zielen weiter.',
+  'No goal is made.':
+    'Es wird kein Ziel angelegt.',
 };

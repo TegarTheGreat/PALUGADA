@@ -479,4 +479,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} rolünün bir görevi bitmeden durdu.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Çözmek için: her yanıta neden diye sorup kayıtlarla karşılaştırarak kök nedeni bulun, bir kez karar verin ve kararı uygulayacak yapılacakları, her biri tek koltukla, açın.',
+  'New goals proposed, to approve line by line':
+    'Yeni hedefler önerildi, satır satır onaylanacak',
+  'Line {line}: the {kind} "{goal}"':
+    'Satır {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Bağlı olduğu: {goal}',
+  'Under line {line}: {goal}':
+    'Bağlı olduğu satır {line}: {goal}',
+  'Period: {from} to {to}':
+    'Dönem: {from} – {to}',
+  'Committed: done in full, or missed.':
+    'Taahhütlü: tamamen yapılır ya da kaçırılır.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'İddialı: puanlanır ve 0,6 ile 0,7 arası iyi bir sonuçtur.',
+  'Learning: a test of the prediction below.':
+    'Öğrenme: aşağıdaki tahmini sınar.',
+  'Owned by: {role}':
+    'Sorumlu koltuk: {role}',
+  'Done when: {doneWhen}':
+    'Şu olunca tamam: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'İşten önce yazılan tahmin: {name}, {baseline} değerinden {target} değerine ulaşır.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Ölçüsü {name}: {baseline} değerinden {target} değerine.',
+  'Watched with: {measure}':
+    'Birlikte izlendiği ölçü: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Bu yılın hedefleri: {count}; bir şirketin gözünün önünde tutabileceği {limit} hedeften fazla.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Bu amacın altındaki anahtar sonuçlar: {count}; bir amacın gözünün önünde tutabileceği {limit} sonuçtan fazla.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Aynı anda çeyrek öncelikleri: {count}; bir şirketin gözünün önünde tutabileceği {limit} öncelikten fazla.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} için aynı anda çeyrek öncelikleri: {count}; bir koltuğun taşıyabileceği {limit} öncelikten fazla.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Onaylamak, onayladığınız her satırı ölçüsüyle birlikte bir hedef yapar; reddettiğiniz satır oluşturulmaz. O zamana kadar iş, hedeflerin şimdiki hâliyle sürer.',
+  'No goal is made.':
+    'Hiçbir hedef oluşturulmaz.',
 };

@@ -1361,6 +1361,9 @@ export class OwnerApi {
                 ? {} : { allowForHours: Number(body.allowForHours) }),
               // 0116: every time the card's schedule does exactly this.
               ...(body.forSchedule === true ? { forSchedule: true } : {}),
+              // F18.7: the lines of a plan of new goals a yes approves;
+              // `decide` checks them against the plan.
+              ...(body.lines === undefined || body.lines === null ? {} : { lines: body.lines }),
               // A staff seat's decision: `decide` holds it to tier 2 and below.
               seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },

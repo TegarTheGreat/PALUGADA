@@ -66,6 +66,12 @@ export interface InboxItem {
   budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   /** Work that stopped and is told on this card, not one of its own (a cause's card has no task), with whose it was. */
   stopped?: WaitingRole[];
+  /**
+   * A plan of new goals (F18.7): its lines, each approved or refused on its
+   * own. The card's text says what each is in full; `warned` says it would
+   * pass a soft limit, which the text names.
+   */
+  plan?: Array<{ line: number; kind: string; slug: string; statement: string; channel: string | null; warned: boolean }>;
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;

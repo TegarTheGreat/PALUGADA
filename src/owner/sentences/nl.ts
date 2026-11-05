@@ -478,4 +478,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Een taak van {role} stopte voordat hij af was.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Zo los je het op: zoek de hoofdoorzaak door bij elk antwoord te vragen waarom en het te toetsen aan wat is vastgelegd, besluit één keer, en maak de acties aan die het besluit uitvoeren, elk met één zetel.',
+  'New goals proposed, to approve line by line':
+    'Nieuwe doelen voorgesteld, regel voor regel goed te keuren',
+  'Line {line}: the {kind} "{goal}"':
+    'Regel {line}: {kind} ‘{goal}’',
+  'Under: {goal}':
+    'Onder: {goal}',
+  'Under line {line}: {goal}':
+    'Onder regel {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periode: {from} tot en met {to}',
+  'Committed: done in full, or missed.':
+    'Toegezegd: helemaal gehaald, of gemist.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Ambitieus: krijgt een cijfer, en 0,6 tot 0,7 is een goed resultaat.',
+  'Learning: a test of the prediction below.':
+    'Leren: toetst de voorspelling hieronder.',
+  'Owned by: {role}':
+    'Verantwoordelijk: {role}',
+  'Done when: {doneWhen}':
+    'Klaar als: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'De voorspelling, vastgelegd voor het werk: {name} bereikt {target}, vanaf {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Gemeten met {name}: van {baseline} naar {target}.',
+  'Watched with: {measure}':
+    'Bekeken samen met: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Doelen voor dit jaar: {count}, meer dan de {limit} die een bedrijf in het oog houdt.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Kernresultaten onder deze doelstelling: {count}, meer dan de {limit} die één doelstelling in het oog houdt.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Kwartaalprioriteiten tegelijk: {count}, meer dan de {limit} die een bedrijf in het oog houdt.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Kwartaalprioriteiten van {seat} tegelijk: {count}, meer dan de {limit} die één stoel kan dragen.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Goedkeuren maakt van elke goedgekeurde regel een doel, met zijn maat; een afgewezen regel wordt niet gemaakt. Tot die tijd gaat het werk door onder de doelen zoals ze zijn.',
+  'No goal is made.':
+    'Er wordt geen doel gemaakt.',
 };

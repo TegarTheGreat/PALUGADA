@@ -330,6 +330,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       decision: 'approve, deny or ask', note: 'why, or the question',
       allowForHours: 'optional, with approve: allow the same capability to the same role for this many hours (1 to 168), only where the item says allowFor',
       forSchedule: 'optional, true with approve: allow exactly this action every time the item\'s schedule does it, for ninety days, only where the item names forSchedule; never with allowForHours',
+      lines: 'optional, with approve on an item that has a plan: the numbers of the plan\'s lines to approve, such as [1, 3]; the others are refused, and left out every line is approved',
     },
     factor: 'sometimes',
   },

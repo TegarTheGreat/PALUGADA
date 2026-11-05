@@ -126,7 +126,7 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
-function periodOf(startsOn: string | null, dueOn: string | null): GoalPeriod | null {
+export function periodOf(startsOn: string | null, dueOn: string | null): GoalPeriod | null {
   if (!startsOn || !dueOn) return null;
   const days = daysBetween(startsOn, dueOn);
   return days <= QUARTER_DAYS ? 'quarter' : days <= YEAR_DAYS ? 'year' : 'longer';
@@ -178,7 +178,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * priority a seat); what is checked here is each value on its own, so the
  * owner is told which field is wrong by its name rather than by a constraint's.
  */
-function planFrom(plan: GoalPlan): Partial<Record<(typeof PLAN_FIELDS)[number], string | null>> {
+export function planFrom(plan: GoalPlan): Partial<Record<(typeof PLAN_FIELDS)[number], string | null>> {
   const out: Partial<Record<(typeof PLAN_FIELDS)[number], string | null>> = {};
   for (const field of PLAN_FIELDS) {
     const raw = plan[field];
@@ -273,46 +273,58 @@ export function goalWarnings(goals: readonly Goal[]): Map<string, GoalWarning[]>
  * The owner adds a goal (F2.7, F18.1). Answered with the soft limits it, or
  * the objective it hangs from, is now past: a warning, never a refusal.
  */
-export async function createGoal(input: {
+export async function createGoal(input: NewGoal): Promise<Goal & { warnings: GoalWarning[] }> {
+  return withControlPlane((tx) => createGoalWithin(tx, input));
+}
+
+type NewGoal = {
   companyId: string;
   kind: GoalKind;
   slug: string;
   statement: string;
   parentGoalId?: string | null;
-} & GoalPlan): Promise<Goal & { warnings: GoalWarning[] }> {
+  /** The card whose yes made it, for the record: a plan of new goals (F18.7). */
+  inboxItemId?: string;
+} & GoalPlan;
+
+/**
+ * The same, inside a control-plane transaction the caller holds: the owner's
+ * yes to a plan of new goals (inbox.decide), so every line approved is made
+ * with the answer or none is.
+ */
+export async function createGoalWithin(tx: TenantClient, input: NewGoal): Promise<Goal & { warnings: GoalWarning[] }> {
   const plan = planFrom(input);
-  return withControlPlane(async (tx) => {
-    await assertSeatHere(tx, input.companyId, plan.ownerRoleId);
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement,
-                          starts_on, due_on, owner_role_id, commitment, done_when, channel)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING id`,
-      [
-        input.companyId, input.parentGoalId ?? null, input.kind, input.slug, input.statement,
-        plan.startsOn ?? null, plan.dueOn ?? null, plan.ownerRoleId ?? null, plan.commitment ?? null,
-        plan.doneWhen ?? null, plan.channel ?? null,
-      ],
-    );
-    const goals = await goalsIn(tx, input.companyId);
-    const goal = goals.find((one) => one.id === rows[0]!.id)!;
-    await appendEvent(tx, {
-      companyId: input.companyId,
-      type: 'goal.created',
-      actor: 'owner',
-      payload: {
-        goalId: goal.id, kind: goal.kind, slug: goal.slug,
-        ...Object.fromEntries(Object.entries(plan).filter(([, value]) => value !== null)),
-      },
-    });
-    // Its own, and the objective's it crowded.
-    const found = goalWarnings(goals);
-    const warnings = [
-      ...(goal.parentGoalId ? found.get(goal.parentGoalId) ?? [] : []).filter((one) => one.kind === 'objective_key_results'),
-      ...found.get(goal.id) ?? [],
-    ].sort((one, other) => WARNING_ORDER.indexOf(one.kind) - WARNING_ORDER.indexOf(other.kind));
-    return { ...goal, warnings };
+  await assertSeatHere(tx, input.companyId, plan.ownerRoleId);
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement,
+                        starts_on, due_on, owner_role_id, commitment, done_when, channel)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
+    [
+      input.companyId, input.parentGoalId ?? null, input.kind, input.slug, input.statement,
+      plan.startsOn ?? null, plan.dueOn ?? null, plan.ownerRoleId ?? null, plan.commitment ?? null,
+      plan.doneWhen ?? null, plan.channel ?? null,
+    ],
+  );
+  const goals = await goalsIn(tx, input.companyId);
+  const goal = goals.find((one) => one.id === rows[0]!.id)!;
+  await appendEvent(tx, {
+    companyId: input.companyId,
+    type: 'goal.created',
+    actor: 'owner',
+    payload: {
+      goalId: goal.id, kind: goal.kind, slug: goal.slug,
+      ...Object.fromEntries(Object.entries(plan).filter(([, value]) => value !== null)),
+      ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
+    },
   });
+  // Its own, and the objective's it crowded.
+  const found = goalWarnings(goals);
+  const warnings = [
+    ...(goal.parentGoalId ? found.get(goal.parentGoalId) ?? [] : []).filter((one) => one.kind === 'objective_key_results'),
+    ...found.get(goal.id) ?? [],
+  ].sort((one, other) => WARNING_ORDER.indexOf(one.kind) - WARNING_ORDER.indexOf(other.kind));
+  return { ...goal, warnings };
 }
 
 export async function readGoal(tx: TenantClient, goalId: string): Promise<Goal | null> {
@@ -408,8 +420,8 @@ export interface GoalChange {
 }
 
 /** The longest reason a proposal carries; the owner reads it on a phone. */
-const GOAL_REASON_MAX = 4_000;
-const GOAL_STATEMENT_MAX = 1_000;
+export const GOAL_REASON_MAX = 4_000;
+export const GOAL_STATEMENT_MAX = 1_000;
 
 /**
  * F3.10: an agent that wants the strategy changed asks rather than acts.

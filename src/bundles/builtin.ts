@@ -1431,6 +1431,54 @@ a review.
           },
         ],
       },
+      {
+        slug: 'monthly-review',
+        scope: 'company',
+        source: `---
+name: monthly-review
+description: The monthly money review from the company's own books -- profit, cash, what is owed, spend and the levers that move them; after Verne Harnish's Power of One.
+---
+
+# Monthly money review
+
+Start from the month in the task's input (\`month\`): the last whole month's
+sales, cost of goods, overhead and profit beside the month before; cash at its
+start and end; what customers owe, what is late and by how many days; what is
+owed to suppliers and held in stock; what the agents spent against the monthly
+ceiling; each measure at the month's end against its start; and the seven
+levers. All of it is read from the company's books, not estimated. Use those
+figures and no others; where the input says something was left out, say so.
+
+One page, for the owner, in the company's language, in this order:
+
+1. Profit: the month's against the month before's, in one line each, and what
+   made the difference.
+2. Cash: where it started and ended, and why it moved -- profit is not cash.
+3. What is owed: every late invoice, oldest first, with its days late, and the
+   days of sales still owed. Chasing is the bookkeeper's; say who needs a word
+   from the owner.
+4. Spend: what the agents spent against the ceiling, and whether the month's
+   work was worth it.
+5. The levers: for each, what one per cent or one day is worth on these
+   books. Name the one or two that would move profit or cash the most for the
+   least effort, and what it would take. A lever marked unavailable needs an
+   account the books do not keep (cost of goods is an expense account coded
+   50.., stock an asset account coded 13..): say so, and do not guess it.
+6. Issues for the weekly meeting: what should be solved, one line each, for
+   the CEO to take up. Never apply a change: a goal is proposed with
+   goal.propose, and spending is the owner's decision.
+
+The levers are a heuristic for where to look, not a forecast: one per cent is
+what it is worth if nothing else moves.
+`,
+        evals: [
+          {
+            name: 'names cash, what is late and the levers',
+            input: { month: 'a month with a late invoice' },
+            expectContains: ['cash', 'late', 'lever', 'unavailable'],
+          },
+        ],
+      },
     ],
     hooks: [
       {
@@ -1460,6 +1508,21 @@ a review.
         // Without it the review saw the numbers of its own goal chain -- the
         // mission's -- and none of the week's work.
         facts: 'week',
+      },
+      {
+        slug: 'monthly-review',
+        roleSlug: 'strategist',
+        // The first of the month, ten to eight in the company's own time
+        // zone: five minutes after the weekly review's hour, so on a month
+        // that begins on a Monday the two are not made in the same pass.
+        cron: '50 7 1 * *',
+        goal:
+          'Monthly money review: follow the monthly-review skill, starting from the month in this ' +
+          'task\'s input -- profit, cash, what is owed and late, spend against the ceiling and the ' +
+          'levers, read from the company\'s books.',
+        // F18.12: the books are no run's unless it reads them; the review is
+        // handed the month's, and a month with nothing in them is passed over.
+        facts: 'month',
       },
     ],
   },

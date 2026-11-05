@@ -844,3 +844,25 @@ The first version. What it holds, in the order an owner meets it.
   nobody told (STATUS 2.193).
 - A decision the CEO reaches on an issue of the whole company is kept for the CEO's own division, not for every
   division: only what you decide is kept company-wide (STATUS 2.193).
+
+- **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
+  first of each month the strategist reviews the last whole month from the
+  company's own books -- profit beside the month before, cash at its start
+  and end, every invoice owed and late, spend against the monthly ceiling,
+  each measure's month, and what one per cent on price, volume, cost of goods
+  and overhead, or one day of receivables, stock and payables, is worth on
+  them. The figures are read from the books as the review starts, not worked
+  out by a model; a lever whose account the books do not keep says so. A
+  month with nothing in the books and nothing late is passed over, and says
+  so. Until now nothing looked at a month of money, although the monthly
+  budget review was graded built; it is graded partial now, because a
+  company without the operating kit still has none (F18.12, F9.4; STATUS
+  2.199).
+- **The month's books go only to a role that may read them.** A bundle whose
+  cadence is handed the month is refused unless its role holds `ledger.read`
+  and the bundle grants it to the role's division, and the review is refused
+  as it fires when the owner has since taken either away (F18.12, F8.1;
+  STATUS 2.199).
+- **How work came to carry outside content is said in your language**: "the
+  week it was handed", "the month it was handed" and "the tickets it was
+  given" reached the trace's warning in English (F8.9; STATUS 2.199).

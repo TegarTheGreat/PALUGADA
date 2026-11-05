@@ -1870,3 +1870,57 @@ neither:
 Press a seat's name to open it. This follows how *Traction* by Gino Wickman
 draws a company as seats, each with a few accountabilities. You are the
 visionary and the CEO is the integrator, and neither is a seat of its own.
+
+### Test channels, and draft before building
+
+`company-os` 1.6.0 brings four skills for finding customers and deciding
+what to build, and a stage-gates skill that uses them. Install or upgrade
+it as in *Install a bundle*. The skills arrive as candidates under
+**Settings**, **Skills**. A reviewer reads them, and you approve them on
+one card. A skill you had already approved stays as it was until you
+approve its new version.
+
+- **Channel testing** (`channel-testing`, after the Bullseye framework in
+  *Traction* by Gabriel Weinberg and Justin Mares). The strategist writes
+  one way to use each of the 19 channels, from niche blogs to community,
+  and ranks them by ICE: impact, confidence and ease, each scored 1 to 10,
+  averaged. It proposes about three tests to you. Each test names what one
+  customer would cost, how many customers it could reach and whether they
+  are the right ones, with its target and the most it may spend written
+  before any work starts. Approve a test as you approve any goal; nothing
+  of it starts before you do. A test has no budget account of its own:
+  the strategist hands each piece of it to the role that holds the
+  channel's tool, and that work is charged to the account the
+  strategist's own task is charged to -- one you opened under **Money**
+  for the strategist or the Strategy division, or else the company's. Set
+  that account's money ceiling to what you are willing to spend on tests.
+  Each piece runs a day at most, so a test is a series of them over about
+  a month, read against its target at every weekly review and stopped
+  once it has spent what you approved. When a test meets its target, the
+  strategist proposes that channel as the core one. Paid ads stay refused
+  until the company is in launch.
+- **One-page business model** (`one-page-model`, adapted from Lean Canvas
+  by Ash Maurya, CC BY-SA). The business on one page in nine boxes, with
+  the riskiest assumption first and a box left empty rather than filled
+  with a guess. The strategist drafts it as a document for you.
+- **Fit survey** (`fit-survey`, after Sean Ellis). It asks people who used
+  the product at least twice in the last two weeks whether they would miss
+  it, never asks anyone twice, and reads nothing before about 40 answers.
+  The questions go out in the company's work language through whichever
+  role sends email or chat, and the policies ask you first like any
+  outbound message. The share answering "very disappointed" is recorded
+  on a measure in **A percentage** that you add to a goal on **Team**,
+  **Goals**, with **Measure this goal**; without one, the strategist asks
+  you for it. 40% is a heuristic, not a pass mark.
+- **Press release first** (`press-release-first`, after Amazon's working
+  backwards). Before a new offer is built, the strategist writes the
+  announcement and the questions customers and you would ask. The critic
+  reads it, and only then is the work proposed to you. Nothing in it is
+  sent outside the company.
+
+The stage-gates skill (pivots and learning priorities after *The Lean
+Startup* by Eric Ries) now prefers learning priorities in explore and
+validate: goals whose target is a prediction written before the work. When
+the evidence says the idea is wrong, it proposes a pivot that keeps what was
+learned, and names the two ways pivoting fails: never changing course, and
+changing it before any test could teach anything.

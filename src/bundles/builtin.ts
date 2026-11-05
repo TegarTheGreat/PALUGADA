@@ -1367,7 +1367,8 @@ In explore and validate, prefer learning priorities: goals whose result is
 what the company learns, each with its measure and a target written before
 its first task. The target is the prediction, and the result is read against
 it; a missed prediction is something learned, not a failure. When its period
-ends the platform grades it, writing what was predicted beside what happened:
+ends the platform grades it, writing what was predicted beside what happened,
+and the grades in the weekly review's input (\`week\`) are the last quarter's:
 read that grade, never a recollection, to pivot or persevere. A prediction
 met is a reason to persevere; one missed by far, test after test, is a
 reason to pivot.
@@ -1402,7 +1403,7 @@ would make the owner move the company back.
           {
             name: 'decides from the grade the platform wrote',
             input: { question: 'the test is over; was it right?' },
-            expectContains: ['the platform grades it', 'predicted beside what', 'pivot or persevere'],
+            expectContains: ['the platform grades it', 'predicted beside what', 'pivot or persevere', "grades in the weekly review's input"],
           },
         ],
       },
@@ -1418,13 +1419,16 @@ description: The weekly review of the numbers, what changed, and what to continu
 
 Start from the week in the task's input (\`week\`): every active goal with its
 metrics, the work finished this week, the spend against the monthly limit,
-and any stage move waiting for the owner, all read from the company's
-records. Where it says something was left out, say so rather than guessing.
+any stage move waiting for the owner, and the grades of the periods that
+ended in the last quarter, all read from the company's records. Where it says
+something was left out, say so rather than guessing.
 
 One page, for the owner, in this order:
 
 1. The numbers: every goal metric against its target, verified or not, and
-   the change since last week. No number without its source.
+   the change since last week. No number without its source. For a learning
+   priority graded since the last review, its prediction against what
+   happened, and whether to pivot or persevere by the stage gates.
 2. What changed: what shipped, what was learned, what broke.
 3. Continue or stop: for each piece of work in flight, one line -- continue,
    change, or stop -- and why, in terms of the numbers.

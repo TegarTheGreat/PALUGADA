@@ -805,6 +805,8 @@ const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
     'learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment',
     // 1.7.0 (F18.8): the pivot is decided from the grade the platform wrote.
     'the platform grades it', 'predicted beside what', 'pivot or persevere',
+    // And where the strategist, which runs the stage gates, reads that grade.
+    "grades in the weekly review's input",
   ],
 };
 

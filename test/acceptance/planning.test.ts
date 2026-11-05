@@ -38,6 +38,8 @@ import { structureOf } from '../../src/owner/views.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { Worker } from '../../src/worker.ts';
+import { buildWeekFacts } from '../../src/reporting/week.ts';
+import { COMPANY_OS } from '../../src/bundles/builtin.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -294,7 +296,38 @@ test('grades are read by nothing that pays, trusts or freezes', async () => {
   await walk(root);
   assert.deepEqual(readers.sort(), [
     'audit/export.ts', 'audit/import.ts', 'domain/grades.ts', 'engine/quarter.ts', 'owner/views.ts', 'reporting/quarter.ts',
+    // The weekly business review, whose stage gates decide pivot or persevere from a learning priority's grade.
+    'reporting/week.ts',
   ]);
+});
+
+test('the weekly business review is handed the grades of the periods that ended in the last quarter, the prediction beside what happened', async () => {
+  // The stage gates tell the strategist to pivot or persevere from a
+  // learning priority's grade, never a recollection; the grade was read only
+  // by quarterly planning and the owner's pages, so it could not.
+  const fixture = await createCompany('grade-week');
+  await inJakarta(fixture);
+  const test = await priority(fixture, 'q3-ads-test', { commitment: 'learning' });
+  await readingAt(fixture, await measure(fixture, test, 'ad-signups', 40), 12, jakarta('2026-09-28'));
+  const old = await priority(fixture, 'q1-old', { startsOn: '2026-01-01', dueOn: '2026-03-31', commitment: 'committed' });
+  assert.equal(await ensurePeriodClose(fixture.companyId, jakarta('2026-10-01')), 2);
+  assert.ok(await gradeOf(fixture, old));
+
+  const week = await buildWeekFacts(fixture.companyId, jakarta('2026-10-05'));
+  assert.deepEqual(week.grades, {
+    items: [{
+      goal: 'q3-ads-test', statement: 'Priority q3-ads-test', commitment: 'learning', periodStartsOn: '2026-07-01', periodDueOn: '2026-09-30',
+      score: 0.3, basis: 'measured', note: null, passed: null, predicted: 40, actual: 12,
+    }],
+    leftOut: 0,
+  }, 'the learning priority graded last week, and not one whose period ended two quarters ago');
+  assert.deepEqual((await buildWeekFacts(fixture.companyId, jakarta('2026-09-30'))).grades, { items: [], leftOut: 0 },
+    'nothing before the grade was written');
+
+  // The skills say where it is.
+  const skill = (slug: string) => COMPANY_OS.body.skills.find((one) => one.slug === slug)!.source;
+  assert.match(skill('stage-gates'), /grades in the weekly review's input/);
+  assert.match(skill('weekly-business-review'), /grades/);
 });
 
 /* ----------------------------------------------------------- off pace --- */

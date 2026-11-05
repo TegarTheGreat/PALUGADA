@@ -21,7 +21,8 @@ import { wrapUntrusted } from '../context/builder.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import { periodSpend, spendBetween } from '../governance/spend-guard.ts';
 import { stageOf, type Stage } from '../domain/stage.ts';
-import type { GoalKind } from '../domain/goals.ts';
+import type { GoalCommitment, GoalKind } from '../domain/goals.ts';
+import type { GradeBasis, GradeNote } from '../domain/grades.ts';
 import type { MetricUnit } from '../domain/metrics.ts';
 import { buildWeeklyRetro, type WeeklyRetro } from './digest.ts';
 
@@ -30,6 +31,9 @@ const WEEK_MS = 7 * 86_400_000;
 const GOALS_MAX = 25;
 const METRICS_MAX = 40;
 const FINISHED_MAX = 20;
+const GRADES_MAX = 10;
+/** How far back a period's end may be for its grade to be in the brief: a quarter, so a review missed in a quiet week still sees it. */
+const GRADE_DAYS = 92;
 /** One line each: a statement, what a task was for, what it reported. */
 const STATEMENT_MAX = 200;
 const TASK_GOAL_MAX = 120;
@@ -67,6 +71,29 @@ export interface WeekFacts {
   spend: { weekCents: number; monthCents: number; monthLimitCents: number };
   /** A stage move a run proposed and the owner has not answered. */
   stageProposal: { from: Stage | null; to: Stage; inboxItemId: string } | null;
+  /**
+   * The grades the platform wrote for the periods that ended in the last
+   * quarter, newest first (F18.8): a learning priority's prediction beside
+   * what happened, which the stage gates decide pivot or persevere from.
+   */
+  grades: { items: WeekGrade[]; leftOut: number };
+}
+
+export interface WeekGrade {
+  /** The goal, by the slug `goal.propose` takes, and its statement in a line. */
+  goal: string;
+  statement: string;
+  commitment: GoalCommitment | null;
+  periodStartsOn: string;
+  periodDueOn: string;
+  score: number;
+  basis: GradeBasis;
+  note: GradeNote | null;
+  /** A committed goal passed or failed; null for any other. */
+  passed: boolean | null;
+  /** A learning goal's prediction, and what its measure read at the end; null for any other. */
+  predicted: number | null;
+  actual: number | null;
 }
 
 /** Text as one line, cut to a length. */
@@ -97,6 +124,8 @@ export async function weekHadWork(companyId: string, scheduleId: string, to = ne
                 SELECT 1 FROM week w
                  WHERE NOT EXISTS (SELECT 1 FROM above a WHERE a.task = w.id AND a.schedule_id = $3))
            OR EXISTS (SELECT 1 FROM metric_observations WHERE observed_at >= $1 AND observed_at < $2)
+           -- A period graded this week is what the stage gates read (F18.8).
+           OR EXISTS (SELECT 1 FROM goal_grades WHERE created_at >= $1 AND created_at < $2)
            -- A number the owner set and the company has not reached is a reason
            -- to look whatever the week held: a quiet week is what a stalled
            -- company looks like (the audit of 6 October, L1). One it has reached,
@@ -205,6 +234,38 @@ export async function buildWeekFacts(companyId: string, to = new Date()): Promis
         ORDER BY created_at DESC LIMIT 1`,
     );
 
+    // The grades of the periods that ended in the last quarter. The
+    // strategist runs the stage gates, which decide pivot or persevere from
+    // a learning priority's grade and never from a recollection, and nothing
+    // else it holds reads one. Information, as every grade is: nothing here
+    // pays, trusts or freezes by it (domain/grades.ts).
+    const { rows: gradeRows } = await tx.query<{
+      slug: string; statement: string; commitment: GoalCommitment | null; period_starts_on: string; period_due_on: string;
+      score: string; basis: GradeBasis; note: GradeNote | null; predicted: string | null; actual: string | null; total: number;
+    }>(
+      `SELECT g.slug, g.statement, r.commitment, to_char(r.period_starts_on, 'YYYY-MM-DD') AS period_starts_on,
+              to_char(r.period_due_on, 'YYYY-MM-DD') AS period_due_on, r.score, r.basis, r.note, r.predicted, r.actual,
+              count(*) OVER ()::int AS total
+         FROM goal_grades r JOIN goals g ON g.company_id = r.company_id AND g.id = r.goal_id
+        WHERE r.period_due_on < $1::date AND r.period_due_on >= $1::date - $2::int
+        ORDER BY r.period_due_on DESC, r.created_at DESC, g.slug
+        LIMIT $3`,
+      [to.toISOString().slice(0, 10), GRADE_DAYS, GRADES_MAX],
+    );
+    const grades: WeekGrade[] = gradeRows.map((row) => ({
+      goal: row.slug,
+      statement: oneLine(row.statement, STATEMENT_MAX),
+      commitment: row.commitment,
+      periodStartsOn: row.period_starts_on,
+      periodDueOn: row.period_due_on,
+      score: Number(row.score),
+      basis: row.basis,
+      note: row.note,
+      passed: row.commitment === 'committed' ? Number(row.score) >= 1 : null,
+      predicted: row.predicted === null ? null : Number(row.predicted),
+      actual: row.actual === null ? null : Number(row.actual),
+    }));
+
     const metricsOf = (goalId: string): WeekMetric[] => metricRows
       .filter((row) => row.goal_id === goalId)
       .map((row) => {
@@ -251,6 +312,7 @@ export async function buildWeekFacts(companyId: string, to = new Date()): Promis
         monthLimitCents: month.limitCents,
       },
       stageProposal: proposals[0] ? { from: proposals[0].from, to: proposals[0].to, inboxItemId: proposals[0].id } : null,
+      grades: { items: grades, leftOut: Math.max(0, (gradeRows[0]?.total ?? 0) - gradeRows.length) },
     };
   });
 }

@@ -2833,6 +2833,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Đây là một quy trình cốt lõi.",
   "No longer a core process": "Không còn là quy trình cốt lõi",
   "It is no longer a core process.": "Đây không còn là quy trình cốt lõi.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} đến từ bên ngoài và đang bị cách ly, nên vị trí phụ trách không được bảo làm theo và không tính tỷ lệ. Gỡ cách ly cho kỹ năng của nó, hoặc thôi để nó là quy trình cốt lõi.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} không có phiên bản nào đang hiệu lực, nên vị trí phụ trách không được bảo làm theo và không tính tỷ lệ cho đến khi một phiên bản qua được các kiểm tra, một người duyệt và bạn.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} do {seat} phụ trách, nhưng bộ phận của vị trí đó không mở được nó bằng skill.read, nên không tính tỷ lệ. Cấp skill.read cho bộ phận ở Đội ngũ, hoặc giao quy trình cho một vị trí đọc được nó.",
+  "a seat": "một vị trí",
+  "Not in force: no share is counted": "Không hiệu lực: không tính tỷ lệ",
+  "Its division cannot open it with skill.read": "Bộ phận của nó không mở được nó bằng skill.read",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

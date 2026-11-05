@@ -2806,6 +2806,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "صارت عملية أساسية.",
   "No longer a core process": "لم تعد عملية أساسية",
   "It is no longer a core process.": "لم تعد هذه عملية أساسية.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} جاءت من الخارج وهي معزولة، لذا لا يُطلب من منصبها اتباعها ولا تُحسب لها نسبة. ارفع العزل عن مهارتها، أو أخرجها من العمليات الأساسية.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} ليس لها إصدار نافذ، لذا لا يُطلب من منصبها اتباعها ولا تُحسب لها نسبة حتى يجتاز إصدارٌ فحوصه والمراجع وأنت.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} يتولاها {seat}، وقسمه لا يستطيع فتحها عبر skill.read، لذا لا تُحسب لها نسبة. امنح القسم skill.read من الفريق، أو أعطِ العملية منصبًا يستطيع قراءتها.",
+  "a seat": "منصب",
+  "Not in force: no share is counted": "غير نافذة: لا تُحسب نسبة",
+  "Its division cannot open it with skill.read": "قسمها لا يستطيع فتحها عبر skill.read",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

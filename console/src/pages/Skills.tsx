@@ -104,7 +104,7 @@ export function Skills({ ctx }: PageProps) {
         </Group>
       </Group>
 
-      <CoreWarnings report={structure.coreProcesses} />
+      <CoreWarnings report={structure.coreProcesses} roles={structure.roles} />
 
       {waiting > 0 && (
         <Alert color="orange" variant="light">

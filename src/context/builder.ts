@@ -408,8 +408,14 @@ async function roleSections(
   const role = rows[0];
   if (!role) return { charter: [], contract: [] };
   // The core processes this seat owns (F18.14, 0143): the company's way of
-  // doing that work, which the seat keeps current. Only switched-on ones,
-  // since a run can read nothing else, and summaries only, as every skill
+  // doing that work, which the seat keeps current. Only those in force: a
+  // version that is active, since a run can read nothing else, and not
+  // quarantined, since this is the charter, never dropped to fit, and says
+  // to follow them. An import can quarantine a core process, or bring an
+  // outside one's versions back as candidates (F15.8), and leave it marked;
+  // a quarantined one is still in the skills' own sections under their
+  // caveat, and the chart says it is not in force (skills/core.ts).
+  // Summaries only, as every skill
   // travels (F15.7).
   // Whether the run can open them is asked as the skills' section asks it
   // (F4.8): a run told to call what its division was not granted is refused
@@ -418,8 +424,10 @@ async function roleSections(
     `SELECT s.slug, s.summary, s.active_version,
             EXISTS (SELECT 1 FROM capability_grants g
                      WHERE g.division_id = t.division_id AND g.capability_name = 'skill.read') AS readable
-       FROM tasks t JOIN skills s ON s.company_id = t.company_id AND s.owner_role_id = t.role_id
-      WHERE t.id = $1 AND s.core AND s.active_version IS NOT NULL
+       FROM tasks t
+       JOIN skills s ON s.company_id = t.company_id AND s.owner_role_id = t.role_id
+       JOIN skill_versions v ON v.company_id = s.company_id AND v.skill_id = s.id AND v.version = s.active_version
+      WHERE t.id = $1 AND s.core AND NOT s.quarantined AND v.state = 'active'
       ORDER BY s.slug`,
     [taskId],
   );

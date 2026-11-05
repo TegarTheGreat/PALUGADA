@@ -2793,6 +2793,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Agora é um processo essencial.",
   "No longer a core process": "Não é mais um processo essencial",
   "It is no longer a core process.": "Não é mais um processo essencial.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} veio de fora e está em quarentena, então o cargo dele não é orientado a segui-lo e nenhuma parcela é contada. Tire a quarentena da habilidade, ou deixe de tê-lo como processo essencial.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} não tem versão em vigor, então o cargo dele não é orientado a segui-lo e nenhuma parcela é contada até uma versão passar pelas verificações, por um revisor e por você.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} está sob responsabilidade de {seat}, cuja divisão não consegue abri-lo com skill.read, então nenhuma parcela é contada. Dê skill.read à divisão em Equipe, ou passe o processo a um cargo que consiga lê-lo.",
+  "a seat": "um cargo",
+  "Not in force: no share is counted": "Fora de vigor: nenhuma parcela é contada",
+  "Its division cannot open it with skill.read": "A divisão não consegue abri-lo com skill.read",
 };
 
 /**

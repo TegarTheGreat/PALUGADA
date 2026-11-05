@@ -811,7 +811,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   {
     pattern: '/api/companies/:companyId/skills/:skillId/core',
     what: 'Make an active skill one of the company\'s core processes, owned by one seat, or no longer one. The seat\'s runs are '
-      + 'told they own it, and the chart shows how many of its division\'s runs read it. Five to twelve is the usual number; '
+      + 'told they own it and to follow it, and the chart shows how many of its division\'s runs read it. Five to twelve is the usual number; '
       + 'outside it the answer warns and nothing is refused.',
     fields: { core: 'true or false', roleId: 'the owning seat, when core is true; a role of the skill\'s division, or any role for a company-wide skill' },
     factor: 'never',

@@ -2810,6 +2810,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Het is nu een kernproces.",
   "No longer a core process": "Geen kernproces meer",
   "It is no longer a core process.": "Het is geen kernproces meer.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} komt van buiten en staat in quarantaine, dus zijn functie wordt niet gevraagd het te volgen en er wordt geen aandeel geteld. Hef de quarantaine van zijn skill op, of laat het los als kernproces.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} heeft geen geldende versie, dus zijn functie wordt niet gevraagd het te volgen en er wordt geen aandeel geteld tot een versie zijn controles, een beoordelaar en u doorstaat.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} wordt beheerd door {seat}, wiens afdeling het niet met skill.read kan openen, dus er wordt geen aandeel geteld. Geef de afdeling skill.read onder Team, of geef het proces aan een functie die het kan lezen.",
+  "a seat": "een functie",
+  "Not in force: no share is counted": "Niet van kracht: er wordt geen aandeel geteld",
+  "Its division cannot open it with skill.read": "Zijn afdeling kan het niet met skill.read openen",
 };
 
 /** Sentences written as they are in English on purpose: names, and words Dutch writes the same way. */

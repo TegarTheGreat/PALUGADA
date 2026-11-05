@@ -2830,6 +2830,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Ora è un processo chiave.",
   "No longer a core process": "Non più un processo chiave",
   "It is no longer a core process.": "Non è più un processo chiave.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} viene dall'esterno ed è in quarantena, quindi al suo ruolo non viene chiesto di seguirlo e nessuna quota viene contata. Togli la quarantena alla sua competenza, o toglilo dai processi chiave.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} non ha una versione in vigore, quindi al suo ruolo non viene chiesto di seguirlo e nessuna quota viene contata finché una versione non supera i suoi controlli, un revisore e te.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} è a cura di {seat}, la cui divisione non può aprirlo con skill.read, quindi nessuna quota viene contata. Concedi skill.read alla divisione in Organizzazione, o affida il processo a un ruolo che può leggerlo.",
+  "a seat": "un ruolo",
+  "Not in force: no share is counted": "Non in vigore: nessuna quota viene contata",
+  "Its division cannot open it with skill.read": "La sua divisione non può aprirlo con skill.read",
 };
 
 /**

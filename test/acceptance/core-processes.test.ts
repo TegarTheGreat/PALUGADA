@@ -21,7 +21,7 @@ import { structureOf } from '../../src/owner/views.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import {
-  addEvalCase, approveSkillVersion, proposeSkillVersion, recordSkillReview, setSkillScope,
+  addEvalCase, approveSkillVersion, importExternalSkill, proposeSkillVersion, recordSkillReview, setSkillScope,
 } from '../../src/skills/skills.ts';
 import { coreProcessesOf } from '../../src/skills/core.ts';
 import { skillReadCapability } from '../../src/broker/platform-capabilities.ts';
@@ -103,6 +103,21 @@ async function readIn(fixture: Fixture, taskId: string, divisionId: string, slug
   });
 }
 
+/** The grant that lets a division's runs open a skill: the followed share counts nothing without it. */
+async function grantRead(fixture: Fixture, divisionId: string) {
+  await registerStandardCatalogue();
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO capability_grants (company_id, division_id, capability_name) VALUES ($1, $2, 'skill.read')
+     ON CONFLICT (division_id, capability_name) DO NOTHING`,
+    [fixture.companyId, divisionId]));
+}
+
+/** The role charter a run of this seat is handed, for a task of the company's. */
+async function charterOf(companyId: string, divisionId: string, taskId: string) {
+  const context = await withTenant(companyId, (tx) => buildContext(tx, { companyId, divisionId, taskId }));
+  return context.sections.find((section) => section.kind === 'role_charter')!.body;
+}
+
 async function setCore(fixture: Fixture, skillId: string, roleId: string | null) {
   await withControlPlane((tx) => tx.query(
     'UPDATE skills SET core = $3, owner_role_id = $4 WHERE id = $1 AND company_id = $2',
@@ -149,6 +164,8 @@ test('the owner marks an active skill core with its seat; the soft limit warns a
     source: skillText('draft-process'), author: 'owner', changelog: 'A draft.',
   });
   const theirs = await activeSkill(fixture, 'support-process', { divisionId: elsewhere.divisionId });
+  await grantRead(fixture, fixture.divisionId);
+  await grantRead(fixture, elsewhere.divisionId);
 
   const api = await consoleWithSettings();
   try {
@@ -216,6 +233,8 @@ test('the followed share is the runs of the seat\'s division that read the proce
   const skillId = await activeSkill(fixture, 'sales-process', { scope: 'company' });
   await activeSkill(fixture, 'refunds', { scope: 'company' });
   await setCore(fixture, skillId, sales);
+  await grantRead(fixture, fixture.divisionId);
+  await grantRead(fixture, elsewhere.divisionId);
 
   // In the seat's division, in the last thirty days: four runs, by any of its
   // roles. Two read the process, one read another skill, one read nothing.
@@ -272,6 +291,7 @@ test('the followed share is the runs of the seat\'s division that read the proce
   assert.deepEqual([moved.processes[0]!.runs, moved.processes[0]!.followedShare], [1, 1]);
   // A seat whose division ran nothing has no share, rather than a share of none.
   const lab = await otherDivision(fixture, 'lab');
+  await grantRead(fixture, lab.divisionId);
   await setCore(fixture, skillId, lab.roleId);
   const idle = await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId));
   assert.deepEqual([idle.processes[0]!.runs, idle.processes[0]!.followedShare], [0, null]);
@@ -284,6 +304,7 @@ test('a process longer than sixty lines is warned of, and kept', async () => {
   const fixture = await createCompany('core-long');
   const skillId = await activeSkill(fixture, 'onboarding', { steps: 61 });
   await setCore(fixture, skillId, fixture.roleId);
+  await grantRead(fixture, fixture.divisionId);
   const report = await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId));
   assert.equal(report.processes[0]!.lines, 63, 'the heading, its blank line and sixty-one steps');
   assert.deepEqual(report.warnings, [
@@ -350,4 +371,100 @@ test('an exported and imported company keeps its core processes and their seats'
   const { rows } = await withTenant(restored.companyId, (tx) => tx.query<{ id: string }>(
     "SELECT id FROM roles WHERE slug = 'sales'"));
   assert.equal(report.processes[0]!.ownerRoleId, rows[0]!.id, 'the seat is the restored company\'s own');
+});
+
+test('a process its seat\'s division cannot open has no share, and the owner is told why', async () => {
+  const fixture = await createCompany('core-unreadable');
+  const skillId = await activeSkill(fixture, 'sales-process', { scope: 'company' });
+  await ranTask(fixture, fixture.roleId, fixture.divisionId);
+  await ranTask(fixture, fixture.roleId, fixture.divisionId);
+
+  // Marked for a seat whose division holds no skill.read, as the lab and
+  // assurance are left: marked, and warned of on the answer, since no run
+  // there can ever open it and a share of none would blame the runs.
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const marked = await api.call('POST', `/api/companies/${fixture.companyId}/skills/${skillId}/core`, token,
+      { core: true, roleId: fixture.roleId });
+    assert.equal(marked.status, 200, JSON.stringify(marked.body));
+    assert.deepEqual(marked.body.warnings, [
+      { kind: 'fewer_than_five', count: 1 },
+      { kind: 'division_cannot_read', slug: 'sales-process', roleId: fixture.roleId },
+    ]);
+  } finally {
+    await api.close();
+  }
+  const unreadable = (await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId))).processes[0]!;
+  assert.deepEqual(
+    [unreadable.divisionCanRead, unreadable.runs, unreadable.followedRuns, unreadable.followedShare],
+    [false, 2, 0, null], 'two runs, none of which could read it: no share, rather than none of two');
+
+  // Granted, the same two runs are a share of nothing, and nothing is warned.
+  await grantRead(fixture, fixture.divisionId);
+  const report = await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId));
+  assert.deepEqual([report.processes[0]!.divisionCanRead, report.processes[0]!.followedShare], [true, 0]);
+  assert.deepEqual(report.warnings, [{ kind: 'fewer_than_five', count: 1 }]);
+});
+
+test('a core process brought back under quarantine is not put to its seat, and the chart says so', async () => {
+  const fixture = await createCompany('core-quarantined');
+  const sales = await addRole(fixture, 'sales');
+  const skillId = await activeSkill(fixture, 'sales-process');
+  await grantRead(fixture, fixture.divisionId);
+  await setCore(fixture, skillId, sales);
+  const taskId = await ranTask(fixture, sales, fixture.divisionId);
+  assert.match(await charterOf(fixture.companyId, fixture.divisionId, taskId), /- sales-process \(v1\)/);
+
+  // An unsigned document arrives under the same name: the skill is now
+  // external and quarantined, and still marked core, since marking was the
+  // owner's and an import is not.
+  const imported = await importExternalSkill({
+    companyId: fixture.companyId, slug: 'sales-process', divisionId: fixture.divisionId,
+    source: skillText('sales-process', 4), origin: 'https://hub.example/sales-process',
+  });
+  assert.equal(imported.quarantined, true);
+  const charter = await charterOf(fixture.companyId, fixture.divisionId, taskId);
+  assert.doesNotMatch(charter, /core process/,
+    'a procedure nobody here vouched for is not put in the charter with the instruction to follow it');
+
+  const report = await withTenant(fixture.companyId, (tx) => coreProcessesOf(tx, fixture.companyId));
+  const process = report.processes[0]!;
+  assert.deepEqual([process.slug, process.quarantined, process.inForce, process.followedShare], ['sales-process', true, false, null]);
+  assert.deepEqual(report.warnings, [
+    { kind: 'fewer_than_five', count: 1 },
+    { kind: 'not_in_force', slug: 'sales-process', reason: 'quarantined' },
+  ]);
+});
+
+test('an outside process restored from an archive waits for its gates before its seat is told to follow it', async () => {
+  const fixture = await createCompany('core-regated');
+  const sales = await addRole(fixture, 'sales');
+  const skillId = await activeSkill(fixture, 'sales-process', { scope: 'company' });
+  // As one signed by a publisher this installation trusts arrives: from
+  // outside, and not quarantined.
+  await withControlPlane((tx) => tx.query(
+    "UPDATE skills SET provenance = 'external', origin = 'https://hub.example/sales-process' WHERE id = $1", [skillId]));
+  await grantRead(fixture, fixture.divisionId);
+  await setCore(fixture, skillId, sales);
+  await ranTask(fixture, sales, fixture.divisionId);
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  const { rows } = await withTenant(restored.companyId, (tx) => tx.query<{ id: string; division_id: string }>(
+    "SELECT t.id, t.division_id FROM tasks t JOIN roles r ON r.id = t.role_id WHERE r.slug = 'sales'"));
+  const task = rows[0]!;
+
+  // Its versions came back as candidates (F15.8), and the mark with them.
+  const charter = await charterOf(restored.companyId, task.division_id, task.id);
+  assert.doesNotMatch(charter, /core process/);
+  const report = await withTenant(restored.companyId, (tx) => coreProcessesOf(tx, restored.companyId));
+  assert.deepEqual([report.processes[0]!.inForce, report.processes[0]!.followedShare], [false, null]);
+  assert.deepEqual(report.warnings, [
+    { kind: 'fewer_than_five', count: 1 },
+    { kind: 'not_in_force', slug: 'sales-process', reason: 'not_active' },
+  ]);
 });

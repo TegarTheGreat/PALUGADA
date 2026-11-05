@@ -12,6 +12,13 @@
  * share of the owning seat's division's runs that opened it with
  * `skill.read`.
  *
+ * A share is only a measure where the runs could have read it. A division
+ * without the `skill.read` grant (the lab and assurance are left without it
+ * on purpose) is refused every read, and a process that is quarantined or
+ * has no version in force is not put to its seat at all. Both are marked on
+ * the chart with no share, and warned of, rather than shown as a share of
+ * none that blames runs for what they were never able to do.
+ *
  * Everything here that is a number from the method -- five to twelve of
  * them, sixty lines, ninety days -- is a warning on the owner's chart and
  * never a refusal: a company putting its processes down is halfway through
@@ -53,7 +60,15 @@ const FOLLOWED_WINDOW_DAYS = 30;
 export type CoreProcessWarning =
   | { kind: 'fewer_than_five'; count: number }
   | { kind: 'more_than_twelve'; count: number }
-  | { kind: 'longer_than_sixty_lines'; slug: string; lines: number };
+  | { kind: 'longer_than_sixty_lines'; slug: string; lines: number }
+  /**
+   * Marked, and not put to its seat: it is quarantined (an import from
+   * outside landed on its name), or no version of it is in force (an archive
+   * brought an outside skill's versions back as candidates, F15.8).
+   */
+  | { kind: 'not_in_force'; slug: string; reason: 'quarantined' | 'not_active' }
+  /** Its seat's division does not hold `skill.read`, so none of its runs can open it. */
+  | { kind: 'division_cannot_read'; slug: string; roleId: string };
 
 export interface CoreProcess {
   skillId: string;
@@ -64,6 +79,15 @@ export interface CoreProcess {
   ownerRole: string;
   divisionId: string;
   activeVersion: number | null;
+  /** Came from outside and nobody here has vouched for it (F15.8). */
+  quarantined: boolean;
+  /**
+   * Its active version is in force and it is not quarantined: what the
+   * seat's runs are told to follow. The context builder asks the same.
+   */
+  inForce: boolean;
+  /** The seat's division holds `skill.read`, without which no run of it can open the process. */
+  divisionCanRead: boolean;
   /** When the version runs follow was switched on: the last time the process changed. */
   updatedAt: Date;
   /** Whole days since then. */
@@ -76,7 +100,11 @@ export interface CoreProcess {
   runs: number;
   /** Of them, the runs that read the process with `skill.read`. */
   followedRuns: number;
-  /** followedRuns / runs, or null where the division ran nothing in the window. */
+  /**
+   * followedRuns / runs, or null where it measures nothing: the division ran
+   * nothing in the window, cannot read the process, or the process is not in
+   * force.
+   */
   followedShare: number | null;
 }
 
@@ -118,6 +146,7 @@ export async function coreProcessesOf(
   const { rows } = await tx.query<{
     skill_id: string; slug: string; summary: string; owner_role_id: string; owner_role: string; division_id: string;
     active_version: number | null; body: string | null; updated_at: Date; age_days: number;
+    quarantined: boolean; version_active: boolean; division_can_read: boolean;
     runs: number; followed_runs: number;
   }>(
     `WITH windowed AS (
@@ -126,7 +155,11 @@ export async function coreProcessesOf(
               JOIN tasks t ON t.company_id = ar.company_id AND t.id = ar.task_id
              WHERE ar.company_id = $1 AND ar.started_at >= $3::timestamptz AND ar.started_at <= $2::timestamptz)
      SELECT s.id AS skill_id, s.slug, s.summary, s.owner_role_id, r.slug AS owner_role, r.division_id,
-            s.active_version, v.body,
+            s.active_version, v.body, s.quarantined,
+            coalesce(v.state = 'active', false) AS version_active,
+            EXISTS (SELECT 1 FROM capability_grants g
+                     WHERE g.company_id = $1 AND g.division_id = r.division_id
+                       AND g.capability_name = 'skill.read') AS division_can_read,
             coalesce(v.activated_at, v.created_at, s.created_at) AS updated_at,
             floor(extract(epoch FROM $2::timestamptz - coalesce(v.activated_at, v.created_at, s.created_at)) / 86400)::int AS age_days,
             (SELECT count(*)::int FROM windowed w WHERE w.division_id = r.division_id) AS runs,
@@ -144,22 +177,29 @@ export async function coreProcessesOf(
     [companyId, now, since],
   );
 
-  const processes: CoreProcess[] = rows.map((row) => ({
-    skillId: row.skill_id,
-    slug: row.slug,
-    summary: row.summary,
-    ownerRoleId: row.owner_role_id,
-    ownerRole: row.owner_role,
-    divisionId: row.division_id,
-    activeVersion: row.active_version,
-    updatedAt: row.updated_at,
-    ageDays: Math.max(0, row.age_days),
-    stale: row.age_days >= STALE_AFTER_DAYS,
-    lines: row.body === null ? 0 : linesOf(row.body),
-    runs: row.runs,
-    followedRuns: row.followed_runs,
-    followedShare: row.runs === 0 ? null : row.followed_runs / row.runs,
-  }));
+  const processes: CoreProcess[] = rows.map((row) => {
+    const inForce = row.version_active && !row.quarantined;
+    const measured = inForce && row.division_can_read && row.runs > 0;
+    return {
+      skillId: row.skill_id,
+      slug: row.slug,
+      summary: row.summary,
+      ownerRoleId: row.owner_role_id,
+      ownerRole: row.owner_role,
+      divisionId: row.division_id,
+      activeVersion: row.active_version,
+      quarantined: row.quarantined,
+      inForce,
+      divisionCanRead: row.division_can_read,
+      updatedAt: row.updated_at,
+      ageDays: Math.max(0, row.age_days),
+      stale: row.age_days >= STALE_AFTER_DAYS,
+      lines: row.body === null ? 0 : linesOf(row.body),
+      runs: row.runs,
+      followedRuns: row.followed_runs,
+      followedShare: measured ? row.followed_runs / row.runs : null,
+    };
+  });
 
   const warnings: CoreProcessWarning[] = [];
   // None marked is a company that has not started, and is not warned of:
@@ -168,6 +208,13 @@ export async function coreProcessesOf(
   if (processes.length > MOST) warnings.push({ kind: 'more_than_twelve', count: processes.length });
   for (const process of processes) {
     if (process.lines > LINES) warnings.push({ kind: 'longer_than_sixty_lines', slug: process.slug, lines: process.lines });
+    if (!process.inForce) {
+      warnings.push({ kind: 'not_in_force', slug: process.slug, reason: process.quarantined ? 'quarantined' : 'not_active' });
+    } else if (!process.divisionCanRead) {
+      // Only for one in force: a process not put to its seat has the reason
+      // above, and a missing grant would be the second thing to fix.
+      warnings.push({ kind: 'division_cannot_read', slug: process.slug, roleId: process.ownerRoleId });
+    }
   }
   return { windowDays, since, processes, warnings };
 }
@@ -194,9 +241,12 @@ function linesOf(source: string): number {
  * Only a skill that is switched on can be one: a candidate is a proposal,
  * and the process the work follows is the version that passed its checks, a
  * reviewer and the owner. Not a quarantined one, which nobody here has
- * vouched for. And only where the seat's division can read it, since the
- * share of that division's runs that read it is how it is measured. On the
- * control plane, because the application role holds no grant to the two
+ * vouched for. And only a seat whose division the skill's scope reaches,
+ * since the share of that division's runs that read it is how it is
+ * measured. Whether that division holds the `skill.read` grant is not a
+ * refusal, because grants are the owner's to change on Team at any time
+ * after: it comes back as a `division_cannot_read` warning, here and on the
+ * chart, until the grant is there. On the control plane, because the application role holds no grant to the two
  * columns (0143): which procedures a division is measured by is the
  * owner's.
  */

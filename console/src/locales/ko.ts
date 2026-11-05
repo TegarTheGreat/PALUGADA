@@ -2806,6 +2806,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "이제 핵심 프로세스입니다.",
   "No longer a core process": "핵심 프로세스에서 해제",
   "It is no longer a core process.": "더 이상 핵심 프로세스가 아닙니다.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill}은(는) 외부에서 왔고 격리되어 있어, 담당 자리에 따르라고 알리지 않으며 비율도 세지 않습니다. 해당 스킬의 격리를 해제하거나 핵심 프로세스에서 빼세요.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill}에는 유효한 버전이 없어, 담당 자리에 따르라고 알리지 않으며 어떤 버전이 검사, 검토자, 그리고 당신을 통과할 때까지 비율도 세지 않습니다.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill}의 담당은 {seat}이지만 그 부서는 skill.read로 열 수 없어 비율을 세지 않습니다. 팀에서 부서에 skill.read를 부여하거나, 읽을 수 있는 자리에 프로세스를 맡기세요.",
+  "a seat": "어떤 자리",
+  "Not in force: no share is counted": "유효하지 않음: 비율을 세지 않습니다",
+  "Its division cannot open it with skill.read": "부서가 skill.read로 열 수 없습니다",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

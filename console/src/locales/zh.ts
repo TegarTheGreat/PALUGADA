@@ -2795,6 +2795,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "已设为核心流程。",
   "No longer a core process": "不再作为核心流程",
   "It is no longer a core process.": "它已不再是核心流程。",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} 来自外部且已隔离，因此不会告诉其岗位去遵循它，也不计算比例。请解除其技能的隔离，或不再把它作为核心流程。",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} 没有生效的版本，因此不会告诉其岗位去遵循它，在某个版本通过检查、审核人和您之前也不计算比例。",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} 由 {seat} 负责，但其部门无法用 skill.read 打开它，因此不计算比例。请在团队中给该部门授予 skill.read，或把流程交给能读取它的岗位。",
+  "a seat": "某个岗位",
+  "Not in force: no share is counted": "未生效：不计算比例",
+  "Its division cannot open it with skill.read": "其部门无法用 skill.read 打开它",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

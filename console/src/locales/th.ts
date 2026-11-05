@@ -2828,6 +2828,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "ตอนนี้เป็นกระบวนการหลักแล้ว",
   "No longer a core process": "ไม่เป็นกระบวนการหลักแล้ว",
   "It is no longer a core process.": "ไม่เป็นกระบวนการหลักอีกต่อไป",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} มาจากภายนอกและถูกกักกัน จึงไม่มีการบอกตำแหน่งที่รับผิดชอบให้ทำตาม และไม่นับสัดส่วน ยกเลิกการกักกันที่สกิลของมัน หรือเลิกให้เป็นกระบวนการหลัก",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} ไม่มีเวอร์ชันที่มีผลใช้ จึงไม่มีการบอกตำแหน่งที่รับผิดชอบให้ทำตาม และไม่นับสัดส่วนจนกว่าจะมีเวอร์ชันที่ผ่านการตรวจ ผู้ตรวจทาน และคุณ",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} รับผิดชอบโดย {seat} แต่ฝ่ายของตำแหน่งนั้นเปิดด้วย skill.read ไม่ได้ จึงไม่นับสัดส่วน ให้สิทธิ์ skill.read แก่ฝ่ายในหน้าทีม หรือมอบกระบวนการให้ตำแหน่งที่อ่านได้",
+  "a seat": "ตำแหน่งหนึ่ง",
+  "Not in force: no share is counted": "ไม่มีผลใช้: ไม่นับสัดส่วน",
+  "Its division cannot open it with skill.read": "ฝ่ายของมันเปิดด้วย skill.read ไม่ได้",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

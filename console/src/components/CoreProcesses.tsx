@@ -8,30 +8,41 @@
  */
 import { Alert, Anchor, Badge, Group, Paper, Stack, Text, Tooltip } from '@mantine/core';
 import { IconRoute } from '@tabler/icons-react';
-import type { CoreProcessWarning, CoreProcesses as Report, Role } from '../types.ts';
+import type { CoreProcess, CoreProcessWarning, CoreProcesses as Report, Role } from '../types.ts';
 import { locale, t } from '../i18n.ts';
 import { relative, roleLabel } from '../format.ts';
 
-/** A warning in the owner's words. */
-export function coreWarningSaid(warning: CoreProcessWarning): string {
+/** A warning in the owner's words, naming a seat by its name rather than its code. */
+export function coreWarningSaid(warning: CoreProcessWarning, roles: Role[]): string {
   if (warning.kind === 'fewer_than_five') {
     return t('Core processes: {count}. The method this follows names five to twelve; mark the rest as you write them down.', { count: warning.count });
   }
   if (warning.kind === 'more_than_twelve') {
     return t('Core processes: {count}. The method this follows names five to twelve: a handful the work follows does more than many it does not.', { count: warning.count });
   }
+  if (warning.kind === 'not_in_force') {
+    return warning.reason === 'quarantined'
+      ? t('{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.', { skill: warning.slug })
+      : t('{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.', { skill: warning.slug });
+  }
+  if (warning.kind === 'division_cannot_read') {
+    const seat = roles.find((role) => role.id === warning.roleId);
+    return t('{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.', {
+      skill: warning.slug, seat: seat ? roleLabel(seat) : t('a seat'),
+    });
+  }
   return t('{skill} is {lines} lines long. A core process is kept to about sixty: the fifth of the detail that drives most of the result.', { skill: warning.slug, lines: warning.lines });
 }
 
 /** The warnings, or nothing: shown, never refused. */
-export function CoreWarnings({ report }: { report: Report }) {
+export function CoreWarnings({ report, roles }: { report: Report; roles: Role[] }) {
   if (report.warnings.length === 0) return null;
   return (
     <Alert variant="light" color="yellow" title={t('Core processes')}>
       <Stack gap={4}>
         {report.warnings.map((warning) => (
-          <Text key={warning.kind === 'longer_than_sixty_lines' ? `${warning.kind}:${warning.slug}` : warning.kind} size="sm">
-            {coreWarningSaid(warning)}
+          <Text key={'slug' in warning ? `${warning.kind}:${warning.slug}` : warning.kind} size="sm">
+            {coreWarningSaid(warning, roles)}
           </Text>
         ))}
       </Stack>
@@ -41,6 +52,26 @@ export function CoreWarnings({ report }: { report: Report }) {
 
 const percent = (share: number) =>
   new Intl.NumberFormat(locale(), { style: 'percent', maximumFractionDigits: 0 }).format(share);
+
+/**
+ * How far a process is followed, or why nothing is counted: a share is only
+ * said where the division's runs could have read it (src/skills/core.ts).
+ */
+function shareSaid(process: CoreProcess, days: number): string {
+  if (!process.inForce) return t('Not in force: no share is counted');
+  if (!process.divisionCanRead) return t('Its division cannot open it with skill.read');
+  if (process.followedShare === null) return t('No run of its division in the last {days} days', { days });
+  return t('Followed in {share} of its division\'s runs ({followed} of {runs}), last {days} days', {
+    share: percent(process.followedShare), followed: process.followedRuns, runs: process.runs, days,
+  });
+}
+
+/** The warning colour for what the owner can fix, dimmed for a quiet division. */
+function shareColor(process: CoreProcess): string | undefined {
+  if (!process.inForce || !process.divisionCanRead) return 'orange';
+  if (process.followedShare === null) return 'dimmed';
+  return process.followedShare < 0.5 ? 'orange' : undefined;
+}
 
 /**
  * Each core process with its seat, when it last changed, and how much of
@@ -71,19 +102,13 @@ export function CoreProcessesPanel({ report, roles, openRole }: {
                 <Text size="xs" c="dimmed">{t('Changed {when}', { when: relative(process.updatedAt) })}</Text>
               </div>
               <Tooltip label={t('Runs of the seat\'s division that opened it with skill.read, over the last {days} days.', { days: report.windowDays })}>
-                <Text size="sm" c={process.followedShare === null ? 'dimmed' : process.followedShare < 0.5 ? 'orange' : undefined}>
-                  {process.followedShare === null
-                    ? t('No run of its division in the last {days} days', { days: report.windowDays })
-                    : t('Followed in {share} of its division\'s runs ({followed} of {runs}), last {days} days', {
-                      share: percent(process.followedShare), followed: process.followedRuns, runs: process.runs, days: report.windowDays,
-                    })}
-                </Text>
+                <Text size="sm" c={shareColor(process)}>{shareSaid(process, report.windowDays)}</Text>
               </Tooltip>
             </Group>
           );
         })}
       </Stack>
-      {report.warnings.length > 0 && <Stack gap={4} mt="sm"><CoreWarnings report={report} /></Stack>}
+      {report.warnings.length > 0 && <Stack gap={4} mt="sm"><CoreWarnings report={report} roles={roles} /></Stack>}
     </Paper>
   );
 }

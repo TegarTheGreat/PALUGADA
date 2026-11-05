@@ -2835,6 +2835,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Artık bir temel süreç.",
   "No longer a core process": "Artık temel süreç değil",
   "It is no longer a core process.": "Artık temel süreç değil.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} dışarıdan geldi ve karantinada; bu yüzden pozisyonuna ona uyması söylenmiyor ve pay sayılmıyor. Becerisinin karantinasını kaldırın ya da onu temel süreçlerden çıkarın.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} için yürürlükte bir sürüm yok; bu yüzden pozisyonuna ona uyması söylenmiyor ve bir sürüm kontrollerinden, bir gözden geçirenden ve sizden geçene kadar pay sayılmıyor.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} sahibi {seat}, ama bölümü onu skill.read ile açamıyor; bu yüzden pay sayılmıyor. Ekip'te bölüme skill.read verin ya da süreci onu okuyabilen bir pozisyona verin.",
+  "a seat": "bir pozisyon",
+  "Not in force: no share is counted": "Yürürlükte değil: pay sayılmıyor",
+  "Its division cannot open it with skill.read": "Bölümü onu skill.read ile açamıyor",
 };
 
 /**

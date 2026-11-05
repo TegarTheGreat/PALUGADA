@@ -2789,6 +2789,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Pangunahing proseso na ito.",
   "No longer a core process": "Hindi na pangunahing proseso",
   "It is no longer a core process.": "Hindi na ito pangunahing proseso.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "Ang {skill} ay galing sa labas at naka-quarantine, kaya hindi sinasabihan ang posisyon nito na sundin ito at walang bahaging binibilang. Alisin ang quarantine sa skill nito, o alisin ito bilang pangunahing proseso.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "Walang bersyong may bisa ang {skill}, kaya hindi sinasabihan ang posisyon nito na sundin ito at walang bahaging binibilang hangga't walang bersyong pumapasa sa mga pagsusuri nito, sa isang tagasuri, at sa iyo.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "Hawak ng {seat} ang {skill}, pero hindi ito mabuksan ng dibisyon nito gamit ang skill.read, kaya walang bahaging binibilang. Bigyan ng skill.read ang dibisyon sa Koponan, o ibigay ang proseso sa posisyong kayang basahin ito.",
+  "a seat": "isang posisyon",
+  "Not in force: no share is counted": "Walang bisa: walang bahaging binibilang",
+  "Its division cannot open it with skill.read": "Hindi ito mabuksan ng dibisyon nito gamit ang skill.read",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

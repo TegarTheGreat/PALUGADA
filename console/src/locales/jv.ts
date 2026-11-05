@@ -2826,6 +2826,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Samenika punika proses inti.",
   "No longer a core process": "Sampun sanès proses inti",
   "It is no longer a core process.": "Punika sampun sanès proses inti.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} asalipun saking njawi lan dipunkarantina, dados kalenggahanipun boten dipunaturi ngetutaken lan boten wonten bagéan ingkang dipunétang. Cabut karantina ing skill-ipun, utawi uculaken saking proses inti.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} boten gadhah vérsi ingkang laku, dados kalenggahanipun boten dipunaturi ngetutaken lan boten wonten bagéan ingkang dipunétang ngantos wonten vérsi ingkang lulus pamriksanipun, panliti, lan panjenengan.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} dipunasta déning {seat}, ingkang divisinipun boten saged mbikak nganggé skill.read, dados boten wonten bagéan ingkang dipunétang. Paringaken skill.read dhateng divisi punika ing Tim, utawi paringaken proses punika dhateng kalenggahan ingkang saged maos.",
+  "a seat": "satunggaling kalenggahan",
+  "Not in force: no share is counted": "Boten laku: boten wonten bagéan ingkang dipunétang",
+  "Its division cannot open it with skill.read": "Divisinipun boten saged mbikak nganggé skill.read",
 };
 
 /**

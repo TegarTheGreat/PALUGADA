@@ -2828,6 +2828,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Kini ia proses teras.",
   "No longer a core process": "Bukan lagi proses teras",
   "It is no longer a core process.": "Ia bukan lagi proses teras.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} datang dari luar dan dikuarantin, jadi jawatannya tidak disuruh mengikutinya dan tiada bahagian dikira. Tarik balik kuarantin pada skill-nya, atau lepaskannya sebagai proses teras.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} tiada versi yang berkuat kuasa, jadi jawatannya tidak disuruh mengikutinya dan tiada bahagian dikira sehingga satu versi lulus semakannya, penyemak dan anda.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} dipegang oleh {seat}, yang bahagiannya tidak boleh membukanya dengan skill.read, jadi tiada bahagian dikira. Beri bahagian itu skill.read di Pasukan, atau beri proses ini kepada jawatan yang boleh membacanya.",
+  "a seat": "satu jawatan",
+  "Not in force: no share is counted": "Tidak berkuat kuasa: tiada bahagian dikira",
+  "Its division cannot open it with skill.read": "Bahagiannya tidak boleh membukanya dengan skill.read",
 };
 
 /**

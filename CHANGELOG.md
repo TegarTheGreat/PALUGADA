@@ -877,6 +877,10 @@ The first version. What it holds, in the order an owner meets it.
   sixty lines is warned of and refuses nothing. The database holds a core
   process to one seat of its own company, only the owner may name one, and
   the archive carries both (STATUS 2.201).
+- A core process whose seat's division cannot open it with **skill.read**,
+  or that is not in force (quarantined, or brought back by an import waiting
+  for its gates), shows no share and says why, rather than a share of none;
+  and a seat is only told to follow a process in force (STATUS 2.201).
 - Every `skill.read` a run makes is now recorded on its task, naming the
   skill, so the company can see which procedures its work follows
   (STATUS 2.201).

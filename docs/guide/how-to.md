@@ -2049,8 +2049,12 @@ checks, a reviewer and you (see **Skills**). To name one:
 3. To move it, choose another seat and press **Give it this seat**. To let it
    go, press **No longer a core process**.
 
-No authenticator is asked for: naming one puts no new text in front of any
-run, since the skill was switched on with it.
+No authenticator is asked for, and your assistant can do it when you ask.
+Naming one does add to what the seat's runs are told: their charter lists
+the process with its summary and says to read it and follow it. Nothing in
+that is new to them, though: they already carry the summary among the
+skills, you switched that version on with your authenticator, and the rest
+is PALUGADA's own instruction. Letting it go takes it out again.
 
 Every run of the owning seat is told which core processes it owns and to read
 each with `skill.read` before it does that work. When a process no longer
@@ -2072,6 +2076,18 @@ Two things are warned of, there and on **Skills**, and neither is refused:
   range is the one used;
 - a process longer than sixty lines, about two pages: the rest of the detail
   belongs in the work, not the process.
+
+Two more are warned of because no share can be counted, and the panel says
+so in the share's place:
+
+- the seat's division cannot open the process with **skill.read**. Grant it
+  to that division under **Team**, or give the process a seat that can read
+  it;
+- the process is not in force: it was quarantined when a document from
+  outside arrived under its name, or an import brought it back waiting for
+  its checks, a reviewer and you. Until you lift the quarantine or switch a
+  version on, its seat is not told to follow it. It stays marked, so it comes
+  back as it was.
 
 The method's names for these tools are marks of EOS Worldwide, and PALUGADA
 uses its own.

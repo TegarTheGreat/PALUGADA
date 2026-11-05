@@ -2834,6 +2834,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "Ayeuna ieu prosés inti.",
   "No longer a core process": "Sanés prosés inti deui",
   "It is no longer a core process.": "Ieu sanés prosés inti deui.",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} asalna ti luar sarta dikarantina, janten jabatanana henteu dititah nuturkeun sarta teu aya bagian anu diitung. Cabut karantina dina skill-na, atanapi leupaskeun salaku prosés inti.",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} teu gaduh vérsi anu lumaku, janten jabatanana henteu dititah nuturkeun sarta teu aya bagian anu diitung dugi ka aya vérsi anu lulus pamariksaanana, panalungtik, sareng anjeun.",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} dicekel ku {seat}, anu divisina teu tiasa mukakeunana ku skill.read, janten teu aya bagian anu diitung. Pasihan skill.read ka divisi éta di Tim, atanapi pasihan prosés ieu ka jabatan anu tiasa macana.",
+  "a seat": "hiji jabatan",
+  "Not in force: no share is counted": "Henteu lumaku: teu aya bagian anu diitung",
+  "Its division cannot open it with skill.read": "Divisina teu tiasa mukakeunana ku skill.read",
 };
 
 /**

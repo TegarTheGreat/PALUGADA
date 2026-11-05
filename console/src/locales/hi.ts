@@ -2779,6 +2779,12 @@ export const DICTIONARY: Dictionary = {
   "It is a core process.": "अब यह एक मुख्य प्रक्रिया है।",
   "No longer a core process": "अब मुख्य प्रक्रिया नहीं",
   "It is no longer a core process.": "यह अब मुख्य प्रक्रिया नहीं है।",
+  "{skill} came from outside and is quarantined, so its seat is not told to follow it and no share is counted. Lift the quarantine on its skill, or let it go as a core process.": "{skill} बाहर से आया है और क्वारंटीन में है, इसलिए इसके पद को इसका पालन करने को नहीं कहा जाता और कोई हिस्सा नहीं गिना जाता। इसके स्किल से क्वारंटीन हटाएँ, या इसे मुख्य प्रक्रिया से हटा दें।",
+  "{skill} has no version in force, so its seat is not told to follow it and no share is counted until a version passes its checks, a reviewer and you.": "{skill} का कोई लागू संस्करण नहीं है, इसलिए इसके पद को इसका पालन करने को नहीं कहा जाता और कोई हिस्सा नहीं गिना जाता, जब तक कोई संस्करण अपनी जाँचें, एक समीक्षक और आपकी मंज़ूरी पार न कर ले।",
+  "{skill} is owned by {seat}, whose division cannot open it with skill.read, so no share is counted. Grant the division skill.read on Team, or give the process a seat that can read it.": "{skill} {seat} के ज़िम्मे है, जिसका डिवीज़न इसे skill.read से नहीं खोल सकता, इसलिए कोई हिस्सा नहीं गिना जाता। टीम में डिवीज़न को skill.read दें, या प्रक्रिया ऐसे पद को दें जो इसे पढ़ सके।",
+  "a seat": "एक पद",
+  "Not in force: no share is counted": "लागू नहीं: कोई हिस्सा नहीं गिना जाता",
+  "Its division cannot open it with skill.read": "इसका डिवीज़न इसे skill.read से नहीं खोल सकता",
 };
 
 /**

@@ -864,6 +864,32 @@ The first version. What it holds, in the order an owner meets it.
   the daily digest the day after a meeting was held points to it, and says nothing of one cancelled or stopped.
   Archives carry when the meeting is held (STATUS 2.194).
 
+- **A plan of new goals in one card.** The CEO, or any role holding
+  `goal.propose`, can propose up to twenty new goals at once: this year's
+  goals and the quarterly priorities under them, each with the goal it hangs
+  from, its period, its seat, its commitment, when it is done, the channel
+  it tests and a measure with its pair. A learning goal carries a measure
+  whose target, set in the proposal, is its prediction. Each line is checked
+  when it is proposed, and the run is told what to fix by the line's number
+  (STATUS 2.195).
+- You approve the plan line by line. The card shows every line, with the
+  soft limits it would pass, and you untick the ones you refuse. Your yes,
+  with your device, makes the lines you kept, with their measures and pairs,
+  in one step. It is refused if anything you set on a goal a line hangs
+  from (its words, status, period, seat, commitment, finish line or channel)
+  has changed since the proposal, and a line cannot be kept without the line
+  it hangs from. One plan waits at a time, even when two runs propose at
+  once, and agents still cannot write a goal (STATUS 2.195).
+- A plan line cannot pair its measure with an earlier line's measure that is
+  already paired, nor take a retired measure's slug: both are refused when
+  the plan is proposed, rather than refusing your yes after your device's
+  code is spent (STATUS 2.195).
+- The CEO now holds `goal.propose` in place of `doc.draft`, so it still has
+  twelve tools. Its division keeps the draft's grant, so you can trade it
+  back on Team. An existing CEO whose tools were still the founding ones is
+  traded the same way on upgrade, with a version to roll back to (STATUS
+  2.195).
+
 - **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
   first of each month the strategist reviews the last whole month from the
   company's own books -- profit beside the month before, cash at its start

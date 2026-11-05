@@ -494,4 +494,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '週次運営会議を開催しました（{week}）：{where}',
   'see its task under Work':
     '「仕事」でそのタスクを見てください',
+  'New goals proposed, to approve line by line':
+    '新しい目標の提案（1 行ずつ承認）',
+  'Line {line}: the {kind} "{goal}"':
+    '{line} 行目：{kind}「{goal}」',
+  'Under: {goal}':
+    '上位：{goal}',
+  'Under line {line}: {goal}':
+    '上位は {line} 行目：{goal}',
+  'Period: {from} to {to}':
+    '期間：{from} ～ {to}',
+  'Committed: done in full, or missed.':
+    '必達：完遂するか、未達か。',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    '挑戦：採点され、0.6 ～ 0.7 なら良い結果です。',
+  'Learning: a test of the prediction below.':
+    '学習：下の予測を検証します。',
+  'Owned by: {role}':
+    '責任を持つ席：{role}',
+  'Done when: {doneWhen}':
+    '完了条件：{doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    '予測（仕事の前に記録）：{name} が {baseline} から {target} に達する。',
+  'Measured by {name}: from {baseline} to {target}.':
+    '指標 {name}：{baseline} から {target} へ。',
+  'Watched with: {measure}':
+    '対になる指標：{measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    '今年の目標：{count}件。会社が見渡せる{limit}件を超えています。',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'この目標の主要な成果：{count}件。一つの目標が見渡せる{limit}件を超えています。',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    '同時に進む四半期の優先事項：{count}件。会社が見渡せる{limit}件を超えています。',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat}が同時に持つ四半期の優先事項：{count}件。一つの席が持てる{limit}件を超えています。',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    '承認すると、承認した各行が指標付きの目標になります。却下した行は作られません。それまでは、現在の目標のまま仕事が続きます。',
+  'No goal is made.':
+    '目標は作られません。',
 };

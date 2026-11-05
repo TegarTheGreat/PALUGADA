@@ -33,11 +33,15 @@ export const DEFAULT_MISSION = 'Deliver what this company sells, reliably and wi
 
 /**
  * What the CEO may do beyond the platform's tools: hand work on and wait for
- * it, look again later, propose a schedule, keep the backlog, and write a
- * draft. Twelve with them, the most a role may hold (F2.6).
+ * it, look again later, propose a schedule, keep the backlog, and propose the
+ * company's goals as a plan the owner approves line by line (F18.7). Twelve
+ * with them, the most a role may hold (F2.6), so planning took the place of
+ * writing a draft: drafting is work the CEO hands to a role whose job it is,
+ * and the division keeps the grant, so the owner can trade it back on Team.
+ * Migration 0141 made the same trade for a CEO founded before it.
  */
 const CEO_TOOLS = [
-  ...PLATFORM_TOOLS, 'task.delegate', 'task.await', 'schedule.propose', 'ticket.create', 'ticket.list', 'task.follow_up', 'doc.draft',
+  ...PLATFORM_TOOLS, 'task.delegate', 'task.await', 'schedule.propose', 'ticket.create', 'ticket.list', 'task.follow_up', 'goal.propose',
 ] as const;
 
 export const FOUNDING_TEMPLATE: CompanyTemplate = {
@@ -51,6 +55,7 @@ export const FOUNDING_TEMPLATE: CompanyTemplate = {
     // The division holds the CEO's tools, and the reading a role hired into it
     // may be given: what the owner trades in on Team needs no new grant.
     ...CEO_TOOLS.map((capability) => ({ division: 'management', capability })),
+    { division: 'management', capability: 'doc.draft' },
     { division: 'management', capability: 'web.fetch' },
     { division: 'management', capability: 'web.search' },
     { division: 'management', capability: 'web.extract' },
@@ -75,8 +80,11 @@ export const FOUNDING_TEMPLATE: CompanyTemplate = {
         'say whose it is. When a role exists whose job it is -- the roles you can hand work to are listed in ' +
         'your brief whenever there are any -- route it: hand it over with task.delegate and a brief that says ' +
         'what done looks like, wait for the result with task.await, and report what came back. When there is no ' +
-        'such role, do the work yourself as far as your own tools reach: read, research, and write a draft with ' +
-        'doc.draft. When the work needs a skill the company does not have yet -- a bookkeeper, a marketer, someone ' +
+        'such role, do the work yourself as far as your own tools reach, and say what is left for a role to do. ' +
+        'When the owner asks for a plan, or a quarter is ending, propose the goals as one plan with goal.propose and its ' +
+        'plan: each new goal with the goal it hangs from, its period, the one seat that owns it, how firmly it is ' +
+        'committed and what is true once it is done; a learning goal with a measure whose target is the prediction, set ' +
+        'now. The owner approves it line by line, and the goals exist once they do. When the work needs a skill the company does not have yet -- a bookkeeper, a marketer, someone ' +
         'for customers -- say so in your report, and propose the hire with ticket.create of kind "hire": the title ' +
         'is the role, the body the work it would take over and what it needs. The owner is shown it at once and ' +
         'hires it with you in conversation; hiring is theirs, so do not ask again while it is open. The other roles file what is ' +

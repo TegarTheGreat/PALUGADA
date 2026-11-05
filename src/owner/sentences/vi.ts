@@ -502,4 +502,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã họp vận hành hằng tuần ({week}): {where}',
   'see its task under Work':
     'xem nhiệm vụ của nó trong Công việc',
+  'New goals proposed, to approve line by line':
+    'Mục tiêu mới được đề xuất, để phê duyệt từng dòng',
+  'Line {line}: the {kind} "{goal}"':
+    'Dòng {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Thuộc: {goal}',
+  'Under line {line}: {goal}':
+    'Thuộc dòng {line}: {goal}',
+  'Period: {from} to {to}':
+    'Thời hạn: {from} đến {to}',
+  'Committed: done in full, or missed.':
+    'Cam kết: xong trọn vẹn, hoặc trượt.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Tham vọng: được chấm điểm, và 0,6 đến 0,7 là kết quả tốt.',
+  'Learning: a test of the prediction below.':
+    'Học hỏi: kiểm chứng dự đoán bên dưới.',
+  'Owned by: {role}':
+    'Phụ trách: {role}',
+  'Done when: {doneWhen}':
+    'Xong khi: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Dự đoán, viết trước khi làm: {name} đạt {target}, từ {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Đo bằng {name}: từ {baseline} đến {target}.',
+  'Watched with: {measure}':
+    'Theo dõi cùng: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Mục tiêu năm nay: {count}, nhiều hơn {limit} mà một công ty có thể theo dõi.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Kết quả then chốt dưới mục tiêu này: {count}, nhiều hơn {limit} mà một mục tiêu có thể theo dõi.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Ưu tiên quý cùng lúc: {count}, nhiều hơn {limit} mà một công ty có thể theo dõi.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Ưu tiên quý của {seat} cùng lúc: {count}, nhiều hơn {limit} mà một vị trí có thể đảm đương.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Phê duyệt sẽ biến mỗi dòng bạn duyệt thành một mục tiêu, kèm thước đo của nó; dòng bạn từ chối sẽ không được tạo. Cho đến lúc đó, công việc vẫn tiếp tục theo các mục tiêu hiện tại.',
+  'No goal is made.':
+    'Không mục tiêu nào được tạo.',
 };

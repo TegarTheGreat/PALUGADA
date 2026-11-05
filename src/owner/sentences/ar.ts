@@ -495,4 +495,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'عُقد اجتماع التشغيل الأسبوعي ({week}): {where}',
   'see its task under Work':
     'انظر مهمته في العمل',
+  'New goals proposed, to approve line by line':
+    'أهداف جديدة مقترحة، للموافقة عليها سطرًا سطرًا',
+  'Line {line}: the {kind} "{goal}"':
+    'السطر {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'تحت: {goal}',
+  'Under line {line}: {goal}':
+    'تحت السطر {line}: {goal}',
+  'Period: {from} to {to}':
+    'المدة: من {from} إلى {to}',
+  'Committed: done in full, or missed.':
+    'ملتزم به: يُنجَز كاملًا أو يُخفَق فيه.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'طموح: يُقيَّم بدرجة، ومن 0.6 إلى 0.7 نتيجة جيدة.',
+  'Learning: a test of the prediction below.':
+    'تعلّم: يختبر التوقع أدناه.',
+  'Owned by: {role}':
+    'المقعد المسؤول: {role}',
+  'Done when: {doneWhen}':
+    'يكتمل عندما: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'التوقع، مكتوبًا قبل العمل: يبلغ {name} القيمة {target}، بدءًا من {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'يُقاس بـ {name}: من {baseline} إلى {target}.',
+  'Watched with: {measure}':
+    'يُراقَب مع: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'أهداف هذا العام: {count}، أكثر من {limit} يمكن لشركة أن تبقيها في نظرها.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'النتائج الرئيسية تحت هذا الهدف: {count}، أكثر من {limit} يمكن لهدف واحد أن يبقيها في نظره.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'الأولويات الربع سنوية في وقت واحد: {count}، أكثر من {limit} يمكن لشركة أن تبقيها في نظرها.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'الأولويات الربع سنوية لـ {seat} في وقت واحد: {count}، أكثر من {limit} يمكن لمقعد واحد أن يحملها.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'الموافقة تجعل كل سطر توافق عليه هدفًا مع مقياسه؛ والسطر الذي ترفضه لا يُنشأ. وحتى ذلك الحين يستمر العمل في إطار الأهداف كما هي.',
+  'No goal is made.':
+    'لا يُنشأ أي هدف.',
 };

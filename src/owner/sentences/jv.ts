@@ -496,4 +496,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Rapat operasi mingguan sampun dipunwontenaken ({week}): {where}',
   'see its task under Work':
     'pirsani tugasipun ing Pakaryan',
+  'New goals proposed, to approve line by line':
+    'Ancas enggal dipunusulaken, kangge dipunsetujoni larik mawon larik',
+  'Line {line}: the {kind} "{goal}"':
+    'Larik {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Ing sangandhapipun: {goal}',
+  'Under line {line}: {goal}':
+    'Ing sangandhapipun larik {line}: {goal}',
+  'Period: {from} to {to}':
+    'Wekdal: {from} ngantos {to}',
+  'Committed: done in full, or missed.':
+    'Kudu kaleksanan: rampung sedaya, utawi luput.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Gegayuhan dhuwur: dipunbiji, lan 0,6 ngantos 0,7 punika asil ingkang sae.',
+  'Learning: a test of the prediction below.':
+    'Sinau: nguji ramalan ing ngandhap punika.',
+  'Owned by: {role}':
+    'Dipungadhahi: {role}',
+  'Done when: {doneWhen}':
+    'Rampung menawi: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalanipun, dipunserat saderengipun pakaryan: {name} dumugi {target}, saking {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Dipunukur kaliyan {name}: saking {baseline} dumugi {target}.',
+  'Watched with: {measure}':
+    'Dipunawasi sesarengan: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Ancas taun punika: {count}, langkung saking {limit} ingkang saged dipunjagi perusahaan.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Asil utami ing sangandhaping gegayuhan punika: {count}, langkung saking {limit} ingkang saged dipunjagi setunggal gegayuhan.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioritas triwulan sesarengan: {count}, langkung saking {limit} ingkang saged dipunjagi perusahaan.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioritas triwulan {seat} sesarengan: {count}, langkung saking {limit} ingkang saged dipuncepeng setunggal kursi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Nyetujoni ndadosaken saben larik ingkang panjenengan setujoni satunggaling ancas, sesarengan ukuranipun; larik ingkang panjenengan tolak boten dipundamel. Ngantos wekdal punika pakaryan lajeng mlampah miturut ancas ingkang wonten sapunika.',
+  'No goal is made.':
+    'Boten wonten ancas ingkang dipundamel.',
 };

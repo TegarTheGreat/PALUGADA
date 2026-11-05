@@ -48,6 +48,8 @@ export interface MetricDefinition {
   ownerRoleId?: string | null;
   /** The measure this one is watched with; the pair is written both ways. */
   pairedWith?: string | null;
+  /** The card whose yes defined it, for the record: a plan of new goals (F18.7). */
+  inboxItemId?: string;
 }
 
 export interface MetricView {
@@ -84,6 +86,15 @@ export function progressOf(metric: { baseline: number; target: number }, value: 
 
 /** The owner defines a metric. On the control plane: the application role may not (0053). */
 export async function defineMetric(companyId: string, input: MetricDefinition): Promise<string> {
+  return withControlPlane((tx) => defineMetricWithin(tx, companyId, input));
+}
+
+/**
+ * The same, inside a control-plane transaction the caller holds: the owner's
+ * yes to a plan of new goals (inbox.decide, F18.7), so each goal and its
+ * measure are made with the answer or not at all.
+ */
+export async function defineMetricWithin(tx: TenantClient, companyId: string, input: MetricDefinition): Promise<string> {
   if (!(METRIC_UNITS as readonly string[]).includes(input.unit)) {
     throw new PalugadaError('contract.violation', `unit must be one of ${METRIC_UNITS.join(', ')}`, { field: 'unit' });
   }
@@ -94,52 +105,51 @@ export async function defineMetric(companyId: string, input: MetricDefinition): 
     throw new PalugadaError('contract.violation', 'the target must differ from the baseline, or there is nothing to measure', { field: 'target' });
   }
   assertReviewEvery(input.reviewEvery);
-  return withControlPlane(async (tx) => {
-    const goal = await tx.query('SELECT 1 FROM goals WHERE id = $1 AND company_id = $2', [input.goalId, companyId]);
-    if (goal.rowCount !== 1) {
-      throw new PalugadaError('contract.violation', 'no such goal in this company', { field: 'goalId' });
+  const goal = await tx.query('SELECT 1 FROM goals WHERE id = $1 AND company_id = $2', [input.goalId, companyId]);
+  if (goal.rowCount !== 1) {
+    throw new PalugadaError('contract.violation', 'no such goal in this company', { field: 'goalId' });
+  }
+  if (input.ownerRoleId) await assertRoleIn(tx, companyId, input.ownerRoleId);
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO goal_metrics (company_id, goal_id, slug, name, unit, direction, baseline, target, due_on, source_capability,
+                               review_every, owner_role_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+    [
+      companyId, input.goalId, input.slug, input.name, input.unit, input.direction ?? 'up',
+      input.baseline ?? 0, input.target, input.dueOn ?? null, input.sourceCapability ?? null,
+      input.reviewEvery ?? null, input.ownerRoleId ?? null,
+    ],
+  );
+  const id = rows[0]!.id;
+  if (input.pairedWith) {
+    // Adding a measure takes no second factor because it loosens nothing;
+    // taking a partner from a pair that exists would undo that pair, which
+    // only a change to the measure -- under the factor -- may do.
+    const taken = await tx.query<{ slug: string; partner: string }>(
+      `SELECT m.slug, p.slug AS partner FROM goal_metrics m
+         JOIN goal_metrics p ON p.company_id = m.company_id AND p.id = m.paired_metric_id
+        WHERE m.company_id = $1 AND m.id::text = $2`,
+      [companyId, input.pairedWith]);
+    const held = taken.rows[0];
+    if (held) {
+      throw new PalugadaError('contract.violation',
+        `the measure ${held.slug} is already paired with ${held.partner}; a new measure may be paired only with one that has no pair. ` +
+        `To pair ${held.slug} with this one instead, add it unpaired and then change ${held.slug}, which takes your second factor`,
+        { field: 'pairedWith' });
     }
-    if (input.ownerRoleId) await assertRoleIn(tx, companyId, input.ownerRoleId);
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO goal_metrics (company_id, goal_id, slug, name, unit, direction, baseline, target, due_on, source_capability,
-                                 review_every, owner_role_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
-      [
-        companyId, input.goalId, input.slug, input.name, input.unit, input.direction ?? 'up',
-        input.baseline ?? 0, input.target, input.dueOn ?? null, input.sourceCapability ?? null,
-        input.reviewEvery ?? null, input.ownerRoleId ?? null,
-      ],
-    );
-    const id = rows[0]!.id;
-    if (input.pairedWith) {
-      // Adding a measure takes no second factor because it loosens nothing;
-      // taking a partner from a pair that exists would undo that pair, which
-      // only a change to the measure -- under the factor -- may do.
-      const taken = await tx.query<{ slug: string; partner: string }>(
-        `SELECT m.slug, p.slug AS partner FROM goal_metrics m
-           JOIN goal_metrics p ON p.company_id = m.company_id AND p.id = m.paired_metric_id
-          WHERE m.company_id = $1 AND m.id::text = $2`,
-        [companyId, input.pairedWith]);
-      const held = taken.rows[0];
-      if (held) {
-        throw new PalugadaError('contract.violation',
-          `the measure ${held.slug} is already paired with ${held.partner}; a new measure may be paired only with one that has no pair. ` +
-          `To pair ${held.slug} with this one instead, add it unpaired and then change ${held.slug}, which takes your second factor`,
-          { field: 'pairedWith' });
-      }
-      await pair(tx, companyId, id, input.pairedWith);
-    }
-    await appendEvent(tx, {
-      companyId,
-      type: 'metric.defined',
-      actor: 'owner',
-      payload: {
-        metricId: id, goalId: input.goalId, slug: input.slug, target: input.target,
-        reviewEvery: input.reviewEvery ?? null, ownerRoleId: input.ownerRoleId ?? null, pairedWith: input.pairedWith ?? null,
-      },
-    });
-    return id;
+    await pair(tx, companyId, id, input.pairedWith);
+  }
+  await appendEvent(tx, {
+    companyId,
+    type: 'metric.defined',
+    actor: 'owner',
+    payload: {
+      metricId: id, goalId: input.goalId, slug: input.slug, target: input.target,
+      reviewEvery: input.reviewEvery ?? null, ownerRoleId: input.ownerRoleId ?? null, pairedWith: input.pairedWith ?? null,
+      ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
+    },
   });
+  return id;
 }
 
 function assertReviewEvery(value: unknown): void {

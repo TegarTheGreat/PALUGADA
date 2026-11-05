@@ -710,6 +710,84 @@ export function goalChangeCard(reading: OwnerReading, facts: {
   };
 }
 
+/** A soft limit a planned goal would pass (F18.1), with the seat it names by its name. */
+export type PlanWarningSaid =
+  | { kind: 'year_goals' | 'objective_key_results' | 'quarter_priorities'; count: number; limit: number }
+  | { kind: 'seat_priorities'; count: number; limit: number; seat: string };
+
+/** One line of a plan of new goals, as the card tells it. */
+export interface PlanLineSaid {
+  line: number;
+  kind: string;
+  statement: string;
+  /** The goal it hangs from: one that exists, or an earlier line of the plan. */
+  under: { statement: string; line?: number };
+  /** The period, as days written YYYY-MM-DD. */
+  period: { startsOn: string; dueOn: string } | null;
+  commitment: string | null;
+  seat: string | null;
+  doneWhen: string | null;
+  measure: { name: string; baseline: number; target: number; pairedWith: string | null } | null;
+  warnings: ReadonlyArray<PlanWarningSaid>;
+}
+
+/**
+ * A plan of new goals (`goal.propose` with a plan, F18.7): one card for the
+ * whole of it, each line numbered as the owner approves or refuses it, with
+ * where it hangs, its period, how firmly, whose it is, what done means, its
+ * measure -- for a learning goal, the prediction -- and the soft limits it
+ * would pass. The channel a line tests is shown beside the line's choice in
+ * the console, by the name the console already gives it.
+ */
+export function planCard(reading: OwnerReading, facts: { reason: string; lines: ReadonlyArray<PlanLineSaid> }): Card & { consequence: string } {
+  const { language } = reading;
+  const days = (from: string, to: string) => {
+    const format = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString(language ?? 'en', { dateStyle: 'medium', timeZone: 'UTC' });
+    return { from: format(from), to: format(to) };
+  };
+  const lines = facts.lines.flatMap((line) => {
+    const said = [
+      say(language, 'Line {line}: the {kind} "{goal}"', { line: String(line.line), kind: goalKindSaid(language, line.kind), goal: line.statement }),
+      line.under.line === undefined
+        ? say(language, 'Under: {goal}', { goal: line.under.statement })
+        : say(language, 'Under line {line}: {goal}', { line: String(line.under.line), goal: line.under.statement }),
+      ...(line.period ? [say(language, 'Period: {from} to {to}', days(line.period.startsOn, line.period.dueOn))] : []),
+      ...(line.commitment === 'committed' ? [say(language, 'Committed: done in full, or missed.')] : []),
+      ...(line.commitment === 'aspirational' ? [say(language, 'Aspirational: graded, and 0.6 to 0.7 is a good result.')] : []),
+      ...(line.commitment === 'learning' ? [say(language, 'Learning: a test of the prediction below.')] : []),
+      ...(line.seat ? [say(language, 'Owned by: {role}', { role: line.seat })] : []),
+      ...(line.doneWhen ? [say(language, 'Done when: {doneWhen}', { doneWhen: line.doneWhen })] : []),
+    ];
+    if (line.measure) {
+      const values = { name: line.measure.name, baseline: number(reading, line.measure.baseline, 2), target: number(reading, line.measure.target, 2) };
+      said.push(line.commitment === 'learning'
+        ? say(language, 'The prediction, written before the work: {name} reaches {target}, from {baseline}.', values)
+        : say(language, 'Measured by {name}: from {baseline} to {target}.', values));
+      if (line.measure.pairedWith) said.push(say(language, 'Watched with: {measure}', { measure: line.measure.pairedWith }));
+    }
+    for (const warning of line.warnings) {
+      const values = { count: number(reading, warning.count), limit: number(reading, warning.limit) };
+      switch (warning.kind) {
+        case 'year_goals': said.push(say(language, 'Goals for this year: {count}, more than the {limit} a company keeps in view.', values)); break;
+        case 'objective_key_results': said.push(say(language, 'Key results under this objective: {count}, more than the {limit} one objective keeps in view.', values)); break;
+        case 'quarter_priorities': said.push(say(language, 'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.', values)); break;
+        case 'seat_priorities': said.push(say(language, 'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.', { ...values, seat: warning.seat })); break;
+      }
+    }
+    return ['', ...said];
+  });
+  return {
+    title: say(language, 'New goals proposed, to approve line by line'),
+    detail: [
+      say(language, 'Reason given: {reason}', { reason: facts.reason }),
+      ...lines,
+      '',
+      say(language, 'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.'),
+    ].join('\n'),
+    consequence: say(language, 'No goal is made.'),
+  };
+}
+
 /**
  * A run's proposal that some work recur (`schedule.propose`): what, who,
  * when -- the expression as written and the next runs in the owner's own

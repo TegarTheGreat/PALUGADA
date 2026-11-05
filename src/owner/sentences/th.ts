@@ -501,4 +501,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'จัดการประชุมปฏิบัติการประจำสัปดาห์แล้ว ({week}): {where}',
   'see its task under Work':
     'ดูงานของการประชุมได้ที่ งาน',
+  'New goals proposed, to approve line by line':
+    'เสนอเป้าหมายใหม่ เพื่ออนุมัติทีละบรรทัด',
+  'Line {line}: the {kind} "{goal}"':
+    'บรรทัด {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'อยู่ภายใต้: {goal}',
+  'Under line {line}: {goal}':
+    'อยู่ภายใต้บรรทัด {line}: {goal}',
+  'Period: {from} to {to}':
+    'ช่วงเวลา: {from} ถึง {to}',
+  'Committed: done in full, or missed.':
+    'ให้คำมั่น: ทำสำเร็จครบ หรือพลาด',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'มุ่งหวังสูง: ได้รับคะแนน และ 0.6 ถึง 0.7 คือผลที่ดี',
+  'Learning: a test of the prediction below.':
+    'การเรียนรู้: ทดสอบคำทำนายด้านล่าง',
+  'Owned by: {role}':
+    'ผู้รับผิดชอบ: {role}',
+  'Done when: {doneWhen}':
+    'เสร็จเมื่อ: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'คำทำนาย เขียนไว้ก่อนเริ่มงาน: {name} ไปถึง {target} จาก {baseline}',
+  'Measured by {name}: from {baseline} to {target}.':
+    'วัดด้วย {name}: จาก {baseline} ถึง {target}',
+  'Watched with: {measure}':
+    'ดูคู่กับ: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'เป้าหมายของปีนี้: {count} มากกว่า {limit} ที่บริษัทหนึ่งจะดูแลได้',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'ผลลัพธ์หลักภายใต้วัตถุประสงค์นี้: {count} มากกว่า {limit} ที่วัตถุประสงค์หนึ่งจะดูแลได้',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'ลำดับความสำคัญรายไตรมาสพร้อมกัน: {count} มากกว่า {limit} ที่บริษัทหนึ่งจะดูแลได้',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'ลำดับความสำคัญรายไตรมาสของ {seat} พร้อมกัน: {count} มากกว่า {limit} ที่ตำแหน่งหนึ่งจะรับได้',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'การอนุมัติจะทำให้ทุกบรรทัดที่คุณอนุมัติเป็นเป้าหมายพร้อมตัวชี้วัด บรรทัดที่คุณปฏิเสธจะไม่ถูกสร้าง ระหว่างนี้งานจะดำเนินต่อตามเป้าหมายเดิม',
+  'No goal is made.':
+    'ไม่มีการสร้างเป้าหมาย',
 };

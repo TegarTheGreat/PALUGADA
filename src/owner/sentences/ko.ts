@@ -496,4 +496,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '주간 운영 회의를 열었습니다({week}): {where}',
   'see its task under Work':
     '작업에서 그 작업을 보세요',
+  'New goals proposed, to approve line by line':
+    '새 목표 제안, 한 줄씩 승인',
+  'Line {line}: the {kind} "{goal}"':
+    '{line}번째 줄: {kind} "{goal}"',
+  'Under: {goal}':
+    '상위: {goal}',
+  'Under line {line}: {goal}':
+    '상위는 {line}번째 줄: {goal}',
+  'Period: {from} to {to}':
+    '기간: {from}~{to}',
+  'Committed: done in full, or missed.':
+    '필달: 모두 해내거나 놓쳐요.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    '도전: 점수를 매기며, 0.6~0.7이면 좋은 결과예요.',
+  'Learning: a test of the prediction below.':
+    '학습: 아래 예측을 검증해요.',
+  'Owned by: {role}':
+    '책임 자리: {role}',
+  'Done when: {doneWhen}':
+    '완료 기준: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    '예측(일하기 전에 기록): {name}이(가) {baseline}에서 {target}에 도달해요.',
+  'Measured by {name}: from {baseline} to {target}.':
+    '지표 {name}: {baseline}에서 {target}로.',
+  'Watched with: {measure}':
+    '함께 보는 지표: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    '올해의 목표: {count}개로, 회사가 챙길 수 있는 {limit}개보다 많아요.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    '이 목표 아래의 핵심 결과: {count}개로, 목표 하나가 챙길 수 있는 {limit}개보다 많아요.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    '동시에 진행하는 분기 우선순위: {count}개로, 회사가 챙길 수 있는 {limit}개보다 많아요.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat}의 동시 분기 우선순위: {count}개로, 자리 하나가 맡을 수 있는 {limit}개보다 많아요.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    '승인하면 승인한 각 줄이 지표와 함께 목표가 돼요. 거절한 줄은 만들어지지 않아요. 그 전까지는 현재 목표대로 일이 계속돼요.',
+  'No goal is made.':
+    '목표가 만들어지지 않아요.',
 };

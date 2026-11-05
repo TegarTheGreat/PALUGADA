@@ -496,4 +496,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Rapat operasi mingguan geus diayakeun ({week}): {where}',
   'see its task under Work':
     'tingali tugasna di Padamelan',
+  'New goals proposed, to approve line by line':
+    'Udagan anyar diusulkeun, pikeun disatujuan baris demi baris',
+  'Line {line}: the {kind} "{goal}"':
+    'Baris {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Handapeun: {goal}',
+  'Under line {line}: {goal}':
+    'Handapeun baris {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periode: {from} dugi ka {to}',
+  'Committed: done in full, or missed.':
+    'Kedah kahontal: réngsé sadayana, atanapi luput.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Aspirasional: dipeunteun, sareng 0,6 dugi ka 0,7 mangrupikeun hasil anu saé.',
+  'Learning: a test of the prediction below.':
+    'Diajar: nguji ramalan di handap ieu.',
+  'Owned by: {role}':
+    'Dipiboga ku: {role}',
+  'Done when: {doneWhen}':
+    'Réngsé upami: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalanana, diserat saméméh padamelan dimimitian: {name} ngahontal {target}, ti {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Diukur ku {name}: ti {baseline} ka {target}.',
+  'Watched with: {measure}':
+    'Diawaskeun babarengan: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Udagan taun ieu: {count}, langkung ti {limit} nu tiasa dijaga ku hiji pausahaan.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Hasil utama di handapeun tujuan ieu: {count}, langkung ti {limit} nu tiasa dijaga ku hiji tujuan.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioritas triwulan sakaligus: {count}, langkung ti {limit} nu tiasa dijaga ku hiji pausahaan.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioritas triwulan {seat} sakaligus: {count}, langkung ti {limit} nu tiasa dicepeng ku hiji korsi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Nyatujuan ngajantenkeun unggal baris anu disatujuan hiji udagan, sareng ukuranana; baris anu ditolak henteu didamel. Dugi ka harita padamelan diteraskeun handapeun udagan anu ayeuna.',
+  'No goal is made.':
+    'Teu aya udagan anu didamel.',
 };

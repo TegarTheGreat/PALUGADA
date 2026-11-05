@@ -498,4 +498,42 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Еженедельное операционное совещание проведено ({week}): {where}',
   'see its task under Work':
     'его задача — в разделе «Работа»',
+  'New goals proposed, to approve line by line':
+    'Предложены новые цели, их одобряют построчно',
+  'Line {line}: the {kind} "{goal}"':
+    'Строка {line}: {kind} «{goal}»',
+  'Under: {goal}':
+    'Под целью: {goal}',
+  'Under line {line}: {goal}':
+    'Под строкой {line}: {goal}',
+  'Period: {from} to {to}':
+    'Период: с {from} по {to}',
+  'Committed: done in full, or missed.':
+    'Обязательная: выполняется полностью или проваливается.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Амбициозная: получает оценку, и 0,6–0,7 — хороший результат.',
+  'Learning: a test of the prediction below.':
+    'Учебная: проверяет прогноз ниже.',
+  'Owned by: {role}':
+    'Ответственное место: {role}',
+  'Done when: {doneWhen}':
+    'Готово, когда: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Прогноз, записанный до работы: {name} достигнет {target}, начиная с {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Измеряется показателем {name}: от {baseline} до {target}.',
+  'Watched with: {measure}':
+    'Смотрится вместе с: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Целей на этот год: {count} — больше {limit}, которые компания может держать в поле зрения.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Ключевых результатов под этой целью: {count} — больше {limit}, которые одна цель может держать в поле зрения.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Квартальных приоритетов одновременно: {count} — больше {limit}, которые компания может держать в поле зрения.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Квартальных приоритетов у {seat} одновременно: {count} — больше {limit}, которые может нести одно место.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Одобрение делает каждую одобренную строку целью вместе с её показателем; отклонённая строка не создаётся. До тех пор работа идёт по целям в их нынешнем виде.',
+  'No goal is made.':
+    'Ни одна цель не создаётся.',
 };

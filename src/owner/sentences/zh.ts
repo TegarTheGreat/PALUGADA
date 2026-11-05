@@ -477,4 +477,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{role} 的一项任务在完成前停止了。',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     '解决办法：对每个答案追问为什么，并与记录核对，找出根本原因；只做一次决定；再创建执行该决定的待办，每项只交给一个席位。',
+  'Off track: {name}':
+    '偏离目标：{name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} 在 {week} 那一周为 {value}，每周目标为 {target}。',
+  '{role} answers for it.':
+    '由 {role} 负责。',
+  'No seat answers for it.':
+    '没有任何席位对此负责。',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    '平台在每周运营会议之前从每周记分卡中读取。',
+  'Not done at two meetings: {title}':
+    '两次会议都未完成：{title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    '待办“{title}”于 {due} 到期，在 {previous} 的每周运营会议上没有完成，在本次会议上也没有完成。',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    '平台在每周运营会议之前从待办中读取。',
+  'Weekly operating meeting held ({week}): {where}':
+    '已召开每周运营会议（{week}）：{where}',
+  'see its task under Work':
+    '请在“工作”中查看它的任务',
 };

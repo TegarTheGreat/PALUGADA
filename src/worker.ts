@@ -54,6 +54,7 @@ import { ensureTriage, handTodos } from './engine/triage.ts';
 import { ensureCollections } from './duties/collections.ts';
 import { ensureOutcomes } from './engine/outcomes.ts';
 import { ensureGoalReview } from './engine/goal-review.ts';
+import { ensureWeeklyMeeting } from './engine/meeting.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -186,6 +187,12 @@ export interface WorkerOptions {
    * week that it halted.
    */
   reviewsGoals?: boolean;
+  /**
+   * Whether the CEO holds the weekly operating meeting (src/engine/meeting.ts,
+   * F18.6). The same gate as `reviewsGoals`, for the same reason: without a
+   * model the meeting would halt every week, and the owner be told so.
+   */
+  holdsMeetings?: boolean;
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
   /** The same for a task, for the news that work the owner gave has finished (0059). */
@@ -257,6 +264,8 @@ export interface TickReport {
   outcomes: number;
   /** Review tasks made for the CEO, for a goal nobody had worked on (src/engine/goal-review.ts). */
   reviews: number;
+  /** Weekly operating meetings made for the CEO (src/engine/meeting.ts). */
+  meetings: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -338,6 +347,7 @@ function emptyReport(): TickReport {
     collections: 0,
     outcomes: 0,
     reviews: 0,
+    meetings: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -625,6 +635,14 @@ export class Worker {
       // days, once a week at most for each. Not behind `runs`, as above.
       if (this.#options.reviewsGoals) await this.#stage(report, 'reviews', async () => {
         if (await ensureGoalReview(company, now)) report.reviews += 1;
+      });
+
+      // The weekly operating meeting, on the owner's day and hour in the
+      // company's time zone: one read of the company on any other hour, and
+      // no task in a week with nothing to review. After the goal reviews, so
+      // a look the CEO was given this tick is on the record the meeting reads.
+      if (this.#options.holdsMeetings) await this.#stage(report, 'meetings', async () => {
+        if (await ensureWeeklyMeeting(company, now)) report.meetings += 1;
       });
 
       if (runs) await this.#stage(report, 'wakes', async () => {
@@ -1178,12 +1196,15 @@ export class Worker {
         // aggregates over a day of events, and running it every tick to throw
         // the answer away on a uniqueness conflict is a query a minute, all
         // day, for one message.
+        // The digest after a weekly meeting points to it, in the owner's app when there is one.
+        const linkTask = this.#options.ownerTaskLinkFor;
+        const taskLink = linkTask ? (taskId: string) => linkTask({ companyId: company, taskId }) : null;
         const owed = await digestOwed(company, takers, day);
         if (owed.length > 0) {
           const digest = await buildDailyDigest(company, yesterday);
           const sent = await dispatchDigest(company, owed, {
             day: digest.day,
-            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay()),
+            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay(), taskLink),
           });
           report.digests += sent.delivered;
         }
@@ -1192,7 +1213,7 @@ export class Worker {
         // cannot see these: it joins `inbox_items`, and a digest has no row
         // there. Without this a relay that was restarting when the digest went
         // out lost that day for ever.
-        report.digests += (await retryDigests(company, takers, { now })).delivered;
+        report.digests += (await retryDigests(company, takers, { now, ...(taskLink ? { linkFor: taskLink } : {}) })).delivered;
       }
 
       // And the news the owner is waiting for: work they gave has finished.

@@ -720,7 +720,11 @@ export const RETRY_BASE_MS = 30_000;
 export async function retryDigests(
   companyId: string,
   channels: readonly OwnerChannel[],
-  options: { maxAttempts?: number; baseDelayMs?: number; now?: Date } = {},
+  options: {
+    maxAttempts?: number; baseDelayMs?: number; now?: Date;
+    /** The owner's app's link to a task, for the digest's line about the weekly meeting. */
+    linkFor?: (taskId: string) => string | null;
+  } = {},
 ): Promise<{ delivered: number }> {
   const maxAttempts = options.maxAttempts ?? 3;
   const baseDelayMs = options.baseDelayMs ?? RETRY_BASE_MS;
@@ -757,7 +761,7 @@ export async function retryDigests(
       await channel.deliverDigest({
         companyId,
         day: row.digest_day,
-        text: redactor.redact(renderDailyDigest(digest, row.language, await moneyDisplay())),
+        text: redactor.redact(renderDailyDigest(digest, row.language, await moneyDisplay(), options.linkFor ?? null)),
       });
       await withTenant(companyId, async (tx) => {
         await tx.query(

@@ -207,7 +207,7 @@ test('the chart names a seat with no accountabilities and an accountability two 
   await setAccountabilities(fixture, sales, ['New customers each week']);
   await setAccountabilities(fixture, support, ['Customers answered within a day']);
   const tidy = await structureOf(fixture.companyId);
-  assert.deepEqual(tidy.seatChecks, { withoutAccountabilities: [], sharedAccountabilities: [] });
+  assert.deepEqual(tidy.seatChecks, { withoutAccountabilities: [], sharedAccountabilities: [], linesWithoutSeat: [], keyResultsWithoutSeat: [] });
 });
 
 test('a seat\'s accountabilities travel with the company it is exported from', async () => {

@@ -476,4 +476,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Setunggal tugas {role} mandheg saderengipun rampung.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Cara ngrampungaken: padosi oyot prekawis kanthi takon kenging punapa ing saben wangsulan lan nyocogaken kaliyan cathetan, putusaken sepisan, lajeng damel tumindak ingkang nindakaken putusan punika, saben setunggal kaliyan setunggal kursi.',
+  'Off track: {name}':
+    'Mlenceng saking rencana: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} angsal {value} ing minggu {week}, saking target mingguan {target}.',
+  '{role} answers for it.':
+    '{role} ingkang tanggel jawab.',
+  'No seat answers for it.':
+    'Boten wonten kalenggahan ingkang tanggel jawab.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform maos saking scorecard mingguan saderengipun rapat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Boten rampung ing kalih rapat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tumindak "{title}", tempo {due}, boten rampung ing rapat operasi mingguan {previous}, lan ugi boten ing rapat punika.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform maos saking daftar tumindak saderengipun rapat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Rapat operasi mingguan sampun dipunwontenaken ({week}): {where}',
+  'see its task under Work':
+    'pirsani tugasipun ing Pakaryan',
 };

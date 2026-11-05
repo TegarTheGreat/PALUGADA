@@ -79,10 +79,28 @@ export interface SeatChecks {
    * with two seats answering for it is one nobody answers for.
    */
   sharedAccountabilities: Array<{ accountability: string; roleIds: string[] }>;
+  /** Live lines on the weekly scorecard, by measure id, that no seat answers for (F18.3: "angka tanpa pemilik"). */
+  linesWithoutSeat: string[];
+  /**
+   * Open key results, by goal id, that no seat answers for. A quarterly
+   * priority always has one, since the database refuses it without (0136);
+   * these are the key results with no period, or a longer one, that the
+   * owner has not yet made a priority of anyone's.
+   */
+  keyResultsWithoutSeat: string[];
 }
 
-/** The checks over every seat in the company, in the order the seats are given. */
-export function seatChecksOf(seats: ReadonlyArray<{ id: string; accountabilities: readonly string[] }>): SeatChecks {
+/** What the numbers check reads: the live measures and the goals, as the structure lists them. */
+export interface NumbersToCheck {
+  lines: ReadonlyArray<{ id: string; reviewEvery: string | null; ownerRoleId: string | null; retiredAt: Date | null; goalOpen: boolean }>;
+  goals: ReadonlyArray<{ id: string; kind: string; status: string; ownerRoleId: string | null }>;
+}
+
+/** The checks over every seat in the company, in the order the seats are given, and over the numbers they answer for. */
+export function seatChecksOf(
+  seats: ReadonlyArray<{ id: string; accountabilities: readonly string[] }>,
+  numbers: NumbersToCheck = { lines: [], goals: [] },
+): SeatChecks {
   const claims = new Map<string, { accountability: string; roleIds: string[] }>();
   for (const seat of seats) {
     for (const accountability of seat.accountabilities) {
@@ -95,5 +113,11 @@ export function seatChecksOf(seats: ReadonlyArray<{ id: string; accountabilities
   return {
     withoutAccountabilities: seats.filter((seat) => seat.accountabilities.length === 0).map((seat) => seat.id),
     sharedAccountabilities: [...claims.values()].filter((claim) => claim.roleIds.length > 1),
+    linesWithoutSeat: numbers.lines
+      .filter((line) => line.reviewEvery === 'week' && line.retiredAt === null && line.goalOpen && line.ownerRoleId === null)
+      .map((line) => line.id),
+    keyResultsWithoutSeat: numbers.goals
+      .filter((goal) => goal.kind === 'key_result' && goal.status === 'active' && goal.ownerRoleId === null)
+      .map((goal) => goal.id),
   };
 }

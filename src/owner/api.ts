@@ -1620,6 +1620,45 @@ export class OwnerApi {
       },
 
       {
+        // When the CEO holds the weekly operating meeting, and whether it
+        // does (F18.6, 0140): a day of the week and an hour on the company's
+        // clock. Moving or stopping it only changes when the company reviews
+        // itself, never what anyone may do, so the session is enough. A
+        // field left out is kept.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/rhythm',
+        handle: async ({ params, body }) => {
+          const whole = (value: unknown, field: string, from: number, to: number, said: string): number | undefined => {
+            if (value === undefined) return undefined;
+            if (typeof value !== 'number' || !Number.isInteger(value) || value < from || value > to) {
+              throw new PalugadaError('contract.violation', `${field} is a whole number from ${said}; got ${JSON.stringify(value)}`, { field });
+            }
+            return value;
+          };
+          const weekday = whole(body.weekday, 'weekday', 0, 6, '0 (Sunday) to 6 (Saturday)');
+          const hour = whole(body.hour, 'hour', 0, 23, '0 to 23, on the company\'s clock');
+          if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+            throw new PalugadaError('contract.violation', `enabled is true or false; got ${JSON.stringify(body.enabled)}`, { field: 'enabled' });
+          }
+          if (weekday === undefined && hour === undefined && body.enabled === undefined) {
+            throw new PalugadaError('contract.violation', 'give weekday (0 to 6, Sunday 0), hour (0 to 23) or enabled (true or false)', {});
+          }
+          const { rows } = await withControlPlane((tx) => tx.query<{ weekday: number; hour: number; enabled: boolean }>(
+            `UPDATE companies
+                SET meeting_weekday = coalesce($2::smallint, meeting_weekday),
+                    meeting_hour = coalesce($3::smallint, meeting_hour),
+                    meeting_enabled = coalesce($4::boolean, meeting_enabled)
+              WHERE id = $1
+              RETURNING meeting_weekday AS weekday, meeting_hour AS hour, meeting_enabled AS enabled`,
+            [params.companyId, weekday ?? null, hour ?? null, body.enabled ?? null]));
+          if (!rows[0]) {
+            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          }
+          return rows[0];
+        },
+      },
+
+      {
         // The harder half of F10.7, and a separate button on purpose.
         //
         // `stop-all` raises the flag: the engine reads it at every step, so
@@ -7859,16 +7898,21 @@ async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
   guardian: boolean;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
+  rhythm: { weekday: number; hour: number; enabled: boolean };
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
       guardian: boolean;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
+      rhythm: { weekday: number; hour: number; enabled: boolean };
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
       `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
               company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage, company.guardian,
+              -- When its CEO holds the weekly operating meeting (0140).
+              jsonb_build_object('weekday', company.meeting_weekday, 'hour', company.meeting_hour,
+                                 'enabled', company.meeting_enabled) AS rhythm,
               CASE WHEN ceo.id IS NULL THEN NULL
                    ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo
          FROM companies company LEFT JOIN roles ceo ON ceo.company_id = company.id AND ceo.title = 'CEO'

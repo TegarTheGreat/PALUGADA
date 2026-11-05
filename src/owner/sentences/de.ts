@@ -478,4 +478,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Eine Aufgabe von {role} hielt an, bevor sie fertig war.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'So wird es gelöst: die Grundursache finden, indem man bei jeder Antwort nach dem Warum fragt und sie an den Aufzeichnungen prüft, einmal entscheiden und die To-dos anlegen, die die Entscheidung umsetzen, jedes mit einem Sitz.',
+  'Off track: {name}':
+    'Nicht auf Kurs: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} lag in der Woche ab {week} bei {value}, bei einem Wochenziel von {target}.',
+  '{role} answers for it.':
+    'Dafür ist {role} verantwortlich.',
+  'No seat answers for it.':
+    'Keine Stelle ist dafür verantwortlich.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Die Plattform hat es vor dem wöchentlichen Betriebsmeeting aus der Wochen-Scorecard gelesen.',
+  'Not done at two meetings: {title}':
+    'In zwei Meetings nicht erledigt: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Das To-do „{title}“, fällig am {due}, war weder beim wöchentlichen Betriebsmeeting vom {previous} noch bei diesem erledigt.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Die Plattform hat es vor dem wöchentlichen Betriebsmeeting aus den To-dos gelesen.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Wöchentliches Betriebsmeeting abgehalten ({week}): {where}',
+  'see its task under Work':
+    'die Aufgabe steht unter Arbeit',
 };

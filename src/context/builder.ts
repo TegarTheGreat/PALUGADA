@@ -17,7 +17,7 @@ import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor, takenUpOnHandedCard } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
-import { metricsIn, renderMetrics } from '../domain/metrics.ts';
+import { metricsIn, renderMetrics, scorecardOf, type WeekState } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
 import { earlierWrites, madeFiles } from '../engine/journal.ts';
 import { readPlan } from '../engine/plan.ts';
@@ -27,6 +27,7 @@ import { outsideContentIn } from '../engine/tasks.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { documentTitlesFor } from '../knowledge/documents.ts';
+import { dayIn, zoneOf } from '../records/collections.ts';
 import { FAILED_INSTRUCTION, NOT_DONE_INSTRUCTION, doneInstruction, roomForDone } from '../engine/done.ts';
 
 export interface ContextSection {
@@ -398,15 +399,16 @@ async function roleSections(
   const { rows } = await tx.query<{
     slug: string; system_prompt: string; done_criteria: string[] | null; output_schema: Record<string, unknown> | null;
     display_name: string | null; title: string | null; persona: RolePersona | null; company: string;
-    accountabilities: string[];
+    accountabilities: string[]; role_id: string; company_id: string;
   }>(
     `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company,
-            r.accountabilities
+            r.accountabilities, r.id AS role_id, t.company_id
        FROM tasks t JOIN roles r ON r.id = t.role_id JOIN companies c ON c.id = t.company_id WHERE t.id = $1`,
     [taskId],
   );
   const role = rows[0];
   if (!role) return { charter: [], contract: [] };
+  const seat = await yourSeat(tx, role.company_id, role.role_id);
   const done = (role.done_criteria ?? []).filter((criterion) => criterion.trim() !== '');
   // Who the role is, before what it does: the charter is then read as this
   // person's job, and the rule that a persona is not an identity travels with it.
@@ -424,6 +426,9 @@ async function roleSections(
       ...(role.accountabilities.length > 0
         ? ['', 'You are accountable for:', ...role.accountabilities.map((line) => `- ${line}`)]
         : []),
+      // And the seat's own numbers, priorities and to-dos (F18.3), beside
+      // what it answers for: what it is held to at the weekly meeting.
+      ...(seat.length > 0 ? ['', ...seat] : []),
       ...(done.length > 0 ? ['', 'Done means:', ...done.map((criterion) => `- ${criterion}`)] : []),
     ].join('\n'),
   };
@@ -455,6 +460,104 @@ async function roleSections(
         : ''),
   }];
   return { charter: [charter], contract };
+}
+
+/** The most of each the "Your seat" block names; past it, it says how many more. */
+const SEAT_LINES = 10;
+const SEAT_PRIORITIES = 7;
+const SEAT_TODOS = 10;
+
+const WEEK_SAID: Record<WeekState, string> = {
+  on_track: 'on track',
+  off_track: 'off track',
+  claimed: 'claimed, and not yet read from its source',
+  not_reported: 'not reported',
+};
+
+/**
+ * The "Your seat" block (F18.3): the seat's own lines on the weekly
+ * scorecard with where each stands this week, its quarterly priorities this
+ * quarter, and its open to-dos. A seat was told what it answers for and not
+ * the numbers it is held to, so a run could not tell its own line from
+ * another's until the weekly meeting said so. Empty for a seat with none of
+ * them, which is then told nothing. Bounded, because the role charter is
+ * never dropped to fit the pack.
+ */
+async function yourSeat(tx: TenantClient, companyId: string, roleId: string): Promise<string[]> {
+  const out: string[] = [];
+  const more = (shown: number, total: number) => (total > shown ? [`- and ${total - shown} more`] : []);
+
+  // The scorecard reads thirteen weeks of readings: only for a seat that owns a line.
+  const { rowCount: owns } = await tx.query(
+    `SELECT 1 FROM goal_metrics WHERE company_id = $1 AND owner_role_id = $2 AND review_every = 'week' AND retired_at IS NULL LIMIT 1`,
+    [companyId, roleId]);
+  if (owns) {
+    const lines = (await scorecardOf(tx, companyId, new Date())).lines.filter((line) => line.ownerRole?.id === roleId);
+    if (lines.length > 0) {
+      out.push('Your lines on the weekly scorecard, this week:');
+      for (const line of lines.slice(0, SEAT_LINES)) {
+        const now = line.weeks.at(-1)!;
+        const last = line.weeks.at(-2);
+        const standing = now.value === null
+          ? `not reported this week; the weekly goal is ${line.target}`
+          : `${now.value} this week against a weekly goal of ${line.target}, ${WEEK_SAID[now.state]}`;
+        out.push(`- ${withoutTemplateTokens(line.name)} [${line.slug}]: ${standing}${last ? `; last week ${WEEK_SAID[last.state]}` : ''}.`);
+      }
+      out.push(...more(Math.min(lines.length, SEAT_LINES), lines.length));
+    }
+  }
+
+  // A quarterly priority whose quarter today is in, where the company is: a
+  // zone this platform cannot read counts in UTC rather than failing the run.
+  const today = dayIn(await zoneOf(tx, companyId), new Date());
+  const { rows: priorities } = await tx.query<{
+    slug: string; statement: string; starts_on: string; due_on: string; commitment: string | null; total: number;
+  }>(
+    `SELECT g.slug, g.statement, to_char(g.starts_on, 'YYYY-MM-DD') AS starts_on, to_char(g.due_on, 'YYYY-MM-DD') AS due_on,
+            g.commitment, count(*) OVER ()::int AS total
+       FROM goals g
+      WHERE g.company_id = $1 AND g.owner_role_id = $2 AND g.status = 'active' AND g.kind = 'key_result'
+        AND g.starts_on IS NOT NULL AND g.due_on - g.starts_on <= 92
+        AND g.starts_on <= $4::date AND g.due_on >= $4::date
+      ORDER BY g.due_on, g.created_at, g.id
+      LIMIT $3`,
+    [companyId, roleId, SEAT_PRIORITIES, today]);
+  if (priorities.length > 0) {
+    out.push('Your quarterly priorities:');
+    for (const goal of priorities) {
+      const statement = wellFormed(withoutTemplateTokens(goal.statement).replace(/\s+/g, ' ').trim().slice(0, 200));
+      out.push(`- ${statement} [${goal.slug}], ${goal.starts_on} to ${goal.due_on}${goal.commitment ? `, ${goal.commitment}` : ''}`);
+    }
+    out.push(...more(priorities.length, priorities[0]!.total));
+  }
+
+  // Its open to-dos: work given to the seat by name. A title written by work
+  // that had read something from outside is not quoted here, even wrapped:
+  // this is the role charter, the most trusted part of the pack, and a
+  // section the engine does not mark as outside. Quoted, a stranger's words
+  // would reach every run of the seat while none of them counted as having
+  // read outside content (F8.9), so their tier 2 calls would not ask the
+  // owner. The seat is told it has one and which, and reads it with
+  // ticket.list, whose listing taints the run that reads it.
+  const { rows: todos } = await tx.query<{ id: string; title: string; due_on: string | null; outside: boolean; total: number }>(
+    `SELECT id, title, to_char(due_on, 'YYYY-MM-DD') AS due_on, outside, count(*) OVER ()::int AS total
+       FROM tickets
+      WHERE company_id = $1 AND assignee_role_id = $2 AND kind = 'work' AND status IN ('open', 'in_progress')
+      ORDER BY due_on NULLS LAST, created_at, id
+      LIMIT $3`,
+    [companyId, roleId, SEAT_TODOS]);
+  if (todos.length > 0) {
+    out.push('Your open to-dos:');
+    for (const todo of todos) {
+      const title = todo.title.replace(/\s+/g, ' ').trim().slice(0, 200);
+      const said = todo.outside
+        ? `A to-do filed by work that had read outside content, ticket ${todo.id}; its words are not shown here, and ticket.list with its id reads them as outside content`
+        : withoutTemplateTokens(title);
+      out.push(`- ${said}${todo.due_on ? `, due ${todo.due_on}` : ''}`);
+    }
+    out.push(...more(todos.length, todos[0]!.total));
+  }
+  return out.length > 0 ? ['Your seat:', ...out] : [];
 }
 
 /** More roles than this are counted rather than listed: the list is for choosing, not an org chart. */

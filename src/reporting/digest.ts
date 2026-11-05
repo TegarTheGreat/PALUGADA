@@ -36,6 +36,15 @@ export interface DailyDigest {
    * src/owner/digest-said.ts); it was English text with the halt's code in it.
    */
   stopped: Array<{ reason: string; count: number }>;
+  /**
+   * The last weekly operating meeting made by the end of the day (F18.6),
+   * whose task is the meeting's record. `heldThisDay` when it completed on
+   * the digest's day: the digest that follows a meeting points to it once,
+   * and the console shows the last one whenever it is asked. A meeting
+   * cancelled, failed or halted also has a finish time, and was not held;
+   * one halted is counted with the day's other halts.
+   */
+  lastMeeting: { taskId: string; week: string; status: string; finishedAt: string | null; heldThisDay: boolean } | null;
 }
 
 /** Kept small on purpose: F10.6's one-screen limit is the requirement. */
@@ -92,6 +101,18 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
       [day, MAX_HIGHLIGHTS],
     );
 
+    // The key sorts as the weeks do, so the last meeting is the greatest one.
+    const { rows: meetings } = await tx.query<{ id: string; key: string; status: string; finished_at: Date | null; held_this_day: boolean }>(
+      `SELECT id, idempotency_key AS key, status, finished_at,
+              coalesce(status = 'completed' AND finished_at >= date_trunc('day', $1::timestamptz)
+                       AND finished_at < date_trunc('day', $1::timestamptz) + interval '1 day', false) AS held_this_day
+         FROM tasks
+        WHERE idempotency_key LIKE 'meeting:%' AND created_at < date_trunc('day', $1::timestamptz) + interval '1 day'
+        ORDER BY idempotency_key DESC LIMIT 1`,
+      [day],
+    );
+    const meeting = meetings[0];
+
     return {
       companyId,
       day: day.toISOString().slice(0, 10),
@@ -103,6 +124,12 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
       openIncidents: Number(row.open_incidents),
       orphanedRuns: Number(row.orphaned_runs),
       stopped: haltRows.map((halt) => ({ reason: halt.halt_reason, count: Number(halt.count) })),
+      lastMeeting: meeting
+        ? {
+          taskId: meeting.id, week: meeting.key.slice('meeting:'.length), status: meeting.status,
+          finishedAt: meeting.finished_at?.toISOString() ?? null, heldThisDay: meeting.held_this_day,
+        }
+        : null,
     };
   });
 }

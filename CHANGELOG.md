@@ -845,6 +845,25 @@ The first version. What it holds, in the order an owner meets it.
 - A decision the CEO reaches on an issue of the whole company is kept for the CEO's own division, not for every
   division: only what you decide is kept company-wide (STATUS 2.193).
 
+- **The weekly operating meeting** (F18.6). Once a week, on the day and at the hour you choose under Settings,
+  Company, in the company's time zone, the CEO holds it: the platform reads the records and hands it the
+  scorecard line by line, the quarterly priorities on or off pace, the week's headlines as counts, the to-dos done
+  and not done with the week's completion rate, the issues ranked with any older than eight weeks flagged, and the
+  operating kit's weekly business review. No model writes a figure. The CEO solves the top three issues with a root
+  cause, a decision and to-dos, takes the decisions that can be undone, brings you the ones that cannot, and ends
+  the record with what you need to know, in your language. A week with nothing on its agenda (an issue on the
+  long-term list or a to-do due later is not), a company winding down, a meeting you turned off and a deployment
+  with no model make no task and cost nothing. The CEO you appointed last is the one who holds it (STATUS 2.194).
+- A line off track last week, and a to-do not done at two meetings in a row, are on the issues list before the
+  meeting starts, each once while it is open (F18.4, F18.5; STATUS 2.194).
+- Every run of a seat is told its own lines on the scorecard and where each stands this week, its quarterly
+  priorities and its open to-dos, beside what it is accountable for; a to-do filed by work that had read outside
+  content is named there without its words. The chart's **Seats to look at** also names a line on the scorecard or
+  a key result no seat answers for (F18.3; STATUS 2.194).
+- The company's card on Home and its meeting settings link to the last meeting's task, which is its record, and
+  the daily digest the day after a meeting was held points to it, and says nothing of one cancelled or stopped.
+  Archives carry when the meeting is held (STATUS 2.194).
+
 - **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
   first of each month the strategist reviews the last whole month from the
   company's own books -- profit beside the month before, cash at its start

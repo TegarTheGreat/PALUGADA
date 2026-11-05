@@ -482,4 +482,24 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Một nhiệm vụ của {role} đã dừng trước khi xong.',
   'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
     'Để giải quyết: tìm nguyên nhân gốc bằng cách hỏi tại sao với mỗi câu trả lời và đối chiếu với hồ sơ, quyết định một lần, rồi tạo các việc cần làm để thực hiện quyết định, mỗi việc cho một vị trí.',
+  'Off track: {name}':
+    'Chệch hướng: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} đạt {value} trong tuần {week}, so với mục tiêu tuần là {target}.',
+  '{role} answers for it.':
+    '{role} chịu trách nhiệm về việc này.',
+  'No seat answers for it.':
+    'Không có vị trí nào chịu trách nhiệm về việc này.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Nền tảng đọc điều này từ bảng điểm hằng tuần trước cuộc họp vận hành hằng tuần.',
+  'Not done at two meetings: {title}':
+    'Chưa xong sau hai cuộc họp: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Việc cần làm "{title}", hạn {due}, chưa xong ở cuộc họp vận hành hằng tuần ngày {previous}, và cũng chưa xong ở cuộc họp này.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Nền tảng đọc điều này từ danh sách việc cần làm trước cuộc họp vận hành hằng tuần.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Đã họp vận hành hằng tuần ({week}): {where}',
+  'see its task under Work':
+    'xem nhiệm vụ của nó trong Công việc',
 };

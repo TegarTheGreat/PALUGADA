@@ -110,7 +110,7 @@ export interface StructureView {
     /** What the seat answers for (F18.3, 0138), at most five. */
     accountabilities: string[];
   }>;
-  /** What the chart warns of (F18.3): a seat with no accountabilities, and one two seats claim. */
+  /** What the chart warns of (F18.3): a seat with no accountabilities, one two seats claim, and a number no seat answers for. */
   seatChecks: SeatChecks;
 }
 
@@ -280,7 +280,12 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         persona: role.persona,
         accountabilities: role.accountabilities,
       })),
-      seatChecks: seatChecksOf(roles.rows),
+      seatChecks: seatChecksOf(roles.rows, {
+        lines: metrics.map((metric) => ({
+          ...metric, goalOpen: ladder.some((goal) => goal.id === metric.goalId && goal.status === 'active'),
+        })),
+        goals: ladder,
+      }),
     };
   });
 }

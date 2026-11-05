@@ -270,7 +270,12 @@ test('the CEO the owner appointed since holds the next meeting', async () => {
   await inJakarta(fixture);
   await weeklyLine(fixture, 'calls', 'Sales calls made', 50);
   const coo = await addRole(fixture, 'coo');
-  assert.ok(await ensureWeeklyMeeting(fixture.companyId, mondayInJakarta(1, 9)));
+  const first = await ensureWeeklyMeeting(fixture.companyId, mondayInJakarta(1, 9));
+  assert.ok(first);
+  // One that had taken a step stays with the role that started it.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, input_hash, idempotency_key)
+     VALUES ($1, 0, $2, 'llm', 'llm', 'x', 'x')`, [first, fixture.companyId]));
   await appointCeo(fixture.companyId, coo, { ownerApproved: true });
   assert.ok(await ensureWeeklyMeeting(fixture.companyId, mondayInJakarta(2, 9)));
   assert.deepEqual((await meetings(fixture)).map((one) => one.role_id), [fixture.roleId, coo]);

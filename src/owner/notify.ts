@@ -1062,6 +1062,8 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'ticket_closed': return say(language, 'Withdrawn: the ticket it was about was closed.');
     case 'task_rerun': return say(language, 'Withdrawn: the task it was about was run again.');
     case 'day_ended': return say(language, 'Withdrawn: the day it was about has ended.');
+    case 'period_graded': return say(language, 'Withdrawn: the period it was about has ended and been graded.');
+    case 'goal_closed': return say(language, 'Withdrawn: the goal it was about was closed.');
     case 'spend_paused':
       return say(language, 'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.');
     case 'period_started': return say(language, 'Withdrawn: the month it was about has ended.');

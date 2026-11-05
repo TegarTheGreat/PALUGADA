@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस कार्य के बारे में था, उसे फिर से चलाया गया।',
   'Withdrawn: the day it was about has ended.':
     'वापस लिया गया: जिस दिन के बारे में था, वह बीत गया।',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'वापस लिया गया: जिस अवधि के बारे में था, वह बीत गई और उसका मूल्यांकन हो गया।',
+  'Withdrawn: the goal it was about was closed.':
+    'वापस लिया गया: जिस लक्ष्य के बारे में था, वह बंद कर दिया गया।',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'वापस लिया गया: महीने की सीमा पूरी हो गई, और इसकी जगह वह कार्ड है जो बताता है कि कंपनी रोक दी गई है।',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

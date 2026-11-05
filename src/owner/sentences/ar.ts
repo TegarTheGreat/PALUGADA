@@ -403,6 +403,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سُحب: أُعيد تشغيل المهمة التي كان يتعلق بها.',
   'Withdrawn: the day it was about has ended.':
     'سُحب: انتهى اليوم الذي كان يتعلق به.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'سُحب: انتهت الفترة التي كان يتعلق بها وقُيّمت.',
+  'Withdrawn: the goal it was about was closed.':
+    'سُحب: أُغلق الهدف الذي كان يتعلق به.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'سُحب: بلغ الإنفاق سقف الشهر، وتحل محله البطاقة التي تقول إن الشركة متوقفة مؤقتًا.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

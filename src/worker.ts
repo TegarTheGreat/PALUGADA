@@ -648,19 +648,22 @@ export class Worker {
         if (await ensureGoalReview(company, now)) report.reviews += 1;
       });
 
+      // The periods that ended, graded (F18.8): arithmetic on the rows, so on
+      // every deployment, model or not, and one read when none ended. Before
+      // the meeting, which takes up the postmortem a committed miss files --
+      // a meeting held at midnight after a priority's last day would
+      // otherwise be made without it and keep its key all week -- and before
+      // the off-pace look and the planning, which read the grades.
+      await this.#stage(report, 'grades', async () => {
+        report.grades += await ensurePeriodClose(company, now);
+      });
+
       // The weekly operating meeting, on the owner's day and hour in the
       // company's time zone: one read of the company on any other hour, and
       // no task in a week with nothing to review. After the goal reviews, so
       // a look the CEO was given this tick is on the record the meeting reads.
       if (this.#options.holdsMeetings) await this.#stage(report, 'meetings', async () => {
         if (await ensureWeeklyMeeting(company, now)) report.meetings += 1;
-      });
-
-      // The periods that ended, graded (F18.8): arithmetic on the rows, so on
-      // every deployment, model or not, and one read when none ended. Before
-      // the off-pace look and the planning, which read the grades.
-      await this.#stage(report, 'grades', async () => {
-        report.grades += await ensurePeriodClose(company, now);
       });
 
       // A committed priority behind its quarter, put to the owner once a

@@ -405,6 +405,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Retirado: a tarefa a que se referia foi executada de novo.',
   'Withdrawn: the day it was about has ended.':
     'Retirado: o dia a que se referia terminou.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Retirado: o período a que se referia terminou e já foi avaliado.',
+  'Withdrawn: the goal it was about was closed.':
+    'Retirado: a meta a que se referia foi encerrada.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Retirado: o teto do mês foi atingido, e o cartão que diz que a empresa está pausada toma o seu lugar.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

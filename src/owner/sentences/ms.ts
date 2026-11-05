@@ -405,6 +405,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tugasan yang berkaitan telah dijalankan semula.',
   'Withdrawn: the day it was about has ended.':
     'Ditarik: hari yang berkaitan telah berakhir.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: tempoh yang berkaitan telah berakhir dan telah dinilai.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: matlamat yang berkaitan telah ditutup.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ditarik: had bulan ini telah dicapai, dan kad yang menyatakan syarikat dijeda menggantikannya.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

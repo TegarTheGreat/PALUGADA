@@ -409,6 +409,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ถอนออกแล้ว: งานที่เกี่ยวข้องถูกเรียกใช้อีกครั้งแล้ว',
   'Withdrawn: the day it was about has ended.':
     'ถอนออกแล้ว: วันที่เกี่ยวข้องผ่านไปแล้ว',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'ถอนออกแล้ว: ช่วงเวลาที่เกี่ยวข้องสิ้นสุดและได้รับการประเมินแล้ว',
+  'Withdrawn: the goal it was about was closed.':
+    'ถอนออกแล้ว: เป้าหมายที่เกี่ยวข้องถูกปิดแล้ว',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'ถอนออกแล้ว: ถึงเพดานของเดือนแล้ว และการ์ดที่แจ้งว่าบริษัทหยุดชั่วคราวเข้ามาแทนที่',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

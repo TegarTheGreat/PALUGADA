@@ -403,6 +403,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Binawi: pinatakbo ulit ang gawaing tinutukoy nito.',
   'Withdrawn: the day it was about has ended.':
     'Binawi: tapos na ang araw na tinutukoy nito.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Binawi: tapos na at namarkahan na ang panahong tinutukoy nito.',
+  'Withdrawn: the goal it was about was closed.':
+    'Binawi: isinara ang layuning tinutukoy nito.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Binawi: naabot na ang limitasyon ng buwan, at ang card na nagsasabing naka-pause ang kumpanya ang pumalit dito.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

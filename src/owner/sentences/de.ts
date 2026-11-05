@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Zurückgezogen: Die Aufgabe, um die es ging, wurde erneut ausgeführt.',
   'Withdrawn: the day it was about has ended.':
     'Zurückgezogen: Der Tag, um den es ging, ist vorbei.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Zurückgezogen: Der Zeitraum, um den es ging, ist vorbei und bewertet.',
+  'Withdrawn: the goal it was about was closed.':
+    'Zurückgezogen: Das Ziel, um das es ging, wurde geschlossen.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Zurückgezogen: Die Obergrenze des Monats wurde erreicht, und an ihre Stelle tritt die Karte, die sagt, dass das Unternehmen pausiert ist.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

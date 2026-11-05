@@ -112,6 +112,8 @@ export interface StructureView {
   }>;
   /** What the chart warns of (F18.3): a seat with no accountabilities, and one two seats claim. */
   seatChecks: SeatChecks;
+  /** The measure the owner chose as the company's headline (0142); null while the portfolio infers it. */
+  headlineMetricId: string | null;
 }
 
 /** The company's shape: goal ladder, divisions with their grants, roles. */
@@ -186,6 +188,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     );
 
     const metrics = await metricsIn(tx);
+    const headline = await tx.query<{ headline_metric_id: string | null }>(
+      'SELECT headline_metric_id FROM companies WHERE id = $1', [companyId]);
 
     // Rolled up the ladder: a goal counts its own tasks and every goal's under it.
     const own = new Map(goalWork.rows.map((row) => [row.goal_id, row]));
@@ -281,6 +285,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         accountabilities: role.accountabilities,
       })),
       seatChecks: seatChecksOf(roles.rows),
+      headlineMetricId: headline.rows[0]?.headline_metric_id ?? null,
     };
   });
 }

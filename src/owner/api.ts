@@ -100,7 +100,7 @@ import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.t
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { ownerSaidAlready, remember, retract, supersede } from '../memory/store.ts';
 import {
-  changeMetric, defineMetric, headlines, recordObservation, scorecardOf, type Headline, type MetricChange, type MetricUnit,
+  changeMetric, chooseHeadline, defineMetric, headlines, recordObservation, scorecardOf, type FunnelStep, type Headline, type MetricChange, type MetricUnit,
 } from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
@@ -4488,6 +4488,28 @@ export class OwnerApi {
       },
 
       {
+        // The number the company is judged by (0142, F18.13): the portfolio
+        // shows it and every run is told it. No factor: choosing it loosens
+        // nothing, and the measure it names is already the owner's. A
+        // measure with no pair is accepted, and the console warns of it.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/headline',
+        handle: async ({ params, body }) => {
+          if (!('metricId' in body)) {
+            throw new PalugadaError('contract.violation',
+              'give metricId: the id of the measure the company is judged by, or null to let the portfolio infer it', { field: 'metricId' });
+          }
+          if (body.metricId !== null && typeof body.metricId !== 'string') {
+            throw new PalugadaError('contract.violation',
+              "metricId must be the id of one of the company's measures, or null to let the portfolio infer the headline", { field: 'metricId' });
+          }
+          await chooseHeadline(params.companyId!, body.metricId === null || body.metricId === '' ? null : body.metricId.trim());
+          const measured = await withControlPlane((tx) => headlines(tx));
+          return { headline: measured.get(params.companyId!) ?? null };
+        },
+      },
+
+      {
         // Putting a measure right, or retiring it (0069). A target is what
         // every run on the goal aims at, so moving it -- either way -- takes
         // the owner's device, like changing the goal it measures.
@@ -7679,11 +7701,12 @@ function pick(body: Record<string, unknown>, fields: readonly string[]): Record<
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */
 /**
  * What a measure's body says about the weekly scorecard (0137): how often it
- * is reviewed, the seat that owns it, and the measure it is watched with. A
+ * is reviewed, the seat that owns it, and the measure it is watched with;
+ * and the funnel step it counts (0142), which the scorecard groups by. A
  * field left out is left as it is; null clears it. The domain checks each.
  */
-function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith'> {
-  const fields: Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith'> = {};
+function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith' | 'funnelStep'> {
+  const fields: Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith' | 'funnelStep'> = {};
   const idOrNull = (value: unknown, field: string): string | null => {
     if (value === null || value === '') return null;
     if (typeof value !== 'string') {
@@ -7694,6 +7717,10 @@ function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'rev
   if (body.reviewEvery !== undefined) fields.reviewEvery = (body.reviewEvery === '' ? null : body.reviewEvery) as 'week' | null;
   if (body.ownerRoleId !== undefined) fields.ownerRoleId = idOrNull(body.ownerRoleId, 'ownerRoleId');
   if (body.pairedWith !== undefined) fields.pairedWith = idOrNull(body.pairedWith, 'pairedWith');
+  // The funnel step it counts (0142); the domain names the five it accepts.
+  if (body.funnelStep !== undefined) {
+    fields.funnelStep = (body.funnelStep === '' ? null : body.funnelStep) as FunnelStep | null;
+  }
   return fields;
 }
 

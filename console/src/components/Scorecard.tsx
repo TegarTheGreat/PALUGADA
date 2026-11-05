@@ -8,10 +8,15 @@
  * latest value. A pair is drawn as two rows side by side, or, when the pair is
  * not itself a weekly line, named on the row: the point of a pair is that
  * neither is read alone.
+ *
+ * Once a line names its funnel step (0142), the lines are grouped by step,
+ * from acquisition to revenue, as the server orders them: the owner reads
+ * the funnel from the top and sees where it leaks. A pair across two steps
+ * stays together, under the step the funnel reaches first.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
-  Alert, Anchor, Box, Button, Group, ScrollArea, Table, Text, Tooltip,
+  Alert, Anchor, Badge, Box, Button, Group, ScrollArea, Table, Text, Tooltip,
 } from '@mantine/core';
 import { IconLink, IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
@@ -20,7 +25,7 @@ import { locale, N, t } from '../i18n.ts';
 import { roleLabel } from '../format.ts';
 import type { Metric, Scorecard as ScorecardView, Structure, WeekState } from '../types.ts';
 import { LoadFailed, Loading, Section } from './ui.tsx';
-import { AddMetric, ChangeMetric, RecordValue, metricValue } from './Metrics.tsx';
+import { AddMetric, ChangeMetric, RecordValue, funnelStepName, metricValue } from './Metrics.tsx';
 
 const STATES: Record<WeekState, { label: string; background: string; border: string }> = {
   on_track: { label: N('On track'), background: 'var(--mantine-color-teal-6)', border: 'var(--mantine-color-teal-6)' },
@@ -81,7 +86,7 @@ export function Scorecard({ companyId, structure, changed, compact, more }: {
   if (compact && card.lines.length === 0) return null;
 
   const metrics = structure?.goals.flatMap((goal) => goal.metrics) ?? [];
-  const team = structure ? { roles: structure.roles, metrics } : undefined;
+  const team = structure ? { roles: structure.roles, metrics, headlineMetricId: structure.headlineMetricId } : undefined;
   const goals = structure?.goals.filter((goal) => goal.status === 'active') ?? [];
   const kindOf = (goalId: string) => structure?.goals.find((goal) => goal.id === goalId)?.kind;
   const after = () => {
@@ -89,6 +94,9 @@ export function Scorecard({ companyId, structure, changed, compact, more }: {
     changed?.();
   };
   const shown = compact ? card.lines.slice(0, 8) : card.lines;
+  // Steps are drawn only once some line names one: a scorecard of numbers
+  // that are not funnel numbers reads as it did.
+  const grouped = shown.some((line) => line.group !== null);
 
   return (
     <Section
@@ -129,38 +137,54 @@ export function Scorecard({ companyId, structure, changed, compact, more }: {
                 // The second row of a pair drawn together is joined to the
                 // first rather than separated from it.
                 const joined = index > 0 && shown[index - 1]!.pairedWith === line.metricId && line.pairedWith === shown[index - 1]!.metricId;
+                const opensStep = grouped && (index === 0 || shown[index - 1]!.group !== line.group);
                 return (
-                  <Table.Tr key={line.metricId} style={joined ? { borderTop: 'none' } : undefined}>
-                    <Table.Td style={{ maxWidth: 260 }}>
-                      <Group gap={4} wrap="nowrap">
-                        {joined && <IconLink size={12} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />}
-                        <Text size="sm" fw={600} truncate>{line.name}</Text>
-                      </Group>
-                      <Text size="xs" c={line.ownerRole ? 'dimmed' : 'orange'} truncate>
-                        {line.ownerRole ? roleLabel(line.ownerRole) : t('No seat owns it')}
-                        {/* The first row of a pair drawn together says so; a pair
-                            that is not a weekly line is named where it is not seen. */}
-                        {line.pair && !joined
-                          ? ` · ${shown.some((one) => one.metricId === line.pairedWith)
-                            ? t('Watch both') : t('Watched with {name}', { name: line.pair.name })}`
-                          : ''}
-                      </Text>
-                      {metric && !compact && (
-                        <Group gap={4} mt={2}>
-                          <Button size="compact-xs" variant="subtle" onClick={() => setRecording(metric)}>{t('Record a value')}</Button>
-                          <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditing(metric)}>{t('Change')}</Button>
+                  <Fragment key={line.metricId}>
+                    {opensStep && (
+                      <Table.Tr>
+                        <Table.Td colSpan={2 + card.weeks.length} pt="sm">
+                          <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+                            {line.group ? funnelStepName(line.group) : t('Not a funnel number')}
+                          </Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    )}
+                    <Table.Tr style={joined ? { borderTop: 'none' } : undefined}>
+                      <Table.Td style={{ maxWidth: 260 }}>
+                        <Group gap={4} wrap="nowrap">
+                          {joined && <IconLink size={12} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />}
+                          <Text size="sm" fw={600} truncate>{line.name}</Text>
+                          {/* Drawn under its partner's step: its own is said. */}
+                          {line.funnelStep && line.funnelStep !== line.group && (
+                            <Badge size="xs" variant="outline" color="grape" style={{ flexShrink: 0 }}>{funnelStepName(line.funnelStep)}</Badge>
+                          )}
                         </Group>
-                      )}
-                    </Table.Td>
-                    <Table.Td ta="right" style={{ whiteSpace: 'nowrap' }}>
-                      <Text size="sm" className="tabular">{line.direction === 'up' ? '≥' : '≤'} {metricValue(line, line.target)}</Text>
-                    </Table.Td>
-                    {line.weeks.map((week) => (
-                      <Table.Td key={week.week} ta="center" px={2}>
-                        <Cell state={week.state} value={week.value} week={week.week} unit={line.unit} />
+                        <Text size="xs" c={line.ownerRole ? 'dimmed' : 'orange'} truncate>
+                          {line.ownerRole ? roleLabel(line.ownerRole) : t('No seat owns it')}
+                          {/* The first row of a pair drawn together says so; a pair
+                              that is not a weekly line is named where it is not seen. */}
+                          {line.pair && !joined
+                            ? ` · ${shown.some((one) => one.metricId === line.pairedWith)
+                              ? t('Watch both') : t('Watched with {name}', { name: line.pair.name })}`
+                            : ''}
+                        </Text>
+                        {metric && !compact && (
+                          <Group gap={4} mt={2}>
+                            <Button size="compact-xs" variant="subtle" onClick={() => setRecording(metric)}>{t('Record a value')}</Button>
+                            <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditing(metric)}>{t('Change')}</Button>
+                          </Group>
+                        )}
                       </Table.Td>
-                    ))}
-                  </Table.Tr>
+                      <Table.Td ta="right" style={{ whiteSpace: 'nowrap' }}>
+                        <Text size="sm" className="tabular">{line.direction === 'up' ? '≥' : '≤'} {metricValue(line, line.target)}</Text>
+                      </Table.Td>
+                      {line.weeks.map((week) => (
+                        <Table.Td key={week.week} ta="center" px={2}>
+                          <Cell state={week.state} value={week.value} week={week.week} unit={line.unit} />
+                        </Table.Td>
+                      ))}
+                    </Table.Tr>
+                  </Fragment>
                 );
               })}
             </Table.Tbody>

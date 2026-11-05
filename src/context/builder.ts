@@ -17,7 +17,7 @@ import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor, takenUpOnHandedCard } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
-import { metricsIn, renderMetrics } from '../domain/metrics.ts';
+import { metricsIn, renderHeadline, renderMetrics } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
 import { earlierWrites, madeFiles } from '../engine/journal.ts';
 import { readPlan } from '../engine/plan.ts';
@@ -39,6 +39,7 @@ export interface ContextSection {
     | 'today'
     | 'contract'
     | 'stage'
+    | 'headline'
     | 'project'
     | 'earlier_attempts'
     | 'documents'
@@ -614,6 +615,18 @@ async function stageSections(tx: TenantClient, companyId: string): Promise<Conte
 }
 
 /**
+ * The number the owner judges the company by (0142, F18.13), after the stage
+ * and kept whole like it: a run that knows only its own goal's measure can
+ * move that one at the cost of the number the company is for. Only the
+ * owner's choice is told; the portfolio's inferred headline is a guess about
+ * what matters, and a run told it would take the guess for the owner's word.
+ */
+async function headlineSections(tx: TenantClient, companyId: string): Promise<ContextSection[]> {
+  const body = await renderHeadline(tx, companyId);
+  return body ? [{ kind: 'headline', title: 'The company\'s headline metric', body }] : [];
+}
+
+/**
  * Which project the work belongs to, and what the project is for (0074).
  * Kept whole like the stage: a run that does not know it is working for the
  * wholesale side of the business writes for the wrong customer.
@@ -813,6 +826,7 @@ export async function buildContext(
       + 'a due date, a deadline -- is to be read against it: something recorded long ago may no longer be so.',
   });
   sections.push(...await stageSections(tx, options.companyId));
+  sections.push(...await headlineSections(tx, options.companyId));
   if (options.taskId) sections.push(...await projectSections(tx, options.taskId));
   sections.push(...role.contract);
   if (options.taskId) sections.push(...await teamSections(tx, options.taskId));

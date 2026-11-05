@@ -20,6 +20,11 @@
  * every week against a weekly goal, owned by one seat, and paired with the
  * measure that would suffer if it were pushed. `scorecardOf` reads those lines
  * as thirteen weeks in the company's time zone.
+ *
+ * A measure may name the funnel step it counts (0142, F18.13, after McClure),
+ * which the scorecard groups its lines by; and the owner may choose one
+ * measure as the company's headline, the number the portfolio judges it by
+ * and every run is told (`chooseHeadline`, `headlines`).
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
@@ -31,6 +36,13 @@ export type MetricUnit = (typeof METRIC_UNITS)[number];
 
 /** How often a measure is reviewed: `week` puts it on the weekly scorecard (0137). */
 export type ReviewEvery = 'week';
+
+/**
+ * The steps of McClure's funnel (0142), in the order a customer goes through
+ * them, which is the order the scorecard reads them in.
+ */
+export const FUNNEL_STEPS = ['acquisition', 'activation', 'retention', 'referral', 'revenue'] as const;
+export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 
 export interface MetricDefinition {
   goalId: string;
@@ -48,6 +60,8 @@ export interface MetricDefinition {
   ownerRoleId?: string | null;
   /** The measure this one is watched with; the pair is written both ways. */
   pairedWith?: string | null;
+  /** The step of the funnel it counts, if it counts one. */
+  funnelStep?: FunnelStep | null;
 }
 
 export interface MetricView {
@@ -74,6 +88,8 @@ export interface MetricView {
   ownerRoleSlug: string | null;
   /** The id of the measure it is watched with, which names this one back. */
   pairedWith: string | null;
+  /** The step of the funnel it counts (0142), or null. */
+  funnelStep: FunnelStep | null;
 }
 
 /** Baseline to target, clamped: a value past the target is done, not 140% done. */
@@ -94,6 +110,7 @@ export async function defineMetric(companyId: string, input: MetricDefinition): 
     throw new PalugadaError('contract.violation', 'the target must differ from the baseline, or there is nothing to measure', { field: 'target' });
   }
   assertReviewEvery(input.reviewEvery);
+  assertFunnelStep(input.funnelStep);
   return withControlPlane(async (tx) => {
     const goal = await tx.query('SELECT 1 FROM goals WHERE id = $1 AND company_id = $2', [input.goalId, companyId]);
     if (goal.rowCount !== 1) {
@@ -102,12 +119,12 @@ export async function defineMetric(companyId: string, input: MetricDefinition): 
     if (input.ownerRoleId) await assertRoleIn(tx, companyId, input.ownerRoleId);
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO goal_metrics (company_id, goal_id, slug, name, unit, direction, baseline, target, due_on, source_capability,
-                                 review_every, owner_role_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+                                 review_every, owner_role_id, funnel_step)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
       [
         companyId, input.goalId, input.slug, input.name, input.unit, input.direction ?? 'up',
         input.baseline ?? 0, input.target, input.dueOn ?? null, input.sourceCapability ?? null,
-        input.reviewEvery ?? null, input.ownerRoleId ?? null,
+        input.reviewEvery ?? null, input.ownerRoleId ?? null, input.funnelStep ?? null,
       ],
     );
     const id = rows[0]!.id;
@@ -136,6 +153,7 @@ export async function defineMetric(companyId: string, input: MetricDefinition): 
       payload: {
         metricId: id, goalId: input.goalId, slug: input.slug, target: input.target,
         reviewEvery: input.reviewEvery ?? null, ownerRoleId: input.ownerRoleId ?? null, pairedWith: input.pairedWith ?? null,
+        funnelStep: input.funnelStep ?? null,
       },
     });
     return id;
@@ -147,6 +165,14 @@ function assertReviewEvery(value: unknown): void {
     throw new PalugadaError('contract.violation',
       `reviewEvery must be week, or null for a measure aimed at a target by a date; ${JSON.stringify(value)} is neither`,
       { field: 'reviewEvery' });
+  }
+}
+
+function assertFunnelStep(value: unknown): void {
+  if (value !== undefined && value !== null && !(FUNNEL_STEPS as readonly unknown[]).includes(value)) {
+    throw new PalugadaError('contract.violation',
+      `funnelStep must be one of ${FUNNEL_STEPS.join(', ')}, or null for a measure that is not a funnel number; ${JSON.stringify(value)} is none of them`,
+      { field: 'funnelStep' });
   }
 }
 
@@ -204,6 +230,7 @@ export interface MetricChange {
   reviewEvery?: ReviewEvery | null;
   ownerRoleId?: string | null;
   pairedWith?: string | null;
+  funnelStep?: FunnelStep | null;
 }
 
 /**
@@ -227,6 +254,7 @@ export async function changeMetric(companyId: string, metricId: string, change: 
     throw new PalugadaError('contract.violation', 'a measure needs a name', { field: 'name' });
   }
   assertReviewEvery(change.reviewEvery);
+  assertFunnelStep(change.funnelStep);
   await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ unit: string; baseline: string; target: string; observed: number; retired_at: Date | null }>(
       `SELECT m.unit, m.baseline, m.target, m.retired_at,
@@ -258,7 +286,8 @@ export async function changeMetric(companyId: string, metricId: string, change: 
               retired_at = CASE WHEN $12::boolean IS NULL THEN retired_at
                                 WHEN $12 THEN coalesce(retired_at, now()) ELSE NULL END,
               review_every = CASE WHEN $13 THEN $14 ELSE review_every END,
-              owner_role_id = CASE WHEN $15 THEN $16::uuid ELSE owner_role_id END
+              owner_role_id = CASE WHEN $15 THEN $16::uuid ELSE owner_role_id END,
+              funnel_step = CASE WHEN $17 THEN $18 ELSE funnel_step END
         WHERE id = $1 AND company_id = $2`,
       [
         metricId, companyId, change.name?.trim() ?? null, change.unit ?? null, change.direction ?? null, baseline, target,
@@ -267,6 +296,7 @@ export async function changeMetric(companyId: string, metricId: string, change: 
         change.retired ?? null,
         change.reviewEvery !== undefined, change.reviewEvery ?? null,
         change.ownerRoleId !== undefined, change.ownerRoleId ?? null,
+        change.funnelStep !== undefined, change.funnelStep ?? null,
       ]);
     if (change.retired === true) {
       await pair(tx, companyId, metricId, null);
@@ -357,11 +387,12 @@ export async function metricsIn(tx: TenantClient): Promise<MetricView[]> {
     id: string; goal_id: string; slug: string; name: string; unit: MetricUnit; direction: 'up' | 'down';
     baseline: string; target: string; due_on: string | null; source_capability: string | null; retired_at: Date | null;
     review_every: ReviewEvery | null; owner_role_id: string | null; owner_role_slug: string | null; paired_metric_id: string | null;
+    funnel_step: FunnelStep | null;
     history: Array<{ value: string; observed_at: string; verified: boolean; recorded_by: string }> | null;
   }>(
     `SELECT m.id, m.goal_id, m.slug, m.name, m.unit, m.direction, m.baseline, m.target,
             to_char(m.due_on, 'YYYY-MM-DD') AS due_on, m.source_capability, m.retired_at,
-            m.review_every, m.owner_role_id, r.slug AS owner_role_slug, m.paired_metric_id,
+            m.review_every, m.owner_role_id, r.slug AS owner_role_slug, m.paired_metric_id, m.funnel_step,
             (SELECT jsonb_agg(h ORDER BY h.observed_at)
                FROM (SELECT value, observed_at, verified, recorded_by
                        FROM metric_observations o
@@ -397,6 +428,7 @@ export async function metricsIn(tx: TenantClient): Promise<MetricView[]> {
       ownerRoleId: row.owner_role_id,
       ownerRoleSlug: row.owner_role_slug,
       pairedWith: row.paired_metric_id,
+      funnelStep: row.funnel_step,
     };
   });
 }
@@ -441,6 +473,13 @@ export interface ScorecardLine {
   /** The measure it is watched with, which may be a target measure rather than a line. */
   pairedWith: string | null;
   pair: { id: string; slug: string; name: string } | null;
+  /** The step of the funnel it counts (0142), or null. */
+  funnelStep: FunnelStep | null;
+  /**
+   * The step it is read under: its own, or, for the second of a pair drawn
+   * together, its partner's, so a pair is never split between two steps.
+   */
+  group: FunnelStep | null;
   /** Oldest first, ending with this week. */
   weeks: ScorecardWeek[];
   /** This week's state. */
@@ -477,7 +516,10 @@ function mondayOf(day: string): string {
  * fixed offset, so a reading late on the Sunday a clock goes back stays in the
  * week that is ending.
  *
- * Pairs are put side by side, whatever order they were made in.
+ * The lines read the funnel from the top (0142): in the order of their
+ * funnel step, a line with none after them all, and in the order they were
+ * made within a step. Pairs are put side by side, whatever order they were
+ * made in, under the step of the one the funnel reaches first.
  */
 export async function scorecardOf(tx: TenantClient, companyId: string, now: Date): Promise<Scorecard> {
   const zones = await tx.query<{ timezone: string }>('SELECT timezone FROM companies WHERE id = $1', [companyId]);
@@ -497,11 +539,11 @@ export async function scorecardOf(tx: TenantClient, companyId: string, now: Date
     id: string; goal_id: string; slug: string; name: string; unit: MetricUnit; direction: 'up' | 'down'; target: string;
     source_capability: string | null; owner_role_id: string | null; owner_slug: string | null;
     owner_display_name: string | null; owner_title: string | null;
-    paired_metric_id: string | null; pair_slug: string | null; pair_name: string | null;
+    paired_metric_id: string | null; pair_slug: string | null; pair_name: string | null; funnel_step: FunnelStep | null;
   }>(
     `SELECT m.id, m.goal_id, m.slug, m.name, m.unit, m.direction, m.target, m.source_capability,
             m.owner_role_id, r.slug AS owner_slug, r.display_name AS owner_display_name, r.title AS owner_title,
-            m.paired_metric_id, p.slug AS pair_slug, p.name AS pair_name
+            m.paired_metric_id, p.slug AS pair_slug, p.name AS pair_name, m.funnel_step
        FROM goal_metrics m
        JOIN goals g ON g.company_id = m.company_id AND g.id = m.goal_id AND g.status = 'active'
        LEFT JOIN roles r ON r.company_id = m.company_id AND r.id = m.owner_role_id
@@ -553,22 +595,28 @@ export async function scorecardOf(tx: TenantClient, companyId: string, now: Date
         : null,
       pairedWith: row.paired_metric_id,
       pair: row.paired_metric_id ? { id: row.paired_metric_id, slug: row.pair_slug!, name: row.pair_name! } : null,
+      funnelStep: row.funnel_step,
+      group: row.funnel_step,
       weeks: shown,
       state: shown.at(-1)!.state,
     };
   });
 
-  // Each line followed by its partner, when the partner is a line too.
+  // The funnel from the top, a stable sort keeping the order they were made
+  // in within a step; then each line followed by its partner, when the
+  // partner is a line too.
+  const rank = (step: FunnelStep | null) => (step === null ? FUNNEL_STEPS.length : FUNNEL_STEPS.indexOf(step));
+  const byStep = [...lines].sort((one, other) => rank(one.funnelStep) - rank(other.funnelStep));
   const ordered: ScorecardLine[] = [];
   const placed = new Set<string>();
-  for (const line of lines) {
+  for (const line of byStep) {
     if (placed.has(line.metricId)) continue;
     placed.add(line.metricId);
     ordered.push(line);
     const partner = lines.find((one) => one.metricId === line.pairedWith);
     if (partner && !placed.has(partner.metricId)) {
       placed.add(partner.metricId);
-      ordered.push(partner);
+      ordered.push({ ...partner, group: line.group });
     }
   }
 
@@ -581,16 +629,22 @@ export async function scorecardOf(tx: TenantClient, companyId: string, now: Date
 
 /** The one number a company is judged by at a glance, for the portfolio. */
 export interface Headline {
+  metricId: string;
   name: string;
   unit: MetricUnit;
   target: number;
   value: number | null;
   verified: boolean | null;
   progress: number | null;
+  /** Whether the owner chose it (0142); false when it is inferred. */
+  chosen: boolean;
+  /** The measure it is watched with; null when nothing watches it, which the console warns of. */
+  pair: { id: string; name: string } | null;
 }
 
 /**
- * Each company's headline, on the control plane: the first metric set on its
+ * Each company's headline, on the control plane: the measure the owner chose
+ * (0142), and while they have chosen none, the first metric set on its
  * highest active goal -- a mission's before an objective's before a key
  * result's -- with where it stands. Only a measure aimed at a target counts.
  *
@@ -599,16 +653,24 @@ export interface Headline {
  * a company that is losing money is not ahead of two done in one that is
  * growing. A company with no metric has no headline, and says so, rather than
  * being ranked on effort.
+ *
+ * The owner's choice stands while its goal is closed: the number a company is
+ * judged by outlives the goal it was first set under, and only retiring the
+ * measure, putting it on the weekly scorecard or deleting it lets go of it
+ * (0142 does that in the database).
  */
 export async function headlines(tx: TenantClient): Promise<Map<string, Headline>> {
   const { rows } = await tx.query<{
-    company_id: string; name: string; unit: MetricUnit; baseline: string; target: string;
-    value: string | null; verified: boolean | null;
+    company_id: string; id: string; name: string; unit: MetricUnit; baseline: string; target: string;
+    value: string | null; verified: boolean | null; chosen: boolean; pair_id: string | null; pair_name: string | null;
   }>(
     `SELECT DISTINCT ON (m.company_id)
-            m.company_id, m.name, m.unit, m.baseline, m.target, o.value, o.verified
+            m.company_id, m.id, m.name, m.unit, m.baseline, m.target, o.value, o.verified,
+            coalesce(c.headline_metric_id = m.id, false) AS chosen, p.id AS pair_id, p.name AS pair_name
        FROM goal_metrics m
-       JOIN goals g ON g.company_id = m.company_id AND g.id = m.goal_id AND g.status = 'active'
+       JOIN companies c ON c.id = m.company_id
+       JOIN goals g ON g.company_id = m.company_id AND g.id = m.goal_id
+       LEFT JOIN goal_metrics p ON p.company_id = m.company_id AND p.id = m.paired_metric_id
        LEFT JOIN LATERAL (
               SELECT value, verified FROM metric_observations o
                WHERE o.company_id = m.company_id AND o.metric_id = m.id
@@ -617,7 +679,9 @@ export async function headlines(tx: TenantClient): Promise<Map<string, Headline>
       -- and a weekly line (0137) has a weekly goal, not a target to make
       -- progress toward, so the scorecard is where it is read.
       WHERE m.retired_at IS NULL AND m.review_every IS NULL
+        AND (g.status = 'active' OR m.id = c.headline_metric_id)
       ORDER BY m.company_id,
+               coalesce(c.headline_metric_id = m.id, false) DESC,
                CASE g.kind WHEN 'mission' THEN 0 WHEN 'objective' THEN 1 ELSE 2 END,
                m.created_at`,
   );
@@ -626,14 +690,88 @@ export async function headlines(tx: TenantClient): Promise<Map<string, Headline>
     const target = Number(row.target);
     const value = row.value === null ? null : Number(row.value);
     return [row.company_id, {
+      metricId: row.id,
       name: row.name,
       unit: row.unit,
       target,
       value,
       verified: row.verified,
       progress: value === null ? null : progressOf({ baseline, target }, value),
+      chosen: row.chosen,
+      pair: row.pair_id ? { id: row.pair_id, name: row.pair_name! } : null,
     }];
   }));
+}
+
+/**
+ * The owner chooses the company's headline (0142), or clears the choice
+ * (`metricId` null) so the portfolio infers it again. On the control plane:
+ * the application role cannot write companies.
+ *
+ * A measure with no pair is accepted. A headline that can be moved directly
+ * is easy to buy with something nobody watches, and the console says so
+ * where the owner chooses; but the owner may know the pair they mean to add,
+ * and refusing would only make them choose in two steps.
+ */
+export async function chooseHeadline(companyId: string, metricId: string | null): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rows: company } = await tx.query<{ headline_metric_id: string | null }>(
+      'SELECT headline_metric_id FROM companies WHERE id = $1 FOR UPDATE', [companyId]);
+    if (!company[0]) throw new PalugadaError('contract.violation', 'no such company', { companyId });
+    let slug: string | null = null;
+    if (metricId !== null) {
+      const { rows } = await tx.query<{ id: string; slug: string; retired: boolean; weekly: boolean }>(
+        `SELECT id, slug, retired_at IS NOT NULL AS retired, review_every IS NOT NULL AS weekly
+           FROM goal_metrics WHERE company_id = $1 AND id::text = $2`,
+        [companyId, metricId]);
+      const chosen = rows[0];
+      if (!chosen) {
+        throw new PalugadaError('contract.violation',
+          `no measure ${metricId} in this company; choose one of its measures by id, or null to let the portfolio infer the headline`,
+          { field: 'metricId' });
+      }
+      if (chosen.retired) {
+        throw new PalugadaError('contract.violation',
+          `the measure ${chosen.slug} is retired; choose a measure that is still measured`, { field: 'metricId' });
+      }
+      if (chosen.weekly) {
+        throw new PalugadaError('contract.violation',
+          `the measure ${chosen.slug} is a line on the weekly scorecard, whose goal is weekly; choose a measure aimed at a target, ` +
+          'or take this one off the scorecard first', { field: 'metricId' });
+      }
+      slug = chosen.slug;
+    }
+    const before = company[0].headline_metric_id;
+    if (before === metricId) return;
+    await tx.query('UPDATE companies SET headline_metric_id = $2 WHERE id = $1', [companyId, metricId]);
+    await appendEvent(tx, {
+      companyId,
+      type: 'company.headline_chosen',
+      actor: 'owner',
+      payload: { metricId, slug, before },
+    });
+  });
+}
+
+/**
+ * The headline the owner chose, as every run is told it (0142): the number,
+ * where it stands, and the measure it is watched with. Nothing when the owner
+ * chose none -- the inferred one is the portfolio's guess, not their word.
+ */
+export async function renderHeadline(tx: TenantClient, companyId: string): Promise<string | null> {
+  const { rows } = await tx.query<{ headline_metric_id: string | null }>(
+    'SELECT headline_metric_id FROM companies WHERE id = $1', [companyId]);
+  const id = rows[0]?.headline_metric_id;
+  if (!id) return null;
+  const live = (await metricsIn(tx)).filter((metric) => !metric.retiredAt);
+  const chosen = live.find((metric) => metric.id === id);
+  if (!chosen) return null;
+  const partner = chosen.pairedWith ? live.find((metric) => metric.id === chosen.pairedWith) : undefined;
+  return [
+    `The owner judges the company by ${metricLine(chosen).slice(2)}`,
+    ...(partner ? [`Watch it with ${metricLine(partner).slice(2)} Moving the headline at that one's cost is not progress.`] : []),
+    'It is the one number the company is judged by, above any one goal: when your work moves it, say so in your result, with the figure.',
+  ].join('\n');
 }
 
 /**
@@ -669,7 +807,8 @@ function metricLine(metric: MetricView): string {
   const aim = metric.reviewEvery === 'week'
     ? `reviewed every week against a weekly goal of ${metric.target} ${metric.unit}`
     : `from ${metric.baseline} to ${metric.target} ${metric.unit}${metric.dueOn ? ` by ${metric.dueOn}` : ''}`;
-  return `- ${metric.name} [${metric.slug}]: ${aim}, ${metric.direction === 'up' ? 'higher is better' : 'lower is better'}; ${standing}.` +
+  return `- ${metric.name} [${metric.slug}]: ${aim}, ${metric.direction === 'up' ? 'higher is better' : 'lower is better'}; ` +
+    `${metric.funnelStep ? `funnel step: ${metric.funnelStep}; ` : ''}${standing}.` +
     (metric.ownerRoleSlug ? ` The seat ${metric.ownerRoleSlug} answers for it.` : '') +
     (metric.sourceCapability ? ` Read it with ${metric.sourceCapability} and record it with metric.record.` : ' Record it with metric.record.');
 }

@@ -30,6 +30,7 @@ import { CHANNELS, channelName } from '../channels.ts';
 import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics, type MetricTeam } from '../components/Metrics.tsx';
 import { Scorecard } from '../components/Scorecard.tsx';
+import { HeadlineChooser } from '../components/Headline.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects, useWorkLanguage } from '../components/Projects.tsx';
@@ -96,8 +97,15 @@ export function Organization({ ctx, route }: PageProps) {
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
-          <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={view.reload}
-            team={{ roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics) }} />
+          <Stack gap="lg">
+            <HeadlineChooser companyId={companyId} company={ctx.company} structure={structure}
+              changed={() => { view.reload(); void ctx.refreshCompanies(); }} />
+            <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={view.reload}
+              team={{
+                roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics),
+                headlineMetricId: structure.headlineMetricId,
+              }} />
+          </Stack>
         </Tabs.Panel>
         <Tabs.Panel value="scorecard">
           <Scorecard companyId={companyId} structure={structure} changed={view.reload} />

@@ -12,7 +12,7 @@ import {
   Anchor, Avatar, Badge, Button, Grid, Group, Paper, Progress, SimpleGrid, Stack, Text, Title,
   Tooltip, UnstyledButton,
 } from '@mantine/core';
-import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus, IconUpload } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowRight, IconChecklist, IconLinkOff, IconPlus, IconUpload } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { go, type CompanyPage } from '../router.ts';
@@ -315,7 +315,11 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
   );
 }
 
-/** The number the company is judged by, and whether anyone checked it. */
+/**
+ * The number the company is judged by, and whether anyone checked it. One
+ * the owner chose (0142) is meant to be watched with a pair, and says so
+ * here, where it is judged, when nothing watches it.
+ */
 function Headline({ headline, onClick }: { headline: NonNullable<Company['headline']>; onClick: () => void }) {
   const percent = headline.progress === null ? 0 : headline.progress * 100;
   return (
@@ -323,6 +327,11 @@ function Headline({ headline, onClick }: { headline: NonNullable<Company['headli
       <Group justify="space-between" wrap="nowrap" gap="xs">
         <Text size="xs" c="dimmed" truncate>{headline.name}</Text>
         <Group gap={4} wrap="nowrap">
+          {headline.chosen && !headline.pair && (
+            <Tooltip label={t('Not paired')}>
+              <IconLinkOff size={12} color="var(--mantine-color-orange-6)" />
+            </Tooltip>
+          )}
           {headline.verified === false && (
             <Tooltip label={t('An agent reported this and did not read it from the source')}>
               <IconAlertTriangle size={12} color="var(--mantine-color-orange-6)" />

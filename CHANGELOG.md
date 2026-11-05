@@ -866,3 +866,17 @@ The first version. What it holds, in the order an owner meets it.
 - **How work came to carry outside content is said in your language**: "the
   week it was handed", "the month it was handed" and "the tickets it was
   given" reached the trace's warning in English (F8.9; STATUS 2.199).
+
+- **The headline metric is yours to choose.** On Team, Goals, choose the
+  one number the company is judged by. The portfolio shows it on the
+  company's card instead of the first measure on the highest goal, and
+  every run is told it, with its pair. A measure aimed at a target can be
+  chosen, but a weekly scorecard line or a retired measure cannot. Retiring
+  the measure, putting it on the scorecard or deleting it lets go of the
+  choice. A headline with nothing paired to it is accepted with a warning,
+  and its card says it is not paired (F18.13, STATUS 2.200).
+- **Funnel steps on measures.** A measure can name the step of the funnel
+  it counts: acquisition, activation, retention, referral or revenue. The
+  weekly scorecard groups its lines by step, from acquisition to revenue,
+  keeping a pair together, and runs are told the step with the measure.
+  Archives carry the steps and the headline (F18.13, STATUS 2.200).

@@ -260,7 +260,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'today', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
+  'language', 'today', 'stage', 'headline', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
 ]);
 
 // A place or a vendor's "not now" parks the task like the rest: handed to an

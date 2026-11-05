@@ -11,7 +11,8 @@
  *
  *  - **reached** its target (the latest checked reading is at or past it),
  *  - is **overdue** (its due date has passed in the owner's day and the target
- *    has not been reached), or
+ *    has not been reached) -- unless it is due with the period of its goal or
+ *    after it, since the period's close grades that miss (quarter.ts), or
  *  - is **stale** (it has a source and nothing was read from it in a week).
  *
  * What keeps it from becoming a meter running on nothing:
@@ -50,7 +51,8 @@
  * wild -- and whether to take a risk is the owner's. So it is one escalation
  * to the owner, once a period, saying so.
  */
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { appendEvent } from '../audit/event-log.ts';
 import { isPalugadaError } from '../errors.ts';
 import { languageName, languagesFor } from '../domain/language.ts';
 import { withoutTemplateTokens } from '../context/builder.ts';
@@ -113,9 +115,14 @@ const OWED = `
   ), seen AS (
     SELECT m.id, m.company_id, m.goal_id, m.slug, m.name, m.unit, m.direction, m.baseline, m.target, m.due_on,
            m.source_capability, m.created_at,
-           v.id AS read_id, v.value AS read_value, v.observed_at AS read_at
+           v.id AS read_id, v.value AS read_value, v.observed_at AS read_at,
+           -- A goal with a period is graded when it ends (quarter.ts), and a
+           -- committed miss filed as a postmortem: a measure due with it, or
+           -- after it, is that grade's, and not a milestone of its own.
+           coalesce(g.starts_on IS NOT NULL AND m.due_on >= g.due_on, false) AS graded
       FROM goal_metrics m
       JOIN open_goals og ON og.id = m.goal_id
+      JOIN goals g ON g.id = m.goal_id
       LEFT JOIN LATERAL (
            SELECT o.id, o.value, o.observed_at
              FROM metric_observations o
@@ -129,7 +136,7 @@ const OWED = `
         WHEN s.read_id IS NOT NULL
              AND (CASE s.direction WHEN 'up' THEN s.read_value >= s.target ELSE s.read_value <= s.target END)
           THEN 'reached'
-        WHEN s.due_on < (SELECT d FROM owner_day) THEN 'overdue'
+        WHEN s.due_on < (SELECT d FROM owner_day) AND NOT s.graded THEN 'overdue'
         WHEN s.source_capability IS NOT NULL
              AND coalesce(s.read_at, s.created_at) < $1::timestamptz - make_interval(days => $2::int)
           THEN 'stale'
@@ -377,4 +384,35 @@ export async function ensureOffPace(companyId: string, now = new Date()): Promis
     }
     return raised;
   });
+}
+
+/**
+ * Withdraws the open off-pace cards of these goals -- of one period, given
+ * its due date, or of any -- and returns how many. A period graded has its
+ * answer (quarter.ts), and a goal closed has no pace to keep (goals.ts): a
+ * card still asking the owner whether to take a risk to catch up is about
+ * nothing left to decide, and an answer to it would act on a period already
+ * over. The card is raised once a period whatever became of it, so one
+ * withdrawn is not raised again.
+ */
+export async function withdrawOffPaceWithin(
+  tx: TenantClient,
+  companyId: string,
+  goals: { ids: readonly string[]; dueOn?: string },
+  reason: 'period_graded' | 'goal_closed',
+): Promise<number> {
+  if (goals.ids.length === 0) return 0;
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
+      WHERE company_id = $1 AND kind = 'escalation' AND status = 'open'
+        AND payload->>'once' LIKE 'off-pace:%' AND payload->'offPace'->>'goalId' = ANY($2::text[])
+        AND ($4::text IS NULL OR payload->'offPace'->>'dueOn' = $4)
+      RETURNING id`,
+    [companyId, goals.ids, reason, goals.dueOn ?? null]);
+  for (const item of rows) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
+    });
+  }
+  return rows.length;
 }

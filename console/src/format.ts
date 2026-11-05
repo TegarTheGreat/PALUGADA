@@ -175,6 +175,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.waiting_slot': N('Parked: waiting for a call to the same capability to finish'),
   'task.model_waited': N('Parked: the model did not answer; it is tried again shortly'),
   'task.role_waited': N('Parked: its role is paused; it goes on when the role does'),
+  'task.reassigned': N('Moved to the new CEO, with the title'),
   'task.called_back': N('Called back to look again: what it was waiting for may work now'),
   'model.answered': N('The model it waited for answered again'),
   'task.stranded': N('Task stranded, put to you'),

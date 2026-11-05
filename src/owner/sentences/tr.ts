@@ -407,6 +407,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: ilgili görev yeniden çalıştırıldı.',
   'Withdrawn: the day it was about has ended.':
     'Geri çekildi: ilgili gün sona erdi.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Geri çekildi: ilgili dönem sona erdi ve notlandırıldı.',
+  'Withdrawn: the goal it was about was closed.':
+    'Geri çekildi: ilgili hedef kapatıldı.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Geri çekildi: ayın tavanına ulaşıldı ve yerini şirketin duraklatıldığını söyleyen kart aldı.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

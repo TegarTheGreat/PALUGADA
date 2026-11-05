@@ -25,6 +25,8 @@ import { goalChangeCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
 import { transitionWithin } from '../engine/tasks.ts';
+import { withdrawOffPaceWithin } from '../engine/outcomes.ts';
+import { closeTodoWithin } from '../engine/tickets.ts';
 import { metricsIn } from './metrics.ts';
 import { CHANNEL_SLUGS, channelSaid, isChannel, type ChannelSlug } from './channels.ts';
 
@@ -634,20 +636,28 @@ export async function applyGoalChangeWithin(
     // Nobody is woken about a goal that is done: the follow-ups waiting under
     // it (`task.follow_up`) and the outcome and review looks, the weekly
     // meeting and the quarterly planning the platform made for the CEO
-    // (src/engine/outcomes.ts, goal-review.ts, meeting.ts, quarter.ts) are
-    // cancelled, which releases what they held. Only what has not started:
-    // running work is left to finish.
-    const waiting = await tx.query<{ id: string }>(
-      `${under} SELECT id FROM tasks
+    // (src/engine/outcomes.ts, goal-review.ts, meeting.ts, quarter.ts), and
+    // the to-dos handed to their seats (triage.ts), are cancelled, which
+    // releases what they held. Only what has not started: running work is
+    // left to finish.
+    const waiting = await tx.query<{ id: string; todo: string | null }>(
+      `${under} SELECT id, CASE WHEN idempotency_key LIKE 'todo:%' THEN substr(idempotency_key, 6) END AS todo FROM tasks
                  WHERE company_id = $2 AND status = 'pending'
                    AND (idempotency_key LIKE 'followup:%' OR idempotency_key LIKE 'outcome:%' OR idempotency_key LIKE 'review:%'
-                        OR idempotency_key LIKE 'meeting:%' OR idempotency_key LIKE 'quarter:%')
+                        OR idempotency_key LIKE 'meeting:%' OR idempotency_key LIKE 'quarter:%' OR idempotency_key LIKE 'todo:%')
                    AND goal_id IN (SELECT id FROM under)
                  ORDER BY id`,
       [input.goalId, input.companyId]);
     for (const task of waiting.rows) {
       await transitionWithin(tx, input.companyId, task.id, 'cancelled', { haltReason: 'owner_cancel' });
+      // Its ticket was opened again as the task ended (`settleTicketsOf`),
+      // and an open to-do whose work ended is the CEO's triage's to hand on:
+      // another paid run, for a goal the owner let go. It is closed instead,
+      // saying why, and the owner can open it again from the board.
+      if (task.todo) await closeTodoWithin(tx, input.companyId, task.todo, `its goal was closed (${rows[0]!.status}) before the work started`);
     }
+    const goals = await tx.query<{ id: string }>(`${under} SELECT id FROM under`, [input.goalId, input.companyId]);
+    await withdrawOffPaceWithin(tx, input.companyId, { ids: goals.rows.map((goal) => goal.id) }, 'goal_closed');
     if (paused.schedules + paused.triggers > 0) {
       await appendEvent(tx, {
         companyId: input.companyId,

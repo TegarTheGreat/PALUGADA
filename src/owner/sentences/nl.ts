@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ingetrokken: de taak waar het over ging is opnieuw uitgevoerd.',
   'Withdrawn: the day it was about has ended.':
     'Ingetrokken: de dag waar het over ging is voorbij.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ingetrokken: de periode waar het over ging is voorbij en beoordeeld.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ingetrokken: het doel waar het over ging is gesloten.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ingetrokken: het plafond van de maand is bereikt, en de kaart die zegt dat het bedrijf gepauzeerd is neemt de plaats in.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

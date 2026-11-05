@@ -10,7 +10,8 @@
  * rows, so it runs on every deployment, model or not. A committed goal that
  * was missed is a postmortem on the issues list, filed through `fileIssue`
  * with the goal and period as its source, so it is filed once and the weekly
- * meeting takes it up. At most twenty goals a tick, oldest due first, so a
+ * meeting takes it up; the period's off-pace card, if one is open, is
+ * withdrawn, since the period has its answer. At most twenty goals a tick, oldest due first, so a
  * company restored with a year of ended goals is graded over a few ticks
  * rather than in one long transaction.
  *
@@ -50,6 +51,7 @@ import { isSpendPaused } from '../governance/spend-guard.ts';
 import { daysBetween } from '../records/collections.ts';
 import { missedGoalIssue, ownerReadingWithin, roleCalledWithin } from '../owner/platform-cards.ts';
 import { buildQuarterFacts, type QuarterFacts } from '../reporting/quarter.ts';
+import { withdrawOffPaceWithin } from './outcomes.ts';
 import { createRootTaskWithin } from './tasks.ts';
 import { fileIssue } from './tickets.ts';
 
@@ -133,6 +135,9 @@ export async function ensurePeriodClose(companyId: string, now = new Date()): Pr
         companyId, type: 'goal.graded', actor: 'system',
         payload: { goalId: found.id, periodDueOn: grade.periodDueOn, score: grade.score, basis: grade.basis, commitment: grade.commitment },
       });
+      // The period has its answer: the card that asked the owner about its
+      // pace goes, and a miss is the postmortem below.
+      await withdrawOffPaceWithin(tx, companyId, { ids: [found.id], dueOn: found.due_on }, 'period_graded');
       // A committed goal missed is a postmortem. Without a project there is
       // nowhere to file it; the grade stands and says so on the ladder.
       if (grade.commitment !== 'committed' || grade.score >= 1 || !project[0]) continue;

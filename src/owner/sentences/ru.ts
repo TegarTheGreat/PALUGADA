@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Отозвано: задачу, о которой шла речь, запустили заново.',
   'Withdrawn: the day it was about has ended.':
     'Отозвано: день, о котором шла речь, закончился.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Отозвано: период, о котором шла речь, закончился и оценён.',
+  'Withdrawn: the goal it was about was closed.':
+    'Отозвано: цель, о которой шла речь, закрыта.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Отозвано: месячный лимит достигнут, и его место заняла карточка о том, что компания на паузе.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

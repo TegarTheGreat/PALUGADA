@@ -404,6 +404,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '철회됨: 관련 작업을 다시 실행했습니다.',
   'Withdrawn: the day it was about has ended.':
     '철회됨: 해당 날짜가 지났습니다.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    '철회됨: 해당 기간이 끝나 평가되었습니다.',
+  'Withdrawn: the goal it was about was closed.':
+    '철회됨: 관련된 목표가 닫혔습니다.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     '철회됨: 이번 달 한도에 도달해, 회사가 일시 중지되었다는 카드가 이를 대신합니다.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

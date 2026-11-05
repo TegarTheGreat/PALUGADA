@@ -35,6 +35,8 @@ const WITHDRAWN: Record<string, string> = {
   ticket_closed: N('withdrawn · its ticket was closed'),
   task_rerun: N('withdrawn · its task was run again'),
   day_ended: N('withdrawn · its day ended'),
+  period_graded: N('withdrawn · its period was graded'),
+  goal_closed: N('withdrawn · its goal was closed'),
   spend_paused: N('withdrawn · the pause card took its place'),
   period_started: N('withdrawn · its month ended'),
   spend_resumed: N('withdrawn · the pause was lifted'),

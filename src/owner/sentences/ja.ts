@@ -402,6 +402,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '取り下げ済み：対象のタスクはもう一度実行されました。',
   'Withdrawn: the day it was about has ended.':
     '取り下げ済み：対象の日は終わりました。',
+  'Withdrawn: the period it was about has ended and been graded.':
+    '取り下げ済み：対象の期間が終わり、評価されました。',
+  'Withdrawn: the goal it was about was closed.':
+    '取り下げ済み：対象の目標が閉じられました。',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     '取り下げ済み：今月の上限に達したため、会社が一時停止中であることを伝えるカードに置き換わりました。',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

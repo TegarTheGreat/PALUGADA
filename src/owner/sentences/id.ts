@@ -400,6 +400,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tugas yang dimaksud sudah dijalankan lagi.',
   'Withdrawn: the day it was about has ended.':
     'Ditarik: hari yang dimaksud sudah berakhir.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: periode yang dimaksud sudah berakhir dan sudah dinilai.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: sasaran yang dimaksud sudah ditutup.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ditarik: batas bulan ini sudah tercapai, dan kartu yang menyatakan perusahaan dijeda menggantikannya.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

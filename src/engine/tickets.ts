@@ -658,6 +658,24 @@ export async function setTicketStatus(tx: TenantClient, companyId: string, ticke
 }
 
 /**
+ * Closes a to-do whose work was let go with its goal (goals.ts), saying why.
+ * Only while it is open and nobody works it: one the owner or a task has
+ * taken up since is left as it is.
+ */
+export async function closeTodoWithin(tx: TenantClient, companyId: string, ticketId: string, reason: string): Promise<void> {
+  const { rows } = await tx.query<{ project_id: string }>(
+    `UPDATE tickets SET status = 'closed', closed_at = now(), closed_reason = $3, updated_at = now()
+      WHERE company_id = $1 AND id::text = $2 AND kind = 'work' AND status = 'open' AND working_task_id IS NULL
+      RETURNING project_id`,
+    [companyId, ticketId, reason]);
+  for (const row of rows) {
+    await appendEvent(tx, {
+      companyId, projectId: row.project_id, type: 'ticket.closed', actor: 'system', payload: { ticketId, reason },
+    });
+  }
+}
+
+/**
  * What a task's end means for the ticket it was working (tasks.ts calls this
  * as the task settles, in the same transaction): done when it completed, open
  * again, with why, when it did not.

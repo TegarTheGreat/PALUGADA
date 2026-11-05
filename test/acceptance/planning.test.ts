@@ -25,8 +25,13 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { ensurePeriodClose, ensureQuarterlyPlanning } from '../../src/engine/quarter.ts';
-import { ensureOffPace } from '../../src/engine/outcomes.ts';
-import { openTicket } from '../../src/engine/tickets.ts';
+import { ensureOffPace, ensureOutcomes } from '../../src/engine/outcomes.ts';
+import { ensureWeeklyMeeting } from '../../src/engine/meeting.ts';
+import { handTodos, ensureTriage } from '../../src/engine/triage.ts';
+import { openTicket, solveIssue } from '../../src/engine/tickets.ts';
+import { appointCeo } from '../../src/governance/ceo.ts';
+import { pauseRole } from '../../src/governance/role-freeze.ts';
+import { createAccount } from '../../src/engine/budget.ts';
 import { applyGoalChange, createGoal } from '../../src/domain/goals.ts';
 import { defineMetric } from '../../src/domain/metrics.ts';
 import { fiscalQuarterOf } from '../../src/domain/fiscal.ts';
@@ -39,7 +44,7 @@ import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { Worker } from '../../src/worker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 
@@ -355,6 +360,108 @@ test('every committed priority is judged for pace, however many priorities come 
   assert.deepEqual(rows.map((one) => one.payload.once), [`off-pace:${last}:2026-12-31`]);
 });
 
+const offPaceCards = (fixture: Fixture) => withTenant(fixture.companyId, (tx) => tx.query<{
+  id: string; status: string; closed_reason: string | null; once: string;
+}>("SELECT id, status, closed_reason, payload->>'once' AS once FROM inbox_items WHERE kind = 'escalation' AND payload->>'once' LIKE 'off-pace:%' ORDER BY created_at, id"))
+  .then((result) => result.rows);
+
+test('a priority with a period is the period close\'s at its end: no overdue look for its measure, and its off-pace card goes with the period', async () => {
+  const fixture = await createCompany('graded-alone');
+  await inJakarta(fixture);
+  // A year on from the clock: the outcome sweep makes one look in ten minutes
+  // of the real clock, so its days are after it.
+  const goal = await priority(fixture, 'q3', { startsOn: '2027-07-01', dueOn: '2027-09-30', commitment: 'committed' });
+  // As a plan line's measure is made (goal-plans.ts): due with its goal.
+  const sales = await defineMetric(fixture.companyId, {
+    goalId: goal, slug: 'sales', name: 'Sales', unit: 'count', baseline: 0, target: 100, dueOn: '2027-09-30',
+  });
+  // A milestone inside the period is still a look of its own when it passes.
+  const calls = await defineMetric(fixture.companyId, {
+    goalId: goal, slug: 'calls', name: 'Calls', unit: 'count', baseline: 0, target: 50, dueOn: '2027-08-15',
+  });
+  await readingAt(fixture, sales, 10, jakarta('2027-08-01'));
+  await readingAt(fixture, calls, 0, jakarta('2027-08-01'));
+  const outcomes = () => withTenant(fixture.companyId, (tx) => tx.query<{ metric: string; state: string }>(
+    "SELECT input->>'metricId' AS metric, input->>'state' AS state FROM tasks WHERE idempotency_key LIKE 'outcome:%' ORDER BY created_at"))
+    .then((result) => result.rows);
+
+  assert.ok(await ensureOutcomes(fixture.companyId, jakarta('2027-08-20')));
+  assert.deepEqual(await outcomes(), [{ metric: calls, state: 'overdue' }]);
+
+  assert.equal(await ensureOffPace(fixture.companyId, jakarta('2027-09-20')), 1);
+  assert.deepEqual((await offPaceCards(fixture)).map((one) => [one.once, one.status]), [[`off-pace:${goal}:2027-09-30`, 'open']]);
+
+  assert.equal(await ensurePeriodClose(fixture.companyId, jakarta('2027-10-01')), 1);
+  assert.deepEqual((await issuesOf(fixture)).map((one) => one.title), ['Missed: Priority q3'], 'the miss is a postmortem');
+  const [card] = await offPaceCards(fixture);
+  assert.deepEqual([card!.status, card!.closed_reason], ['withdrawn', 'period_graded'], 'a period graded is not off pace any more');
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: Record<string, unknown> }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"));
+  assert.deepEqual(said.map((one) => one.payload), [{ inboxItemId: card!.id, closedReason: 'period_graded' }]);
+
+  // The measure due with its goal is graded with it, and not looked at again
+  // as overdue: that would be a second paid run, asking the owner to move
+  // the date of a period already graded.
+  assert.equal(await ensureOutcomes(fixture.companyId, jakarta('2027-10-01', 12)), null);
+  assert.equal(await ensureOutcomes(fixture.companyId, jakarta('2027-10-09')), null);
+  assert.deepEqual(await outcomes(), [{ metric: calls, state: 'overdue' }]);
+});
+
+test('closing a priority withdraws its off-pace card', async () => {
+  const fixture = await createCompany('off-pace-closed');
+  await inJakarta(fixture);
+  const goal = await priority(fixture, 'q4', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed' });
+  await readingAt(fixture, await measure(fixture, goal, 'sales', 100), 5, jakarta('2026-11-14'));
+  assert.equal(await ensureOffPace(fixture.companyId, jakarta('2026-11-15')), 1);
+
+  await applyGoalChange({ companyId: fixture.companyId, goalId: fixture.goalId, status: 'abandoned' });
+  assert.deepEqual((await offPaceCards(fixture)).map((one) => [one.status, one.closed_reason]), [['withdrawn', 'goal_closed']],
+    'the objective above it closed, and the priority with it');
+});
+
+test('a period that ended yesterday is graded before the meeting that takes up its miss', async () => {
+  const fixture = await createCompany('graded-before-meeting');
+  await inJakarta(fixture);
+  // The meeting is on Monday at midnight; the priority's last day is the Sunday before.
+  await withControlPlane((tx) => tx.query('UPDATE companies SET meeting_weekday = 1, meeting_hour = 0 WHERE id = $1', [fixture.companyId]));
+  await priority(fixture, 'q4', { startsOn: '2026-10-01', dueOn: '2026-12-27', commitment: 'committed' });
+  const worker = new Worker({
+    engine: new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), llm: new RecordingLlmClient(), handlers: new Map() }),
+    companyId: fixture.companyId, holdsMeetings: true,
+  });
+  const tick = await worker.tick(jakarta('2026-12-28', 0), { runs: false });
+  assert.deepEqual(tick.errors, []);
+  assert.deepEqual([tick.grades, tick.meetings], [1, 1]);
+  const { rows: [meeting] } = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { facts: { issues: { items: Array<{ title: string }> } } } }>(
+    "SELECT input FROM tasks WHERE idempotency_key LIKE 'meeting:%'"));
+  assert.deepEqual(meeting!.input.facts.issues.items.map((one) => one.title), ['Missed: Priority q4'], 'the postmortem is on its agenda');
+});
+
+test('a to-do not started for a goal the owner lets go is cancelled and closed, not handed to the CEO instead', async () => {
+  const fixture = await createCompany('todo-goal-closed');
+  await inJakarta(fixture);
+  const goal = await priority(fixture, 'q3-docs', { commitment: 'committed' });
+  assert.equal(await ensurePeriodClose(fixture.companyId, jakarta('2026-10-01')), 1);
+  const [missed] = await issuesOf(fixture);
+  assert.equal(missed!.goal_id, goal);
+  const seat = await addRole(fixture, 'sales');
+  const { todos: [todo] } = await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: missed!.id, rootCause: 'Nobody owned the docs.', decision: 'Sales writes them.',
+    todos: [{ title: 'Write the docs', assigneeRoleId: seat }], solvedBy: 'owner', outside: false,
+  }));
+  assert.equal(await handTodos(fixture.companyId, jakarta('2026-10-02')), 1);
+  const taskOf = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; goal_id: string }>(
+    'SELECT status, goal_id FROM tasks WHERE idempotency_key = $1', [`todo:${todo!.id}`]))).rows[0];
+  assert.deepEqual(await taskOf(), { status: 'pending', goal_id: goal }, 'made under the missed priority');
+
+  await applyGoalChange({ companyId: fixture.companyId, goalId: goal, status: 'abandoned' });
+  assert.equal((await taskOf())!.status, 'cancelled', 'nothing is spent on a goal let go');
+  const { rows: [ticket] } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; working_task_id: string | null }>(
+    'SELECT status, working_task_id FROM tickets WHERE id = $1', [todo!.id]));
+  assert.deepEqual(ticket, { status: 'closed', working_task_id: null });
+  assert.equal(await ensureTriage(fixture.companyId, jakarta('2026-10-03')), null, 'nor is it put through the CEO\'s triage');
+});
+
 /* ----------------------------------------------------------- planning --- */
 
 test('fiscal quarters follow the month the owner\'s fiscal year starts in, named by the year it starts in', () => {
@@ -499,6 +606,52 @@ test('no planning winds down, freezes, runs without a model or plans nothing', a
   assert.deepEqual(held.errors, []);
   assert.equal(held.plannings, 1);
   assert.equal((await plannings(fixture)).length, 1);
+});
+
+test('a meeting and a planning not yet started go with the title to the CEO the owner appoints', async () => {
+  const fixture = await createCompany('planning-new-ceo');
+  await inJakarta(fixture);
+  // Tuesday 22 December 2026, at the meeting's hour in Jakarta.
+  await withControlPlane((tx) => tx.query('UPDATE companies SET meeting_weekday = 2, meeting_hour = 9 WHERE id = $1', [fixture.companyId]));
+  await priority(fixture, 'q4-pipeline', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed' });
+  const at = jakarta('2026-12-22');
+  const planning = await ensureQuarterlyPlanning(fixture.companyId, at);
+  const meeting = await ensureWeeklyMeeting(fixture.companyId, at);
+  assert.ok(planning && meeting);
+
+  // The new CEO is in another division, with an account of its own.
+  const { coo, division, account } = await withTenant(fixture.companyId, async (tx) => {
+    const { rows: [growth] } = await tx.query<{ id: string }>(
+      "INSERT INTO divisions (company_id, slug, name) VALUES ($1, 'growth', 'Growth') RETURNING id", [fixture.companyId]);
+    const { rows: [role] } = await tx.query<{ id: string }>(
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, output_schema, done_criteria)
+       VALUES ($1, $2, 'coo', 'You run the company.', 'test-model', '{"type":"object"}', ARRAY['it is run']) RETURNING id`,
+      [fixture.companyId, growth!.id]);
+    const own = await createAccount(tx, {
+      companyId: fixture.companyId, label: 'coo', tokensMax: 1_000_000,
+      scope: { scopeType: 'role', scopeId: role!.id, parentAccountId: fixture.budgetAccountId },
+    });
+    return { coo: role!.id, division: growth!.id, account: own };
+  });
+  await appointCeo(fixture.companyId, coo, { ownerApproved: true });
+  // The one that stood down is paused: what it still held would wait for good.
+  await pauseRole(fixture.companyId, fixture.roleId);
+
+  const { rows: moved } = await withTenant(fixture.companyId, (tx) => tx.query<{
+    id: string; role_id: string; division_id: string; budget_account_id: string; status: string; tokens_reserved: string;
+  }>('SELECT id, role_id, division_id, budget_account_id, status, tokens_reserved::text FROM tasks WHERE id = ANY($1::uuid[]) ORDER BY id',
+    [[planning, meeting]]));
+  assert.deepEqual(moved.map((one) => [one.role_id, one.division_id, one.budget_account_id, one.status]),
+    [[coo, division, account, 'pending'], [coo, division, account, 'pending']], 'the new CEO\'s, from its own account');
+  const { rows: [held] } = await withTenant(fixture.companyId, (tx) => tx.query<{ tokens_reserved: string }>(
+    'SELECT tokens_reserved::text FROM budget_accounts WHERE id = $1', [account]));
+  assert.equal(Number(held!.tokens_reserved), moved.reduce((sum, one) => sum + Number(one.tokens_reserved), 0),
+    'what they hold is held on the new CEO\'s account');
+  assert.equal(await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-23')), null, 'still one planning for the quarter');
+  const { rows: events } = await withTenant(fixture.companyId, (tx) => tx.query<{ task_id: string; payload: Record<string, unknown> }>(
+    "SELECT task_id, payload FROM events WHERE type = 'task.reassigned' ORDER BY task_id"));
+  assert.deepEqual(events.map((one) => [one.task_id, one.payload.from, one.payload.to]),
+    [planning, meeting].sort().map((id) => [id, fixture.roleId, coo]), 'and the record says whose they were');
 });
 
 test('the plan the planning proposes reaches the owner as one card', async () => {

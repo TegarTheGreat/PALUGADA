@@ -405,6 +405,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已撤回：它涉及的任务已重新运行。',
   'Withdrawn: the day it was about has ended.':
     '已撤回：它涉及的那一天已经过去。',
+  'Withdrawn: the period it was about has ended and been graded.':
+    '已撤回：它涉及的周期已经结束并已评分。',
+  'Withdrawn: the goal it was about was closed.':
+    '已撤回：它涉及的目标已关闭。',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     '已撤回：本月上限已达到，由说明公司已暂停的卡片取而代之。',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

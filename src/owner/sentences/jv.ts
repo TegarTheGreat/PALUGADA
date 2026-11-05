@@ -404,6 +404,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Dipunwangsulaken: tugas ingkang dipunrembag sampun dipunlampahaken malih.',
   'Withdrawn: the day it was about has ended.':
     'Dipunwangsulaken: dinten ingkang dipunrembag sampun rampung.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: periode sing dirembug wis rampung lan wis dibijèni.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: tujuan sing dirembug wis ditutup.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Dipunwangsulaken: wates sasi punika sampun kadugèn, lan kertu ingkang ngandharaken bilih perusahaan dipunendheg nggantosaken.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

@@ -410,6 +410,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã rút lại: nhiệm vụ mà nó nói đến đã được chạy lại.',
   'Withdrawn: the day it was about has ended.':
     'Đã rút lại: ngày mà nó nói đến đã kết thúc.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Đã rút lại: giai đoạn mà nó nói đến đã kết thúc và đã được chấm điểm.',
+  'Withdrawn: the goal it was about was closed.':
+    'Đã rút lại: mục tiêu liên quan đã được đóng.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Đã rút lại: đã chạm mức trần của tháng, và thẻ báo công ty đang tạm dừng thay thế cho nó.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':

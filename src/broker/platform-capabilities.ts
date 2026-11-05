@@ -31,7 +31,7 @@ import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/sta
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
-import { assertHandedOutAsWork, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
+import { assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
 import { queryMeaning } from '../knowledge/meaning.ts';
 import { containChildResult } from '../engine/containment.ts';
@@ -520,6 +520,7 @@ export interface TicketListResult {
     workingTaskId: string | null; createdAt: string;
     /** An issue's list, its root cause and decision once solved; a to-do's issue, seat and due date. */
     horizon?: string; rootCause?: string | null; decision?: string | null;
+    earlierSolves?: Array<{ rootCause: string; decision: string; solvedAt: string }>;
     solves?: string | null; assigneeRoleId?: string | null; dueOn?: string | null;
   }>;
 }
@@ -561,9 +562,10 @@ export function ticketListCapability(): Capability<TicketListInput, TicketListRe
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
       const status = (input.status ?? 'active') as 'active';
-      const tickets = await withTenant(ctx.companyId, (tx) => listTickets(tx, {
-        status, limit: input.limit ?? 50, ...(input.ids ? { ids: input.ids } : {}),
-      }));
+      const { tickets, solvedBefore } = await withTenant(ctx.companyId, async (tx) => {
+        const listed = await listTickets(tx, { status, limit: input.limit ?? 50, ...(input.ids ? { ids: input.ids } : {}) });
+        return { tickets: listed, solvedBefore: await earlierSolves(tx, listed) };
+      });
       return {
         tickets: tickets.map((ticket) => ({
           id: ticket.id, title: ticket.title, body: ticket.body.slice(0, 1_000), status: ticket.status,
@@ -571,7 +573,13 @@ export function ticketListCapability(): Capability<TicketListInput, TicketListRe
           workingTaskId: ticket.workingTaskId, createdAt: ticket.createdAt.toISOString(),
           // Said only where it means something, so a listing of plain work reads as it did.
           ...(ticket.kind === 'issue'
-            ? { horizon: ticket.horizon, rootCause: ticket.rootCause, decision: ticket.status === 'done' ? ticket.closedReason : null }
+            ? {
+              horizon: ticket.horizon, rootCause: ticket.rootCause, decision: ticket.status === 'done' ? ticket.closedReason : null,
+              // An issue opened again because its fix did not hold: what was tried before.
+              earlierSolves: (solvedBefore.get(ticket.id) ?? []).map((one) => ({
+                rootCause: one.rootCause, decision: one.decision, solvedAt: one.solvedAt.toISOString(),
+              })),
+            }
             : {}),
           ...(ticket.solvesTicketId || ticket.assigneeRoleId || ticket.dueOn
             ? { solves: ticket.solvesTicketId, assigneeRoleId: ticket.assigneeRoleId, dueOn: ticket.dueOn }

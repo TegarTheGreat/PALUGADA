@@ -240,6 +240,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Yeniden bakması için geri çağrıldı: beklediği şey artık çalışıyor olabilir",
   "Check the prices now": "Fiyatları şimdi kontrol et",
   "Closed without being solved.": "Çözülmeden kapatıldı.",
+  "Solved {when}, then opened again": "{when} çözüldü, sonra yeniden açıldı",
   "Closed without being solved: {why}": "Çözülmeden kapatıldı: {why}",
   "Days after the due date": "Vadeden sonraki günler",
   "Decided: {decision}": "Karar: {decision}",

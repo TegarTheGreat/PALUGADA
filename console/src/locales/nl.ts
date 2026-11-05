@@ -215,6 +215,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Teruggeroepen om opnieuw te kijken: waar de taak op wachtte, werkt nu misschien",
   "Check the prices now": "Prijzen nu controleren",
   "Closed without being solved.": "Gesloten zonder oplossing.",
+  "Solved {when}, then opened again": "Opgelost {when}, daarna weer geopend",
   "Closed without being solved: {why}": "Gesloten zonder oplossing: {why}",
   "Days after the due date": "Dagen na de vervaldatum",
   "Decided: {decision}": "Besloten: {decision}",

@@ -184,6 +184,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "फिर से जाँचने के लिए वापस बुलाया गया: जिसका इंतज़ार था, वह शायद अब काम करे",
   "Check the prices now": "अभी कीमतें जाँचें",
   "Closed without being solved.": "बिना सुलझे बंद।",
+  "Solved {when}, then opened again": "{when} हल हुआ, फिर दोबारा खोला गया",
   "Closed without being solved: {why}": "बिना सुलझे बंद: {why}",
   "Days after the due date": "देय तिथि के बाद के दिन",
   "Decided: {decision}": "तय हुआ: {decision}",

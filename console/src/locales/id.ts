@@ -134,6 +134,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Dipanggil kembali untuk memeriksa lagi: yang ditunggunya mungkin sudah berfungsi",
   "Check the prices now": "Periksa harga sekarang",
   "Closed without being solved.": "Ditutup tanpa diselesaikan.",
+  "Solved {when}, then opened again": "Diselesaikan {when}, lalu dibuka lagi",
   "Closed without being solved: {why}": "Ditutup tanpa diselesaikan: {why}",
   "Days after the due date": "Hari setelah jatuh tempo",
   "Decided: {decision}": "Diputuskan: {decision}",

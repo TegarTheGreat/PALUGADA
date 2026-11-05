@@ -238,6 +238,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Được gọi lại để kiểm tra lần nữa: thứ nó đang chờ có thể đã hoạt động",
   "Check the prices now": "Kiểm tra giá ngay",
   "Closed without being solved.": "Đã đóng mà chưa giải quyết.",
+  "Solved {when}, then opened again": "Đã giải quyết {when}, rồi mở lại",
   "Closed without being solved: {why}": "Đã đóng mà chưa giải quyết: {why}",
   "Days after the due date": "Số ngày sau hạn thanh toán",
   "Decided: {decision}": "Đã quyết: {decision}",

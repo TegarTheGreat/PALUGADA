@@ -332,7 +332,11 @@ function IssuePage({ companyId, structure, issueId, close, openTask }: {
 }) {
   const page = useLoad(async () => {
     if (!issueId) return null;
-    const read: { ticket: Ticket; todos: Ticket[] } = await api('GET', `/api/companies/${companyId}/tickets/${issueId}`);
+    const read: {
+      ticket: Ticket; todos: Ticket[];
+      /** Solved before and opened again because the fix did not hold: what was tried, oldest first. */
+      earlierSolves: Array<{ rootCause: string; decision: string; solvedAt: string }>;
+    } = await api('GET', `/api/companies/${companyId}/tickets/${issueId}`);
     return read;
   }, [companyId, issueId]);
   const seat = (id: string | null) => {
@@ -347,7 +351,7 @@ function IssuePage({ companyId, structure, issueId, close, openTask }: {
       {page.error && !page.data ? <LoadFailed message={page.error} retry={page.reload} />
         : !page.data ? <Loading rows={3} />
           : (() => {
-            const { ticket: issue, todos } = page.data;
+            const { ticket: issue, todos, earlierSolves } = page.data;
             return (
               <Stack gap="sm">
                 <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -377,6 +381,17 @@ function IssuePage({ companyId, structure, issueId, close, openTask }: {
                     {t('Not solved yet. The CEO finds the root cause by asking why until the answer checks out against the record, decides once, and files a to-do for each seat that carries the decision out.')}
                   </Alert>
                 )}
+                {earlierSolves.map((solve) => (
+                  <Paper key={solve.solvedAt} withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
+                    <Stack gap={6}>
+                      <Text size="xs" c="dimmed">{t('Solved {when}, then opened again', { when: relative(solve.solvedAt) })}</Text>
+                      <Text size="xs" fw={700} c="dimmed">{t('Root cause')}</Text>
+                      <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{solve.rootCause}</Text>
+                      <Text size="xs" fw={700} c="dimmed" mt={4}>{t('Decision')}</Text>
+                      <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{solve.decision}</Text>
+                    </Stack>
+                  </Paper>
+                ))}
                 <Text size="xs" fw={700} c="dimmed" mt={4}>{t('To-dos')}</Text>
                 {todos.length === 0
                   ? <Text size="sm" c="dimmed">{t('No to-dos yet.')}</Text>

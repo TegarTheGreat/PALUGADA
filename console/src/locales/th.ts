@@ -233,6 +233,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "ถูกเรียกกลับมาตรวจอีกครั้ง: สิ่งที่รออยู่อาจใช้ได้แล้ว",
   "Check the prices now": "ตรวจราคาตอนนี้",
   "Closed without being solved.": "ปิดโดยไม่ได้แก้",
+  "Solved {when}, then opened again": "แก้ไขแล้วเมื่อ {when} จากนั้นเปิดใหม่อีกครั้ง",
   "Closed without being solved: {why}": "ปิดโดยไม่ได้แก้: {why}",
   "Days after the due date": "จำนวนวันหลังครบกำหนด",
   "Decided: {decision}": "ตัดสินใจแล้ว: {decision}",

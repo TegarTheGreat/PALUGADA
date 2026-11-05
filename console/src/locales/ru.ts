@@ -218,6 +218,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Возвращена, чтобы проверить снова: то, чего она ждала, возможно, уже работает",
   "Check the prices now": "Проверить цены сейчас",
   "Closed without being solved.": "Закрыта без решения.",
+  "Solved {when}, then opened again": "Решено {when}, затем открыто снова",
   "Closed without being solved: {why}": "Закрыта без решения: {why}",
   "Days after the due date": "Дней после срока оплаты",
   "Decided: {decision}": "Решено: {decision}",

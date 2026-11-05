@@ -1769,15 +1769,23 @@ behind: each with one seat and a due date.
 3. **Read what was decided.** **See the issue** opens its page: the root
    cause, the decision, and each to-do with its seat, its due date and its
    work. The decision is also kept in the company's memory, for the
-   division's runs, or the whole company's when the issue is the company's.
+   division's runs. An issue of the whole company that you solved is kept for
+   every division; one the CEO solved is kept for the CEO's own division,
+   since nothing an agent writes reaches every run without you.
 4. **The seats do their to-dos.** A to-do is due seven days out unless the
    CEO gave a date. It goes straight to its seat, which is woken for it, and
    closes when the work does. One whose work ends unfinished opens again,
    saying why, and is then the CEO's to hand on; it is not handed to the same
-   seat again.
+   seat again. Nor is one its seat will not take: a frozen seat, or an
+   archived project, gives it to the CEO at once, and a paused month or a
+   spent budget after the seat has been asked three times, ten minutes
+   apart. The CEO's triage says why the seat did not take it.
 5. **Close or reopen.** **Close** drops an issue that is not a problem after
    all; it is closed, not solved. **Open again** brings back one whose fix
-   did not hold.
+   did not hold. It is then not solved: it shows no root cause until the CEO
+   finds one again, and its page keeps each earlier root cause and decision
+   under **Solved ..., then opened again**, so what was tried before is in
+   front of whoever solves it next.
 
 The platform files an issue itself, **filed by PALUGADA**, when work fails
 with a cause worth finding: a task that keeps stopping the worker running it,

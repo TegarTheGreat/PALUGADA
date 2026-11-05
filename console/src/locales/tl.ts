@@ -194,6 +194,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Ibinalik para tumingin ulit: maaaring gumagana na ang hinihintay nito",
   "Check the prices now": "Suriin ang mga presyo ngayon",
   "Closed without being solved.": "Isinara nang hindi nalulutas.",
+  "Solved {when}, then opened again": "Nalutas {when}, saka binuksan muli",
   "Closed without being solved: {why}": "Isinara nang hindi nalulutas: {why}",
   "Days after the due date": "Mga araw pagkatapos ng takdang petsa",
   "Decided: {decision}": "Napagpasyahan: {decision}",

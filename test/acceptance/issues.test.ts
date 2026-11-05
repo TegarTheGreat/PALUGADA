@@ -16,6 +16,8 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
@@ -25,7 +27,7 @@ import { registerPlatformCapabilities } from '../../src/broker/platform-capabili
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { reclaimExpiredLeases, MAX_RECLAIMS } from '../../src/engine/checkout.ts';
-import { fileIssue, solveIssue } from '../../src/engine/tickets.ts';
+import { fileIssue, openTicket, solveIssue } from '../../src/engine/tickets.ts';
 import { ensureTriage, handTodos } from '../../src/engine/triage.ts';
 import { reportEndedBadly } from '../../src/engine/ended.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -444,4 +446,193 @@ test('the application role may write a root cause and nothing else new on a tick
   for (const column of ['solves_ticket_id', 'assignee_role_id', 'due_on', 'source_key', 'from_inbox_item_id', 'goal_id', 'metric_id', 'horizon', 'kind']) {
     assert.equal(await may(`has_column_privilege('palugada_app', 'tickets', '${column}', 'UPDATE')`), false, column);
   }
+});
+
+test('an issue opened again keeps what was decided on the record, and shows no cause as if it were current', async () => {
+  const fixture = await withCeo('issues-reopened');
+  const issue = await withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'Orders arrive twice',
+    sourceKey: `test:reopen:${fixture.roleId}`, openedBy: 'owner', outside: false,
+  }));
+  await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: issue.ticket.id, rootCause: 'The sync retries without a key.',
+    decision: 'Key every write.', solvedBy: 'owner', outside: false, todos: [{ title: 'Key the order writes' }],
+  }));
+  const solvedEvent = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: Record<string, unknown> }>(
+    "SELECT payload FROM events WHERE type = 'issue.solved'"));
+  assert.deepEqual(
+    { cause: solvedEvent.rows[0]!.payload.rootCause, decision: solvedEvent.rows[0]!.payload.decision },
+    { cause: 'The sync retries without a key.', decision: 'Key every write.' }, 'the solve is on the record in its own words');
+
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    // The fix did not hold: the owner opens it again from the board.
+    const reopened = await api.call('POST', `/api/companies/${fixture.companyId}/tickets/${issue.ticket.id}`, token, { status: 'open' });
+    assert.equal(reopened.status, 200, JSON.stringify(reopened.body));
+    const [row] = (await tickets(fixture.companyId)).filter((one) => one.id === issue.ticket.id);
+    assert.deepEqual({ status: row!.status, cause: row!.root_cause, decision: row!.closed_reason },
+      { status: 'open', cause: null, decision: null }, 'an open issue states no cause as if it were current');
+    const event = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: Record<string, unknown> }>(
+      "SELECT payload FROM events WHERE type = 'ticket.reopened'"));
+    assert.deepEqual(event.rows[0]!.payload.earlier, { rootCause: 'The sync retries without a key.', decision: 'Key every write.' });
+
+    // The issue's page shows the earlier solve as what was tried before.
+    const page = await api.call('GET', `/api/companies/${fixture.companyId}/tickets/${issue.ticket.id}`, token);
+    assert.equal(page.status, 200);
+    assert.deepEqual(page.body.earlierSolves.map((one: { rootCause: string; decision: string }) => [one.rootCause, one.decision]),
+      [['The sync retries without a key.', 'Key every write.']]);
+  } catch (error) {
+    await api.close();
+    throw error;
+  }
+
+  // And the CEO reading it again sees the same.
+  let listed: { rootCause: string | null; decision: string | null; earlierSolves: { decision: string }[] } | undefined;
+  const engine = await engineFor(fixture, {
+    worker: async (ctx) => {
+      const read = await ctx.callCapability('ticket.list', { ids: [issue.ticket.id] }) as { tickets: typeof listed[] };
+      listed = read.tickets[0];
+      return { summary: 'read' };
+    },
+  });
+  const task = await newTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  assert.equal(listed!.rootCause, null);
+  assert.equal(listed!.decision, null);
+  assert.deepEqual(listed!.earlierSolves.map((one) => one.decision), ['Key every write.']);
+
+  // Solved again, the page's history is the earlier solve alone, not the one it now shows.
+  await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: issue.ticket.id, rootCause: 'Two workers pick up the same order.',
+    decision: 'Lock the order while it is written.', solvedBy: 'owner', outside: false, todos: [{ title: 'Lock the order writes' }],
+  }));
+  try {
+    const token = await api.signIn();
+    const page = await api.call('GET', `/api/companies/${fixture.companyId}/tickets/${issue.ticket.id}`, token);
+    assert.equal(page.body.ticket.rootCause, 'Two workers pick up the same order.');
+    assert.deepEqual(page.body.earlierSolves.map((one: { decision: string }) => one.decision), ['Key every write.']);
+  } finally {
+    await api.close();
+  }
+});
+
+test('a to-do its seat cannot take goes to the CEO, and is not asked of the seat every ten minutes for ever', async () => {
+  const fixture = await withCeo('issues-seat-refuses');
+  const builderId = await addRole(fixture, 'builder');
+  const supportId = await addRole(fixture, 'support');
+  const issue = await withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'Refunds take a week',
+    sourceKey: `test:seat:${fixture.roleId}`, openedBy: 'owner', outside: false,
+  }));
+  const { todos: [frozenTodo] } = await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: issue.ticket.id, rootCause: 'Nobody owns refunds.', decision: 'Support owns refunds.',
+    solvedBy: 'owner', outside: false, todos: [{ title: 'Write the refund steps', assigneeRoleId: supportId }],
+  }));
+  const refusals = (ticketId: string) => withTenant(fixture.companyId, (tx) => tx.query<{ payload: { givenUp?: boolean } }>(
+    "SELECT payload FROM events WHERE type = 'ticket.not_handed' AND payload->>'ticketId' = $1 ORDER BY occurred_at", [ticketId]))
+    .then((result) => result.rows.map((one) => one.payload.givenUp === true));
+  const start = Date.now();
+  const passes = async (from: number, count: number) => {
+    for (let pass = from; pass < from + count; pass += 1) {
+      assert.equal(await handTodos(fixture.companyId, new Date(start + pass * 11 * 60_000)), 0);
+    }
+  };
+
+  // A frozen seat will not take it until the owner says so: given up on at once.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET frozen_at = now(), frozen_reason = 'test' WHERE id = $1", [supportId]));
+  await passes(0, 3);
+  assert.deepEqual(await refusals(frozenTodo!.id), [true], 'a lasting refusal is said once, and the seat is not asked again');
+
+  // A month's spending paused passes by itself: asked again, three times in all.
+  const paused = await withTenant(fixture.companyId, (tx) => openTicket(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'Add a refund button',
+    solvesTicketId: issue.ticket.id, assigneeRoleId: builderId, openedBy: 'owner', outside: false,
+  }));
+  await withControlPlane((tx) => tx.query(
+    'INSERT INTO spend_limits (company_id, paused_at) VALUES ($1, now()) ON CONFLICT (company_id) DO UPDATE SET paused_at = now()',
+    [fixture.companyId]));
+  await passes(3, 5);
+  assert.deepEqual(await refusals(paused.ticket.id), [false, false, true]);
+  assert.deepEqual(await refusals(frozenTodo!.id), [true]);
+
+  // The CEO is given both to hand on, with why the seat did not take each.
+  await withControlPlane((tx) => tx.query('UPDATE spend_limits SET paused_at = NULL WHERE company_id = $1', [fixture.companyId]));
+  const triageId = await ensureTriage(fixture.companyId);
+  assert.ok(triageId, 'a triage is made for them');
+  const triage = (await withTenant(fixture.companyId, (tx) => getTask(tx, triageId!)))!;
+  const input = triage.input as { ticketIds: string[]; context: string };
+  assert.deepEqual([...input.ticketIds].sort(), [frozenTodo!.id, paused.ticket.id].sort());
+  assert.match(input.context, /frozen/);
+  assert.match(input.context, /spending ceiling/);
+});
+
+test('an agent that solves a company-wide issue keeps its lesson in its own division, and only the owner keeps one company-wide', async () => {
+  const fixture = await withCeo('issues-lesson-scope');
+  const file = (title: string) => withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null, title,
+    sourceKey: `test:${title}`, openedBy: 'owner', outside: false,
+  }));
+  const byAgent = await file('Customers wait for answers');
+  const engine = await engineFor(fixture, {
+    worker: async (ctx) => {
+      await ctx.callCapability('ticket.create', {
+        title: 'Answer within the hour', solves: byAgent.ticket.id,
+        rootCause: 'Nobody reads the inbox on weekends.', decision: 'Read the inbox every hour, every day.',
+      });
+      return { summary: 'solved' };
+    },
+  });
+  const task = await newTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  const byOwner = await file('Prices differ between shops');
+  await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: byOwner.ticket.id, rootCause: 'Each shop is priced by hand.',
+    decision: 'One price list feeds every shop.', solvedBy: 'owner', outside: false, todos: [{ title: 'Make one price list' }],
+  }));
+
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ body: string; scope_type: string; scope_id: string | null }>(
+    "SELECT body, scope_type, scope_id FROM memories WHERE fact_kind = 'decision' ORDER BY created_at"));
+  const agents = rows.find((one) => one.body.includes('Customers wait for answers'))!;
+  const owners = rows.find((one) => one.body.includes('Prices differ between shops'))!;
+  assert.deepEqual({ scope: agents.scope_type, at: agents.scope_id }, { scope: 'division', at: fixture.divisionId },
+    'an agent does not write memory every division is given');
+  assert.deepEqual({ scope: owners.scope_type, at: owners.scope_id }, { scope: 'company', at: null });
+});
+
+test('a to-do that changes while it is being handed does not leave its work running for nothing', async () => {
+  const fixture = await withCeo('issues-handed-race');
+  const builderId = await addRole(fixture, 'builder');
+  const issue = await withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'The shop goes down at night',
+    sourceKey: `test:race:${fixture.roleId}`, openedBy: 'owner', outside: false,
+  }));
+  const { todos: [todo] } = await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: issue.ticket.id, rootCause: 'The disk fills with logs.', decision: 'Rotate the logs.',
+    solvedBy: 'owner', outside: false, todos: [{ title: 'Rotate the shop logs', assigneeRoleId: builderId }],
+  }));
+  // The owner closes the to-do in the moment between its task being made and its ticket being marked taken.
+  const owner = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  try {
+    await owner.query(`CREATE FUNCTION public.test_closes_todo() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        UPDATE tickets SET status = 'closed', closed_at = now(), closed_reason = 'not needed'
+         WHERE id = substr(NEW.idempotency_key, 6)::uuid;
+        RETURN NEW;
+      END $$`);
+    await owner.query(`CREATE TRIGGER test_closes_todo AFTER INSERT ON tasks FOR EACH ROW
+      WHEN (NEW.idempotency_key LIKE 'todo:%') EXECUTE FUNCTION public.test_closes_todo()`);
+    assert.equal(await handTodos(fixture.companyId), 0);
+  } finally {
+    await owner.query('DROP TRIGGER IF EXISTS test_closes_todo ON tasks');
+    await owner.query('DROP FUNCTION IF EXISTS public.test_closes_todo()');
+    await owner.end();
+  }
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; halt_reason: string | null }>(
+    "SELECT status, halt_reason FROM tasks WHERE idempotency_key = 'todo:' || $1", [todo!.id]));
+  assert.deepEqual(rows, [{ status: 'cancelled', halt_reason: 'work_taken_up' }], 'the work made for it is cancelled');
+  const said = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM events WHERE type = 'ticket.not_handed'"));
+  assert.equal(said.rows.length, 0, 'and the record does not say the seat could not take it');
 });

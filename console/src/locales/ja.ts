@@ -209,6 +209,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "再確認のため呼び戻されました。待っていたものが使えるようになった可能性があります",
   "Check the prices now": "今すぐ価格を確認",
   "Closed without being solved.": "解決されずに閉じられました。",
+  "Solved {when}, then opened again": "{when}に解決し、その後もう一度開かれました",
   "Closed without being solved: {why}": "解決されずに閉じられました：{why}",
   "Days after the due date": "期限後の日数",
   "Decided: {decision}": "決定: {decision}",

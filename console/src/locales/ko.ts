@@ -211,6 +211,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "다시 확인하도록 불려 왔습니다. 기다리던 것이 이제 될 수도 있습니다",
   "Check the prices now": "지금 가격 확인",
   "Closed without being solved.": "해결되지 않고 닫혔습니다.",
+  "Solved {when}, then opened again": "{when} 해결되었다가 다시 열림",
   "Closed without being solved: {why}": "해결되지 않고 닫힘: {why}",
   "Days after the due date": "기한 후 일수",
   "Decided: {decision}": "결정: {decision}",

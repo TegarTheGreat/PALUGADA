@@ -200,6 +200,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "已被唤回重新检查：它等待的东西现在可能已可用",
   "Check the prices now": "立即检查价格",
   "Closed without being solved.": "未解决即关闭。",
+  "Solved {when}, then opened again": "{when}已解决，之后又重新打开",
   "Closed without being solved: {why}": "未解决即关闭：{why}",
   "Days after the due date": "到期后的天数",
   "Decided: {decision}": "已决定：{decision}",

@@ -231,6 +231,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Dipuntimbali malih kangge mriksa malih: ingkang dipunentosi saged sampun lumampah",
   "Check the prices now": "Priksa rega saiki",
   "Closed without being solved.": "Dipuntutup tanpa dipunrampungaken.",
+  "Solved {when}, then opened again": "Dirampungake {when}, banjur dibukak maneh",
   "Closed without being solved: {why}": "Dipuntutup tanpa dipunrampungaken: {why}",
   "Days after the due date": "Dina sawise tenggat",
   "Decided: {decision}": "Dipuntetepaken: {decision}",

@@ -378,8 +378,17 @@ export interface TodoInput {
  *
  * The lesson is the first PALUGADA keeps from a failure: `keepLessons` in
  * tasks.ts learns only from work that completed. A semantic `decision`, for
- * the issue's division (or the whole company's, for a company-level issue),
- * so every run there is told what was decided and why.
+ * the issue's division, so every run there is told what was decided and why.
+ * A company-level issue the owner solved is the company's lesson. One an
+ * agent solved is kept at the division of the run that solved it: memory at
+ * company scope is given to every run in every division and is active at
+ * once, and an agent's word -- perhaps after reading a customer's email --
+ * has never been written there without the owner.
+ *
+ * The root cause and the decision are written on the `issue.solved` event
+ * too, since both columns are cleared if the issue is opened again (see
+ * `setTicketStatus`) and the memory row can be superseded by distillation:
+ * what was tried before stays on the record (`earlierSolves`).
  */
 export async function solveIssue(tx: TenantClient, input: {
   companyId: string;
@@ -411,6 +420,9 @@ export async function solveIssue(tx: TenantClient, input: {
   }
   if (input.todos.length === 0) {
     throw new PalugadaError('contract.violation', 'solving an issue needs at least one to-do that carries the decision out', { field: 'todos' });
+  }
+  if (input.solvedBy === 'agent' && !input.taskId) {
+    throw new PalugadaError('contract.violation', 'an agent solves an issue from a run: name the task that solved it', { field: 'taskId' });
   }
   const { rows: found } = await tx.query<RawTicket>(
     `SELECT ${COLUMNS} FROM tickets WHERE company_id = $1 AND id = $2 FOR NO KEY UPDATE`, [input.companyId, input.issueId]);
@@ -464,14 +476,21 @@ export async function solveIssue(tx: TenantClient, input: {
     companyId: input.companyId, projectId: solved.projectId,
     ...(input.taskId ? { taskId: input.taskId } : {}),
     type: 'issue.solved', actor: input.solvedBy === 'owner' ? 'owner' : 'agent_run',
-    payload: { ticketId: solved.id, todoIds: todos.map((one) => one.id) },
+    payload: { ticketId: solved.id, todoIds: todos.map((one) => one.id), rootCause, decision },
   });
 
+  let divisionId = solved.divisionId;
+  if (!divisionId && input.solvedBy === 'agent') {
+    const { rows: solver } = await tx.query<{ division_id: string }>(
+      'SELECT division_id FROM tasks WHERE company_id = $1 AND id = $2', [input.companyId, input.taskId]);
+    if (!solver[0]) throw new PalugadaError('contract.violation', `no task ${input.taskId} in this company`, { field: 'taskId' });
+    divisionId = solver[0].division_id;
+  }
   const lesson = `Issue: ${solved.title}\nRoot cause: ${rootCause}\nDecision: ${decision}`;
   await learn(tx, {
     companyId: input.companyId,
     memoryType: 'semantic',
-    ...(solved.divisionId ? { scopeType: 'division' as const, scopeId: solved.divisionId } : { scopeType: 'company' as const }),
+    ...(divisionId ? { scopeType: 'division' as const, scopeId: divisionId } : { scopeType: 'company' as const }),
     body: lesson.slice(0, MEMORY_BODY_MAX),
     source: input.solvedBy,
     factKind: 'decision',
@@ -539,7 +558,48 @@ export async function startTicket(tx: TenantClient, companyId: string, ticketId:
   });
 }
 
-/** The owner closes a ticket that is not wanted any more, or opens one again. */
+/** One time an issue was solved: why it happened, and what was decided. */
+export interface Solve {
+  rootCause: string;
+  decision: string;
+  solvedAt: Date;
+}
+
+/**
+ * The times each of these issues was solved before what it says now: every
+ * solve on the record, less the one a solved issue still shows. An issue
+ * opened again because its fix did not hold has its cause and decision
+ * cleared, so the CEO reading it again, and the owner on its page, see what
+ * was tried before -- and not a cause stated as if it were current. Read
+ * from `issue.solved` events, so kept as long as the event log is.
+ */
+export async function earlierSolves(tx: TenantClient, issues: readonly Ticket[]): Promise<Map<string, Solve[]>> {
+  const ids = issues.filter((one) => one.kind === 'issue').map((one) => one.id);
+  const found = new Map<string, Solve[]>(ids.map((id) => [id, []]));
+  if (ids.length === 0) return found;
+  const { rows } = await tx.query<{ ticket_id: string; root_cause: string; decision: string; occurred_at: Date }>(
+    `SELECT payload->>'ticketId' AS ticket_id, payload->>'rootCause' AS root_cause, payload->>'decision' AS decision, occurred_at
+       FROM events
+      WHERE type = 'issue.solved' AND payload->>'ticketId' = ANY($1::text[]) AND payload ? 'rootCause'
+      ORDER BY occurred_at, id`,
+    [ids]);
+  for (const row of rows) {
+    found.get(row.ticket_id)?.push({ rootCause: row.root_cause, decision: row.decision, solvedAt: row.occurred_at });
+  }
+  for (const issue of issues) {
+    if (issue.kind === 'issue' && issue.status === 'done') found.get(issue.id)?.pop();
+  }
+  return found;
+}
+
+/**
+ * The owner closes a ticket that is not wanted any more, or opens one again.
+ *
+ * A solved issue opened again, or closed, is no longer solved: its root cause
+ * and its decision are cleared, so it does not state a cause as if it were
+ * current, and the event that says so carries both as `earlier`. Before,
+ * opening it again deleted the decision and left the cause behind.
+ */
 export async function setTicketStatus(tx: TenantClient, companyId: string, ticketId: string, change: {
   status: 'open' | 'closed';
   reason?: string | null;
@@ -556,19 +616,24 @@ export async function setTicketStatus(tx: TenantClient, companyId: string, ticke
     throw new PalugadaError('contract.violation', 'priority is 0 (first) to 3 (last)', { field: 'priority' });
   }
   const closing = change.status === 'closed';
+  const unsolving = current.kind === 'issue' && current.status === 'done';
   const { rows } = await tx.query<RawTicket>(
     `UPDATE tickets
         SET status = CASE WHEN status = 'in_progress' THEN status ELSE $2 END,
             closed_at = CASE WHEN status = 'in_progress' THEN closed_at WHEN $3 THEN coalesce(closed_at, now()) ELSE NULL END,
             closed_reason = CASE WHEN $3 THEN $4 ELSE NULL END,
+            root_cause = CASE WHEN $6 THEN NULL ELSE root_cause END,
             priority = coalesce($5, priority),
             updated_at = now()
       WHERE id = $1 RETURNING ${COLUMNS}`,
-    [ticketId, change.status, closing, change.reason?.trim() || null, change.priority ?? null]);
+    [ticketId, change.status, closing, change.reason?.trim() || null, change.priority ?? null, unsolving]);
   const ticket = toTicket(rows[0]!);
   await appendEvent(tx, {
     companyId, projectId: ticket.projectId, type: closing ? 'ticket.closed' : 'ticket.reopened', actor: 'owner',
-    payload: { ticketId, reason: ticket.closedReason },
+    payload: {
+      ticketId, reason: ticket.closedReason,
+      ...(unsolving ? { earlier: { rootCause: current.rootCause, decision: current.closedReason } } : {}),
+    },
   });
   // A hire closed on the board is answered: its card in the inbox goes with it.
   if (closing && ticket.kind === 'hire') {

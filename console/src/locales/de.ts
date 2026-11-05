@@ -214,6 +214,7 @@ export const DICTIONARY: Dictionary = {
   "Called back to look again: what it was waiting for may work now": "Zurückgeholt, um erneut nachzusehen: Worauf sie gewartet hat, funktioniert jetzt vielleicht",
   "Check the prices now": "Preise jetzt prüfen",
   "Closed without being solved.": "Ohne Lösung geschlossen.",
+  "Solved {when}, then opened again": "Gelöst {when}, dann wieder geöffnet",
   "Closed without being solved: {why}": "Ohne Lösung geschlossen: {why}",
   "Days after the due date": "Tage nach Fälligkeit",
   "Decided: {decision}": "Entschieden: {decision}",

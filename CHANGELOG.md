@@ -771,3 +771,11 @@ The first version. What it holds, in the order an owner meets it.
 - The board's Issues and To-dos filters, and "filed by PALUGADA" on what the platform filed. Archives carry issues
   and to-dos whole, with the card each came from and the seat each names mapped to the restored company
   (STATUS 2.193).
+- An issue you open again on the board is not solved any more: it no longer shows the old root cause as if it were
+  current, and its page keeps each earlier root cause and decision as what was tried before. The CEO reading the
+  board sees the same (STATUS 2.193).
+- A to-do whose seat will not take it (a frozen seat, an archived project, or a paused month or spent budget three
+  times running) goes to the CEO to hand on, saying why, instead of being asked of the seat every ten minutes with
+  nobody told (STATUS 2.193).
+- A decision the CEO reaches on an issue of the whole company is kept for the CEO's own division, not for every
+  division: only what you decide is kept company-wide (STATUS 2.193).

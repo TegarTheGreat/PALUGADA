@@ -94,7 +94,7 @@ import { searchEverywhere } from './search.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { TICKET_STATUSES, assertHandedOutAsWork, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
+import { TICKET_STATUSES, assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
@@ -4229,7 +4229,9 @@ export class OwnerApi {
           const todos = ticket.kind === 'issue'
             ? await listTickets(tx, { status: 'all', solvesTicketId: ticket.id, limit: 100 })
             : [];
-          return { ticket, todos };
+          // What was decided before it was opened again, which the issue no longer says.
+          const earlier = (await earlierSolves(tx, [ticket])).get(ticket.id) ?? [];
+          return { ticket, todos, earlierSolves: earlier };
         }),
       },
 

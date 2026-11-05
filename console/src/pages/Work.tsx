@@ -603,22 +603,27 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
   );
 }
 
-/** Which capability an event is about, when it is about one. */
 /**
  * How the work came to carry outside content, where it is not a capability's
- * name: handed down, rerun, given a run's ticket or an escalation about
- * tainted work, or told a lesson learned from outside. In the owner's
- * language, like the sentence around it.
+ * name: handed down, rerun, given a run's ticket or tickets to triage or an
+ * escalation about tainted work, handed a week or a month whose records
+ * outside work wrote, or told a lesson learned from outside. In the owner's
+ * language, like the sentence around it; `console-events.test.ts` reads the
+ * server for every way it writes.
  */
 function outsideLabel(name: string): string {
   if (name === 'the task that made it') return t('the task that made it');
   if (name === 'the task it reruns') return t('the task it reruns');
   if (name === 'the ticket it was given') return t('the ticket it was given');
+  if (name === 'the tickets it was given') return t('the tickets it was given');
   if (name === 'the escalation it was given') return t('the escalation it was given');
+  if (name === 'the week it was handed') return t('the week it was handed');
+  if (name === 'the month it was handed') return t('the month it was handed');
   if (name === 'memory') return t('a lesson learned from outside');
   return name;
 }
 
+/** Which capability an event is about, when it is about one. */
 function capabilityOf(event: { payload: Record<string, unknown> }): string | null {
   return typeof event.payload.capability === 'string' ? capabilitySaid(event.payload.capability) : null;
 }

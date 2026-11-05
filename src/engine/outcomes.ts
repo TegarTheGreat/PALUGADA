@@ -289,7 +289,7 @@ function briefFor(owed: Owed, readers: Array<{ slug: string; self: boolean }>, l
   if (owed.state === 'reached') {
     state = 'The latest checked reading is at or past the target. Ask the owner once, with owner.ask, whether the goal is done: '
       + 'give the figure and its date, and offer "Close the goal", "Raise the target" and "Carry on". '
-      + "Their answer is for your report: closing the goal or raising the target is the owner's, on the Goals page, "
+      + "Their answer is for your report: closing the goal or raising the target is the owner's, under Team, Goals in the console, "
       + 'and you cannot do either.';
   } else if (owed.state === 'overdue') {
     const unread = !read || days > STALE_AFTER_DAYS;

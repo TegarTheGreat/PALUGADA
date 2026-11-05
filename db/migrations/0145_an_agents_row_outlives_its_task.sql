@@ -1,0 +1,23 @@
+-- A ticket an agent filed and a reading an agent recorded outlive the task
+-- that made them (F11.5, F18.2, F18.4; docs/STATUS.md 2.93 and 2.193).
+--
+-- Both name the task they came from, and both keys let go of it when the
+-- task is removed (`ON DELETE SET NULL`), which is what retention does to
+-- finished work past its windows (0105): what a ticket or a measure
+-- remembered of a task is kept, without the link. Each table also had a
+-- CHECK that an agent's row names its task (`tickets_agent_has_task`, 0070
+-- and 0139; `metric_observations_agent_has_task`, 0053), so the key's own
+-- SET NULL wrote a row the CHECK refused, and the purge failed. Once one
+-- such task aged out, the company's retention failed on every pass and
+-- nothing more was removed. F18 makes those rows routine: every to-do the
+-- weekly meeting files is an agent's, from the meeting's task, and the
+-- seats record their scorecard from their runs.
+--
+-- The rule is about where a row came from when it was written, so it is
+-- checked there, by the code that writes it (`openTicket` in
+-- src/engine/tickets.ts and `recordObservation` in src/domain/metrics.ts),
+-- and it no longer holds a row to a task retention has since removed. An
+-- archive written after such a purge carries the row without its task, and
+-- the import restores it as it is.
+ALTER TABLE tickets DROP CONSTRAINT tickets_agent_has_task;
+ALTER TABLE metric_observations DROP CONSTRAINT metric_observations_agent_has_task;

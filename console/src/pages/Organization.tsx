@@ -30,6 +30,7 @@ import { CHANNELS, channelName } from '../channels.ts';
 import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics, type MetricTeam } from '../components/Metrics.tsx';
 import { Scorecard } from '../components/Scorecard.tsx';
+import { HeadlineChooser } from '../components/Headline.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects, useWorkLanguage } from '../components/Projects.tsx';
@@ -71,6 +72,12 @@ export function Organization({ ctx, route }: PageProps) {
   const { structure, schedules } = view.data;
   const openRole = role ? structure.roles.find((one) => one.id === role.id) ?? null : null;
   const openDivision = division ? structure.divisions.find((one) => one.id === division.id) ?? null : null;
+  // A change to a measure can let go of the headline, which the company's
+  // card in the portfolio shows; so the companies are read again with the page.
+  const changedHeadline = () => {
+    view.reload();
+    void ctx.refreshCompanies();
+  };
 
   return (
     <Stack gap="lg">
@@ -96,11 +103,22 @@ export function Organization({ ctx, route }: PageProps) {
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
-          <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={view.reload}
-            team={{ roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics) }} />
+          <Stack gap="lg">
+            {/* Keyed by the saved choice: when the database lets go of the
+                headline (its measure retired, or put on the scorecard, from
+                the ladder below or the Scorecard tab), the chooser starts
+                again from what is saved rather than holding the old one. */}
+            <HeadlineChooser key={structure.headlineMetricId ?? 'inferred'} companyId={companyId} company={ctx.company}
+              structure={structure} changed={changedHeadline} />
+            <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={changedHeadline}
+              team={{
+                roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics),
+                headlineMetricId: structure.headlineMetricId,
+              }} />
+          </Stack>
         </Tabs.Panel>
         <Tabs.Panel value="scorecard">
-          <Scorecard companyId={companyId} structure={structure} changed={view.reload} />
+          <Scorecard companyId={companyId} structure={structure} changed={changedHeadline} />
         </Tabs.Panel>
         <Tabs.Panel value="projects">
           <Projects companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />

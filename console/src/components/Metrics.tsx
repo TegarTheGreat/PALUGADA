@@ -9,18 +9,22 @@
  * A measure may be a line on the weekly scorecard (0137), owned by a seat and
  * paired with the measure that would suffer if it were pushed; the forms here
  * set all three, and say so when a key result's count has nothing watching it.
+ *
+ * A measure may name the funnel step it counts (0142), which the weekly
+ * scorecard groups its lines by, and one measure may be the company's
+ * headline, which its line says.
  */
 import { useState } from 'react';
 import {
   Alert, Badge, Button, Group, Modal, NumberInput, Progress, Select, SimpleGrid, Stack, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconCalendarWeek, IconCircleCheck, IconLink, IconPlus } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCalendarWeek, IconCircleCheck, IconFilter, IconLink, IconPlus, IconStar } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
-import { locale, t } from '../i18n.ts';
+import { N, locale, t } from '../i18n.ts';
 import { numberSeparators, relative, roleLabel } from '../format.ts';
-import type { Goal, Metric, Role } from '../types.ts';
+import type { FunnelStep, Goal, Metric, Role } from '../types.ts';
 import { rhythmChanges, rhythmOf, type Rhythm } from '../rhythm.ts';
 
 /**
@@ -30,6 +34,32 @@ import { rhythmChanges, rhythmOf, type Rhythm } from '../rhythm.ts';
 export interface MetricTeam {
   roles: Role[];
   metrics: Metric[];
+  /** The measure the owner chose as the company's headline (0142), which its line says. */
+  headlineMetricId?: string | null;
+}
+
+/** McClure's funnel steps, in the order a customer goes through them, as the owner reads them. */
+export const FUNNEL_STEPS: ReadonlyArray<{ step: FunnelStep; label: string }> = [
+  { step: 'acquisition', label: N('Acquisition') },
+  { step: 'activation', label: N('Activation') },
+  { step: 'retention', label: N('Customer retention') },
+  { step: 'referral', label: N('Referral') },
+  { step: 'revenue', label: N('Revenue') },
+];
+
+/** A funnel step's name, in the console's language. */
+export function funnelStepName(step: FunnelStep): string {
+  return t(FUNNEL_STEPS.find((one) => one.step === step)!.label);
+}
+
+/** Which step of the funnel a measure counts, or none (0142). */
+function FunnelStepField({ value, onChange }: { value: FunnelStep | null; onChange: (next: FunnelStep | null) => void }) {
+  return (
+    <Select label={t('Funnel step')} placeholder={t('Not a funnel number')} clearable value={value}
+      description={t('The step of the funnel it counts: the weekly scorecard reads its lines from acquisition to revenue.')}
+      onChange={(next) => onChange((next as FunnelStep | null) ?? null)}
+      data={FUNNEL_STEPS.map((one) => ({ value: one.step, label: t(one.label) }))} />
+  );
 }
 
 /**
@@ -62,6 +92,14 @@ export function MetricLine({ metric, companyId, changed, team, goalKind }: {
         <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
           <Text size="sm" fw={600} truncate>{metric.name}</Text>
           {metric.retiredAt && <Badge size="xs" variant="light" color="gray">{t('retired')}</Badge>}
+          {team?.headlineMetricId === metric.id && (
+            <Tooltip label={t('The number the company is judged by: the portfolio shows it, and every run is told it.')}>
+              <Badge size="xs" variant="light" color="yellow" leftSection={<IconStar size={10} />}>{t('Headline')}</Badge>
+            </Tooltip>
+          )}
+          {metric.funnelStep && (
+            <Badge size="xs" variant="outline" color="grape" leftSection={<IconFilter size={10} />}>{funnelStepName(metric.funnelStep)}</Badge>
+          )}
           {metric.reviewEvery === 'week' && !metric.retiredAt && (
             <Tooltip label={t('On the weekly scorecard: the target is the goal for each week.')}>
               <Badge size="xs" variant="light" color="blue" leftSection={<IconCalendarWeek size={10} />}>{t('Weekly')}</Badge>
@@ -177,6 +215,7 @@ export function ChangeMetric({ companyId, metric, opened, close, done, team, goa
   const [target, setTarget] = useState<number | string>(metric.target);
   const [baseline, setBaseline] = useState<number | string>(metric.baseline);
   const [dueOn, setDueOn] = useState(metric.dueOn ?? '');
+  const [funnelStep, setFunnelStep] = useState<FunnelStep | null>(metric.funnelStep);
   const [error, setError] = useState<string | null>(null);
   const send = async (body: Record<string, unknown>, message: string) => {
     setError(null);
@@ -200,6 +239,7 @@ export function ChangeMetric({ companyId, metric, opened, close, done, team, goa
           <NumberInput label={t('Target')} value={target} onChange={setTarget} allowDecimal {...numberSeparators()} />
         </SimpleGrid>
         <TextInput label={t('By')} type="date" value={dueOn} onChange={(e) => setDueOn(e.currentTarget.value)} />
+        <FunnelStepField value={funnelStep} onChange={setFunnelStep} />
         {team && <RhythmFields value={rhythm} onChange={setRhythm} team={team} self={metric.id} unit={metric.unit} {...(goalKind ? { goalKind } : {})} />}
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group justify="space-between">
@@ -209,7 +249,10 @@ export function ChangeMetric({ companyId, metric, opened, close, done, team, goa
           <Group gap="xs">
             <Button variant="default" onClick={close}>{t('Cancel')}</Button>
             <Button disabled={!name.trim() || target === ''} onClick={() => void send(
-              { name, target: Number(target), baseline: Number(baseline), dueOn: dueOn || null, ...(team ? rhythmChanges(started, rhythm) : {}) },
+              {
+                name, target: Number(target), baseline: Number(baseline), dueOn: dueOn || null, funnelStep,
+                ...(team ? rhythmChanges(started, rhythm) : {}),
+              },
               t('Changed. Agents working on this goal are told the new figure.'),
             )}>{t('Save')}</Button>
           </Group>
@@ -270,6 +313,7 @@ export function AddMetric({ companyId, goal, goals, weekly, team, opened, close,
   const [target, setTarget] = useState<number | string>('');
   const [dueOn, setDueOn] = useState('');
   const [source, setSource] = useState('');
+  const [funnelStep, setFunnelStep] = useState<FunnelStep | null>(null);
   const [error, setError] = useState<string | null>(null);
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 
@@ -280,6 +324,7 @@ export function AddMetric({ companyId, goal, goals, weekly, team, opened, close,
       await api('POST', `/api/companies/${companyId}/goals/${under.id}/metrics`, {
         slug, name, unit, direction, baseline: Number(baseline), target: Number(target),
         ...(dueOn ? { dueOn } : {}), ...(source ? { sourceCapability: source } : {}),
+        ...(funnelStep ? { funnelStep } : {}),
         ...(team ? rhythm : {}),
       });
       notifications.show({ color: 'teal', message: t('Metric added. Agents working on this goal will be told it.') });
@@ -311,6 +356,7 @@ export function AddMetric({ companyId, goal, goals, weekly, team, opened, close,
           <TextInput label={t('By')} type="date" value={dueOn} onChange={(e) => setDueOn(e.currentTarget.value)} />
           <TextInput label={t('Read from')} description={t('The capability whose answer is this number, if there is one')} placeholder="ledger.read" value={source} onChange={(e) => setSource(e.currentTarget.value)} />
         </SimpleGrid>
+        <FunnelStepField value={funnelStep} onChange={setFunnelStep} />
         {team && <RhythmFields value={rhythm} onChange={setRhythm} team={team} unit={unit} {...(under ? { goalKind: under.kind } : {})} />}
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group justify="flex-end">

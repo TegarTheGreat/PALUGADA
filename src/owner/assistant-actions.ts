@@ -455,6 +455,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       reviewEvery: 'optional: week puts it on the weekly scorecard, its target then the weekly goal; null takes it off',
       ownerRoleId: 'optional: the id of the role (seat) that answers for it, from GET /api/companies/:companyId/structure; null for none',
       pairedWith: 'optional: the id of the measure to watch it with, the one that would suffer if this were pushed; null to unpair',
+      funnelStep: 'optional: the funnel step it counts -- acquisition, activation, retention, referral or revenue; null for none',
     },
     factor: 'always',
   },
@@ -467,7 +468,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       reviewEvery: 'optional: week puts it on the weekly scorecard, and the target is then the weekly goal',
       ownerRoleId: 'optional: the id of the role (seat) that answers for it',
       pairedWith: 'optional: the id of a measure with no pair yet to watch it with, the one that would suffer if this were pushed; re-pairing a measure that has a pair is a change to that measure',
+      funnelStep: 'optional: the funnel step it counts -- acquisition, activation, retention, referral or revenue',
     },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/headline',
+    what: 'Choose the one number the company is judged by: the portfolio shows it on the company\'s card and every run is told it. A measure aimed at a target, not a weekly scorecard line or a retired one. Say so when it has no pair: a number nothing watches is easy to buy with something else.',
+    fields: { metricId: 'the id of the measure, from GET /api/companies/:companyId/structure (goals[].metrics); null to let the portfolio infer it again' },
     factor: 'never',
   },
   {

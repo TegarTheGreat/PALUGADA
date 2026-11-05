@@ -549,6 +549,15 @@ export async function importCompany(
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
 
+    // The headline the owner chose (0142), once its measure is here: the
+    // company row was written before any measure, and the key needs one. An
+    // archive from before it, or one whose measure did not travel, has none,
+    // and the portfolio infers it as for any company.
+    const headline = typeof source!.headline_metric_id === 'string' ? remap.get(source!.headline_metric_id) : undefined;
+    if (headline) {
+      await tx.query('UPDATE companies SET headline_metric_id = $2 WHERE id = $1', [companyId, headline]);
+    }
+
     await taskKeysFromArchive(tx, companyId, remap);
     await periodsFromHistory(tx, companyId, bySection.get('events') ?? [], remap);
     await requireLocalVouching(tx, companyId);

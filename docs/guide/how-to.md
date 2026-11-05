@@ -2134,3 +2134,46 @@ is. If you had not changed its tools, the upgrade traded them and kept a
 version you can roll back to under **Team**. The management division still
 holds the draft's grant, so you can give the CEO `doc.draft` back there in
 place of another tool.
+
+### Choose the headline metric, and name each measure's funnel step
+
+The headline metric is the one number the company is judged by, after the
+north star metric as Sean Ellis describes it. Funnel steps place a measure
+in the five steps of Dave McClure's *Startup Metrics for Pirates*:
+acquisition, activation, retention, referral and revenue.
+
+1. Open **Team**, then **Goals**. At the top, under **Headline metric**,
+   choose **The number the company is judged by** from the company's
+   measures, and press **Save**. Only a measure aimed at a target is
+   offered. A weekly scorecard line has a goal for each week rather than a
+   target, so it is not offered, and neither is a retired measure. Until you
+   choose one, the portfolio shows the first measure on the highest goal,
+   and the box says which one that is.
+2. Pair it. A number you can move directly is easy to buy with something
+   nobody watches: more orders bought with discounts, more sign-ups that
+   leave within a month. The box warns while nothing is paired with it. On
+   the measure, press **Change** and choose the measure under **Watched
+   with**. The company's card on the portfolio marks a chosen headline that
+   is not paired.
+3. From then on the portfolio shows that number on the company's card, and
+   every run is told it with its pair and where both stand, so a run can say
+   whether its work moved it. The measure's line on its goal says
+   **Headline**. Clear the box and press **Save** to let the portfolio infer
+   it again. Retiring the measure, putting it on the weekly scorecard or
+   deleting it clears the choice too. When you retire it or put it on the
+   scorecard, the company's history says **The company's headline metric
+   was let go**.
+4. To name a measure's funnel step, choose it under **Funnel step** when you
+   add the measure, or press **Change** on it. Leave it empty for a number
+   that is not part of the funnel, such as complaints or cash. On the weekly
+   scorecard, once a line names a step, the lines are grouped by step from
+   acquisition to revenue, so the funnel reads from the top. A pair stays
+   together under the step the funnel reaches first.
+
+McClure's example conversion rates are his illustrations, labelled not
+actuals, and PALUGADA does not use them as targets. Your targets are yours to
+set.
+
+From a script, `POST /api/companies/:companyId/headline` takes `metricId`, or
+`null` to clear it. The measure routes take `funnelStep` as one of
+`acquisition`, `activation`, `retention`, `referral` or `revenue`, or `null`.

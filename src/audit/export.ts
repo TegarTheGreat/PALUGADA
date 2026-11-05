@@ -68,7 +68,14 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { name: 'company', sql: 'SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian, meeting_weekday, meeting_hour, meeting_enabled FROM companies' },
+  {
+    name: 'company',
+    // With the measure the owner chose as its headline (0142), which the
+    // import maps once the measures are restored.
+    sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
+                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id
+            FROM companies`,
+  },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at, work_language FROM projects ORDER BY created_at' },
   {
     name: 'divisions',
@@ -106,9 +113,11 @@ const SECTIONS: Section[] = [
   {
     name: 'goal_metrics',
     // With its place on the weekly scorecard (0137): how often it is
-    // reviewed, the seat that owns it, and the measure it is watched with.
+    // reviewed, the seat that owns it, and the measure it is watched with;
+    // and the funnel step it counts (0142).
     sql: `SELECT id, goal_id, slug, name, unit, direction, baseline, target, due_on,
-                 source_capability, created_at, retired_at, review_every, owner_role_id, paired_metric_id
+                 source_capability, created_at, retired_at, review_every, owner_role_id, paired_metric_id,
+                 funnel_step
             FROM goal_metrics ORDER BY created_at`,
   },
   {

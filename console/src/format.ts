@@ -276,6 +276,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'company.closing': N('The company is being closed'),
   'company.kept': N('The company was kept, not closed'),
   'company.stage_changed': N('The company moved to another stage'),
+  'company.headline_chosen': N('The company\'s headline metric was chosen'),
+  'company.headline_let_go': N('The company\'s headline metric was let go'),
   'config.restored': N('An earlier setting was restored'),
   'content.read_outside': N('Read content from outside the company'),
   'cost.drift': N('A capability cost more than estimated'),

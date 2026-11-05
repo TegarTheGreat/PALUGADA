@@ -17,14 +17,23 @@ export interface Company {
   guardian: boolean;
   /** Where the company is in its life (0057); null until the owner sets one. */
   stage: Stage | null;
-  /** The first metric on its highest active goal, or null when nothing is measured yet. */
+  /**
+   * The number it is judged by: the measure the owner chose (0142), or, until
+   * they choose one, the first metric on its highest active goal; null when
+   * nothing is measured yet.
+   */
   headline: {
+    metricId: string;
     name: string;
     unit: Metric['unit'];
     target: number;
     value: number | null;
     verified: boolean | null;
     progress: number | null;
+    /** Whether the owner chose it; false when it is inferred. */
+    chosen: boolean;
+    /** The measure it is watched with; null when nothing watches it. */
+    pair: { id: string; name: string } | null;
   } | null;
   /** The role the owner talks to (0068); null only while the company has no roles. */
   ceo: { roleId: string; slug: string; displayName: string | null } | null;
@@ -217,7 +226,12 @@ export interface Metric {
   ownerRoleSlug: string | null;
   /** The measure it is watched with, which names this one back. */
   pairedWith: string | null;
+  /** The step of the funnel it counts (0142), or null. */
+  funnelStep: FunnelStep | null;
 }
+
+/** McClure's funnel, in the order a customer goes through it (src/domain/metrics.ts `FUNNEL_STEPS`). */
+export type FunnelStep = 'acquisition' | 'activation' | 'retention' | 'referral' | 'revenue';
 
 /** Where a week of a scorecard line stands; `claimed` is an agent's number nobody read from its source. */
 export type WeekState = 'on_track' | 'off_track' | 'claimed' | 'not_reported';
@@ -239,6 +253,9 @@ export interface Scorecard {
     ownerRole: { id: string; slug: string; displayName: string | null; title: string | null } | null;
     pairedWith: string | null;
     pair: { id: string; slug: string; name: string } | null;
+    funnelStep: FunnelStep | null;
+    /** The step it is read under: its own, or its partner's for the second of a pair drawn together. */
+    group: FunnelStep | null;
     weeks: Array<{ week: string; value: number | null; verified: boolean | null; state: WeekState }>;
     state: WeekState;
   }>;
@@ -326,6 +343,8 @@ export interface Structure {
     /** Open key results, by goal id, that no seat answers for. */
     keyResultsWithoutSeat: string[];
   };
+  /** The measure the owner chose as the company's headline (0142); null while it is inferred. */
+  headlineMetricId: string | null;
 }
 
 export type WorkGroup = 'active' | 'waiting' | 'done' | 'stopped';

@@ -555,8 +555,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} 是一项必达的优先事项，截止日期为 {due}。它的数字只完成了 {progress}，而周期已过去 {elapsed}。',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     '没有为追赶而做任何改变，也没有要求任何代理去追赶：一个落后于时间的必达数字会诱使人采取更冒险的行动来弥补，而是否承担这种风险由你决定。请决定是推迟日期、降低目标、改为挑战目标，还是让它继续进行并接受未达成。',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    '无论你如何回答，都不会停止任何事情。该优先事项保持不变，并在周期结束时评分；如果你决定修改，请在目标页面上修改。',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    '无论你如何回答，都不会停止任何事情。该优先事项保持不变，并在周期结束时评分；如果你决定修改，请在 团队、目标 中修改。',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': '我们的价值观',
   'Purpose and niche': '使命与细分市场',

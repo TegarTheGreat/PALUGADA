@@ -581,7 +581,7 @@ export function offPaceCard(reading: OwnerReading, facts: {
       seatSaid(language, facts.seat),
       say(language, 'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.'),
     ].join('\n\n'),
-    consequence: say(language, 'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.'),
+    consequence: say(language, 'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.'),
   };
 }
 

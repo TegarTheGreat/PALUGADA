@@ -465,10 +465,15 @@ export type CoreProcessWarning =
   | { kind: 'not_in_force'; slug: string; reason: 'quarantined' | 'not_active' }
   | { kind: 'division_cannot_read'; slug: string; roleId: string };
 
+/**
+ * A core process as the structure carries it, and the plan page reads it:
+ * without the skill's summary, which the structure leaves out because a
+ * skill's author wrote it (structureOf in src/owner/views.ts). The Skills page
+ * reads the summary from /skills.
+ */
 export interface CoreProcess {
   skillId: string;
   slug: string;
-  summary: string;
   ownerRoleId: string;
   ownerRole: string;
   divisionId: string;

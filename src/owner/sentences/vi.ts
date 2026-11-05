@@ -560,8 +560,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} là một ưu tiên cam kết, hạn vào {due}. Các con số của nó mới đi được {progress} chặng đường, trong khi {elapsed} thời gian của nó đã trôi qua.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'Không có gì được thay đổi để đuổi kịp, và không agent nào được yêu cầu làm vậy: một con số cam kết chậm so với thời gian dễ dẫn tới hành động rủi ro hơn để bù lại, và có chấp nhận rủi ro đó hay không là quyết định của bạn. Hãy quyết định dời ngày, hạ mục tiêu, chuyển nó thành tham vọng, hay để nó chạy tiếp và trượt.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'Dù trả lời thế nào cũng không có gì bị dừng. Ưu tiên vẫn như cũ và được chấm điểm khi giai đoạn kết thúc; hãy thay đổi nó ở trang Mục tiêu nếu bạn quyết định vậy.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Dù trả lời thế nào cũng không có gì bị dừng. Ưu tiên vẫn như cũ và được chấm điểm khi giai đoạn kết thúc; hãy thay đổi nó trong Đội ngũ, Mục tiêu nếu bạn quyết định vậy.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'Giá trị của chúng tôi',
   'Purpose and niche': 'Mục đích và thị trường ngách',

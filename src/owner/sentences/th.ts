@@ -559,8 +559,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} เป็นลำดับความสำคัญที่ให้คำมั่นไว้ ครบกำหนดวันที่ {due} ตัวเลขของมันไปได้เพียง {progress} ของทาง ขณะที่เวลาผ่านไปแล้ว {elapsed} ของช่วงเวลา',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'ไม่มีการเปลี่ยนแปลงใดเพื่อเร่งตามให้ทัน และไม่มีเอเจนต์ใดถูกขอให้ทำ ตัวเลขที่ให้คำมั่นไว้ซึ่งช้ากว่าเวลาชวนให้ใช้วิธีที่เสี่ยงขึ้นเพื่อชดเชย และการรับความเสี่ยงนั้นหรือไม่เป็นการตัดสินใจของคุณ ตัดสินใจว่าจะเลื่อนวัน ลดเป้า เปลี่ยนเป็นแบบมุ่งหวังสูง หรือปล่อยให้ดำเนินต่อไปและพลาด',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'ไม่ว่าคำตอบจะเป็นอย่างไรก็ไม่มีสิ่งใดหยุด ลำดับความสำคัญยังคงเดิมและจะได้รับคะแนนเมื่อช่วงเวลาสิ้นสุด เปลี่ยนได้ที่หน้าเป้าหมายหากคุณตัดสินใจเช่นนั้น',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'ไม่ว่าคำตอบจะเป็นอย่างไรก็ไม่มีสิ่งใดหยุด ลำดับความสำคัญยังคงเดิมและจะได้รับคะแนนเมื่อช่วงเวลาสิ้นสุด เปลี่ยนได้ที่ ทีม, เป้าหมาย หากคุณตัดสินใจเช่นนั้น',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'ค่านิยมของเรา',
   'Purpose and niche': 'จุดมุ่งหมายและตลาดเฉพาะ',

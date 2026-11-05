@@ -554,8 +554,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} nyaéta prioritas anu kedah kahontal, watesna {due}. Angka-angkana nembé dugi ka {progress} tina jalanna, padahal {elapsed} tina periodena parantos kalangkung.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'Teu aya anu dirobih pikeun ngudag, sarta teu aya agén anu dipénta: angka wajib anu katinggaleun waktuna ngondang tindakan anu langkung picilakaeun pikeun nutupanana, sarta naha résiko éta dicandak téh kaputusan anjeun. Putuskeun naha tanggalna dimundurkeun, targétna diturunkeun, didamel aspirasional, atanapi diantep lumangsung sarta lepat.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'Teu aya anu dieureunkeun, naon waé waleranana. Prioritas éta tetep sakumaha ayana sarta dipeunteun nalika periodena réngsé; robih di kaca Udagan upami anjeun mutuskeunana.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Teu aya anu dieureunkeun, naon waé waleranana. Prioritas éta tetep sakumaha ayana sarta dipeunteun nalika periodena réngsé; robih di Tim, Udagan upami anjeun mutuskeunana.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'Ajén-ajén urang',
   'Purpose and niche': 'Tujuan sareng ceruk',

@@ -556,8 +556,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} is een toegezegde prioriteit met einddatum {due}. De cijfers zijn pas {progress} van de weg gekomen, terwijl {elapsed} van de periode voorbij is.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'Er is niets veranderd om in te halen, en geen agent wordt dat gevraagd: een toegezegd getal dat achterloopt op zijn tijd nodigt uit tot riskanter handelen om het goed te maken, en of dat risico genomen wordt, beslis jij. Beslis of de datum opschuift, het doel omlaag gaat, het ambitieus wordt, of dat het doorloopt en gemist wordt.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'Er stopt niets, wat je ook antwoordt. De prioriteit blijft zoals ze is en krijgt een cijfer als haar periode eindigt; pas haar aan op de pagina Doelen als je dat besluit.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Er stopt niets, wat je ook antwoordt. De prioriteit blijft zoals ze is en krijgt een cijfer als haar periode eindigt; pas haar aan onder Team, Doelen als je dat besluit.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'Onze waarden',
   'Purpose and niche': 'Doel en niche',

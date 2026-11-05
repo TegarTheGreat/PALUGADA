@@ -555,8 +555,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} ialah keutamaan wajib dicapai yang berakhir pada {due}. Angkanya baru sampai {progress} daripada perjalanannya, sedangkan {elapsed} daripada tempohnya sudah berlalu.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'Tiada apa yang diubah untuk mengejarnya, dan tiada ejen yang diminta: angka wajib yang ketinggalan masa mengundang tindakan yang lebih berisiko untuk menebusnya, dan sama ada risiko itu diambil ialah keputusan anda. Putuskan sama ada tarikhnya dianjakkan, sasarannya diturunkan, dijadikan aspirasi, atau dibiarkan berjalan dan terlepas.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'Tiada apa yang dihentikan, apa pun jawapannya. Keutamaan itu kekal seperti sedia ada dan dinilai apabila tempohnya berakhir; ubah di halaman Matlamat jika anda memutuskannya.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Tiada apa yang dihentikan, apa pun jawapannya. Keutamaan itu kekal seperti sedia ada dan dinilai apabila tempohnya berakhir; ubah di Pasukan, Matlamat jika anda memutuskannya.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'Nilai-nilai kami',
   'Purpose and niche': 'Tujuan dan ceruk pasaran',

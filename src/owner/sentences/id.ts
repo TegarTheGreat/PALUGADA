@@ -550,8 +550,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} adalah prioritas wajib tercapai yang jatuh tempo pada {due}. Angka-angkanya baru sampai {progress} dari jalannya, sementara {elapsed} dari periodenya sudah lewat.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'Tidak ada yang diubah untuk mengejarnya, dan tidak ada agen yang diminta: angka wajib yang tertinggal dari waktunya mengundang tindakan yang lebih berisiko untuk menutupnya, dan apakah risiko itu diambil adalah keputusan Anda. Putuskan apakah tanggalnya dimundurkan, targetnya diturunkan, dijadikan aspirasional, atau dibiarkan berjalan dan meleset.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'Tidak ada yang dihentikan, apa pun jawabannya. Prioritas itu tetap seperti adanya dan dinilai ketika periodenya berakhir; ubah di halaman Sasaran jika Anda memutuskannya.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Tidak ada yang dihentikan, apa pun jawabannya. Prioritas itu tetap seperti adanya dan dinilai ketika periodenya berakhir; ubah di Tim, Sasaran jika Anda memutuskannya.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'Nilai-nilai kami',
   'Purpose and niche': 'Tujuan dan ceruk',

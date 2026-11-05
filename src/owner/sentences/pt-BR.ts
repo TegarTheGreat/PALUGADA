@@ -555,8 +555,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement} é uma prioridade comprometida que vence em {due}. Seus números percorreram {progress} do caminho, com {elapsed} do período já passado.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     'Nada foi mudado para recuperar o atraso, e nenhum agente foi solicitado a isso: um número comprometido atrasado em relação ao tempo convida a ações mais arriscadas para compensar, e assumir esse risco cabe a você. Decida se adia a data, reduz a meta, a torna aspiracional ou deixa seguir e não ser cumprida.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    'Nada é interrompido, seja qual for a resposta. A prioridade continua como está e recebe nota quando o período terminar; altere-a na página de Metas se decidir.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Nada é interrompido, seja qual for a resposta. A prioridade continua como está e recebe nota quando o período terminar; altere-a em Equipe, Metas se decidir.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': 'Nossos valores',
   'Purpose and niche': 'Propósito e nicho',

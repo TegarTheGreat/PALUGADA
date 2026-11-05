@@ -861,6 +861,8 @@ export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
  */
 export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
   '/api/companies',
+  // Its core processes come by slug, seat and numbers, without the skill's
+  // summary (structureOf), which an agent or a publisher wrote.
   '/api/companies/:companyId/structure',
   // Names the owner gave and numbers: the same measures the structure carries.
   '/api/companies/:companyId/scorecard',

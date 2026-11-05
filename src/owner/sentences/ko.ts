@@ -554,8 +554,8 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '{statement}은(는) 기한이 {due}인 필달 우선순위입니다. 수치는 {progress}까지밖에 오지 않았는데 기간은 {elapsed}가 지났습니다.',
   'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
     '따라잡기 위해 바꾼 것은 없으며 어떤 에이전트에게도 요청하지 않았습니다. 시간보다 뒤처진 필달 수치는 만회하려고 더 위험한 행동을 부르기 쉽고, 그런 위험을 질지는 당신이 결정합니다. 날짜를 미룰지, 목표를 낮출지, 도전 목표로 바꿀지, 그대로 두고 미달을 받아들일지 결정하세요.',
-  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
-    '어느 쪽으로 답해도 멈추는 것은 없습니다. 우선순위는 그대로이며 기간이 끝나면 채점됩니다. 바꾸기로 했다면 목표 페이지에서 바꾸세요.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    '어느 쪽으로 답해도 멈추는 것은 없습니다. 우선순위는 그대로이며 기간이 끝나면 채점됩니다. 바꾸기로 했다면 팀, 목표에서 바꾸세요.',
   // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
   'Our values': '우리의 가치',
   'Purpose and niche': '목적과 틈새',

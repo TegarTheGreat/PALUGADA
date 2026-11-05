@@ -553,4 +553,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'No se cambió nada para alcanzarla, y no se le pide a ningún agente que lo haga: un número comprometido que va por detrás de su tiempo invita a actuar con más riesgo para recuperarlo, y asumir ese riesgo te corresponde a ti. Decide si mueves la fecha, bajas el objetivo, la haces aspiracional o la dejas seguir y no cumplirse.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'Nada se detiene, respondas lo que respondas. La prioridad sigue como está y se califica cuando termine su periodo; cámbiala en la página de Metas si así lo decides.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nuestros valores',
+  'Purpose and niche': 'Propósito y nicho',
+  'Long-range target': 'Meta a largo plazo',
+  'Who we serve and what makes us different': 'A quién servimos y qué nos hace diferentes',
+  'Where we will be in three years': 'Dónde estaremos en tres años',
+  'Our promise': 'Nuestra promesa',
 };

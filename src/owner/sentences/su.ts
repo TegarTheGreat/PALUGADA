@@ -552,4 +552,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Teu aya anu dirobih pikeun ngudag, sarta teu aya agén anu dipénta: angka wajib anu katinggaleun waktuna ngondang tindakan anu langkung picilakaeun pikeun nutupanana, sarta naha résiko éta dicandak téh kaputusan anjeun. Putuskeun naha tanggalna dimundurkeun, targétna diturunkeun, didamel aspirasional, atanapi diantep lumangsung sarta lepat.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'Teu aya anu dieureunkeun, naon waé waleranana. Prioritas éta tetep sakumaha ayana sarta dipeunteun nalika periodena réngsé; robih di kaca Udagan upami anjeun mutuskeunana.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Ajén-ajén urang',
+  'Purpose and niche': 'Tujuan sareng ceruk',
+  'Long-range target': 'Target jangka panjang',
+  'Who we serve and what makes us different': 'Saha nu ku urang dilayanan sareng naon nu ngabédakeun urang',
+  'Where we will be in three years': 'Di mana urang tilu taun deui',
+  'Our promise': 'Jangji urang',
 };

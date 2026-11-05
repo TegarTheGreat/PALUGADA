@@ -554,4 +554,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'पकड़ने के लिए कुछ नहीं बदला गया, और किसी एजेंट से नहीं कहा गया: समय से पीछे चल रहा पक्का आँकड़ा उसे पूरा करने के लिए ज़्यादा जोखिम भरे कदम को न्योता देता है, और ऐसा जोखिम उठाना है या नहीं, यह आपका फ़ैसला है। तय करें कि तारीख़ आगे बढ़ानी है, लक्ष्य घटाना है, उसे महत्वाकांक्षी बनाना है, या उसे चलने देना है और चूकने देना है।',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'जवाब जो भी हो, कुछ नहीं रुकता। प्राथमिकता जैसी है वैसी रहती है और अवधि ख़त्म होने पर उसे अंक दिए जाते हैं; अगर आप तय करें तो लक्ष्य पेज पर उसे बदलें।',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'हमारे मूल्य',
+  'Purpose and niche': 'उद्देश्य और विशिष्ट क्षेत्र',
+  'Long-range target': 'दीर्घकालिक लक्ष्य',
+  'Who we serve and what makes us different': 'हम किसकी सेवा करते हैं और हमें क्या अलग बनाता है',
+  'Where we will be in three years': 'तीन साल में हम कहाँ होंगे',
+  'Our promise': 'हमारा वादा',
 };

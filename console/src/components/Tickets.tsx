@@ -27,7 +27,7 @@ import { EmptyState, LoadFailed, Loading } from './ui.tsx';
 const PRIORITY_COLOR = ['red', 'orange', 'blue', 'gray'];
 
 /** Which part of the board is shown: all of it, the issues list, or the to-dos. */
-type Shown = 'all' | 'issues' | 'todos';
+export type Shown = 'all' | 'issues' | 'todos';
 
 /** A to-do: work that carries out an issue's decision, or has a seat and a date of its own. */
 const isTodo = (ticket: Ticket) => ticket.kind === 'work' && (ticket.solvesTicketId !== null || ticket.dueOn !== null);
@@ -41,14 +41,16 @@ function filedBy(ticket: Ticket): string {
   return t('filed by a run');
 }
 
-export function Tickets({ companyId, openTask, talk }: {
+export function Tickets({ companyId, openTask, talk, first = 'all' }: {
   companyId: string;
   openTask: (id: string) => void;
   /** Opens the conversation with the CEO, with words waiting in the box: how a proposed hire is hired. */
   talk: (draft: string) => void;
+  /** What the board shows first: the Plan page opens it on the issues. */
+  first?: Shown;
 }) {
   const [finished, setFinished] = useState(false);
-  const [shown, setShown] = useState<Shown>('all');
+  const [shown, setShown] = useState<Shown>(first);
   const [reading, setReading] = useState<string | null>(null);
   const [filing, setFiling] = useState(false);
   const [giving, setGiving] = useState<Ticket | null>(null);

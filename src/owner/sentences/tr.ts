@@ -555,4 +555,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Yetişmek için hiçbir şey değiştirilmedi ve hiçbir ajandan istenmedi: zamanının gerisinde kalan taahhütlü bir sayı, açığı kapatmak için daha riskli adımlara davet eder ve böyle bir riski almak senin kararındır. Tarihi ertelemeye, hedefi düşürmeye, onu iddialı yapmaya ya da sürmesine izin verip kaçırmaya karar ver.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'Cevap ne olursa olsun hiçbir şey durmaz. Öncelik olduğu gibi kalır ve dönemi bitince puanlanır; karar verirsen Hedefler sayfasında değiştir.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Değerlerimiz',
+  'Purpose and niche': 'Amaç ve niş',
+  'Long-range target': 'Uzun vadeli hedef',
+  'Who we serve and what makes us different': 'Kime hizmet ediyoruz ve bizi farklı kılan ne',
+  'Where we will be in three years': 'Üç yıl sonra nerede olacağız',
+  'Our promise': 'Sözümüz',
 };

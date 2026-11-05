@@ -554,4 +554,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Er is niets veranderd om in te halen, en geen agent wordt dat gevraagd: een toegezegd getal dat achterloopt op zijn tijd nodigt uit tot riskanter handelen om het goed te maken, en of dat risico genomen wordt, beslis jij. Beslis of de datum opschuift, het doel omlaag gaat, het ambitieus wordt, of dat het doorloopt en gemist wordt.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'Er stopt niets, wat je ook antwoordt. De prioriteit blijft zoals ze is en krijgt een cijfer als haar periode eindigt; pas haar aan op de pagina Doelen als je dat besluit.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Onze waarden',
+  'Purpose and niche': 'Doel en niche',
+  'Long-range target': 'Langetermijndoel',
+  'Who we serve and what makes us different': 'Wie we dienen en wat ons onderscheidt',
+  'Where we will be in three years': 'Waar we over drie jaar staan',
+  'Our promise': 'Onze belofte',
 };

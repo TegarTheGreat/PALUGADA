@@ -557,4 +557,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ไม่มีการเปลี่ยนแปลงใดเพื่อเร่งตามให้ทัน และไม่มีเอเจนต์ใดถูกขอให้ทำ ตัวเลขที่ให้คำมั่นไว้ซึ่งช้ากว่าเวลาชวนให้ใช้วิธีที่เสี่ยงขึ้นเพื่อชดเชย และการรับความเสี่ยงนั้นหรือไม่เป็นการตัดสินใจของคุณ ตัดสินใจว่าจะเลื่อนวัน ลดเป้า เปลี่ยนเป็นแบบมุ่งหวังสูง หรือปล่อยให้ดำเนินต่อไปและพลาด',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'ไม่ว่าคำตอบจะเป็นอย่างไรก็ไม่มีสิ่งใดหยุด ลำดับความสำคัญยังคงเดิมและจะได้รับคะแนนเมื่อช่วงเวลาสิ้นสุด เปลี่ยนได้ที่หน้าเป้าหมายหากคุณตัดสินใจเช่นนั้น',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'ค่านิยมของเรา',
+  'Purpose and niche': 'จุดมุ่งหมายและตลาดเฉพาะ',
+  'Long-range target': 'เป้าหมายระยะยาว',
+  'Who we serve and what makes us different': 'เรารับใช้ใครและอะไรทำให้เราแตกต่าง',
+  'Where we will be in three years': 'เราจะอยู่ที่ไหนในอีกสามปี',
+  'Our promise': 'คำมั่นสัญญาของเรา',
 };

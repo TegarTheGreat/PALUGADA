@@ -1789,3 +1789,9 @@ review*. To read a month's review before the first comes round -- or of a
 quiet month -- press **Run now** on its row under **Team**, **Schedules**: it
 reviews the last whole month. The schedule is `monthly-review`; turn it off
 there if you keep the books elsewhere.
+
+The review is handed the books, so the role it runs as must be allowed to read
+them: the strategist holds **ledger.read** and its division has the grant. If
+you take either away under **Team**, the review stops and its schedule says
+which is missing, rather than hand the books to a role that may not read
+them.

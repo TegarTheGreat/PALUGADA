@@ -64,7 +64,7 @@ means less than that, the row says so.
 | F6 agent communication | F6.1–F6.7 | — | — |
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
-| F9 scheduler | F9.1–F9.10 | — | — |
+| F9 scheduler | F9.1–F9.3, F9.5–F9.10 | F9.4 (the daily digest, the daily distillation and the weekly retro are every company's; the monthly budget review is the operating kit's monthly money review, so a company created without `company-os` has none -- section 2.199) | — |
 | F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (push, Telegram and WhatsApp are written and driven end to end against a local server; no push service, bot account or WhatsApp Business number exists here to point them at) | — |
 | F11 observability | F11.1–F11.7 | — | — |
 | F12 credentials, gateway | F12.1–F12.10 | — | — |
@@ -75,10 +75,13 @@ means less than that, the row says so.
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 | F18 operating rhythm | — | — | F18.1–F18.15 (section 2.189: the frameworks adopted, the parts rejected and why, and the order they are built in) |
 
-Read as a whole: every requirement in v2 sections 8.1 to 8.17 is built (F18,
-the operating rhythm, is being built in the order section 2.189 gives), the owner has a
-console to run it from (`npm start`), and the two rows still marked partial are
-partial in one specific way — a vendor account this repository cannot hold.
+Read as a whole: every requirement in v2 sections 8.1 to 8.17 is built except
+one part of F9.4 (F18, the operating rhythm, is being built in the order
+section 2.189 gives), the owner has a console to run it from (`npm start`), and
+the two rows marked partial for a vendor are partial in one specific way — a
+vendor account this repository cannot hold. F9.4 is partial in another way:
+its monthly budget review is built, and a company has it only with the
+operating kit (section 2.199).
 
 That distinction is worth stating precisely, because for a long time this
 document ran them together and stopped at the wrong place. There is a
@@ -11254,7 +11257,7 @@ The owner asked for "something already very well known, used and valid, like the
 
 ## 2.199 The month's money is reviewed from the company's own books (F18.12, F9.4)
 
-F9.4 asks for a monthly budget review beside the daily digest and the weekly retro, and the table above graded F9 built, F9.1 to F9.10. Nothing reviewed a month. The company kept books (2.139), invoices (2.154) and a monthly ceiling on what its agents spend, `startNewPeriods` only resets the month's counters, and the strategist, which holds `ledger.read`, was never asked to read them on any clock. F9's grade was true of every part of F9.4 except that one. It is true of all of it now, so the row stands as written. F18.12 asks for the same review in more detail: profit, cash, receivables that are due, spend against the limit, and Harnish's Power of One levers, with a month that has no figures passed over.
+F9.4 asks for a monthly budget review beside the daily digest and the weekly retro, and the table above graded F9 built, F9.1 to F9.10. Nothing reviewed a month. The company kept books (2.139), invoices (2.154) and a monthly ceiling on what its agents spend, `startNewPeriods` only resets the month's counters, and the strategist, which holds `ledger.read`, was never asked to read them on any clock. F9's grade was true of every part of F9.4 except that one, and it is still not true of every company: the daily digest and the daily distillation run for every company and the weekly retro is a page every company has, while the monthly review is a cadence of the operating kit, on its strategist, and a company is created without the kit unless the owner asks for it. So the table now grades F9.4 partial, saying so, rather than built. F18.12 asks for the same review in more detail: profit, cash, receivables that are due, spend against the limit, and Harnish's Power of One levers, with a month that has no figures passed over.
 
 - **The facts are read from rows (`src/reporting/month.ts`).** `buildMonthFacts` reads the last whole calendar month where the company is, by the company's time zone, so a review firing at 07:50 on the first in Jakarta reads the month that ended eight hours earlier. The owner's Run now in the middle of a month also reads the last month that is over. Per currency it gives:
   - the month's sales, cost of goods, overhead and profit, and the previous month's, from `profitOf`;
@@ -11266,16 +11269,22 @@ F9.4 asks for a monthly budget review beside the daily digest and the weekly ret
 - **Where the spec and the code disagreed: accounts are read by their numbers.** The design asked for each lever to be marked unavailable "when the books lack the account". The chart (0119) has system keys for cash, receivables, payables, tax, equity, sales and one expense account, but none for stock or cost of goods, and its CHECK constraint admits no others. A key would need a migration, and this set adds none. So the review reads the chart the way an accountant does, by its numbering, which the chart's own comment already states: an expense account coded 50.. is cost of goods, an asset account coded 13.. is stock, and an asset account coded 11.. is cash (the chart's 1100, and a second bank account the owner opens as 1110). Every other expense is overhead. Without a cost-of-goods account, volume, cost of goods and payable days are `no_cost_of_goods_account`. Without a stock account, stock days is `no_stock_account`. None of them is given a number made up from the others. Payable days are counted on the cost of goods, as Harnish counts them, rather than on every expense, because a salary is not a payable.
 - **A quiet month is passed over (`monthHadMoney`, N10).** When the clock fires a schedule whose input asks for the month, and the month has no entry dated in it and no invoice is owed and late, the occurrence is passed over. The schedule writes `schedule.quiet_month` naming the month (a new sentence in all 20 console dictionaries, since "nothing happened that week" is not what it found) and moves to its next first of the month. An invoice that has been late since long before the month still makes the month one to review, for the reason the weekly review keeps reading a measure that has not been reached. The check reads the tables directly and not through `balancesOf`, which opens a company's books the first time it is called. The owner's Run now runs the review whatever the month held.
 - **The cadence (`company-os` 1.6.0).** `CADENCE_FACTS` takes `month` beside `week`. The scheduler hands the month to a schedule that asks for it, in `createScheduledTask`, which both the clock and Run now use, and checks for a quiet month before it fires. The kit's strategist gets a `monthly-review` cadence at `50 7 1 * *` in the company's time zone, five minutes after the weekly review's hour, and a `monthly-review` skill of the same name. The skill gives the order of the page (profit, cash, what is owed, spend, the levers, then issues for the weekly meeting). It says that the levers are a heuristic for where to look, not a forecast, and that a lever marked unavailable needs an account, which the review must not guess. The review proposes. Spending is the owner's decision, and a goal change goes through `goal.propose`. The name is plain, "monthly money review", with the method attributed once, in the skill's description and in the guide.
+- **The books go only to a role that may read them (F8.1).** The month holds cash, what is owed and the names of the customers late with it, and a run reads the books only through `ledger.read`. `assertBundleIsCoherent` refuses, at publish, a cadence handed the month whose role does not list `ledger.read` among its tools, or whose division the bundle does not grant it, naming which; the kit's strategist has both. And `buildMonthFacts` asks again as the review fires, of the role as it is then, because the owner can take the tool or the grant away after the kit is installed, and a schedule can be written by hand. Without either the occurrence fails, saying what is missing, and the owner's Run now is refused with the same words; no run is made with the books in its input.
+- **How the review came to carry outside content is said in the owner's language.** A review handed a late invoice written by work that had read an email carries outside content, and the trace's warning names how: "the month it was handed". `outsideLabel` in the console's Work page translated five such ways and returned any other as written, so this one, the week's "the week it was handed" and triage's "the tickets it was given" reached an Indonesian owner in English. All three are translated now, in the 20 dictionaries.
 - **Tested** in `reporting.test.ts`:
   - A trading company's September: capital and a cash sale in August, stock bought on credit, two invoices (one paid into a second bank account, one written after reading an email and still owed), goods sold from stock, and rent. Each figure, day count and lever matches the books to the cent. The entry dated 1 October is not the month's. The late invoice is 16 days late and its customer is wrapped. A service company's books mark the four levers that need missing accounts, and give the other three.
   - A quiet month is passed over once, naming the month, and the owner's Run now still runs. A month with only an invoice late since 2020 is reviewed, and the review carries outside content because work that had read an email wrote that invoice. A month with a sale on its last day is reviewed, with that sale in its input.
 
-  `bundles.test.ts`: the kit installs both cadences with their crons, zones and facts, and refuses a cadence that asks for `year`, naming `week, month`. Both were seen to fail first.
+  - A monthly review for a role without `ledger.read` is refused by Run now and fails on the clock, naming the missing tool; given the tool, it is still refused until the division has the grant; given both, it runs.
+
+  `bundles.test.ts`: the kit installs both cadences with their crons, zones and facts, and refuses a cadence that asks for `year`, naming `week, month`. A copy of the kit whose strategist lacks the `ledger.read` tool, or whose strategy division lacks the grant, is refused at publish, naming which. `console-events.test.ts` reads the server for every way work comes to carry outside content and requires `outsideLabel` to translate each. Each was seen to fail first.
 - **Not done:**
   - The review's issues for the weekly meeting are written in its page, not filed. The strategist holds twelve tools, the most a role may hold (F2.6), and none of them files a ticket. Filing them waits for the issues list (2.193) and the CEO's weekly operating meeting (2.194), which take issues up.
   - The levers are computed on one month's figures. A lever worth little in a slow month is reported as worth little; the books keep no year to annualise them over until they have one.
   - An accounting service connected in the books' place takes `ledger.read` over, and the review still reads the platform's own books. A company that keeps its books there has every month passed over as quiet, and can turn the schedule off.
   - The owner's console has no page of its own for the month's figures. The review is a task, and its page is read where every schedule's run is read.
+  - A company without the operating kit has no monthly review, which is why F9.4 is graded partial. Making it every company's would need a review that reads the books for a company with no strategist, or a monthly page in the console beside the weekly retro.
+  - The F18 row of the table above still lists F18.12 under not built. The rows of F18 are graded when the change sets of the operating rhythm are merged together, and F18.12 moves to built then, citing this section.
 
 ## 3. Decisions, deviations, and what is unverified
 

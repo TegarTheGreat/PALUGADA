@@ -764,4 +764,14 @@ The first version. What it holds, in the order an owner meets it.
   out by a model; a lever whose account the books do not keep says so. A
   month with nothing in the books and nothing late is passed over, and says
   so. Until now nothing looked at a month of money, although the monthly
-  budget review was graded built (F18.12, F9.4; STATUS 2.199).
+  budget review was graded built; it is graded partial now, because a
+  company without the operating kit still has none (F18.12, F9.4; STATUS
+  2.199).
+- **The month's books go only to a role that may read them.** A bundle whose
+  cadence is handed the month is refused unless its role holds `ledger.read`
+  and the bundle grants it to the role's division, and the review is refused
+  as it fires when the owner has since taken either away (F18.12, F8.1;
+  STATUS 2.199).
+- **How work came to carry outside content is said in your language**: "the
+  week it was handed", "the month it was handed" and "the tickets it was
+  given" reached the trace's warning in English (F8.9; STATUS 2.199).

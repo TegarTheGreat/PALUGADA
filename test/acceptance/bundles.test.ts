@@ -819,6 +819,17 @@ const NINETEEN_CHANNELS = [
   'direct sales', 'affiliates', 'existing platforms', 'trade shows', 'offline events', 'speaking', 'community',
 ];
 
+test('the kit\'s description names every skill it brings, so the owner deciding to install it reads what it adds', () => {
+  // The owner decides on Settings, Bundles from this line. 1.6.0 added four
+  // skills and the monthly money review, which hands the strategist the
+  // books every month, and the line still ended at "the weekly review".
+  const description = COMPANY_OS.description.toLowerCase();
+  for (const skill of COMPANY_OS.body.skills) {
+    const title = skill.source.split('\n').find((line) => line.startsWith('# '))!.slice(2).trim();
+    assert.ok(description.includes(title.toLowerCase()), `the kit's description does not name "${title}" (${skill.slug})`);
+  }
+});
+
 test('the kit tests channels and drafts the one-page model, the fit survey and the press release, in its own words (F18.11, F18.15)', () => {
   // 1.6.0 brought these; 1.7.0 has the stage gates read the period's grade (F18.8).
   assert.equal(COMPANY_OS.version, '1.7.0');

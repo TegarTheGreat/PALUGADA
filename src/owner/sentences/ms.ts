@@ -535,4 +535,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Meluluskan menjadikan setiap baris yang anda luluskan satu matlamat, bersama ukurannya; baris yang anda tolak tidak dibuat. Sehingga itu kerja diteruskan di bawah matlamat yang sedia ada.',
   'No goal is made.':
     'Tiada matlamat dibuat.',
+  'Missed: {statement}':
+    'Terlepas: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, yang wajib dicapai dari {from} hingga {to}, tidak siap.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Diukur dengan angkanya, ia sampai {progress} daripada perjalanannya.',
+  'It was not marked met by its due date.':
+    'Ia tidak ditandakan tercapai sebelum tarikh akhirnya.',
+  'The platform graded it when its period ended.':
+    'Platform menilainya apabila tempohnya berakhir.',
+  'Off pace: {statement}':
+    'Ketinggalan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} ialah keutamaan wajib dicapai yang berakhir pada {due}. Angkanya baru sampai {progress} daripada perjalanannya, sedangkan {elapsed} daripada tempohnya sudah berlalu.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Tiada apa yang diubah untuk mengejarnya, dan tiada ejen yang diminta: angka wajib yang ketinggalan masa mengundang tindakan yang lebih berisiko untuk menebusnya, dan sama ada risiko itu diambil ialah keputusan anda. Putuskan sama ada tarikhnya dianjakkan, sasarannya diturunkan, dijadikan aspirasi, atau dibiarkan berjalan dan terlepas.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Tiada apa yang dihentikan, apa pun jawapannya. Keutamaan itu kekal seperti sedia ada dan dinilai apabila tempohnya berakhir; ubah di halaman Matlamat jika anda memutuskannya.',
 };

@@ -536,4 +536,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'स्वीकृत करने पर आपकी स्वीकृत हर पंक्ति अपने मापदंड के साथ एक लक्ष्य बन जाती है; अस्वीकृत पंक्ति नहीं बनती। तब तक काम मौजूदा लक्ष्यों के तहत ही चलता रहेगा।',
   'No goal is made.':
     'कोई लक्ष्य नहीं बनता।',
+  'Missed: {statement}':
+    'चूक गया: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, जो {from} से {to} तक पक्का होना था, पूरा नहीं हुआ।',
+  'Measured by its numbers, it came {progress} of the way.':
+    'उसके आँकड़ों से मापा जाए तो वह {progress} रास्ता तय कर पाया।',
+  'It was not marked met by its due date.':
+    'उसे नियत तारीख़ तक पूरा चिह्नित नहीं किया गया।',
+  'The platform graded it when its period ended.':
+    'उसकी अवधि ख़त्म होने पर प्लेटफ़ॉर्म ने उसे अंक दिए।',
+  'Off pace: {statement}':
+    'रफ़्तार से पीछे: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} एक पक्की प्राथमिकता है, जिसकी नियत तारीख़ {due} है। उसके आँकड़े अभी {progress} रास्ते तक ही पहुँचे हैं, जबकि उसकी अवधि का {elapsed} बीत चुका है।',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'पकड़ने के लिए कुछ नहीं बदला गया, और किसी एजेंट से नहीं कहा गया: समय से पीछे चल रहा पक्का आँकड़ा उसे पूरा करने के लिए ज़्यादा जोखिम भरे कदम को न्योता देता है, और ऐसा जोखिम उठाना है या नहीं, यह आपका फ़ैसला है। तय करें कि तारीख़ आगे बढ़ानी है, लक्ष्य घटाना है, उसे महत्वाकांक्षी बनाना है, या उसे चलने देना है और चूकने देना है।',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'जवाब जो भी हो, कुछ नहीं रुकता। प्राथमिकता जैसी है वैसी रहती है और अवधि ख़त्म होने पर उसे अंक दिए जाते हैं; अगर आप तय करें तो लक्ष्य पेज पर उसे बदलें।',
 };

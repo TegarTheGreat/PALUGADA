@@ -15,6 +15,8 @@
  */
 import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalWarning } from '../domain/goals.ts';
+import { gradeReportOf, type GoalGrade } from '../domain/grades.ts';
+import { dayIn, fiscalQuarterOf } from '../domain/fiscal.ts';
 import type { ChannelSlug } from '../domain/channels.ts';
 import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
 import { coreProcessesOf, type CoreProcessesReport } from '../skills/core.ts';
@@ -73,6 +75,8 @@ export interface StructureView {
     tasksTotal: number;
     /** What the goal is measured by, with the latest value and progress (0053). */
     metrics: MetricView[];
+    /** Its latest grade, written when a period of it ended (F18.8, 0144); null before any. */
+    grade: GoalGrade | null;
   }>;
   divisions: Array<{
     id: string;
@@ -191,9 +195,14 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     );
 
     const metrics = await metricsIn(tx);
-    const headline = await tx.query<{ headline_metric_id: string | null }>(
-      'SELECT headline_metric_id FROM companies WHERE id = $1', [companyId]);
+    const headline = await tx.query<{ headline_metric_id: string | null; timezone: string; fiscal: number }>(
+      'SELECT headline_metric_id, timezone, fiscal_year_start_month AS fiscal FROM companies WHERE id = $1', [companyId]);
     const coreProcesses = await coreProcessesOf(tx, companyId);
+    // Each goal's latest grade (F18.8, 0144), with the numbers of the fiscal
+    // quarter today is in where the company is.
+    const quarter = fiscalQuarterOf(dayIn(headline.rows[0]?.timezone ?? 'UTC', new Date()).day, headline.rows[0]?.fiscal ?? 1);
+    const graded = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn });
+    const gradeOf = new Map(graded.latest.map((grade) => [grade.goalId, grade]));
 
     // Rolled up the ladder: a goal counts its own tasks and every goal's under it.
     const own = new Map(goalWork.rows.map((row) => [row.goal_id, row]));
@@ -252,6 +261,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         tasksDone: roll(goal.id, new Set()).done,
         tasksTotal: roll(goal.id, new Set()).total,
         metrics: metrics.filter((metric) => metric.goalId === goal.id),
+        grade: gradeOf.get(goal.id) ?? null,
       })),
       divisions: divisions.rows.map((division) => ({
         id: division.id,

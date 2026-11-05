@@ -535,4 +535,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Aprobar convierte en meta cada línea que apruebe, con su medida; una línea que rechace no se crea. Hasta entonces, el trabajo continúa bajo las metas tal como están.',
   'No goal is made.':
     'No se crea ninguna meta.',
+  'Missed: {statement}':
+    'No cumplida: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, comprometida para {from} a {to}, no se cumplió.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Medida por sus números, recorrió el {progress} del camino.',
+  'It was not marked met by its due date.':
+    'No se marcó como cumplida antes de su fecha límite.',
+  'The platform graded it when its period ended.':
+    'La plataforma la calificó cuando terminó su periodo.',
+  'Off pace: {statement}':
+    'Fuera de ritmo: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} es una prioridad comprometida que vence el {due}. Sus números han recorrido el {progress} del camino, con el {elapsed} de su periodo ya pasado.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'No se cambió nada para alcanzarla, y no se le pide a ningún agente que lo haga: un número comprometido que va por detrás de su tiempo invita a actuar con más riesgo para recuperarlo, y asumir ese riesgo te corresponde a ti. Decide si mueves la fecha, bajas el objetivo, la haces aspiracional o la dejas seguir y no cumplirse.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Nada se detiene, respondas lo que respondas. La prioridad sigue como está y se califica cuando termine su periodo; cámbiala en la página de Metas si así lo decides.',
 };

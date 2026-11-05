@@ -529,6 +529,62 @@ export function notDoneTwiceIssue(reading: OwnerReading, facts: {
   };
 }
 
+/** A share, 0 to 1, as a percentage in the owner's language. */
+function percent(reading: OwnerReading, share: number): string {
+  return share.toLocaleString(reading.language ?? 'en', { style: 'percent', maximumFractionDigits: 0 });
+}
+
+/**
+ * A committed goal that was not done by the end of its period (F18.8), put on
+ * the issues list when the platform grades it (src/engine/quarter.ts). A
+ * committed goal is a promise, so a miss is a postmortem: what happened, who
+ * answered for it, how it was found, and how to solve it. The statement is
+ * the owner's, since only the owner makes a goal (F3.10).
+ */
+export function missedGoalIssue(reading: OwnerReading, facts: {
+  statement: string; startsOn: string; dueOn: string; seat: string | null; progress: number | null;
+}): { title: string; body: string } {
+  const { language } = reading;
+  const how = facts.progress === null
+    ? say(language, 'It was not marked met by its due date.')
+    : say(language, 'Measured by its numbers, it came {progress} of the way.', { progress: percent(reading, facts.progress) });
+  return {
+    title: say(language, 'Missed: {statement}', { statement: facts.statement }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, '{statement}, committed for {from} to {to}, was not done.', {
+        statement: facts.statement, from: facts.startsOn, to: facts.dueOn,
+      })} ${how}`,
+      seatSaid(language, facts.seat),
+      `${say(language, 'Detection')}: ${say(language, 'The platform graded it when its period ended.')}`,
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/**
+ * A committed quarterly priority behind its quarter (F18.8), put to the
+ * owner once a period (src/engine/outcomes.ts). Not to the CEO as work: a
+ * committed number behind its time is what tempts a company of agents to
+ * take a riskier road to make it up -- the "goals gone wild" of the OKR
+ * literature -- and that risk is the owner's to take or refuse.
+ */
+export function offPaceCard(reading: OwnerReading, facts: {
+  statement: string; dueOn: string; progress: number; elapsed: number; seat: string | null;
+}): Card & { consequence: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Off pace: {statement}', { statement: facts.statement }),
+    detail: [
+      say(language, '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.', {
+        statement: facts.statement, due: facts.dueOn, progress: percent(reading, facts.progress), elapsed: percent(reading, facts.elapsed),
+      }),
+      seatSaid(language, facts.seat),
+      say(language, 'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.'),
+    ].join('\n\n'),
+    consequence: say(language, 'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.'),
+  };
+}
+
 /* -------------------------------------------------------------- reviews --- */
 
 export function reviewDeadlockedCard(reading: OwnerReading, facts: { capability: string; rounds: number; note: string | null; criteria: string }): Card {

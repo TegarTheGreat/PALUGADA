@@ -71,9 +71,10 @@ const SECTIONS: Section[] = [
   {
     name: 'company',
     // With the measure the owner chose as its headline (0142), which the
-    // import maps once the measures are restored.
+    // import maps once the measures are restored, and the month its fiscal
+    // year starts in (0144).
     sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
-                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id
+                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month
             FROM companies`,
   },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at, work_language FROM projects ORDER BY created_at' },
@@ -119,6 +120,14 @@ const SECTIONS: Section[] = [
                  source_capability, created_at, retired_at, review_every, owner_role_id, paired_metric_id,
                  funnel_step
             FROM goal_metrics ORDER BY created_at`,
+  },
+  {
+    name: 'goal_grades',
+    // Each period's grade (0144): what the owner and the next plan read, and
+    // which the platform writes once. Restored without them, every ended
+    // period would be graded again from whatever readings travelled.
+    sql: `SELECT goal_id, period_starts_on, period_due_on, commitment, score, basis, predicted, actual, note, created_at
+            FROM goal_grades ORDER BY period_due_on, created_at, goal_id`,
   },
   {
     name: 'capability_grants',

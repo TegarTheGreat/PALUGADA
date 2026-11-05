@@ -532,4 +532,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '承認すると、承認した各行が指標付きの目標になります。却下した行は作られません。それまでは、現在の目標のまま仕事が続きます。',
   'No goal is made.':
     '目標は作られません。',
+  'Missed: {statement}':
+    '未達：{statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}（{from} から {to} までの必達）は完了しませんでした。',
+  'Measured by its numbers, it came {progress} of the way.':
+    '数値で測ると、{progress} まで進みました。',
+  'It was not marked met by its due date.':
+    '期日までに達成済みにされませんでした。',
+  'The platform graded it when its period ended.':
+    'プラットフォームが期間の終わりに採点しました。',
+  'Off pace: {statement}':
+    '遅れ：{statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} は期日 {due} の必達の優先事項です。数値は {progress} までしか進んでおらず、期間は {elapsed} が過ぎています。',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    '追いつくために何も変えておらず、どのエージェントにも求めていません。時間に遅れた必達の数字は、取り戻すためにより危険な行動を誘います。そのリスクを取るかどうかはあなたが決めます。期日を延ばすか、目標を下げるか、挑戦目標にするか、そのまま進めて未達とするかを決めてください。',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'どちらを選んでも何も止まりません。優先事項はそのままで、期間の終わりに採点されます。変える場合は目標のページで変更してください。',
 };

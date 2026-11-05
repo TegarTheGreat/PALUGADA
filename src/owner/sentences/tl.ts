@@ -533,4 +533,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Kapag inaprubahan, magiging layunin ang bawat linyang inaprubahan mo, kasama ang sukat nito; hindi gagawin ang linyang tinanggihan mo. Hanggang doon, magpapatuloy ang trabaho sa ilalim ng mga layunin gaya ng dati.',
   'No goal is made.':
     'Walang layuning ginawa.',
+  'Missed: {statement}':
+    'Hindi naabot: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    'Ang {statement}, na tiyak na gagawin mula {from} hanggang {to}, ay hindi natapos.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Sinukat ayon sa mga numero nito, umabot ito sa {progress} ng daan.',
+  'It was not marked met by its due date.':
+    'Hindi ito minarkahang naabot bago ang takdang petsa nito.',
+  'The platform graded it when its period ended.':
+    'Minarkahan ito ng platform nang matapos ang panahon nito.',
+  'Off pace: {statement}':
+    'Nahuhuli: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    'Ang {statement} ay isang tiyak na prayoridad na dapat matapos sa {due}. Umabot pa lang ang mga numero nito sa {progress} ng daan, habang lumipas na ang {elapsed} ng panahon nito.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Walang binago para humabol, at walang agent na inutusan: ang tiyak na numerong nahuhuli sa oras nito ay nag-aanyaya ng mas mapanganib na hakbang para makabawi, at ikaw ang magpapasya kung tatanggapin ang ganoong panganib. Pagpasyahan kung iuurong ang petsa, ibababa ang target, gagawin itong pinapangarap, o hahayaan itong tumakbo at hindi maabot.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Walang ititigil, anuman ang sagot. Mananatili ang prayoridad at mamarkahan pagtatapos ng panahon nito; baguhin ito sa pahina ng Mga layunin kung iyon ang pasya mo.',
 };

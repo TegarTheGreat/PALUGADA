@@ -39,6 +39,8 @@ export interface Company {
   ceo: { roleId: string; slug: string; displayName: string | null } | null;
   /** When the CEO holds the weekly operating meeting (0140): 0 Sunday to 6 Saturday, an hour on the company's clock. */
   rhythm: { weekday: number; hour: number; enabled: boolean };
+  /** The month, 1 to 12, its fiscal year starts in (0144): quarterly planning follows it. */
+  fiscalYearStartMonth: number;
 }
 
 export interface InboxItem {
@@ -195,6 +197,26 @@ export interface Goal {
   tasksTotal: number;
   /** What the goal is measured by, with where each stands. */
   metrics: Metric[];
+  /** Its latest grade, written by the platform when a period of it ended (0144); null before any. */
+  grade: GoalGrade | null;
+}
+
+/** How a period of a goal went, as the platform graded it (F18.8). */
+export interface GoalGrade {
+  goalId: string;
+  periodStartsOn: string;
+  periodDueOn: string;
+  commitment: 'committed' | 'aspirational' | 'learning' | null;
+  /** 0 to 1; a committed goal's is 1 or 0. */
+  score: number;
+  /** From its numbers, or, with none, whether you marked it met. */
+  basis: 'measured' | 'declared';
+  /** A learning goal's prediction and what happened. */
+  predicted: number | null;
+  actual: number | null;
+  note: 'no_reading' | 'from_key_results' | null;
+  /** A committed goal passed or missed; null for any other. */
+  passed: boolean | null;
 }
 
 export type GoalWarning =

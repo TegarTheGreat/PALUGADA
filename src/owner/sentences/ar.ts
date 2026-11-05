@@ -533,4 +533,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'الموافقة تجعل كل سطر توافق عليه هدفًا مع مقياسه؛ والسطر الذي ترفضه لا يُنشأ. وحتى ذلك الحين يستمر العمل في إطار الأهداف كما هي.',
   'No goal is made.':
     'لا يُنشأ أي هدف.',
+  'Missed: {statement}':
+    'لم يتحقق: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}، الملتزم به من {from} إلى {to}، لم يُنجز.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'بقياس أرقامه، قطع {progress} من الطريق.',
+  'It was not marked met by its due date.':
+    'لم يُوسم بأنه تحقق حتى تاريخ استحقاقه.',
+  'The platform graded it when its period ended.':
+    'قيّمته المنصة عند انتهاء فترته.',
+  'Off pace: {statement}':
+    'متأخر عن الوتيرة: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} أولوية ملتزم بها يستحق موعدها في {due}. لم تقطع أرقامها إلا {progress} من الطريق، بينما مضى {elapsed} من فترتها.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'لم يُغيَّر شيء للّحاق، ولم يُطلب ذلك من أي وكيل: الرقم الملتزم به المتأخر عن وقته يغري باتخاذ إجراء أكثر خطورة لتعويضه، وقرار تحمّل هذه المخاطرة لك. قرّر هل تؤجل الموعد، أو تخفض الهدف، أو تجعله طموحًا، أو تتركه يمضي ولا يتحقق.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'لا يتوقف شيء أيًّا كان الجواب. تبقى الأولوية كما هي وتُقيَّم عند انتهاء فترتها؛ غيّرها في صفحة الأهداف إن قررت ذلك.',
 };

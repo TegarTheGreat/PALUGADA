@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
-import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
+import { LANGUAGES, isLanguage, language, locale, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext } from '../App.tsx';
 import type { Digest, Languages } from '../types.ts';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
@@ -93,6 +93,9 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Rhythm ctx={ctx} lastMeeting={view.data.lastMeeting} />
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <FiscalYear ctx={ctx} />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Section title={t('Cheap hours')} description={t('Work marked non-urgent, that only reads, waits for this window.')}>
@@ -210,6 +213,32 @@ function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest
           ? <Anchor size="sm" onClick={() => ctx.open('work', { item: lastMeeting.taskId })}>{t('Last weekly operating meeting: {week}', { week: lastMeeting.week })}</Anchor>
           : <Text size="sm" c="dimmed">{t('No weekly operating meeting yet.')}</Text>}
       </Stack>
+    </Section>
+  );
+}
+
+/**
+ * Where the company's fiscal year starts (F18.9, 0144). Its quarters are cut
+ * from it, and the CEO plans each next one ten days before this one ends,
+ * the next year with it in the last quarter.
+ */
+function FiscalYear({ ctx }: { ctx: ConsoleContext }) {
+  const { companyId, company } = ctx;
+  const months = Array.from({ length: 12 }, (_, at) => ({
+    value: String(at + 1),
+    label: new Intl.DateTimeFormat(locale(), { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, at, 1))),
+  }));
+  return (
+    <Section title={t('Fiscal year')} description={t("The company's quarters follow its fiscal year. Ten days before each quarter ends, the CEO reviews it and proposes the next quarter's priorities as one plan for you to approve; in the year's last quarter, next year's goals too.")}>
+      <ActionForm
+        key={company.fiscalYearStartMonth}
+        fields={[{
+          name: 'startMonth', label: t('The fiscal year starts in'), type: 'select', required: true,
+          initial: String(company.fiscalYearStartMonth), options: months,
+        }]}
+        submit={(values) => api('POST', `/api/companies/${companyId}/fiscal-year`, { startMonth: Number(values.startMonth) })}
+        done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
+      />
     </Section>
   );
 }

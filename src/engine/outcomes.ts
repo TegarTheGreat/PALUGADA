@@ -41,12 +41,24 @@
  * Two workers that decide at once make one task between them: the key is
  * computed in the database, in the same statement that chooses the measure,
  * and the unique index on it does the rest.
+ *
+ * A fourth state is the owner's rather than the CEO's: a committed quarterly
+ * priority **off pace**, its numbers behind the share of its quarter that has
+ * gone (`ensureOffPace`, F18.8). It is not made into work. A committed
+ * number behind its time is what tempts a company of agents to take a
+ * riskier road to make it up -- the risk the OKR literature calls goals gone
+ * wild -- and whether to take a risk is the owner's. So it is one escalation
+ * to the owner, once a period, saying so.
  */
 import { withTenant } from '../db/tenant.ts';
 import { isPalugadaError } from '../errors.ts';
 import { languageName, languagesFor } from '../domain/language.ts';
 import { withoutTemplateTokens } from '../context/builder.ts';
 import { wellFormed } from '../text.ts';
+import { raiseEscalationWithin } from '../inbox/inbox.ts';
+import { offPaceCard, ownerReadingWithin, roleCalledWithin } from '../owner/platform-cards.ts';
+import { prioritiesOnPace } from '../reporting/meeting.ts';
+import { dayIn } from '../domain/fiscal.ts';
 import { createRootTask } from './tasks.ts';
 
 /** The least time between one outcome task and the next for a company. */
@@ -303,4 +315,58 @@ function briefFor(owed: Owed, readers: Array<{ slug: string; self: boolean }>, l
     + 'so if it no longer matches, say so in your summary and stop.';
 
   return { goal, context: [facts, state, limits].join('\n\n') };
+}
+
+/**
+ * A priority this far into its quarter or less is behind by arithmetic only:
+ * three days into a quarter, a number that has not moved yet is 3% behind,
+ * and every committed priority would be put to the owner in its first week.
+ * The sources name no point; a quarter of the period is the first at which
+ * being behind says something about the quarter rather than its first days.
+ */
+const OFF_PACE_FROM = 0.25;
+/** The most priorities one look reads, as the weekly meeting reads them. */
+const OFF_PACE_PRIORITIES = 15;
+
+/**
+ * Puts each committed quarterly priority that is behind its quarter to the
+ * owner, once for each period, and returns how many it put. Behind means
+ * its numbers, by their last verified readings, have come less far than the
+ * share of the period gone (`prioritiesOnPace`, the weekly meeting's own
+ * reading), once a quarter of it is gone. A priority with no number, or no
+ * verified reading, is not judged behind: nothing says how far it came.
+ *
+ * Straight to the owner, tied to no task: a division's coordinator handed
+ * it (F2.1) is an agent asked to catch the number up, which is the risk the
+ * card exists to put to the owner instead. Once a period even after the
+ * owner has answered, since the answer was about this period.
+ */
+export async function ensureOffPace(companyId: string, now = new Date()): Promise<number> {
+  return withTenant(companyId, async (tx) => {
+    const { rows: company } = await tx.query<{ timezone: string; stage: string | null }>(
+      'SELECT timezone, stage FROM companies WHERE id = $1', [companyId]);
+    if (!company[0] || company[0].stage === 'wind_down') return 0;
+    const { day } = dayIn(company[0].timezone, now);
+    const { items } = await prioritiesOnPace(tx, companyId, { day, now, limit: OFF_PACE_PRIORITIES });
+    const behind = items.filter((one) => one.commitment === 'committed' && one.why === 'behind' && one.elapsed >= OFF_PACE_FROM);
+    let raised = 0;
+    for (const priority of behind) {
+      const once = `off-pace:${priority.id}:${priority.dueOn}`;
+      // Two workers looking at once: the second waits here and finds the card.
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${companyId}:${once}`]);
+      const { rowCount } = await tx.query(
+        "SELECT 1 FROM inbox_items WHERE company_id = $1 AND kind = 'escalation' AND payload->>'once' = $2 LIMIT 1", [companyId, once]);
+      if (rowCount !== 0) continue;
+      const card = offPaceCard(await ownerReadingWithin(tx), {
+        statement: priority.statement, dueOn: priority.dueOn, progress: priority.progress ?? 0, elapsed: priority.elapsed,
+        seat: priority.ownerRoleId ? await roleCalledWithin(tx, { id: priority.ownerRoleId }) : null,
+      });
+      await raiseEscalationWithin(tx, {
+        companyId, title: card.title, detail: card.detail, consequenceIfDenied: card.consequence,
+        payload: { once, offPace: { goalId: priority.id, dueOn: priority.dueOn, progress: priority.progress, elapsed: priority.elapsed } },
+      });
+      raised += 1;
+    }
+    return raised;
+  });
 }

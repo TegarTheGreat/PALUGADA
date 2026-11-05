@@ -890,6 +890,38 @@ The first version. What it holds, in the order an owner meets it.
   traded the same way on upgrade, with a version to roll back to (STATUS
   2.195).
 
+- **Grades at a period's end** (F18.8). Once a goal's due date has passed
+  in the company's time zone, PALUGADA grades it, once: from its measures,
+  each by its last checked reading of the period, clamped from 0 to 1 and
+  averaged (an objective with none of its own, from its key results'), or,
+  with no number, 1 if you marked it met and 0 if not. A committed goal is
+  done or missed, 1 or 0. A learning goal keeps its prediction beside what
+  happened. The goal ladder shows each goal's latest grade, and no agent can
+  write one (STATUS 2.196).
+- A committed goal that was missed is a postmortem on this week's issues
+  list, filed once, saying how far its numbers came and which seat answers
+  for it (STATUS 2.196).
+- **Off pace.** A committed quarterly priority whose numbers are behind the
+  share of its quarter that has gone, once a quarter of it has, comes to you
+  as one card a quarter, straight to you and not to an agent: a committed
+  number behind its time invites a riskier road to make it up, and that risk
+  is yours to take or refuse. Nothing is stopped either way (STATUS 2.196).
+- **Quarterly planning** (F18.9). Ten days before each quarter of the
+  company's fiscal year ends, the CEO is handed the quarter's facts --
+  grades, priorities done against 80%, the committed pass rate, the
+  aspirational average against 0.6 to 0.7, to-dos finished within seven
+  days, this year's goals, the long-term issues, thirteen weeks of the
+  scorecard, the vision from the charter and the core processes not changed
+  in ninety days -- and plans the next quarter, ending in one plan of new
+  goals for you to approve line by line. In the year's last quarter it plans
+  next year's goals too. Choose the month the fiscal year starts in under
+  Settings, Company, **Fiscal year**; January by default. A company winding
+  down, with nothing to plan, or on a deployment with no model makes none.
+  Archives carry the grades and the fiscal year (STATUS 2.196).
+- The stage gates in the operating kit (`company-os` 1.7.0) decide a pivot
+  from the grade of a learning priority, its prediction beside what
+  happened (STATUS 2.196).
+
 - **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
   first of each month the strategist reviews the last whole month from the
   company's own books -- profit beside the month before, cash at its start

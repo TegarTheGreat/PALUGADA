@@ -534,4 +534,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Nyatujuan ngajantenkeun unggal baris anu disatujuan hiji udagan, sareng ukuranana; baris anu ditolak henteu didamel. Dugi ka harita padamelan diteraskeun handapeun udagan anu ayeuna.',
   'No goal is made.':
     'Teu aya udagan anu didamel.',
+  'Missed: {statement}':
+    'Lepat: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, anu kedah kahontal ti {from} dugi ka {to}, henteu réngsé.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Diukur ku angka-angkana, éta dugi ka {progress} tina jalanna.',
+  'It was not marked met by its due date.':
+    'Éta henteu ditandaan kahontal dugi ka tanggal watesna.',
+  'The platform graded it when its period ended.':
+    'Platform meunteun éta nalika periodena réngsé.',
+  'Off pace: {statement}':
+    'Katinggaleun: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} nyaéta prioritas anu kedah kahontal, watesna {due}. Angka-angkana nembé dugi ka {progress} tina jalanna, padahal {elapsed} tina periodena parantos kalangkung.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Teu aya anu dirobih pikeun ngudag, sarta teu aya agén anu dipénta: angka wajib anu katinggaleun waktuna ngondang tindakan anu langkung picilakaeun pikeun nutupanana, sarta naha résiko éta dicandak téh kaputusan anjeun. Putuskeun naha tanggalna dimundurkeun, targétna diturunkeun, didamel aspirasional, atanapi diantep lumangsung sarta lepat.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Teu aya anu dieureunkeun, naon waé waleranana. Prioritas éta tetep sakumaha ayana sarta dipeunteun nalika periodena réngsé; robih di kaca Udagan upami anjeun mutuskeunana.',
 };

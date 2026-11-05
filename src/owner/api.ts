@@ -1663,6 +1663,30 @@ export class OwnerApi {
       },
 
       {
+        // The month the company's fiscal year starts in (F18.9, 0144), which
+        // cuts its quarters: quarterly planning is held ten days before each
+        // ends. Like the meeting's hour, it changes when the company plans,
+        // never what anyone may do, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/fiscal-year',
+        handle: async ({ params, body }) => {
+          const month = body.startMonth;
+          if (typeof month !== 'number' || !Number.isInteger(month) || month < 1 || month > 12) {
+            throw new PalugadaError('contract.violation',
+              `startMonth is the month the fiscal year starts in, a whole number from 1 (January) to 12 (December); got ${JSON.stringify(month ?? null)}`,
+              { field: 'startMonth' });
+          }
+          const { rows } = await withControlPlane((tx) => tx.query<{ startMonth: number }>(
+            `UPDATE companies SET fiscal_year_start_month = $2 WHERE id = $1 RETURNING fiscal_year_start_month AS "startMonth"`,
+            [params.companyId, month]));
+          if (!rows[0]) {
+            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          }
+          return rows[0];
+        },
+      },
+
+      {
         // The harder half of F10.7, and a separate button on purpose.
         //
         // `stop-all` raises the flag: the engine reads it at every step, so
@@ -7957,6 +7981,7 @@ async function companies(): Promise<Array<{
   guardian: boolean;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
   rhythm: { weekday: number; hour: number; enabled: boolean };
+  fiscalYearStartMonth: number;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
@@ -7964,6 +7989,7 @@ async function companies(): Promise<Array<{
       guardian: boolean;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
       rhythm: { weekday: number; hour: number; enabled: boolean };
+      fiscalYearStartMonth: number;
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
       `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
@@ -7971,6 +7997,8 @@ async function companies(): Promise<Array<{
               -- When its CEO holds the weekly operating meeting (0140).
               jsonb_build_object('weekday', company.meeting_weekday, 'hour', company.meeting_hour,
                                  'enabled', company.meeting_enabled) AS rhythm,
+              -- Where its fiscal year starts, which cuts its quarters (0144).
+              company.fiscal_year_start_month AS "fiscalYearStartMonth",
               CASE WHEN ceo.id IS NULL THEN NULL
                    ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo
          FROM companies company LEFT JOIN roles ceo ON ceo.company_id = company.id AND ceo.title = 'CEO'

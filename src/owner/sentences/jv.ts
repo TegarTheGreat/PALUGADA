@@ -534,4 +534,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Nyetujoni ndadosaken saben larik ingkang panjenengan setujoni satunggaling ancas, sesarengan ukuranipun; larik ingkang panjenengan tolak boten dipundamel. Ngantos wekdal punika pakaryan lajeng mlampah miturut ancas ingkang wonten sapunika.',
   'No goal is made.':
     'Boten wonten ancas ingkang dipundamel.',
+  'Missed: {statement}':
+    'Luput: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, ingkang kedah kaleksanan saking {from} ngantos {to}, boten rampung.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Dipunukur saking angka-angkanipun, dumugi {progress} saking lampahipun.',
+  'It was not marked met by its due date.':
+    'Boten dipuntandhani kaleksanan ngantos tanggal watesipun.',
+  'The platform graded it when its period ended.':
+    'Platform mbiji nalika periodenipun rampung.',
+  'Off pace: {statement}':
+    'Ketinggalan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} punika prioritas ingkang kedah kaleksanan, watesipun {due}. Angka-angkanipun nembe dumugi {progress} saking lampahipun, nalika {elapsed} saking periodenipun sampun kalampahan.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Boten wonten ingkang dipunewahi kangge ngoyak, lan boten wonten agen ingkang dipunsuwun: angka wajib ingkang ketinggalan wekdalipun ngundang tumindak ingkang langkung beresiko kangge nutupi, lan punapa resiko punika dipunpendhet punika kaputusan panjenengan. Putusaken punapa tanggalipun dipunundur, targetipun dipunandhapaken, dipundadosaken gegayuhan dhuwur, utawi dipunkarepaken mlampah lan luput.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Boten wonten ingkang dipunkendelaken, punapa kemawon wangsulanipun. Prioritas punika tetep kados mekaten lan dipunbiji nalika periodenipun rampung; ewahi ing kaca Ancas menawi panjenengan mutusaken.',
 };

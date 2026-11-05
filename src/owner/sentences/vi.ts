@@ -540,4 +540,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Phê duyệt sẽ biến mỗi dòng bạn duyệt thành một mục tiêu, kèm thước đo của nó; dòng bạn từ chối sẽ không được tạo. Cho đến lúc đó, công việc vẫn tiếp tục theo các mục tiêu hiện tại.',
   'No goal is made.':
     'Không mục tiêu nào được tạo.',
+  'Missed: {statement}':
+    'Trượt: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, cam kết cho giai đoạn {from} đến {to}, đã không hoàn thành.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Đo bằng các con số của nó, nó đi được {progress} chặng đường.',
+  'It was not marked met by its due date.':
+    'Nó không được đánh dấu là đạt trước hạn.',
+  'The platform graded it when its period ended.':
+    'Nền tảng đã chấm điểm khi giai đoạn của nó kết thúc.',
+  'Off pace: {statement}':
+    'Chậm tiến độ: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} là một ưu tiên cam kết, hạn vào {due}. Các con số của nó mới đi được {progress} chặng đường, trong khi {elapsed} thời gian của nó đã trôi qua.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Không có gì được thay đổi để đuổi kịp, và không agent nào được yêu cầu làm vậy: một con số cam kết chậm so với thời gian dễ dẫn tới hành động rủi ro hơn để bù lại, và có chấp nhận rủi ro đó hay không là quyết định của bạn. Hãy quyết định dời ngày, hạ mục tiêu, chuyển nó thành tham vọng, hay để nó chạy tiếp và trượt.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Dù trả lời thế nào cũng không có gì bị dừng. Ưu tiên vẫn như cũ và được chấm điểm khi giai đoạn kết thúc; hãy thay đổi nó ở trang Mục tiêu nếu bạn quyết định vậy.',
 };

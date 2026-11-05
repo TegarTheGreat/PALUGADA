@@ -140,6 +140,69 @@ function dayAfter(day: string, days: number): string {
 }
 
 /**
+ * The quarterly priorities whose quarter `day` is in, each on or off pace:
+ * what the weekly meeting lists, and what the outcome sweep reads for a
+ * committed one behind its quarter (src/engine/outcomes.ts). One reading of
+ * pace for both, so the owner is never told a priority is off pace that the
+ * meeting called on pace. A quarter is read from a period's length, as
+ * goals.ts reads it.
+ */
+export async function prioritiesOnPace(tx: TenantClient, companyId: string, at: {
+  day: string; now: Date; limit: number;
+}): Promise<{ items: Array<MeetingPriority & { id: string; ownerRoleId: string | null }>; total: number }> {
+  const { day, now } = at;
+  const { rows: priorityRows } = await tx.query<{
+    id: string; slug: string; statement: string; seat: string | null; owner_role_id: string | null; commitment: GoalCommitment | null;
+    starts_on: string; due_on: string; finished: number; total: number;
+  }>(
+    `SELECT g.id, g.slug, g.statement, r.slug AS seat, g.owner_role_id, g.commitment,
+            to_char(g.starts_on, 'YYYY-MM-DD') AS starts_on, to_char(g.due_on, 'YYYY-MM-DD') AS due_on,
+            (SELECT count(*)::int FROM tasks t
+              WHERE t.company_id = g.company_id AND t.goal_id = g.id AND t.status = 'completed'
+                AND t.finished_at > $3::timestamptz - make_interval(days => $4::int) AND t.finished_at <= $3) AS finished,
+            count(*) OVER ()::int AS total
+       FROM goals g
+       LEFT JOIN roles r ON r.company_id = g.company_id AND r.id = g.owner_role_id
+      WHERE g.company_id = $1 AND g.status = 'active' AND g.kind = 'key_result'
+        AND g.starts_on IS NOT NULL AND g.due_on - g.starts_on <= 92
+        AND g.starts_on <= $2::date AND g.due_on >= $2::date
+      ORDER BY g.due_on, g.created_at, g.id
+      LIMIT $5`,
+    [companyId, day, now, PRIORITY_WORK_DAYS, at.limit]);
+  const { rows: measureRows } = await tx.query<{ goal_id: string; baseline: string; target: string; value: string | null }>(
+    `SELECT m.goal_id, m.baseline, m.target, last.value
+       FROM goal_metrics m
+       LEFT JOIN LATERAL (
+              SELECT o.value FROM metric_observations o
+               WHERE o.company_id = m.company_id AND o.metric_id = m.id AND o.verified AND o.observed_at <= $3
+               ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) last ON true
+      WHERE m.company_id = $1 AND m.goal_id = ANY($2::uuid[]) AND m.retired_at IS NULL AND m.review_every IS NULL
+      ORDER BY m.created_at, m.id`,
+    [companyId, priorityRows.map((row) => row.id), now]);
+  const items = priorityRows.map((row): MeetingPriority & { id: string; ownerRoleId: string | null } => {
+    const elapsed = round2(Math.min(1, Math.max(0, (daysBetween(row.starts_on, day) + 1) / (daysBetween(row.starts_on, row.due_on) + 1))));
+    const measures = measureRows.filter((one) => one.goal_id === row.id);
+    const base = {
+      id: row.id, ownerRoleId: row.owner_role_id,
+      goal: row.slug, statement: oneLine(row.statement, STATEMENT_MAX), seat: row.seat, commitment: row.commitment,
+      startsOn: row.starts_on, dueOn: row.due_on, elapsed, finishedThisWeek: row.finished,
+    };
+    // A measured priority is on pace when every measure has come as far
+    // from its baseline as the quarter has gone. Only a verified reading
+    // counts: a claim nobody checked is not where the priority stands.
+    if (measures.length > 0) {
+      if (measures.some((one) => one.value === null)) return { ...base, progress: null, pace: 'off_pace', why: 'no_reading' };
+      const progress = round2(Math.min(...measures.map((one) =>
+        progressOf({ baseline: Number(one.baseline), target: Number(one.target) }, Number(one.value)))));
+      return { ...base, progress, pace: progress >= elapsed ? 'on_pace' : 'off_pace', why: progress >= elapsed ? null : 'behind' };
+    }
+    // One with no number is on pace while work under it is finishing.
+    return { ...base, progress: null, pace: row.finished > 0 ? 'on_pace' : 'off_pace', why: row.finished > 0 ? null : 'no_recent_work' };
+  });
+  return { items, total: priorityRows[0]?.total ?? 0 };
+}
+
+/**
  * The meeting's facts, in the caller's transaction: the meeting files its
  * issues and makes its task in the same one (engine/meeting.ts).
  */
@@ -174,56 +237,8 @@ export async function buildMeetingFacts(tx: TenantClient, companyId: string, mee
     };
   });
 
-  // The quarterly priorities whose quarter today is in. A quarter is read
-  // from a period's length, as goals.ts reads it, since there is no fiscal
-  // calendar to cut one by yet.
-  const { rows: priorityRows } = await tx.query<{
-    id: string; slug: string; statement: string; seat: string | null; commitment: GoalCommitment | null;
-    starts_on: string; due_on: string; finished: number; total: number;
-  }>(
-    `SELECT g.id, g.slug, g.statement, r.slug AS seat, g.commitment,
-            to_char(g.starts_on, 'YYYY-MM-DD') AS starts_on, to_char(g.due_on, 'YYYY-MM-DD') AS due_on,
-            (SELECT count(*)::int FROM tasks t
-              WHERE t.company_id = g.company_id AND t.goal_id = g.id AND t.status = 'completed'
-                AND t.finished_at > $3::timestamptz - make_interval(days => $4::int) AND t.finished_at <= $3) AS finished,
-            count(*) OVER ()::int AS total
-       FROM goals g
-       LEFT JOIN roles r ON r.company_id = g.company_id AND r.id = g.owner_role_id
-      WHERE g.company_id = $1 AND g.status = 'active' AND g.kind = 'key_result'
-        AND g.starts_on IS NOT NULL AND g.due_on - g.starts_on <= 92
-        AND g.starts_on <= $2::date AND g.due_on >= $2::date
-      ORDER BY g.due_on, g.created_at, g.id
-      LIMIT $5`,
-    [companyId, day, now, PRIORITY_WORK_DAYS, PRIORITIES_MAX]);
-  const { rows: measureRows } = await tx.query<{ goal_id: string; baseline: string; target: string; value: string | null }>(
-    `SELECT m.goal_id, m.baseline, m.target, last.value
-       FROM goal_metrics m
-       LEFT JOIN LATERAL (
-              SELECT o.value FROM metric_observations o
-               WHERE o.company_id = m.company_id AND o.metric_id = m.id AND o.verified AND o.observed_at <= $3
-               ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) last ON true
-      WHERE m.company_id = $1 AND m.goal_id = ANY($2::uuid[]) AND m.retired_at IS NULL AND m.review_every IS NULL
-      ORDER BY m.created_at, m.id`,
-    [companyId, priorityRows.map((row) => row.id), now]);
-  const priorities = priorityRows.map((row): MeetingPriority => {
-    const elapsed = round2(Math.min(1, Math.max(0, (daysBetween(row.starts_on, day) + 1) / (daysBetween(row.starts_on, row.due_on) + 1))));
-    const measures = measureRows.filter((one) => one.goal_id === row.id);
-    const base = {
-      goal: row.slug, statement: oneLine(row.statement, STATEMENT_MAX), seat: row.seat, commitment: row.commitment,
-      startsOn: row.starts_on, dueOn: row.due_on, elapsed, finishedThisWeek: row.finished,
-    };
-    // A measured priority is on pace when every measure has come as far
-    // from its baseline as the quarter has gone. Only a verified reading
-    // counts: a claim nobody checked is not where the priority stands.
-    if (measures.length > 0) {
-      if (measures.some((one) => one.value === null)) return { ...base, progress: null, pace: 'off_pace', why: 'no_reading' };
-      const progress = round2(Math.min(...measures.map((one) =>
-        progressOf({ baseline: Number(one.baseline), target: Number(one.target) }, Number(one.value)))));
-      return { ...base, progress, pace: progress >= elapsed ? 'on_pace' : 'off_pace', why: progress >= elapsed ? null : 'behind' };
-    }
-    // One with no number is on pace while work under it is finishing.
-    return { ...base, progress: null, pace: row.finished > 0 ? 'on_pace' : 'off_pace', why: row.finished > 0 ? null : 'no_recent_work' };
-  });
+  const paced = await prioritiesOnPace(tx, companyId, { day, now, limit: PRIORITIES_MAX });
+  const priorities = paced.items.map(({ id: _id, ownerRoleId: _seat, ...priority }) => priority);
 
   const { rows: [headline] } = await tx.query<{ chats: number; won: number; lost: number; incidents: number }>(
     `SELECT (SELECT count(*)::int FROM chats WHERE company_id = $1 AND created_at > $2 AND created_at <= $3) AS chats,
@@ -320,7 +335,7 @@ export async function buildMeetingFacts(tx: TenantClient, companyId: string, mee
     timezone: meeting.timezone,
     previousDay: meeting.previousDay,
     scorecard: { lines, linesLeftOut: Math.max(0, card.lines.length - lines.length), warning: card.warning },
-    priorities: { items: priorities, leftOut: Math.max(0, (priorityRows[0]?.total ?? 0) - priorityRows.length) },
+    priorities: { items: priorities, leftOut: Math.max(0, paced.total - paced.items.length) },
     headlines: {
       newChats: headline!.chats, dealsWon: headline!.won, dealsLost: headline!.lost, overdueInvoices: overdue, incidents: headline!.incidents,
     },

@@ -535,4 +535,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '批准后，您批准的每一行都会成为一个目标，并带上其衡量指标；您拒绝的行不会创建。在此之前，工作按现有目标继续进行。',
   'No goal is made.':
     '不会创建任何目标。',
+  'Missed: {statement}':
+    '未达成：{statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}，承诺于 {from} 至 {to} 完成，没有完成。',
+  'Measured by its numbers, it came {progress} of the way.':
+    '按其数字衡量，它完成了 {progress}。',
+  'It was not marked met by its due date.':
+    '到期日前它没有被标记为已达成。',
+  'The platform graded it when its period ended.':
+    '平台在其周期结束时为它评分。',
+  'Off pace: {statement}':
+    '进度落后：{statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} 是一项必达的优先事项，截止日期为 {due}。它的数字只完成了 {progress}，而周期已过去 {elapsed}。',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    '没有为追赶而做任何改变，也没有要求任何代理去追赶：一个落后于时间的必达数字会诱使人采取更冒险的行动来弥补，而是否承担这种风险由你决定。请决定是推迟日期、降低目标、改为挑战目标，还是让它继续进行并接受未达成。',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    '无论你如何回答，都不会停止任何事情。该优先事项保持不变，并在周期结束时评分；如果你决定修改，请在目标页面上修改。',
 };

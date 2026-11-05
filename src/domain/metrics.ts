@@ -805,9 +805,12 @@ export async function renderHeadline(tx: TenantClient, companyId: string): Promi
   const chosen = live.find((metric) => metric.id === id);
   if (!chosen) return null;
   const partner = chosen.pairedWith ? live.find((metric) => metric.id === chosen.pairedWith) : undefined;
+  // Told without how to read and record it: every role is told the
+  // headline, and it is context, not an assignment. A critic holding
+  // neither tool, told to record it, would try and be refused.
   return [
-    `The owner judges the company by ${metricLine(chosen).slice(2)}`,
-    ...(partner ? [`Watch it with ${metricLine(partner).slice(2)} Moving the headline at that one's cost is not progress.`] : []),
+    `The owner judges the company by ${metricLine(chosen, false).slice(2)}`,
+    ...(partner ? [`Watch it with ${metricLine(partner, false).slice(2)} Moving the headline at that one's cost is not progress.`] : []),
     'It is the one number the company is judged by, above any one goal: when your work moves it, say so in your result, with the figure.',
   ].join('\n');
 }
@@ -838,7 +841,8 @@ export function renderMetrics(metrics: MetricView[], pool: MetricView[] = metric
   return lines.join('\n');
 }
 
-function metricLine(metric: MetricView): string {
+/** A measure in a line; with `assigned`, how to read and record it, for a run whose goal chain carries it. */
+function metricLine(metric: MetricView, assigned = true): string {
   const standing = metric.latest
     ? `now ${metric.latest.value} (${metric.latest.verified ? 'verified' : 'UNVERIFIED -- not read back from its source'}, ${metric.latest.observedAt.toISOString().slice(0, 10)})`
     : 'no value recorded yet';
@@ -848,5 +852,6 @@ function metricLine(metric: MetricView): string {
   return `- ${metric.name} [${metric.slug}]: ${aim}, ${metric.direction === 'up' ? 'higher is better' : 'lower is better'}; ` +
     `${metric.funnelStep ? `funnel step: ${metric.funnelStep}; ` : ''}${standing}.` +
     (metric.ownerRoleSlug ? ` The seat ${metric.ownerRoleSlug} answers for it.` : '') +
-    (metric.sourceCapability ? ` Read it with ${metric.sourceCapability} and record it with metric.record.` : ' Record it with metric.record.');
+    (!assigned ? ''
+      : metric.sourceCapability ? ` Read it with ${metric.sourceCapability} and record it with metric.record.` : ' Record it with metric.record.');
 }

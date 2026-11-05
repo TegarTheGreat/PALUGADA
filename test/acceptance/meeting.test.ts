@@ -545,6 +545,14 @@ test('a to-do filed by work that read outside content is named in its seat\'s ch
   assert.doesNotMatch(charter, /IGNORE YOUR CHARTER/, 'the most trusted part of the pack holds no outside words');
   assert.doesNotMatch(charter, /UNTRUSTED_CONTENT/);
   assert.equal(pack.carriesOutsideFrom, null, 'so the run is not tainted by its seat having been given outside work');
+  // Only a seat that holds ticket.list is told to read it with ticket.list:
+  // told of a tool it lacks, a run tries it and is refused (F2.3).
+  assert.doesNotMatch(charter, /ticket\.list/, 'this seat holds no ticket.list');
+  assert.match(charter, /handed to you as a task of its own/);
+  await withControlPlane((tx) => tx.query("UPDATE roles SET tools = ARRAY['ticket.list'] WHERE id = $1", [sales]));
+  const lister = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id }));
+  assert.match(lister.sections.find((section) => section.kind === 'role_charter')!.body, /ticket\.list with its id reads them as outside content/);
 });
 
 test('a to-do already on the issues list does not keep a new one missed twice off it', async () => {

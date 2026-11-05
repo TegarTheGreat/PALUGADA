@@ -16,6 +16,7 @@ import {
   ancestryForTask,
   applyGoalChange,
   createGoal,
+  createGoalWithin,
   goalsIn,
   proposeGoalChange,
   renderAncestry,
@@ -744,6 +745,55 @@ test('the export round-trips the columns (F18.1, F16.4)', async () => {
     { slug: 'measured', starts_on: '2026-10-01', due_on: '2026-12-31', commitment: 'committed',
       done_when: null, channel: null, seat: 'worker' },
   ]);
+});
+
+/**
+ * A plan approved at once writes an objective and the key results under it
+ * in one transaction, so they share a `created_at`; the export sorted goals by
+ * that alone, and the table's own order broke the tie. Once the objective was
+ * changed, its newer row came after its children, the archive named a key
+ * result before the objective it hangs from, and the import -- whose key to
+ * the parent is checked at once -- refused the whole restore.
+ */
+test('a goal changed after its children were written with it still comes back from the archive (F18.7, F16.4)', async () => {
+  const fixture = await createCompany('goal-export-parents-first');
+  const grow = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      "SELECT id FROM goals WHERE company_id = $1 AND kind = 'mission'", [fixture.companyId]);
+    const objective = await createGoalWithin(tx, {
+      companyId: fixture.companyId, kind: 'objective', slug: 'grow', statement: 'Grow.', parentGoalId: rows[0]!.id,
+    });
+    await createGoalWithin(tx, {
+      companyId: fixture.companyId, kind: 'key_result', slug: 'ten', statement: 'Ten customers.', parentGoalId: objective.id,
+    });
+    return objective;
+  });
+  await applyGoalChange({ companyId: fixture.companyId, goalId: grow.id, statement: 'Grow faster.' });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const goals = lines.filter((line) => line.section === 'goals').map((line) => line.row);
+  const at = (slug: string) => goals.findIndex((row) => row.slug === slug);
+  assert.ok(at('grow') < at('ten'), 'the export writes a goal before the goals under it');
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  const { rows } = await withTenant(restored.companyId, (tx) => tx.query<{ slug: string; parent: string | null; statement: string }>(
+    `SELECT g.slug, p.slug AS parent, g.statement FROM goals g LEFT JOIN goals p ON p.id = g.parent_goal_id
+      WHERE g.slug IN ('grow', 'ten') ORDER BY g.slug`));
+  assert.deepEqual(rows, [
+    { slug: 'grow', parent: rows[0]!.parent, statement: 'Grow faster.' },
+    { slug: 'ten', parent: 'grow', statement: 'Ten customers.' },
+  ]);
+
+  // An archive written before the export was put in order names the child
+  // first, and comes back too.
+  const childFirst = [
+    ...lines.filter((line) => line.section !== 'goals'),
+    ...lines.filter((line) => line.section === 'goals').reverse(),
+  ];
+  const older = await importCompany(childFirst, { slug: `${fixture.slug}-older` });
+  const { rows: olderRows } = await withTenant(older.companyId, (tx) => tx.query<{ parent: string }>(
+    "SELECT p.slug AS parent FROM goals g JOIN goals p ON p.id = g.parent_goal_id WHERE g.slug = 'ten'"));
+  assert.deepEqual(olderRows, [{ parent: 'grow' }]);
 });
 
 test('a quarterly priority cannot lose its last finish line by retiring its measure (F18.1)', async () => {

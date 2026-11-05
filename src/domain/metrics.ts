@@ -371,6 +371,11 @@ export async function recordObservation(
   if (!Number.isFinite(input.value)) {
     throw new PalugadaError('contract.violation', 'value must be a number', { field: 'value' });
   }
+  // Checked here rather than by the table (0145): the reading outlives its
+  // task, which retention removes and the key lets go of.
+  if (input.recordedBy === 'agent' && !input.taskId) {
+    throw new PalugadaError('contract.violation', 'an agent records a value from a run: name the task that found it', { field: 'taskId' });
+  }
   const { rows: found } = await tx.query<{ id: string; slug: string; source_capability: string | null; retired: boolean }>(
     'SELECT id, slug, source_capability, retired_at IS NOT NULL AS retired FROM goal_metrics WHERE id::text = $1 OR slug = $1',
     [input.metric],

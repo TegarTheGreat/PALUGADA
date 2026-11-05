@@ -26,6 +26,8 @@ import {
   rotateCredential,
 } from '../../src/secrets/rotation.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
+import { openTicket } from '../../src/engine/tickets.ts';
+import { defineMetric, recordObservation } from '../../src/domain/metrics.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -594,4 +596,66 @@ test('finished work past the windows goes with what hangs from it, and work some
   assert.deepEqual(left.cards, ['A recent incident, closed', 'An old incident, still open']);
   assert.ok((await readRetentionLog(fixture.companyId)).some((entry) => entry.action === 'work_purged' && entry.rowsAffected === 4),
     'and the purge is on the record');
+});
+
+/**
+ * A ticket an agent filed names the task that filed it, and a reading an
+ * agent recorded names the task that read it; both keys let go of the task
+ * when it is removed, as retention removes finished work. The rule that an
+ * agent's ticket or reading names its task was a CHECK on the row, so the
+ * key's own SET NULL broke it and the whole pass failed -- for every company
+ * whose weekly meeting had solved an issue (every to-do it files is an
+ * agent's) or whose seats record their scorecard, once that work aged out.
+ * The rule is the filer's, when the row is written; what it remembered of
+ * the task is kept without the link.
+ */
+test('work that filed a to-do or recorded a reading still goes past the windows, and the to-do and the reading stay (F11.5, F18.2, F18.4)', async () => {
+  const fixture = await createCompany('retention-agent-filed');
+  const metricId = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'signups', name: 'Signups', unit: 'count', target: 10,
+  });
+  const taskId = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO tasks (company_id, project_id, division_id, role_id, budget_account_id, status, input,
+                          idempotency_key, input_hash, created_by, created_at, finished_at)
+       VALUES ($1, $2, $3, $4, $5, 'completed', '{"goal":"the weekly meeting"}', 'meeting', 'meeting', 'owner',
+               now() - interval '501 days', now() - interval '500 days')
+       RETURNING id`,
+      [fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId, fixture.budgetAccountId]);
+    const id = rows[0]!.id;
+    await tx.query(
+      `INSERT INTO tickets (company_id, project_id, division_id, title, opened_by, opened_by_task_id, created_at, updated_at)
+       VALUES ($1, $2, $3, 'Answer refunds the same day', 'agent', $4, now() - interval '500 days', now() - interval '500 days')`,
+      [fixture.companyId, fixture.projectId, fixture.divisionId, id]);
+    await tx.query(
+      `INSERT INTO metric_observations (company_id, metric_id, value, task_id, recorded_by, observed_at)
+       VALUES ($1, $2, 3, $3, 'agent', now() - interval '500 days')`,
+      [fixture.companyId, metricId, id]);
+    return id;
+  });
+
+  const outcome = await runRetention(fixture.companyId);
+  assert.equal(outcome.workPurged, 1, 'the work went');
+  const left = await withControlPlane(async (tx) => {
+    const tasks = await tx.query('SELECT 1 FROM tasks WHERE id = $1', [taskId]);
+    const tickets = await tx.query<{ opened_by: string; task: string | null }>(
+      'SELECT opened_by, opened_by_task_id AS task FROM tickets WHERE company_id = $1', [fixture.companyId]);
+    const readings = await tx.query<{ recorded_by: string; task: string | null }>(
+      'SELECT recorded_by, task_id AS task FROM metric_observations WHERE company_id = $1', [fixture.companyId]);
+    return { tasks: tasks.rows.length, tickets: tickets.rows, readings: readings.rows };
+  });
+  assert.deepEqual(left, {
+    tasks: 0,
+    tickets: [{ opened_by: 'agent', task: null }],
+    readings: [{ recorded_by: 'agent', task: null }],
+  });
+
+  // The rule stays where the row is written: an agent names its task.
+  await assert.rejects(withTenant(fixture.companyId, (tx) => openTicket(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    title: 'A ticket from nowhere', openedBy: 'agent', outside: false,
+  })), /an agent files a ticket from a run: name the task that filed it/);
+  await assert.rejects(withTenant(fixture.companyId, (tx) => recordObservation(tx, {
+    companyId: fixture.companyId, metric: 'signups', value: 4, recordedBy: 'agent',
+  })), /an agent records a value from a run: name the task that found it/);
 });

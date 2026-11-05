@@ -230,6 +230,11 @@ function checked(input: TicketFacts): { title: string; body: string; kind: Ticke
   if (input.dueOn && !isDay(input.dueOn)) {
     throw new PalugadaError('contract.violation', `a due date is a day written YYYY-MM-DD; "${input.dueOn}" is not one`, { field: 'due' });
   }
+  // Checked here rather than by the table (0145): the ticket outlives its
+  // task, which retention removes and the key lets go of.
+  if (input.openedBy === 'agent' && !input.openedByTaskId) {
+    throw new PalugadaError('contract.violation', 'an agent files a ticket from a run: name the task that filed it', { field: 'taskId' });
+  }
   return { title, body, kind, priority, horizon };
 }
 

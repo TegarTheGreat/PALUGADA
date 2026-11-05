@@ -107,9 +107,16 @@ const SECTIONS: Section[] = [
     // `status`, or an abandoned goal comes back active and its work with it;
     // and its period, seat, commitment, finish line and channel (0136), or a
     // quarterly priority comes back as a goal with no end and nobody's.
+    // Each goal before the goals under it, which the import's key to the
+    // parent checks at once: the ladder's rung first, since a goal hangs
+    // only from the rung above. By `created_at` alone, an objective and its
+    // key results written in one transaction (a plan approved at once) tied,
+    // the table's order broke the tie, and an objective changed since came
+    // after its children, so the restore was refused.
     sql: `SELECT id, parent_goal_id, kind, slug, statement, status, created_at,
                  starts_on, due_on, owner_role_id, commitment, done_when, channel
-            FROM goals ORDER BY created_at`,
+            FROM goals
+           ORDER BY CASE kind WHEN 'mission' THEN 0 WHEN 'objective' THEN 1 ELSE 2 END, created_at, id`,
   },
   {
     name: 'goal_metrics',

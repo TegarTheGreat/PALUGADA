@@ -27,7 +27,7 @@ import { registerPlatformCapabilities } from '../../src/broker/platform-capabili
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { reclaimExpiredLeases, MAX_RECLAIMS } from '../../src/engine/checkout.ts';
-import { fileIssue, openTicket, solveIssue } from '../../src/engine/tickets.ts';
+import { earlierSolves, fileIssue, openTicket, readTicket, setTicketStatus, solveIssue } from '../../src/engine/tickets.ts';
 import { ensureTriage, handTodos } from '../../src/engine/triage.ts';
 import { reportEndedBadly } from '../../src/engine/ended.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -635,4 +635,54 @@ test('a to-do that changes while it is being handed does not leave its work runn
   const said = await withTenant(fixture.companyId, (tx) => tx.query(
     "SELECT 1 FROM events WHERE type = 'ticket.not_handed'"));
   assert.equal(said.rows.length, 0, 'and the record does not say the seat could not take it');
+});
+
+/**
+ * Tickets are given new ids on import, and what was said about them is in
+ * the event log by the ticket's id: an issue's earlier solves (`issue.solved`)
+ * and a seat's refusal of a to-do (`ticket.not_handed`). Restored with the
+ * archive's ids in their payloads, none of them named a ticket here: the
+ * issue's page lost what was tried before, and a to-do whose seat had given
+ * up was offered to that seat again, run by run.
+ */
+test('an issue\'s earlier solves and a seat\'s refusal of a to-do survive an export and an import', async () => {
+  const fixture = await withCeo('issues-history-archive');
+  const supportId = await addRole(fixture, 'support');
+  const issue = await withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'Refunds take a week',
+    sourceKey: `test:history:${fixture.roleId}`, openedBy: 'owner', outside: false,
+  }));
+  await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: issue.ticket.id, rootCause: 'Nobody owns refunds.', decision: 'Builder owns refunds.',
+    solvedBy: 'owner', outside: false, todos: [{ title: 'Write the refund steps' }],
+  }));
+  await withTenant(fixture.companyId, (tx) => setTicketStatus(tx, fixture.companyId, issue.ticket.id, { status: 'open' }));
+  const { todos: [todo] } = await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: issue.ticket.id, rootCause: 'Refunds wait for a second approval.',
+    decision: 'Support owns refunds.', solvedBy: 'owner', outside: false,
+    todos: [{ title: 'Answer refunds the same day', assigneeRoleId: supportId }],
+  }));
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET frozen_at = now(), frozen_reason = 'test' WHERE id = $1", [supportId]));
+  assert.equal(await handTodos(fixture.companyId), 0, 'the frozen seat does not take its to-do');
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  const { rows: back } = await withTenant(restored.companyId, (tx) => tx.query<{ id: string; title: string }>(
+    'SELECT id, title FROM tickets'));
+  const issueBack = back.find((one) => one.title === 'Refunds take a week')!.id;
+  const todoBack = back.find((one) => one.title === 'Answer refunds the same day')!.id;
+  assert.notEqual(todoBack, todo!.id, 'the to-do has an id of its own here');
+
+  const earlier = await withTenant(restored.companyId, async (tx) => earlierSolves(tx, [(await readTicket(tx, issueBack))!]));
+  assert.deepEqual(earlier.get(issueBack)!.map((one) => one.decision), ['Builder owns refunds.'],
+    'the restored issue still shows what was tried before');
+
+  const refusals = () => withTenant(restored.companyId, (tx) => tx.query<{ payload: { givenUp?: boolean } }>(
+    "SELECT payload FROM events WHERE type = 'ticket.not_handed' AND payload->>'ticketId' = $1", [todoBack]))
+    .then((result) => result.rows.map((one) => one.payload.givenUp === true));
+  assert.deepEqual(await refusals(), [true], 'the seat\'s refusal names the restored to-do');
+  assert.equal(await handTodos(restored.companyId), 0);
+  assert.deepEqual(await refusals(), [true], 'and the seat that gave up is not asked again');
 });

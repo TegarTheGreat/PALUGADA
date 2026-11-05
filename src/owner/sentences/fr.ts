@@ -445,4 +445,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Travaux terminés : {count}',
   'Stopped: its work was taken up another way':
     'Arrêtée : son travail a été repris autrement',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Son travail s\'est arrêté, et à chaque fois il a fait tomber le worker qui l\'exécutait.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Une écriture vers un service extérieur a peut-être eu lieu sans être ce qui était voulu.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Le travail imputé au même compte de budget s\'arrête jusqu\'à ce qu\'il ait de nouveau de la marge.',
+  'Its work stopped before it was done.':
+    'Son travail s\'est arrêté avant d\'être fini.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'La plateforme a compté {lost} workers perdus, le maximum qu\'une tâche peut perdre.',
+  'The platform read back what was written, and it did not match.':
+    'La plateforme a relu ce qui avait été écrit, et cela ne correspondait pas.',
+  'The budget account had nothing left to reserve for the work.':
+    'Le compte de budget n\'avait plus rien à réserver pour le travail.',
+  'The platform found it ended with no card raised for it.':
+    'La plateforme a trouvé qu\'elle s\'était terminée sans qu\'aucune carte soit créée pour elle.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'La carte est allée à la personne que la division désigne pour s\'en occuper, puis à vous.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'La tâche a été arrêtée, et vous avez été prévenu par une carte dans la boîte de réception.',
+  'Postmortem: {cause} ({about})':
+    'Analyse après incident : {cause} ({about})',
+  'What happened':
+    'Ce qui s\'est passé',
+  'Impact':
+    'Impact',
+  'Trigger':
+    'Déclencheur',
+  'Detection':
+    'Détection',
+  'What was done':
+    'Ce qui a été fait',
+  'A task of {role} stopped before it was done.':
+    'Une tâche de {role} s\'est arrêtée avant d\'être finie.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Pour le résoudre : trouver la cause racine en demandant pourquoi à chaque réponse et en la vérifiant dans le dossier, décider une fois, et créer les actions qui mettent la décision en œuvre, chacune avec un seul poste.',
 };

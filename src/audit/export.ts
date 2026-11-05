@@ -186,10 +186,15 @@ const SECTIONS: Section[] = [
     // The backlog (0070): what was owed, who filed it, whether its words may
     // be a stranger's (0134), and what worked it. An archive from before
     // 0134 has no `outside`, and its tickets are restored as from outside.
+    // Issues and to-dos (0139): what an issue is about, its list, its root
+    // cause, the card it came from and its source; a to-do's issue, seat and
+    // date. An issue is written before the to-dos filed with it, so the
+    // reference a to-do holds finds it on the way back in.
     name: 'tickets',
     sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
-                 working_task_id, closed_reason, created_at, updated_at, closed_at
-            FROM tickets ORDER BY created_at`,
+                 working_task_id, closed_reason, goal_id, metric_id, horizon, root_cause, from_inbox_item_id,
+                 solves_ticket_id, assignee_role_id, due_on, source_key, created_at, updated_at, closed_at
+            FROM tickets ORDER BY created_at, solves_ticket_id IS NOT NULL, id`,
   },
   {
     // 0111. A customer channel without its keys: the address and the

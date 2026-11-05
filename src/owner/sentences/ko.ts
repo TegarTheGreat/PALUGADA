@@ -440,4 +440,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '완료된 일: {count}',
   'Stopped: its work was taken up another way':
     '중지됨: 이 작업은 다른 방식으로 이어졌습니다',
+  'Its work stopped, and each time it took down the worker running it.':
+    '작업이 멈췄고, 그때마다 실행하던 워커도 함께 멈췄습니다.',
+  'A write to an outside service may have happened without being what was meant.':
+    '외부 서비스에 쓰기가 의도와 다르게 이루어졌을 수 있습니다.',
+  'Work charged to the same budget account stops until it has room again.':
+    '같은 예산 계정에 청구되는 작업은 계정에 다시 여유가 생길 때까지 멈춥니다.',
+  'Its work stopped before it was done.':
+    '작업이 끝나기 전에 멈췄습니다.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    '플랫폼이 잃은 워커를 {lost}번 셌습니다. 작업 하나가 잃을 수 있는 최대치입니다.',
+  'The platform read back what was written, and it did not match.':
+    '플랫폼이 쓴 내용을 다시 읽었더니 일치하지 않았습니다.',
+  'The budget account had nothing left to reserve for the work.':
+    '예산 계정에 작업을 위해 확보할 것이 남아 있지 않았습니다.',
+  'The platform found it ended with no card raised for it.':
+    '플랫폼이 카드 없이 끝난 것을 발견했습니다.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    '카드는 부서가 처리 담당으로 지정한 쪽에 먼저 가고, 그다음 당신에게 갔습니다.',
+  'The task was halted, and you were told on a card in the inbox.':
+    '작업이 중단되었고, 받은편지함의 카드로 알려 드렸습니다.',
+  'Postmortem: {cause} ({about})':
+    '사후 분석: {cause} ({about})',
+  'What happened':
+    '무슨 일이 있었나',
+  'Impact':
+    '영향',
+  'Trigger':
+    '계기',
+  'Detection':
+    '탐지',
+  'What was done':
+    '취한 조치',
+  'A task of {role} stopped before it was done.':
+    '{role}의 작업 하나가 끝나기 전에 멈췄습니다.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    '해결하려면: 답마다 왜를 묻고 기록과 대조해 근본 원인을 찾고, 한 번 결정한 뒤, 결정을 실행할 할 일을 자리 하나씩 정해 등록합니다.',
 };

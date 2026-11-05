@@ -442,4 +442,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Lavori completati: {count}',
   'Stopped: its work was taken up another way':
     'Fermata: il suo lavoro è stato ripreso in un altro modo',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Il suo lavoro si è fermato e ogni volta ha fatto cadere il worker che lo eseguiva.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Una scrittura su un servizio esterno potrebbe essere avvenuta senza essere quella voluta.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Il lavoro addebitato allo stesso conto di budget si ferma finché non ha di nuovo margine.',
+  'Its work stopped before it was done.':
+    'Il suo lavoro si è fermato prima di essere finito.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'La piattaforma ha contato {lost} worker persi, il massimo che un compito può perdere.',
+  'The platform read back what was written, and it did not match.':
+    'La piattaforma ha riletto ciò che era stato scritto, e non corrispondeva.',
+  'The budget account had nothing left to reserve for the work.':
+    'Al conto di budget non restava nulla da riservare per il lavoro.',
+  'The platform found it ended with no card raised for it.':
+    'La piattaforma l\'ha trovato concluso senza che fosse aperta alcuna scheda.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'La scheda è andata a chi la divisione indica per occuparsene, e poi a te.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Il compito è stato fermato e sei stato avvisato con una scheda nella posta in arrivo.',
+  'Postmortem: {cause} ({about})':
+    'Analisi a posteriori: {cause} ({about})',
+  'What happened':
+    'Cosa è successo',
+  'Impact':
+    'Impatto',
+  'Trigger':
+    'Innesco',
+  'Detection':
+    'Rilevamento',
+  'What was done':
+    'Cosa è stato fatto',
+  'A task of {role} stopped before it was done.':
+    'Un compito di {role} si è fermato prima di essere finito.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Per risolverlo: trovare la causa principale chiedendo perché a ogni risposta e verificandola nei registri, decidere una volta e aprire le azioni che mettono in pratica la decisione, ognuna con un solo posto.',
 };

@@ -438,4 +438,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '完了した仕事：{count}',
   'Stopped: its work was taken up another way':
     '停止: その仕事は別の形で引き継がれました',
+  'Its work stopped, and each time it took down the worker running it.':
+    '作業が止まり、そのたびに実行中のワーカーも停止させました。',
+  'A write to an outside service may have happened without being what was meant.':
+    '外部サービスへの書き込みが、意図とは違う形で行われた可能性があります。',
+  'Work charged to the same budget account stops until it has room again.':
+    '同じ予算口座に請求される作業は、口座に余裕が戻るまで止まります。',
+  'Its work stopped before it was done.':
+    '作業が終わる前に止まりました。',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'プラットフォームは失われたワーカーを {lost} 回数えました。これはタスクが失ってよい上限です。',
+  'The platform read back what was written, and it did not match.':
+    'プラットフォームが書き込んだ内容を読み戻したところ、一致しませんでした。',
+  'The budget account had nothing left to reserve for the work.':
+    '予算口座には作業のために確保できる残りがありませんでした。',
+  'The platform found it ended with no card raised for it.':
+    'プラットフォームは、カードが一枚も出されないまま終わっているのを見つけました。',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'カードは部門が対応役に指名した者に送られ、その後あなたに届きました。',
+  'The task was halted, and you were told on a card in the inbox.':
+    'タスクは停止され、受信箱のカードでお知らせしました。',
+  'Postmortem: {cause} ({about})':
+    '事後分析：{cause}（{about}）',
+  'What happened':
+    '何が起きたか',
+  'Impact':
+    '影響',
+  'Trigger':
+    'きっかけ',
+  'Detection':
+    '検知',
+  'What was done':
+    '行った対応',
+  'A task of {role} stopped before it was done.':
+    '{role} のタスクが終わる前に止まりました。',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    '解決するには：答えのたびに「なぜ」を問い、記録と照らし合わせて根本原因を見つけ、一度決め、その決定を実行するやることを席一つずつに作成します。',
 };

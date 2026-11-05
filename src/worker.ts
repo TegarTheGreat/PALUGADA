@@ -50,7 +50,7 @@ import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
 import { reportEndedBadly } from './engine/ended.ts';
 import { callBackKeyWaits, closeRecovered } from './engine/recovered.ts';
-import { ensureTriage } from './engine/triage.ts';
+import { ensureTriage, handTodos } from './engine/triage.ts';
 import { ensureCollections } from './duties/collections.ts';
 import { ensureOutcomes } from './engine/outcomes.ts';
 import { ensureGoalReview } from './engine/goal-review.ts';
@@ -249,6 +249,8 @@ export interface TickReport {
   ended: number;
   /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
   triaged: number;
+  /** To-dos handed straight to the one seat each names (src/engine/triage.ts, `handTodos`). */
+  todos: number;
   /** Customers' overdue invoices looked at: reminders made into a task, or a card put to the owner (src/duties/collections.ts). */
   collections: number;
   /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
@@ -332,6 +334,7 @@ function emptyReport(): TickReport {
     stranded: 0,
     ended: 0,
     triaged: 0,
+    todos: 0,
     collections: 0,
     outcomes: 0,
     reviews: 0,
@@ -588,6 +591,14 @@ export class Worker {
       // one ticks its housekeeping with `runs` false, where it never ran.
       await this.#stage(report, 'triage', async () => {
         if (await ensureTriage(company, now)) report.triaged += 1;
+      });
+
+      // The to-dos a solved issue left, each to the one seat it names (F18.5):
+      // given now, as the owner's own assignment would be, and not round
+      // through the CEO's triage. Before the claim, so the seat can start on
+      // this tick; one query when there are none.
+      await this.#stage(report, 'todos', async () => {
+        report.todos += await handTodos(company, now);
       });
 
       // What customers owe, looked at against the books: the reminders that

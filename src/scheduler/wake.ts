@@ -296,11 +296,17 @@ export async function drainWakes(
  * dormancy is cleared, because the owner asking for something now and the
  * system answering in four hours is the behaviour F9.8's "penugasan langsung
  * melewati jadwal" exists to rule out.
+ *
+ * The same holds for a to-do a seat is given when an issue is solved (F18.5,
+ * src/engine/triage.ts): the one seat it names is handed it now. Who asked is
+ * the caller's to say -- the owner, or the event of the to-do being filed --
+ * since an agent's to-do recorded as the owner's request would be quoted
+ * back as the owner's own words (src/broker/guardian.ts).
  */
 export async function assignTask(
   input: CreateTaskInput & { detail?: string },
 ): Promise<{ task: TaskRow; wakeId: string }> {
-  const task = await createRootTask({ ...input, createdBy: 'owner' });
+  const task = await createRootTask(input);
 
   await withTenant(input.companyId, async (tx) => {
     await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [input.roleId]);
@@ -310,7 +316,7 @@ export async function assignTask(
     companyId: input.companyId,
     roleId: input.roleId,
     reason: 'assignment',
-    detail: input.detail ?? `owner assigned task ${task.id}`,
+    detail: input.detail ?? `${input.createdBy} assigned task ${task.id}`,
   });
 
   return { task, wakeId: wake.id };

@@ -446,4 +446,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Việc đã xong: {count}',
   'Stopped: its work was taken up another way':
     'Đã dừng: công việc của nó đã được xử lý theo cách khác',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Công việc của nó dừng lại, và mỗi lần đều làm sập worker đang chạy nó.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Một lần ghi vào dịch vụ bên ngoài có thể đã xảy ra nhưng không đúng như ý muốn.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Công việc tính vào cùng tài khoản ngân sách sẽ dừng cho đến khi tài khoản có chỗ trở lại.',
+  'Its work stopped before it was done.':
+    'Công việc của nó dừng lại trước khi xong.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Nền tảng đếm được {lost} worker bị mất, mức tối đa một nhiệm vụ được phép mất.',
+  'The platform read back what was written, and it did not match.':
+    'Nền tảng đọc lại những gì đã ghi, và nó không khớp.',
+  'The budget account had nothing left to reserve for the work.':
+    'Tài khoản ngân sách không còn gì để dành cho công việc.',
+  'The platform found it ended with no card raised for it.':
+    'Nền tảng thấy nó đã kết thúc mà không có thẻ nào được tạo cho nó.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Thẻ được gửi đến người mà bộ phận chỉ định xử lý, rồi đến bạn.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Nhiệm vụ đã bị dừng, và bạn được báo bằng một thẻ trong hộp thư đến.',
+  'Postmortem: {cause} ({about})':
+    'Phân tích sau sự cố: {cause} ({about})',
+  'What happened':
+    'Điều đã xảy ra',
+  'Impact':
+    'Tác động',
+  'Trigger':
+    'Nguyên nhân kích hoạt',
+  'Detection':
+    'Phát hiện',
+  'What was done':
+    'Những gì đã làm',
+  'A task of {role} stopped before it was done.':
+    'Một nhiệm vụ của {role} đã dừng trước khi xong.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Để giải quyết: tìm nguyên nhân gốc bằng cách hỏi tại sao với mỗi câu trả lời và đối chiếu với hồ sơ, quyết định một lần, rồi tạo các việc cần làm để thực hiện quyết định, mỗi việc cho một vị trí.',
 };

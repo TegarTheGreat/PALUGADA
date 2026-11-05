@@ -71,6 +71,22 @@ interface ImportSection {
    * (`taskKeysFromArchive`).
    */
   remapJson?: readonly string[];
+  /**
+   * Text columns holding ids joined by colons, mapped part by part as a
+   * card's `once` is: an issue's source names the seat or the account it is
+   * about (`task:<reason>:<role>`, `budget:<account>`), and one restored as it
+   * was would never be found again, so the next failure there filed a second
+   * issue beside the restored one.
+   */
+  remapJoined?: readonly string[];
+  /**
+   * The section's ids are assigned before any section is imported, because a
+   * payload imported earlier names its rows -- a hire's card names its ticket
+   * -- while the rows reference something imported later by a foreign key.
+   * Nothing earlier may reference them by a foreign key, which would point at
+   * a row not there yet.
+   */
+  idsFirst?: boolean;
 }
 
 /**
@@ -201,11 +217,6 @@ const SECTIONS: ImportSection[] = [
   { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'], remapJson: ['grounds'] },
   { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
-  {
-    name: 'tickets',
-    table: 'tickets',
-    references: ['project_id', 'division_id', 'opened_by_task_id', 'working_task_id'],
-  },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'run_notes', table: 'run_notes', references: ['task_id', 'agent_run_id'] },
   { name: 'events', table: 'events', references: ['project_id', 'task_id'] },
@@ -273,6 +284,20 @@ const SECTIONS: ImportSection[] = [
     table: 'inbox_items',
     references: ['task_id'],
     remapJson: ['payload'],
+  },
+  {
+    // After the inbox, since an issue the platform filed names the card it
+    // came from (0139); its ids are assigned first, since a hire's card names
+    // its ticket in its payload. Issues before the to-dos that solve them,
+    // as the export writes them.
+    name: 'tickets',
+    table: 'tickets',
+    references: [
+      'project_id', 'division_id', 'opened_by_task_id', 'working_task_id', 'goal_id', 'metric_id', 'from_inbox_item_id',
+      'solves_ticket_id', 'assignee_role_id',
+    ],
+    remapJoined: ['source_key'],
+    idsFirst: true,
   },
 
   // F1.5's configuration, restored last because it references divisions and
@@ -501,6 +526,11 @@ export async function importCompany(
     // should not appear, but might in a payload -- resolves rather than dangles.
     const remap = new Map<string, string>([[String(source!.id), companyId]]);
     const counts: Record<string, number> = {};
+    for (const section of SECTIONS.filter((one) => one.idsFirst)) {
+      for (const row of bySection.get(section.name) ?? []) {
+        if (typeof row.id === 'string' && !remap.has(row.id)) remap.set(row.id, randomUUID());
+      }
+    }
 
     for (const section of SECTIONS) {
       const sectionRows = bySection.get(section.name) ?? [];
@@ -706,6 +736,9 @@ async function importSection(
       if (values[column] !== null && values[column] !== undefined) {
         values[column] = remapIds(values[column], remap);
       }
+    }
+    for (const column of section.remapJoined ?? []) {
+      if (typeof values[column] === 'string') values[column] = remapJoined(values[column] as string, remap);
     }
 
     values.company_id = companyId;

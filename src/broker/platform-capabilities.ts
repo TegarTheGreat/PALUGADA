@@ -31,7 +31,7 @@ import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/sta
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
-import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
+import { assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
 import { queryMeaning } from '../knowledge/meaning.ts';
 import { containChildResult } from '../engine/containment.ts';
@@ -340,8 +340,27 @@ export interface TicketCreateInput {
   body?: string;
   /** 0 first to 3 last; 2 unless said. */
   priority?: number;
-  /** `work` unless said; `hire` proposes a role the company lacks (0132). */
-  kind?: 'work' | 'hire';
+  /** `work` unless said; `hire` proposes a role the company lacks (0132); `issue` is a problem to solve (0139). */
+  kind?: 'work' | 'hire' | 'issue';
+  /** An issue's list: `now` (the weekly list) unless said, or `long_term`. */
+  horizon?: 'now' | 'long_term';
+  /** A to-do: the id of the issue whose decision it carries out. */
+  solves?: string;
+  /** With `solves`, solving the issue: why it happened. */
+  rootCause?: string;
+  /** With `solves`, solving the issue: what was decided. */
+  decision?: string;
+  /** A to-do's one seat, by its slug: handed it straight away. */
+  assignee?: string;
+  /** A to-do's due date, YYYY-MM-DD; a week out unless said. */
+  due?: string;
+}
+
+export interface TicketCreateResult {
+  ticketId: string;
+  existing: boolean;
+  /** The issue named in `solves` was solved by this call. */
+  solved?: boolean;
 }
 
 /**
@@ -351,22 +370,52 @@ export interface TicketCreateInput {
  * ticket. Tier 1 as the catalogue has it: a ticket reaches colleagues and can
  * be closed, and the read-back is the row being there. A vendor file that
  * binds an outside tracker replaces this binding.
+ *
+ * It is also how an issue is filed and solved (F18.4, 0139), so solving needs
+ * no tool of its own: a to-do is work that names the issue it `solves`, with
+ * its seat (`assignee`) and a date a week out unless `due` says; the first
+ * one filed with the issue's `rootCause` and `decision` solves it, in the
+ * same transaction (`solveIssue`), and later ones carry the same decision
+ * further. An issue is never handed out as work, so it takes neither a seat
+ * nor a date.
  */
-export function ticketCreateCapability(): Capability<TicketCreateInput, { ticketId: string; existing: boolean }> {
+export function ticketCreateCapability(): Capability<TicketCreateInput, TicketCreateResult> {
   return {
     name: 'ticket.create',
     inputSchema: {
       type: 'object',
       required: ['title'],
       properties: {
-        title: { type: 'string', minLength: 1, maxLength: 200, description: 'What needs doing, in a line.' },
+        title: { type: 'string', minLength: 1, maxLength: 200, description: 'What needs doing, in a line; for an issue, the problem.' },
         body: { type: 'string', maxLength: 8000, description: 'What whoever picks it up needs to know, and what done looks like.' },
         priority: { type: 'integer', minimum: 0, maximum: 3, description: '0 first to 3 last; 2 unless it is urgent.' },
         kind: {
-          type: 'string', enum: ['work', 'hire'],
+          type: 'string', enum: ['work', 'hire', 'issue'],
           description: 'work (unless said): something that needs doing. hire: a role the company lacks -- the title is the role, '
-            + 'the body the work it would take over and what it needs -- which the owner is shown and decides.',
+            + 'the body the work it would take over and what it needs -- which the owner is shown and decides. issue: a problem '
+            + 'to solve rather than work to hand out -- what happened, its impact, and what is known -- solved by filing to-dos '
+            + 'that name it in solves.',
         },
+        horizon: {
+          type: 'string', enum: ['now', 'long_term'],
+          description: 'An issue\'s list: now (unless said), solved at the weekly meeting; long_term, read at quarterly planning.',
+        },
+        solves: {
+          type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+          description: 'Files this as a to-do that carries out the decision on this issue (its id from ticket.list). '
+            + 'Give rootCause and decision with the first to-do to solve the issue; later to-dos for it name it alone.',
+        },
+        rootCause: {
+          type: 'string', minLength: 1, maxLength: 2000,
+          description: 'Why the issue happened: ask why of each answer until the cause is found, and check each answer against '
+            + 'the record (the task, its events, the numbers) rather than guessing. Not literally five whys; several branches are fine.',
+        },
+        decision: {
+          type: 'string', minLength: 1, maxLength: 2000,
+          description: 'What was decided about the root cause, once, after discussing it. Proportionate: never a rewrite for a small problem.',
+        },
+        assignee: { type: 'string', minLength: 1, description: 'The slug of the one seat that does this to-do; it is handed the work at once.' },
+        due: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'When the to-do is due, YYYY-MM-DD; seven days from today unless said.' },
       },
     },
     adapter: 'platform',
@@ -376,21 +425,52 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
       return withTenant(ctx.companyId, async (tx) => {
         const task = await getTask(tx, ctx.taskId);
         if (!task) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
+        const kind = input.kind ?? 'work';
+        const solving = input.rootCause !== undefined || input.decision !== undefined;
+        if (solving && (kind !== 'work' || input.solves === undefined)) {
+          throw new PalugadaError('contract.violation',
+            'an issue is solved by filing its to-dos: file each as work naming the issue in solves, with rootCause and decision on the first',
+            { field: 'rootCause' });
+        }
+        let assigneeRoleId: string | null = null;
+        if (input.assignee !== undefined) {
+          const roles = await tx.query<NamedRole>('SELECT id, slug, division_id, display_name, title FROM roles ORDER BY slug');
+          assigneeRoleId = resolveRole(roles.rows, String(input.assignee), null).id;
+        }
+        // F8.9: what this work has read is in what it writes. Asked in the
+        // transaction that files the ticket and kept on the row, because
+        // the events that say so are deleted by retention long before an
+        // open ticket is.
+        const outside = (await outsideContentIn(tx, ctx.taskId)) !== null;
+        const words = {
+          title: String(input.title ?? ''),
+          body: typeof input.body === 'string' ? input.body : '',
+          ...(input.priority === undefined ? {} : { priority: Number(input.priority) }),
+        };
+        if (solving) {
+          // The to-do and the solve are one: refused, neither happens.
+          const solved = await solveIssue(tx, {
+            companyId: ctx.companyId, issueId: String(input.solves), rootCause: String(input.rootCause ?? ''),
+            decision: String(input.decision ?? ''), solvedBy: 'agent', taskId: ctx.taskId, outside,
+            todos: [{ ...words, assigneeRoleId, dueOn: input.due ?? null }],
+          });
+          const todo = solved.todos[0]!;
+          await noteTalkDrift(tx, { companyId: ctx.companyId, taskId: ctx.taskId, where: 'ticket', text: `${todo.title}\n${todo.body}` });
+          return { ticketId: todo.id, existing: false, solved: true };
+        }
         const opened = await openTicket(tx, {
           companyId: ctx.companyId,
           projectId: task.projectId,
           divisionId: ctx.divisionId,
-          title: String(input.title ?? ''),
-          body: typeof input.body === 'string' ? input.body : '',
-          ...(input.priority === undefined ? {} : { priority: Number(input.priority) }),
-          ...(input.kind === undefined ? {} : { kind: input.kind }),
+          ...words,
+          kind,
+          ...(input.horizon === undefined ? {} : { horizon: input.horizon }),
+          ...(input.solves === undefined ? {} : { solvesTicketId: String(input.solves) }),
+          assigneeRoleId,
+          dueOn: input.due ?? null,
           openedBy: 'agent',
           openedByTaskId: ctx.taskId,
-          // F8.9: what this work has read is in what it writes. Asked in the
-          // transaction that files the ticket and kept on the row, because
-          // the events that say so are deleted by retention long before an
-          // open ticket is.
-          outside: (await outsideContentIn(tx, ctx.taskId)) !== null,
+          outside,
         });
         // Read by the owner on the board and by whichever role takes it on.
         // A ticket already open under the same title keeps the words it had,
@@ -432,10 +512,16 @@ export interface TicketListInput {
 export interface TicketListResult {
   tickets: Array<{
     id: string; title: string; body: string; status: string; priority: number; divisionId: string | null;
-    openedBy: 'owner' | 'agent';
+    /** work, hire or issue (0139). */
+    kind: string;
+    openedBy: 'owner' | 'agent' | 'platform';
     /** Filed by work that had read something from outside (F8.9): its words may be a stranger's. */
     outside: boolean;
     workingTaskId: string | null; createdAt: string;
+    /** An issue's list, its root cause and decision once solved; a to-do's issue, seat and due date. */
+    horizon?: string; rootCause?: string | null; decision?: string | null;
+    earlierSolves?: Array<{ rootCause: string; decision: string; solvedAt: string }>;
+    solves?: string | null; assigneeRoleId?: string | null; dueOn?: string | null;
   }>;
 }
 
@@ -476,14 +562,28 @@ export function ticketListCapability(): Capability<TicketListInput, TicketListRe
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
       const status = (input.status ?? 'active') as 'active';
-      const tickets = await withTenant(ctx.companyId, (tx) => listTickets(tx, {
-        status, limit: input.limit ?? 50, ...(input.ids ? { ids: input.ids } : {}),
-      }));
+      const { tickets, solvedBefore } = await withTenant(ctx.companyId, async (tx) => {
+        const listed = await listTickets(tx, { status, limit: input.limit ?? 50, ...(input.ids ? { ids: input.ids } : {}) });
+        return { tickets: listed, solvedBefore: await earlierSolves(tx, listed) };
+      });
       return {
         tickets: tickets.map((ticket) => ({
           id: ticket.id, title: ticket.title, body: ticket.body.slice(0, 1_000), status: ticket.status,
-          priority: ticket.priority, divisionId: ticket.divisionId, openedBy: ticket.openedBy, outside: ticket.outside,
+          priority: ticket.priority, divisionId: ticket.divisionId, kind: ticket.kind, openedBy: ticket.openedBy, outside: ticket.outside,
           workingTaskId: ticket.workingTaskId, createdAt: ticket.createdAt.toISOString(),
+          // Said only where it means something, so a listing of plain work reads as it did.
+          ...(ticket.kind === 'issue'
+            ? {
+              horizon: ticket.horizon, rootCause: ticket.rootCause, decision: ticket.status === 'done' ? ticket.closedReason : null,
+              // An issue opened again because its fix did not hold: what was tried before.
+              earlierSolves: (solvedBefore.get(ticket.id) ?? []).map((one) => ({
+                rootCause: one.rootCause, decision: one.decision, solvedAt: one.solvedAt.toISOString(),
+              })),
+            }
+            : {}),
+          ...(ticket.solvesTicketId || ticket.assigneeRoleId || ticket.dueOn
+            ? { solves: ticket.solvesTicketId, assigneeRoleId: ticket.assigneeRoleId, dueOn: ticket.dueOn }
+            : {}),
         })),
       };
     },
@@ -1019,6 +1119,7 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         // Checked before the child exists, so a ticket that cannot be handed
         // on does not leave work started under it.
         if (!found.ticket) throw new PalugadaError('contract.violation', `no ticket ${input.ticketId} in this company`, { field: 'ticketId' });
+        assertHandedOutAsWork(found.ticket);
         if (found.ticket.status !== 'open' && !found.ours) {
           throw new PalugadaError('contract.violation',
             found.ticket.status === 'in_progress'

@@ -94,7 +94,7 @@ import { searchEverywhere } from './search.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
+import { TICKET_STATUSES, assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
@@ -4220,6 +4220,24 @@ export class OwnerApi {
       },
 
       {
+        // One ticket, for its own page: an issue with its root cause, its
+        // decision and the to-dos that carry the decision out (F18.4), done
+        // and closed ones too, which the board's open view leaves out.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tickets/:ticketId',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          const ticket = await readTicket(tx, params.ticketId!);
+          if (!ticket) throw new PalugadaError('contract.violation', 'no such ticket in this company', { field: 'ticketId' });
+          const todos = ticket.kind === 'issue'
+            ? await listTickets(tx, { status: 'all', solvesTicketId: ticket.id, limit: 100 })
+            : [];
+          // What was decided before it was opened again, which the issue no longer says.
+          const earlier = (await earlierSolves(tx, [ticket])).get(ticket.id) ?? [];
+          return { ticket, todos, earlierSolves: earlier };
+        }),
+      },
+
+      {
         // The owner files something that needs doing. No device: a ticket
         // starts nothing until somebody is given it.
         method: 'POST',
@@ -4236,6 +4254,12 @@ export class OwnerApi {
             title: requireText(body.title, 'title'),
             body: typeof body.body === 'string' ? body.body : '',
             ...(body.priority === undefined ? {} : { priority: Number(body.priority) }),
+            // Work, unless the owner files a problem to solve (F18.4): a hire
+            // is proposed by the CEO, and the owner hires with the CEO.
+            ...(body.kind === undefined || body.kind === null || body.kind === ''
+              ? {} : { kind: oneOf(body.kind, ['work', 'issue'] as const, 'kind') }),
+            ...(body.horizon === undefined || body.horizon === null || body.horizon === ''
+              ? {} : { horizon: oneOf(body.horizon, ['now', 'long_term'] as const, 'horizon') }),
             openedBy: 'owner',
             // The owner's words: typed on the board, or on a card the
             // assistant wrote and the owner applied. The assistant files one
@@ -4270,6 +4294,7 @@ export class OwnerApi {
           const companyId = params.companyId!;
           const ticket = await withTenant(companyId, (tx) => readTicket(tx, params.ticketId!));
           if (!ticket) throw new PalugadaError('contract.violation', 'no such ticket in this company', { field: 'ticketId' });
+          assertHandedOutAsWork(ticket);
           if (ticket.status !== 'open') {
             throw new PalugadaError('contract.violation', `ticket "${ticket.title}" is ${ticket.status.replace('_', ' ')}`, { field: 'ticketId' });
           }

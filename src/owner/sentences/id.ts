@@ -436,4 +436,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Pekerjaan selesai: {count}',
   'Stopped: its work was taken up another way':
     'Dihentikan: pekerjaannya sudah ditangani dengan cara lain',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Pekerjaannya berhenti, dan setiap kali menjatuhkan worker yang menjalankannya.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Penulisan ke layanan luar mungkin sudah terjadi, tetapi tidak seperti yang dimaksud.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Pekerjaan yang dibebankan ke akun anggaran yang sama berhenti sampai akun itu punya ruang lagi.',
+  'Its work stopped before it was done.':
+    'Pekerjaannya berhenti sebelum selesai.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform menghitung {lost} worker yang hilang, batas terbanyak bagi satu tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform membaca kembali apa yang ditulis, dan hasilnya tidak cocok.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akun anggaran tidak punya sisa untuk dicadangkan bagi pekerjaan itu.',
+  'The platform found it ended with no card raised for it.':
+    'Platform menemukannya berakhir tanpa ada kartu yang diajukan untuknya.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kartunya diberikan kepada siapa pun yang ditunjuk divisi untuk menanganinya, lalu kepada Anda.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugas itu dihentikan, dan Anda diberi tahu lewat kartu di kotak masuk.',
+  'Postmortem: {cause} ({about})':
+    'Telaah pascakejadian: {cause} ({about})',
+  'What happened':
+    'Yang terjadi',
+  'Impact':
+    'Dampak',
+  'Trigger':
+    'Pemicu',
+  'Detection':
+    'Deteksi',
+  'What was done':
+    'Yang dilakukan',
+  'A task of {role} stopped before it was done.':
+    'Sebuah tugas {role} berhenti sebelum selesai.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara menyelesaikannya: cari akar masalah dengan menanyakan mengapa pada setiap jawaban dan mencocokkannya dengan catatan, putuskan sekali, lalu ajukan tindakan yang menjalankan keputusan itu, masing-masing dengan satu kursi.',
 };

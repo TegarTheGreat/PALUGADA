@@ -442,4 +442,40 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'पूरे हुए काम: {count}',
   'Stopped: its work was taken up another way':
     'रोका गया: इसका काम दूसरे तरीके से उठा लिया गया',
+  'Its work stopped, and each time it took down the worker running it.':
+    'इसका काम रुक गया, और हर बार इसने इसे चलाने वाले वर्कर को भी गिरा दिया।',
+  'A write to an outside service may have happened without being what was meant.':
+    'हो सकता है किसी बाहरी सेवा में कुछ लिखा गया हो, पर वैसा नहीं जैसा चाहा गया था।',
+  'Work charged to the same budget account stops until it has room again.':
+    'उसी बजट खाते पर चलने वाला काम तब तक रुका रहता है जब तक उसमें फिर से गुंजाइश न हो।',
+  'Its work stopped before it was done.':
+    'इसका काम पूरा होने से पहले रुक गया।',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'प्लेटफ़ॉर्म ने {lost} खोए हुए वर्कर गिने, जितने किसी कार्य को अधिकतम खोने की अनुमति है।',
+  'The platform read back what was written, and it did not match.':
+    'प्लेटफ़ॉर्म ने लिखा हुआ वापस पढ़ा, और वह मेल नहीं खाया।',
+  'The budget account had nothing left to reserve for the work.':
+    'बजट खाते में काम के लिए रखने को कुछ नहीं बचा था।',
+  'The platform found it ended with no card raised for it.':
+    'प्लेटफ़ॉर्म ने पाया कि यह बिना किसी कार्ड के खत्म हो गया।',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'कार्ड उस भूमिका को गया जिसे विभाग इसे संभालने के लिए नामित करता है, और उसके बाद आपको।',
+  'The task was halted, and you were told on a card in the inbox.':
+    'कार्य रोक दिया गया, और इनबॉक्स में एक कार्ड से आपको बताया गया।',
+  'Postmortem: {cause} ({about})':
+    'घटना के बाद समीक्षा: {cause} ({about})',
+  'What happened':
+    'क्या हुआ',
+  'Impact':
+    'असर',
+  'Trigger':
+    'कारण बना',
+  'Detection':
+    'पता कैसे चला',
+  'What was done':
+    'क्या किया गया',
+  'A task of {role} stopped before it was done.':
+    '{role} का एक कार्य पूरा होने से पहले रुक गया।',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'इसे सुलझाने के लिए: हर जवाब पर ‘क्यों’ पूछकर और उसे रिकॉर्ड से जाँचकर मूल कारण खोजें, एक बार फ़ैसला करें, और फ़ैसले को लागू करने वाले काम दर्ज करें, हर काम एक सीट के साथ।',
 };

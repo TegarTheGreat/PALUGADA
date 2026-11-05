@@ -37,6 +37,7 @@ import { withTenant } from '../db/tenant.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { endedBadlyCard, ownerReadingWithin, taskCalledWithin } from '../owner/platform-cards.ts';
+import { filePostmortemWithin } from './postmortem.ts';
 
 /** A minute: what the halt's own handler needs to raise its card first. */
 export const ENDED_AFTER_MS = 60_000;
@@ -215,7 +216,12 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
                   ELSE jsonb_set(payload, '{endedTaskIds}', coalesce(payload->'endedTaskIds', '[]'::jsonb) || to_jsonb($2::text)) END
           WHERE id = $1 AND status = 'open' AND ${OPEN_TO_MORE}`,
         [open[0].id, task.taskId]);
-      if (rowCount) return false;
+      if (rowCount) {
+        // On the card, and on its issue: the same failure in another seat is
+        // an issue of its own, the same in this one is seen again.
+        await filePostmortemWithin(tx, { companyId, taskId: task.taskId, how: 'ended', reason: task.haltReason, inboxItemId: open[0].id });
+        return false;
+      }
     }
 
     const { rows: said } = await tx.query<{ detail: string | null }>(
@@ -227,12 +233,15 @@ async function askAboutEnded(companyId: string, task: Ended): Promise<boolean> {
       reason: task.haltReason,
       record: said[0]?.detail?.slice(0, 300) ?? null,
     });
-    await inbox.raiseEscalationWithin(tx, {
+    const cardId = await inbox.raiseEscalationWithin(tx, {
       companyId, taskId: task.taskId, title: card.title, detail: card.detail,
       // With its division, whose policy then names who is asked first.
       ...(askFirst ? { divisionId: task.divisionId } : {}),
       payload: { endedKey: key, endedTaskIds: [task.taskId], handledCloses: true },
     });
+    // The card asks for this work to be dealt with; the issue asks why it
+    // ended so, which outlives the card (F18.4).
+    await filePostmortemWithin(tx, { companyId, taskId: task.taskId, how: 'ended', reason: task.haltReason, inboxItemId: cardId });
     return true;
   });
 }

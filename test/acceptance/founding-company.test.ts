@@ -209,11 +209,11 @@ test('0141 gives an existing CEO goal.propose in place of doc.draft, only where 
  * 0141 traded the tools wherever they were the founding twelve, whether or
  * not it could replace the charter's drafting sentence. A CEO whose owner
  * had reworded that sentence lost doc.draft while its charter still told it
- * to draft with doc.draft. 0145 gives doc.draft back to that CEO, and only to
+ * to draft with doc.draft. 0147 gives doc.draft back to that CEO, and only to
  * that one: a charter the owner rewrote is theirs, and so are the tools it
  * names.
  */
-test('0145 gives doc.draft back to a CEO whose rewritten charter 0141 could not change, and to no other (F18.7)', async () => {
+test('0147 gives doc.draft back to a CEO whose rewritten charter 0141 could not change, and to no other (F18.7)', async () => {
   const { api, owner, made } = await started();
   try {
     const other = await api.call('POST', '/api/companies', owner, { companySlug: 'toko-teh', name: 'Toko Teh', proof: { totp: api.code() } });
@@ -237,7 +237,7 @@ test('0145 gives doc.draft back to a CEO whose rewritten charter 0141 could not 
       "SELECT snapshot, summary, changed_by FROM config_versions WHERE company_id = $1 AND kind = 'role' ORDER BY version", [companyId]))).rows;
     const before = { founded: (await roleVersions(made.companyId)).length, rewritten: (await roleVersions(rewritten)).length };
 
-    await runMigrationAgain('0145_a_rewritten_ceo_keeps_doc_draft.sql');
+    await runMigrationAgain('0147_a_rewritten_ceo_keeps_doc_draft.sql');
 
     assert.deepEqual((await ceoOf(rewritten)).tools, OLD, 'the tools its charter names are the owner\'s too');
     assert.equal((await ceoOf(rewritten)).system_prompt, OWNERS);
@@ -245,14 +245,14 @@ test('0145 gives doc.draft back to a CEO whose rewritten charter 0141 could not 
     assert.equal(versions.length, before.rewritten + 1, 'the CEO as 0141 left it is a version to roll back to');
     assert.deepEqual(versions.at(-1)!.snapshot.tools, [...OLD.slice(0, 11), 'goal.propose']);
     assert.equal(versions.at(-1)!.changed_by, 'platform');
-    assert.match(versions.at(-1)!.summary, /\(0145\)/);
+    assert.match(versions.at(-1)!.summary, /\(0147\)/);
     const founded = await ceoOf(made.companyId);
     assert.deepEqual(founded.tools, [...OLD.slice(0, 11), 'goal.propose'], 'a CEO whose charter 0141 changed keeps goal.propose');
     assert.match(founded.system_prompt, /propose the goals as one plan with goal\.propose/);
     assert.equal((await roleVersions(made.companyId)).length, before.founded);
 
     // Run twice, it does nothing twice.
-    await runMigrationAgain('0145_a_rewritten_ceo_keeps_doc_draft.sql');
+    await runMigrationAgain('0147_a_rewritten_ceo_keeps_doc_draft.sql');
     assert.equal((await roleVersions(rewritten)).length, before.rewritten + 1);
   } finally {
     await api.close();

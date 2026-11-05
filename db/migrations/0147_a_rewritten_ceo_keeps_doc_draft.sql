@@ -50,7 +50,7 @@ SELECT r.company_id, 'role', r.id,
          'runtime', r.runtime, 'displayName', r.display_name, 'title', r.title, 'persona', r.persona,
          'doneCriteria', to_jsonb(r.done_criteria), 'maxRunSeconds', r.max_run_seconds,
          'accountabilities', to_jsonb(r.accountabilities)),
-       'State of ' || r.slug || ' before doc.draft was given back in place of goal.propose, since its charter is the owner''s (0145)',
+       'State of ' || r.slug || ' before doc.draft was given back in place of goal.propose, since its charter is the owner''s (0147)',
        'platform'
   FROM roles r JOIN ceo_untraded u ON u.id = r.id;
 

@@ -560,11 +560,17 @@ export const COMPANY_OS: Bundle = {
   // the platform now writes at its period's end, to pivot or persevere.
   version: '1.7.0',
   name: 'Company operating kit',
+  // What the owner reads before installing: every cadence it brings, and
+  // what each is handed. The monthly review reads the books, customers late
+  // with an invoice by name, and an owner is told so before saying yes.
   description:
     'A strategist, a critic who reviews every stage move before the owner does, a weekly business ' +
-    'review handed the week\'s numbers, stage gates, and the operating skills a company decides with: ' +
-    'validating an idea, premortems, pricing, unit economics, customer discovery, positioning, market ' +
-    'research, launch readiness, outbound rules and the weekly review.',
+    'review handed the week\'s numbers and the grades of the periods just ended, a monthly money review ' +
+    'handed the company\'s books -- profit, cash, what customers owe and who is late -- stage gates, and ' +
+    'the operating skills a company decides with: validating an idea, premortems, pricing, unit ' +
+    'economics, customer discovery, positioning, market research, channel tests, the one-page model, ' +
+    'the fit survey, the press release before building, launch readiness, outbound rules, and the weekly ' +
+    'and monthly reviews.',
   body: {
     divisions: [
       { slug: 'strategy', name: 'Strategy', maxConcurrency: 1 },
@@ -1014,7 +1020,8 @@ a task that is not on the path is not done.
 
 1. **Possible.** Write one strategy for every one of the 19 channels, the
    unlikely ones too, since the channel a company overlooks is often its
-   best. Keep the list as a document, with doc.draft:
+   best. Keep the list as a document: draft it with doc.draft, or hand the
+   drafting to a role that holds it if you do not:
    (1) niche blogs its customers read; (2) publicity in newspapers,
    magazines, radio and TV; (3) unconventional publicity: a stunt, or going
    far beyond for customers; (4) search ads; (5) social and display ads;
@@ -1032,16 +1039,18 @@ a task that is not on the path is not done.
 3. **Test cheaply.** For each one, the smallest test that answers three
    questions: what one customer costs through it, how many customers it can
    reach, and whether they are the customers the company wants now. Write
-   the prediction -- the target for cost per customer and customers gained,
-   and the most the test may spend -- before any work starts, and propose
-   the test to the owner with goal.propose, as a learning priority under
-   the traction goal. Start nothing before then: once the owner approves it,
-   hand each piece of the test to the role that holds the channel's tool,
-   by task.delegate. The test has no account or goal of its own: a piece
-   spends from the account of the task that hands it on, is filed under
-   that task's goal, and lasts a day at most. So a test is short pieces over
-   about a month: record its spend and customers on its measures with
-   metric.record, read them against the prediction at each weekly review,
+   the prediction -- customers gained, the most the test may spend, and so
+   the cost per customer -- before any work starts, and propose the test to
+   the owner with goal.propose as one learning priority under the traction
+   goal: a plan line carries one measure, so the test's is customers
+   gained, its target the prediction. Start nothing before then:
+   once the owner approves it, hand each piece of the test to the role that
+   holds the channel's tool, by task.delegate. The test has no account of its
+   own: a piece spends from the account of the task that hands it on, is
+   filed under that task's goal, and lasts a day at most. So a test is
+   short pieces over about a month: record the customers it gains on its
+   measure with metric.record, report what it spent and the cost per
+   customer from the ledger at each weekly review, against the prediction,
    and stop it when it has spent what it may. Paid ads before launch are
    refused by the stage rules: test the others first.
 4. **Working.** When a test meets its prediction, propose that channel as
@@ -1090,10 +1099,10 @@ description: The business on one page, nine boxes with the riskiest assumption f
 # One-page business model
 
 Write down how the business is believed to work today, on one page, so the
-owner can see which belief to test next. Draft it with doc.draft. It is for
-the owner: doc.draft writes in the work language unless it is given a
-language, so give it the language you write to the owner in when the two
-differ. A box is a line or two -- fewer words, not smaller ones. Every line
+owner can see which belief to test next. Draft it with doc.draft, or hand
+the drafting to a role that holds it if you do not. It is for the owner:
+doc.draft writes in the work language unless it is given a language, so
+give it the language you write to the owner in when the two differ. A box is a line or two -- fewer words, not smaller ones. Every line
 is a guess until it is tested, so label each one confirmed, likely or
 speculative, and say where it came from.
 
@@ -1227,8 +1236,9 @@ the questions and answers people would want. If the announcement is not
 worth reading, the offer is not worth building yet. It is a document for
 deciding, not for sending: nothing in it goes outside the company.
 
-Draft both with doc.draft, in the work language your run is given, as the
-customers it is for would read it. Together, a page and a half at most.
+Draft both with doc.draft, or hand the drafting to a role that holds it if
+you do not, in the work language your run is given, as the customers it is
+for would read it. Together, a page and a half at most.
 
 The press release, a page or less:
 
@@ -1481,7 +1491,9 @@ One page, for the owner, in the company's language, in this order:
    account the books do not keep (cost of goods is an expense account coded
    50.., stock an asset account coded 13..): say so, and do not guess it.
 6. Issues for the weekly meeting: what should be solved, one line each, for
-   the CEO to take up. Never apply a change: a goal is proposed with
+   the CEO to take up. Put them last and keep them short: the CEO's next
+   weekly meeting is handed the end of this review's summary, about six
+   hundred characters. Never apply a change: a goal is proposed with
    goal.propose, and spending is the owner's decision.
 
 The levers are a heuristic for where to look, not a forecast: one per cent is

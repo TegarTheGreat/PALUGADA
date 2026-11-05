@@ -33,6 +33,7 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { Worker } from '../../src/worker.ts';
+import { COMPANY_OS } from '../../src/bundles/builtin.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -117,9 +118,18 @@ const issuesOf = (fixture: Fixture) => withTenant(fixture.companyId, (tx) => tx.
   "SELECT id, title, body, source_key, opened_by, metric_id, goal_id, status, created_at, outside FROM tickets WHERE kind = 'issue' ORDER BY created_at, id",
 )).then((result) => result.rows);
 
+/** The founding CEO's tools, which the brief names (src/templates/founding.ts). */
+const FOUNDING_CEO_TOOLS = [
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'schedule.propose', 'ticket.create', 'ticket.list', 'task.follow_up', 'goal.propose',
+];
+const withTools = (roleId: string, tools: string[]) =>
+  withControlPlane((tx) => tx.query('UPDATE roles SET tools = $2::text[] WHERE id = $1', [roleId, tools]));
+
 test('the meeting is held once a local week, on the owner\'s day and at their hour, by the CEO, from a brief in code', async () => {
   const fixture = await createCompany('meeting-once');
   await inJakarta(fixture);
+  await withTools(fixture.roleId, FOUNDING_CEO_TOOLS);
   await weeklyLine(fixture, 'calls', 'Sales calls made', 50);
 
   assert.equal(await ensureWeeklyMeeting(fixture.companyId, mondayInJakarta(1, 8, 59)), null, 'a minute before the hour');
@@ -265,6 +275,22 @@ test('the meeting lists each to-do done or not, and one not done at two meetings
   assert.deepEqual((await meetings(fixture))[1]!.input.facts.filed.notDoneTwice, [open[0]!.id]);
 });
 
+test('the meeting\'s brief names only the tools its CEO holds, and says what to do without the rest', async () => {
+  // The CEO is an appointment, and the owner can make any role CEO: told to
+  // file the decisions' to-dos with a ticket.create it lacks, a meeting
+  // solves no issue, and the list only grows.
+  const fixture = await createCompany('meeting-tools');
+  await inJakarta(fixture);
+  await weeklyLine(fixture, 'calls', 'Sales calls made', 50);
+  await withTools(fixture.roleId, ['memory.search', 'skill.read', 'plan.record', 'metric.record']);
+  assert.ok(await ensureWeeklyMeeting(fixture.companyId, mondayInJakarta(1, 9)));
+  const brief = (await meetings(fixture))[0]!.input.context;
+  assert.doesNotMatch(brief, /with (ticket\.create|owner\.ask|schedule\.propose)/, 'told to use none of the three');
+  assert.match(brief, /You do not hold ticket\.create/);
+  assert.match(brief, /What the owner needs to know/);
+  assert.match(brief, /rootCause|root cause/);
+});
+
 test('the CEO the owner appointed since holds the next meeting', async () => {
   const fixture = await createCompany('meeting-new-ceo');
   await inJakarta(fixture);
@@ -377,6 +403,38 @@ test('the facts are the records, bounded, ranked, and outside words are wrapped'
   const carried = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { capability: string } }>(
     "SELECT payload FROM events WHERE task_id = $1 AND type = 'content.read_outside'", [meeting!.id]));
   assert.equal(carried.rows[0]?.payload.capability, 'the meeting facts it was handed');
+});
+
+test('the issues the monthly money review names for the weekly meeting reach the next one', async () => {
+  // The monthly-review skill ends with issues "for the CEO to take up", and
+  // the strategist that runs it cannot file one: the meeting was handed only
+  // the weekly review, so the month's issues were on no list.
+  const fixture = await createCompany('meeting-month');
+  const now = new Date();
+  await inJakarta(fixture, { weekday: new Date(now.getTime() + JAKARTA).getUTCDay(), hour: 0 });
+  await weeklyLine(fixture, 'calls', 'Sales calls made', 50);
+  const month = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Monthly money review', facts: 'month', month: {} }, createdBy: 'scheduler', reserveTokens: 100,
+  });
+  await transition(fixture.companyId, month.id, 'running');
+  const summary = `Profit fell. ${'The books say more. '.repeat(60)}Issues for the weekly meeting: chase the 60-day invoice from Kopi Kita; cut the cost of goods.`;
+  await transition(fixture.companyId, month.id, 'completed', { output: { summary } });
+
+  assert.ok(await ensureWeeklyMeeting(fixture.companyId, new Date()));
+  const [meeting] = await meetings(fixture);
+  const review = (meeting!.input.facts as unknown as { monthlyReview: { task: string; summary: string } | null }).monthlyReview;
+  assert.equal(review?.task, month.id);
+  assert.match(review!.summary, /Issues for the weekly meeting: chase the 60-day invoice from Kopi Kita; cut the cost of goods\.$/,
+    'the end of the review, where its issues are');
+  assert.ok(review!.summary.length <= 600);
+  assert.match(meeting!.input.context, /monthly money review/);
+  assert.equal(meeting!.input.facts.businessReview, null, 'the month\'s review is not the week\'s');
+
+  // The skill says the end of its summary is what the meeting is handed.
+  const skill = COMPANY_OS.body.skills.find((one) => one.slug === 'monthly-review')!.source;
+  assert.match(skill, /end of this review's summary/);
 });
 
 test('every run of a seat is told its own lines, priorities and open to-dos, and a seat with none is told nothing', async () => {

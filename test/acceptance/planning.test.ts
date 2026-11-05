@@ -38,6 +38,8 @@ import { structureOf } from '../../src/owner/views.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { Worker } from '../../src/worker.ts';
+import * as inbox from '../../src/inbox/inbox.ts';
+import { transition } from '../../src/engine/tasks.ts';
 import { buildWeekFacts } from '../../src/reporting/week.ts';
 import { COMPANY_OS } from '../../src/bundles/builtin.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
@@ -434,9 +436,18 @@ const plannings = (fixture: Fixture) => withTenant(fixture.companyId, (tx) => tx
   `SELECT id, role_id, goal_id, created_by, status, idempotency_key, input FROM tasks
     WHERE idempotency_key LIKE 'quarter:%' ORDER BY idempotency_key`)).then((result) => result.rows);
 
+/** The founding CEO's tools, which the brief names (src/templates/founding.ts). */
+const FOUNDING_CEO_TOOLS = [
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'schedule.propose', 'ticket.create', 'ticket.list', 'task.follow_up', 'goal.propose',
+];
+const withTools = (roleId: string, tools: string[]) =>
+  withControlPlane((tx) => tx.query('UPDATE roles SET tools = $2::text[] WHERE id = $1', [roleId, tools]));
+
 test('the CEO plans ten days before the fiscal quarter ends, once, in the company\'s time zone, and plans the year in its last quarter', async () => {
   const fixture = await createCompany('planning-once');
   await inJakarta(fixture, 4);
+  await withTools(fixture.roleId, FOUNDING_CEO_TOOLS);
   await priority(fixture, 'q3-pipeline', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed' });
 
   // Eleven days before the end in Jakarta; the UTC day is already ten before.
@@ -481,6 +492,68 @@ test('the CEO plans ten days before the fiscal quarter ends, once, in the compan
   // Closing the mission takes a planning that has not started with it.
   await applyGoalChange({ companyId: fixture.companyId, goalId: await missionOf(fixture), status: 'abandoned' });
   assert.deepEqual((await plannings(fixture)).map((one) => one.status), ['cancelled', 'cancelled']);
+});
+
+test('a planning\'s brief names only the tools its CEO holds, and a CEO without goal.propose puts its plan to the owner in words', async () => {
+  // A CEO whose owner changed one founding tool was left without
+  // goal.propose by 0141, and the owner can make any role CEO: told to
+  // propose with a tool it lacks, the planning makes no plan.
+  const fixture = await createCompany('planning-tools');
+  await inJakarta(fixture);
+  await priority(fixture, 'q4-pipeline', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed' });
+  await withTools(fixture.roleId, ['memory.search', 'skill.read', 'plan.record', 'metric.record']);
+  assert.ok(await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-22')));
+  const brief = (await plannings(fixture))[0]!.input.context;
+  assert.doesNotMatch(brief, /with (goal\.propose|ticket\.create|task\.delegate|task\.await)/, 'told to use none of them');
+  assert.match(brief, /You do not hold goal\.propose/);
+  assert.match(brief, /line by line, in "What the owner needs to know"/);
+});
+
+test('a plan refused because another is waiting is planned again once that one is decided, and only then', async () => {
+  // One plan of new goals waits for the owner at a time, whoever proposed
+  // it, and the planning is keyed by its quarter: a channel test left open
+  // on day 80 refused the quarter's plan on day 81, and nothing proposed it
+  // again.
+  const fixture = await createCompany('planning-again');
+  await inJakarta(fixture);
+  await withTools(fixture.roleId, FOUNDING_CEO_TOOLS);
+  await priority(fixture, 'q4-pipeline', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed' });
+  const seat = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  const line = (slug: string) => ({
+    slug, statement: `Test ${slug}`, kind: 'key_result', parent: 'objective', startsOn: '2027-01-01', dueOn: '2027-03-31',
+    seat, commitment: 'learning', doneWhen: 'The test has run', measure: { name: `Sign-ups from ${slug}`, unit: 'count', baseline: 0, target: 40 },
+  });
+  const waiting = await proposeGoalPlan({ companyId: fixture.companyId, rationale: 'A channel test.', plan: [line('ads')] });
+  assert.equal(waiting.proposed, true);
+
+  const first = await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-21'));
+  assert.ok(first);
+  const brief = (await plannings(fixture))[0]!.input.context;
+  assert.match(brief, /already waiting/, 'the brief says what to do when the plan is refused');
+  const refused = await proposeGoalPlan({ companyId: fixture.companyId, taskId: first, rationale: 'The quarter.', plan: [line('referrals')] });
+  assert.equal(refused.proposed, false);
+  const finish = async (id: string) => {
+    await transition(fixture.companyId, id, 'running');
+    await transition(fixture.companyId, id, 'completed', { output: { summary: 'Planned; the plan could not be proposed.' } });
+  };
+  await finish(first);
+  assert.equal(await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-22')), null, 'not while the other plan waits');
+
+  await inbox.decide(fixture.companyId, waiting.inboxItemId, 'deny', 'not now');
+  const again = await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-23'));
+  assert.ok(again, 'planned again once the waiting plan is decided');
+  const made = (await plannings(fixture)).find((one) => one.id === again)!;
+  assert.equal(made.idempotency_key, `quarter:2026-10-01..2026-12-31:after:${waiting.inboxItemId}`);
+  assert.match(made.input.context, new RegExp(`planning made on \\d{4}-\\d{2}-\\d{2} \\(task ${first}\\) could not propose`));
+  assert.equal(await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-24')), null, 'once for that plan');
+
+  // A planning whose plan was proposed is not made again.
+  const proposed = await proposeGoalPlan({ companyId: fixture.companyId, taskId: again, rationale: 'The quarter.', plan: [line('referrals')] });
+  assert.equal(proposed.proposed, true);
+  await finish(again);
+  await inbox.decide(fixture.companyId, proposed.inboxItemId, 'deny', 'not this');
+  assert.equal(await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-25')), null);
 });
 
 test('a planning is keyed by its quarter\'s dates, so a fiscal year moved later does not skip a quarter', async () => {
@@ -537,6 +610,7 @@ test('no planning winds down, freezes, runs without a model or plans nothing', a
 test('the plan the planning proposes reaches the owner as one card', async () => {
   const fixture = await createCompany('planning-card');
   await inJakarta(fixture);
+  await withTools(fixture.roleId, FOUNDING_CEO_TOOLS);
   await priority(fixture, 'q4-pipeline', { startsOn: '2026-10-01', dueOn: '2026-12-31', commitment: 'committed' });
   const id = await ensureQuarterlyPlanning(fixture.companyId, jakarta('2026-12-22'));
   assert.ok(id);

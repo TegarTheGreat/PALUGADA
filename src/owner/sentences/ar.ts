@@ -551,4 +551,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'لم يُغيَّر شيء للّحاق، ولم يُطلب ذلك من أي وكيل: الرقم الملتزم به المتأخر عن وقته يغري باتخاذ إجراء أكثر خطورة لتعويضه، وقرار تحمّل هذه المخاطرة لك. قرّر هل تؤجل الموعد، أو تخفض الهدف، أو تجعله طموحًا، أو تتركه يمضي ولا يتحقق.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'لا يتوقف شيء أيًّا كان الجواب. تبقى الأولوية كما هي وتُقيَّم عند انتهاء فترتها؛ غيّرها في صفحة الأهداف إن قررت ذلك.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'قيمنا',
+  'Purpose and niche': 'الغاية والتخصص',
+  'Long-range target': 'الهدف بعيد المدى',
+  'Who we serve and what makes us different': 'من نخدم وما الذي يميزنا',
+  'Where we will be in three years': 'أين سنكون بعد ثلاث سنوات',
+  'Our promise': 'وعدنا',
 };

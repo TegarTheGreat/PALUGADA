@@ -13,11 +13,18 @@
  * returns plain data shaped for a screen -- names beside ids, counts already
  * counted -- so the page holds no queries and no rules.
  */
-import { metricsIn, type MetricView } from '../domain/metrics.ts';
-import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalWarning } from '../domain/goals.ts';
+import { headlines, metricsIn, scorecardOf, type Headline, type MetricUnit, type MetricView, type Scorecard, type WeekState } from '../domain/metrics.ts';
+import { goalWarnings, goalsIn, type GoalCommitment, type GoalPeriod, type GoalStatus, type GoalWarning } from '../domain/goals.ts';
 import { gradeReportOf, type GoalGrade } from '../domain/grades.ts';
-import { dayIn, fiscalQuarterOf } from '../domain/fiscal.ts';
-import type { ChannelSlug } from '../domain/channels.ts';
+// Two readings of a company's day: the fiscal one says which zone it fell
+// back to, the records' one gives the day alone.
+import { dayIn as fiscalDayIn, fiscalQuarterOf } from '../domain/fiscal.ts';
+import { CHANNEL_SLUGS, type ChannelSlug } from '../domain/channels.ts';
+import { languagesFor } from '../domain/language.ts';
+import { dayIn, zoneOf } from '../records/collections.ts';
+import { prioritiesOnPace, type PacedPriority } from '../reporting/meeting.ts';
+import { ownerReadingWithin } from './platform-cards.ts';
+import { visionSectionsOf, type VisionSection } from './vision.ts';
 import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
 import { coreProcessesOf, type CoreProcessesReport } from '../skills/core.ts';
 import { withTenant } from '../db/tenant.ts';
@@ -201,7 +208,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     // Each goal's latest grade (F18.8, 0144), with the numbers of the fiscal
     // quarter today is in where the company is.
     const now = new Date();
-    const quarter = fiscalQuarterOf(dayIn(headline.rows[0]?.timezone ?? 'UTC', now).day, headline.rows[0]?.fiscal ?? 1);
+    const quarter = fiscalQuarterOf(fiscalDayIn(headline.rows[0]?.timezone ?? 'UTC', now).day, headline.rows[0]?.fiscal ?? 1);
     const graded = await gradeReportOf(tx, companyId, { from: quarter.startsOn, to: quarter.endsOn }, now);
     const gradeOf = new Map(graded.latest.map((grade) => [grade.goalId, grade]));
 
@@ -307,6 +314,305 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       }),
       headlineMetricId: headline.rows[0]?.headline_metric_id ?? null,
       coreProcesses,
+    };
+  });
+}
+
+/* ------------------------------------------------------------------- plan --- */
+
+/** A seat as a page names it: by the name the owner gave the role, and its code only where it has none. */
+export interface PlanSeat { id: string; slug: string; displayName: string | null; title: string | null }
+
+/**
+ * Where a goal's end-of-period grade goes (F18.8): the grades the platform
+ * writes when a period ends (`goal_grades`, 0144) are built beside this set
+ * and are not on its branch, so it is always null here. The merge gives it the
+ * grade's type and reads it in `planOf`.
+ */
+export type PlanGrade = null;
+
+export interface PlanYearGoal {
+  id: string;
+  slug: string;
+  statement: string;
+  status: GoalStatus;
+  startsOn: string;
+  dueOn: string;
+  seat: PlanSeat | null;
+  commitment: GoalCommitment | null;
+  doneWhen: string | null;
+  metrics: MetricView[];
+  /** Its quarterly priorities whose quarter today is in. */
+  priorities: number;
+  grade: PlanGrade;
+}
+
+export interface PlanPriority extends PacedPriority {
+  /** The seat by the owner's name for it, beside the meeting's slug. */
+  seatRole: PlanSeat | null;
+  grade: PlanGrade;
+}
+
+export interface PlanChannel {
+  channel: ChannelSlug;
+  /** The active key results that name the channel, committed first. */
+  goals: Array<{ id: string; slug: string; statement: string; commitment: GoalCommitment | null; startsOn: string | null; dueOn: string | null }>;
+}
+
+export interface PlanView {
+  /** The company's own day, which "this year" and "this quarter" are read on, and its zone. */
+  day: string;
+  timezone: string;
+  /**
+   * The vision, from the published company charter (src/owner/vision.ts):
+   * its outline's sections when it has them, the whole charter when it has
+   * none, and neither without a charter.
+   */
+  vision: { charterVersion: number | null; sections: VisionSection[]; whole: string | null };
+  /** Objectives of about a year whose period today is in, not abandoned. */
+  yearGoals: PlanYearGoal[];
+  /** This quarter's priorities on or off pace, by the weekly meeting's rule (`prioritiesOnPace`). */
+  priorities: { items: PlanPriority[]; leftOut: number };
+  /** The weekly scorecard by its last whole week, as the meeting judges a line, with this week so far. */
+  scorecard: {
+    lines: Array<{
+      metricId: string; goalId: string; name: string; unit: MetricUnit; target: number; seat: PlanSeat | null;
+      lastWeek: WeekState; lastValue: number | null; thisWeek: WeekState;
+    }>;
+    lastWeek: Record<WeekState, number>;
+    warning: Scorecard['warning'];
+  };
+  /** The number the company is judged by, chosen or inferred as the portfolio shows it. */
+  headline: Headline | null;
+  /** The issues kept for quarterly planning, by priority and then age. */
+  longTermIssues: {
+    items: Array<{ id: string; title: string; priority: number; ageDays: number; filedBy: 'owner' | 'agent' | 'platform'; outside: boolean }>;
+    leftOut: number;
+  };
+  /**
+   * The channels by ring (F18.11), read from the goals and never stored.
+   * Possible is the list of a strategy for every channel: the newest document
+   * a run that read the channel-testing skill wrote with doc.draft and that is
+   * a list of most of the nineteen (`BRAINSTORM_ENTRIES_MIN` entries); null
+   * when no such run wrote one. Whichever role wrote it, the strategist or
+   * another. Probable is a channel an active learning key result
+   * tests; working, one an active committed key result does: the core
+   * channel. A channel in both is working.
+   */
+  channels: {
+    possible: { taskId: string; step: number; title: string; excerpt: string; path: string; at: Date; role: PlanSeat } | null;
+    probable: PlanChannel[];
+    working: PlanChannel[];
+  };
+  coreProcesses: CoreProcessesReport;
+  /**
+   * The last weekly operating meeting made, whatever its status, and its
+   * record: the last meeting that completed, with what the CEO summed up.
+   * The two are the same meeting once this week's has finished; the record is
+   * null while no meeting has completed.
+   */
+  lastMeeting: {
+    taskId: string; week: string; status: string; finishedAt: Date | null;
+    record: { taskId: string; week: string; finishedAt: Date; summary: string | null } | null;
+  } | null;
+}
+
+/** The most long-term issues the page lists; it says how many more there are. */
+const LONG_TERM_ISSUES_MAX = 25;
+/**
+ * The operating kit's skill whose first step is a document with one strategy
+ * for each of the nineteen channels (company-os, `channel-testing`): a run
+ * that read it and then drafted such a list is the one that wrote the outer
+ * ring.
+ */
+const CHANNEL_TESTING_SKILL = 'channel-testing';
+/**
+ * A line of a document that is one entry of a list: a bullet, a numbered
+ * item ("1." "1)" "(1)"), a heading, or a table row with words in it. Read
+ * newline-sensitively, so `^` is the start of each line.
+ *
+ * The brainstorm is known by its shape, not its words: it is written in the
+ * work language, in the run's own words, so the channels' English names are
+ * not in it. A run that read channel-testing also writes other documents --
+ * a test's prediction against its result, a weekly review -- and those are a
+ * handful of lines, where the brainstorm is one entry for each of nineteen.
+ */
+const LIST_ENTRY = String.raw`^[ \t]{0,3}([-*+]|\(?[0-9]{1,2}[.)])[ \t]+[^ \t]|^[ \t]{0,3}#{1,6}[ \t]+[^ \t]|^[ \t]{0,3}\|.*[[:alnum:]]`;
+/** Most of the nineteen: a brainstorm may merge two channels, or leave out one it calls absurd. */
+const BRAINSTORM_ENTRIES_MIN = 15;
+const RINGS = { committed: 0, learning: 1, aspirational: 2 } as const;
+
+/**
+ * The vision and plan page (F18.10): one page that puts the owner's vision
+ * beside the plan that serves it. Assembled from the rows that already hold
+ * each part, so there is nothing to keep in step: the charter, the goals,
+ * the weekly scorecard, the headline, the issues, the channel goals, the core
+ * processes and the meeting task. The plan has no table of its own.
+ */
+export async function planOf(companyId: string, now = new Date()): Promise<PlanView> {
+  return withTenant(companyId, async (tx) => {
+    // One after another, as everywhere: one transaction is one connection.
+    const timezone = await zoneOf(tx, companyId);
+    const day = dayIn(timezone, now);
+
+    const { rows: charters } = await tx.query<{ version: number; body: string }>(
+      'SELECT version, body FROM charters WHERE company_id = $1 ORDER BY version DESC LIMIT 1', [companyId]);
+    const languages = await languagesFor(tx, companyId);
+    const reading = await ownerReadingWithin(tx);
+    const charter = charters[0];
+    const sections = charter
+      ? visionSectionsOf(charter.body, [languages.work, languages.talk, ...(reading.language ? [reading.language] : [])])
+      : [];
+
+    const { rows: roleRows } = await tx.query<{ id: string; slug: string; display_name: string | null; title: string | null }>(
+      'SELECT id, slug, display_name, title FROM roles WHERE company_id = $1', [companyId]);
+    const seats = new Map(roleRows.map((row) => [row.id, { id: row.id, slug: row.slug, displayName: row.display_name, title: row.title }]));
+    const seatOf = (id: string | null): PlanSeat | null => (id ? seats.get(id) ?? null : null);
+
+    const ladder = await goalsIn(tx, companyId);
+    const metrics = await metricsIn(tx);
+    const within = (goal: { startsOn: string | null; dueOn: string | null }) =>
+      goal.startsOn !== null && goal.dueOn !== null && goal.startsOn <= day && goal.dueOn >= day;
+    const yearGoals = ladder
+      .filter((goal) => goal.kind === 'objective' && goal.period === 'year' && goal.status !== 'abandoned' && within(goal))
+      .map((goal): PlanYearGoal => ({
+        id: goal.id, slug: goal.slug, statement: goal.statement, status: goal.status,
+        startsOn: goal.startsOn!, dueOn: goal.dueOn!, seat: seatOf(goal.ownerRoleId),
+        commitment: goal.commitment, doneWhen: goal.doneWhen,
+        metrics: metrics.filter((metric) => metric.goalId === goal.id),
+        priorities: ladder.filter((one) => one.parentGoalId === goal.id && one.kind === 'key_result' && one.status === 'active'
+          && one.period === 'quarter' && within(one)).length,
+        grade: null,
+      }));
+
+    const paced = await prioritiesOnPace(tx, companyId, { now, day });
+
+    const card = await scorecardOf(tx, companyId, now);
+    const lastWeek: Record<WeekState, number> = { on_track: 0, off_track: 0, claimed: 0, not_reported: 0 };
+    const lines = card.lines.map((line) => {
+      const last = line.weeks.at(-2)!;
+      lastWeek[last.state] += 1;
+      return {
+        metricId: line.metricId, goalId: line.goalId, name: line.name, unit: line.unit, target: line.target,
+        seat: line.ownerRole ? seatOf(line.ownerRole.id) : null,
+        lastWeek: last.state, lastValue: last.value, thisWeek: line.weeks.at(-1)!.state,
+      };
+    });
+
+    const headline = (await headlines(tx)).get(companyId) ?? null;
+
+    const { rows: issueRows } = await tx.query<{
+      id: string; title: string; priority: number; age_days: number; opened_by: 'owner' | 'agent' | 'platform'; outside: boolean; total: number;
+    }>(
+      `SELECT id, title, priority, opened_by, outside,
+              greatest(0, floor(extract(epoch FROM ($2::timestamptz - created_at)) / 86400))::int AS age_days,
+              count(*) OVER ()::int AS total
+         FROM tickets
+        WHERE company_id = $1 AND kind = 'issue' AND status IN ('open', 'in_progress') AND horizon = 'long_term'
+        ORDER BY priority, created_at, id
+        LIMIT $3`,
+      [companyId, now, LONG_TERM_ISSUES_MAX]);
+
+    // The rings, from the goals that name a channel: working where an
+    // active committed key result tests it, probable where only a learning
+    // one does. An aspirational one is listed beside the others of its
+    // channel and puts the channel in no ring by itself.
+    const tested = ladder.filter((goal) => goal.kind === 'key_result' && goal.status === 'active' && goal.channel !== null);
+    const probable: PlanChannel[] = [];
+    const working: PlanChannel[] = [];
+    for (const channel of CHANNEL_SLUGS) {
+      const goals = tested.filter((goal) => goal.channel === channel)
+        .sort((left, right) => RINGS[left.commitment ?? 'aspirational'] - RINGS[right.commitment ?? 'aspirational']);
+      const ring = goals.some((goal) => goal.commitment === 'committed') ? working
+        : goals.some((goal) => goal.commitment === 'learning') ? probable : null;
+      ring?.push({
+        channel,
+        goals: goals.map((goal) => ({
+          id: goal.id, slug: goal.slug, statement: goal.statement, commitment: goal.commitment, startsOn: goal.startsOn, dueOn: goal.dueOn,
+        })),
+      });
+    }
+    const { rows: brainstorms } = await tx.query<{
+      task_id: string; step_index: number; output: Record<string, unknown>; committed_at: Date; role_id: string;
+    }>(
+      `SELECT s.task_id, s.step_index, s.output, s.committed_at, t.role_id
+         FROM task_steps s
+         JOIN tasks t ON t.company_id = s.company_id AND t.id = s.task_id
+        WHERE s.company_id = $1 AND s.status = 'committed' AND s.name = 'capability:doc.draft'
+          AND jsonb_typeof(s.output -> 'path') = 'string' AND jsonb_typeof(s.output -> 'text') = 'string'
+          AND EXISTS (SELECT 1 FROM events e
+                       WHERE e.company_id = s.company_id AND e.task_id = s.task_id
+                         AND e.type = 'skill.read' AND e.payload ->> 'slug' = $2)
+          AND regexp_count(s.output ->> 'text', $3, 1, 'n') >= $4
+        ORDER BY s.committed_at DESC, s.task_id DESC, s.step_index DESC
+        LIMIT 1`,
+      [companyId, CHANNEL_TESTING_SKILL, LIST_ENTRY, BRAINSTORM_ENTRIES_MIN]);
+    const brainstorm = brainstorms[0];
+    const brainstormRole = brainstorm ? seatOf(brainstorm.role_id) : null;
+    const possible = brainstorm && brainstormRole ? (() => {
+      const text = redactor.redact(String(brainstorm.output.text));
+      const path = redactor.redact(String(brainstorm.output.path));
+      return {
+        taskId: brainstorm.task_id, step: brainstorm.step_index, title: headingOf(text) ?? path.split('/').pop()!,
+        excerpt: excerptOf(text), path, at: brainstorm.committed_at, role: brainstormRole,
+      };
+    })() : null;
+
+    const coreProcesses = await coreProcessesOf(tx, companyId, { now });
+
+    // The key sorts as the weeks do, so the last meeting is the greatest one.
+    // Its record is the last one that finished: while this week's is still
+    // running, or after it failed, last week's summary is what there is to read.
+    const { rows: meetings } = await tx.query<{ id: string; key: string; status: string; finished_at: Date | null }>(
+      `SELECT id, idempotency_key AS key, status, finished_at
+         FROM tasks
+        WHERE company_id = $1 AND idempotency_key LIKE 'meeting:%'
+        ORDER BY idempotency_key DESC LIMIT 1`,
+      [companyId]);
+    const meeting = meetings[0];
+    const { rows: records } = await tx.query<{ id: string; key: string; finished_at: Date; summary: string | null }>(
+      `SELECT id, idempotency_key AS key, finished_at,
+              CASE WHEN jsonb_typeof(output -> 'summary') = 'string' THEN output ->> 'summary' END AS summary
+         FROM tasks
+        WHERE company_id = $1 AND idempotency_key LIKE 'meeting:%' AND status = 'completed'
+        ORDER BY idempotency_key DESC LIMIT 1`,
+      [companyId]);
+    const record = records[0];
+
+    return {
+      day,
+      timezone,
+      vision: {
+        charterVersion: charter?.version ?? null,
+        sections,
+        whole: charter && sections.length === 0 ? charter.body : null,
+      },
+      yearGoals,
+      priorities: {
+        items: paced.items.map((item) => ({ ...item, seatRole: seatOf(item.seatRoleId), grade: null })),
+        leftOut: paced.leftOut,
+      },
+      scorecard: { lines, lastWeek, warning: card.warning },
+      headline,
+      longTermIssues: {
+        items: issueRows.map((row) => ({
+          id: row.id, title: row.title, priority: row.priority, ageDays: row.age_days, filedBy: row.opened_by, outside: row.outside,
+        })),
+        leftOut: Math.max(0, (issueRows[0]?.total ?? 0) - issueRows.length),
+      },
+      channels: { possible, probable, working },
+      coreProcesses,
+      lastMeeting: meeting
+        ? {
+          taskId: meeting.id, week: meeting.key.slice('meeting:'.length), status: meeting.status, finishedAt: meeting.finished_at,
+          record: record
+            ? {
+              taskId: record.id, week: record.key.slice('meeting:'.length), finishedAt: record.finished_at,
+              summary: record.summary === null ? null : redactor.redact(record.summary),
+            }
+            : null,
+        }
+        : null,
     };
   });
 }

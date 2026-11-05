@@ -550,4 +550,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '追いつくために何も変えておらず、どのエージェントにも求めていません。時間に遅れた必達の数字は、取り戻すためにより危険な行動を誘います。そのリスクを取るかどうかはあなたが決めます。期日を延ばすか、目標を下げるか、挑戦目標にするか、そのまま進めて未達とするかを決めてください。',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'どちらを選んでも何も止まりません。優先事項はそのままで、期間の終わりに採点されます。変える場合は目標のページで変更してください。',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '私たちの価値観',
+  'Purpose and niche': '存在意義とニッチ',
+  'Long-range target': '長期目標',
+  'Who we serve and what makes us different': '私たちが仕える人と、私たちの違い',
+  'Where we will be in three years': '3年後の私たち',
+  'Our promise': '私たちの約束',
 };

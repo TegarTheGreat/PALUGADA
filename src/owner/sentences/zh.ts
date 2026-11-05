@@ -553,4 +553,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '没有为追赶而做任何改变，也没有要求任何代理去追赶：一个落后于时间的必达数字会诱使人采取更冒险的行动来弥补，而是否承担这种风险由你决定。请决定是推迟日期、降低目标、改为挑战目标，还是让它继续进行并接受未达成。',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     '无论你如何回答，都不会停止任何事情。该优先事项保持不变，并在周期结束时评分；如果你决定修改，请在目标页面上修改。',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '我们的价值观',
+  'Purpose and niche': '使命与细分市场',
+  'Long-range target': '长期目标',
+  'Who we serve and what makes us different': '我们服务谁，以及我们的不同之处',
+  'Where we will be in three years': '三年后我们将在哪里',
+  'Our promise': '我们的承诺',
 };

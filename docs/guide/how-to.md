@@ -1738,6 +1738,10 @@ the recipe for each is in the sections that follow it:
   Weinberg and Justin Mares.
 - **Learning priorities**, after validated learning in *The Lean Startup* by
   Eric Ries.
+- **Vision and plan**, after the vision half of the one-page plan in
+  *Traction* by Gino Wickman and the one-page strategic plan in *Scaling Up*
+  by Verne Harnish, with the long-range goal of *Built to Last* by Jim
+  Collins and Jerry Porras.
 
 The owner is the visionary: they write the vision in the company's charter,
 approve every goal, and decide whatever cannot be undone. The CEO is the
@@ -2316,3 +2320,74 @@ none.
 
 From a script, `POST /api/companies/:companyId/fiscal-year` takes
 `startMonth`, 1 to 12.
+
+### Write the vision, and read it beside the plan
+
+The vision is yours: what the company is for, where it is going and what it
+promises. It lives in the company charter, which every run reads first, so
+there is one text and every agent is told it. The **Plan** page reads it back
+beside the plan that serves it. This follows the vision half of the one-page
+plan in *Traction* by Gino Wickman and the one-page strategic plan in
+*Scaling Up* by Verne Harnish, with the long-range goal of *Built to Last* by
+Jim Collins and Jerry Porras, under plain names.
+
+To write it:
+
+1. On **Team**, open the **Charter** tab and press **Start from the vision
+   outline** on the company charter. The headings it does not have yet are
+   added at the end, in the language the console is drawn in, and what goes
+   under each is said beside the editor. A heading you already wrote, in any
+   language the console speaks, is not added again, and the button is off
+   once all six are there:
+   - **Our values**: three to seven behaviours the company keeps, even when
+     they cost it something.
+   - **Purpose and niche**: why the company exists, and the one thing it
+     means to be the best at.
+   - **Long-range target**: where it means to be in ten to twenty-five
+     years, in one sentence.
+   - **Who we serve and what makes us different**: its customers, and the
+     few things that make it different for them.
+   - **Where we will be in three years**: a date, the revenue and profit by
+     then, three to five measures, and what is true then, in the present
+     tense.
+   - **Our promise**: what every customer can count on.
+2. Write under each in your own words and press **Save the charter**, with
+   your authenticator, as for any change to the charter. The next run is told
+   it. Your strategist can draft wording for you with a document, but only
+   you write the charter.
+
+The headings are found in any of the company's languages, the console's and
+English, whatever case you type them in. A charter with none of them is shown
+whole on the Plan page as the vision. A charter you wrote before keeps its
+text; nothing is added until you press the button.
+
+The **Plan** page then shows, top to bottom:
+
+- **Vision**: each section you wrote, or *Not written yet* under a heading
+  you left empty. **Edit the vision** opens the charter.
+- **This year's goals**: each objective whose period is about a year, with
+  today in it, and how many of its quarterly priorities are this quarter's.
+  **Open the goals** opens Team, Goals, where they are set.
+- **Quarterly priorities**: each on pace or off pace by the rule the weekly
+  operating meeting uses. A measured priority is on pace when its measures,
+  by their last verified reading, have come as far as the quarter has gone;
+  one with no verified reading is off pace. One with no measure is on pace
+  while work under it finished in the last seven days.
+- **Weekly scorecard**: the headline, and each line as it stood last week,
+  the week the meeting judges it by. **Open the scorecard** opens the grid.
+- **Long-term issues**: the issues kept for quarterly planning. **Open the
+  issues list** opens the board on its issues.
+- **Channels by ring**: *working*, a channel a committed priority tests, the
+  core channel; *probable*, one only a learning priority tests; and
+  *possible*, the list of a strategy for every channel, the newest document
+  that a run following the channel-testing skill wrote as a list of most of
+  the nineteen. A later report of one test, written by the same procedure, is
+  a few lines and does not take its place. Nothing about the rings is stored:
+  give a priority its channel on its goal, and it moves.
+- **Core processes**, with their seats and how far the work follows them.
+- **The last weekly operating meeting**: its status, and the record of the
+  last one that finished, as the CEO summed it up, with a link to its task.
+  While this week's is still running, or if it stopped, last week's record is
+  the one shown.
+
+Nothing is changed on the Plan page; each part links to where it is.

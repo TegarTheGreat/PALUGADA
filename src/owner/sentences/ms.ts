@@ -553,4 +553,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Tiada apa yang diubah untuk mengejarnya, dan tiada ejen yang diminta: angka wajib yang ketinggalan masa mengundang tindakan yang lebih berisiko untuk menebusnya, dan sama ada risiko itu diambil ialah keputusan anda. Putuskan sama ada tarikhnya dianjakkan, sasarannya diturunkan, dijadikan aspirasi, atau dibiarkan berjalan dan terlepas.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'Tiada apa yang dihentikan, apa pun jawapannya. Keutamaan itu kekal seperti sedia ada dan dinilai apabila tempohnya berakhir; ubah di halaman Matlamat jika anda memutuskannya.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nilai-nilai kami',
+  'Purpose and niche': 'Tujuan dan ceruk pasaran',
+  'Long-range target': 'Sasaran jangka panjang',
+  'Who we serve and what makes us different': 'Siapa yang kami layani dan apa yang membezakan kami',
+  'Where we will be in three years': 'Di mana kami dalam tiga tahun',
+  'Our promise': 'Janji kami',
 };

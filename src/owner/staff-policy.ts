@@ -22,6 +22,7 @@ export const STAFF_READS: readonly string[] = [
   '/api/companies/:companyId/decisions',
   '/api/companies/:companyId/structure',
   '/api/companies/:companyId/scorecard',
+  '/api/companies/:companyId/plan',
   '/api/companies/:companyId/work',
   '/api/companies/:companyId/live',
   '/api/companies/:companyId/gallery',

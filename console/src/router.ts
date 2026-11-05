@@ -11,8 +11,11 @@
  */
 import { useEffect, useState } from 'react';
 
-export const COMPANY_PAGES = ['inbox', 'overview', 'work', 'customers', 'books', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
+export const COMPANY_PAGES = ['inbox', 'overview', 'plan', 'work', 'customers', 'books', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
 export type CompanyPage = (typeof COMPANY_PAGES)[number];
+
+/** The item that opens Work on the issues list rather than on a task: the Plan page links there. */
+export const ISSUES_ITEM = 'issues';
 
 export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'people', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

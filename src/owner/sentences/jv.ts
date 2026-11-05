@@ -552,4 +552,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Boten wonten ingkang dipunewahi kangge ngoyak, lan boten wonten agen ingkang dipunsuwun: angka wajib ingkang ketinggalan wekdalipun ngundang tumindak ingkang langkung beresiko kangge nutupi, lan punapa resiko punika dipunpendhet punika kaputusan panjenengan. Putusaken punapa tanggalipun dipunundur, targetipun dipunandhapaken, dipundadosaken gegayuhan dhuwur, utawi dipunkarepaken mlampah lan luput.',
   'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
     'Boten wonten ingkang dipunkendelaken, punapa kemawon wangsulanipun. Prioritas punika tetep kados mekaten lan dipunbiji nalika periodenipun rampung; ewahi ing kaca Ancas menawi panjenengan mutusaken.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nilai-nilai kita',
+  'Purpose and niche': 'Ancas lan ceruk',
+  'Long-range target': 'Target jangka panjang',
+  'Who we serve and what makes us different': 'Sinten ingkang kita layani lan punapa ingkang mbedakaken kita',
+  'Where we will be in three years': 'Wonten pundi kita tigang taun malih',
+  'Our promise': 'Janji kita',
 };

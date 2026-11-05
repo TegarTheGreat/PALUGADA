@@ -359,7 +359,7 @@ export async function ensureOffPace(companyId: string, now = new Date()): Promis
     }
     let raised = 0;
     for (const priority of behind) {
-      const once = `off-pace:${priority.id}:${priority.dueOn}`;
+      const once = `off-pace:${priority.goalId}:${priority.dueOn}`;
       // Two workers looking at once: the second waits here and finds the card.
       await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${companyId}:${once}`]);
       const { rowCount } = await tx.query(
@@ -367,11 +367,11 @@ export async function ensureOffPace(companyId: string, now = new Date()): Promis
       if (rowCount !== 0) continue;
       const card = offPaceCard(await ownerReadingWithin(tx), {
         statement: priority.statement, dueOn: priority.dueOn, progress: priority.progress ?? 0, elapsed: priority.elapsed,
-        seat: priority.ownerRoleId ? await roleCalledWithin(tx, { id: priority.ownerRoleId }) : null,
+        seat: priority.seatRoleId ? await roleCalledWithin(tx, { id: priority.seatRoleId }) : null,
       });
       await raiseEscalationWithin(tx, {
         companyId, title: card.title, detail: card.detail, consequenceIfDenied: card.consequence,
-        payload: { once, offPace: { goalId: priority.id, dueOn: priority.dueOn, progress: priority.progress, elapsed: priority.elapsed } },
+        payload: { once, offPace: { goalId: priority.goalId, dueOn: priority.dueOn, progress: priority.progress, elapsed: priority.elapsed } },
       });
       raised += 1;
     }

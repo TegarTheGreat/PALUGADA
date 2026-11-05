@@ -47,11 +47,15 @@ export interface VisionSection {
 
 /**
  * A heading as it is compared: case, spacing and a closing colon are the
- * owner's typing, not a different heading. Turkish's dotless i folds to i, so
- * a heading typed in capitals there still reads as the same words.
+ * owner's typing, not a different heading. Turkish's two i's fold to one, so
+ * a heading typed in capitals there still reads as the same words: the
+ * dotless ı folds to i, and the dotted capital İ, which lowercases without a
+ * locale to i and a combining dot above (U+0307), loses the dot.
+ * console/src/vision.ts compares headings by the same rule.
  */
 function comparable(heading: string): string {
-  return heading.normalize('NFKC').toLowerCase().replace(/ı/g, 'i').replace(/\s+/g, ' ').replace(/\s*[:：]$/, '').trim();
+  return heading.normalize('NFKC').toLowerCase().replace(/\u0307/g, '').replace(/ı/g, 'i')
+    .replace(/\s+/g, ' ').replace(/\s*[:：]$/, '').trim();
 }
 
 /**

@@ -255,7 +255,13 @@ export function Plan({ ctx }: PageProps) {
               <StatusBadge status={plan.lastMeeting.status} />
               {plan.lastMeeting.finishedAt && <Text size="xs" c="dimmed">{dateTime(plan.lastMeeting.finishedAt)}</Text>}
             </Group>
-            {plan.lastMeeting.summary && <Prose text={plan.lastMeeting.summary} />}
+            {plan.lastMeeting.record && plan.lastMeeting.record.taskId !== plan.lastMeeting.taskId && (
+              <Group gap="xs">
+                <Text size="sm" c="dimmed">{t('The last record is from {week}.', { week: plan.lastMeeting.record.week })}</Text>
+                <OpenLink onClick={() => ctx.open('work', { item: plan.lastMeeting!.record!.taskId })}>{t('Open the task')}</OpenLink>
+              </Group>
+            )}
+            {plan.lastMeeting.record?.summary && <Prose text={plan.lastMeeting.record.summary} />}
           </Stack>
         )}
       </Section>

@@ -178,6 +178,18 @@ export function t(text: string, values?: Values): string {
 }
 
 /**
+ * A sentence in every language the console is drawn in, English first: for
+ * recognising words the owner may have typed while the console was in another
+ * language than it is now, such as the vision outline's headings.
+ */
+export function everyTranslation(text: string): string[] {
+  return LANGUAGES.map(({ code }) => {
+    const translation = DICTIONARIES[code][text];
+    return translation === undefined ? text : form(translation, 'other');
+  });
+}
+
+/**
  * A sentence that depends on a count: `tp('{count} task', '{count} tasks', n)`.
  *
  * The plural rule is the language's own, which is why both English forms are

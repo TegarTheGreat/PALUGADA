@@ -315,7 +315,11 @@ export interface Plan {
     working: PlanChannel[];
   };
   coreProcesses: CoreProcesses;
-  lastMeeting: { taskId: string; week: string; status: string; finishedAt: string | null; summary: string | null } | null;
+  /** The last weekly operating meeting, whatever its status, and the record of the last one that completed. */
+  lastMeeting: {
+    taskId: string; week: string; status: string; finishedAt: string | null;
+    record: { taskId: string; week: string; finishedAt: string; summary: string | null } | null;
+  } | null;
 }
 
 export interface PlanChannel {

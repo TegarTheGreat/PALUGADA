@@ -378,9 +378,11 @@ export interface PlanView {
   };
   /**
    * The channels by ring (F18.11), read from the goals and never stored.
-   * Possible is the list of a strategy for every channel that a run following
-   * the channel-testing skill wrote with doc.draft, the newest; null when no
-   * such run wrote one. Probable is a channel an active learning key result
+   * Possible is the list of a strategy for every channel: the newest document
+   * a run that read the channel-testing skill wrote with doc.draft and that is
+   * a list of most of the nineteen (`BRAINSTORM_ENTRIES_MIN` entries); null
+   * when no such run wrote one. Whichever role wrote it, the strategist or
+   * another. Probable is a channel an active learning key result
    * tests; working, one an active committed key result does: the core
    * channel. A channel in both is working.
    */
@@ -390,8 +392,16 @@ export interface PlanView {
     working: PlanChannel[];
   };
   coreProcesses: CoreProcessesReport;
-  /** The last weekly operating meeting made, with its record: what the CEO summed up. */
-  lastMeeting: { taskId: string; week: string; status: string; finishedAt: Date | null; summary: string | null } | null;
+  /**
+   * The last weekly operating meeting made, whatever its status, and its
+   * record: the last meeting that completed, with what the CEO summed up.
+   * The two are the same meeting once this week's has finished; the record is
+   * null while no meeting has completed.
+   */
+  lastMeeting: {
+    taskId: string; week: string; status: string; finishedAt: Date | null;
+    record: { taskId: string; week: string; finishedAt: Date; summary: string | null } | null;
+  } | null;
 }
 
 /** The most long-term issues the page lists; it says how many more there are. */
@@ -399,9 +409,24 @@ const LONG_TERM_ISSUES_MAX = 25;
 /**
  * The operating kit's skill whose first step is a document with one strategy
  * for each of the nineteen channels (company-os, `channel-testing`): a run
- * that read it and then drafted is the one that wrote the outer ring.
+ * that read it and then drafted such a list is the one that wrote the outer
+ * ring.
  */
 const CHANNEL_TESTING_SKILL = 'channel-testing';
+/**
+ * A line of a document that is one entry of a list: a bullet, a numbered
+ * item ("1." "1)" "(1)"), a heading, or a table row with words in it. Read
+ * newline-sensitively, so `^` is the start of each line.
+ *
+ * The brainstorm is known by its shape, not its words: it is written in the
+ * work language, in the run's own words, so the channels' English names are
+ * not in it. A run that read channel-testing also writes other documents --
+ * a test's prediction against its result, a weekly review -- and those are a
+ * handful of lines, where the brainstorm is one entry for each of nineteen.
+ */
+const LIST_ENTRY = String.raw`^[ \t]{0,3}([-*+]|\(?[0-9]{1,2}[.)])[ \t]+[^ \t]|^[ \t]{0,3}#{1,6}[ \t]+[^ \t]|^[ \t]{0,3}\|.*[[:alnum:]]`;
+/** Most of the nineteen: a brainstorm may merge two channels, or leave out one it calls absurd. */
+const BRAINSTORM_ENTRIES_MIN = 15;
 const RINGS = { committed: 0, learning: 1, aspirational: 2 } as const;
 
 /**
@@ -505,9 +530,10 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
           AND EXISTS (SELECT 1 FROM events e
                        WHERE e.company_id = s.company_id AND e.task_id = s.task_id
                          AND e.type = 'skill.read' AND e.payload ->> 'slug' = $2)
+          AND regexp_count(s.output ->> 'text', $3, 1, 'n') >= $4
         ORDER BY s.committed_at DESC, s.task_id DESC, s.step_index DESC
         LIMIT 1`,
-      [companyId, CHANNEL_TESTING_SKILL]);
+      [companyId, CHANNEL_TESTING_SKILL, LIST_ENTRY, BRAINSTORM_ENTRIES_MIN]);
     const brainstorm = brainstorms[0];
     const brainstormRole = brainstorm ? seatOf(brainstorm.role_id) : null;
     const possible = brainstorm && brainstormRole ? (() => {
@@ -522,14 +548,23 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
     const coreProcesses = await coreProcessesOf(tx, companyId, { now });
 
     // The key sorts as the weeks do, so the last meeting is the greatest one.
-    const { rows: meetings } = await tx.query<{ id: string; key: string; status: string; finished_at: Date | null; summary: string | null }>(
-      `SELECT id, idempotency_key AS key, status, finished_at,
-              CASE WHEN jsonb_typeof(output -> 'summary') = 'string' THEN output ->> 'summary' END AS summary
+    // Its record is the last one that finished: while this week's is still
+    // running, or after it failed, last week's summary is what there is to read.
+    const { rows: meetings } = await tx.query<{ id: string; key: string; status: string; finished_at: Date | null }>(
+      `SELECT id, idempotency_key AS key, status, finished_at
          FROM tasks
         WHERE company_id = $1 AND idempotency_key LIKE 'meeting:%'
         ORDER BY idempotency_key DESC LIMIT 1`,
       [companyId]);
     const meeting = meetings[0];
+    const { rows: records } = await tx.query<{ id: string; key: string; finished_at: Date; summary: string | null }>(
+      `SELECT id, idempotency_key AS key, finished_at,
+              CASE WHEN jsonb_typeof(output -> 'summary') = 'string' THEN output ->> 'summary' END AS summary
+         FROM tasks
+        WHERE company_id = $1 AND idempotency_key LIKE 'meeting:%' AND status = 'completed'
+        ORDER BY idempotency_key DESC LIMIT 1`,
+      [companyId]);
+    const record = records[0];
 
     return {
       day,
@@ -557,7 +592,12 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
       lastMeeting: meeting
         ? {
           taskId: meeting.id, week: meeting.key.slice('meeting:'.length), status: meeting.status, finishedAt: meeting.finished_at,
-          summary: meeting.summary === null ? null : redactor.redact(meeting.summary),
+          record: record
+            ? {
+              taskId: record.id, week: record.key.slice('meeting:'.length), finishedAt: record.finished_at,
+              summary: record.summary === null ? null : redactor.redact(record.summary),
+            }
+            : null,
         }
         : null,
     };

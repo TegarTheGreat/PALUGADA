@@ -26,6 +26,7 @@ import { publishCharter } from '../../src/governance/store.ts';
 import { OWNER_SENTENCES } from '../../src/owner/say.ts';
 import { VISION_PARTS, visionHeading } from '../../src/owner/vision.ts';
 import { STAFF_READS } from '../../src/owner/staff-policy.ts';
+import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -80,6 +81,20 @@ async function drafted(fixture: Fixture, taskId: string, text: string, at: Date)
     [taskId, fixture.companyId, `${taskId}:0`, { path: `draft-${taskId.slice(0, 8)}.md`, text, words: 20, model: 'draft-model' }, at]));
 }
 
+type Console = Awaited<ReturnType<typeof consoleWithSettings>>;
+
+/** A viewer seat of the company, joined as staff.test.ts joins one; its session token. */
+async function seat(api: Console, owner: string, companyId: string, name: string): Promise<string> {
+  const made = await api.call('POST', `/api/companies/${companyId}/staff`, owner, { name, kind: 'viewer', proof: { totp: api.code() } });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  const opened = await api.call('POST', '/api/auth/join', '', { code: made.body.invite });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  const totp = totpCode(decodeBase32(String(opened.body.secret)), stepFor(new Date()));
+  const joined = await api.call('POST', '/api/auth/join/confirm', '', { code: made.body.invite, offer: opened.body.offer, totp });
+  assert.equal(joined.status, 200, JSON.stringify(joined.body));
+  return String(joined.body.token);
+}
+
 interface Plan {
   day: string;
   timezone: string;
@@ -102,7 +117,10 @@ interface Plan {
     working: Array<{ channel: string; goals: Array<{ id: string; commitment: string | null }> }>;
   };
   coreProcesses: { windowDays: number; processes: unknown[] };
-  lastMeeting: { taskId: string; week: string; status: string; summary: string | null } | null;
+  lastMeeting: {
+    taskId: string; week: string; status: string; finishedAt: string | null;
+    record: { taskId: string; week: string; finishedAt: string; summary: string | null } | null;
+  } | null;
 }
 
 test('the plan page assembles the vision, the year, the quarter on pace, the scorecard, the headline, the issues, the channels and the last meeting', async () => {
@@ -237,8 +255,8 @@ test('the plan page assembles the vision, the year, the quarter on pace, the sco
       ['sales', [[behind.id, 'committed'], [salesTest.id, 'learning']]],
     ]);
 
-    assert.deepEqual([full.lastMeeting?.taskId, full.lastMeeting?.week, full.lastMeeting?.status, full.lastMeeting?.summary],
-      [meeting, '2026-W41', 'completed', 'What the owner needs to know: calls are on track.']);
+    assert.deepEqual([full.lastMeeting?.taskId, full.lastMeeting?.week, full.lastMeeting?.status, full.lastMeeting?.record?.taskId, full.lastMeeting?.record?.summary],
+      [meeting, '2026-W41', 'completed', meeting, 'What the owner needs to know: calls are on track.']);
 
     // The possible ring is the document a run following channel testing wrote,
     // not a later draft of work that never read it.
@@ -247,16 +265,45 @@ test('the plan page assembles the vision, the year, the quarter on pace, the sco
       `INSERT INTO events (company_id, project_id, task_id, type, actor, payload)
        VALUES ($1, $2, $3, 'skill.read', 'agent_run', '{"slug":"channel-testing","version":1}')`,
       [fixture.companyId, fixture.projectId, brainstorm]));
-    await drafted(fixture, brainstorm, '# Every channel\n\n1. Niche blogs: the three café blogs in Jakarta.', new Date(Date.now() - HOUR));
+    // Written in the work language, so it is known by its shape, a line for
+    // each of the nineteen, and not by the channels' English names.
+    const everyChannel = ['# Semua kanal', '', ...Array.from({ length: 19 }, (_, index) => `${index + 1}. Strategi kanal ${index + 1} untuk kafe di Jakarta.`)].join('\n');
+    await drafted(fixture, brainstorm, everyChannel, new Date(Date.now() - 2 * HOUR));
     const memo = await finishedTask(fixture, { goal: 'Write a memo' }, 'Written.');
     await drafted(fixture, memo, '# A memo\n\nNothing about channels.', new Date());
+    // A later run that opened the skill to judge a test writes its report:
+    // that is a document of the procedure, not the list of every channel.
+    const review = await finishedTask(fixture, { goal: 'Judge the content test' }, 'Judged.');
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO events (company_id, project_id, task_id, type, actor, payload)
+       VALUES ($1, $2, $3, 'skill.read', 'agent_run', '{"slug":"channel-testing","version":1}')`,
+      [fixture.companyId, fixture.projectId, review]));
+    await drafted(fixture, review, '# Content test result\n\n- Predicted: US$40 a café.\n- Result: US$55 a café (confirmed).\n- Spent: US$110 of US$120.', new Date(Date.now() - HOUR));
     const possible = (await plan()).channels.possible;
-    assert.equal(possible?.taskId, brainstorm);
-    assert.equal(possible?.title, 'Every channel');
-    assert.equal(possible?.excerpt, '1. Niche blogs: the three café blogs in Jakarta.');
+    assert.equal(possible?.taskId, brainstorm, 'the list of every channel, not the newer report of one test');
+    assert.equal(possible?.title, 'Semua kanal');
+    assert.ok(possible?.excerpt.startsWith('1. Strategi kanal 1 untuk kafe di Jakarta.'), possible?.excerpt);
 
-    // Staff seats read it, as every other page of the company.
+    // A meeting that has not finished is the last one, and the record shown
+    // beside it is the last meeting that finished.
+    const pending = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'Weekly operating meeting' }, createdBy: 'owner',
+      reserveTokens: 100, idempotencyKey: 'meeting:2026-W42',
+    });
+    const latest = (await plan()).lastMeeting;
+    assert.deepEqual([latest?.taskId, latest?.week, latest?.status, latest?.finishedAt], [pending.id, '2026-W42', 'pending', null]);
+    assert.deepEqual([latest?.record?.taskId, latest?.record?.week, latest?.record?.summary],
+      [meeting, '2026-W41', 'What the owner needs to know: calls are on track.']);
+
+    // Staff seats read it, as every other page of the company, and only their own company's.
     assert.ok(STAFF_READS.includes('/api/companies/:companyId/plan'));
+    const viewer = await seat(owner, token, fixture.companyId, 'Rina');
+    const asStaff = await owner.call('GET', `/api/companies/${fixture.companyId}/plan`, viewer);
+    assert.equal(asStaff.status, 200, JSON.stringify(asStaff.body));
+    assert.equal((asStaff.body as Plan).channels.possible?.taskId, brainstorm);
+    const other = await createCompany('plan-page-other');
+    assert.notEqual((await owner.call('GET', `/api/companies/${other.companyId}/plan`, viewer)).status, 200);
   } finally {
     await owner.close();
   }
@@ -281,16 +328,25 @@ test('the vision is found by the outline\'s headings in the company\'s languages
     });
     assert.deepEqual((await vision()).sections.map((one) => [one.part, one.text]), [['values', 'Jujur.'], ['long_range_target', 'Seribu kafe.']]);
 
+    // In Turkish, typed in capitals: the dotted capital I lowercases to an i
+    // with a combining dot, which is still the same letter.
+    await setCompanyLanguages(fixture.companyId, { work: null, talk: 'tr' });
+    await publishCharter({
+      companyId: fixture.companyId,
+      body: `## ${visionHeading('tr', 'values').toLocaleUpperCase('tr')}\nDürüstlük.\n`,
+    });
+    assert.deepEqual((await vision()).sections.map((one) => [one.part, one.text]), [['values', 'Dürüstlük.']]);
+
     // A language the company does not use is not read: a heading there is just a heading.
     await setCompanyLanguages(fixture.companyId, { work: null, talk: null });
     const japanese = `## ${visionHeading('ja', 'promise')}\n約束。`;
     await publishCharter({ companyId: fixture.companyId, body: japanese });
-    assert.deepEqual(await vision(), { charterVersion: 2, sections: [], whole: japanese });
+    assert.deepEqual(await vision(), { charterVersion: 3, sections: [], whole: japanese });
 
     // A heading inside a fenced block is not a heading.
     const fenced = 'Before.\n\n```\n## Our values\n```\n';
     await publishCharter({ companyId: fixture.companyId, body: fenced });
-    assert.deepEqual(await vision(), { charterVersion: 3, sections: [], whole: fenced });
+    assert.deepEqual(await vision(), { charterVersion: 4, sections: [], whole: fenced });
   } finally {
     await owner.close();
   }
@@ -310,6 +366,47 @@ test('the console\'s vision outline writes the headings the server reads, in eve
       const english = visionHeading('en', part);
       assert.equal(DICTIONARY[english], visionHeading(language, part),
         `${language}: the console writes "${String(DICTIONARY[english])}" for "${english}", and the server reads "${visionHeading(language, part)}"`);
+    }
+  }
+});
+
+test('the console\'s outline adds only the parts the charter has no heading for, in any language', async () => {
+  // By its address rather than a literal path: the console's i18n is written
+  // for the browser, and a literal import would bring it into the server's
+  // type check, which has no DOM.
+  type Part = { part: string; heading: string };
+  const { missingParts, outlineText } = await import(new URL('../../console/src/vision.ts', import.meta.url).href) as {
+    missingParts: (charter: string) => Part[]; outlineText: (parts: readonly Part[]) => string;
+  };
+  const parts = (charter: string) => missingParts(charter).map((one) => one.part);
+
+  assert.deepEqual(parts(''), [...VISION_PARTS]);
+  // Two written by hand, in the owner's own typing: the other four are missing.
+  const some = 'Kopi Kita.\n\n## our values\n- Honest.\n\n### OUR PROMISE:\nFresh beans.\n';
+  assert.deepEqual(parts(some), ['purpose_and_niche', 'long_range_target', 'who_we_serve', 'three_years']);
+  assert.equal(outlineText(missingParts(some)),
+    ['Purpose and niche', 'Long-range target', 'Who we serve and what makes us different', 'Where we will be in three years']
+      .map((heading) => `## ${heading}\n\n`).join(''), 'only the missing headings are written');
+
+  // Filled in while the console was in Indonesian, read while it is in English: nothing is missing.
+  const indonesian = VISION_PARTS.map((part) => `## ${visionHeading('id', part)}\nIsi.\n`).join('\n');
+  assert.deepEqual(parts(indonesian), []);
+  // Turkish typed in capitals, as the server reads it.
+  assert.deepEqual(parts(`## ${visionHeading('tr', 'values').toLocaleUpperCase('tr')}\n`).includes('values'), false);
+  // A heading quoted in a fenced block is not one, as the server reads it.
+  assert.deepEqual(parts('```\n## Our values\n```\n').includes('values'), true);
+});
+
+test('the plan page\'s empty lines name a goal\'s kinds by each dictionary\'s own words, not in English', async () => {
+  const locales = (await readdir(new URL('../../console/src/locales/', import.meta.url)))
+    .filter((name) => name.endsWith('.ts') && name !== 'types.ts').map((name) => name.replace(/\.ts$/, ''));
+  for (const language of locales) {
+    const { DICTIONARY } = await import(`../../console/src/locales/${language}.ts`) as { DICTIONARY: Record<string, string> };
+    for (const sentence of [
+      'No goal for this year yet: an objective whose period is about a year, with today in it.',
+      'No quarterly priority yet: a key result whose period is a quarter, with today in it.',
+    ]) {
+      assert.doesNotMatch(DICTIONARY[sentence]!, /objective|key result/i, `${language}: "${DICTIONARY[sentence]}" keeps the English term`);
     }
   }
 });

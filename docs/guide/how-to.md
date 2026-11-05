@@ -2258,9 +2258,11 @@ Jim Collins and Jerry Porras, under plain names.
 To write it:
 
 1. On **Team**, open the **Charter** tab and press **Start from the vision
-   outline** on the company charter. Six headings are added at the end, in
-   the language the console is drawn in, and what goes under each is said
-   beside the editor:
+   outline** on the company charter. The headings it does not have yet are
+   added at the end, in the language the console is drawn in, and what goes
+   under each is said beside the editor. A heading you already wrote, in any
+   language the console speaks, is not added again, and the button is off
+   once all six are there:
    - **Our values**: three to seven behaviours the company keeps, even when
      they cost it something.
    - **Purpose and niche**: why the company exists, and the one thing it
@@ -2301,11 +2303,15 @@ The **Plan** page then shows, top to bottom:
   issues list** opens the board on its issues.
 - **Channels by ring**: *working*, a channel a committed priority tests, the
   core channel; *probable*, one only a learning priority tests; and
-  *possible*, the strategist's list of a strategy for every channel, once a
-  run following the channel-testing skill has written it. Nothing about the
-  rings is stored: give a priority its channel on its goal, and it moves.
+  *possible*, the list of a strategy for every channel, the newest document
+  that a run following the channel-testing skill wrote as a list of most of
+  the nineteen. A later report of one test, written by the same procedure, is
+  a few lines and does not take its place. Nothing about the rings is stored:
+  give a priority its channel on its goal, and it moves.
 - **Core processes**, with their seats and how far the work follows them.
-- **The last weekly operating meeting**: its record, as the CEO summed it up,
-  and a link to its task.
+- **The last weekly operating meeting**: its status, and the record of the
+  last one that finished, as the CEO summed it up, with a link to its task.
+  While this week's is still running, or if it stopped, last week's record is
+  the one shown.
 
 Nothing is changed on the Plan page; each part links to where it is.

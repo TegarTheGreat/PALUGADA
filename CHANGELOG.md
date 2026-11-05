@@ -955,15 +955,15 @@ The first version. What it holds, in the order an owner meets it.
   the plan that serves it: the vision from the company charter, this year's
   goals, this quarter's priorities on or off pace by the rule the weekly
   operating meeting uses, the weekly scorecard as it stood last week, the
-  headline, the long-term issues, the core processes and the last weekly
-  operating meeting's record. Each part links to where it is changed: the
+  headline, the long-term issues, the core processes, and the last weekly
+  operating meeting with the record of the last one that finished. Each part links to where it is changed: the
   charter, the goals, the scorecard and the issues list. Nothing is stored
   for it; it is read from what the company already keeps (STATUS 2.197).
 - **Start from the vision outline.** The company charter's editor offers six
   headings in your language -- our values, purpose and niche, the
   long-range target, who we serve and what makes us different, where we
   will be in three years, and our promise -- added at the end for you to
-  fill in, with what goes under each said beside the editor and never
+  fill in, only those the charter does not have yet in any language, with what goes under each said beside the editor and never
   written into the charter. The Plan page shows those sections as the
   vision, found in any of the company's languages, and the whole charter
   when it has none of them. An existing charter, and the one a new company
@@ -971,6 +971,7 @@ The first version. What it holds, in the order an owner meets it.
 - **Channels by ring** (F18.11). The Plan page groups the channels the
   company tests: probable while a learning priority tests one, working
   (the core channel) once a committed priority does, and possible, the
-  strategist's list of a strategy for every channel, once a run following
-  channel testing has written one. The rings are read from the goals and
+  list of a strategy for every channel: the newest document a run following
+  channel testing wrote as a list of most of the nineteen, so a later report
+  of one test does not replace it. The rings are read from the goals and
   never stored (STATUS 2.197).

@@ -20,7 +20,7 @@ import { locale, t } from '../i18n.ts';
 import type { Charter, Charters as CharterPair } from '../types.ts';
 import { LoadFailed, Loading, Section } from './ui.tsx';
 import { ConfigHistory } from './ConfigHistory.tsx';
-import { VISION_OUTLINE, hasOutline, outlineText } from '../vision.ts';
+import { VISION_OUTLINE, missingParts, outlineText } from '../vision.ts';
 
 /** The server's bound: every run carries a charter whole, so it is kept short. */
 const CHARTER_LIMIT = 20_000;
@@ -120,10 +120,15 @@ function CharterEditor({ title, description, current, empty, actions, outline = 
 
   const text = draft.trim();
   const changed = text !== (current?.body ?? '');
-  // The headings go at the end, so nothing the owner wrote moves; the hints
+  // The headings go at the end, so nothing the owner wrote moves, and only
+  // the ones the charter lacks, so a part is never there twice; the hints
   // are shown here and never written, since every run reads the charter.
+  const missing = missingParts(draft);
   const startOutline = () => {
-    setDraft((now) => (now.trim() ? `${now.trimEnd()}\n\n${outlineText()}` : outlineText()));
+    setDraft((now) => {
+      const headings = outlineText(missingParts(now));
+      return now.trim() ? `${now.trimEnd()}\n\n${headings}` : headings;
+    });
     setOutlined(true);
   };
   const tooLong = text.length > CHARTER_LIMIT;
@@ -157,7 +162,7 @@ function CharterEditor({ title, description, current, empty, actions, outline = 
         {!current && <Alert color="orange" variant="light">{empty}</Alert>}
         {outline && (
           <Group gap="xs">
-            <Button size="compact-sm" variant="light" leftSection={<IconListDetails size={14} />} disabled={hasOutline(draft)} onClick={startOutline}>
+            <Button size="compact-sm" variant="light" leftSection={<IconListDetails size={14} />} disabled={missing.length === 0} onClick={startOutline}>
               {t('Start from the vision outline')}
             </Button>
             <Text size="xs" c="dimmed">{t('Headings for the vision, which the Plan page shows. You write what goes under each.')}</Text>
@@ -166,7 +171,7 @@ function CharterEditor({ title, description, current, empty, actions, outline = 
         {outlined && (
           <Alert color="blue" variant="light" title={t('What goes under each heading')}>
             <Stack gap={6}>
-              <Text size="sm">{t('The headings are added at the end. Write under each in your own words, then save: the next run is told it.')}</Text>
+              <Text size="sm">{t('The headings the charter lacked are added at the end. Write under each in your own words, then save: the next run is told it.')}</Text>
               <List size="sm" spacing={4}>
                 {VISION_OUTLINE.map((one) => (
                   <List.Item key={one.part}><Text span fw={600} size="sm">{t(one.heading)}</Text>: {t(one.hint)}</List.Item>

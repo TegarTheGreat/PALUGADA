@@ -72,6 +72,12 @@ export function Organization({ ctx, route }: PageProps) {
   const { structure, schedules } = view.data;
   const openRole = role ? structure.roles.find((one) => one.id === role.id) ?? null : null;
   const openDivision = division ? structure.divisions.find((one) => one.id === division.id) ?? null : null;
+  // A change to a measure can let go of the headline, which the company's
+  // card in the portfolio shows; so the companies are read again with the page.
+  const changedHeadline = () => {
+    view.reload();
+    void ctx.refreshCompanies();
+  };
 
   return (
     <Stack gap="lg">
@@ -98,9 +104,13 @@ export function Organization({ ctx, route }: PageProps) {
         </Tabs.Panel>
         <Tabs.Panel value="goals">
           <Stack gap="lg">
-            <HeadlineChooser companyId={companyId} company={ctx.company} structure={structure}
-              changed={() => { view.reload(); void ctx.refreshCompanies(); }} />
-            <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={view.reload}
+            {/* Keyed by the saved choice: when the database lets go of the
+                headline (its measure retired, or put on the scorecard, from
+                the ladder below or the Scorecard tab), the chooser starts
+                again from what is saved rather than holding the old one. */}
+            <HeadlineChooser key={structure.headlineMetricId ?? 'inferred'} companyId={companyId} company={ctx.company}
+              structure={structure} changed={changedHeadline} />
+            <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={changedHeadline}
               team={{
                 roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics),
                 headlineMetricId: structure.headlineMetricId,
@@ -108,7 +118,7 @@ export function Organization({ ctx, route }: PageProps) {
           </Stack>
         </Tabs.Panel>
         <Tabs.Panel value="scorecard">
-          <Scorecard companyId={companyId} structure={structure} changed={view.reload} />
+          <Scorecard companyId={companyId} structure={structure} changed={changedHeadline} />
         </Tabs.Panel>
         <Tabs.Panel value="projects">
           <Projects companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />

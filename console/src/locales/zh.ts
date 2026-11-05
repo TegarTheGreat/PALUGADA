@@ -296,6 +296,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "已停止：其工作已通过其他方式接手",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "告诉 CEO 这家公司是做什么的。CEO 会围绕它组建团队，重要的事仍由您做主。",
   "The company's headline metric was chosen": "已选择公司的核心指标",
+  "The company's headline metric was let go": "已取消公司的核心指标",
   "The goal it serves": "它服务的目标",
   "The last try failed, so these are the prices from before: {problem}": "上次尝试失败，因此这些是之前的价格：{problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "强推这一项时会受损的指标：两者总是一起显示。",

@@ -255,9 +255,18 @@ export async function changeMetric(companyId: string, metricId: string, change: 
   }
   assertReviewEvery(change.reviewEvery);
   assertFunnelStep(change.funnelStep);
+  // Retired or put on the scorecard, a measure that is the headline lets go
+  // of it (0142). The company is locked first, in the order chooseHeadline
+  // locks the two, so the two cannot wait on each other; and so what it was
+  // judged by before is read as the change finds it, to say it was let go.
+  const lettingGo = change.retired === true || (change.reviewEvery !== undefined && change.reviewEvery !== null);
   await withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ unit: string; baseline: string; target: string; observed: number; retired_at: Date | null }>(
-      `SELECT m.unit, m.baseline, m.target, m.retired_at,
+    const headline = lettingGo
+      ? (await tx.query<{ headline_metric_id: string | null }>(
+        'SELECT headline_metric_id FROM companies WHERE id = $1 FOR UPDATE', [companyId])).rows[0]?.headline_metric_id ?? null
+      : null;
+    const { rows } = await tx.query<{ slug: string; unit: string; baseline: string; target: string; observed: number; retired_at: Date | null }>(
+      `SELECT m.slug, m.unit, m.baseline, m.target, m.retired_at,
               (SELECT count(*)::int FROM metric_observations o WHERE o.metric_id = m.id) AS observed
          FROM goal_metrics m WHERE m.id = $1 AND m.company_id = $2 FOR UPDATE`,
       [metricId, companyId]);
@@ -313,6 +322,20 @@ export async function changeMetric(companyId: string, metricId: string, change: 
         before: { unit: before.unit, baseline: Number(before.baseline), target: Number(before.target) },
       },
     });
+    // The database let go of the headline in the statement above; the
+    // history says so, or it would show the number chosen and never dropped.
+    if (headline === metricId) {
+      const { rows: after } = await tx.query<{ headline_metric_id: string | null }>(
+        'SELECT headline_metric_id FROM companies WHERE id = $1', [companyId]);
+      if (after[0]?.headline_metric_id === null) {
+        await appendEvent(tx, {
+          companyId,
+          type: 'company.headline_let_go',
+          actor: 'owner',
+          payload: { metricId, slug: before.slug, reason: change.retired === true ? 'retired' : 'weekly' },
+        });
+      }
+    }
   });
 }
 
@@ -721,8 +744,13 @@ export async function chooseHeadline(companyId: string, metricId: string | null)
     let slug: string | null = null;
     if (metricId !== null) {
       const { rows } = await tx.query<{ id: string; slug: string; retired: boolean; weekly: boolean }>(
+        // FOR SHARE, so a retirement or a move to the scorecard that is under
+        // way is waited for and read as it ends: read without a lock, the
+        // measure looks still aimed at a target, and the change's own
+        // trigger has already found no headline to let go.
         `SELECT id, slug, retired_at IS NOT NULL AS retired, review_every IS NOT NULL AS weekly
-           FROM goal_metrics WHERE company_id = $1 AND id::text = $2`,
+           FROM goal_metrics WHERE company_id = $1 AND id::text = $2
+            FOR SHARE`,
         [companyId, metricId]);
       const chosen = rows[0];
       if (!chosen) {

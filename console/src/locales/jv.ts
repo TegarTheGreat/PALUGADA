@@ -327,6 +327,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Dimandhegaké: gawéané wis ditangani kanthi cara liya",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Ngendikaa dhateng CEO panjenengan kangge menapa perusahaan menika. CEO mbangun tim adhedhasar menika, lan bab ingkang wigati tetep panjenengan ingkang mutusaken.",
   "The company's headline metric was chosen": "Angka utami perusahaan sampun dipunpilih",
+  "The company's headline metric was let go": "Angka utami perusahaan sampun dipunlepas",
   "The goal it serves": "Goal sing dilayani",
   "The last try failed, so these are the prices from before: {problem}": "Percobaan pungkasan gagal, dadi iki rega sing sadurunge: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Ukuran sing bakal rugi yen ukuran iki dipeksa: loro-lorone tansah ditampilake bebarengan.",

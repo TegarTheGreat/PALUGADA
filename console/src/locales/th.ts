@@ -329,6 +329,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "หยุดแล้ว: งานนี้ถูกดำเนินการต่อด้วยวิธีอื่น",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "บอก CEO ว่าบริษัทตั้งขึ้นเพื่ออะไร CEO จะสร้างทีมรอบสิ่งนั้น และคุณยังคุมเรื่องสำคัญไว้เอง",
   "The company's headline metric was chosen": "เลือกตัวชี้วัดหลักของบริษัทแล้ว",
+  "The company's headline metric was let go": "ยกเลิกตัวชี้วัดหลักของบริษัทแล้ว",
   "The goal it serves": "เป้าหมายที่ตัวชี้วัดนี้รับใช้",
   "The last try failed, so these are the prices from before: {problem}": "ครั้งล่าสุดไม่สำเร็จ จึงใช้ราคาจากครั้งก่อน: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "ตัวชี้วัดที่จะแย่ลงหากเร่งตัวนี้: ทั้งสองจะแสดงคู่กันเสมอ",

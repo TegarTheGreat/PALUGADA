@@ -305,6 +305,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "停止: その仕事は別の形で引き継がれました",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "この会社が何のためのものかを CEO に伝えてください。CEO はそれを軸にチームを作り、大事なことの判断はこれまでどおりあなたが行います。",
   "The company's headline metric was chosen": "会社の主要指標が選択されました",
+  "The company's headline metric was let go": "会社の主要指標の選択が解除されました",
   "The goal it serves": "これが役立つ目標",
   "The last try failed, so these are the prices from before: {problem}": "前回の試行は失敗したため、以前の価格を使っています: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "これを無理に押し上げたときに悪化する指標：二つは常に並べて表示されます。",

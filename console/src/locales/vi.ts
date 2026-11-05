@@ -334,6 +334,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Đã dừng: công việc của nó đã được xử lý theo cách khác",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Hãy cho CEO biết công ty này để làm gì. CEO sẽ xây dựng đội ngũ xoay quanh điều đó, còn bạn vẫn nắm quyền quyết định những việc quan trọng.",
   "The company's headline metric was chosen": "Đã chọn chỉ số chính của công ty",
+  "The company's headline metric was let go": "Đã bỏ chỉ số chính của công ty",
   "The goal it serves": "Mục tiêu mà nó phục vụ",
   "The last try failed, so these are the prices from before: {problem}": "Lần thử gần nhất thất bại, nên đây là giá trước đó: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Chỉ số sẽ bị ảnh hưởng nếu chỉ số này bị ép: hai chỉ số luôn được hiển thị cùng nhau.",

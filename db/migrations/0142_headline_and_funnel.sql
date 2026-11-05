@@ -53,8 +53,15 @@ LANGUAGE plpgsql AS $$
 DECLARE
   chosen record;
 BEGIN
+  -- FOR SHARE: the key's own check takes only FOR KEY SHARE, which a
+  -- concurrent retirement does not wait for, nor it for the retirement. A
+  -- measure being retired, or put on the scorecard, holds its row FOR UPDATE
+  -- until it commits; this waits for that, and reads the row as it was left,
+  -- or the headline could be set on a measure whose let-go trigger has
+  -- already run and found nothing to let go.
   SELECT slug, retired_at IS NOT NULL AS retired, review_every IS NOT NULL AS weekly INTO chosen
-    FROM goal_metrics WHERE company_id = NEW.id AND id = NEW.headline_metric_id;
+    FROM goal_metrics WHERE company_id = NEW.id AND id = NEW.headline_metric_id
+     FOR SHARE;
   -- Not found is the key's to refuse, with its own name.
   IF FOUND AND chosen.retired THEN
     RAISE EXCEPTION 'the measure % is retired; the headline is a measure that is still measured', chosen.slug

@@ -314,6 +314,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Остановлена: работу продолжили другим путём",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Расскажите своему CEO, для чего нужна компания. Он соберёт команду вокруг этого, а важные решения остаются за вами.",
   "The company's headline metric was chosen": "Выбран главный показатель компании",
+  "The company's headline metric was let go": "Главный показатель компании снят",
   "The goal it serves": "Цель, которой он служит",
   "The last try failed, so these are the prices from before: {problem}": "Последняя попытка не удалась, поэтому используются прежние цены: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Показатель, который пострадает, если давить на этот: оба всегда показываются вместе.",

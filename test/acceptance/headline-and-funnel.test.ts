@@ -201,6 +201,86 @@ test('a headline lets go of a measure that is retired, deleted or put on the wee
   assert.deepEqual(pass.erased.map((one) => one.companyId), [erased.companyId]);
 });
 
+test('a headline that lets go says so in the company history, and why', async () => {
+  const fixture = await createCompany('headline-let-go-said');
+  const define = (slug: string) => defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug, name: `Count of ${slug}`, unit: 'count', target: 10,
+  });
+  const letGo = async () => (await withControlPlane((tx) => tx.query<{ actor: string; payload: Record<string, unknown> }>(
+    "SELECT actor, payload FROM events WHERE company_id = $1 AND type = 'company.headline_let_go' ORDER BY occurred_at, id",
+    [fixture.companyId]))).rows;
+
+  const retiring = await define('retiring');
+  await chooseHeadline(fixture.companyId, retiring);
+  await changeMetric(fixture.companyId, retiring, { retired: true });
+  const weekly = await define('weekly');
+  await chooseHeadline(fixture.companyId, weekly);
+  await changeMetric(fixture.companyId, weekly, { reviewEvery: 'week' });
+  // A measure that is not the headline lets go of nothing, and says nothing.
+  const bystander = await define('bystander');
+  await changeMetric(fixture.companyId, bystander, { retired: true });
+  // Nor does a change to the headline that keeps it a target.
+  const kept = await define('kept');
+  await chooseHeadline(fixture.companyId, kept);
+  await changeMetric(fixture.companyId, kept, { target: 20 });
+
+  assert.deepEqual(await letGo(), [
+    { actor: 'owner', payload: { metricId: retiring, slug: 'retiring', reason: 'retired' } },
+    { actor: 'owner', payload: { metricId: weekly, slug: 'weekly', reason: 'weekly' } },
+  ]);
+  assert.equal(await headlineIdOf(fixture.companyId), kept);
+});
+
+test('a headline chosen while its measure is being retired or put on the scorecard waits, and is refused', async () => {
+  const fixture = await createCompany('headline-race');
+  const define = (slug: string) => defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug, name: `Count of ${slug}`, unit: 'count', target: 10,
+  });
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+  // The measure is locked and changed as changeMetric changes it, and held
+  // uncommitted while the headline is chosen from another connection. Its
+  // trigger has already run, and found no headline to let go.
+  for (const [slug, change, refusal] of [
+    ['retiring', 'retired_at = now()', /the measure retiring is retired/],
+    ['weekly', "review_every = 'week'", /the measure weekly is a line on the weekly scorecard/],
+  ] as const) {
+    const measure = await define(slug);
+    for (const how of ['chooseHeadline', 'a direct write'] as const) {
+      let settled = false;
+      let choosing: Promise<unknown> = Promise.resolve();
+      await withControlPlane(async (tx) => {
+        await tx.query('SELECT id FROM goal_metrics WHERE id = $1 FOR UPDATE', [measure]);
+        await tx.query(`UPDATE goal_metrics SET ${change} WHERE id = $1`, [measure]);
+        // However the row is written, the database waits too.
+        choosing = (how === 'chooseHeadline'
+          ? chooseHeadline(fixture.companyId, measure)
+          : withControlPlane((other) => other.query(
+            'UPDATE companies SET headline_metric_id = $1 WHERE id = $2', [measure, fixture.companyId])))
+          .then(() => null, (error: unknown) => error)
+          .finally(() => { settled = true; });
+        await pause();
+        assert.equal(settled, false, `${how} waits for the change to the measure to end`);
+      });
+      const chose = await choosing;
+      assert.ok(chose instanceof Error, `${how} was not refused`);
+      assert.match(chose.message, refusal);
+      assert.equal(await headlineIdOf(fixture.companyId), null, `${how} left the headline on ${slug}, which may not be one`);
+    }
+  }
+
+  // The other way round, the change waits for the choice, and lets it go.
+  const chosen = await define('chosen');
+  let changing: Promise<unknown> = Promise.resolve();
+  await withControlPlane(async (tx) => {
+    await tx.query('UPDATE companies SET headline_metric_id = $1 WHERE id = $2', [chosen, fixture.companyId]);
+    changing = changeMetric(fixture.companyId, chosen, { retired: true });
+    await pause();
+  });
+  await changing;
+  assert.equal(await headlineIdOf(fixture.companyId), null);
+});
+
 test("every run is told the headline the owner chose, with its pair, and nothing when they chose none", async () => {
   const fixture = await createCompany('headline-told');
   const mission = await missionOf(fixture);

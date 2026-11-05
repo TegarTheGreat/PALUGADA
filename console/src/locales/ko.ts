@@ -307,6 +307,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "중지됨: 이 작업은 다른 방식으로 이어졌습니다",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "이 회사가 무엇을 위한 곳인지 CEO에게 알려 주세요. CEO는 그것을 중심으로 팀을 꾸리고, 중요한 일은 계속 직접 결정해요.",
   "The company's headline metric was chosen": "회사의 핵심 지표를 선택했어요",
+  "The company's headline metric was let go": "회사의 핵심 지표 선택이 해제됐어요",
   "The goal it serves": "이 지표가 기여하는 목표",
   "The last try failed, so these are the prices from before: {problem}": "마지막 시도가 실패하여 이전 가격을 사용합니다: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "이 지표를 무리하게 밀어붙이면 나빠질 지표: 두 지표는 항상 함께 표시됩니다.",

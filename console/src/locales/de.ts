@@ -310,6 +310,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Gestoppt: Die Arbeit wurde auf anderem Weg aufgenommen",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Sagen Sie Ihrem CEO, wofür das Unternehmen da ist. Er baut das Team darum herum auf, und über das Wichtige entscheiden weiterhin Sie.",
   "The company's headline metric was chosen": "Die Leitkennzahl des Unternehmens wurde gewählt",
+  "The company's headline metric was let go": "Die Leitkennzahl des Unternehmens wurde aufgegeben",
   "The goal it serves": "Das Ziel, dem sie dient",
   "The last try failed, so these are the prices from before: {problem}": "Der letzte Versuch ist fehlgeschlagen, daher gelten die bisherigen Preise: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Die Kennzahl, die leiden würde, wenn diese hier erzwungen wird: Beide werden immer zusammen angezeigt.",

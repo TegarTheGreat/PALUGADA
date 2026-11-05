@@ -2054,7 +2054,9 @@ acquisition, activation, retention, referral and revenue.
    whether its work moved it. The measure's line on its goal says
    **Headline**. Clear the box and press **Save** to let the portfolio infer
    it again. Retiring the measure, putting it on the weekly scorecard or
-   deleting it clears the choice too.
+   deleting it clears the choice too. When you retire it or put it on the
+   scorecard, the company's history says **The company's headline metric
+   was let go**.
 4. To name a measure's funnel step, choose it under **Funnel step** when you
    add the measure, or press **Change** on it. Leave it empty for a number
    that is not part of the funnel, such as complaints or cash. On the weekly

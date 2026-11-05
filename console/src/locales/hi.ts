@@ -280,6 +280,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "रोका गया: इसका काम दूसरे तरीके से उठा लिया गया",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "अपने CEO को बताइए कि कंपनी किसलिए है। वह उसी के आधार पर टीम बनाता है, और ज़रूरी बातों का फ़ैसला आपके हाथ में ही रहता है।",
   "The company's headline metric was chosen": "कंपनी का मुख्य माप चुना गया",
+  "The company's headline metric was let go": "कंपनी का मुख्य माप छोड़ दिया गया",
   "The goal it serves": "जिस लक्ष्य की यह सेवा करता है",
   "The last try failed, so these are the prices from before: {problem}": "पिछला प्रयास विफल रहा, इसलिए ये पहले की कीमतें हैं: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "वह माप जो इस पर ज़ोर डालने से बिगड़ेगा: दोनों हमेशा साथ दिखाए जाते हैं।",

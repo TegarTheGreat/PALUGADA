@@ -331,6 +331,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Fermata: il suo lavoro è stato ripreso in un altro modo",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Di' al tuo CEO a cosa serve l'azienda. Costruisce il team attorno a questo, e tu continui a decidere ciò che conta.",
   "The company's headline metric was chosen": "È stata scelta la metrica principale dell'azienda",
+  "The company's headline metric was let go": "La metrica principale dell'azienda è stata abbandonata",
   "The goal it serves": "L'obiettivo che serve",
   "The last try failed, so these are the prices from before: {problem}": "L'ultimo tentativo non è riuscito, quindi questi sono i prezzi di prima: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "La misura che ne soffrirebbe se si forzasse questa: le due sono sempre mostrate insieme.",

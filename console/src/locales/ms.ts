@@ -329,6 +329,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Dihentikan: kerjanya telah diuruskan dengan cara lain",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Beritahu CEO anda untuk apa syarikat ini. Ia membina pasukan berdasarkan itu, dan anda kekal mengawal perkara yang penting.",
   "The company's headline metric was chosen": "Angka utama syarikat telah dipilih",
+  "The company's headline metric was let go": "Angka utama syarikat telah dilepaskan",
   "The goal it serves": "Matlamat yang dilayaninya",
   "The last try failed, so these are the prices from before: {problem}": "Percubaan terakhir gagal, jadi ini harga sebelum ini: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Ukuran yang akan terjejas jika ukuran ini dipaksa: kedua-duanya sentiasa ditunjukkan bersama.",

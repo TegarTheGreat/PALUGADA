@@ -311,6 +311,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Gestopt: het werk is op een andere manier opgepakt",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Vertel je CEO waar het bedrijf voor is. Die bouwt het team daaromheen op, en jij blijft beslissen over wat telt.",
   "The company's headline metric was chosen": "De hoofdmaatstaf van het bedrijf is gekozen",
+  "The company's headline metric was let go": "De hoofdmaatstaf van het bedrijf is losgelaten",
   "The goal it serves": "Het doel dat het dient",
   "The last try failed, so these are the prices from before: {problem}": "De laatste poging is mislukt, dus dit zijn de eerdere prijzen: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "De maatstaf die zou lijden als deze werd doorgedrukt: de twee worden altijd samen getoond.",

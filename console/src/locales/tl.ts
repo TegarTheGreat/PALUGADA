@@ -290,6 +290,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Itinigil: inasikaso na ang trabaho nito sa ibang paraan",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "Sabihin sa CEO mo kung para saan ang kumpanya. Bubuo ito ng team batay doon, at ikaw pa rin ang may hawak ng mahahalaga.",
   "The company's headline metric was chosen": "Napili ang pangunahing sukatan ng kumpanya",
+  "The company's headline metric was let go": "Binitawan ang pangunahing sukatan ng kumpanya",
   "The goal it serves": "Ang layuning pinaglilingkuran nito",
   "The last try failed, so these are the prices from before: {problem}": "Nabigo ang huling pagsubok, kaya ito ang mga presyo noong nakaraan: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Ang sukatang masisira kung ipipilit ang isang ito: laging ipinapakita nang magkasama ang dalawa.",

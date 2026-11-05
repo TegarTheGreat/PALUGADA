@@ -336,6 +336,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "Durduruldu: işi başka bir yoldan ele alındı",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "CEO'nuza şirketin ne için olduğunu söyleyin. Ekibi bunun etrafında kurar, önemli olanlara siz karar vermeye devam edersiniz.",
   "The company's headline metric was chosen": "Şirketin ana ölçüsü seçildi",
+  "The company's headline metric was let go": "Şirketin ana ölçüsü bırakıldı",
   "The goal it serves": "Hizmet ettiği hedef",
   "The last try failed, so these are the prices from before: {problem}": "Son deneme başarısız oldu, bu yüzden bunlar önceki fiyatlardır: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "Bu zorlanırsa zarar görecek ölçü: ikisi her zaman birlikte gösterilir.",

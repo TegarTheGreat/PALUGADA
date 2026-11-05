@@ -307,6 +307,7 @@ export const DICTIONARY: Dictionary = {
   "Stopped: its work was taken up another way": "أُوقفت: تُولّي عملها بطريقة أخرى",
   "Tell your CEO what it is for. It builds the team around that, and you stay in charge of what matters.": "يمكنك إخبار الرئيس التنفيذي بالغرض من الشركة. يبني الفريق حول ذلك، وتبقى القرارات المهمة بيدك.",
   "The company's headline metric was chosen": "تم اختيار المقياس الرئيسي للشركة",
+  "The company's headline metric was let go": "أُلغي اختيار المقياس الرئيسي للشركة",
   "The goal it serves": "الهدف الذي يخدمه",
   "The last try failed, so these are the prices from before: {problem}": "فشلت المحاولة الأخيرة، لذا هذه هي الأسعار السابقة: {problem}",
   "The measure that would suffer if this one were pushed: the two are always shown together.": "المقياس الذي سيتضرر إذا دُفع هذا المقياس بالقوة: يُعرض الاثنان معًا دائمًا.",

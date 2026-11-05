@@ -2056,7 +2056,8 @@ one card in **Decisions**, and nothing in it exists until you approve it.
    seat. The lines you unticked are not made. **Deny** refuses the whole
    plan.
 
-If you changed a goal a line hangs from after the plan was proposed, the
+If you changed a goal a line hangs from after the plan was proposed (its
+words, status, period, seat, commitment, finish line or channel), the
 approval is refused and says which line. Deny the plan and ask the CEO for a
 new one. Only one plan waits at a time: the CEO proposes the next once you
 have answered this one.

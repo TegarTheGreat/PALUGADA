@@ -31,6 +31,7 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { changeMetric, defineMetric, recordObservation } from '../../src/domain/metrics.ts';
+import { proposeGoalPlan } from '../../src/domain/goal-plans.ts';
 import { CHANNELS } from '../../src/domain/channels.ts';
 import { structureOf } from '../../src/owner/views.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
@@ -1024,11 +1025,78 @@ test('a plan is refused once a goal it hangs from has changed, and a plan of eve
   await inbox.decide(fixture.companyId, stale.inboxItemId, 'deny', 'Not this quarter.');
   assert.equal((await goalSlugs(fixture)).includes('q1-newsletter'), false, 'a no makes nothing');
 
+  // Anything the owner sets on a goal from the console counts as a change:
+  // a plan for 2027 is not approved under an objective that now covers 2028.
+  const moved = (await propose({ plan: [QUARTER_PLAN[3]], why: 'A newsletter keeps the cafes ordering.' })).output;
+  await applyGoalChange({ companyId: fixture.companyId, goalId: fixture.goalId, startsOn: '2028-01-01', dueOn: '2028-12-31' });
+  await assert.rejects(device.approve(fixture.companyId, moved.inboxItemId),
+    /line 1 hangs from the objective "objective", which has changed since this was proposed; deny it, and ask for a new proposal/);
+  await inbox.decide(fixture.companyId, moved.inboxItemId, 'deny', 'The year moved.');
+  const reseated = (await propose({ plan: [QUARTER_PLAN[3]], why: 'A newsletter keeps the cafes ordering.' })).output;
+  await applyGoalChange({ companyId: fixture.companyId, goalId: fixture.goalId, commitment: 'aspirational' });
+  await assert.rejects(device.approve(fixture.companyId, reseated.inboxItemId),
+    /line 1 hangs from the objective "objective", which has changed since this was proposed/);
+  await inbox.decide(fixture.companyId, reseated.inboxItemId, 'deny', 'Its commitment changed.');
+
   // A yes with no lines named is a yes to every line.
   const fresh = (await propose({ plan: [QUARTER_PLAN[3]], why: 'Asked again, under the objective as it is now.' })).output;
   assert.equal(fresh.proposed, true);
   await device.approve(fixture.companyId, fresh.inboxItemId);
   assert.equal((await goalSlugs(fixture)).includes('q1-newsletter'), true);
+});
+
+test('a plan\'s measure is never paired with one already paired, nor named as a retired one (F18.7)', async () => {
+  const fixture = await createCompany('goal-plan-pairs');
+  const propose = await proposer(fixture);
+  await defineMetric(fixture.companyId, { goalId: fixture.goalId, slug: 'revenue', name: 'Revenue', unit: 'currency', target: 100 });
+  const newsletter = (slug: string, measure: Record<string, unknown>) => ({
+    ...QUARTER_PLAN[3], slug, statement: `The ${slug} priority.`, doneWhen: undefined,
+    measure: { name: `Measure of ${slug}`, unit: 'count', target: 10, ...measure },
+  });
+
+  // Line 1 takes revenue's only partner place; line 2 cannot take line 1's,
+  // since the yes would pair line 1's measure twice and roll back on the device.
+  await assert.rejects(propose({ plan: [
+    newsletter('q1-cafes', { slug: 'cafes', pair: 'revenue' }),
+    newsletter('q1-ads', { slug: 'ads', pair: 'cafes' }),
+  ], why: 'y' }), /line 2 \(q1-ads\): the measure cafes is already paired with revenue; a new measure is paired only with one that has no pair/);
+  await assert.rejects(propose({ plan: [
+    newsletter('q1-cafes', { slug: 'cafes' }),
+    newsletter('q1-ads', { slug: 'ads', pair: 'cafes' }),
+    newsletter('q1-press', { slug: 'press', pair: 'ads' }),
+  ], why: 'y' }), /line 3 \(q1-press\): the measure ads is already paired with cafes; a new measure is paired only with one that has no pair/);
+
+  // A retired measure keeps its slug (0053), so a line cannot take it.
+  const signups = await defineMetric(fixture.companyId, { goalId: fixture.goalId, slug: 'q1-signups', name: 'Sign-ups', unit: 'count', target: 50 });
+  await changeMetric(fixture.companyId, signups, { retired: true });
+  await assert.rejects(propose({ plan: [newsletter('q1-signups', {})], why: 'y' }),
+    /line 1 \(q1-signups\): a measure named q1-signups was retired, and keeps its slug; give this one a slug of its own/);
+
+  // Paired the right way round, the yes makes both pairs.
+  const fine = (await propose({ plan: [
+    newsletter('q1-cafes', { slug: 'cafes', pair: 'revenue' }),
+    newsletter('q1-ads', { slug: 'ads' }),
+    newsletter('q1-press', { slug: 'press', pair: 'ads' }),
+  ], why: 'Each measure watched with one other.' })).output;
+  await (await ownerDevice()).approve(fixture.companyId, fine.inboxItemId);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string; partner: string | null }>(
+    `SELECT m.slug, p.slug AS partner FROM goal_metrics m LEFT JOIN goal_metrics p ON p.id = m.paired_metric_id
+      WHERE m.retired_at IS NULL ORDER BY m.slug`));
+  assert.deepEqual(rows.map((row) => [row.slug, row.partner]),
+    [['ads', 'press'], ['cafes', 'revenue'], ['press', 'ads'], ['revenue', 'cafes']]);
+});
+
+test('two plans proposed at once file one card (F18.7)', async () => {
+  const fixture = await createCompany('goal-plan-race');
+  // Two runs, each in its own transaction, as two CEO tasks would be: the
+  // broker is left out so nothing of its own orders them.
+  const both = await Promise.all([
+    proposeGoalPlan({ companyId: fixture.companyId, plan: [QUARTER_PLAN[3]], rationale: 'The first run.' }),
+    proposeGoalPlan({ companyId: fixture.companyId, plan: [{ ...QUARTER_PLAN[3], slug: 'q1-podcast' }], rationale: 'The second run.' }),
+  ]);
+  assert.deepEqual(both.map((one) => one.proposed).sort(), [false, true]);
+  assert.equal(both[0]!.inboxItemId, both[1]!.inboxItemId);
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
 });
 
 test('a plan\'s card shows the soft limits each line would pass, and refuses nothing for them (F18.7, F18.1)', async () => {

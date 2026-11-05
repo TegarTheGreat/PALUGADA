@@ -90,9 +90,34 @@ export interface PlannedGoal {
 /** What a plan's card carries (`payload.goalPlan`), and what the owner's yes applies. */
 export interface GoalPlanProposal {
   lines: PlannedGoal[];
-  /** The goals that exist and lines hang from, as they stood: a yes is refused once one no longer does. */
-  parents: Array<{ goalId: string; slug: string; kind: GoalKind; statement: string; status: GoalStatus }>;
+  /**
+   * The goals that exist and lines hang from, as they stood: everything the
+   * owner can set on one, so a yes is refused once any of it no longer does.
+   */
+  parents: ParentAsProposed[];
 }
+
+/** A parent as the plan was written against it: its words, status, period, seat, commitment, finish line and channel. */
+interface ParentAsProposed {
+  goalId: string;
+  slug: string;
+  kind: GoalKind;
+  parentGoalId: string | null;
+  statement: string;
+  status: GoalStatus;
+  startsOn: string | null;
+  dueOn: string | null;
+  ownerRoleId: string | null;
+  commitment: GoalCommitment | null;
+  doneWhen: string | null;
+  channel: ChannelSlug | null;
+}
+
+const asProposed = (goal: Omit<ParentAsProposed, 'goalId'> & { id: string }): ParentAsProposed => ({
+  goalId: goal.id, slug: goal.slug, kind: goal.kind, parentGoalId: goal.parentGoalId, statement: goal.statement, status: goal.status,
+  startsOn: goal.startsOn, dueOn: goal.dueOn, ownerRoleId: goal.ownerRoleId, commitment: goal.commitment, doneWhen: goal.doneWhen,
+  channel: goal.channel,
+});
 
 const KIND_SAID: Record<GoalKind, string> = { mission: 'mission', objective: 'objective', key_result: 'key result' };
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
@@ -122,6 +147,9 @@ export async function proposeGoalPlan(input: {
   return withTenant(input.companyId, async (tx) => {
     // One plan waits for the owner at a time: two could each be approved
     // against goals the other had just made, and their limits counted apart.
+    // The lock makes that true when two runs propose at once: the second
+    // waits for the first to commit, and then reads its card.
+    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`goal-plan:${input.companyId}`]);
     const { rows: open } = await tx.query<{ id: string }>(
       `SELECT id FROM inbox_items WHERE status = 'open' AND kind = 'escalation' AND payload ? 'goalPlan'
         ORDER BY created_at LIMIT 1`);
@@ -134,7 +162,9 @@ export async function proposeGoalPlan(input: {
 
     const goals = await goalsIn(tx, input.companyId);
     const { rows: roles } = await tx.query<{ id: string; slug: string }>('SELECT id, slug FROM roles ORDER BY created_at, slug');
-    const measures = (await metricsIn(tx)).filter((metric) => !metric.retiredAt);
+    // Every measure, retired ones too: a retired measure keeps its slug
+    // (0053), so a line cannot take it, though it is never a pair.
+    const measures = await metricsIn(tx);
     const planned: PlannedGoal[] = [];
     for (const [index, line] of lines.entries()) planned.push(plannedFrom(line, index + 1, { goals, roles, measures }, planned));
     checkAcross(planned, measures);
@@ -160,7 +190,7 @@ export async function proposeGoalPlan(input: {
 
     const parents = [...new Set(planned.flatMap((line) => ('goalId' in line.parent ? [line.parent.goalId] : [])))]
       .map((goalId) => goals.find((goal) => goal.id === goalId)!)
-      .map((goal) => ({ goalId: goal.id, slug: goal.slug, kind: goal.kind, statement: goal.statement, status: goal.status }));
+      .map(asProposed);
     const proposal: GoalPlanProposal = { lines: planned, parents };
 
     const said: PlanLineSaid[] = [];
@@ -317,7 +347,9 @@ function measureFrom(
   if (typeof raw !== 'object') refuse('measure is an object: name, unit, target, and optionally slug, direction, baseline and pair', 'measure');
   const slug = text(raw.slug) || goalSlug;
   if (!SLUG.test(slug)) refuse(`a measure's slug is lower-case letters, digits and dashes; got ${JSON.stringify(raw.slug)}`, 'measure.slug');
-  if (measures.some((metric) => metric.slug === slug)) refuse(`a measure named ${slug} already exists; give this one a slug of its own`, 'measure.slug');
+  const named = measures.find((metric) => metric.slug === slug);
+  if (named?.retiredAt) refuse(`a measure named ${slug} was retired, and keeps its slug; give this one a slug of its own`, 'measure.slug');
+  if (named) refuse(`a measure named ${slug} already exists; give this one a slug of its own`, 'measure.slug');
   const taken = earlier.find((one) => one.measure?.slug === slug);
   if (taken) refuse(`the measure slug ${slug} is already line ${taken.line}'s`, 'measure.slug');
   const name = text(raw.name);
@@ -335,17 +367,24 @@ function measureFrom(
 
   // Its pair: one that has none yet, or an earlier line's -- a measure made
   // without a factor takes no partner from a pair that stands (defineMetric).
+  // An earlier line's measure that is itself paired, with a measure or with
+  // a line before it, is a pair that will stand by the time this line is
+  // made, and the yes would be refused there, after the owner's code is spent.
   const pairSlug = text(raw.pair);
   let pair: NonNullable<PlannedGoal['measure']>['pair'] = null;
   if (pairSlug) {
     const line = earlier.find((one) => one.measure?.slug === pairSlug);
-    const existing = line ? null : measures.find((metric) => metric.slug === pairSlug);
+    const existing = line ? null : measures.find((metric) => metric.slug === pairSlug && !metric.retiredAt);
     if (!line && !existing) {
-      refuse(`no measure ${pairSlug} to watch this one with; name a measure by its slug, or an earlier line's`, 'measure.pair');
+      refuse(`no measure ${pairSlug} to watch this one with; name a measure that is still measured by its slug, or an earlier line's`, 'measure.pair');
     }
-    if (existing?.pairedWith) {
-      const partner = measures.find((metric) => metric.id === existing.pairedWith);
-      refuse(`the measure ${pairSlug} is already paired with ${partner?.slug ?? 'another'}; a new measure is paired only with one that has no pair`, 'measure.pair');
+    const slugOf = (metricId: string) => measures.find((metric) => metric.id === metricId)?.slug ?? 'another';
+    const taken = line?.measure?.pair ?? null;
+    const standing = existing?.pairedWith ? slugOf(existing.pairedWith)
+      : taken === null ? null
+        : 'metricId' in taken ? slugOf(taken.metricId) : earlier[taken.line - 1]!.measure!.slug;
+    if (standing) {
+      refuse(`the measure ${pairSlug} is already paired with ${standing}; a new measure is paired only with one that has no pair`, 'measure.pair');
     }
     pair = line ? { line: line.line } : { metricId: existing!.id };
   }
@@ -425,9 +464,15 @@ export async function applyGoalPlanWithin(
   for (const parent of input.plan.parents) {
     const under = lines.find((line) => 'goalId' in line.parent && line.parent.goalId === parent.goalId);
     if (!under) continue;
-    const { rows } = await tx.query<{ statement: string; status: string }>(
-      'SELECT statement, status FROM goals WHERE id = $1 AND company_id = $2 FOR UPDATE', [parent.goalId, input.companyId]);
-    if (!rows[0] || rows[0].statement !== parent.statement || rows[0].status !== parent.status) {
+    // Days as text, as goalsIn reads them, so the two compare as written.
+    const { rows } = await tx.query<Omit<ParentAsProposed, 'goalId'> & { id: string }>(
+      `SELECT id, slug, kind, parent_goal_id AS "parentGoalId", statement, status,
+              to_char(starts_on, 'YYYY-MM-DD') AS "startsOn", to_char(due_on, 'YYYY-MM-DD') AS "dueOn",
+              owner_role_id AS "ownerRoleId", commitment, done_when AS "doneWhen", channel
+         FROM goals WHERE id = $1 AND company_id = $2 FOR UPDATE`, [parent.goalId, input.companyId]);
+    const now = rows[0] ? asProposed(rows[0]) : null;
+    const was = asProposed({ ...parent, id: parent.goalId });
+    if (!now || (Object.keys(was) as Array<keyof ParentAsProposed>).some((field) => now[field] !== was[field])) {
       throw new PalugadaError('contract.violation',
         `line ${under.line} hangs from the ${KIND_SAID[parent.kind]} "${parent.slug}", which has changed since this was proposed; deny it, and ask for a new proposal`,
         { inboxItemId: input.inboxItemId, goalId: parent.goalId });

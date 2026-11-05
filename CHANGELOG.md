@@ -856,10 +856,15 @@ The first version. What it holds, in the order an owner meets it.
 - You approve the plan line by line. The card shows every line, with the
   soft limits it would pass, and you untick the ones you refuse. Your yes,
   with your device, makes the lines you kept, with their measures and pairs,
-  in one step. It is refused if a goal a line hangs from has changed since
-  the proposal, and a line cannot be kept without the line it hangs from.
-  One plan waits at a time, and agents still cannot write a goal (STATUS
-  2.195).
+  in one step. It is refused if anything you set on a goal a line hangs
+  from (its words, status, period, seat, commitment, finish line or channel)
+  has changed since the proposal, and a line cannot be kept without the line
+  it hangs from. One plan waits at a time, even when two runs propose at
+  once, and agents still cannot write a goal (STATUS 2.195).
+- A plan line cannot pair its measure with an earlier line's measure that is
+  already paired, nor take a retired measure's slug: both are refused when
+  the plan is proposed, rather than refusing your yes after your device's
+  code is spent (STATUS 2.195).
 - The CEO now holds `goal.propose` in place of `doc.draft`, so it still has
   twelve tools. Its division keeps the draft's grant, so you can trade it
   back on Team. An existing CEO whose tools were still the founding ones is

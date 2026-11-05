@@ -120,6 +120,12 @@ export async function defineMetricWithin(tx: TenantClient, companyId: string, in
   if ((input.baseline ?? 0) === input.target) {
     throw new PalugadaError('contract.violation', 'the target must differ from the baseline, or there is nothing to measure', { field: 'target' });
   }
+  const disagreement = directionDisagreement(input.direction ?? 'up', input.baseline ?? 0, input.target);
+  if (disagreement) {
+    throw new PalugadaError('contract.violation', input.baseline === undefined
+      ? 'a measure where lower is better says where it stands now: give it a baseline above its target'
+      : disagreement, { field: 'baseline' });
+  }
   assertReviewEvery(input.reviewEvery);
   assertFunnelStep(input.funnelStep);
   const goal = await tx.query('SELECT 1 FROM goals WHERE id = $1 AND company_id = $2', [input.goalId, companyId]);
@@ -168,6 +174,23 @@ export async function defineMetricWithin(tx: TenantClient, companyId: string, in
     },
   });
   return id;
+}
+
+/**
+ * Why a measure's direction disagrees with where it starts and where it
+ * aims, or null when they agree. Progress is read from baseline to target
+ * (`progressOf`), and the scorecard and the met check read the direction, so
+ * a measure where lower is better that starts below its target would be read
+ * as further along the worse it does by the one, and as short by the other.
+ */
+export function directionDisagreement(direction: 'up' | 'down', baseline: number, target: number): string | null {
+  if (direction === 'down' && baseline < target) {
+    return `a measure where lower is better starts above its target; baseline ${baseline} is below target ${target}`;
+  }
+  if (direction === 'up' && baseline > target) {
+    return `a measure where higher is better starts below its target; baseline ${baseline} is above target ${target}`;
+  }
+  return null;
 }
 
 function assertReviewEvery(value: unknown): void {
@@ -227,6 +250,29 @@ async function pair(tx: TenantClient, companyId: string, metricId: string, partn
   await tx.query('UPDATE goal_metrics SET paired_metric_id = $3 WHERE company_id = $1 AND id = $2', [companyId, partner, metricId]);
 }
 
+/**
+ * A learning goal is graded against its first live target measure's target,
+ * the prediction (src/domain/grades.ts). Put on the weekly scorecard, that
+ * measure is no target, and the test would be graded with no prediction --
+ * or with the next measure's, which predicted something else.
+ */
+async function assertNotAPrediction(tx: TenantClient, companyId: string, metricId: string, slug: string, goalId: string): Promise<void> {
+  const { rows } = await tx.query<{ slug: string; first: string | null }>(
+    `SELECT g.slug,
+            (SELECT m.id FROM goal_metrics m
+              WHERE m.company_id = g.company_id AND m.goal_id = g.id AND m.retired_at IS NULL AND m.review_every IS NULL
+              ORDER BY m.created_at, m.id LIMIT 1) AS first
+       FROM goals g
+      WHERE g.company_id = $1 AND g.id = $2 AND g.commitment = 'learning' AND g.status = 'active'`,
+    [companyId, goalId]);
+  if (rows[0] && rows[0].first === metricId) {
+    throw new PalugadaError('contract.violation',
+      `the measure ${slug} holds the prediction of the learning goal ${rows[0].slug}, and a weekly line is not a target: `
+        + 'define another measure for the scorecard, or change the goal\'s commitment first',
+      { field: 'reviewEvery' });
+  }
+}
+
 /** What the owner may put right about a measure, and retiring it. */
 export interface MetricChange {
   name?: string;
@@ -275,8 +321,11 @@ export async function changeMetric(companyId: string, metricId: string, change: 
       ? (await tx.query<{ headline_metric_id: string | null }>(
         'SELECT headline_metric_id FROM companies WHERE id = $1 FOR UPDATE', [companyId])).rows[0]?.headline_metric_id ?? null
       : null;
-    const { rows } = await tx.query<{ slug: string; unit: string; baseline: string; target: string; observed: number; retired_at: Date | null }>(
-      `SELECT m.slug, m.unit, m.baseline, m.target, m.retired_at,
+    const { rows } = await tx.query<{
+      slug: string; unit: string; direction: 'up' | 'down'; baseline: string; target: string; observed: number; retired_at: Date | null;
+      review_every: ReviewEvery | null; goal_id: string;
+    }>(
+      `SELECT m.slug, m.unit, m.direction, m.baseline, m.target, m.retired_at, m.review_every, m.goal_id,
               (SELECT count(*)::int FROM metric_observations o WHERE o.metric_id = m.id) AS observed
          FROM goal_metrics m WHERE m.id = $1 AND m.company_id = $2 FOR UPDATE`,
       [metricId, companyId]);
@@ -291,6 +340,14 @@ export async function changeMetric(companyId: string, metricId: string, change: 
     const target = change.target ?? Number(before.target);
     if (baseline === target) {
       throw new PalugadaError('contract.violation', 'the target must differ from the baseline, or there is nothing to measure', { field: 'target' });
+    }
+    const disagreement = directionDisagreement(change.direction ?? before.direction, baseline, target);
+    if (disagreement) {
+      const field = change.direction !== undefined ? 'direction' : change.target !== undefined ? 'target' : 'baseline';
+      throw new PalugadaError('contract.violation', disagreement, { field });
+    }
+    if (change.reviewEvery === 'week' && before.review_every === null && before.retired_at === null) {
+      await assertNotAPrediction(tx, companyId, metricId, before.slug, before.goal_id);
     }
     if (change.ownerRoleId) await assertRoleIn(tx, companyId, change.ownerRoleId);
     await tx.query(

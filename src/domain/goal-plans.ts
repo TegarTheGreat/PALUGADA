@@ -26,7 +26,7 @@ import * as inbox from '../inbox/inbox.ts';
 import { ownerReadingWithin, planCard, roleCalledWithin, type PlanLineSaid, type PlanWarningSaid } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
-import { METRIC_UNITS, defineMetricWithin, metricsIn, type MetricUnit } from './metrics.ts';
+import { METRIC_UNITS, defineMetricWithin, directionDisagreement, metricsIn, type MetricUnit } from './metrics.ts';
 import type { ChannelSlug } from './channels.ts';
 import {
   GOAL_REASON_MAX, GOAL_STATEMENT_MAX, createGoalWithin, goalWarnings, goalsIn, periodOf, planFrom,
@@ -359,11 +359,18 @@ function measureFrom(
   }
   const direction = raw.direction === undefined || raw.direction === null ? 'up' : raw.direction;
   if (direction !== 'up' && direction !== 'down') refuse(`a measure's direction is up or down; got ${JSON.stringify(direction)}`, 'measure.direction');
+  // Lower is better from a baseline of 0 is never progress, so a measure
+  // aimed down says where it starts.
+  if (direction === 'down' && (raw.baseline === undefined || raw.baseline === null)) {
+    refuse('a measure where lower is better says where it stands now: give it a baseline above its target', 'measure.baseline');
+  }
   const baseline = raw.baseline === undefined || raw.baseline === null ? 0 : raw.baseline;
   if (typeof baseline !== 'number' || !Number.isFinite(baseline)) refuse('a measure\'s baseline is a number, where it stands now', 'measure.baseline');
   const target = raw.target;
   if (typeof target !== 'number' || !Number.isFinite(target)) refuse('a measure\'s target is a number, set now: for a learning goal it is the prediction', 'measure.target');
   if (target === baseline) refuse('a measure\'s target differs from its baseline, or there is nothing to measure', 'measure.target');
+  const disagreement = directionDisagreement(direction, baseline, target);
+  if (disagreement) refuse(disagreement, 'measure.baseline');
 
   // Its pair: one that has none yet, or an earlier line's -- a measure made
   // without a factor takes no partner from a pair that stands (defineMetric).

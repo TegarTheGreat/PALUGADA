@@ -2072,15 +2072,21 @@ seats, and you read the record.
    It ends with **What the owner needs to know**, in the language the company
    talks to you in. The company's card on **Home** and the meeting's settings
    link to the last one, and the daily digest the day after a meeting points
-   to it.
+   to it. A meeting that was cancelled or stopped is not said to have been
+   held; one that stopped is counted with the day's other stopped work.
 
 A week with nothing to review -- no line on the scorecard, no priority this
-quarter, no open issue and no open to-do -- has no meeting and costs nothing.
+quarter, no open issue on this week's list, and no to-do due by now -- has no
+meeting and costs nothing. An issue you moved to the long-term list, or a
+to-do due next month, waits for its time.
 Nor does a company winding down, or a deployment with no model. If the day
 passes with the platform stopped, that week has no meeting; it is never moved
 to another day.
 
 Every run of a seat is told its own part beside what it is accountable for:
 its lines on the scorecard and where each stands this week, its quarterly
-priorities, and its open to-dos. **Seats to look at**, on the chart, also
+priorities, and its open to-dos. A to-do filed by work that had read
+something from outside, such as a customer's mail, is named without its
+words, which the run reads with the ticket listing and is then treated as
+having read outside content. **Seats to look at**, on the chart, also
 names a line on the scorecard and a key result that no seat answers for.

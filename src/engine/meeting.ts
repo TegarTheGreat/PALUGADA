@@ -25,7 +25,8 @@
  *    asks only when it has one (`holdsMeetings`, main.ts), since a task no
  *    runtime can take would halt every week and be reported every week.
  *  - **Not with nothing to review**: no line on the scorecard, no quarterly
- *    priority this quarter, no open issue and no open to-do.
+ *    priority this quarter, no open issue on the weekly list, and no to-do
+ *    due in the week before it or still open past its due date.
  *  - **Once a week:** the key is the ISO week (`meeting:IYYY-Www`), and the
  *    unique index on it, with a lock on the week, keeps two workers to one.
  *
@@ -106,7 +107,13 @@ async function meetingDue(tx: TenantClient, companyId: string, now: Date): Promi
   return (await somethingToReview(tx, companyId, day)) ? { week, day, timezone, key } : null;
 }
 
-/** Whether the company has anything a meeting would review. */
+/**
+ * Whether the company has anything a meeting would review: the same rows
+ * `buildMeetingFacts` lists, and no more. An issue on the long-term list or a
+ * to-do due next month is not on the agenda, and a check that counted them
+ * made a meeting every week with every part of it empty, which the model is
+ * paid to say (F9.10).
+ */
 async function somethingToReview(tx: TenantClient, companyId: string, day: string): Promise<boolean> {
   const { rows } = await tx.query<{ any: boolean }>(
     `SELECT EXISTS (SELECT 1 FROM goal_metrics m
@@ -117,8 +124,10 @@ async function somethingToReview(tx: TenantClient, companyId: string, day: strin
                        AND starts_on IS NOT NULL AND due_on - starts_on <= 92
                        AND starts_on <= $2::date AND due_on >= $2::date)
          OR EXISTS (SELECT 1 FROM tickets
-                     WHERE company_id = $1 AND status IN ('open', 'in_progress')
-                       AND (kind = 'issue' OR (kind = 'work' AND due_on IS NOT NULL))) AS any`,
+                     WHERE company_id = $1 AND kind = 'issue' AND status IN ('open', 'in_progress') AND horizon = 'now')
+         OR EXISTS (SELECT 1 FROM tickets
+                     WHERE company_id = $1 AND kind = 'work' AND due_on IS NOT NULL AND due_on <= $2::date
+                       AND status <> 'closed' AND (status <> 'done' OR due_on > $2::date - 7)) AS any`,
     [companyId, day]);
   return rows[0]!.any;
 }
@@ -177,7 +186,13 @@ async function fileNotDoneTwice(tx: TenantClient, companyId: string, previousDay
        FROM tickets
       WHERE company_id = $1 AND kind = 'work' AND status IN ('open', 'in_progress')
         AND due_on IS NOT NULL AND due_on <= $2::date
-      ORDER BY due_on, created_at, id
+      -- One already on the issues list is only seen again there, so it is
+      -- taken last: ten old ones must not spend the cap and keep a new one
+      -- missed twice off the list for good.
+      ORDER BY EXISTS (SELECT 1 FROM tickets i
+                        WHERE i.company_id = tickets.company_id AND i.kind = 'issue' AND i.status IN ('open', 'in_progress')
+                          AND i.source_key = 'todo:' || tickets.id),
+               due_on, created_at, id
       LIMIT $3`,
     [companyId, previousDay, NOT_DONE_TWICE_MAX]);
   const reading = await ownerReadingWithin(tx);

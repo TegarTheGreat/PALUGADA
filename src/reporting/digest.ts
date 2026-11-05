@@ -38,9 +38,11 @@ export interface DailyDigest {
   stopped: Array<{ reason: string; count: number }>;
   /**
    * The last weekly operating meeting made by the end of the day (F18.6),
-   * whose task is the meeting's record. `heldThisDay` when it finished on the
-   * digest's day: the digest that follows a meeting points to it once, and
-   * the console shows the last one whenever it is asked.
+   * whose task is the meeting's record. `heldThisDay` when it completed on
+   * the digest's day: the digest that follows a meeting points to it once,
+   * and the console shows the last one whenever it is asked. A meeting
+   * cancelled, failed or halted also has a finish time, and was not held;
+   * one halted is counted with the day's other halts.
    */
   lastMeeting: { taskId: string; week: string; status: string; finishedAt: string | null; heldThisDay: boolean } | null;
 }
@@ -102,7 +104,7 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
     // The key sorts as the weeks do, so the last meeting is the greatest one.
     const { rows: meetings } = await tx.query<{ id: string; key: string; status: string; finished_at: Date | null; held_this_day: boolean }>(
       `SELECT id, idempotency_key AS key, status, finished_at,
-              coalesce(finished_at >= date_trunc('day', $1::timestamptz)
+              coalesce(status = 'completed' AND finished_at >= date_trunc('day', $1::timestamptz)
                        AND finished_at < date_trunc('day', $1::timestamptz) + interval '1 day', false) AS held_this_day
          FROM tasks
         WHERE idempotency_key LIKE 'meeting:%' AND created_at < date_trunc('day', $1::timestamptz) + interval '1 day'

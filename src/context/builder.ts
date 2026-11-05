@@ -532,7 +532,13 @@ async function yourSeat(tx: TenantClient, companyId: string, roleId: string): Pr
   }
 
   // Its open to-dos: work given to the seat by name. A title written by work
-  // that had read something from outside is data, as it is on the board.
+  // that had read something from outside is not quoted here, even wrapped:
+  // this is the role charter, the most trusted part of the pack, and a
+  // section the engine does not mark as outside. Quoted, a stranger's words
+  // would reach every run of the seat while none of them counted as having
+  // read outside content (F8.9), so their tier 2 calls would not ask the
+  // owner. The seat is told it has one and which, and reads it with
+  // ticket.list, whose listing taints the run that reads it.
   const { rows: todos } = await tx.query<{ id: string; title: string; due_on: string | null; outside: boolean; total: number }>(
     `SELECT id, title, to_char(due_on, 'YYYY-MM-DD') AS due_on, outside, count(*) OVER ()::int AS total
        FROM tickets
@@ -544,7 +550,10 @@ async function yourSeat(tx: TenantClient, companyId: string, roleId: string): Pr
     out.push('Your open to-dos:');
     for (const todo of todos) {
       const title = todo.title.replace(/\s+/g, ' ').trim().slice(0, 200);
-      out.push(`- ${todo.outside ? wrapUntrusted(`ticket:${todo.id}`, title) : withoutTemplateTokens(title)}${todo.due_on ? `, due ${todo.due_on}` : ''}`);
+      const said = todo.outside
+        ? `A to-do filed by work that had read outside content, ticket ${todo.id}; its words are not shown here, and ticket.list with its id reads them as outside content`
+        : withoutTemplateTokens(title);
+      out.push(`- ${said}${todo.due_on ? `, due ${todo.due_on}` : ''}`);
     }
     out.push(...more(todos.length, todos[0]!.total));
   }

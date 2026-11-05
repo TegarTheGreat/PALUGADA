@@ -104,6 +104,7 @@ interface MeetingFacts {
   todos: { items: Array<{ ticket: string; title: string; seat: string | null; dueOn: string | null; done: boolean }>; leftOut: number; due: number; done: number; completionRate: number | null };
   issues: { items: Array<{ ticket: string; title: string; priority: number; ageDays: number; stale: boolean; outside?: true }>; leftOut: number };
   businessReview: { task: string; summary: string | null } | null;
+  moneyReview?: { task: string; summary: string | null; outside?: true } | null;
   filed: { offTrack: string[]; notDoneTwice: string[] };
 }
 const meetings = (fixture: Fixture) => withTenant(fixture.companyId, (tx) => tx.query<Meeting>(
@@ -377,6 +378,58 @@ test('the facts are the records, bounded, ranked, and outside words are wrapped'
   const carried = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { capability: string } }>(
     "SELECT payload FROM events WHERE task_id = $1 AND type = 'content.read_outside'", [meeting!.id]));
   assert.equal(carried.rows[0]?.payload.capability, 'the meeting facts it was handed');
+});
+
+test('the month\'s money review is handed to the next meeting, and the issues it ends with reach the CEO', async () => {
+  // The guide and the monthly-review skill say the review ends with "issues
+  // for the weekly meeting, for the CEO to take up" (STATUS 2.199). The
+  // strategist holds no tool that files a ticket, so the meeting is where
+  // they are taken up, and it must be handed them.
+  const fixture = await createCompany('meeting-money-review');
+  const now = new Date();
+  const local = new Date(now.getTime() + JAKARTA);
+  await inJakarta(fixture, { weekday: local.getUTCDay(), hour: 0 });
+  await weeklyLine(fixture, 'calls', 'Sales calls made', 50);
+
+  const monthlyReview = async (summary: string, finishedDaysAgo: number, outside = false) => {
+    const review = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+      input: { goal: 'Monthly money review', facts: 'month', month: {} }, createdBy: 'scheduler', reserveTokens: 100,
+      idempotencyKey: `money-review:${finishedDaysAgo}`,
+    });
+    await transition(fixture.companyId, review.id, 'running');
+    if (outside) {
+      await withTenant(fixture.companyId, (tx) => tx.query(
+        `INSERT INTO events (company_id, project_id, task_id, type, actor, payload) VALUES ($1, $2, $3, 'content.read_outside', 'engine', '{"capability":"email.read"}')`,
+        [fixture.companyId, fixture.projectId, review.id]));
+    }
+    await transition(fixture.companyId, review.id, 'completed', { output: { summary } });
+    await withControlPlane((tx) => tx.query(
+      'UPDATE tasks SET finished_at = $2 WHERE id = $1', [review.id, new Date(now.getTime() - finishedDaysAgo * DAY)]));
+    return review.id;
+  };
+  // Last month's, reviewed five weeks ago, was handed on already.
+  await monthlyReview('Issues for the weekly meeting: an old one.', 35);
+  // This month's is a page long, written after reading an email, and its
+  // issues come last, as the skill orders the page.
+  const page = `Profit: ${'sales and costs as the books have them. '.repeat(60)}`
+    + 'Issues for the weekly meeting: receivables at 45 days; overhead up 30%.';
+  const current = await monthlyReview(page, 2, true);
+
+  assert.ok(await ensureWeeklyMeeting(fixture.companyId, now));
+  const [meeting] = await meetings(fixture);
+  const review = meeting!.input.facts.moneyReview;
+  assert.ok(review, 'the meeting is handed the month\'s review');
+  assert.equal(review.task, current, 'this month\'s, not last month\'s');
+  assert.match(review.summary!, /^<<<UNTRUSTED_CONTENT>>> source="task:[^"]+"/, 'written after reading an email, so wrapped');
+  assert.match(review.summary!, /receivables at 45 days; overhead up 30%/, 'a long page keeps the issues it ends with');
+  assert.equal(review.outside, true);
+  assert.match(meeting!.input.context, /monthly money review/i, 'the brief says what to do with it');
+
+  const carried = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { capability: string; tasks?: string[] } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'content.read_outside'", [meeting!.id]));
+  assert.deepEqual(carried.rows[0]?.payload.tasks, [current], 'the meeting carries the review\'s provenance');
 });
 
 test('every run of a seat is told its own lines, priorities and open to-dos, and a seat with none is told nothing', async () => {

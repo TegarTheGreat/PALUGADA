@@ -288,7 +288,7 @@ function outsideIn(facts: MeetingFacts): { tickets: string[]; tasks: string[] } 
       ...facts.issues.items.filter((one) => one.outside).map((one) => one.ticket),
       ...facts.todos.items.filter((one) => one.outside).map((one) => one.ticket),
     ],
-    tasks: facts.businessReview?.outside ? [facts.businessReview.task] : [],
+    tasks: [facts.businessReview, facts.moneyReview].flatMap((review) => (review?.outside ? [review.task] : [])),
   };
 }
 
@@ -314,7 +314,10 @@ function briefFor(week: string, language: string): { goal: string; context: stri
         + '3. Headlines: what changed in the week, from the counts given.\n'
         + '4. To-dos: each done or not done, and the week\'s completion rate; the aim is nine in ten. A to-do not done '
         + 'at two meetings is already on the issues list.\n'
-        + '5. Issues: take the top three issues in the order given, and solve each before you move to the next.',
+        + '5. Issues: take the top three issues in the order given, and solve each before you move to the next. '
+        + 'When the facts carry the monthly money review, its page ends with issues it found for this meeting: '
+        + 'put each that is a real problem on the issues list with ticket.create, kind issue, and rank it with the '
+        + 'others; one already on the list is not filed twice.',
       'To solve an issue, find its root cause: ask why of each answer until you reach it, and check each answer '
         + 'against the records -- the tasks, their events, the numbers -- rather than guessing; not literally five '
         + 'times, and several branches are fine. Discuss it once. Decide. Then file the to-dos that carry the decision '

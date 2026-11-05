@@ -408,7 +408,7 @@ test('a graded goal and a graded priority carry their latest grade on the plan, 
   }
 });
 
-test('the vision is found by the outline\'s headings in the company\'s languages, and is the whole charter without them', async () => {
+test('the vision is found by the outline\'s headings in every language the console is drawn in, and is the whole charter without them', async () => {
   const fixture = await createCompany('plan-vision');
   const owner = await consoleWithSettings();
   try {
@@ -436,16 +436,27 @@ test('the vision is found by the outline\'s headings in the company\'s languages
     });
     assert.deepEqual((await vision()).sections.map((one) => [one.part, one.text]), [['values', 'Dürüstlük.']]);
 
-    // A language the company does not use is not read: a heading there is just a heading.
-    await setCompanyLanguages(fixture.companyId, { work: null, talk: null });
+    // A language the company does not use, and the console is not in now, is
+    // still read: the outline was inserted while the console was in Japanese,
+    // and the charter editor counts it as written in any console language, so
+    // the page must too, or the owner is told to insert an outline the editor
+    // will not insert again.
+    await setCompanyLanguages(fixture.companyId, { work: 'id', talk: 'id' });
     const japanese = `## ${visionHeading('ja', 'promise')}\n約束。`;
     await publishCharter({ companyId: fixture.companyId, body: japanese });
-    assert.deepEqual(await vision(), { charterVersion: 3, sections: [], whole: japanese });
+    assert.deepEqual(await vision(), {
+      charterVersion: 3, sections: [{ part: 'promise', heading: visionHeading('ja', 'promise'), text: '約束。' }], whole: null,
+    });
+
+    // A charter with none of the outline's headings, in any language, is the whole vision.
+    const unmarked = '## How we work\nSlowly.\n';
+    await publishCharter({ companyId: fixture.companyId, body: unmarked });
+    assert.deepEqual(await vision(), { charterVersion: 4, sections: [], whole: unmarked });
 
     // A heading inside a fenced block is not a heading.
     const fenced = 'Before.\n\n```\n## Our values\n```\n';
     await publishCharter({ companyId: fixture.companyId, body: fenced });
-    assert.deepEqual(await vision(), { charterVersion: 4, sections: [], whole: fenced });
+    assert.deepEqual(await vision(), { charterVersion: 5, sections: [], whole: fenced });
   } finally {
     await owner.close();
   }

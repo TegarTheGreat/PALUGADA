@@ -20,13 +20,11 @@ import { gradeReportOf, type GoalGrade, type GradeReport } from '../domain/grade
 // back to, the records' one gives the day alone.
 import { dayIn as fiscalDayIn, fiscalQuarterOf } from '../domain/fiscal.ts';
 import { CHANNEL_SLUGS, type ChannelSlug } from '../domain/channels.ts';
-import { languagesFor } from '../domain/language.ts';
 import { dayIn, zoneOf } from '../records/collections.ts';
 import { prioritiesOnPace, type PacedPriority } from '../reporting/meeting.ts';
-import { ownerReadingWithin } from './platform-cards.ts';
 import { visionSectionsOf, type VisionSection } from './vision.ts';
 import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
-import { coreProcessesOf, type CoreProcessesReport } from '../skills/core.ts';
+import { coreProcessesOf, type CoreProcess, type CoreProcessesReport } from '../skills/core.ts';
 import { withTenant } from '../db/tenant.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -126,9 +124,19 @@ export interface StructureView {
   seatChecks: SeatChecks;
   /** The measure the owner chose as the company's headline (0142); null while the portfolio infers it. */
   headlineMetricId: string | null;
-  /** The core processes (F18.14, 0143): each with its seat, its age and how far its division follows it. */
-  coreProcesses: CoreProcessesReport;
+  /**
+   * The core processes (F18.14, 0143): each with its seat, its age and how far
+   * its division follows it, without its summary. The structure is a read of
+   * no one else's words (READS_OF_NO_ONE_ELSES_WORDS in assistant-actions.ts),
+   * which lets the owner's assistant act on it at once; a skill's summary is
+   * the words of whoever wrote the skill, an agent's run or a bundle's
+   * publisher, so it is read from GET /skills, which is not.
+   */
+  coreProcesses: ChartedCoreProcesses;
 }
+
+/** The core processes as the structure carries them: by slug, seat and numbers, without the skill's own words. */
+export type ChartedCoreProcesses = Omit<CoreProcessesReport, 'processes'> & { processes: Array<Omit<CoreProcess, 'summary'>> };
 
 /** The company's shape: goal ladder, divisions with their grants, roles. */
 export async function structureOf(companyId: string): Promise<StructureView> {
@@ -204,7 +212,10 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     const metrics = await metricsIn(tx);
     const headline = await tx.query<{ headline_metric_id: string | null; timezone: string; fiscal: number }>(
       'SELECT headline_metric_id, timezone, fiscal_year_start_month AS fiscal FROM companies WHERE id = $1', [companyId]);
-    const coreProcesses = await coreProcessesOf(tx, companyId);
+    const report = await coreProcessesOf(tx, companyId);
+    const coreProcesses: ChartedCoreProcesses = {
+      ...report, processes: report.processes.map(({ summary: _written, ...charted }) => charted),
+    };
     // Each goal's latest grade (F18.8, 0144), with the numbers of the fiscal
     // quarter today is in where the company is.
     const now = new Date();
@@ -459,12 +470,8 @@ export async function planOf(companyId: string, now = new Date()): Promise<PlanV
 
     const { rows: charters } = await tx.query<{ version: number; body: string }>(
       'SELECT version, body FROM charters WHERE company_id = $1 ORDER BY version DESC LIMIT 1', [companyId]);
-    const languages = await languagesFor(tx, companyId);
-    const reading = await ownerReadingWithin(tx);
     const charter = charters[0];
-    const sections = charter
-      ? visionSectionsOf(charter.body, [languages.work, languages.talk, ...(reading.language ? [reading.language] : [])])
-      : [];
+    const sections = charter ? visionSectionsOf(charter.body) : [];
 
     const { rows: roleRows } = await tx.query<{ id: string; slug: string; display_name: string | null; title: string | null }>(
       'SELECT id, slug, display_name, title FROM roles WHERE company_id = $1', [companyId]);

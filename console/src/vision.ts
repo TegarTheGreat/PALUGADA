@@ -4,8 +4,8 @@
  * the operating methods share, under plain names (STATUS 2.189).
  *
  * The Plan page reads the vision back from the published charter by these
- * headings (src/owner/vision.ts), in the company's languages and the
- * console's. So the headings are the server's parts, in its order, and each
+ * headings (src/owner/vision.ts), in every language the console is drawn in,
+ * as missingParts below counts them. So the headings are the server's parts, in its order, and each
  * dictionary writes them exactly as the server's dictionary does, which
  * test/acceptance/plan.test.ts holds. The hints are said beside the editor and
  * never written into the charter: every run reads the charter, and a hint

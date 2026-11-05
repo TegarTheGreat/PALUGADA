@@ -212,6 +212,14 @@ test('the owner marks an active skill core with its seat; the soft limit warns a
     const structure = (await api.call('GET', `/api/companies/${fixture.companyId}/structure`, token)).body;
     assert.equal(structure.coreProcesses.processes.length, 14);
     assert.deepEqual(structure.coreProcesses.warnings, [{ kind: 'more_than_twelve', count: 14 }]);
+    // The structure is a read of no one else's words (READS_OF_NO_ONE_ELSES_WORDS):
+    // the assistant may act on it at once. A skill's summary is the words of
+    // whoever wrote the skill, an agent or a bundle's publisher, so the chart
+    // carries the process by its slug, seat and numbers, and the summary is
+    // read from GET /skills, which leaves the assistant's action as a card.
+    for (const process of structure.coreProcesses.processes) assert.equal('summary' in process, false, `${process.slug} carries its summary`);
+    assert.doesNotMatch(JSON.stringify(structure), /How the company does/, 'no skill\'s text is in the structure');
+    assert.match(JSON.stringify(listed), /How the company does sales-process, step by step\./, 'the skills list does carry it');
 
     // Its seat moves, and then it is core no more: both are the owner's.
     const moved = await api.call('POST', core(skillId), token, { core: true, roleId: fixture.roleId });

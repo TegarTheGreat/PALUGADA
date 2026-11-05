@@ -13,13 +13,17 @@
  * the published charter back by those headings.
  *
  * The headings are words, and the owner writes them in the language the
- * console is drawn in, so they are found in every language the company uses
- * (`languagesFor`), the console's, and English. The console writes the same
- * words this file says (console/src/vision.ts, held to these translations by
- * test/acceptance/plan.test.ts), so an outline inserted in any language is
- * read back.
+ * console was drawn in when the outline was inserted, which need not be the
+ * company's nor the console's now. So they are found in English and in every
+ * language the platform has sentences for (`OWNER_SENTENCES`), which is every
+ * language the console is drawn in: the charter editor counts a heading as
+ * written in any of those (missingParts in console/src/vision.ts), and a page
+ * that read fewer would tell the owner to insert an outline the editor will
+ * not insert again. The console writes the same words this file says (held to
+ * these translations by test/acceptance/plan.test.ts), so an outline inserted
+ * in any language is read back.
  */
-import { say } from './say.ts';
+import { OWNER_SENTENCES, say } from './say.ts';
 
 /** The outline's parts, in its order. */
 export const VISION_PARTS = ['values', 'purpose_and_niche', 'long_range_target', 'who_we_serve', 'three_years', 'promise'] as const;
@@ -60,13 +64,14 @@ function comparable(heading: string): string {
 
 /**
  * The charter's vision sections, in the charter's order: each Markdown
- * heading that is one of the outline's, in English or one of `languages`,
- * with what is under it. A heading inside a fenced block is the charter
- * quoting something, not a heading. Empty when the charter has none of them.
+ * heading that is one of the outline's, in English or any language the
+ * platform speaks, with what is under it. A heading inside a fenced block is
+ * the charter quoting something, not a heading. Empty when the charter has
+ * none of them.
  */
-export function visionSectionsOf(charter: string, languages: readonly string[]): VisionSection[] {
+export function visionSectionsOf(charter: string): VisionSection[] {
   const parts = new Map<string, VisionPart>();
-  for (const language of ['en', ...languages]) {
+  for (const language of ['en', ...Object.keys(OWNER_SENTENCES)]) {
     for (const part of VISION_PARTS) parts.set(comparable(visionHeading(language, part)), part);
   }
   const lines = charter.replace(/\r\n?/g, '\n').split('\n');

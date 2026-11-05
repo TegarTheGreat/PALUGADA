@@ -537,4 +537,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Onaylamak, onayladığınız her satırı ölçüsüyle birlikte bir hedef yapar; reddettiğiniz satır oluşturulmaz. O zamana kadar iş, hedeflerin şimdiki hâliyle sürer.',
   'No goal is made.':
     'Hiçbir hedef oluşturulmaz.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Değerlerimiz',
+  'Purpose and niche': 'Amaç ve niş',
+  'Long-range target': 'Uzun vadeli hedef',
+  'Who we serve and what makes us different': 'Kime hizmet ediyoruz ve bizi farklı kılan ne',
+  'Where we will be in three years': 'Üç yıl sonra nerede olacağız',
+  'Our promise': 'Sözümüz',
 };

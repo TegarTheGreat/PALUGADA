@@ -536,4 +536,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Eine Genehmigung macht jede genehmigte Zeile zu einem Ziel, mit seiner Kennzahl; eine abgelehnte Zeile wird nicht angelegt. Bis dahin geht die Arbeit unter den bisherigen Zielen weiter.',
   'No goal is made.':
     'Es wird kein Ziel angelegt.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Unsere Werte',
+  'Purpose and niche': 'Zweck und Nische',
+  'Long-range target': 'Langfristiges Ziel',
+  'Who we serve and what makes us different': 'Wem wir dienen und was uns unterscheidet',
+  'Where we will be in three years': 'Wo wir in drei Jahren stehen',
+  'Our promise': 'Unser Versprechen',
 };

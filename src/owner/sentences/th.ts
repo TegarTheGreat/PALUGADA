@@ -539,4 +539,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'การอนุมัติจะทำให้ทุกบรรทัดที่คุณอนุมัติเป็นเป้าหมายพร้อมตัวชี้วัด บรรทัดที่คุณปฏิเสธจะไม่ถูกสร้าง ระหว่างนี้งานจะดำเนินต่อตามเป้าหมายเดิม',
   'No goal is made.':
     'ไม่มีการสร้างเป้าหมาย',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'ค่านิยมของเรา',
+  'Purpose and niche': 'จุดมุ่งหมายและตลาดเฉพาะ',
+  'Long-range target': 'เป้าหมายระยะยาว',
+  'Who we serve and what makes us different': 'เรารับใช้ใครและอะไรทำให้เราแตกต่าง',
+  'Where we will be in three years': 'เราจะอยู่ที่ไหนในอีกสามปี',
+  'Our promise': 'คำมั่นสัญญาของเรา',
 };

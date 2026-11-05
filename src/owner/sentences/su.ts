@@ -534,4 +534,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Nyatujuan ngajantenkeun unggal baris anu disatujuan hiji udagan, sareng ukuranana; baris anu ditolak henteu didamel. Dugi ka harita padamelan diteraskeun handapeun udagan anu ayeuna.',
   'No goal is made.':
     'Teu aya udagan anu didamel.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Ajén-ajén urang',
+  'Purpose and niche': 'Tujuan sareng ceruk',
+  'Long-range target': 'Target jangka panjang',
+  'Who we serve and what makes us different': 'Saha nu ku urang dilayanan sareng naon nu ngabédakeun urang',
+  'Where we will be in three years': 'Di mana urang tilu taun deui',
+  'Our promise': 'Jangji urang',
 };

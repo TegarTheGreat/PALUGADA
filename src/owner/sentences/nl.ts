@@ -536,4 +536,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Goedkeuren maakt van elke goedgekeurde regel een doel, met zijn maat; een afgewezen regel wordt niet gemaakt. Tot die tijd gaat het werk door onder de doelen zoals ze zijn.',
   'No goal is made.':
     'Er wordt geen doel gemaakt.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Onze waarden',
+  'Purpose and niche': 'Doel en niche',
+  'Long-range target': 'Langetermijndoel',
+  'Who we serve and what makes us different': 'Wie we dienen en wat ons onderscheidt',
+  'Where we will be in three years': 'Waar we over drie jaar staan',
+  'Our promise': 'Onze belofte',
 };

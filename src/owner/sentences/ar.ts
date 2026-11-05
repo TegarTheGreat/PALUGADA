@@ -533,4 +533,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'الموافقة تجعل كل سطر توافق عليه هدفًا مع مقياسه؛ والسطر الذي ترفضه لا يُنشأ. وحتى ذلك الحين يستمر العمل في إطار الأهداف كما هي.',
   'No goal is made.':
     'لا يُنشأ أي هدف.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'قيمنا',
+  'Purpose and niche': 'الغاية والتخصص',
+  'Long-range target': 'الهدف بعيد المدى',
+  'Who we serve and what makes us different': 'من نخدم وما الذي يميزنا',
+  'Where we will be in three years': 'أين سنكون بعد ثلاث سنوات',
+  'Our promise': 'وعدنا',
 };

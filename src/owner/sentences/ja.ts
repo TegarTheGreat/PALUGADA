@@ -532,4 +532,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '承認すると、承認した各行が指標付きの目標になります。却下した行は作られません。それまでは、現在の目標のまま仕事が続きます。',
   'No goal is made.':
     '目標は作られません。',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '私たちの価値観',
+  'Purpose and niche': '存在意義とニッチ',
+  'Long-range target': '長期目標',
+  'Who we serve and what makes us different': '私たちが仕える人と、私たちの違い',
+  'Where we will be in three years': '3年後の私たち',
+  'Our promise': '私たちの約束',
 };

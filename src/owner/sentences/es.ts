@@ -535,4 +535,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Aprobar convierte en meta cada línea que apruebe, con su medida; una línea que rechace no se crea. Hasta entonces, el trabajo continúa bajo las metas tal como están.',
   'No goal is made.':
     'No se crea ninguna meta.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nuestros valores',
+  'Purpose and niche': 'Propósito y nicho',
+  'Long-range target': 'Meta a largo plazo',
+  'Who we serve and what makes us different': 'A quién servimos y qué nos hace diferentes',
+  'Where we will be in three years': 'Dónde estaremos en tres años',
+  'Our promise': 'Nuestra promesa',
 };

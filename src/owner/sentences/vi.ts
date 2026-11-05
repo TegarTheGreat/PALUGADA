@@ -540,4 +540,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Phê duyệt sẽ biến mỗi dòng bạn duyệt thành một mục tiêu, kèm thước đo của nó; dòng bạn từ chối sẽ không được tạo. Cho đến lúc đó, công việc vẫn tiếp tục theo các mục tiêu hiện tại.',
   'No goal is made.':
     'Không mục tiêu nào được tạo.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Giá trị của chúng tôi',
+  'Purpose and niche': 'Mục đích và thị trường ngách',
+  'Long-range target': 'Mục tiêu dài hạn',
+  'Who we serve and what makes us different': 'Chúng tôi phục vụ ai và điều gì làm chúng tôi khác biệt',
+  'Where we will be in three years': 'Chúng tôi sẽ ở đâu sau ba năm',
+  'Our promise': 'Lời hứa của chúng tôi',
 };

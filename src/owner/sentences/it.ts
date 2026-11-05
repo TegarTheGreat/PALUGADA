@@ -536,4 +536,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Approvare rende ogni riga approvata un obiettivo, con la sua misura; una riga rifiutata non viene creata. Fino ad allora il lavoro continua con gli obiettivi così come sono.',
   'No goal is made.':
     'Non viene creato alcun obiettivo.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'I nostri valori',
+  'Purpose and niche': 'Scopo e nicchia',
+  'Long-range target': 'Obiettivo a lungo termine',
+  'Who we serve and what makes us different': 'Chi serviamo e cosa ci rende diversi',
+  'Where we will be in three years': 'Dove saremo tra tre anni',
+  'Our promise': 'La nostra promessa',
 };

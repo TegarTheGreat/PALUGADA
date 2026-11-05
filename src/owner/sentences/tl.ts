@@ -533,4 +533,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Kapag inaprubahan, magiging layunin ang bawat linyang inaprubahan mo, kasama ang sukat nito; hindi gagawin ang linyang tinanggihan mo. Hanggang doon, magpapatuloy ang trabaho sa ilalim ng mga layunin gaya ng dati.',
   'No goal is made.':
     'Walang layuning ginawa.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Ang aming mga pinahahalagahan',
+  'Purpose and niche': 'Layunin at niche',
+  'Long-range target': 'Pangmatagalang target',
+  'Who we serve and what makes us different': 'Sino ang aming pinaglilingkuran at ano ang nagpapaiba sa amin',
+  'Where we will be in three years': 'Nasaan kami sa loob ng tatlong taon',
+  'Our promise': 'Ang aming pangako',
 };

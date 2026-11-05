@@ -536,4 +536,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'स्वीकृत करने पर आपकी स्वीकृत हर पंक्ति अपने मापदंड के साथ एक लक्ष्य बन जाती है; अस्वीकृत पंक्ति नहीं बनती। तब तक काम मौजूदा लक्ष्यों के तहत ही चलता रहेगा।',
   'No goal is made.':
     'कोई लक्ष्य नहीं बनता।',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'हमारे मूल्य',
+  'Purpose and niche': 'उद्देश्य और विशिष्ट क्षेत्र',
+  'Long-range target': 'दीर्घकालिक लक्ष्य',
+  'Who we serve and what makes us different': 'हम किसकी सेवा करते हैं और हमें क्या अलग बनाता है',
+  'Where we will be in three years': 'तीन साल में हम कहाँ होंगे',
+  'Our promise': 'हमारा वादा',
 };

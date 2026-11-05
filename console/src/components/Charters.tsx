@@ -9,7 +9,8 @@
  * alone could otherwise rewrite what every agent obeys.
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, Badge, Button, Group, Modal, Stack, Text, Textarea } from '@mantine/core';
+import { Alert, Badge, Button, Group, List, Modal, Stack, Text, Textarea } from '@mantine/core';
+import { IconListDetails } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -19,6 +20,7 @@ import { locale, t } from '../i18n.ts';
 import type { Charter, Charters as CharterPair } from '../types.ts';
 import { LoadFailed, Loading, Section } from './ui.tsx';
 import { ConfigHistory } from './ConfigHistory.tsx';
+import { VISION_OUTLINE, hasOutline, outlineText } from '../vision.ts';
 
 /** The server's bound: every run carries a charter whole, so it is kept short. */
 const CHARTER_LIMIT = 20_000;
@@ -66,6 +68,7 @@ export function Charters({ companyId }: { companyId: string }) {
         actions={view.data.company && (
           <Button size="compact-sm" variant="subtle" onClick={() => setHistory(true)}>{t('History')}</Button>
         )}
+        outline
         save={async (body) => {
           let answer: SaveAnswer | null = null;
           const done = await requireFactor(t('Change the company charter'), async (proof) => {
@@ -96,24 +99,33 @@ export function Charters({ companyId }: { companyId: string }) {
   );
 }
 
-function CharterEditor({ title, description, current, empty, actions, save }: {
+function CharterEditor({ title, description, current, empty, actions, outline = false, save }: {
   title: string;
   description: string;
   current: Charter | null;
   empty: string;
   actions?: ReactNode;
+  /** Offers the vision outline (F18.10): only the company's charter holds the company's vision. */
+  outline?: boolean;
   /** Resolves true when it was saved. */
   save: (body: string) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState(current?.body ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [outlined, setOutlined] = useState(false);
   // A version saved elsewhere -- a rollback, another tab -- replaces the
   // page's copy only when the owner has not started changing it.
   useEffect(() => { setDraft(current?.body ?? ''); }, [current?.version, current?.body]);
 
   const text = draft.trim();
   const changed = text !== (current?.body ?? '');
+  // The headings go at the end, so nothing the owner wrote moves; the hints
+  // are shown here and never written, since every run reads the charter.
+  const startOutline = () => {
+    setDraft((now) => (now.trim() ? `${now.trimEnd()}\n\n${outlineText()}` : outlineText()));
+    setOutlined(true);
+  };
   const tooLong = text.length > CHARTER_LIMIT;
 
   const submit = async () => {
@@ -143,6 +155,26 @@ function CharterEditor({ title, description, current, empty, actions, save }: {
     >
       <Stack gap="sm">
         {!current && <Alert color="orange" variant="light">{empty}</Alert>}
+        {outline && (
+          <Group gap="xs">
+            <Button size="compact-sm" variant="light" leftSection={<IconListDetails size={14} />} disabled={hasOutline(draft)} onClick={startOutline}>
+              {t('Start from the vision outline')}
+            </Button>
+            <Text size="xs" c="dimmed">{t('Headings for the vision, which the Plan page shows. You write what goes under each.')}</Text>
+          </Group>
+        )}
+        {outlined && (
+          <Alert color="blue" variant="light" title={t('What goes under each heading')}>
+            <Stack gap={6}>
+              <Text size="sm">{t('The headings are added at the end. Write under each in your own words, then save: the next run is told it.')}</Text>
+              <List size="sm" spacing={4}>
+                {VISION_OUTLINE.map((one) => (
+                  <List.Item key={one.part}><Text span fw={600} size="sm">{t(one.heading)}</Text>: {t(one.hint)}</List.Item>
+                ))}
+              </List>
+            </Stack>
+          </Alert>
+        )}
         <Textarea
           aria-label={title}
           autosize

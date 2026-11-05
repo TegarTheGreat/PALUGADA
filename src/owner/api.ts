@@ -246,6 +246,7 @@ import {
   skillOf,
   skillsOf,
   structureOf,
+  planOf,
   taskDetailOf,
   workOf,
   galleryOf,
@@ -4528,6 +4529,17 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/scorecard',
         handle: async ({ params }) => withTenant(params.companyId!, (tx) => scorecardOf(tx, params.companyId!, new Date())),
+      },
+
+      {
+        // The vision and plan page (F18.10, with F18.11's channel rings): the
+        // charter's vision beside this year's goals, the quarter's priorities
+        // on or off pace, the scorecard, the headline, the long-term issues,
+        // the channels, the core processes and the last weekly meeting, all
+        // read from the rows that already hold them.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/plan',
+        handle: async ({ params }) => planOf(params.companyId!),
       },
 
       {

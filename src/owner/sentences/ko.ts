@@ -534,4 +534,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '승인하면 승인한 각 줄이 지표와 함께 목표가 돼요. 거절한 줄은 만들어지지 않아요. 그 전까지는 현재 목표대로 일이 계속돼요.',
   'No goal is made.':
     '목표가 만들어지지 않아요.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '우리의 가치',
+  'Purpose and niche': '목적과 틈새',
+  'Long-range target': '장기 목표',
+  'Who we serve and what makes us different': '우리가 섬기는 사람과 우리를 다르게 만드는 것',
+  'Where we will be in three years': '3년 후 우리의 모습',
+  'Our promise': '우리의 약속',
 };

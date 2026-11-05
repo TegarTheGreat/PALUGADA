@@ -20,7 +20,7 @@ import {
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLivePulse, useLoad, useNow } from '../hooks.ts';
-import { go } from '../router.ts';
+import { go, ISSUES_ITEM } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
   actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
@@ -43,7 +43,10 @@ const LIVE = ['pending', 'checked_out', 'running'];
 export function Work({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const [filter, setFilter] = useState<Filter>('all');
-  const [view, setView] = useState<'tasks' | 'tickets' | 'results'>('tasks');
+  // The Plan page opens the issues list here (`item=issues`); any other item is a task.
+  const issues = route.item === ISSUES_ITEM;
+  const taskItem = issues ? null : route.item;
+  const [view, setView] = useState<'tasks' | 'tickets' | 'results'>(issues ? 'tickets' : 'tasks');
   // Narrowing to one project, role or goal (0074), and the older pages
   // fetched on request, kept until the filters change.
   const [project, setProject] = useState<string | null>(null);
@@ -96,10 +99,10 @@ export function Work({ ctx, route }: PageProps) {
   ];
   // A task named in the address that is not on the pages loaded -- a
   // ticket's work, a decision's task -- is fetched by itself.
-  const listed = items.find((item) => item.id === route.item) ?? null;
-  const single = useLoad(async (): Promise<WorkItem | null> => (route.item && !listed
-    ? ((await api('GET', `/api/companies/${companyId}/tasks/${route.item}`)) as { item: WorkItem | null }).item
-    : null), [companyId, route.item, Boolean(listed)]);
+  const listed = items.find((item) => item.id === taskItem) ?? null;
+  const single = useLoad(async (): Promise<WorkItem | null> => (taskItem && !listed
+    ? ((await api('GET', `/api/companies/${companyId}/tasks/${taskItem}`)) as { item: WorkItem | null }).item
+    : null), [companyId, taskItem, Boolean(listed)]);
   const open = listed ?? single.data ?? null;
   const openTask = (id: string | null) => go({ ...route, item: id });
 
@@ -124,7 +127,7 @@ export function Work({ ctx, route }: PageProps) {
 
       {view === 'results' && <Gallery companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} />}
 
-      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} talk={(draft) => ctx.talk(draft)} /> : (<>
+      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} talk={(draft) => ctx.talk(draft)} first={issues ? 'issues' : 'all'} /> : (<>
       {/* The same choice as a list on a phone, where five segments ran off
           the screen and "Stopped" was the one out of sight (§2.3 item 8). */}
       <SegmentedControl

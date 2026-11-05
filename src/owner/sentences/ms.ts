@@ -535,4 +535,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Meluluskan menjadikan setiap baris yang anda luluskan satu matlamat, bersama ukurannya; baris yang anda tolak tidak dibuat. Sehingga itu kerja diteruskan di bawah matlamat yang sedia ada.',
   'No goal is made.':
     'Tiada matlamat dibuat.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nilai-nilai kami',
+  'Purpose and niche': 'Tujuan dan ceruk pasaran',
+  'Long-range target': 'Sasaran jangka panjang',
+  'Who we serve and what makes us different': 'Siapa yang kami layani dan apa yang membezakan kami',
+  'Where we will be in three years': 'Di mana kami dalam tiga tahun',
+  'Our promise': 'Janji kami',
 };

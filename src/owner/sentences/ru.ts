@@ -536,4 +536,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Одобрение делает каждую одобренную строку целью вместе с её показателем; отклонённая строка не создаётся. До тех пор работа идёт по целям в их нынешнем виде.',
   'No goal is made.':
     'Ни одна цель не создаётся.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Наши ценности',
+  'Purpose and niche': 'Назначение и ниша',
+  'Long-range target': 'Долгосрочная цель',
+  'Who we serve and what makes us different': 'Кому мы служим и чем мы отличаемся',
+  'Where we will be in three years': 'Где мы будем через три года',
+  'Our promise': 'Наше обещание',
 };

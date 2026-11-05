@@ -262,6 +262,67 @@ export interface Scorecard {
   warning: { kind: 'too_few' | 'too_many'; lines: number; fewest: number; most: number } | null;
 }
 
+/** A seat as the Plan page names it: by the owner's name for the role. */
+export interface PlanSeat { id: string; slug: string; displayName: string | null; title: string | null }
+
+/** GET /api/companies/:companyId/plan (src/owner/views.ts `planOf`): the vision and plan page (F18.10). */
+export interface Plan {
+  /** The company's own day, which this year and this quarter are read on. */
+  day: string;
+  timezone: string;
+  /** The charter's vision sections, or the whole charter when it has none of the outline's headings. */
+  vision: {
+    charterVersion: number | null;
+    sections: Array<{ part: string; heading: string; text: string }>;
+    whole: string | null;
+  };
+  yearGoals: Array<{
+    id: string; slug: string; statement: string; status: string; startsOn: string; dueOn: string;
+    seat: PlanSeat | null; commitment: Goal['commitment']; doneWhen: string | null; metrics: Metric[];
+    priorities: number;
+    /** The grade at the period's end (F18.8), once the platform writes grades. */
+    grade: null;
+  }>;
+  priorities: {
+    items: Array<{
+      goalId: string; goal: string; statement: string; seatRole: PlanSeat | null; commitment: Goal['commitment'];
+      channel: string | null; startsOn: string; dueOn: string;
+      /** How much of the quarter is gone, and how far its measures have come, 0 to 1. */
+      elapsed: number; progress: number | null; finishedThisWeek: number;
+      pace: 'on_pace' | 'off_pace';
+      why: 'behind' | 'no_reading' | 'no_recent_work' | null;
+      grade: null;
+    }>;
+    leftOut: number;
+  };
+  scorecard: {
+    lines: Array<{
+      metricId: string; goalId: string; name: string; unit: Metric['unit']; target: number; seat: PlanSeat | null;
+      lastWeek: WeekState; lastValue: number | null; thisWeek: WeekState;
+    }>;
+    lastWeek: Record<WeekState, number>;
+    warning: Scorecard['warning'];
+  };
+  headline: Company['headline'];
+  longTermIssues: {
+    items: Array<{ id: string; title: string; priority: number; ageDays: number; filedBy: 'owner' | 'agent' | 'platform'; outside: boolean }>;
+    leftOut: number;
+  };
+  channels: {
+    /** The strategist's list of a strategy for every channel; null when none was written. */
+    possible: { taskId: string; step: number; title: string; excerpt: string; path: string; at: string; role: PlanSeat } | null;
+    probable: PlanChannel[];
+    working: PlanChannel[];
+  };
+  coreProcesses: CoreProcesses;
+  lastMeeting: { taskId: string; week: string; status: string; finishedAt: string | null; summary: string | null } | null;
+}
+
+export interface PlanChannel {
+  channel: string;
+  goals: Array<{ id: string; slug: string; statement: string; commitment: Goal['commitment']; startsOn: string | null; dueOn: string | null }>;
+}
+
 export interface Division {
   id: string;
   parentId: string | null;

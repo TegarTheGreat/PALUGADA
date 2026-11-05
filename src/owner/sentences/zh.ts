@@ -535,4 +535,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '批准后，您批准的每一行都会成为一个目标，并带上其衡量指标；您拒绝的行不会创建。在此之前，工作按现有目标继续进行。',
   'No goal is made.':
     '不会创建任何目标。',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '我们的价值观',
+  'Purpose and niche': '使命与细分市场',
+  'Long-range target': '长期目标',
+  'Who we serve and what makes us different': '我们服务谁，以及我们的不同之处',
+  'Where we will be in three years': '三年后我们将在哪里',
+  'Our promise': '我们的承诺',
 };

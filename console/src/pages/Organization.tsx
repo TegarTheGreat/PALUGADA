@@ -38,7 +38,7 @@ import { ConfigHistory } from '../components/ConfigHistory.tsx';
 import { Charters } from '../components/Charters.tsx';
 import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
-import { openGoals } from '../goals.ts';
+import { COMMITMENT, goalStatus, openGoals, periodSaid } from '../goals.ts';
 import { CoreProcessesPanel } from '../components/CoreProcesses.tsx';
 
 export function Organization({ ctx, route }: PageProps) {
@@ -84,8 +84,9 @@ export function Organization({ ctx, route }: PageProps) {
     <Stack gap="lg">
       {header}
 
-      {/* The Overview's scorecard opens the whole of it here. */}
-      <Tabs defaultValue={route.item === 'scorecard' ? 'scorecard' : 'chart'} keepMounted={false}>
+      {/* The Overview's scorecard opens the whole of it here, and the Plan
+          page opens the goals, the scorecard and the charter. */}
+      <Tabs defaultValue={route.item === 'scorecard' || route.item === 'goals' || route.item === 'charter' ? route.item : 'chart'} keepMounted={false}>
         <Tabs.List mb="lg">
           <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>{t('Divisions & roles')}</Tabs.Tab>
           <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>{t('Goals')}</Tabs.Tab>
@@ -480,13 +481,6 @@ function SeatWarnings({ structure, openRole }: { structure: Structure; openRole:
       </Stack>
     </Alert>
   );
-}
-
-const GOAL_STATUS: Record<string, string> = { active: N('Active'), met: N('Met'), abandoned: N('Abandoned') };
-
-function goalStatus(status: string): string {
-  const label = GOAL_STATUS[status];
-  return label ? t(label) : status;
 }
 
 function roleState(role: Role): { label: string; color: string } {
@@ -1337,15 +1331,6 @@ function DivisionDrawer({
 }
 
 /* ------------------------------------------------------------------- goals --- */
-
-const COMMITMENT: Record<string, string> = { committed: N('Committed'), aspirational: N('Aspirational'), learning: N('Learning') };
-
-/** A goal's period as the owner's calendar writes a range of days. */
-function periodSaid(startsOn: string, dueOn: string): string {
-  // Read as days, in UTC: a day read as midnight here is the day before west of UTC.
-  const format = new Intl.DateTimeFormat(locale(), { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
-  return format.formatRange(new Date(`${startsOn}T00:00:00Z`), new Date(`${dueOn}T00:00:00Z`));
-}
 
 /** A soft limit a goal is past (F18.1), as the owner reads it on the goal's card. */
 function warningSaid(warning: Goal['warnings'][number], roles: Role[]): string {

@@ -12,7 +12,13 @@
  * **A failure is an incident, not a retry.** That is F8.12's own wording and
  * it is the whole point: a broken credential does not get better by being
  * asked again, and a system that retries it turns a five-minute fix into an
- * afternoon of silence.
+ * afternoon of silence. The owner is told at once, on one card for the
+ * capability, and the work that needs it waits for the owner rather than
+ * halting (src/engine/recovered.ts): it looks again no oftener than a
+ * reading is taken (`PREFLIGHT_TTL_MS`), so a refused login is not tried any
+ * more often than before, and it is called back the moment a check finds the
+ * capability well -- the sweep after a rotation, usually. Halting it meant a
+ * "Run again" for every piece of work, after the fix, from nothing.
  *
  * **The task does not start.** Starting it would spend tokens assembling
  * context for work that cannot succeed, and would leave a half-finished task
@@ -30,6 +36,7 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ONCE, OUTAGE_PARK_CEILING_MS, callBackWithin } from '../engine/recovered.ts';
 import { capabilityFailedCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
@@ -110,6 +117,22 @@ async function readHealth(
     checkedAt: row.checked_at,
     transient: row.transient,
   };
+}
+
+/**
+ * A capability's reading in a division, taken under the lock every check of
+ * it takes: what is done on the strength of it -- a card raised, the work
+ * waiting for it called back -- cannot then be undone by a check that wrote
+ * a different reading in the same moment. The lock is taken before the row
+ * exists, too.
+ */
+export async function readingWithin(
+  tx: TenantClient,
+  divisionId: string,
+  capabilityName: string,
+): Promise<HealthRow | null> {
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`capability-health:${divisionId}:${capabilityName}`]);
+  return readHealth(tx, divisionId, capabilityName);
 }
 
 export async function healthFor(
@@ -204,6 +227,11 @@ export async function checkCapability(
 
   const transient = !result.ok && result.transient === true;
   await withTenant(ctx.companyId, async (tx) => {
+    // What the reading was, taken again under the reading's lock: the
+    // change from one reading to the next is what raises the card and what
+    // closes it, and two checks that both read "unhealthy" before either
+    // wrote would each call the waiting work back, or each raise a card.
+    const before = await readingWithin(tx, ctx.divisionId, capabilityName);
     await tx.query(
       `INSERT INTO capability_health
          (company_id, division_id, capability_name, status, detail, checked_at, transient)
@@ -234,20 +262,41 @@ export async function checkCapability(
         detail: result.detail ?? '',
       },
     });
-  });
 
-  // Raised on the transition into unhealthy, not on every check. A capability
-  // that stays broken for a day would otherwise file ninety-six identical
-  // incidents and bury the one that says something new. Not for a moment the
-  // vendor says will pass (H2): the work waits for it, and the engine raises
-  // one if it does not pass. One that turns into a lasting failure is new.
-  if (!result.ok && !transient && (previous?.status !== 'unhealthy' || previous.transient)) {
-    // Said as it is: the work is stopped, not waiting, and has to be run
-    // again once the cause is fixed (H2).
-    const card = capabilityFailedCard(await withTenant(ctx.companyId, ownerReadingWithin),
-      { capability: capabilityName, record: result.detail ?? '' });
-    await inbox.raiseIncident({ companyId: ctx.companyId, title: card.title, detail: card.detail });
-  }
+    // Well again: the work that waited for it is called back now rather
+    // than at its next look, up to an hour on, and the card that said it was
+    // down closes itself -- whichever it was, the vendor's outage the engine
+    // raised or the failure raised below. In this transaction, so the change
+    // is seen once: by a task's own look or the sweep after a rotation,
+    // whichever takes the reading. And on a division's first reading, not
+    // only after one that failed: a company restored from its archive has
+    // its cards and none of its readings (src/audit/import.ts), and a card
+    // waiting for a change from "unhealthy" would wait for good.
+    if (result.ok && before?.status !== 'healthy') {
+      await callBackWithin(tx, ctx.companyId, {
+        reason: 'service', divisionId: ctx.divisionId, capability: capabilityName, because: 'capability_healthy',
+      });
+      await inbox.withdrawOnceWithin(tx, ctx.companyId,
+        [ONCE.service(ctx.divisionId, capabilityName), ONCE.capability(ctx.divisionId, capabilityName)], 'capability_healthy');
+    }
+
+    // Raised on the transition into unhealthy, not on every check. A
+    // capability that stays broken for a day would otherwise file ninety-six
+    // identical incidents and bury the one that says something new. Not for
+    // a moment the vendor says will pass (H2): the work waits for it, and the
+    // engine raises one if it does not pass. One that turns into a lasting
+    // failure is new. Named by its cause (`ONCE`), so the work that waits for
+    // it can be told on it if it stops, and so it can be closed when it passes.
+    // Closed while the check still fails -- the owner answered it -- the work
+    // still waiting raises it again at its next look (the engine).
+    if (!result.ok && !transient && (before?.status !== 'unhealthy' || before.transient)) {
+      const card = capabilityFailedCard(await ownerReadingWithin(tx),
+        { capability: capabilityName, record: result.detail ?? '', hours: OUTAGE_PARK_CEILING_MS / 3_600_000 });
+      await inbox.raiseIncidentWithin(tx, {
+        companyId: ctx.companyId, title: card.title, detail: card.detail, once: ONCE.capability(ctx.divisionId, capabilityName),
+      });
+    }
+  });
 
   return { ok: result.ok, detail: result.detail ?? '', reused: false, unregistered: false, transient };
 }

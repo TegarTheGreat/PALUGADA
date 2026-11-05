@@ -33,6 +33,7 @@ import {
   totpCode,
 } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { proposeGoalPlan } from '../../src/domain/goal-plans.ts';
 import { clearStopAll, isStopAllRequested } from '../../src/engine/control.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { criteriaIn, reportOn } from '../helpers/done.ts';
@@ -329,6 +330,40 @@ test('a session opened with a device approves tier 3 in the app, with no code of
     );
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     assert.equal((await inbox.listOpen(fixture.companyId)).length, 0);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * A plan of new goals is one card the owner answers line by line (F18.7):
+ * the console sends the lines it approves, and only those become goals.
+ */
+test('the owner approves a plan of new goals line by line from the console (F18.7)', async () => {
+  const fixture = await createCompany('api-goal-plan');
+  const owner = await console_();
+  try {
+    const line = (slug: string) => ({
+      slug, kind: 'key_result', parent: 'objective', statement: `The priority ${slug}.`, startsOn: '2027-01-01', dueOn: '2027-03-31',
+      commitment: 'committed', seat: 'worker', doneWhen: `${slug} is done.`,
+    });
+    const { inboxItemId } = await proposeGoalPlan({
+      companyId: fixture.companyId, plan: [line('first'), line('second'), line('third')], rationale: 'The quarter needs three.',
+    });
+    const token = await signIn(owner.url, owner.code());
+    const listed = await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/inbox`, { token });
+    const card = (listed.body.items as Array<{ id: string; plan?: Array<{ line: number; slug: string }> }>).find((item) => item.id === inboxItemId)!;
+    assert.deepEqual(card.plan!.map((one) => [one.line, one.slug]), [[1, 'first'], [2, 'second'], [3, 'third']]);
+
+    const decide = (body: Record<string, unknown>) => call(owner.url, 'POST', `/api/companies/${fixture.companyId}/inbox/${inboxItemId}/decide`, { token, body });
+    const wrong = await decide({ decision: 'approve', lines: 'all' });
+    assert.equal(wrong.status, 400);
+    assert.match(String(wrong.body.error), /lines is a list of the plan's line numbers to approve, such as \[1, 3\]; got "all"/);
+    const approved = await decide({ decision: 'approve', note: 'Two of three.', lines: [1, 3] });
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    const { rows } = await withTenantTx(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+      "SELECT slug FROM goals WHERE kind = 'key_result' ORDER BY slug"));
+    assert.deepEqual(rows.map((row) => row.slug), ['first', 'third']);
   } finally {
     await owner.close();
   }

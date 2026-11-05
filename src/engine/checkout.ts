@@ -36,6 +36,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { transition, transitionWithin } from './tasks.ts';
 import { isPalugadaError } from '../errors.ts';
 import { raiseIncidentWithin } from '../inbox/inbox.ts';
+import { filePostmortemWithin } from './postmortem.ts';
 import { crashLoopCard, ownerReadingWithin, taskCalledWithin } from '../owner/platform-cards.ts';
 
 /** F5.12. Long enough for a slow run, short enough that a crash is not a day. */
@@ -382,7 +383,12 @@ async function haltIfCrashLooping(tx: TenantClient, companyId: string, taskId: s
   if (live[0]?.status !== 'pending') return false;
   await transitionWithin(tx, companyId, taskId, 'halted', { haltReason: 'crash_loop' });
   const card = crashLoopCard(await ownerReadingWithin(tx), { task: await taskCalledWithin(tx, taskId), lost });
-  await raiseIncidentWithin(tx, { companyId, taskId, title: card.title, detail: card.detail });
+  // About the task: running it again, once the cause is found, is the answer
+  // the card asks for, and closes it (`rerunTask`).
+  const incidentId = await raiseIncidentWithin(tx, { companyId, taskId, title: card.title, detail: card.detail, payload: { aboutTask: true } });
+  // And the cause is the company's to find (F18.4): one issue for the seat
+  // while it is open, however many of its tasks loop.
+  await filePostmortemWithin(tx, { companyId, taskId, how: 'crash_loop', reason: 'crash_loop', inboxItemId: incidentId, lost });
   return true;
 }
 

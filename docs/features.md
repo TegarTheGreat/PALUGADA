@@ -126,7 +126,10 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - Mandatory read-back verification for writes. Plans record a count
   (contact 3 leads, not 23), and a batch guard holds each call to that count.
 - Preflight: a task whose capability is broken does not start. It raises an
-  incident instead.
+  incident instead -- one for the capability, however much work needs it --
+  and waits, going on by itself when the capability is well again. A model or
+  a service that stays down is one incident too, and the work waiting for it
+  is called back when it answers.
 - Declarative policies, where lower scopes can only tighten. Lifecycle hooks
   can refuse an action and never widen one.
 - Adversarial review by a different role with its own memory. After two

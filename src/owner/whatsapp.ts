@@ -455,10 +455,12 @@ export class WhatsAppChannel implements OwnerChannel {
       // Read, and "typing..." while the answer is made; neither matters enough to fail over.
       await this.#send({ status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }, false).catch(() => undefined);
       const companyId = await conversation.current();
-      const { answer, cards } = await conversation.talk(companyId, words);
+      const { answer, cards, kept = [] } = await conversation.talk(companyId, words);
       const name = (await conversation.partners()).find((one) => one.companyId === companyId)?.name ?? 'PALUGADA';
       const inApp = say(language, 'in the app');
       const lines = [`*${name}*`, '', whatsappText(answer)];
+      // What was kept as the owner's word, as it was kept (telegram.ts says why).
+      if (kept.length > 0) lines.push('', ...kept);
       if (cards.length > 0) lines.push('', ...cards.map((card) => `• ${card.summary}${card.here ? '' : ` (${inApp})`}`));
       for (const part of pieces(lines.join('\n'), TEXT_MAX)) await this.#send({ type: 'text', text: { body: part } });
       // What the chat may apply gets a button; three at most, as WhatsApp allows.

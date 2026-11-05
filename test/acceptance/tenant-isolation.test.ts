@@ -542,6 +542,10 @@ test('the application role may write what the platform writes, and no more (F12,
   assert.equal(await may(`has_table_privilege(${app}, 'tasks', 'UPDATE')`), true);
   assert.equal(await may(`has_column_privilege(${app}, 'documents', 'archived_at', 'UPDATE')`), true,
     'the owner archives a document through it');
+  for (const column of ['status', 'priority', 'working_task_id', 'closed_reason', 'closed_at', 'updated_at']) {
+    assert.equal(await may(`has_column_privilege(${app}, 'tickets', '${column}', 'UPDATE')`), true,
+      `a ticket is worked, settled and closed through it (${column})`);
+  }
 
   // What it does not.
   for (const [check, why] of [
@@ -556,6 +560,9 @@ test('the application role may write what the platform writes, and no more (F12,
     [`has_table_privilege(${app}, 'task_steps', 'DELETE')`, 'or its journal'],
     [`has_table_privilege(${app}, 'inbox_items', 'DELETE')`, 'or the owner\'s questions'],
     [`has_column_privilege(${app}, 'documents', 'for_customers', 'UPDATE')`, 'marking what customers may be told on its own (0117)'],
+    [`has_column_privilege(${app}, 'tickets', 'outside', 'UPDATE')`, 'making a ticket filed after outside content clean (0134)'],
+    [`has_column_privilege(${app}, 'tickets', 'title', 'UPDATE')`, 'or changing what a ticket says after it was filed'],
+    [`has_column_privilege(${app}, 'tickets', 'body', 'UPDATE')`, 'in its title or its body'],
     [`has_table_privilege(${app}, 'chat_channels', 'UPDATE')`, 'or letting a channel answer on its own'],
   ] as const) {
     assert.equal(await may(check), false, why);

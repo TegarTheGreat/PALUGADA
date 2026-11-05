@@ -14,12 +14,13 @@ import { notifications } from '@mantine/notifications';
 import { IconCertificate, IconPlus, IconUpload } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import type { Skill, SkillDetail, SkillStage, Structure } from '../types.ts';
+import type { Role, Skill, SkillDetail, SkillStage, Structure } from '../types.ts';
 import type { PageProps } from '../App.tsx';
-import { relative } from '../format.ts';
+import { relative, roleLabel } from '../format.ts';
 import { N, t } from '../i18n.ts';
 import { EmptyState, LoadFailed, Loading } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { CoreWarnings } from '../components/CoreProcesses.tsx';
 
 const STAGES: Record<SkillStage, { label: string; color: string }> = {
   active: { label: N('Active'), color: 'teal' },
@@ -44,6 +45,12 @@ description: How to answer a refund request without escalating it.
 Refund within 30 days of purchase.
 Above Rp 3.000.000, ask the owner first.
 `;
+
+/** A seat as the owner names it. */
+const seatName = (roles: Role[], roleId: string | null, slug: string | null) => {
+  const role = roles.find((one) => one.id === roleId);
+  return role ? roleLabel(role) : slug ?? '';
+};
 
 /** One phrase per line, or separated by commas. */
 const phrases = (raw: string | number | undefined) => String(raw ?? '').split(/[\n,]/).map((one) => one.trim()).filter(Boolean);
@@ -97,6 +104,8 @@ export function Skills({ ctx }: PageProps) {
         </Group>
       </Group>
 
+      <CoreWarnings report={structure.coreProcesses} roles={structure.roles} />
+
       {waiting > 0 && (
         <Alert color="orange" variant="light">
           {t('Approved by the reviewer and waiting for your yes: {count}', { count: waiting })}
@@ -126,6 +135,11 @@ export function Skills({ ctx }: PageProps) {
                         <Badge variant="outline" color={skill.checks === 0 ? 'red' : 'gray'}>
                           {t('Checks: {count}', { count: skill.checks })}
                         </Badge>
+                        {skill.core && (
+                          <Badge color="indigo" variant="light">
+                            {t('Core process, owned by {seat}', { seat: seatName(structure.roles, skill.ownerRoleId, skill.ownerRole) })}
+                          </Badge>
+                        )}
                         {skill.quarantined && <Badge color="orange" variant="light">{t('quarantined')}</Badge>}
                         {skill.origin && <Badge color="grape" variant="light">{t('from outside')}</Badge>}
                       </Group>
@@ -141,7 +155,7 @@ export function Skills({ ctx }: PageProps) {
 
       {open && (
         <SkillDrawer
-          companyId={companyId} skillId={open} divisions={divisions}
+          companyId={companyId} skillId={open} divisions={divisions} roles={structure.roles}
           onClose={() => setOpen(null)} changed={view.reload}
           openWork={(item) => ctx.open('work', { item })}
         />
@@ -194,10 +208,11 @@ export function Skills({ ctx }: PageProps) {
   );
 }
 
-function SkillDrawer({ companyId, skillId, divisions, onClose, changed, openWork }: {
+function SkillDrawer({ companyId, skillId, divisions, roles, onClose, changed, openWork }: {
   companyId: string;
   skillId: string;
   divisions: Array<{ value: string; label: string }>;
+  roles: Role[];
   onClose: () => void;
   changed: () => void;
   openWork: (taskId: string) => void;
@@ -286,6 +301,7 @@ function SkillDrawer({ companyId, skillId, divisions, onClose, changed, openWork
               <Tabs.Tab value="checks">{t('Checks')}</Tabs.Tab>
               <Tabs.Tab value="change">{t('Change it')}</Tabs.Tab>
               <Tabs.Tab value="scope">{t('Where it applies')}</Tabs.Tab>
+              <Tabs.Tab value="core">{t('Core process')}</Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel value="text" pt="md">
@@ -381,6 +397,10 @@ function SkillDrawer({ companyId, skillId, divisions, onClose, changed, openWork
                 />
               </Stack>
             </Tabs.Panel>
+
+            <Tabs.Panel value="core" pt="md">
+              <CoreProcessTab companyId={companyId} skill={skill} roles={roles} done={reload} />
+            </Tabs.Panel>
           </Tabs>
         </Stack>
       )}
@@ -394,5 +414,50 @@ function SkillDrawer({ companyId, skillId, divisions, onClose, changed, openWork
         </Stack>
       </Modal>
     </Drawer>
+  );
+}
+
+/**
+ * Making a skill one of the company's core processes (F18.14), with the seat
+ * that owns it, or letting it go. Only a switched-on skill can be one, and
+ * only a seat whose runs can read it can own it: the seats offered are those
+ * of its division, or every seat for a skill the whole company reads. The
+ * server refuses the rest, and warns of the count without refusing it.
+ */
+function CoreProcessTab({ companyId, skill, roles, done }: { companyId: string; skill: Skill; roles: Role[]; done: () => void }) {
+  const seats = roles
+    .filter((role) => skill.scopeType !== 'division' || role.divisionId === skill.divisionId)
+    .map((role) => ({ value: role.id, label: roleLabel(role) }));
+  return (
+    <Stack gap="sm">
+      <Text size="sm" c="dimmed">
+        {t('A core process is one of the handful of skills that are the way the company works. One seat owns it and keeps it current: every run of that seat is told so, and the Team chart shows how many of its division\'s runs read it.')}
+      </Text>
+      {skill.core && (
+        <Badge color="indigo" variant="light">{t('Core process, owned by {seat}', { seat: seatName(roles, skill.ownerRoleId, skill.ownerRole) })}</Badge>
+      )}
+      {skill.activeVersion === null ? (
+        <Text size="sm" c="dimmed">{t('Only a skill that is switched on can be a core process.')}</Text>
+      ) : (
+        <ActionForm
+          key={`${skill.id}:${skill.ownerRoleId ?? ''}`}
+          columns={1}
+          fields={[{ name: 'roleId', label: t('Owning seat'), type: 'select', required: true, initial: skill.ownerRoleId, options: seats }]}
+          submit={(values) => api('POST', `/api/companies/${companyId}/skills/${skill.id}/core`, { core: true, roleId: values.roleId })}
+          action={skill.core ? t('Give it this seat') : t('Make it a core process')}
+          success={t('It is a core process.')}
+          done={done}
+        />
+      )}
+      {skill.core && (
+        <Group>
+          <ActionButton
+            label={t('No longer a core process')}
+            run={() => api('POST', `/api/companies/${companyId}/skills/${skill.id}/core`, { core: false })}
+            done={() => { notifications.show({ color: 'teal', message: t('It is no longer a core process.') }); done(); }}
+          />
+        </Group>
+      )}
+    </Stack>
   );
 }

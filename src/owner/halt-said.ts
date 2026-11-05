@@ -27,6 +27,7 @@ export function haltSaid(language: string | null | undefined, reason: string | n
     approval_expired: () => say(language, 'Your approval was not given in time'),
     owner_stop: () => say(language, 'Stopped by you'),
     owner_cancel: () => say(language, 'Cancelled by you'),
+    work_taken_up: () => say(language, 'Stopped: its work was taken up another way'),
     company_frozen: () => say(language, 'The company is frozen'),
     journal_divergence: () => say(language, 'Its record did not match on replay'),
     crash_loop: () => say(language, 'It kept stopping the worker running it'),

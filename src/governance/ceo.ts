@@ -21,6 +21,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { assertApproved } from '../eval/role-eval.ts';
 import { recordVersion } from './config-versions.ts';
+import { accountFor, release, reserve } from '../engine/budget.ts';
 
 export const CEO = 'CEO';
 
@@ -102,7 +103,8 @@ export async function ensureCeo(tx: TenantClient, companyId: string): Promise<vo
  *
  * Both roles' states before the change are kept as versions, like any change
  * to who a role is. The one that stood down keeps its name and persona and
- * has no title until the owner gives it one.
+ * has no title until the owner gives it one. The meeting and the planning it
+ * had not started are the new CEO's (`handCeoWorkWithin`).
  */
 export async function appointCeo(
   companyId: string,
@@ -152,6 +154,67 @@ export async function appointCeo(
       actor: 'owner',
       payload: { roleId, slug: chosen.slug, previous: previous?.id ?? null },
     });
+    if (previous) await handCeoWorkWithin(tx, companyId, previous.id, roleId);
     return { roleId, previous: previous?.id ?? null };
   });
+}
+
+/**
+ * The CEO's own rhythm not yet started -- the weekly operating meeting and
+ * the quarterly planning (src/engine/meeting.ts, quarter.ts) -- moved to the
+ * role appointed, with its division and the account that funds it.
+ *
+ * Each is made once for its week or quarter, and its sweep makes no other
+ * while one with the key exists: left with the role that stood down, the
+ * planning ran as the integrator in a role that no longer is one, or, if the
+ * owner then paused that role, waited for good, and the quarter was never
+ * planned. Their briefs name no role, so they move as they are. Only what has
+ * not taken a step: a run under way is that role's to finish.
+ *
+ * What a task holds moves to the new CEO's account, if that is another one
+ * and has room. Otherwise it stays held where it was, and the task is charged
+ * there: one meeting on the old account is a smaller wrong than a quarter
+ * never planned.
+ */
+async function handCeoWorkWithin(tx: TenantClient, companyId: string, from: string, to: string): Promise<void> {
+  const { rows: [seat] } = await tx.query<{ division_id: string }>(
+    'SELECT division_id FROM roles WHERE company_id = $1 AND id = $2', [companyId, to]);
+  const { rows: waiting } = await tx.query<{
+    id: string; project_id: string; budget_account_id: string; tokens_reserved: string;
+  }>(
+    `SELECT t.id, t.project_id, t.budget_account_id, t.tokens_reserved::text AS tokens_reserved FROM tasks t
+      WHERE t.company_id = $1 AND t.role_id = $2 AND t.parent_task_id IS NULL
+        AND t.status IN ('pending', 'waiting_window')
+        AND (t.idempotency_key LIKE 'meeting:%' OR t.idempotency_key LIKE 'quarter:%')
+        AND NOT EXISTS (SELECT 1 FROM task_steps s WHERE s.company_id = t.company_id AND s.task_id = t.id)
+      ORDER BY t.id
+      FOR UPDATE OF t`,
+    [companyId, from]);
+  for (const task of waiting) {
+    let account = task.budget_account_id;
+    const reserved = Number(task.tokens_reserved);
+    const theirs = await accountFor(tx, { companyId, roleId: to, divisionId: seat!.division_id, projectId: task.project_id });
+    if (theirs && theirs !== account && await reserve(tx, theirs, reserved)) {
+      await release(tx, account, reserved);
+      account = theirs;
+    }
+    // One parked because the role that stood down was paused (role-freeze.ts)
+    // is called back: the new CEO can take it now. Any other wait is still
+    // what it waits for.
+    await tx.query(
+      `UPDATE tasks t SET role_id = $2, division_id = $3, budget_account_id = $4,
+              wait_until = CASE
+                WHEN t.status = 'waiting_window' AND t.wait_until > now()
+                     AND (SELECT e.payload->>'reason' FROM events e
+                           WHERE e.task_id = t.id AND e.type = 'task.waiting_window'
+                           ORDER BY e.occurred_at DESC LIMIT 1) = 'role_paused'
+                  THEN now()
+                ELSE t.wait_until END
+        WHERE t.id = $1`,
+      [task.id, to, seat!.division_id, account]);
+    await appendEvent(tx, {
+      companyId, projectId: task.project_id, taskId: task.id, type: 'task.reassigned', actor: 'owner',
+      payload: { from, to, why: 'ceo_appointed' },
+    });
+  }
 }

@@ -1,5 +1,6 @@
 /**
- * PRD F11.3, F11.4, F9.4, F10.6 -- cost, alerts, digest and retro.
+ * PRD F11.3, F11.4, F9.4, F10.6, F18.12 -- cost, alerts, digest, retro and
+ * the monthly money review.
  *
  * These are the instruments the owner steers by, so the properties that matter
  * are about trust rather than arithmetic: figures must not cross tenants, an
@@ -8,7 +9,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { costBreakdown, costTimeline, platformCost } from '../../src/reporting/cost.ts';
 import { evaluateAlerts, setThresholds, thresholdsFor } from '../../src/reporting/alerts.ts';
@@ -16,9 +17,18 @@ import { buildDailyDigest, buildWeeklyRetro } from '../../src/reporting/digest.t
 import { renderDailyDigest } from '../../src/owner/digest-said.ts';
 import { traceFromInboxItem } from '../../src/reporting/trace.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { createRootTask, transition } from '../../src/engine/tasks.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
-import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { createRootTask, outsideContentIn, transition } from '../../src/engine/tasks.ts';
+import { ENDED_AFTER_MS, reportEndedBadly } from '../../src/engine/ended.ts';
+import { evaluateSpendLimit, setSpendLimit } from '../../src/governance/spend-guard.ts';
+import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
+import { importCompany } from '../../src/audit/import.ts';
+import { addAccount, entryInput, postEntry } from '../../src/records/books.ts';
+import { issueInvoice, payInvoice } from '../../src/records/invoices.ts';
+import { buildMonthFacts, type MonthFacts } from '../../src/reporting/month.ts';
+import { runDueSchedules, runScheduleNow, upsertSchedule } from '../../src/scheduler/scheduler.ts';
+import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
+import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -202,7 +212,16 @@ test('a failure rate needs a denominator worth dividing by', async () => {
   assert.equal(raised.some((alert) => alert.kind === 'task_failure_rate'), true);
 });
 
-test('a failed verification is an incident, not a statistic (F8.4, F11.4)', async () => {
+/**
+ * F8.4 and F8.12 each give the event its own card: a write that read back
+ * differently halts its task and raises "External write failed verification"
+ * with the task on it (engine.ts), and a capability that stops being usable
+ * raises its own incident (preflight.ts), with the ended task's escalation
+ * (ended.ts) behind it. The daily sweep raised a second urgent card for each,
+ * pushed at the same moment, saying the same thing as a count. The card about
+ * the event is the one the owner can act on, and it is the only one now.
+ */
+test('a failed read-back is one card, its own, and the daily sweep adds none (F8.4, F11.4)', async () => {
   const fixture = await createCompany('alert-verify');
   await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
 
@@ -214,58 +233,38 @@ test('a failed verification is an incident, not a statistic (F8.4, F11.4)', asyn
     );
   });
 
-  const raised = await evaluateAlerts(fixture.companyId);
-  assert.equal(raised.length, 1);
-  assert.equal(raised[0]!.kind, 'verification_failures');
-
-  // Raised as an incident, so it may reach the owner outside their window: the
-  // world may not match what the system believes.
-  const items = await inbox.listOpen(fixture.companyId);
-  assert.equal(items[0]!.kind, 'incident');
+  assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), [], 'no second card beside the one the halt raised');
 });
 
-/**
- * F11.4 names preflight and orphan alerts, and both are one-occurrence
- * thresholds rather than rates.
- *
- * A capability that stopped being usable means tasks are halting before they
- * start; a worker that stopped reporting means a run died mid-task. A system
- * that only reports its own failures in bulk hides the first one — which is
- * the one somebody could still have acted on.
- */
-test('a capability that stopped being usable is an incident on the first task (F11.4)', async () => {
+test('a task a capability stopped is reported by its own card, not by a daily count (F8.12, F11.4)', async () => {
   const fixture = await createCompany('alert-preflight');
   await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
 
-  await withTenant(fixture.companyId, async (tx) => {
-    await tx.query(
-      `INSERT INTO tasks
-         (company_id, project_id, division_id, role_id, budget_account_id, input,
-          input_hash, idempotency_key, created_by, status, halt_reason, finished_at)
-       VALUES ($1,$2,$3,$4,$5,'{}'::jsonb,'h','preflight-1','owner',
-               'halted','capability_unhealthy', now())`,
-      [
-        fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId,
-        fixture.budgetAccountId,
-      ],
-    );
+  const halted = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'post the weekly update' },
+    createdBy: 'owner', reserveTokens: 1_000,
   });
+  await transition(fixture.companyId, halted.id, 'halted', { haltReason: 'capability_unhealthy' });
 
-  const raised = await evaluateAlerts(fixture.companyId);
-  assert.deepEqual(raised.map((alert) => alert.kind), ['preflight_failures']);
-  assert.match(raised[0]!.summary, /readiness check/);
-
-  // An incident, not a budget-shaped alert: F8.12 is explicit that this does
-  // not keep until the owner's window.
-  const items = await inbox.listOpen(fixture.companyId);
-  assert.equal(items[0]!.kind, 'incident');
-
-  // Once a day, like every other alert. A capability that stays broken must
-  // not file ninety-six identical incidents.
   assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), []);
+
+  // Not silent: with no card about it, the task's own escalation is raised.
+  assert.equal(await reportEndedBadly(fixture.companyId, new Date(Date.now() + ENDED_AFTER_MS + 60_000)), 1);
+  const [ended] = await inbox.listOpen(fixture.companyId);
+  assert.equal(ended!.taskId, halted.id);
 });
 
-test('an orphaned run is an incident, and says the spend was not recovered (F11.4, F5.14)', async () => {
+/**
+ * A run whose worker stopped talking has its task put back with its journal
+ * (reclaimOrphans), and a task that keeps doing it is halted with its own
+ * incident (haltIfCrashLooping). The daily incident in between asked nothing
+ * of the owner, and as an incident it pushed through their window at any
+ * hour: it is a line of the digest now.
+ */
+test('an orphaned run is a line of the digest, not an incident (F11.4, F5.14, F10.6)', async () => {
   const fixture = await createCompany('alert-orphan');
   await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
 
@@ -289,12 +288,213 @@ test('an orphaned run is an incident, and says the spend was not recovered (F11.
     );
   });
 
-  const raised = await evaluateAlerts(fixture.companyId);
-  assert.deepEqual(raised.map((alert) => alert.kind), ['orphaned_runs']);
-  assert.match(raised[0]!.summary, /were not recovered|was not recovered/);
+  assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), []);
 
-  const items = await inbox.listOpen(fixture.companyId);
-  assert.equal(items[0]!.kind, 'incident');
+  const digest = await buildDailyDigest(fixture.companyId);
+  assert.equal(digest.orphanedRuns, 1);
+  assert.match(renderDailyDigest(digest, 'en'), /^Runs picked up again after their worker stopped: 1$/m);
+  assert.match(renderDailyDigest(digest, 'id'), /^Run yang dilanjutkan lagi setelah worker-nya berhenti: 1$/m);
+
+  // A day with none says nothing about it.
+  const quiet = await buildDailyDigest(fixture.companyId, new Date(Date.now() - 2 * 86_400_000));
+  assert.equal(quiet.orphanedRuns, 0);
+  assert.doesNotMatch(renderDailyDigest(quiet, 'en'), /worker stopped/);
+});
+
+/**
+ * "Model spend today is over the ceiling" is about its day. Nothing closed it,
+ * so every busy day left one more card that asked nothing and that nobody
+ * could act on. It closes itself -- but not at midnight. A card carried late
+ * in its day has barely reached the owner by then: on a deployment whose
+ * owner is reached from 08:00 to 22:00, a breach carried at 21:55 was gone at
+ * 00:00, its chat message rewritten, before the owner's next morning; an
+ * owner in Jakarta, whose 08:00-22:00 is 01:00-15:00 UTC, lost at 07:00
+ * whatever they had heard of the evening before. A card stays a whole day
+ * after it was put in front of the owner -- carried to them, or back from
+ * being put off -- because a day holds the whole of the owner's window
+ * wherever their hours fall against UTC, and closes at the first look after.
+ */
+test("a day's card closes itself once it has been in front of the owner a whole day (F11.4)", async () => {
+  const fixture = await createCompany('alert-day-ended');
+  await setThresholds(fixture.companyId, { dailyCostCents: 150 });
+  const start = Date.UTC(2026, 8, 1);
+  const at = (hours: number) => new Date(start + hours * 3_600_000);
+  const trace = (id: string, when: Date) => withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents, occurred_at)
+     VALUES ($1, $2, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300, $3)`,
+    [id, fixture.companyId, when]));
+  const carried = (itemId: string, when: Date) => withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE inbox_items SET notify_after = $2 WHERE id = $1', [itemId, when]));
+  const card = async (itemId: string) => (await withTenant(fixture.companyId, (tx) => tx.query<{
+    status: string; closed_reason: string | null; payload: { alert?: string; day?: string };
+  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [itemId]))).rows[0]!;
+  const withdrawn = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn' ORDER BY occurred_at"))).rows
+    .map((row) => [row.payload.inboxItemId, row.payload.closedReason]);
+
+  await trace('trace-first-day', at(12));
+  const [first] = await evaluateAlerts(fixture.companyId, at(12));
+  assert.equal(first!.kind, 'daily_cost');
+  assert.deepEqual((await card(first!.inboxItemId)).payload, { alert: 'daily_cost', day: '2026-09-01' },
+    'it says which day it is about');
+  await carried(first!.inboxItemId, at(21 + 55 / 60));
+
+  // Five minutes after its day ended, and the owner asleep since 22:00.
+  assert.deepEqual(await evaluateAlerts(fixture.companyId, at(24 + 5 / 60)), []);
+  assert.equal((await card(first!.inboxItemId)).status, 'open', 'the first look after its day leaves it');
+
+  await trace('trace-second-day', at(36));
+  const [second] = await evaluateAlerts(fixture.companyId, at(36));
+  assert.deepEqual((await card(second!.inboxItemId)).payload, { alert: 'daily_cost', day: '2026-09-02' });
+  await carried(second!.inboxItemId, at(36));
+
+  // The next evening, five minutes short of a whole day since it was carried.
+  await evaluateAlerts(fixture.companyId, at(45 + 50 / 60));
+  assert.equal((await card(first!.inboxItemId)).status, 'open', 'kept a whole day after it was carried');
+
+  // Put off by the owner until two in the morning: a whole day from then.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE inbox_items SET snoozed_until = $2 WHERE id = $1', [first!.inboxItemId, at(50)]));
+  await evaluateAlerts(fixture.companyId, at(59));
+  assert.equal((await card(first!.inboxItemId)).status, 'open', 'a card the owner put off has its day once it is back');
+  assert.deepEqual(await withdrawn(), []);
+
+  // Not put off: the first day's closes, the second day's has not had its day yet.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE inbox_items SET snoozed_until = NULL WHERE id = $1', [first!.inboxItemId]));
+  await evaluateAlerts(fixture.companyId, at(59));
+  const closed = await card(first!.inboxItemId);
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'day_ended']);
+  assert.deepEqual(await withdrawn(), [[first!.inboxItemId, 'day_ended']]);
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [second!.inboxItemId]);
+
+  // A second look closes nothing twice; a whole day on, the second day's goes.
+  await evaluateAlerts(fixture.companyId, at(59));
+  assert.deepEqual(await withdrawn(), [[first!.inboxItemId, 'day_ended']]);
+  await evaluateAlerts(fixture.companyId, at(60));
+  assert.deepEqual(await withdrawn(), [[first!.inboxItemId, 'day_ended'], [second!.inboxItemId, 'day_ended']]);
+});
+
+/**
+ * The cards raised before a day's card said its day (0135). The code before it
+ * left the payload empty, and the close reads the day from it: a deployment
+ * upgraded with a month of them open kept them all. The daily counts it raised
+ * as incidents -- read-backs that failed, checks that failed, workers that
+ * stopped -- are raised no more, each said where it can be acted on, and
+ * nothing would ever close one left open.
+ */
+test("a day's card or count raised before the cards said their day closes after the upgrade (F11.4, 0135)", async () => {
+  const fixture = await createCompany('alert-before-0135');
+  const raisedAt = new Date(Date.UTC(2026, 8, 1, 12));
+  const asRaised = async (kind: string, itemId: string) => {
+    await withControlPlane((tx) => tx.query(
+      'UPDATE inbox_items SET created_at = $2, notify_after = $2 WHERE id = $1', [itemId, raisedAt]));
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO events (company_id, type, actor, payload)
+       VALUES ($1, 'alert.raised', 'system', jsonb_build_object('kind', $2::text, 'inboxItemId', $3::text))`,
+      [fixture.companyId, kind, itemId]));
+    return itemId;
+  };
+  const spend = await asRaised('daily_cost', await inbox.raiseBudgetAlert({
+    companyId: fixture.companyId, title: 'Daily model spend over threshold', detail: 'Model spend today is 300 cents.',
+  }));
+  const count = await asRaised('preflight_failures', await inbox.raiseIncident({
+    companyId: fixture.companyId, title: 'Tasks could not start', detail: '2 tasks could not start today.',
+  }));
+  // Neither is touched: an incident no alert raised, and a day's card that says its day.
+  const other = await inbox.raiseIncident({ companyId: fixture.companyId, title: 'Something broke', detail: 'x' });
+  const said = await asRaised('policy_denials', await inbox.raiseBudgetAlert({
+    companyId: fixture.companyId, title: 'Many actions refused', detail: '25 refused.', payload: { alert: 'policy_denials', day: '2026-09-02' },
+  }));
+  const card = async (itemId: string) => (await withTenant(fixture.companyId, (tx) => tx.query<{
+    status: string; closed_reason: string | null; payload: Record<string, unknown>;
+  }>('SELECT status, closed_reason, payload FROM inbox_items WHERE id = $1', [itemId]))).rows[0]!;
+
+  await runMigrationAgain('0135_old_cards_name_their_period.sql');
+
+  assert.deepEqual((await card(spend)).payload, { alert: 'daily_cost', day: '2026-09-01' }, 'it says the day it was raised on');
+  assert.deepEqual((await card(said)).payload, { alert: 'policy_denials', day: '2026-09-02' });
+  const closed = await card(count);
+  assert.deepEqual([closed.status, closed.closed_reason], ['withdrawn', 'day_ended'], 'a daily count nothing raises any more');
+  assert.equal((await card(other)).status, 'open');
+  const withdrawn = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn' ORDER BY occurred_at"))).rows
+    .map((row) => [row.payload.inboxItemId, row.payload.closedReason]);
+  assert.deepEqual(await withdrawn(), [[count, 'day_ended']], 'and its timeline says so');
+
+  // Run twice, it does nothing twice.
+  await runMigrationAgain('0135_old_cards_name_their_period.sql');
+  assert.deepEqual(await withdrawn(), [[count, 'day_ended']]);
+
+  // The close the new cards have reaches the old one: a whole day after it was carried.
+  await evaluateAlerts(fixture.companyId, new Date(Date.UTC(2026, 8, 3)));
+  assert.deepEqual([(await card(spend)).status, (await card(spend)).closed_reason], ['withdrawn', 'day_ended']);
+});
+
+/**
+ * An archive written before 0135 carries the same cards in the old shape, and
+ * arrives at a deployment that ran 0135 long before: restored as they were,
+ * they stayed open for good. The alert that raised each is named only in the
+ * archive's events, by the id the card had there, which the restore changes.
+ */
+test("a day's card, count or 80% warning restored from an archive written before 0135 closes as one raised here does (F11.4, F1.7, F16.4)", async () => {
+  const fixture = await createCompany('alert-archive-0135');
+  const raisedAt = new Date(Date.UTC(2026, 8, 1, 12));
+  const asRaised = async (itemId: string, kind?: string) => {
+    await withControlPlane((tx) => tx.query(
+      'UPDATE inbox_items SET created_at = $2, notify_after = $2 WHERE id = $1', [itemId, raisedAt]));
+    if (kind) {
+      await withTenant(fixture.companyId, (tx) => tx.query(
+        `INSERT INTO events (company_id, type, actor, payload)
+         VALUES ($1, 'alert.raised', 'system', jsonb_build_object('kind', $2::text, 'inboxItemId', $3::text))`,
+        [fixture.companyId, kind, itemId]));
+    }
+  };
+  await asRaised(await inbox.raiseBudgetAlert({
+    companyId: fixture.companyId, title: 'Daily model spend over threshold', detail: 'Model spend today is 300 cents.',
+  }), 'daily_cost');
+  await asRaised(await inbox.raiseIncident({
+    companyId: fixture.companyId, title: 'Tasks could not start', detail: '2 tasks could not start today.',
+  }), 'preflight_failures');
+  await asRaised(await inbox.raiseBudgetAlert({ companyId: fixture.companyId, title: 'Monthly budget is 80% spent', detail: '$165.00 of $200.00 spent.' }));
+  // Neither is touched: the pause card raised before it said its month, and an incident no alert raised.
+  await asRaised(await inbox.raiseBudgetAlert({ companyId: fixture.companyId, title: 'Monthly budget reached; the company is paused', detail: 'x' }));
+  await asRaised(await inbox.raiseIncident({ companyId: fixture.companyId, title: 'Something broke', detail: 'x' }));
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  assert.ok(lines.filter((line) => line.section === 'inbox_items').every((line) => JSON.stringify(line.row.payload) === '{}'),
+    'the archive carries them as the code before 0135 wrote them');
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+
+  const cards = async () => Object.fromEntries((await withTenant(restored.companyId, (tx) => tx.query<{
+    id: string; title: string; status: string; closed_reason: string | null; payload: Record<string, unknown>;
+  }>('SELECT id, title, status, closed_reason, payload FROM inbox_items'))).rows
+    .map(({ title, ...row }) => [title, row]));
+  const restoredCards = await cards();
+  const countId = restoredCards['Tasks could not start']!.id;
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(restoredCards).map(([title, { id: _id, ...row }]) => [title, row])),
+    {
+      'Daily model spend over threshold': { status: 'open', closed_reason: null, payload: { alert: 'daily_cost', day: '2026-09-01' } },
+      'Monthly budget is 80% spent': { status: 'open', closed_reason: null, payload: { spendWarning: { periodStart: '2026-09-01T00:00:00.000Z' } } },
+      'Monthly budget reached; the company is paused': { status: 'open', closed_reason: null, payload: {} },
+      'Something broke': { status: 'open', closed_reason: null, payload: {} },
+      'Tasks could not start': { status: 'withdrawn', closed_reason: 'day_ended', payload: {} },
+    },
+    'each is labelled as 0135 labelled a card already here, and the daily count nothing raises any more is closed',
+  );
+  const withdrawn = (await withTenant(restored.companyId, (tx) => tx.query<{ payload: { inboxItemId: string; closedReason: string } }>(
+    "SELECT payload FROM events WHERE type = 'inbox.withdrawn'"))).rows.map((row) => [row.payload.inboxItemId, row.payload.closedReason]);
+  assert.deepEqual(withdrawn, [[countId, 'day_ended']], 'and the restored timeline says so');
+
+  // The closes the new cards have reach the restored ones.
+  await evaluateAlerts(restored.companyId, new Date(Date.UTC(2026, 8, 3)));
+  await evaluateSpendLimit(restored.companyId, new Date(Date.UTC(2026, 9, 2)));
+  const after = await cards();
+  assert.deepEqual([after['Daily model spend over threshold']!.status, after['Daily model spend over threshold']!.closed_reason], ['withdrawn', 'day_ended']);
+  assert.deepEqual([after['Monthly budget is 80% spent']!.status, after['Monthly budget is 80% spent']!.closed_reason], ['withdrawn', 'period_started']);
 });
 
 test('the daily digest fits one screen (F10.6)', async () => {
@@ -489,4 +689,246 @@ test('one company cannot trace another\'s inbox item (F1.3, F11.2)', async () =>
   // rather than "an item you may not read" -- which is the right answer,
   // because the second one confirms it exists.
   assert.equal(await traceFromInboxItem(mine.companyId, item!.id), null);
+});
+
+/* --------------------------------------------- the monthly money review --- */
+
+/** Posts an entry the owner wrote: a day, a memo and its lines by account code, in IDR. */
+async function post(fixture: Fixture, date: string, memo: string, lines: Array<[string, 'dr' | 'cr', number]>): Promise<void> {
+  await withTenant(fixture.companyId, (tx) => postEntry(tx, fixture.companyId, entryInput({
+    date, memo, currency: 'IDR',
+    lines: lines.map(([account, side, cents]) => (side === 'dr' ? { account, debitCents: cents } : { account, creditCents: cents })),
+  }), 'owner'));
+}
+
+/**
+ * F18.12, F9.4: the month's money, read from the company's own books.
+ *
+ * A trading company's September: an owner's capital and a cash sale in
+ * August, then stock bought on credit, two sales invoiced -- one paid into
+ * a second bank account, one written by work that had read an email and
+ * still owed -- goods sold out of stock, and the rent. Every figure is the
+ * books' own, and each lever is what one per cent or one day is worth on
+ * them. A company whose chart keeps no cost of goods or stock gets those
+ * levers marked as such, not a number made up from the rest.
+ */
+test('the monthly money review is read from the books: profit, cash, what is late, spend and the levers (F18.12)', async () => {
+  const fixture = await createCompany('money-month');
+  await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'Asia/Jakarta' WHERE id = $1", [fixture.companyId]));
+  await withTenant(fixture.companyId, async (tx) => {
+    await addAccount(tx, fixture.companyId, { code: '1110', name: 'Bank BCA', kind: 'asset' });
+    await addAccount(tx, fixture.companyId, { code: '1300', name: 'Stock', kind: 'asset' });
+    await addAccount(tx, fixture.companyId, { code: '5000', name: 'Cost of goods sold', kind: 'expense' });
+  });
+  await post(fixture, '2026-08-01', 'Owner capital', [['1100', 'dr', 10_000_000], ['3100', 'cr', 10_000_000]]);
+  await post(fixture, '2026-08-20', 'Cash sale', [['1100', 'dr', 1_000_000], ['4100', 'cr', 1_000_000]]);
+  await post(fixture, '2026-09-02', 'Stock bought on credit', [['1300', 'dr', 3_000_000], ['2100', 'cr', 3_000_000]]);
+  const late = await withTenant(fixture.companyId, (tx) => issueInvoice(tx, fixture.companyId, {
+    customerName: 'Toko Kopi Senja', currency: 'IDR', issueDate: '2026-09-05', dueDate: '2026-09-15',
+    lines: [{ description: 'Biji kopi', quantity: 1, unitCents: 5_000_000 }],
+  }, 'agent', { outside: true }));
+  const paid = await withTenant(fixture.companyId, (tx) => issueInvoice(tx, fixture.companyId, {
+    customerName: 'Warung Pak Budi', currency: 'IDR', issueDate: '2026-09-10', dueDate: '2026-09-24',
+    lines: [{ description: 'Biji kopi', quantity: 1, unitCents: 5_000_000 }],
+  }, 'owner'));
+  await withTenant(fixture.companyId, (tx) => payInvoice(tx, fixture.companyId, paid.number,
+    { amountCents: 5_000_000, date: '2026-09-20', depositTo: '1110' }, 'owner'));
+  await post(fixture, '2026-09-12', 'Goods sold out of stock', [['5000', 'dr', 2_000_000], ['1300', 'cr', 2_000_000]]);
+  await post(fixture, '2026-09-15', 'Rent', [['5100', 'dr', 1_500_000], ['1100', 'cr', 1_500_000]]);
+  // The day after the month: not the month's.
+  await post(fixture, '2026-10-01', 'Cash sale', [['1100', 'dr', 7_000_000], ['4100', 'cr', 7_000_000]]);
+  await withTenant(fixture.companyId, async (tx) => {
+    for (const [id, at, cents] of [['september', '2026-09-18T03:00:00Z', 2_500], ['august', '2026-08-18T03:00:00Z', 1_000]] as const) {
+      await tx.query(
+        `INSERT INTO llm_traces (id, company_id, model, prompt, cost_cents, occurred_at)
+         VALUES ($1, $2, 'test-model', '{}'::jsonb, $3, $4)`, [`money-${id}-${fixture.slug}`, fixture.companyId, cents, at]);
+    }
+  });
+
+  await setSpendLimit(fixture.companyId, 50_000);
+  await readsTheBooks(fixture);
+
+  // The first of October, ten to eight in Jakarta: September is reviewed.
+  const facts = await buildMonthFacts(fixture.companyId, fixture.roleId, new Date('2026-10-01T00:50:00Z'));
+  assert.deepEqual([facts.month, facts.from, facts.to, facts.days], ['2026-09', '2026-09-01', '2026-09-30', 30]);
+  assert.deepEqual(facts.spend, { monthCents: 2_500, previousMonthCents: 1_000, limitCents: 50_000 });
+  assert.equal(facts.books.length, 1, 'one currency');
+  const idr = facts.books[0]!;
+  assert.deepEqual(
+    {
+      currency: idr.currency, income: idr.incomeCents, costOfGoods: idr.costOfGoodsCents, overhead: idr.overheadCents,
+      profit: idr.profitCents, previous: idr.previous, cash: idr.cash,
+      receivable: idr.receivableCents, payable: idr.payableCents, stock: idr.stockCents, overdue: idr.overdueCents,
+      days: [idr.receivableDays, idr.stockDays, idr.payableDays],
+    },
+    {
+      currency: 'IDR', income: 10_000_000, costOfGoods: 2_000_000, overhead: 1_500_000, profit: 6_500_000,
+      previous: { incomeCents: 1_000_000, expenseCents: 0, profitCents: 1_000_000 },
+      // Both bank accounts are cash: 1100 and the 1110 the owner added.
+      cash: { startCents: 11_000_000, endCents: 14_500_000, changeCents: 3_500_000 },
+      receivable: 5_000_000, payable: 3_000_000, stock: 1_000_000, overdue: 5_000_000,
+      days: [15, 15, 45],
+    },
+  );
+  assert.deepEqual(idr.levers.map((lever) => [lever.lever, lever.effect, lever.cents, lever.unavailable]), [
+    ['price', 'profit', 100_000, null],
+    ['volume', 'profit', 80_000, null],
+    ['cost_of_goods', 'profit', 20_000, null],
+    ['overhead', 'profit', 15_000, null],
+    ['receivable_days', 'cash', 333_333, null],
+    ['stock_days', 'cash', 66_667, null],
+    ['payable_days', 'cash', 66_667, null],
+  ]);
+
+  // Late, by sixteen days on the first of October, and in words written
+  // after reading an email: data, and the review carries that.
+  assert.equal(facts.overdue.invoices.length, 1);
+  const owed = facts.overdue.invoices[0]!;
+  assert.deepEqual([owed.number, owed.dueDate, owed.daysOverdue, owed.outstandingCents, owed.outside],
+    [late.number, '2026-09-15', 16, 5_000_000, true]);
+  assert.match(owed.customer, /UNTRUSTED_CONTENT[\s\S]*Toko Kopi Senja/);
+  assert.equal(facts.overdue.leftOut, 0);
+
+  // A service company's books: no account for cost of goods or stock, so the
+  // levers that need them say so rather than guess.
+  const service = await createCompany('money-month-service');
+  await post(service, '2026-09-03', 'Consulting, paid at once', [['1100', 'dr', 2_000_000], ['4100', 'cr', 2_000_000]]);
+  await post(service, '2026-09-04', 'Software', [['5100', 'dr', 500_000], ['1100', 'cr', 500_000]]);
+  await readsTheBooks(service);
+  const plain = (await buildMonthFacts(service.companyId, service.roleId, new Date('2026-10-01T09:00:00Z'))).books[0]!;
+  assert.deepEqual([plain.costOfGoodsCents, plain.stockCents, plain.overheadCents, plain.receivableDays], [null, null, 500_000, 0]);
+  assert.deepEqual(plain.levers.map((lever) => [lever.lever, lever.cents, lever.unavailable]), [
+    ['price', 20_000, null],
+    ['volume', null, 'no_cost_of_goods_account'],
+    ['cost_of_goods', null, 'no_cost_of_goods_account'],
+    ['overhead', 5_000, null],
+    ['receivable_days', 66_667, null],
+    ['stock_days', null, 'no_stock_account'],
+    ['payable_days', null, 'no_cost_of_goods_account'],
+  ]);
+  assert.ok(JSON.stringify(facts).length < 16_000, 'it travels with every step of the run');
+});
+
+/** The last whole month, as a company in Jakarta (no daylight saving) counts it today. */
+function lastMonthInJakarta(): { month: string; day: string } {
+  const here = new Date(Date.now() + 7 * 3_600_000);
+  const lastDay = new Date(Date.UTC(here.getUTCFullYear(), here.getUTCMonth(), 1) - 86_400_000).toISOString().slice(0, 10);
+  return { month: lastDay.slice(0, 7), day: lastDay };
+}
+
+/**
+ * The month is the company's books, and the books are read through
+ * `ledger.read`: the role a review is for holds the tool, and its division
+ * the grant, as the operating kit's strategist does.
+ */
+async function readsTheBooks(fixture: Fixture): Promise<void> {
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'ledger.read');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [fixture.roleId]));
+}
+
+async function moneyReview(fixture: Fixture, options: { readsTheBooks?: boolean } = {}): Promise<string> {
+  if (options.readsTheBooks !== false) await readsTheBooks(fixture);
+  await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'Asia/Jakarta' WHERE id = $1", [fixture.companyId]));
+  const scheduleId = await upsertSchedule({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    slug: 'monthly-review', cronExpression: '50 7 1 * *', timezone: 'Asia/Jakarta',
+    input: { goal: 'Monthly money review.', facts: 'month' },
+  });
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE schedules SET next_run_at = date_trunc('milliseconds', now() - interval '1 minute') WHERE id = $1", [scheduleId]));
+  return scheduleId;
+}
+
+/**
+ * F18.12: "a month with no numbers is passed over". A company whose books
+ * had nothing dated in the month and nothing owed and late has nothing for
+ * a money review to read, and a review of it would spend tokens finding
+ * something to say (N10). The occurrence is passed over and said; the owner's
+ * "Run now" runs it all the same.
+ */
+test('a quiet month is passed over, and a month with money in it is reviewed with its facts (F18.12, N10)', async () => {
+  const { month, day } = lastMonthInJakarta();
+
+  const quiet = await createCompany('money-quiet');
+  const quietReview = await moneyReview(quiet);
+  // Long before the month: a sale, not late, all paid. Nothing of it is the month's.
+  await post(quiet, '2020-01-10', 'Cash sale', [['1100', 'dr', 1_000], ['4100', 'cr', 1_000]]);
+  assert.deepEqual(await runDueSchedules(), [], 'nothing was made');
+  const { rows: said } = await withTenant(quiet.companyId, (tx) => tx.query<{ payload: { slug: string; month: string } }>(
+    "SELECT payload FROM events WHERE type = 'schedule.quiet_month' AND payload->>'scheduleId' = $1", [quietReview]));
+  assert.deepEqual(said.map((one) => [one.payload.slug, one.payload.month]), [['monthly-review', month]], 'said once, naming the month');
+  const asked = await runScheduleNow(quiet.companyId, quietReview);
+  assert.equal((asked.input.month as { month: string }).month, month, 'the owner asked: it runs');
+
+  // An invoice owed and late since long before the month: money to chase.
+  // Written by work that had read an email, so the review carries that (F8.9).
+  const chasing = await createCompany('money-late');
+  const chasingReview = await moneyReview(chasing);
+  await withTenant(chasing.companyId, (tx) => issueInvoice(tx, chasing.companyId, {
+    customerName: 'Toko Lama', currency: 'IDR', issueDate: '2020-01-10', dueDate: '2020-01-24',
+    lines: [{ description: 'Kopi', quantity: 1, unitCents: 1_000 }],
+  }, 'agent', { outside: true }));
+
+  // A sale on the month's last day.
+  const busy = await createCompany('money-busy');
+  const busyReview = await moneyReview(busy);
+  await post(busy, day, 'Cash sale', [['1100', 'dr', 4_000], ['4100', 'cr', 4_000]]);
+
+  const fired = await runDueSchedules();
+  assert.deepEqual(fired.map((one) => one.companyId).sort(), [chasing.companyId, busy.companyId].sort());
+  const { rows } = await withTenant(busy.companyId, (tx) => tx.query<{ input: { facts: string; month: MonthFacts } }>(
+    'SELECT input FROM tasks WHERE schedule_id = $1', [busyReview]));
+  assert.equal(rows[0]!.input.facts, 'month');
+  assert.equal(rows[0]!.input.month.month, month);
+  assert.equal(rows[0]!.input.month.books[0]!.incomeCents, 4_000);
+  await withTenant(busy.companyId, async (tx) => {
+    assert.equal(await outsideContentIn(tx, (await tx.query<{ id: string }>('SELECT id FROM tasks WHERE schedule_id = $1', [busyReview])).rows[0]!.id), null);
+  });
+  await withTenant(chasing.companyId, async (tx) => {
+    const { rows: [review] } = await tx.query<{ id: string; overdue: number }>(
+      "SELECT id, jsonb_array_length(input->'month'->'overdue'->'invoices') AS overdue FROM tasks WHERE schedule_id = $1", [chasingReview]);
+    assert.equal(review!.overdue, 1);
+    assert.equal(await outsideContentIn(tx, review!.id), 'read', 'a late customer named by work that read an email is data');
+  });
+});
+
+/**
+ * F18.12, F8.1: the month's facts are the company's books -- cash, what is
+ * owed and the names of the customers late with it -- and nothing reads the
+ * books except through `ledger.read`. A schedule handed the month for a role
+ * that does not hold it, because the owner took the tool or the grant away
+ * after the kit installed it, or because the schedule was written by hand,
+ * is refused when it fires and when the owner runs it, naming what is
+ * missing, and no run is made with the books in its input.
+ */
+test("the month's books are handed only to a role that may read them (F18.12, F8.1)", async () => {
+  const { day } = lastMonthInJakarta();
+  const blind = await createCompany('money-blind');
+  await registerStandardCatalogue();
+  const review = await moneyReview(blind, { readsTheBooks: false });
+  await post(blind, day, 'Cash sale', [['1100', 'dr', 4_000], ['4100', 'cr', 4_000]]);
+
+  await assert.rejects(runScheduleNow(blind.companyId, review),
+    /role worker does not list ledger.read among its tools, so it may not be handed the month's books/);
+  assert.deepEqual(await runDueSchedules(), [], 'the clock makes no run either');
+  const { rows: [failed] } = await withTenant(blind.companyId, (tx) => tx.query<{ fire_failure: string | null }>(
+    'SELECT fire_failure FROM schedules WHERE id = $1', [review]));
+  assert.match(failed!.fire_failure ?? '', /does not list ledger.read/, 'the occurrence failed, saying why');
+
+  // The tool without the division's grant is not enough either: the broker
+  // would refuse the call.
+  await withTenant(blind.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [blind.roleId]));
+  await assert.rejects(runScheduleNow(blind.companyId, review),
+    /division of role worker is not granted ledger.read, so it may not be handed the month's books/);
+  const { rows: made } = await withTenant(blind.companyId, (tx) => tx.query(
+    'SELECT 1 FROM tasks WHERE schedule_id = $1', [review]));
+  assert.equal(made.length, 0);
+
+  await grantCapability(blind, 'ledger.read');
+  const ran = await runScheduleNow(blind.companyId, review);
+  assert.equal((ran.input.month as MonthFacts).books[0]!.incomeCents, 4_000);
 });

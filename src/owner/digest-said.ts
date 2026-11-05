@@ -24,6 +24,8 @@ export function renderDailyDigest(
   digest: DailyDigest,
   language: string | null | undefined,
   display: MoneyDisplay | null = null,
+  /** The owner's app's link to a task, when the deployment has one (`ownerTaskLinkFor`). */
+  linkFor: ((taskId: string) => string | null) | null = null,
 ): string {
   const amount = moneySaid(language, digest.moneySpentCents, display);
   const lines = [
@@ -35,9 +37,22 @@ export function renderDailyDigest(
     say(language, 'Inbox: {open} waiting (incidents: {incidents})', {
       open: String(digest.openInboxItems), incidents: String(digest.openIncidents),
     }),
+    // Only on a day it happened: a line that says zero every day is read as
+    // part of the furniture by the day it says one.
+    ...(digest.orphanedRuns > 0
+      ? [say(language, 'Runs picked up again after their worker stopped: {count}', { count: String(digest.orphanedRuns) })]
+      : []),
     ...digest.stopped.map((one) => say(language, 'Stopped ({count}): {reason}', {
       count: String(one.count), reason: haltSaid(language, one.reason),
     })),
+    // The weekly operating meeting held that day (F18.6), once: its task is
+    // the record, and the owner reads it there rather than in a chat.
+    ...(digest.lastMeeting?.heldThisDay
+      ? [say(language, 'Weekly operating meeting held ({week}): {where}', {
+        week: digest.lastMeeting.week,
+        where: linkFor?.(digest.lastMeeting.taskId) ?? say(language, 'see its task under Work'),
+      })]
+      : []),
   ];
   return lines.join('\n');
 }

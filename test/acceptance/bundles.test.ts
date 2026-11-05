@@ -43,8 +43,11 @@ import {
 import { exportCompany } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import {
+  approveSkillVersion,
   importExternalSkill,
   liftSkillQuarantine,
+  recordSkillReview,
+  runSkillEvals,
   skillSummariesFor,
 } from '../../src/skills/skills.ts';
 import { runDueSchedules } from '../../src/scheduler/scheduler.ts';
@@ -52,7 +55,7 @@ import { changeMetric, defineMetric } from '../../src/domain/metrics.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { setStage } from '../../src/domain/stage.ts';
-import { stageProposeCapability } from '../../src/broker/platform-capabilities.ts';
+import { stageProposeCapability, taskDelegateCapability } from '../../src/broker/platform-capabilities.ts';
 import type { WeekFacts } from '../../src/reporting/week.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
@@ -410,17 +413,23 @@ test('the operating kit brings a strategist, its frameworks for review, and a we
   assert.deepEqual(installed.roles, ['strategist', 'critic']);
 
   const { rows: schedules } = await withTenant(fixture.companyId, (tx) => tx.query<{
-    slug: string; cron_expression: string; timezone: string; enabled: boolean; goal: string; kind: string; role: string;
+    slug: string; cron_expression: string; timezone: string; enabled: boolean; goal: string; kind: string; role: string; facts: string;
   }>(
-    `SELECT s.slug, s.cron_expression, s.timezone, s.enabled, s.input->>'goal' AS goal, g.kind, r.slug AS role
-       FROM schedules s JOIN goals g ON g.id = s.goal_id JOIN roles r ON r.id = s.role_id`,
+    `SELECT s.slug, s.cron_expression, s.timezone, s.enabled, s.input->>'goal' AS goal, s.input->>'facts' AS facts,
+            g.kind, r.slug AS role
+       FROM schedules s JOIN goals g ON g.id = s.goal_id JOIN roles r ON r.id = s.role_id
+      ORDER BY s.slug DESC`,
   ));
-  assert.equal(schedules.length, 1);
   assert.deepEqual(
-    [schedules[0]!.slug, schedules[0]!.cron_expression, schedules[0]!.timezone, schedules[0]!.enabled, schedules[0]!.kind, schedules[0]!.role],
-    ['weekly-business-review', '45 7 * * 1', 'Asia/Jakarta', true, 'mission', 'strategist'],
+    schedules.map((one) => [one.slug, one.cron_expression, one.timezone, one.enabled, one.kind, one.role, one.facts]),
+    [
+      ['weekly-business-review', '45 7 * * 1', 'Asia/Jakarta', true, 'mission', 'strategist', 'week'],
+      // F18.12: the first of the month, ten to eight, handed the month's money.
+      ['monthly-review', '50 7 1 * *', 'Asia/Jakarta', true, 'mission', 'strategist', 'month'],
+    ],
   );
   assert.match(schedules[0]!.goal, /Weekly business review/);
+  assert.match(schedules[1]!.goal, /Monthly money review/);
 
   // The frameworks arrive as candidates: somebody reviews them and the owner
   // approves before any agent reads one.
@@ -510,10 +519,39 @@ test("the platform's own kit installs as shipped, and a copy somebody changed do
   await assert.rejects(publishBundle(orphan), /names role nobody/);
   const unknownFacts = {
     ...COMPANY_OS,
-    slug: 'company-os-month',
-    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, facts: 'month' as never }] },
+    slug: 'company-os-year',
+    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, facts: 'year' as never }] },
   };
-  await assert.rejects(publishBundle(unknownFacts), /asks to be handed month; a cadence can be handed week, or nothing/);
+  await assert.rejects(publishBundle(unknownFacts), /asks to be handed year; a cadence can be handed week, month, or nothing/);
+
+  // F18.12: the month is the company's books -- cash, what customers owe and
+  // their names -- and the books are read through `ledger.read`. A cadence
+  // handed them is refused unless its role holds that tool and the bundle
+  // grants it to the role's division, or a bundle could hand the books to a
+  // role the broker would never let read them.
+  const monthly = COMPANY_OS.body.cadences!.find((cadence) => cadence.facts === 'month')!;
+  const withoutTool = {
+    ...COMPANY_OS,
+    slug: 'company-os-no-ledger-tool',
+    body: {
+      ...COMPANY_OS.body,
+      roles: COMPANY_OS.body.roles.map((role) => role.slug === monthly.roleSlug
+        ? { ...role, tools: (role.tools ?? []).filter((tool) => tool !== 'ledger.read') }
+        : role),
+    },
+  };
+  await assert.rejects(publishBundle(withoutTool),
+    /cadence monthly-review is handed the month's books, and role strategist does not list ledger.read among its tools/);
+  const withoutGrant = {
+    ...COMPANY_OS,
+    slug: 'company-os-no-ledger-grant',
+    body: {
+      ...COMPANY_OS.body,
+      grants: COMPANY_OS.body.grants.filter((grant) => !(grant.division === 'strategy' && grant.capability === 'ledger.read')),
+    },
+  };
+  await assert.rejects(publishBundle(withoutGrant),
+    /cadence monthly-review is handed the month's books, and the bundle does not grant ledger.read to division strategy/);
 });
 
 /**
@@ -737,6 +775,282 @@ test("each of the kit's frameworks says what its eval asks for", () => {
     }
     assert.ok(skill.source.split('\n').length <= 60, `${skill.slug} is longer than a run should read`);
   }
+});
+
+/* ---------------------------------------------------- F18.11, F18.15 --- */
+
+/**
+ * The four skills 1.6.0 brings, and the stage gates it changes, with what
+ * each one's eval must hold it to. A phrase here is a rule of the method
+ * that a rewrite must not lose: the test above already checks that a skill
+ * says every phrase its eval asks for, so asking for it here makes it stay.
+ */
+const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
+  'channel-testing': [
+    'every one of the 19 channels', 'about three', 'drops off',
+    'what one customer costs', 'how many customers', 'customers the company wants now',
+    'before any work starts', 'once the owner approves it', 'account of the task that hands it on',
+    'a day at most', 'about a month',
+    'average of the three', 'core channel', 'feeds the core one', 'saturates', 'critical path',
+  ],
+  'one-page-model': ['riskiest assumption', 'Leave it blank rather than invent one', 'CC BY-SA', 'same licence'],
+  'fit-survey': [
+    'at least twice in the last two weeks', 'never ask the same person twice', 'about 40 or more answers',
+    'very disappointed', 'a heuristic', 'never answer in place of a customer', 'tier 2',
+  ],
+  'press-release-first': [
+    'press release', 'questions and answers', 'Before the company builds a new offer', 'never invent a customer', 'critic',
+  ],
+  'stage-gates': [
+    'learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment',
+    // 1.7.0 (F18.8): the pivot is decided from the grade the platform wrote.
+    'the platform grades it', 'predicted beside what', 'pivot or persevere',
+    // And where the strategist, which runs the stage gates, reads that grade.
+    "grades in the weekly review's input",
+  ],
+};
+
+/**
+ * The channels in the order Weinberg and Mares's 2015 edition gives them,
+ * in PALUGADA's words: the skill must name every one, because the method's
+ * first rule is that no channel is dismissed unread.
+ */
+const NINETEEN_CHANNELS = [
+  'niche blogs', 'publicity', 'unconventional publicity', 'search ads', 'social and display ads', 'offline ads',
+  'search engine optimisation', 'content', 'email', 'free tools', 'referrals', 'business development',
+  'direct sales', 'affiliates', 'existing platforms', 'trade shows', 'offline events', 'speaking', 'community',
+];
+
+test('the kit\'s description names every skill it brings, so the owner deciding to install it reads what it adds', () => {
+  // The owner decides on Settings, Bundles from this line. 1.6.0 added four
+  // skills and the monthly money review, which hands the strategist the
+  // books every month, and the line still ended at "the weekly review".
+  const description = COMPANY_OS.description.toLowerCase();
+  for (const skill of COMPANY_OS.body.skills) {
+    const title = skill.source.split('\n').find((line) => line.startsWith('# '))!.slice(2).trim();
+    assert.ok(description.includes(title.toLowerCase()), `the kit's description does not name "${title}" (${skill.slug})`);
+  }
+});
+
+test('the kit tests channels and drafts the one-page model, the fit survey and the press release, in its own words (F18.11, F18.15)', () => {
+  // 1.6.0 brought these; 1.7.0 has the stage gates read the period's grade (F18.8).
+  assert.equal(COMPANY_OS.version, '1.7.0');
+  const skill = (slug: string) => {
+    const found = COMPANY_OS.body.skills.find((one) => one.slug === slug);
+    assert.ok(found, `the kit has no ${slug} skill`);
+    return found;
+  };
+
+  for (const [slug, phrases] of Object.entries(CHANNEL_AND_DRAFTING_RULES)) {
+    const one = skill(slug);
+    for (const phrase of phrases) {
+      assert.ok(one.evals.some((evalCase) => evalCase.expectContains.includes(phrase)), `${slug}'s eval does not ask for "${phrase}"`);
+    }
+  }
+
+  // Each new skill names the method it follows in its description, the line
+  // every run is shown, and none takes the method's name for its own title:
+  // the attribution is the one place the source's name appears.
+  const attributions: Record<string, RegExp> = {
+    'channel-testing': /after the Bullseye framework in Traction by Gabriel Weinberg and Justin Mares/,
+    'one-page-model': /adapted from Lean Canvas by Ash Maurya, CC BY-SA/,
+    'fit-survey': /after Sean Ellis/,
+    'press-release-first': /after Amazon's working backwards/,
+    // Its pivots and learning priorities are Ries's, so it names him too.
+    'stage-gates': /pivots and learning priorities after The Lean Startup by Eric Ries/,
+  };
+  for (const [slug, attribution] of Object.entries(attributions)) {
+    const source = skill(slug).source;
+    const description = source.split('\n').find((line) => line.startsWith('description:'))!;
+    assert.match(description, attribution, `${slug} does not say whose method it follows`);
+    const title = source.split('\n').find((line) => line.startsWith('# '))!;
+    assert.doesNotMatch(title, /Bullseye|Lean Canvas|Working Backwards|Sean Ellis|Traction/, `${slug}'s title is a method's name`);
+  }
+
+  // Every channel, in the book's order, and none dismissed.
+  const channels = skill('channel-testing').source;
+  let from = 0;
+  for (const channel of NINETEEN_CHANNELS) {
+    const at = channels.indexOf(channel, from);
+    assert.ok(at >= 0, `channel testing does not name "${channel}" after the channel before it`);
+    from = at + channel.length;
+  }
+  // ICE as GrowthHackers defines it, an average, said so where a product
+  // is the common misreading.
+  assert.match(channels, /ICE/);
+  assert.match(channels, /not their product/);
+
+  // The share-alike notice travels with the adapted text.
+  assert.match(skill('one-page-model').source, /creativecommons\.org\/licenses\/by-sa\/3\.0/);
+
+  // The strategist is told to run channel tests and to propose new goals,
+  // a test or a plan, to the owner -- never to start one.
+  const strategist = COMPANY_OS.body.roles.find((role) => role.slug === 'strategist')!;
+  assert.match(strategist.systemPrompt, /channel-testing skill/);
+  assert.match(strategist.systemPrompt, /never start one before the owner approves it/);
+  assert.match(strategist.systemPrompt, /channel test/);
+  assert.match(strategist.systemPrompt, /plan/);
+  assert.match(strategist.systemPrompt, /before any work starts/);
+  // Twelve tools is the most a role may hold (F2.6), and the skills name
+  // none it does not already hold.
+  assert.equal(strategist.tools?.length, 12);
+  for (const tool of ['doc.draft', 'goal.propose', 'metric.record', 'task.delegate', 'task.await', 'owner.ask']) {
+    assert.ok(strategist.tools?.includes(tool), `the strategist does not hold ${tool}, which the skills name`);
+  }
+});
+
+test('the kit says what it brings, and its skills ask for nothing a reader of them may not hold (F18.11, F18.12, F18.15)', () => {
+  // The owner reads the description before installing: a cadence that hands
+  // the strategist the books is one they are told of.
+  for (const said of [/monthly money review/, /books/, /channel testing/, /one-page business model/, /fit survey/, /press release/]) {
+    assert.match(COMPANY_OS.description, said);
+  }
+  const skill = (slug: string) => COMPANY_OS.body.skills.find((one) => one.slug === slug)!.source;
+  // A company-wide skill is read by the CEO too, which no longer holds
+  // doc.draft (0141): each that drafts says what to do without it.
+  for (const one of COMPANY_OS.body.skills.filter((candidate) => candidate.source.includes('doc.draft'))) {
+    assert.match(one.source, /a role that holds it/, `${one.slug} tells every reader to call doc.draft`);
+  }
+  // A plan line carries one measure (PLAN_LINE_SCHEMA): a test is one
+  // learning priority, recorded on its one measure, and its spend and cost
+  // are reported, not recorded on measures it does not have.
+  const channels = skill('channel-testing');
+  assert.doesNotMatch(channels, /no account or goal of its own/);
+  assert.doesNotMatch(channels, /on its measures/);
+  assert.match(channels, /one learning priority/);
+  assert.match(channels, /one measure/);
+  // The monthly review's issues reach the weekly meeting by its summary's end.
+  assert.match(skill('monthly-review'), /end of this review's summary/);
+});
+
+/**
+ * What the owner reads as the feature's name: the slug, which the Skills
+ * page shows in bold and every context pack titles its section with, and
+ * every sentence a run reads. A method's own name -- Bullseye is a name its
+ * authors use, and working backwards is Amazon's -- belongs in the one
+ * attribution line and nowhere else (F18 naming).
+ */
+test('the kit names its methods plainly, keeping each source\'s name to its attribution (F18.11, F18.15)', () => {
+  const borrowed = /bullseye|working.backwards/i;
+  for (const one of COMPANY_OS.body.skills) {
+    assert.doesNotMatch(one.slug, borrowed, `the skill ${one.slug} is named after a method`);
+    const read = one.source.split('\n').filter((line) => !line.startsWith('description:')).join('\n');
+    assert.doesNotMatch(read, borrowed, `${one.slug} names a method outside its attribution`);
+  }
+  for (const one of COMPANY_OS.body.roles) {
+    assert.doesNotMatch(one.systemPrompt, borrowed, `the ${one.slug} prompt names a method`);
+  }
+});
+
+/**
+ * The skill says where a test's money comes from and how long one hand-off
+ * lasts, and both are read from task.delegate rather than hoped: it takes no
+ * account and no goal, so the child spends from the account of the task that
+ * delegates it (F5.4), and it refuses a deadline past a day.
+ */
+test('channel testing promises only what task.delegate does: the delegating task\'s account and a day at most (F18.11, F5.4)', async () => {
+  const delegate = taskDelegateCapability();
+  const properties = Object.keys((delegate.inputSchema as { properties: Record<string, unknown> }).properties);
+  assert.ok(!properties.some((name) => /budget|account|goal/i.test(name)),
+    `task.delegate now takes ${properties.join(', ')}; the channel-testing skill can say so`);
+  await assert.rejects(
+    delegate.execute({ role: 'marketer', brief: 'run the search ads test', timeoutMinutes: 1_441 },
+      { companyId: '00000000-0000-0000-0000-000000000000', taskId: '00000000-0000-0000-0000-000000000000' } as never),
+    /from 1 to 1440/);
+
+  const channels = COMPANY_OS.body.skills.find((one) => one.slug === 'channel-testing')!.source;
+  assert.doesNotMatch(channels, /spends\s+only\s+from/, 'a delegated test cannot be held to an account of its own');
+  assert.match(channels, /account\s+of\s+the\s+task\s+that\s+hands\s+it\s+on/);
+  assert.match(channels, /a\s+day\s+at\s+most/);
+  // The owner's approval comes before the first hand-off, said in that order.
+  const approves = channels.search(/once\s+the\s+owner\s+approves\s+it/);
+  assert.ok(approves >= 0 && approves < channels.indexOf('task.delegate'),
+    'channel testing hands the test on before the owner approves it');
+});
+
+/** The kit as 1.5.0 shipped it: without the four skills, with the stage gates and the strategist as they were. */
+function kitBeforeChannelTesting(): Bundle {
+  const added = ['channel-testing', 'one-page-model', 'fit-survey', 'press-release-first'];
+  const body = COMPANY_OS.body;
+  const stageGates = body.skills.find((one) => one.slug === 'stage-gates')!;
+  return {
+    ...COMPANY_OS,
+    version: '1.5.0',
+    body: {
+      ...body,
+      roles: body.roles.map((one) => one.slug === 'strategist'
+        ? { ...one, systemPrompt: 'You decide what the company should do next and whether what it is doing is working.' }
+        : one),
+      skills: body.skills.filter((one) => !added.includes(one.slug)).map((one) => one.slug === 'stage-gates'
+        ? {
+          ...one,
+          source: '---\nname: stage-gates\ndescription: When the company moves from one stage to the next.\n---\n\n'
+            + '# Stage gates\n\nValidate to build needs willingness to pay, a premortem, and a NO-GO said plainly.\n',
+          evals: [stageGates.evals[0]!],
+        }
+        : one),
+    },
+  };
+}
+
+test('installing the kit over 1.5.0 brings the new skills as candidates and leaves the live stage gates live (F18.15, F15.3)', async () => {
+  const fixture = await createCompany('bundle-company-os-channels');
+  const { companyId } = fixture;
+  await registerStandardCatalogue();
+  const keys = publisher();
+  await trustPublisher({ publicKeyPem: keys.publicKey, label: 'the test publisher', ownerApproved: true });
+  const before = kitBeforeChannelTesting();
+  await publishBundle(signBundle(before, keys));
+  await installBundle({ companyId, slug: before.slug, version: before.version });
+
+  // The owner had switched the stage gates on.
+  const versionsOf = (slug: string) => withTenant(companyId, (tx) => tx.query<{
+    id: string; skill_id: string; version: number; state: string; body: string; active_version: number | null;
+  }>(
+    `SELECT v.id, v.skill_id, v.version, v.state, v.body, s.active_version
+       FROM skill_versions v JOIN skills s ON s.id = v.skill_id WHERE s.slug = $1 ORDER BY v.version`, [slug]));
+  const [live] = (await versionsOf('stage-gates')).rows;
+  await recordSkillReview(companyId, live!.id, { approved: true });
+  await approveSkillVersion(companyId, live!.id);
+  const strategistBefore = (await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM roles WHERE slug = 'strategist'"))).rows[0]!;
+
+  await publishBundle(COMPANY_OS);
+  const upgraded = await installBundle({ companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.equal(upgraded.quarantined, false, 'the kit as shipped installs as written');
+
+  // The four new skills, each a candidate with its evals, which it passes.
+  for (const slug of ['channel-testing', 'one-page-model', 'fit-survey', 'press-release-first']) {
+    assert.ok(upgraded.skills.includes(slug), `${slug} was not installed`);
+    const { rows } = await versionsOf(slug);
+    assert.deepEqual(rows.map((row) => [row.version, row.state, row.active_version]), [[1, 'candidate', null]], slug);
+    const shipped = COMPANY_OS.body.skills.find((one) => one.slug === slug)!;
+    assert.equal(rows[0]!.body, shipped.source);
+    const evals = await runSkillEvals(companyId, rows[0]!.id);
+    assert.ok(evals.passed, `${slug} fails its own eval: ${JSON.stringify(evals.cases)}`);
+    assert.equal(evals.cases.length, shipped.evals.length);
+  }
+
+  // The stage gates are upgraded in place: the same skill, a second version
+  // waiting for review and the owner, and the version the owner approved
+  // still the one every run reads until they approve the new one.
+  const gates = (await versionsOf('stage-gates')).rows;
+  assert.deepEqual(gates.map((row) => [row.skill_id, row.version, row.state]),
+    [[live!.skill_id, 1, 'active'], [live!.skill_id, 2, 'candidate']]);
+  assert.ok(gates.every((row) => row.active_version === 1));
+  assert.match(gates[1]!.body, /living dead/);
+  const newGates = await runSkillEvals(companyId, gates[1]!.id);
+  assert.ok(newGates.passed, JSON.stringify(newGates.cases));
+
+  // The strategist is the same role, told the new prompt.
+  const { rows: strategist } = await withTenant(companyId, (tx) => tx.query<{ id: string; system_prompt: string }>(
+    "SELECT id, system_prompt FROM roles WHERE slug = 'strategist'"));
+  assert.equal(strategist[0]!.id, strategistBefore.id);
+  assert.equal(strategist[0]!.system_prompt, COMPANY_OS.body.roles.find((one) => one.slug === 'strategist')!.systemPrompt);
+
+  const { rows: installs } = await withTenant(companyId, (tx) => tx.query<{ version: string; quarantined: boolean }>(
+    "SELECT version, quarantined FROM bundle_installs WHERE slug = 'company-os'"));
+  assert.deepEqual(installs, [{ version: COMPANY_OS.version, quarantined: false }]);
 });
 
 /* ------------------------------------------------------------------ F14.4 --- */

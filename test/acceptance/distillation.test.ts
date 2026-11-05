@@ -24,6 +24,7 @@ import { buildContext } from '../../src/context/builder.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { memoriesOf } from '../../src/owner/views.ts';
 import { buildWeeklyRetro } from '../../src/reporting/digest.ts';
+import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -306,8 +307,16 @@ test('an unstated confidence is treated as middling, not certain', async () => {
   assert.equal(fact!.confidence, 0.5, 'reporting everything as certain makes the field useless');
 });
 
-/** Seeds enough completed tool calls for a pattern to become proposable. */
-async function seedRepeatedPattern(fixture: Fixture, capability: string, times: number, from = 0) {
+/**
+ * Seeds enough completed tool calls for a pattern to become proposable.
+ *
+ * `keyPrefix` is how the task began: a duty's tasks are keyed `duty:` by the
+ * platform, everything else here is ordinary work.
+ */
+async function seedRepeatedPattern(
+  fixture: Fixture, capability: string, times: number, from = 0, keyPrefix = `pattern-${capability}-`,
+  completed?: Record<string, unknown>,
+) {
   await withTenant(fixture.companyId, async (tx) => {
     for (let i = from; i < from + times; i += 1) {
       const { rows } = await tx.query<{ id: string }>(
@@ -317,7 +326,7 @@ async function seedRepeatedPattern(fixture: Fixture, capability: string, times: 
          RETURNING id`,
         [
           fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId,
-          fixture.budgetAccountId, `pattern-${capability}-${i}`,
+          fixture.budgetAccountId, `${keyPrefix}${i}`,
         ],
       );
       await appendEvent(tx, {
@@ -328,6 +337,16 @@ async function seedRepeatedPattern(fixture: Fixture, capability: string, times: 
         actor: 'agent_run',
         payload: { capability },
       });
+      if (completed) {
+        await appendEvent(tx, {
+          companyId: fixture.companyId,
+          projectId: fixture.projectId,
+          taskId: rows[0]!.id,
+          type: 'task.completed',
+          actor: 'agent_run',
+          payload: completed,
+        });
+      }
     }
   });
 }
@@ -695,4 +714,59 @@ test('the platform\'s own tools are no procedure: searching memory ten times pro
     llm: new RecordingLlmClient(() => 'x'), model: MODEL,
   });
   assert.deepEqual(candidates, []);
+});
+
+/**
+ * Every tool the platform registers for itself is routing or bookkeeping the
+ * charters and the goal review already prescribe, so none of them is a
+ * procedure to propose. The list was written out by hand and fell behind:
+ * `ticket.create` and `schedule.propose` were added after it, and every
+ * founding company's management division was offered "Proposed SOP for
+ * ticket.create" from the CEO's own goal reviews. Taken from what is
+ * registered, so the next platform tool cannot fall out of it.
+ */
+test('no tool the platform registers for itself is proposed as a procedure', async () => {
+  const fixture = await createCompany('distil-platform-tools');
+  const names: string[] = [];
+  registerPlatformCapabilities({ register: (capability) => { names.push(capability.name); } });
+  assert.ok(names.includes('ticket.create') && names.includes('schedule.propose'), names.join(', '));
+
+  let from = 0;
+  for (const name of names) {
+    await seedRepeatedPattern(fixture, name, 3, from);
+    from += 3;
+  }
+  const llm = new RecordingLlmClient(() => 'x');
+  const candidates = await distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
+  });
+  assert.deepEqual(candidates.map((candidate) => candidate.pattern), []);
+  assert.equal(llm.callCount, 0, 'nothing was written, so nothing was paid for');
+});
+
+/**
+ * A duty is the platform's own procedure (src/duties), already written as
+ * code: three collection runs calling `invoice.remind` are that code running
+ * three times, not a way of working a division fell into. Counted, every
+ * company that switched reminders on was offered "Proposed SOP for
+ * invoice.remind". Work a role did is still counted, and a duty's run is not
+ * shown to the model as an example of it.
+ */
+test('a duty the platform runs is no pattern of work, and work a role did still is', async () => {
+  const fixture = await createCompany('distil-duty');
+  await seedRepeatedPattern(fixture, 'invoice.remind', 3, 0, 'duty:collections:');
+  await seedRepeatedPattern(fixture, 'doc.draft', 3, 0, 'pattern-doc.draft-',
+    { goal: 'Draft the quarterly letter to suppliers', summary: 'Letter drafted' });
+  // A duty that drafted a document too: not one of the three, and not an example.
+  await seedRepeatedPattern(fixture, 'doc.draft', 1, 0, 'duty:collections:draft-',
+    { goal: 'Remind the overdue invoices', summary: 'Two reminders sent' });
+
+  const llm = new RecordingLlmClient(() => 'Drafting a letter\n1. Read the brief\n2. Draft');
+  const candidates = await distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
+  });
+  assert.deepEqual(candidates.map((candidate) => [candidate.pattern, candidate.occurrences]), [['doc.draft', 3]]);
+  const prompt = String(llm.calls[0]!.messages[0]!.content);
+  assert.match(prompt, /quarterly letter to suppliers/);
+  assert.doesNotMatch(prompt, /overdue invoices/, 'a duty run is not shown as an example of the work');
 });

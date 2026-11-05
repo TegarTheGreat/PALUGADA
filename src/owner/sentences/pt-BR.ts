@@ -208,12 +208,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} de {finished} tarefas falharam ou pararam hoje ({rate}%), acima do limite de {limit}%.',
   'Unusual number of policy refusals': 'Número incomum de recusas por política',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Ações recusadas por uma política hoje: {count}, acima do limite de {limit}. Ou um agente está testando os próprios limites, ou uma política está mal calibrada.',
-  'External writes failed verification': 'Gravações externas não passaram na conferência',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Gravações externas que relataram sucesso, mas divergiram na conferência: {count}. Algo está alterando esses dados de um jeito diferente do que foi pedido.',
-  'A capability stopped being usable': 'Uma capacidade deixou de funcionar',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tarefas que não puderam começar hoje porque uma capacidade de que o cargo delas precisa não passou na verificação: {count}. Provavelmente uma credencial expirou ou uma cota acabou.',
-  'A worker stopped reporting mid-run': 'Um executor parou de dar sinal no meio de uma execução',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Execuções que pararam de dar sinal e foram dadas como perdidas hoje: {count}. O trabalho foi retomado; os tokens que elas já tinham gastado não foram recuperados.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} teve {denials} recusas hoje, chegando ao limite de {limit}. Nenhuma tarefa vai ser executada com este cargo até você descongelá-lo. As causas mais comuns são uma permissão de capacidade que falta, uma política que as diretrizes do cargo não preveem, ou um trabalho para o qual o cargo nunca foi preparado.',
   'Role {role} is frozen after repeated denials': 'O cargo {role} foi congelado após recusas repetidas',
   'What it was refused: {capabilities}': 'O que foi recusado: {capabilities}',
@@ -224,12 +218,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” está esperando desde {since}. {why} Aprovar executa a tarefa de novo a partir de onde ela parou; Recusar a cancela.',
   'A task keeps stopping the worker running it': 'Uma tarefa continua derrubando o executor que a processa',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” perdeu o executor {lost} vezes: em cada uma, o executor que a processava parou de responder antes de o trabalho terminar. O que ela já tinha feito foi mantido. Ela foi interrompida para não derrubar outro executor; execute-a de novo quando a causa for encontrada, ou cancele-a.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} continuou fora do ar, e o trabalho que depende disso parou',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'A tarefa esperou cerca de {minutes} minutos, verificando de novo a cada tentativa, e parou. Quando o serviço responder, execute-a de novo.',
   'It was tried {tries} times over about {minutes} minutes.': 'Foram {tries} tentativas em cerca de {minutes} minutos.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Este cargo pode tomar ações que não podem ser desfeitas, então a execução não foi transferida em silêncio para outro modelo.',
   'No fallback model is left for this role.': 'Não resta nenhum modelo alternativo para este cargo.',
-  'Model {model} failed and the run was not moved': 'O modelo {model} falhou e a execução não foi transferida',
   'External write failed verification': 'Uma gravação externa não passou na conferência',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'A tarefa gravou em um serviço externo e conferiu o resultado, e o que leu não bateu. Verifique o lugar onde ela gravou antes de executá-la de novo: a gravação pode ter acontecido.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Revisão travada após {rounds} rodadas de correção: {capability}',
@@ -254,7 +245,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'O agendamento “{schedule}” continua produzindo o mesmo resultado',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'As últimas {runs} execuções terminaram todas com o mesmo resultado. Às vezes isso é exatamente o certo — um relatório sem nada de novo a dizer — e muitas vezes é um agendamento que deixou de fazer algo útil e continua sendo pago. Recusar desativa o agendamento; Aprovar o mantém em execução, sem novas perguntas sobre este resultado.',
   'Capability {capability} failed preflight': 'A capacidade {capability} não passou na verificação prévia',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'O trabalho que precisa dela é interrompido em vez de iniciado: corrija a causa e depois execute esse trabalho de novo. As causas mais comuns são uma credencial expirada ou com escopo errado, uma cota esgotada ou um endereço errado.',
   'Batch guard stopped {capability}': 'O controle de lote barrou {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Não correspondia ao plano que a execução registrou. Nada foi enviado e nenhum serviço foi chamado.',
   '{role} was asked first and has had {minutes} minutes.': 'Isto foi passado primeiro para {role}, que já teve {minutes} minutos.',
@@ -342,8 +332,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} recusou a chave do modelo ({status}), então nenhum trabalho que dependa do modelo consegue rodar. Abra Configurações, Esta instância, Modelo, cole uma chave que funcione, teste e salve.',
   '{host} refused the model key, and work is waiting': '{host} recusou a chave do modelo e o trabalho está em espera',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'O trabalho que espera o modelo continua sozinho assim que uma chave que funcione estiver em uso.',
   'A task ended before it was done: {task}':
     'Uma tarefa terminou antes de ficar pronta: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -407,4 +395,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Retirado: o ticket a que se referia foi fechado.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'A fatura {number} ({amount}, {customer}) está vencida desde {due}, e foi emitida sem endereço de e-mail para enviar um lembrete. Acompanhe você mesmo, ou diga ao CEO o que quer que seja feito.',
+  'Kept as your word: {words}':
+    'Guardado como palavra sua: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Registrado como número seu: {value} para {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Execuções retomadas depois que o executor parou: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Retirado: a tarefa a que se referia foi executada de novo.',
+  'Withdrawn: the day it was about has ended.':
+    'Retirado: o dia a que se referia terminou.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Retirado: o período a que se referia terminou e já foi avaliado.',
+  'Withdrawn: the goal it was about was closed.':
+    'Retirado: a meta a que se referia foi encerrada.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Retirado: o teto do mês foi atingido, e o cartão que diz que a empresa está pausada toma o seu lugar.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'O trabalho que ainda estiver esperando depois de cerca de {hours} horas para, e este cartão fica então aberto para você executá-lo de novo.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} não está respondendo, e o trabalho que depende disso está esperando',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'O trabalho esperou cerca de {minutes} minutos, verificando de novo a cada tentativa, e continua esperando: ele segue sozinho assim que o serviço responder, e este cartão então se fecha sozinho.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'O trabalho espera e segue sozinho assim que o modelo responder, e este cartão então se fecha sozinho.',
+  'Model {model} is not answering, and work is waiting for it':
+    'O modelo {model} não está respondendo, e há trabalho esperando por ele',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'O trabalho que espera o modelo continua sozinho assim que uma chave que funcione estiver em uso, e este cartão então se fecha sozinho.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'O trabalho que precisa dela espera em vez de ser iniciado, e segue sozinho assim que a verificação passar; este cartão então se fecha sozinho. As causas mais comuns são uma credencial expirada ou com escopo errado, uma cota esgotada ou um endereço errado.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} teve a execução interrompida: o trabalho deste cartão foi retomado.',
+  'Withdrawn: the month it was about has ended.':
+    'Retirado: o mês a que se referia terminou.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Retirado: a pausa foi suspensa e o trabalho continua.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Retirado: o modelo voltou a responder, e o trabalho que o esperava foi chamado de volta.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Retirado: a chave do modelo voltou a funcionar, e o trabalho que a esperava foi chamado de volta.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Retirado: o serviço voltou a passar na verificação, e o trabalho que o esperava foi chamado de volta.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Retirado: nenhum trabalho espera mais por isso.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Retirado: a função a quem foi repassado cuidou disso, e não resta nada para você decidir.',
+  'Work finished: {count}':
+    'Trabalhos concluídos: {count}',
+  'Stopped: its work was taken up another way':
+    'Interrompida: o trabalho foi retomado de outra forma',
+  'Its work stopped, and each time it took down the worker running it.':
+    'O trabalho parou, e a cada vez derrubou o worker que o executava.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Uma gravação em um serviço externo pode ter acontecido sem ser o que se pretendia.',
+  'Work charged to the same budget account stops until it has room again.':
+    'O trabalho cobrado da mesma conta de orçamento para até ela ter margem de novo.',
+  'Its work stopped before it was done.':
+    'O trabalho parou antes de terminar.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'A plataforma contou {lost} workers perdidos, o máximo que uma tarefa pode perder.',
+  'The platform read back what was written, and it did not match.':
+    'A plataforma releu o que foi gravado, e não batia.',
+  'The budget account had nothing left to reserve for the work.':
+    'A conta de orçamento não tinha mais nada a reservar para o trabalho.',
+  'The platform found it ended with no card raised for it.':
+    'A plataforma constatou que terminou sem nenhum cartão aberto para ele.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'O cartão foi para quem a divisão indica para cuidar disso, e depois para você.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'A tarefa foi interrompida, e você foi avisado por um cartão na caixa de entrada.',
+  'Postmortem: {cause} ({about})':
+    'Análise pós-incidente: {cause} ({about})',
+  'What happened':
+    'O que aconteceu',
+  'Impact':
+    'Impacto',
+  'Trigger':
+    'Gatilho',
+  'Detection':
+    'Detecção',
+  'What was done':
+    'O que foi feito',
+  'A task of {role} stopped before it was done.':
+    'Uma tarefa de {role} parou antes de terminar.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Para resolver: encontrar a causa raiz perguntando por quê a cada resposta e conferindo-a com o registro, decidir uma vez e abrir as ações que executam a decisão, cada uma com um posto.',
+  'Off track: {name}':
+    'Fora do rumo: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} foi {value} na semana de {week}, contra uma meta semanal de {target}.',
+  '{role} answers for it.':
+    '{role} responde por isso.',
+  'No seat answers for it.':
+    'Nenhum cargo responde por isso.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'A plataforma leu isso do placar semanal antes da reunião operacional semanal.',
+  'Not done at two meetings: {title}':
+    'Não feito em duas reuniões: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'A ação "{title}", com prazo em {due}, não estava feita na reunião operacional semanal de {previous}, nem nesta.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'A plataforma leu isso das ações antes da reunião operacional semanal.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Reunião operacional semanal realizada ({week}): {where}',
+  'see its task under Work':
+    'veja a tarefa dela em Trabalho',
+  'New goals proposed, to approve line by line':
+    'Novas metas propostas, para aprovar linha por linha',
+  'Line {line}: the {kind} "{goal}"':
+    'Linha {line}: o {kind} "{goal}"',
+  'Under: {goal}':
+    'Abaixo de: {goal}',
+  'Under line {line}: {goal}':
+    'Abaixo da linha {line}: {goal}',
+  'Period: {from} to {to}':
+    'Período: de {from} a {to}',
+  'Committed: done in full, or missed.':
+    'Comprometida: feita por inteiro, ou perdida.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Aspiracional: recebe nota, e de 0,6 a 0,7 é um bom resultado.',
+  'Learning: a test of the prediction below.':
+    'De aprendizado: testa a previsão abaixo.',
+  'Owned by: {role}':
+    'Responsável: {role}',
+  'Done when: {doneWhen}':
+    'Concluída quando: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'A previsão, escrita antes do trabalho: {name} chega a {target}, a partir de {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Medida por {name}: de {baseline} a {target}.',
+  'Watched with: {measure}':
+    'Acompanhada junto com: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Metas deste ano: {count}, mais que as {limit} que uma empresa consegue acompanhar.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Resultados-chave sob este objetivo: {count}, mais que os {limit} que um objetivo consegue acompanhar.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioridades trimestrais ao mesmo tempo: {count}, mais que as {limit} que uma empresa consegue acompanhar.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioridades trimestrais de {seat} ao mesmo tempo: {count}, mais que as {limit} que uma cadeira consegue levar.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Aprovar torna cada linha aprovada uma meta, com sua medida; uma linha recusada não é criada. Até lá, o trabalho continua sob as metas como estão.',
+  'No goal is made.':
+    'Nenhuma meta é criada.',
+  'Missed: {statement}':
+    'Não cumprida: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, comprometida para {from} a {to}, não foi concluída.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Medida pelos seus números, percorreu {progress} do caminho.',
+  'It was not marked met by its due date.':
+    'Não foi marcada como cumprida até a data de vencimento.',
+  'The platform graded it when its period ended.':
+    'A plataforma deu a nota quando o período terminou.',
+  'Off pace: {statement}':
+    'Fora do ritmo: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} é uma prioridade comprometida que vence em {due}. Seus números percorreram {progress} do caminho, com {elapsed} do período já passado.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Nada foi mudado para recuperar o atraso, e nenhum agente foi solicitado a isso: um número comprometido atrasado em relação ao tempo convida a ações mais arriscadas para compensar, e assumir esse risco cabe a você. Decida se adia a data, reduz a meta, a torna aspiracional ou deixa seguir e não ser cumprida.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Nada é interrompido, seja qual for a resposta. A prioridade continua como está e recebe nota quando o período terminar; altere-a em Equipe, Metas se decidir.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nossos valores',
+  'Purpose and niche': 'Propósito e nicho',
+  'Long-range target': 'Meta de longo prazo',
+  'Who we serve and what makes us different': 'A quem servimos e o que nos diferencia',
+  'Where we will be in three years': 'Onde estaremos em três anos',
+  'Our promise': 'Nossa promessa',
 };

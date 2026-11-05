@@ -26,10 +26,13 @@ authenticator on its own page takes it on the card too (**Apply with a
 code**; inside the window a code just shown opens, it needs none for what
 builds the company). The exception is everyday work you asked for in a
 conversation with a company's CEO: giving the team work, filing and handing
-on a ticket, telling a task something, stopping it or running it again. That
-is done as the CEO proposes it, and the card is already marked applied --
-unless that answer has read what agents or customers wrote, when it is a card
-again, for you. A key goes in the sealed field on the card and
+on a ticket, telling a task something, stopping it or running it again,
+remembering what you tell it to remember and recording a figure you give it.
+That is done as the CEO proposes it, and the card is already marked applied
+-- unless that answer has read what agents or customers wrote, when it is a
+card again, for you. What it remembers is kept as your own word, so check it:
+**Correct** or **Take back** on **Memory** undoes it, and the same thing said
+again is kept once. A key goes in the sealed field on the card and
 from there straight to where it is kept: the assistant never sees it, and a
 key typed into the conversation is refused, not kept, and not sent to the
 model. **Dismiss** a card you do not want; **Start again** forgets the
@@ -59,10 +62,13 @@ The CEO answers in its own name and in the persona you chose for it, from
 what it reads about its own company and nothing else; for models, keys,
 channels or other companies it sends you to **Ask PALUGADA**. Work you want
 done is given to the CEO's own role at once, which hands it to the right
-people when it runs, and the CEO tells you it did. Anything else it proposes
--- hiring, a goal, a limit -- is a card, and nothing changes until you press
-**Apply**. **Show what it sends** on a card shows the route and every value
-it sends, ids included. Each company's conversation is its own,
+people when it runs, and the CEO tells you it did; what you tell it to
+remember, and a figure you give it, are kept at once as yours. Building the
+team in the app -- a hire, a division, a goal -- is done as it proposes it
+too, and it says what it did. Anything else it proposes, such as a spending
+limit, is a card, and nothing changes until you press **Apply**. **Show what
+it sends** on a card shows the route and every value it sends, ids included.
+Each company's conversation is its own,
 and **Start again** forgets only that one.
 
 The CEO thinks with the deployment's model, like **Ask PALUGADA**; it works
@@ -1529,12 +1535,16 @@ CEO** in the console. With several companies, send `/ceo` and choose whom
 you talk to; `/palugada` talks to PALUGADA's assistant about the whole
 deployment. A voice note needs a provider under **Tools**, **Listening**;
 the answer shows what was heard, and is also said aloud when one is chosen
-under **Speaking**. Giving work, filing a ticket and telling or cancelling a
-task are done as the CEO says so; a fact to remember or a measured value is
-a card with one press in the chat; anything that takes your device,
-such as a spending limit, has a button that opens the conversation in the
-console. Only you, in your own chat with the bot, are heard; what you say
-in a group is not sent to anyone.
+under **Speaking**. Giving work, filing a ticket, telling or cancelling a
+task, remembering what you tell it to and recording a figure you give are
+done as the CEO says so; what it kept as your word is shown under its answer
+as it was written ("Kept as your word: ...", "Recorded as your figure: ..."),
+and **Memory** in the console is where to correct or take back a fact.
+Anything else the chat may apply, such as keeping a contact, is a card with
+one press in the chat; anything that takes your device, such as a spending
+limit, has a button that opens the conversation in the console. Only you, in
+your own chat with the bot, are heard; what you say in a group is not sent to
+anyone.
 
 While the CEO thinks, the chat shows "Thinking…" with a stop button;
 pressing it stops the answer, and nothing it had proposed is put in front
@@ -1702,3 +1712,702 @@ jumps to pages and commands and, after two characters, finds tasks,
 decisions and memory across every company. **History** has its own search
 over titles, summaries and your notes, and **Memory** searches what one
 company knows.
+
+## Run the company by known methods
+
+A company runs by the operating methods most small companies already use,
+rather than by ones PALUGADA invented. Each part is named in plain words, and
+the recipe for each is in the sections that follow it:
+
+- **Quarterly priorities and this year's goals**, after the Rocks and the
+  one-year plan in *Traction* by Gino Wickman, and objectives and key results
+  as in *Measure What Matters* by John Doerr and *High Output Management* by
+  Andy Grove.
+- **The weekly scorecard**, after Wickman's scorecard and Grove's paired
+  indicators.
+- **Seats and accountabilities**, after the seats Wickman draws a company
+  as in *Traction*, each with a few accountabilities and one name.
+- **The issues list and to-dos**, after Wickman's issues list, Toyota's and
+  Eric Ries's Five Whys, and the blameless postmortem in Google's *Site
+  Reliability Engineering*.
+- **The weekly operating meeting**, run by the CEO, after Wickman's weekly
+  meeting and the meeting rhythm in *Scaling Up* by Verne Harnish.
+- **Quarterly planning and grades**, after the quarterly cycle both *Traction*
+  and the OKR books describe, and Deming's plan-do-study-act.
+- **A plan of new goals, approved line by line**, as objectives and key
+  results are planned in *Measure What Matters* by John Doerr and a
+  quarter's priorities in *Traction* by Gino Wickman.
+- **Channel testing**, after the Bullseye framework in *Traction* by Gabriel
+  Weinberg and Justin Mares.
+- **Drafting before building**: the one-page business model, adapted from
+  Lean Canvas by Ash Maurya (CC BY-SA); the fit survey, after Sean Ellis;
+  and the press release first, after Amazon's working backwards.
+- **Learning priorities**, after validated learning in *The Lean Startup* by
+  Eric Ries.
+- **The monthly money review**, after the Power of One in *Scaling Up* by
+  Verne Harnish.
+- **The headline metric and funnel steps**, after the north star metric as
+  Sean Ellis describes it and the funnel of Dave McClure's *Startup Metrics
+  for Pirates*.
+- **Core processes**, after the process part of *Traction* by Gino Wickman.
+- **Vision and plan**, after the vision half of the one-page plan in
+  *Traction* by Gino Wickman and the one-page strategic plan in *Scaling Up*
+  by Verne Harnish, with the long-range goal of *Built to Last* by Jim
+  Collins and Jerry Porras.
+
+The owner is the visionary: they write the vision in the company's charter,
+approve every goal, and decide whatever cannot be undone. The CEO is the
+integrator: it runs the meeting, holds each seat to its numbers and solves
+issues between seats.
+
+PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, or
+any author, publisher or holder of the marks and methods named here. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
+Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
+own descriptions of published methods, and none of their templates is copied.
+
+### Set this year's goals and the quarterly priorities
+
+After the one-year plan and the Rocks in *Traction* by Gino Wickman, and
+objectives and key results as *Measure What Matters* by John Doerr and *High
+Output Management* by Andy Grove describe them. A goal on the ladder can say
+by when, whose it is, how firmly it is meant and what done looks like; you
+set all four, and agents read them.
+
+1. Open the company, then **Team**, **Goals**, and press **Add a
+   goal**.
+2. For one of this year's goals, choose **Objective** under the mission and
+   give it a period of the year: **Starts on** the first day, **Due on** the
+   last. A period of more than a quarter and at most a year makes it one of
+   this year's goals.
+3. For a quarterly priority, choose **Key result** under one of those
+   objectives, with a period of a quarter or less (92 days at most), and an
+   **Owning seat**: the one role that answers for it. Say when it is done in
+   **Done when** ("Ten cafes in Bandung have paid an invoice"): a new
+   quarterly priority needs it, because a measure can only be added to a
+   goal that already exists. Once you have defined a measure for it, you may
+   clear **Done when** and let the number say when it is done; that measure
+   then cannot be retired, while it is the last one, until you write
+   **Done when** again. The database refuses a quarterly priority without a
+   seat, or one still open with neither words nor a live measure.
+4. Choose its **Commitment**:
+   - **Committed**: it is done in full by the due date, or it is a miss;
+   - **Aspirational**: a stretch, graded from 0.0 to 1.0 at the end, where
+     0.6 to 0.7 is a good result;
+   - **Learning**: a test, whose prediction is written before the work
+     starts, as a target on its measure.
+5. To test a way of finding customers, choose the **Channel it tests**, one
+   of the nineteen of channel testing, after the Bullseye framework in
+   *Traction* by Gabriel Weinberg and Justin Mares: targeting blogs,
+   publicity, unconventional PR, search engine marketing, social and display
+   ads, offline ads, search engine optimization, content marketing, email
+   marketing, engineering as marketing, viral marketing, business
+   development, sales, affiliate programs, existing platforms, trade shows,
+   offline events, speaking engagements and community building. A cheap
+   test is a learning priority with a channel and a measure.
+
+Each card on the ladder shows the period, the commitment, the seat, the
+channel and when it is done. A company keeps few goals in view, so the card
+also says when a limit is passed: more than five of this year's goals, more
+than five key results under one objective, more than seven quarterly
+priorities at once, or more than five for one seat. These are warnings, not
+refusals: the sources disagree on the numbers, and the choice is yours.
+
+Click a goal to change any of it, with your authenticator code; empty a field
+to clear it. Every run under the goal is told its period, commitment, seat
+and what done is, so the work can say whether it is on the path to it.
+
+From a file or a script, the same fields go to
+`POST /api/companies/:companyId/goals` as `startsOn`, `dueOn` (both
+`YYYY-MM-DD`), `ownerRoleId`, `commitment`, `doneWhen` and `channel`, whose
+values are the names above written with underscores, such as
+`search_engine_optimization`.
+
+### Keep a weekly scorecard
+
+The weekly scorecard is the handful of numbers you read every week to know
+whether the company is on course before it shows in the money. It is after
+the scorecard in Gino Wickman's *Traction* and the paired indicators in Andy
+Grove's *High Output Management*.
+
+1. Open **Team**, then **Weekly scorecard**, and press **Add a line**. Choose
+   the goal the number serves (the mission or an objective, usually), name
+   it, and set its unit, which way is better and its **Target**: on the
+   scorecard the target is the goal for each week. **Reviewed** is already
+   *Every week*.
+2. Choose **The seat that answers for it**: the role that records the number
+   and is held to it. A line with no seat says so on the scorecard.
+3. Set **Read from** to the capability whose answer is the number, if there
+   is one. A number a run records is counted only when that run read it
+   there; otherwise it is shown as claimed, outlined, and judged neither
+   way. A figure you record yourself counts.
+4. Pair a number that can be pushed with the one that would suffer if it
+   were: sign-ups with the share gone within a month, calls with complaints.
+   Choose it under **Watched with**. The two are always shown together, here
+   and to every run working on either. A key result counted in units or
+   money with no pair says so. A new line is offered only numbers that have
+   no pair yet; to pair a number that already has one with another, press
+   **Change** on it, which asks for your second factor.
+5. A measure you already have goes on the scorecard from its goal: on
+   **Goals**, press **Change** on the measure and set **Reviewed** to *Every
+   week*. Setting it back takes it off, and keeps its history.
+
+Each week is counted Monday to Sunday where the company is: the time zone it
+was made in, which the scorecard names under its title. Each week shows its
+last checked figure: green on track, red off track, and a dashed empty cell
+when nothing was reported, which is not the same as off track. The scorecard
+reads best with 5 to 15 lines and says so when it has fewer or more; it never
+refuses one. The Overview shows the first eight lines once there is one.
+
+### Say what each seat is accountable for
+
+Each role is a seat with one occupant, an agent or a person you hired. A seat
+answers for at most five results. On **Team**, open a role, then open **What
+its seat is accountable for** and write one result per line, such as
+"Newsletters sent on time" or "Invoices paid within thirty days". Then
+confirm with your authenticator, because what a seat answers for changes how
+it works, as its charter does. **Hire a role** takes the same list. Each
+change is a version in the role's **History** and can be put back from
+there.
+
+Every run of the seat is told "You are accountable for:" and the list. The
+CEO, and any role that hands work on, sees every other seat's list beside its
+name, each line cut to its first eighty characters, and is told to hand work about a result to the seat accountable for
+it. When the CEO proposes a hire, it says in the proposal what the new seat
+would be accountable for. You decide that on the card and then in the seat.
+
+The chart on **Divisions & roles** shows each seat's list under its name.
+**Seats to look at**, above the chart, names two things to fix, and refuses
+neither:
+
+- a seat with no accountabilities yet, marked under its name too;
+- an accountability two seats both claim in the same words, whatever their
+  case or spacing. Give it to one of them.
+
+Press a seat's name to open it. This follows how *Traction* by Gino Wickman
+draws a company as seats, each with a few accountabilities. You are the
+visionary and the CEO is the integrator, and neither is a seat of its own.
+
+### Test channels, and draft before building
+
+`company-os` 1.6.0 brings four skills for finding customers and deciding
+what to build, and a stage-gates skill that uses them. Install or upgrade
+it as in *Install a bundle*. The skills arrive as candidates under
+**Settings**, **Skills**. A reviewer reads them, and you approve them on
+one card. A skill you had already approved stays as it was until you
+approve its new version.
+
+- **Channel testing** (`channel-testing`, after the Bullseye framework in
+  *Traction* by Gabriel Weinberg and Justin Mares). The strategist writes
+  one way to use each of the 19 channels, from niche blogs to community,
+  and ranks them by ICE: impact, confidence and ease, each scored 1 to 10,
+  averaged. It proposes about three tests to you. Each test names what one
+  customer would cost, how many customers it could reach and whether they
+  are the right ones, with its target and the most it may spend written
+  before any work starts. Approve a test as you approve any goal; nothing
+  of it starts before you do. A test has no budget account of its own:
+  the strategist hands each piece of it to the role that holds the
+  channel's tool, and that work is charged to the account the
+  strategist's own task is charged to -- one you opened under **Money**
+  for the strategist or the Strategy division, or else the company's. Set
+  that account's money ceiling to what you are willing to spend on tests.
+  Each piece runs a day at most, so a test is a series of them over about
+  a month, read against its target at every weekly review and stopped
+  once it has spent what you approved. When a test meets its target, the
+  strategist proposes that channel as the core one. Paid ads stay refused
+  until the company is in launch.
+- **One-page business model** (`one-page-model`, adapted from Lean Canvas
+  by Ash Maurya, CC BY-SA). The business on one page in nine boxes, with
+  the riskiest assumption first and a box left empty rather than filled
+  with a guess. The strategist drafts it as a document for you.
+- **Fit survey** (`fit-survey`, after Sean Ellis). It asks people who used
+  the product at least twice in the last two weeks whether they would miss
+  it, never asks anyone twice, and reads nothing before about 40 answers.
+  The questions go out in the company's work language through whichever
+  role sends email or chat, and the policies ask you first like any
+  outbound message. The share answering "very disappointed" is recorded
+  on a measure in **A percentage** that you add to a goal on **Team**,
+  **Goals**, with **Measure this goal**; without one, the strategist asks
+  you for it. 40% is a heuristic, not a pass mark.
+- **Press release first** (`press-release-first`, after Amazon's working
+  backwards). Before a new offer is built, the strategist writes the
+  announcement and the questions customers and you would ask. The critic
+  reads it, and only then is the work proposed to you. Nothing in it is
+  sent outside the company.
+
+The stage-gates skill (pivots and learning priorities after *The Lean
+Startup* by Eric Ries) now prefers learning priorities in explore and
+validate: goals whose target is a prediction written before the work. When
+the evidence says the idea is wrong, it proposes a pivot that keeps what was
+learned, and names the two ways pivoting fails: never changing course, and
+changing it before any test could teach anything.
+
+### Solve an issue: root cause, decision, actions
+
+**Work**, **Tickets**, with **Issues** chosen above the board, is the issues
+list: problems the company solves rather than work it hands out. The list
+**This week** is what the weekly meeting solves; **Long term** is read at
+quarterly planning. To-dos, chosen beside it, are what the solving left
+behind: each with one seat and a due date.
+
+1. **File an issue.** **New ticket**, then **An issue to solve**. Say what
+   happened, what it costs and what is known, not the fix: the cause comes
+   first. Choose its list. An issue is never given to a role as work, so it
+   has no **Give to a role**.
+2. **Let the CEO solve it.** The CEO asks why of each answer until the cause
+   is found, and checks every answer against the record -- the task, its
+   events, the numbers -- rather than guessing; not literally five times, and
+   several branches are fine. It decides once, in proportion: never a rewrite
+   for a small problem. Then it files the to-dos that carry the decision out,
+   each naming one seat. The issue is solved only with both its root cause and
+   its decision; the database refuses it otherwise.
+3. **Read what was decided.** **See the issue** opens its page: the root
+   cause, the decision, and each to-do with its seat, its due date and its
+   work. The decision is also kept in the company's memory, for the
+   division's runs. An issue of the whole company that you solved is kept for
+   every division; one the CEO solved is kept for the CEO's own division,
+   since nothing an agent writes reaches every run without you.
+4. **The seats do their to-dos.** A to-do is due seven days out unless the
+   CEO gave a date. It goes straight to its seat, which is woken for it, and
+   closes when the work does. One whose work ends unfinished opens again,
+   saying why, and is then the CEO's to hand on; it is not handed to the same
+   seat again. Nor is one its seat will not take: a frozen seat, or an
+   archived project, gives it to the CEO at once, and a paused month or a
+   spent budget after the seat has been asked three times, ten minutes
+   apart. The CEO's triage says why the seat did not take it.
+5. **Close or reopen.** **Close** drops an issue that is not a problem after
+   all; it is closed, not solved. **Open again** brings back one whose fix
+   did not hold. It is then not solved: it shows no root cause until the CEO
+   finds one again, and its page keeps each earlier root cause and decision
+   under **Solved ..., then opened again**, so what was tried before is in
+   front of whoever solves it next.
+
+The platform files an issue itself, **filed by PALUGADA**, when work fails
+with a cause worth finding: a task that keeps stopping the worker running it,
+a write that did not read back as written, a budget account that ran out, or
+root work that ended badly with nothing else raised for it. Its body is a
+short postmortem -- what happened, impact, trigger, detection, what was done
+-- in your language, blameless, and with no customer's name in it: the task is
+linked by **Why it exists**, and what a service said is on the card in the
+inbox. While the issue is open, the same failure in the same seat, or the
+same account running out again, is recorded against it rather than filing a
+second one.
+
+The issues list follows Gino Wickman's in *Traction*, the root cause follows
+Toyota's and Eric Ries's Five Whys, and the postmortem the blameless review in
+Google's *Site Reliability Engineering*; the words are PALUGADA's own.
+
+### Review the month's money
+
+The operating kit (`company-os` 1.6.0) brings a **monthly money review**,
+after Verne Harnish's Power of One. On the first of every month at 07:50 in
+the company's time zone, the strategist reviews the last whole month from the
+company's own books -- the ones on **Books** -- and writes you one page:
+
+1. **Profit**: the month's sales, cost of goods, overhead and profit, beside
+   the month before's.
+2. **Cash**: what the bank accounts held when the month began and when it
+   ended, and why it moved.
+3. **What is owed**: every invoice owed and late today, the oldest first,
+   with its days late, and how many days of sales customers still owe.
+4. **Spend**: what the agents spent in the calendar month against your
+   **Monthly ceiling** on **Money**.
+5. **The levers**: what one per cent more on price or volume, one per cent
+   less on the cost of goods or on overhead, one day fewer of receivables or
+   of stock, and one day more of payables would be worth on this month's
+   books, and the one or two worth pulling first.
+6. **Issues for the weekly meeting**, for the CEO to take up. The CEO's
+   weekly operating meeting in the week after the review is handed the end
+   of its page, weighs its issues beside the list, and puts on the list each
+   one it takes up and does not solve that day. A
+   company whose meeting is off, or that has nothing else to review that
+   week, holds no meeting, and the issues are then in the review's page
+   alone.
+
+Every figure is read from the books and handed to the review as it starts;
+no model works one out. The review proposes; spending stays your decision,
+and a change to a goal comes to you as a card.
+
+The books open with one account of expenses and none for stock, which suits a
+company that sells its time. A company that sells goods adds two accounts
+under **Books**, **Add an account**: an expense account coded from 5000 to
+5099 for the cost of goods sold (5000 *Cost of goods sold*, say), and an
+asset account coded 1300 to 1399 for stock (1300 *Stock*). The review reads
+accounts by those numbers, as an accountant reads a chart; every other
+expense is overhead, and every asset account coded 1100 to 1199 is cash, so a
+second bank account opened as 1110 counts. Until both exist, the levers that
+need them -- volume, cost of goods, stock days and payable days -- say so
+rather than guess.
+
+A month with nothing dated in the books and nothing owed and late is passed
+over, and the schedule's history says *that month had nothing in the books to
+review*. To read a month's review before the first comes round -- or of a
+quiet month -- press **Run now** on its row under **Team**, **Schedules**: it
+reviews the last whole month. The schedule is `monthly-review`; turn it off
+there if you keep the books elsewhere.
+
+The review is handed the books, so the role it runs as must be allowed to read
+them: the strategist holds **ledger.read** and its division has the grant. If
+you take either away under **Team**, the review stops and its schedule says
+which is missing, rather than hand the books to a role that may not read
+them.
+
+### Hold the weekly operating meeting
+
+Once a week the CEO holds the company's weekly operating meeting, after the
+weekly meeting in Gino Wickman's *Traction* and the meeting rhythm in Verne
+Harnish's *Scaling Up*. You are the visionary and do not attend: the CEO is
+the integrator, holds each seat to its numbers and solves the issues between
+seats, and you read the record.
+
+1. **Choose when.** Open **Settings**, **Company**, **Weekly operating
+   meeting**. Choose the **Day of the week** and the **Hour**, on the
+   company's clock, and press **Save**. Monday at nine is the default, after
+   the operating kit's weekly business review at 07:45, so the meeting can
+   read it. **Held**, *Off*, stops it until you turn it on again.
+2. **What the CEO is given.** At that hour the platform reads the company's
+   records and hands the CEO the agenda's facts, none written by a model:
+   - the **weekly scorecard**, each line on or off track last week or not
+     reported, with its seat;
+   - the **quarterly priorities** of this quarter, each on or off pace: a
+     measured one is on pace when its numbers have come as far as the quarter
+     has gone, and one with no number when work under it finished this week;
+   - the week's **headlines**, as counts: new customer conversations, deals
+     won and lost, invoices late, incidents;
+   - the **to-dos** due by now, each done or not done, and how many of the
+     week's were done (the aim is nine in ten);
+   - the **issues** on this week's list, by priority and then age, with any
+     older than eight weeks flagged;
+   - the operating kit's **weekly business review**, when there is one;
+   - the operating kit's **monthly money review**, in the week after it is
+     written, so the CEO takes up the issues it ends with.
+3. **What is on the issues list before it starts.** A line off track last
+   week, and a to-do not done at two meetings in a row, are filed as issues
+   by PALUGADA before the meeting is made, each once while it is open. The
+   second is a rule teams that run this meeting use, not one the book states.
+4. **What the CEO does.** It goes through the agenda in order and takes the
+   top three issues, solving each before the next: the root cause, the
+   decision, and the to-dos that carry it out, each with one seat (see
+   *Solve an issue* above). A decision that can be undone -- a two-way door
+   -- it takes itself. One that cannot -- a one-way door, such as spending past
+   a budget or committing the company to someone outside it -- comes to you,
+   as a question or as a tier 3 card. Work owed again and again comes to you
+   as a proposed schedule.
+5. **Read the record.** The meeting is a task, and its summary is the record.
+   It ends with **What the owner needs to know**, in the language the company
+   talks to you in. The company's card on **Home** and the meeting's settings
+   link to the last one, and the daily digest the day after a meeting points
+   to it. A meeting that was cancelled or stopped is not said to have been
+   held; one that stopped is counted with the day's other stopped work.
+
+A week with nothing to review -- no line on the scorecard, no priority this
+quarter, no open issue on this week's list, and no to-do due by now -- has no
+meeting and costs nothing. An issue you moved to the long-term list, or a
+to-do due next month, waits for its time.
+Nor does a company winding down, or a deployment with no model. If the day
+passes with the platform stopped, that week has no meeting; it is never moved
+to another day.
+
+Every run of a seat is told its own part beside what it is accountable for:
+its lines on the scorecard and where each stands this week, its quarterly
+priorities, and its open to-dos. A to-do filed by work that had read
+something from outside, such as a customer's mail, is named without its
+words, which the run reads with the ticket listing and is then treated as
+having read outside content. **Seats to look at**, on the chart, also
+names a line on the scorecard and a key result that no seat answers for.
+
+### Approve a plan of new goals, line by line
+
+The CEO plans: when you ask it for this year's goals or the next quarter's
+priorities, or a quarter is ending, it proposes them as one plan rather than
+in prose for you to type in. Objectives and key results are planned this way
+in *Measure What Matters* by John Doerr, and a quarter's priorities in
+*Traction* by Gino Wickman. Agents never make a goal themselves. The plan is
+one card in **Decisions**, and nothing in it exists until you approve it.
+
+1. Open the card **New goals proposed, to approve line by line**. It gives
+   the reason, then each new goal as a numbered line: what it hangs from,
+   its period, its commitment, the seat that owns it, when it is done, and
+   its measure. A learning goal shows its prediction, the measure's target
+   written before the work starts, after validated learning in *The Lean
+   Startup* by Eric Ries. Where a line would pass a soft limit (more than
+   five of this year's goals, five key results under one objective, seven
+   quarterly priorities at once, or five for one seat), the card says so
+   under the line. These are warnings: you decide.
+2. Under **Lines of the plan**, every line starts ticked. Untick each line
+   you refuse. A line that hangs from another line, or whose measure is
+   watched with another line's, needs that line too, and the card says so if
+   you untick only one.
+3. Press **Approve** and confirm with your device. The goals you kept are
+   made with their measures, each measure due with its goal and owned by its
+   seat. The lines you unticked are not made. **Deny** refuses the whole
+   plan.
+
+If you changed a goal a line hangs from after the plan was proposed (its
+words, status, period, seat, commitment, finish line or channel), the
+approval is refused and says which line. Deny the plan and ask the CEO for a
+new one. Only one plan waits at a time: the CEO proposes the next once you
+have answered this one.
+
+From a script, the same answer is
+`POST /api/companies/:companyId/inbox/:itemId/decide` with
+`decision: "approve"` and `lines`, the numbers of the lines to approve (such
+as `[1, 3]`). Leave `lines` out to approve every line.
+
+A CEO started before this release had `doc.draft` where `goal.propose` now
+is. If you had not changed its tools, the upgrade traded them and kept a
+version you can roll back to under **Team**. The management division still
+holds the draft's grant, so you can give the CEO `doc.draft` back there in
+place of another tool.
+
+### Choose the headline metric, and name each measure's funnel step
+
+The headline metric is the one number the company is judged by, after the
+north star metric as Sean Ellis describes it. Funnel steps place a measure
+in the five steps of Dave McClure's *Startup Metrics for Pirates*:
+acquisition, activation, retention, referral and revenue.
+
+1. Open **Team**, then **Goals**. At the top, under **Headline metric**,
+   choose **The number the company is judged by** from the company's
+   measures, and press **Save**. Only a measure aimed at a target is
+   offered. A weekly scorecard line has a goal for each week rather than a
+   target, so it is not offered, and neither is a retired measure. Until you
+   choose one, the portfolio shows the first measure on the highest goal,
+   and the box says which one that is.
+2. Pair it. A number you can move directly is easy to buy with something
+   nobody watches: more orders bought with discounts, more sign-ups that
+   leave within a month. The box warns while nothing is paired with it. On
+   the measure, press **Change** and choose the measure under **Watched
+   with**. The company's card on the portfolio marks a chosen headline that
+   is not paired.
+3. From then on the portfolio shows that number on the company's card, and
+   every run is told it with its pair and where both stand, so a run can say
+   whether its work moved it. The measure's line on its goal says
+   **Headline**. Clear the box and press **Save** to let the portfolio infer
+   it again. Retiring the measure, putting it on the weekly scorecard or
+   deleting it clears the choice too. When you retire it or put it on the
+   scorecard, the company's history says **The company's headline metric
+   was let go**.
+4. To name a measure's funnel step, choose it under **Funnel step** when you
+   add the measure, or press **Change** on it. Leave it empty for a number
+   that is not part of the funnel, such as complaints or cash. On the weekly
+   scorecard, once a line names a step, the lines are grouped by step from
+   acquisition to revenue, so the funnel reads from the top. A pair stays
+   together under the step the funnel reaches first.
+
+McClure's example conversion rates are his illustrations, labelled not
+actuals, and PALUGADA does not use them as targets. Your targets are yours to
+set.
+
+From a script, `POST /api/companies/:companyId/headline` takes `metricId`, or
+`null` to clear it. The measure routes take `funnelStep` as one of
+`acquisition`, `activation`, `retention`, `referral` or `revenue`, or `null`.
+
+### Name the core processes and who keeps each
+
+A core process is one of the handful of ways the company works -- how it
+sells, how it delivers, how it keeps a customer, how it pays and is paid --
+written down as a skill and owned by one seat that keeps it current. This
+follows the process part of *Traction* by Gino Wickman: name a handful,
+write each down at about a fifth of the detail that drives most of the
+result, and see that the work follows them.
+
+A core process is a skill that is already switched on, so it has passed its
+checks, a reviewer and you (see **Skills**). To name one:
+
+1. On **Skills**, open the skill and its **Core process** tab.
+2. Choose its **Owning seat** and press **Make it a core process**. The
+   seats offered are those whose runs can read the skill: every seat for a
+   skill the whole company reads, and the seats of its division for one
+   division's.
+3. To move it, choose another seat and press **Give it this seat**. To let it
+   go, press **No longer a core process**.
+
+No authenticator is asked for, and your assistant can do it when you ask.
+Naming one does add to what the seat's runs are told: their charter lists
+the process with its summary and says to read it and follow it. Nothing in
+that is new to them, though: they already carry the summary among the
+skills, you switched that version on with your authenticator, and the rest
+is PALUGADA's own instruction. Letting it go takes it out again.
+
+Every run of the owning seat is told which core processes it owns and to read
+each with `skill.read` before it does that work. When a process no longer
+says how the work is really done, the seat says what should change, and the
+new version you write on the skill's **Change it** tab goes through its
+checks, a reviewer and you before any run follows it.
+
+On **Team**, **Divisions & roles**, the **Core processes** panel lists each
+one with its seat, when its version was last switched on, and how much of the
+work follows it: the share of the runs of its seat's division, over the last
+thirty days, that read it. *Not changed in a quarter* marks one whose version
+is older than ninety days, for the next quarterly planning to look at. A
+seat's own drawer lists the processes it owns.
+
+Two things are warned of, there and on **Skills**, and neither is refused:
+
+- fewer than five core processes, or more than twelve. The method's own
+  pages disagree (five to twelve on one, six to ten on another), so the wider
+  range is the one used;
+- a process longer than sixty lines, about two pages: the rest of the detail
+  belongs in the work, not the process.
+
+Two more are warned of because no share can be counted, and the panel says
+so in the share's place:
+
+- the seat's division cannot open the process with **skill.read**. Grant it
+  to that division under **Team**, or give the process a seat that can read
+  it;
+- the process is not in force: it was quarantined when a document from
+  outside arrived under its name, or an import brought it back waiting for
+  its checks, a reviewer and you. Until you lift the quarantine or switch a
+  version on, its seat is not told to follow it. It stays marked, so it comes
+  back as it was.
+
+The method's names for these tools are marks of EOS Worldwide, and PALUGADA
+uses its own.
+
+### Grade the quarter, and let the CEO plan the next one
+
+A goal is graded when its period ends, and ten days before each quarter ends
+the CEO plans the next one. This follows the scoring of objectives and key
+results in *Measure What Matters* by John Doerr, the quarterly priorities and
+the quarterly planning in *Traction* by Gino Wickman, and the study step of
+Deming's plan-do-study-act. You do not grade anything: PALUGADA does, from the
+records, and no agent can write a grade.
+
+1. **Choose where the year starts.** Open **Settings**, **Company**, **Fiscal
+   year**, choose the month under **The fiscal year starts in**, and press
+   **Save**. January, a calendar year, is the default. The quarters are cut
+   from it, three months each, and a fiscal year is named by the calendar
+   year it starts in: one starting in April 2026 is 2026.
+2. **Grades.** The day after a goal's due date, where the company is,
+   PALUGADA grades it:
+   - a goal with measures scores how far each came from its baseline to its
+     target by its last checked reading of the period, from 0 to 1, averaged.
+     A measure with no checked reading counts as no progress, and an objective
+     with no measure of its own is graded from its key results' measures;
+   - a goal with no number scores 1 if you marked it met by then, and 0 if
+     not;
+   - a goal with measures that you marked met by then scores 1 whatever its
+     readings say, since you may know it was reached before its source
+     records it. Its tooltip says you marked it met;
+   - a **committed** goal is done or missed: 1 only when it was reached in
+     full. A miss is filed as a postmortem on this week's issues list, for the
+     weekly operating meeting;
+   - an **aspirational** goal keeps its score. 0.6 to 0.7 is a good result;
+     an average near 1.0 quarter after quarter says the goals were set too
+     safe, and one under 0.3 says too ambitious. Both are the OKR books'
+     heuristics, not targets;
+   - a **learning** goal keeps its prediction, its measure's target, beside
+     what happened.
+
+   The goal ladder on **Team**, **Goals**, shows each goal's latest
+   grade, with its period and how it was reached when you point at it.
+   Moving a goal's due date later grades it again at the new end. Grades are
+   for you and the next plan: nothing that pays, trusts or stops a role reads
+   them.
+3. **Off pace.** When a committed quarterly priority's numbers are behind
+   the share of its quarter that has gone, once a quarter of it has, a card
+   comes to you, once a quarter. It comes to you rather than to an agent: a
+   committed number behind its time tempts work to take a riskier road to
+   make it up, and that is yours to decide. Move the date, lower the target,
+   make it aspirational on the goal, or let it run. Nothing is stopped
+   whatever you answer.
+4. **Quarterly planning.** Ten days before the quarter's last day, the CEO is
+   handed the quarter's facts, read from the records: the grades so far, the
+   share of priorities done against the aim of 80%, the committed pass rate,
+   the aspirational average, the share of to-dos finished within seven days
+   (a to-do still inside its week is not counted yet), this year's goals, the long-term issues list, thirteen weeks of the
+   weekly scorecard, the vision from the company's charter, and the core
+   processes not changed in ninety days. It reviews the quarter, keeps,
+   kills or combines the candidate priorities down to at most seven, each
+   with one seat, carries an aspirational one that was not met forward
+   unless it says why not, cleans the long-term list, solves the top three
+   issues, and writes its reflection, ending with what you need to know in
+   your language.
+5. **Approve the plan.** The planning ends in one card, **New goals
+   proposed, to approve line by line**, for the next quarter (see *Approve a
+   plan of new goals, line by line*). In the fiscal year's last quarter the
+   same plan carries next year's goals, with the priorities under them.
+
+A company winding down, one with nothing to plan (no goal under the mission,
+no grade this year and no long-term issue), one whose weekly operating
+meeting is not held (**Settings**, **Company**, **Weekly operating meeting**,
+**Held** set to **Off**), and a deployment with no model get no planning: the meeting's switch stops the CEO's whole
+rhythm, so turning it off stops its spending too. Moving the fiscal year's
+start does not skip a quarter: each planning belongs to its quarter's dates,
+not its name. If the platform is stopped for all ten days, that quarter has
+none.
+
+From a script, `POST /api/companies/:companyId/fiscal-year` takes
+`startMonth`, 1 to 12.
+
+### Write the vision, and read it beside the plan
+
+The vision is yours: what the company is for, where it is going and what it
+promises. It lives in the company charter, which every run reads first, so
+there is one text and every agent is told it. The **Plan** page reads it back
+beside the plan that serves it. This follows the vision half of the one-page
+plan in *Traction* by Gino Wickman and the one-page strategic plan in
+*Scaling Up* by Verne Harnish, with the long-range goal of *Built to Last* by
+Jim Collins and Jerry Porras, under plain names.
+
+To write it:
+
+1. On **Team**, open the **Charter** tab and press **Start from the vision
+   outline** on the company charter. The headings it does not have yet are
+   added at the end, in the language the console is drawn in, and what goes
+   under each is said beside the editor. A heading you already wrote, in any
+   language the console speaks, is not added again, and the button is off
+   once all six are there:
+   - **Our values**: three to seven behaviours the company keeps, even when
+     they cost it something.
+   - **Purpose and niche**: why the company exists, and the one thing it
+     means to be the best at.
+   - **Long-range target**: where it means to be in ten to twenty-five
+     years, in one sentence.
+   - **Who we serve and what makes us different**: its customers, and the
+     few things that make it different for them.
+   - **Where we will be in three years**: a date, the revenue and profit by
+     then, three to five measures, and what is true then, in the present
+     tense.
+   - **Our promise**: what every customer can count on.
+2. Write under each in your own words and press **Save the charter**, with
+   your authenticator, as for any change to the charter. The next run is told
+   it. Your strategist can draft wording for you with a document, but only
+   you write the charter.
+
+The headings are found in any of the company's languages, the console's and
+English, whatever case you type them in. A charter with none of them is shown
+whole on the Plan page as the vision. A charter you wrote before keeps its
+text; nothing is added until you press the button.
+
+The **Plan** page then shows, top to bottom:
+
+- **Vision**: each section you wrote, or *Not written yet* under a heading
+  you left empty. **Edit the vision** opens the charter.
+- **This year's goals**: each objective whose period is about a year, with
+  today in it, and how many of its quarterly priorities are this quarter's.
+  **Open the goals** opens Team, Goals, where they are set.
+- **Quarterly priorities**: each on pace or off pace by the rule the weekly
+  operating meeting uses. A measured priority is on pace when its measures,
+  by their last verified reading, have come as far as the quarter has gone;
+  one with no verified reading is off pace. One with no measure is on pace
+  while work under it finished in the last seven days.
+- **Weekly scorecard**: the headline, and each line as it stood last week,
+  the week the meeting judges it by. **Open the scorecard** opens the grid.
+- **Long-term issues**: the issues kept for quarterly planning. **Open the
+  issues list** opens the board on its issues.
+- **Channels by ring**: *working*, a channel a committed priority tests, the
+  core channel; *probable*, one only a learning priority tests; and
+  *possible*, the list of a strategy for every channel, the newest document
+  that a run following the channel-testing skill wrote as a list of most of
+  the nineteen. A later report of one test, written by the same procedure, is
+  a few lines and does not take its place. Nothing about the rings is stored:
+  give a priority its channel on its goal, and it moves.
+- **Core processes**, with their seats and how far the work follows them.
+- **The last weekly operating meeting**: its status, and the record of the
+  last one that finished, as the CEO summed it up, with a link to its task.
+  While this week's is still running, or if it stopped, last week's record is
+  the one shown.
+
+Nothing is changed on the Plan page; each part links to where it is.

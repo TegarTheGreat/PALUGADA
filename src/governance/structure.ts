@@ -31,6 +31,7 @@ import { TIER } from '../domain/tier.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { recordVersion } from './config-versions.ts';
 import { CEO, titleFor } from './ceo.ts';
+import { accountabilitiesFrom } from '../domain/seats.ts';
 import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/work.ts';
 
 export type StructuralChange =
@@ -292,6 +293,12 @@ export interface RoleFields {
    * attempt counts (0084); null is no limit beyond the task's deadline.
    */
   maxRunSeconds?: number | null;
+  /**
+   * What the seat answers for (F18.3, 0138): at most five lines, told to
+   * every run of it and to the CEO when it hands work on. Replaces the
+   * seat's list; an empty one leaves the seat answering for nothing yet.
+   */
+  accountabilities?: string[];
 }
 
 /** The most criteria a role is held to: each is answered, with evidence, in every run. */
@@ -343,7 +350,9 @@ function changeKindOf(fields: RoleFields): RoleChange {
   // Who a role is changes how it works, as its charter does.
   // So does what done means: it is what every run is held to.
   if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined
-    || fields.title !== undefined || fields.doneCriteria !== undefined) {
+    || fields.title !== undefined || fields.doneCriteria !== undefined
+    // And what the seat answers for: every run of it is told, as it is told its charter.
+    || fields.accountabilities !== undefined) {
     return 'charter';
   }
   if (fields.tools !== undefined) return 'skills';
@@ -379,6 +388,7 @@ export async function applyRoleChange(
       { field: 'maxRunSeconds' });
   }
   const doneCriteria = fields.doneCriteria === undefined ? undefined : doneCriteriaFrom(fields.doneCriteria);
+  const accountabilities = fields.accountabilities === undefined ? undefined : accountabilitiesFrom(fields.accountabilities);
 
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -394,9 +404,10 @@ export async function applyRoleChange(
       persona: RolePersona | null;
       done_criteria: string[];
       max_run_seconds: number | null;
+      accountabilities: string[];
     }>(
       `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona,
-              done_criteria, max_run_seconds
+              done_criteria, max_run_seconds, accountabilities
          FROM roles WHERE id = $1`,
       [roleId],
     );
@@ -422,6 +433,7 @@ export async function applyRoleChange(
         persona: before.persona,
         doneCriteria: before.done_criteria,
         maxRunSeconds: before.max_run_seconds,
+        accountabilities: before.accountabilities,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -438,7 +450,8 @@ export async function applyRoleChange(
               title          = CASE WHEN $9 THEN $10 ELSE title END,
               persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END,
               done_criteria  = coalesce($13::text[], done_criteria),
-              max_run_seconds = CASE WHEN $14 THEN $15::integer ELSE max_run_seconds END
+              max_run_seconds = CASE WHEN $14 THEN $15::integer ELSE max_run_seconds END,
+              accountabilities = coalesce($16::text[], accountabilities)
         WHERE id = $1`,
       [
         roleId,
@@ -452,6 +465,7 @@ export async function applyRoleChange(
         fields.persona !== undefined, fields.persona ? JSON.stringify(fields.persona) : null,
         doneCriteria ?? null,
         fields.maxRunSeconds !== undefined, fields.maxRunSeconds ?? null,
+        accountabilities ?? null,
       ],
     );
 
@@ -500,6 +514,8 @@ export interface NewRole {
    * answer is what it produced, so it runs on no model and holds no tools.
    */
   person?: { seatId: string; name: string };
+  /** What the seat answers for (F18.3), at most five lines; none unless said. */
+  accountabilities?: string[];
 }
 
 /**
@@ -526,6 +542,7 @@ export async function addRole(
     throw new PalugadaError('contract.violation', 'say what the role is for: its system prompt is empty', { field: 'systemPrompt' });
   }
   const doneCriteria = doneCriteriaFrom(role.doneCriteria ?? []);
+  const accountabilities = accountabilitiesFrom(role.accountabilities ?? []);
   const tools = (role.tools ?? []).map(String);
   if (tools.length > 12) {
     throw new PalugadaError('contract.violation', 'a role has at most 12 tools (F2.6)', { field: 'tools' });
@@ -565,16 +582,16 @@ export async function addRole(
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools, input_schema, output_schema,
                           max_tokens_per_run, done_criteria, runtime, backend, display_name, title, persona,
-                          person_seat, person_name)
+                          person_seat, person_name, accountabilities)
        VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10::text[],
-               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb, $16, $17)
+               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb, $16, $17, $18::text[])
        RETURNING id`,
       [
         companyId, role.divisionId, slug, systemPrompt, role.model ?? 'standard', tools,
         JSON.stringify(WORK_INPUT), JSON.stringify(WORK_OUTPUT), role.maxTokensPerRun ?? 60_000, doneCriteria,
         role.person ? 'person' : usual[0]?.runtime ?? null, role.person ? 'local' : usual[0]?.backend ?? null,
         role.displayName ?? null, title ?? null, role.persona ? JSON.stringify(role.persona) : null,
-        role.person?.seatId ?? null, role.person?.name ?? null,
+        role.person?.seatId ?? null, role.person?.name ?? null, accountabilities,
       ],
     );
     const roleId = rows[0]!.id;
@@ -582,7 +599,7 @@ export async function addRole(
       companyId,
       kind: 'role',
       subjectId: roleId,
-      snapshot: { slug, systemPrompt, tools, modelPrimary: role.model ?? 'standard', modelFallback: [] },
+      snapshot: { slug, systemPrompt, tools, modelPrimary: role.model ?? 'standard', modelFallback: [], accountabilities },
       summary: `Hired ${slug}`,
     });
     await appendEvent(tx, {
@@ -772,7 +789,7 @@ export interface EscalationPolicy {
 }
 
 /**
- * A company-wide default, for a division that has never set one.
+ * A company-wide default, for a division that names a role and no time.
  *
  * Four hours matches F9.7's heartbeat: a division that has not looked at a
  * problem by the time its roles have woken again is a division that is not
@@ -780,6 +797,29 @@ export interface EscalationPolicy {
  */
 export const DEFAULT_ESCALATION_MINUTES = 240;
 
+/**
+ * How long the CEO has with a division's trouble when the owner never said
+ * who hears first: an hour. Not a division's four hours, which wait for its
+ * roles to wake again; the CEO is woken when it is handed the problem, so an
+ * hour is a run with room to hand the fix on, and the owner who has to decide
+ * after all hears of it the same morning.
+ */
+export const CEO_FIRST_MINUTES = 60;
+
+/**
+ * The policy in force for a division (F2.1): the role it names; nobody, when
+ * the owner said nobody; otherwise the company's CEO, for an hour.
+ *
+ * The CEO by default, because nothing in a real company names a role -- the
+ * founding template does not, nor does a division the CEO adds or a bundle
+ * brings -- and "nobody" sent every failure of a hired role's work straight
+ * to the owner, while `governance/ceo.ts` promises a division's trouble
+ * reaches the CEO first. Read when the escalation is raised rather than
+ * stored, so it follows the title when the owner appoints another CEO; the
+ * owner naming the CEO is kept the same way (`setEscalationPolicy`).
+ * `escalation_set` (0133) is what keeps the owner's own "straight to me"
+ * from reading as "never said".
+ */
 export async function escalationPolicyFor(
   tx: TenantClient,
   divisionId: string,
@@ -787,15 +827,24 @@ export async function escalationPolicyFor(
   const { rows } = await tx.query<{
     escalation_role_slug: string | null;
     escalate_after_minutes: number | null;
+    escalation_set: boolean;
+    ceo_slug: string | null;
   }>(
-    'SELECT escalation_role_slug, escalate_after_minutes FROM divisions WHERE id = $1',
-    [divisionId],
+    // At most one row: the database holds a company to one CEO (`roles_one_ceo`).
+    `SELECT d.escalation_role_slug, d.escalate_after_minutes, d.escalation_set, ceo.slug AS ceo_slug
+       FROM divisions d
+       LEFT JOIN roles ceo ON ceo.company_id = d.company_id AND ceo.title = $2
+      WHERE d.id = $1`,
+    [divisionId, CEO],
   );
   const row = rows[0];
-  return {
-    roleSlug: row?.escalation_role_slug ?? null,
-    afterMinutes: row?.escalate_after_minutes ?? DEFAULT_ESCALATION_MINUTES,
-  };
+  if (row?.escalation_role_slug) {
+    return { roleSlug: row.escalation_role_slug, afterMinutes: row.escalate_after_minutes ?? DEFAULT_ESCALATION_MINUTES };
+  }
+  if (row && !row.escalation_set && row.ceo_slug) {
+    return { roleSlug: row.ceo_slug, afterMinutes: row.escalate_after_minutes ?? CEO_FIRST_MINUTES };
+  }
+  return { roleSlug: null, afterMinutes: row?.escalate_after_minutes ?? DEFAULT_ESCALATION_MINUTES };
 }
 
 /**
@@ -820,13 +869,28 @@ export async function setEscalationPolicy(
   const setsRole = 'roleSlug' in policy;
   const setsMinutes = 'afterMinutes' in policy;
   await withTenant(companyId, async (tx) => {
+    // Naming a role, or nobody, is the owner saying who hears first, and
+    // from then on the CEO is not asked in its place (`escalationPolicyFor`).
+    // A time alone names nobody: it is how long whoever hears first has, the
+    // CEO included, and it does not turn the CEO's turn into the owner's.
+    //
+    // Naming the company's CEO names the title, as the default does: kept as
+    // "never said", so it follows when the owner appoints another. Kept as
+    // the role's code, it went on naming the former CEO, which then heard
+    // first about the new CEO's failures while its own went straight to the
+    // owner -- and the Organization page, which shows the CEO where nobody
+    // was named and sends the role it shows, kept it so whenever the owner
+    // changed only the time.
+    const namesCeo = setsRole && policy.roleSlug != null && (await tx.query(
+      'SELECT 1 FROM roles WHERE slug = $1 AND title = $2', [policy.roleSlug, CEO])).rows.length > 0;
     await tx.query(
       `UPDATE divisions
           SET escalation_role_slug = CASE WHEN $4 THEN $2 ELSE escalation_role_slug END,
               escalate_after_minutes =
-                CASE WHEN $5 THEN $3 ELSE escalate_after_minutes END
+                CASE WHEN $5 THEN $3 ELSE escalate_after_minutes END,
+              escalation_set = CASE WHEN $4 THEN $6 ELSE escalation_set END
         WHERE id = $1`,
-      [divisionId, policy.roleSlug ?? null, policy.afterMinutes ?? null, setsRole, setsMinutes],
+      [divisionId, namesCeo ? null : policy.roleSlug ?? null, policy.afterMinutes ?? null, setsRole, setsMinutes, !namesCeo],
     );
     await appendEvent(tx, {
       companyId,

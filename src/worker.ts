@@ -49,10 +49,13 @@ import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
 import { reportEndedBadly } from './engine/ended.ts';
-import { ensureTriage } from './engine/triage.ts';
+import { callBackKeyWaits, closeRecovered } from './engine/recovered.ts';
+import { ensureTriage, handTodos } from './engine/triage.ts';
 import { ensureCollections } from './duties/collections.ts';
-import { ensureOutcomes } from './engine/outcomes.ts';
+import { ensureOffPace, ensureOutcomes } from './engine/outcomes.ts';
 import { ensureGoalReview } from './engine/goal-review.ts';
+import { ensureWeeklyMeeting } from './engine/meeting.ts';
+import { ensurePeriodClose, ensureQuarterlyPlanning } from './engine/quarter.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -185,6 +188,13 @@ export interface WorkerOptions {
    * week that it halted.
    */
   reviewsGoals?: boolean;
+  /**
+   * Whether the CEO holds the weekly operating meeting (src/engine/meeting.ts,
+   * F18.6), and plans each fiscal quarter (src/engine/quarter.ts, F18.9).
+   * The same gate as `reviewsGoals`, for the same reason: without a model
+   * the meeting would halt every week, and the owner be told so.
+   */
+  holdsMeetings?: boolean;
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
   /** The same for a task, for the news that work the owner gave has finished (0059). */
@@ -248,12 +258,22 @@ export interface TickReport {
   ended: number;
   /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
   triaged: number;
+  /** To-dos handed straight to the one seat each names (src/engine/triage.ts, `handTodos`). */
+  todos: number;
   /** Customers' overdue invoices looked at: reminders made into a task, or a card put to the owner (src/duties/collections.ts). */
   collections: number;
   /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
   outcomes: number;
   /** Review tasks made for the CEO, for a goal nobody had worked on (src/engine/goal-review.ts). */
   reviews: number;
+  /** Weekly operating meetings made for the CEO (src/engine/meeting.ts). */
+  meetings: number;
+  /** Goals graded because their period ended (src/engine/quarter.ts, F18.8). */
+  grades: number;
+  /** Committed priorities behind their quarter, put to the owner (src/engine/outcomes.ts, F18.8). */
+  offPace: number;
+  /** Quarterly plannings made for the CEO (src/engine/quarter.ts, F18.9). */
+  plannings: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -331,9 +351,14 @@ function emptyReport(): TickReport {
     stranded: 0,
     ended: 0,
     triaged: 0,
+    todos: 0,
     collections: 0,
     outcomes: 0,
     reviews: 0,
+    meetings: 0,
+    grades: 0,
+    offPace: 0,
+    plannings: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -380,6 +405,8 @@ export class Worker {
   #sweptAt: number | null = null;
   /** Whether this worker has removed what earlier erasures left on disk. See the erasure stage. */
   #erasuresFinished = false;
+  /** The companies whose work waiting for a model key this process has called back, once each. See the recovered stage. */
+  readonly #keysCalledBack = new Set<string>();
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
@@ -587,6 +614,14 @@ export class Worker {
         if (await ensureTriage(company, now)) report.triaged += 1;
       });
 
+      // The to-dos a solved issue left, each to the one seat it names (F18.5):
+      // given now, as the owner's own assignment would be, and not round
+      // through the CEO's triage. Before the claim, so the seat can start on
+      // this tick; one query when there are none.
+      await this.#stage(report, 'todos', async () => {
+        report.todos += await handTodos(company, now);
+      });
+
       // What customers owe, looked at against the books: the reminders that
       // are due made into one task for the role that sends them, and the
       // invoices a letter will not mend put to the owner. A look is cheap and
@@ -611,6 +646,36 @@ export class Worker {
       // days, once a week at most for each. Not behind `runs`, as above.
       if (this.#options.reviewsGoals) await this.#stage(report, 'reviews', async () => {
         if (await ensureGoalReview(company, now)) report.reviews += 1;
+      });
+
+      // The periods that ended, graded (F18.8): arithmetic on the rows, so on
+      // every deployment, model or not, and one read when none ended. Before
+      // the meeting, which takes up the postmortem a committed miss files --
+      // a meeting held at midnight after a priority's last day would
+      // otherwise be made without it and keep its key all week -- and before
+      // the off-pace look and the planning, which read the grades.
+      await this.#stage(report, 'grades', async () => {
+        report.grades += await ensurePeriodClose(company, now);
+      });
+
+      // The weekly operating meeting, on the owner's day and hour in the
+      // company's time zone: one read of the company on any other hour, and
+      // no task in a week with nothing to review. After the goal reviews, so
+      // a look the CEO was given this tick is on the record the meeting reads.
+      if (this.#options.holdsMeetings) await this.#stage(report, 'meetings', async () => {
+        if (await ensureWeeklyMeeting(company, now)) report.meetings += 1;
+      });
+
+      // A committed priority behind its quarter, put to the owner once a
+      // period rather than to an agent to catch up (F18.8). No model, no task.
+      await this.#stage(report, 'off-pace', async () => {
+        report.offPace += await ensureOffPace(company, now);
+      });
+
+      // Quarterly planning, ten days before the fiscal quarter ends: one read
+      // of the company on any other day, and gated like the meeting.
+      if (this.#options.holdsMeetings) await this.#stage(report, 'plannings', async () => {
+        if (await ensureQuarterlyPlanning(company, now)) report.plannings += 1;
       });
 
       if (runs) await this.#stage(report, 'wakes', async () => {
@@ -659,8 +724,23 @@ export class Worker {
         }
       });
 
+      // Work waiting for a model, a key or a service that answers again is
+      // called back now, and the one card about the cause closes itself
+      // (src/engine/recovered.ts). A stage of its own, so a failure here
+      // holds back nothing that settles. On this process's first look at a
+      // company, the work waiting for a model key is called back too: saving
+      // a key starts the deployment again, and the key saved may be one that
+      // works.
+      await this.#stage(report, 'recovered', async () => {
+        if (!this.#keysCalledBack.has(company)) {
+          await callBackKeyWaits(company);
+          this.#keysCalledBack.add(company);
+        }
+        await closeRecovered(company);
+      });
+
       await this.#stage(report, 'settle', async () => {
-        await settleCompletedReviews(company);
+        await settleCompletedReviews(company, now);
         // F15.3: skill candidates screened and given to a reviewer, and the
         // reviews that finished read -- every tick, so a skill is with the
         // owner soon after its reviewer answers. No model is needed here:
@@ -1149,12 +1229,15 @@ export class Worker {
         // aggregates over a day of events, and running it every tick to throw
         // the answer away on a uniqueness conflict is a query a minute, all
         // day, for one message.
+        // The digest after a weekly meeting points to it, in the owner's app when there is one.
+        const linkTask = this.#options.ownerTaskLinkFor;
+        const taskLink = linkTask ? (taskId: string) => linkTask({ companyId: company, taskId }) : null;
         const owed = await digestOwed(company, takers, day);
         if (owed.length > 0) {
           const digest = await buildDailyDigest(company, yesterday);
           const sent = await dispatchDigest(company, owed, {
             day: digest.day,
-            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay()),
+            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay(), taskLink),
           });
           report.digests += sent.delivered;
         }
@@ -1163,7 +1246,7 @@ export class Worker {
         // cannot see these: it joins `inbox_items`, and a digest has no row
         // there. Without this a relay that was restarting when the digest went
         // out lost that day for ever.
-        report.digests += (await retryDigests(company, takers, { now })).delivered;
+        report.digests += (await retryDigests(company, takers, { now, ...(taskLink ? { linkFor: taskLink } : {}) })).delivered;
       }
 
       // And the news the owner is waiting for: work they gave has finished.

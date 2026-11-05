@@ -210,12 +210,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'Bugün {finished} görevden {failed} tanesi başarısız oldu ya da durduruldu (%{rate}); bu, %{limit} eşiğinin üzerinde.',
   'Unusual number of policy refusals': 'Olağan dışı sayıda ilke reddi',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Bugün bir ilke tarafından reddedilen eylemler: {count}; bu, {limit} eşiğinin üzerinde. Ya bir ajan sınırlarını yokluyor ya da bir ilke yanlış ayarlanmış.',
-  'External writes failed verification': 'Dış yazma işlemleri doğrulamadan geçemedi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Başarılı olduğunu bildiren ama geri okunduğunda farklı çıkan dış yazma işlemleri: {count}. Bir şey onları istenenden farklı biçimde değiştiriyor.',
-  'A capability stopped being usable': 'Bir yetenek kullanılamaz hâle geldi',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Rollerinin ihtiyaç duyduğu bir yetenek kontrolden geçemediği için bugün başlayamayan görevler: {count}. Muhtemelen bir kimlik bilgisinin süresi doldu ya da bir kota bitti.',
-  'A worker stopped reporting mid-run': 'Bir işleyici çalıştırmanın ortasında sinyal vermeyi bıraktı',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Bugün sinyal vermeyi bırakıp geri alınan çalıştırmalar: {count}. İş yeniden ele alındı; daha önce harcanmış token\'lar geri kazanılamadı.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} rolü bugün {denials} kez reddedildi ve {limit} sınırına ulaştı. Dondurmayı kaldırana kadar bu rolle hiçbir görev çalışmaz. Bunun nedeni genellikle bir yetenek için eksik yetki, rolün tüzüğünün hesaba katmadığı bir ilke ya da rolün hiçbir zaman donatılmadığı bir iştir.',
   'Role {role} is frozen after repeated denials': '{role} rolü tekrarlanan retler sonrasında donduruldu',
   'What it was refused: {capabilities}': 'Reddedilenler: {capabilities}',
@@ -226,12 +220,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” görevi {since} itibarıyla bekliyor. {why} Kaldığı yerden yeniden çalıştırmak için “Onayla”, iptal etmek için “Reddet” seçeneğini kullanın.',
   'A task keeps stopping the worker running it': 'Bir görev, onu çalıştıran işleyiciyi sürekli durduruyor',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” görevi işleyicisini {lost} kez kaybetti: her seferinde onu çalıştıran işleyici iş bitmeden yanıt vermeyi bıraktı. Yaptıkları saklanır. Başka bir işleyiciyi de çökertmemesi için durduruldu; neden bulununca yeniden çalıştırın ya da iptal edin.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'Ulaşılamadı: {services}; buna ihtiyaç duyan iş durduruldu',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Görev yaklaşık {minutes} dakika bekledi, her seferinde yeniden baktı ve durdu. Hizmet yanıt verdiğinde yeniden çalıştırın.',
   'It was tried {tries} times over about {minutes} minutes.': 'Yaklaşık {minutes} dakika içinde {tries} kez denendi.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Bu rol geri alınamayan eylemler yapabildiği için çalıştırma sessizce başka bir modele aktarılmadı.',
   'No fallback model is left for this role.': 'Bu rol için yedek model kalmadı.',
-  'Model {model} failed and the run was not moved': '{model} modeli başarısız oldu ve çalıştırma başka bir modele aktarılmadı',
   'External write failed verification': 'Dış yazma işlemi doğrulamadan geçemedi',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Görev dış bir hizmete yazdı ve geri okudu, ama okuduğu şey eşleşmedi. Yeniden çalıştırmadan önce yazdığı yeri kontrol edin: yazma işlemi gerçekleşmiş olabilir.',
   'Review deadlocked after {rounds} revisions: {capability}': 'İnceleme {rounds} revizyondan sonra tıkandı: {capability}',
@@ -256,7 +247,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': '“{schedule}” zamanlaması sürekli aynı sonucu üretiyor',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'Son {runs} çalıştırmanın hepsi aynı çıktıyla bitti. Bu bazen tam olarak doğrudur — söyleyecek yeni bir şeyi olmayan bir rapor gibi — ama çoğu zaman artık işe yarar bir şey yapmayan, yine de parası ödenen bir zamanlamadır. “Reddet” zamanlamayı kapatır; “Onayla” çalışmaya devam ettirir ve bu sonuç için size bir daha sorulmaz.',
   'Capability {capability} failed preflight': '“{capability}” yeteneği ön kontrolden geçemedi',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Buna ihtiyaç duyan iş başlatılmak yerine durduruluyor: nedeni giderin, sonra o işi yeniden çalıştırın. Bunun nedeni genellikle süresi dolmuş ya da kapsamı yanlış ayarlanmış bir kimlik bilgisi, biten bir kota ya da yanlış bir adrestir.',
   'Batch guard stopped {capability}': 'Toplu işlem denetimi “{capability}” yeteneğini durdurdu',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Çalıştırmanın kaydettiği planla eşleşmedi. Hiçbir şey gönderilmedi ve hiçbir hizmet çağrılmadı.',
   '{role} was asked first and has had {minutes} minutes.': 'Önce {role} rolüne soruldu ve ona {minutes} dakika verildi.',
@@ -344,8 +334,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} yapay zekâ modelinin anahtarını reddetti ({status}); bu yüzden modele ihtiyaç duyan hiçbir iş çalışamıyor. Ayarlar, Bu kurulum, Yapay zekâ modeli bölümünü açın, çalışan bir anahtar yapıştırın, deneyin ve kaydedin.',
   '{host} refused the model key, and work is waiting': '{host} modelin anahtarını reddetti ve iş bekliyor',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder.',
   'A task ended before it was done: {task}':
     'Bir görev bitmeden sona erdi: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -409,4 +397,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: ilgili bilet kapatıldı.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     '{number} numaralı fatura ({amount}, {customer}) {due} tarihinden beri gecikmiş ve hatırlatma gönderilecek bir e-posta adresi olmadan kesilmiş. Kendiniz takip edin ya da CEO\'ya ne istediğinizi söyleyin.',
+  'Kept as your word: {words}':
+    'Sizin sözünüz olarak kaydedildi: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Sizin rakamınız olarak kaydedildi: {measure} için {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    'İşleyicisi durduktan sonra yeniden sürdürülen çalıştırmalar: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Geri çekildi: ilgili görev yeniden çalıştırıldı.',
+  'Withdrawn: the day it was about has ended.':
+    'Geri çekildi: ilgili gün sona erdi.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Geri çekildi: ilgili dönem sona erdi ve notlandırıldı.',
+  'Withdrawn: the goal it was about was closed.':
+    'Geri çekildi: ilgili hedef kapatıldı.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Geri çekildi: ayın tavanına ulaşıldı ve yerini şirketin duraklatıldığını söyleyen kart aldı.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Yaklaşık {hours} saat sonra hâlâ bekleyen iş durur ve bu kart, işi yeniden çalıştırabilmeniz için açık kalır.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} yanıt vermiyor ve buna ihtiyaç duyan iş bekliyor',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'İş, her seferinde yeniden bakarak yaklaşık {minutes} dakika bekledi ve hâlâ bekliyor: hizmet yanıt verir vermez kendiliğinden devam eder ve bu kart da kendiliğinden kapanır.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'İş bekler ve model yanıt verir vermez kendiliğinden devam eder; bu kart da kendiliğinden kapanır.',
+  'Model {model} is not answering, and work is waiting for it':
+    '{model} modeli yanıt vermiyor ve onu bekleyen iş var',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Modeli bekleyen iş, çalışan bir anahtar kullanılmaya başlanır başlanmaz kendiliğinden devam eder ve bu kart da kendiliğinden kapanır.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Buna ihtiyaç duyan iş başlatılmak yerine bekler ve kontrol geçilir geçilmez kendiliğinden devam eder; bu kart da kendiliğinden kapanır. Bunun nedeni genellikle süresi dolmuş ya da kapsamı yanlış ayarlanmış bir kimlik bilgisi, biten bir kota ya da yanlış bir adrestir.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} rolü durduruldu: bu karttaki iş yeniden ele alındı.',
+  'Withdrawn: the month it was about has ended.':
+    'Geri çekildi: ilgili ay sona erdi.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Geri çekildi: duraklatma kaldırıldı ve iş devam ediyor.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Geri çekildi: model yeniden yanıt veriyor ve onu bekleyen iş geri çağrıldı.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Geri çekildi: modelin anahtarı yeniden çalışıyor ve onu bekleyen iş geri çağrıldı.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Geri çekildi: hizmet denetimini yeniden geçti ve onu bekleyen iş geri çağrıldı.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Geri çekildi: artık onu bekleyen bir iş yok.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Geri çekildi: devredildiği rol bununla ilgilendi ve karar vermeniz gereken bir şey kalmadı.',
+  'Work finished: {count}':
+    'Tamamlanan işler: {count}',
+  'Stopped: its work was taken up another way':
+    'Durduruldu: işi başka bir yoldan ele alındı',
+  'Its work stopped, and each time it took down the worker running it.':
+    'İşi durdu ve her seferinde onu çalıştıran worker\'ı da çökertti.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Dış bir hizmete yazma işlemi, amaçlanandan farklı biçimde gerçekleşmiş olabilir.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Aynı bütçe hesabına yazılan iş, hesapta yeniden yer açılana kadar durur.',
+  'Its work stopped before it was done.':
+    'İşi bitmeden durdu.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform {lost} kayıp worker saydı; bir görevin kaybedebileceği en fazla sayı bu.',
+  'The platform read back what was written, and it did not match.':
+    'Platform yazılanı geri okudu ve eşleşmedi.',
+  'The budget account had nothing left to reserve for the work.':
+    'Bütçe hesabında iş için ayrılacak bir şey kalmamıştı.',
+  'The platform found it ended with no card raised for it.':
+    'Platform, onun için hiçbir kart açılmadan bittiğini buldu.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kart, bölümün bununla ilgilenmesi için belirlediği kişiye, ardından size gitti.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Görev durduruldu ve gelen kutusundaki bir kartla size bildirildi.',
+  'Postmortem: {cause} ({about})':
+    'Olay sonrası inceleme: {cause} ({about})',
+  'What happened':
+    'Ne oldu',
+  'Impact':
+    'Etki',
+  'Trigger':
+    'Tetikleyici',
+  'Detection':
+    'Tespit',
+  'What was done':
+    'Ne yapıldı',
+  'A task of {role} stopped before it was done.':
+    '{role} rolünün bir görevi bitmeden durdu.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Çözmek için: her yanıta neden diye sorup kayıtlarla karşılaştırarak kök nedeni bulun, bir kez karar verin ve kararı uygulayacak yapılacakları, her biri tek koltukla, açın.',
+  'Off track: {name}':
+    'Hedefin dışında: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}, {week} haftasında {value} oldu; haftalık hedef {target}.',
+  '{role} answers for it.':
+    'Bundan {role} sorumlu.',
+  'No seat answers for it.':
+    'Bundan sorumlu bir pozisyon yok.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform bunu haftalık operasyon toplantısından önce haftalık karneden okudu.',
+  'Not done at two meetings: {title}':
+    'İki toplantıda yapılmadı: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Son tarihi {due} olan "{title}" yapılacağı, {previous} tarihli haftalık operasyon toplantısında yapılmamıştı, bu toplantıda da yapılmadı.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform bunu haftalık operasyon toplantısından önce yapılacaklardan okudu.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Haftalık operasyon toplantısı yapıldı ({week}): {where}',
+  'see its task under Work':
+    'görevini İşler altında görün',
+  'New goals proposed, to approve line by line':
+    'Yeni hedefler önerildi, satır satır onaylanacak',
+  'Line {line}: the {kind} "{goal}"':
+    'Satır {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Bağlı olduğu: {goal}',
+  'Under line {line}: {goal}':
+    'Bağlı olduğu satır {line}: {goal}',
+  'Period: {from} to {to}':
+    'Dönem: {from} – {to}',
+  'Committed: done in full, or missed.':
+    'Taahhütlü: tamamen yapılır ya da kaçırılır.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'İddialı: puanlanır ve 0,6 ile 0,7 arası iyi bir sonuçtur.',
+  'Learning: a test of the prediction below.':
+    'Öğrenme: aşağıdaki tahmini sınar.',
+  'Owned by: {role}':
+    'Sorumlu koltuk: {role}',
+  'Done when: {doneWhen}':
+    'Şu olunca tamam: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'İşten önce yazılan tahmin: {name}, {baseline} değerinden {target} değerine ulaşır.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Ölçüsü {name}: {baseline} değerinden {target} değerine.',
+  'Watched with: {measure}':
+    'Birlikte izlendiği ölçü: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Bu yılın hedefleri: {count}; bir şirketin gözünün önünde tutabileceği {limit} hedeften fazla.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Bu amacın altındaki anahtar sonuçlar: {count}; bir amacın gözünün önünde tutabileceği {limit} sonuçtan fazla.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Aynı anda çeyrek öncelikleri: {count}; bir şirketin gözünün önünde tutabileceği {limit} öncelikten fazla.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} için aynı anda çeyrek öncelikleri: {count}; bir koltuğun taşıyabileceği {limit} öncelikten fazla.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Onaylamak, onayladığınız her satırı ölçüsüyle birlikte bir hedef yapar; reddettiğiniz satır oluşturulmaz. O zamana kadar iş, hedeflerin şimdiki hâliyle sürer.',
+  'No goal is made.':
+    'Hiçbir hedef oluşturulmaz.',
+  'Missed: {statement}':
+    'Kaçırıldı: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{from} ile {to} arası için taahhüt edilen {statement} tamamlanmadı.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Sayılarıyla ölçüldüğünde yolun {progress} kadarını geldi.',
+  'It was not marked met by its due date.':
+    'Bitiş tarihine kadar ulaşıldı olarak işaretlenmedi.',
+  'The platform graded it when its period ended.':
+    'Platform, dönemi bittiğinde onu puanladı.',
+  'Off pace: {statement}':
+    'Hızın gerisinde: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement}, bitiş tarihi {due} olan taahhütlü bir öncelik. Sayıları yolun yalnızca {progress} kadarını geldi, dönemin ise {elapsed} kadarı geçti.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Yetişmek için hiçbir şey değiştirilmedi ve hiçbir ajandan istenmedi: zamanının gerisinde kalan taahhütlü bir sayı, açığı kapatmak için daha riskli adımlara davet eder ve böyle bir riski almak senin kararındır. Tarihi ertelemeye, hedefi düşürmeye, onu iddialı yapmaya ya da sürmesine izin verip kaçırmaya karar ver.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Cevap ne olursa olsun hiçbir şey durmaz. Öncelik olduğu gibi kalır ve dönemi bitince puanlanır; karar verirsen Ekip, Hedefler altında değiştir.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Değerlerimiz',
+  'Purpose and niche': 'Amaç ve niş',
+  'Long-range target': 'Uzun vadeli hedef',
+  'Who we serve and what makes us different': 'Kime hizmet ediyoruz ve bizi farklı kılan ne',
+  'Where we will be in three years': 'Üç yıl sonra nerede olacağız',
+  'Our promise': 'Sözümüz',
 };

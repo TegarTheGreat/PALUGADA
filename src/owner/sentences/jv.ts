@@ -207,12 +207,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} saking {finished} tugas gagal utawi kendel dinten punika ({rate}%), nglangkungi wates {limit}%.',
   'Unusual number of policy refusals': 'Cacahipun panolakan kawicaksanan mboten limrah',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Tumindak ingkang dipuntolak kawicaksanan dinten punika: {count}, nglangkungi wates {limit}. Saged ugi wonten agen ingkang saweg nyobi watesipun, utawi wonten kawicaksanan ingkang setelanipun mboten leres.',
-  'External writes failed verification': 'Panyeratan ing njawi mboten lulus verifikasi',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Panyeratan ing njawi ingkang kalapuraken kasil nanging benten nalika dipunwaos malih: {count}. Wonten ingkang ngewahi panyeratan punika, mboten kados ingkang dipunsuwun.',
-  'A capability stopped being usable': 'Setunggal kasagedan sampun mboten saged dipunginakaken',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Tugas ingkang mboten saged kawiwitan dinten punika amargi kasagedan ingkang dipunbetahaken peranipun mboten lulus pamriksan: {count}. Saged ugi wonten kredensial ingkang sampun kadaluwarsa utawi kuota ingkang sampun telas.',
-  'A worker stopped reporting mid-run': 'Setunggal pekerja kendel lapur ing satengahing lampahan',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Lampahan ingkang kendel lapur lan dipunpendhet wangsul dinten punika: {count}. Pakaryanipun sampun dipunlajengaken malih; token ingkang sampun kaginakaken mboten wangsul.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} dipuntolak ping {denials} dinten punika, dumugi wates {limit}. Mboten wonten tugas ingkang mlampah minangka peran punika ngantos panjenengan nyairaken. Sabab ingkang limrah: palilah kasagedan ingkang dereng wonten, kawicaksanan ingkang mboten dipunetang wonten ing piagam peran punika, utawi pakaryan ingkang mboten nate dipuncawisaken kangge peran punika.',
   'Role {role} is frozen after repeated denials': 'Peran {role} dipunbekokaken sasampunipun bola-bali dipuntolak',
   'What it was refused: {capabilities}': 'Ingkang dipuntolak: {capabilities}',
@@ -223,12 +217,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” sampun ngentosi wiwit {since}. {why} Setujoni kangge nglampahaken malih saking papan kendelipun, utawi Tolak kangge mbatalaken.',
   'A task keeps stopping the worker running it': 'Setunggal tugas bola-bali ndadosaken pekerja ingkang nglampahaken kendel',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” kecalan pekerjanipun ping {lost}: saben-saben, pekerja ingkang nglampahaken kendel mangsuli saderengipun pakaryan rampung. Punapa ingkang sampun dipuntindakaken tetep dipunsimpen. Tugas punika dipunkandhegaken supados mboten ndadosaken pekerja sanes ambruk; lampahaken malih sasampunipun sababipun kapanggih, utawi batalaken.',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} tetep mboten saged dipunhubungi, lan pakaryan ingkang mbetahaken kendel',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'Tugas punika ngentosi kinten-kinten {minutes} menit, mriksa malih saben wekdal, lan sapunika kendel. Sasampunipun layanan punika mangsuli, lampahaken malih.',
   'It was tried {tries} times over about {minutes} minutes.': 'Sampun dipuncobi ping {tries} salebeting kinten-kinten {minutes} menit.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Peran punika saged nindakaken tumindak ingkang mboten saged dipunwangsulaken, pramila lampahan punika mboten dipunpindhah kanthi meneng dhateng model sanes.',
   'No fallback model is left for this role.': 'Sampun mboten wonten model cadhangan kangge peran punika.',
-  'Model {model} failed and the run was not moved': 'Model {model} gagal lan lampahanipun mboten dipunpindhah',
   'External write failed verification': 'Panyeratan ing njawi mboten lulus verifikasi',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'Tugas punika nyerat dhateng layanan ing njawi lajeng maos malih, lan ingkang kawaos mboten cocog. Pirsani papan ingkang dipunserati saderengipun panjenengan nglampahaken malih: seratan punika saged ugi sampun kelampahan.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Panliten buntu sasampunipun {rounds} revisi: {capability}',
@@ -253,7 +244,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Jadwal “{schedule}” tansah ngasilaken asil ingkang sami',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '{runs} lampahan pungkasanipun sedaya rampung kanthi asil ingkang sami. Kadhangkala punika pancen leres — laporan ingkang mboten wonten kabar enggal — lan asring punika jadwal ingkang sampun mboten nindakaken punapa-punapa ingkang migunani nanging taksih dipunbayar. Tolak kangge mejahi jadwal punika; Setujoni kangge tetep nglampahaken lan panjenengan mboten badhe dipuntakeni malih bab asil punika.',
   'Capability {capability} failed preflight': 'Kasagedan {capability} mboten lulus pamriksan wiwitan',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Pakaryan ingkang mbetahaken kasagedan punika dipunkendelaken, mboten dipunwiwiti: leresaken sababipun, lajeng lampahaken malih pakaryan punika. Sabab ingkang limrah: kredensial ingkang kadaluwarsa utawi wewenangipun lepat, kuota ingkang sampun telas, utawi alamat ingkang lepat.',
   'Batch guard stopped {capability}': 'Pangaman tumindak massal ngendelaken {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'Punika mboten cocog kaliyan rancangan ingkang dipuncathet dening lampahanipun. Mboten wonten ingkang dipunkintun, lan mboten wonten layanan ingkang dipunpanggil.',
   '{role} was asked first and has had {minutes} minutes.': '{role} dipuntakeni rumiyin lan sampun pikantuk {minutes} menit.',
@@ -341,8 +331,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} mboten purun nampi kunci model ({status}), dados mboten wonten padamelan ingkang mbetahaken model saged mlampah. Bikak Setelan, Pamasangan punika, Model AI, tempelaken kunci ingkang saged dipunginakaken, ujia lajeng simpen.',
   '{host} refused the model key, and work is waiting': '{host} mboten purun nampi kunci model, lan padamelan nengga',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Padamelan ingkang nengga model badhé nglajengaken piyambak menawi kunci ingkang saged dipunginakaken sampun dipunginakaken.',
   'A task ended before it was done: {task}':
     'Satunggal tugas mandheg sadèrèng rampung: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -406,4 +394,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tikèt sing dirembug wis ditutup.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Faktur {number} ({amount}, {customer}) wis telat wiwit {due}, lan diterbitake tanpa alamat email kanggo ngirim pangeling. Tindak lanjuti dhewe, utawa kandhani CEO apa sing dikarepake.',
+  'Kept as your word: {words}':
+    'Disimpen minangka pangandikan panjenengan: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Dicathet minangka angka panjenengan: {value} kangge {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Lampahan ingkang dipunlajengaken malih sasampunipun pekerjanipun kendel: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Dipunwangsulaken: tugas ingkang dipunrembag sampun dipunlampahaken malih.',
+  'Withdrawn: the day it was about has ended.':
+    'Dipunwangsulaken: dinten ingkang dipunrembag sampun rampung.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: periode sing dirembug wis rampung lan wis dibijèni.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: tujuan sing dirembug wis ditutup.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Dipunwangsulaken: wates sasi punika sampun kadugèn, lan kertu ingkang ngandharaken bilih perusahaan dipunendheg nggantosaken.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Pakaryan ingkang taksih ngentosi sasampunipun kinten-kinten {hours} jam badhé kendel, lajeng kertu punika tetep kabuka supados panjenengan saged nglampahaken malih.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} mboten mangsuli, lan pakaryan ingkang mbetahaken saweg ngentosi',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Pakaryan punika sampun ngentosi kinten-kinten {minutes} menit, mriksa malih saben wekdal, lan taksih ngentosi: badhé nglajengaken piyambak menawi layanan punika sampun mangsuli, lajeng kertu punika nutup piyambak.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Pakaryan punika ngentosi lan badhé nglajengaken piyambak menawi model sampun mangsuli, lajeng kertu punika nutup piyambak.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Model {model} mboten mangsuli, lan wonten pakaryan ingkang ngentosi',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Padamelan ingkang nengga model badhé nglajengaken piyambak menawi kunci ingkang saged dipunginakaken sampun dipunginakaken, lajeng kertu punika nutup piyambak.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Pakaryan ingkang mbetahaken kasagedan punika ngentosi, mboten dipunwiwiti, lan badhé nglajengaken piyambak menawi pamriksanipun sampun lulus; lajeng kertu punika nutup piyambak. Sabab ingkang limrah: kredensial ingkang kadaluwarsa utawi wewenangipun lepat, kuota ingkang sampun telas, utawi alamat ingkang lepat.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} dipunkendelaken: pakaryan ing kertu punika sampun dipunlampahaken malih.',
+  'Withdrawn: the month it was about has ended.':
+    'Dipunwangsulaken: wulan ingkang dipunrembag sampun rampung.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Dipunwangsulaken: kendelipun sampun dipunbikak, lan padamelan lumampah malih.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Dipunwangsulaken: model sampun mangsuli malih, lan padamelan ingkang ngentosi sampun dipuntimbali malih.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Dipunwangsulaken: kunci model sampun lumampah malih, lan padamelan ingkang ngentosi sampun dipuntimbali malih.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Dipunwangsulaken: layanan sampun lulus pamriksanipun malih, lan padamelan ingkang ngentosi sampun dipuntimbali malih.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Dipunwangsulaken: sampun mboten wonten padamelan ingkang ngentosi malih.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Dipunwangsulaken: peran ingkang dipunparingi sampun ngrampungaken, lan mboten wonten malih ingkang kedah panjenengan putusaken.',
+  'Work finished: {count}':
+    'Pakaryan ingkang rampung: {count}',
+  'Stopped: its work was taken up another way':
+    'Dimandhegaké: gawéané wis ditangani kanthi cara liya',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Padamelanipun mandheg, lan saben wekdal ndadosaken worker ingkang nglampahaken ugi mandheg.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Panyeratan dhateng layanan njawi saged sampun kedadosan, nanging mboten kados ingkang dipunkajengaken.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Padamelan ingkang dipuntanggelaken dhateng akun anggaran ingkang sami mandheg ngantos akun punika gadhah ruang malih.',
+  'Its work stopped before it was done.':
+    'Padamelanipun mandheg saderengipun rampung.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform ngetang {lost} worker ingkang ical, watesan paling kathah kangge setunggal tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform maos malih punapa ingkang dipunserat, lan asilipun mboten cocok.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akun anggaran mboten gadhah sisa kangge dipuncadhangaken tumrap padamelan punika.',
+  'The platform found it ended with no card raised for it.':
+    'Platform manggihaken punika rampung tanpa wonten kertu ingkang dipunajengaken.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kertu punika dipunparingaken dhateng sinten kemawon ingkang dipuntunjuk divisi kangge nanganinipun, lajeng dhateng panjenengan.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugas punika dipunkendelaken, lan panjenengan dipunparingi pirsa lumantar kertu ing kothak mlebet.',
+  'Postmortem: {cause} ({about})':
+    'Telaah sasampunipun kedadosan: {cause} ({about})',
+  'What happened':
+    'Ingkang kedadosan',
+  'Impact':
+    'Dampak',
+  'Trigger':
+    'Pemicu',
+  'Detection':
+    'Pandeteksian',
+  'What was done':
+    'Ingkang dipuntindakaken',
+  'A task of {role} stopped before it was done.':
+    'Setunggal tugas {role} mandheg saderengipun rampung.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara ngrampungaken: padosi oyot prekawis kanthi takon kenging punapa ing saben wangsulan lan nyocogaken kaliyan cathetan, putusaken sepisan, lajeng damel tumindak ingkang nindakaken putusan punika, saben setunggal kaliyan setunggal kursi.',
+  'Off track: {name}':
+    'Mlenceng saking rencana: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} angsal {value} ing minggu {week}, saking target mingguan {target}.',
+  '{role} answers for it.':
+    '{role} ingkang tanggel jawab.',
+  'No seat answers for it.':
+    'Boten wonten kalenggahan ingkang tanggel jawab.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform maos saking scorecard mingguan saderengipun rapat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Boten rampung ing kalih rapat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tumindak "{title}", tempo {due}, boten rampung ing rapat operasi mingguan {previous}, lan ugi boten ing rapat punika.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform maos saking daftar tumindak saderengipun rapat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Rapat operasi mingguan sampun dipunwontenaken ({week}): {where}',
+  'see its task under Work':
+    'pirsani tugasipun ing Pakaryan',
+  'New goals proposed, to approve line by line':
+    'Ancas enggal dipunusulaken, kangge dipunsetujoni larik mawon larik',
+  'Line {line}: the {kind} "{goal}"':
+    'Larik {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Ing sangandhapipun: {goal}',
+  'Under line {line}: {goal}':
+    'Ing sangandhapipun larik {line}: {goal}',
+  'Period: {from} to {to}':
+    'Wekdal: {from} ngantos {to}',
+  'Committed: done in full, or missed.':
+    'Kudu kaleksanan: rampung sedaya, utawi luput.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Gegayuhan dhuwur: dipunbiji, lan 0,6 ngantos 0,7 punika asil ingkang sae.',
+  'Learning: a test of the prediction below.':
+    'Sinau: nguji ramalan ing ngandhap punika.',
+  'Owned by: {role}':
+    'Dipungadhahi: {role}',
+  'Done when: {doneWhen}':
+    'Rampung menawi: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalanipun, dipunserat saderengipun pakaryan: {name} dumugi {target}, saking {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Dipunukur kaliyan {name}: saking {baseline} dumugi {target}.',
+  'Watched with: {measure}':
+    'Dipunawasi sesarengan: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Ancas taun punika: {count}, langkung saking {limit} ingkang saged dipunjagi perusahaan.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Asil utami ing sangandhaping gegayuhan punika: {count}, langkung saking {limit} ingkang saged dipunjagi setunggal gegayuhan.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioritas triwulan sesarengan: {count}, langkung saking {limit} ingkang saged dipunjagi perusahaan.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioritas triwulan {seat} sesarengan: {count}, langkung saking {limit} ingkang saged dipuncepeng setunggal kursi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Nyetujoni ndadosaken saben larik ingkang panjenengan setujoni satunggaling ancas, sesarengan ukuranipun; larik ingkang panjenengan tolak boten dipundamel. Ngantos wekdal punika pakaryan lajeng mlampah miturut ancas ingkang wonten sapunika.',
+  'No goal is made.':
+    'Boten wonten ancas ingkang dipundamel.',
+  'Missed: {statement}':
+    'Luput: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, ingkang kedah kaleksanan saking {from} ngantos {to}, boten rampung.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Dipunukur saking angka-angkanipun, dumugi {progress} saking lampahipun.',
+  'It was not marked met by its due date.':
+    'Boten dipuntandhani kaleksanan ngantos tanggal watesipun.',
+  'The platform graded it when its period ended.':
+    'Platform mbiji nalika periodenipun rampung.',
+  'Off pace: {statement}':
+    'Ketinggalan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} punika prioritas ingkang kedah kaleksanan, watesipun {due}. Angka-angkanipun nembe dumugi {progress} saking lampahipun, nalika {elapsed} saking periodenipun sampun kalampahan.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Boten wonten ingkang dipunewahi kangge ngoyak, lan boten wonten agen ingkang dipunsuwun: angka wajib ingkang ketinggalan wekdalipun ngundang tumindak ingkang langkung beresiko kangge nutupi, lan punapa resiko punika dipunpendhet punika kaputusan panjenengan. Putusaken punapa tanggalipun dipunundur, targetipun dipunandhapaken, dipundadosaken gegayuhan dhuwur, utawi dipunkarepaken mlampah lan luput.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Boten wonten ingkang dipunkendelaken, punapa kemawon wangsulanipun. Prioritas punika tetep kados mekaten lan dipunbiji nalika periodenipun rampung; ewahi wonten ing Tim, Ancas menawi panjenengan mutusaken.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nilai-nilai kita',
+  'Purpose and niche': 'Ancas lan ceruk',
+  'Long-range target': 'Target jangka panjang',
+  'Who we serve and what makes us different': 'Sinten ingkang kita layani lan punapa ingkang mbedakaken kita',
+  'Where we will be in three years': 'Wonten pundi kita tigang taun malih',
+  'Our promise': 'Janji kita',
 };

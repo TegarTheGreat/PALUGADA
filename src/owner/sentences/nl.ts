@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': '{failed} van de {finished} taken zijn vandaag mislukt of gestopt ({rate}%), boven de drempel van {limit}%.',
   'Unusual number of policy refusals': 'Ongewoon veel weigeringen door beleidsregels',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'Acties die vandaag door een beleidsregel zijn geweigerd: {count}, boven de drempel van {limit}. Óf een agent tast zijn grenzen af, óf een beleidsregel is verkeerd afgesteld.',
-  'External writes failed verification': 'Externe schrijfacties kwamen niet door de controle',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'Schrijfacties naar buiten die als geslaagd werden gemeld, maar bij teruglezen anders bleken: {count}. Iets wijzigt ze anders dan gevraagd.',
-  'A capability stopped being usable': 'Een mogelijkheid is niet meer bruikbaar',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'Taken die vandaag niet konden starten omdat een mogelijkheid die hun rol nodig heeft niet door de controle kwam: {count}. Waarschijnlijk zijn inloggegevens verlopen of is een quotum op.',
-  'A worker stopped reporting mid-run': 'Een worker meldde zich halverwege een uitvoering niet meer',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'Uitvoeringen die zich vandaag niet meer meldden en zijn teruggehaald: {count}. Het werk is weer opgepakt; de tokens die ze al hadden uitgegeven, zijn verloren.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} is vandaag {denials} keer afgewezen en zit daarmee op de limiet van {limit}. Er draait geen taak als deze rol totdat je haar ontdooit. Gebruikelijke oorzaken zijn een ontbrekende machtiging voor een mogelijkheid, een beleidsregel waar het handvest van de rol geen rekening mee houdt, of werk waarvoor de rol nooit is toegerust.',
   'Role {role} is frozen after repeated denials': 'Rol {role} bevroren na herhaalde afwijzingen',
   'What it was refused: {capabilities}': 'Wat werd geweigerd: {capabilities}',
@@ -225,12 +219,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” wacht sinds {since}. {why} Kies “Goedkeuren” om haar opnieuw uit te voeren vanaf waar ze stopte, of “Afwijzen” om haar te annuleren.',
   'A task keeps stopping the worker running it': 'Een taak laat haar worker steeds vastlopen',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” is haar worker {lost} keer kwijtgeraakt: elke keer stopte de worker die haar uitvoerde met antwoorden voordat het werk klaar was. Wat ze al had gedaan, blijft bewaard. Ze is stilgezet zodat ze geen andere worker onderuit kan halen; voer haar opnieuw uit zodra de oorzaak is gevonden, of annuleer haar.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'Onbereikbaar gebleven: {services} – het werk dat ervan afhangt is gestopt',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'De taak heeft ongeveer {minutes} min. gewacht, telkens opnieuw gekeken, en is gestopt. Voer haar opnieuw uit zodra de dienst antwoordt.',
   'It was tried {tries} times over about {minutes} minutes.': 'Het is {tries} keer geprobeerd in ongeveer {minutes} min.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'Deze rol kan acties uitvoeren die niet ongedaan kunnen worden gemaakt, dus de uitvoering is niet stilletjes naar een ander model verplaatst.',
   'No fallback model is left for this role.': 'Er is geen uitwijkmodel meer over voor deze rol.',
-  'Model {model} failed and the run was not moved': 'Model {model} is mislukt en de uitvoering is niet verplaatst',
   'External write failed verification': 'Externe schrijfactie kwam niet door de controle',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'De taak schreef naar een externe dienst en las het terug, en wat ze las kwam niet overeen. Kijk op de plek waar ze naartoe schreef voordat je de taak opnieuw uitvoert: de schrijfactie kan al gebeurd zijn.',
   'Review deadlocked after {rounds} revisions: {capability}': 'Beoordeling vastgelopen na {rounds} herzieningen: {capability}',
@@ -255,7 +246,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'Het schema “{schedule}” levert steeds hetzelfde resultaat op',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'De laatste {runs} uitvoeringen eindigden allemaal met dezelfde uitvoer. Soms is dat precies goed – een rapport dat niets nieuws te melden heeft – maar vaak is het een schema dat niets nuttigs meer doet terwijl er nog voor wordt betaald. Kies “Afwijzen” om het uit te zetten, of “Goedkeuren” om het te laten doorlopen en over dit resultaat niet meer gevraagd te worden.',
   'Capability {capability} failed preflight': 'Mogelijkheid “{capability}” kwam niet door de controle vooraf',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'Werk dat haar nodig heeft, wordt gestopt in plaats van gestart: los de oorzaak op en voer dat werk daarna opnieuw uit. Gebruikelijke oorzaken zijn verlopen inloggegevens of inloggegevens met de verkeerde rechten, een quotum dat op is, of een verkeerd adres.',
   'Batch guard stopped {capability}': 'Batchcontrole heeft “{capability}” gestopt',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'De aanroep kwam niet overeen met het plan dat de uitvoering had vastgelegd. Er is niets verzonden en er is geen dienst aangeroepen.',
   '{role} was asked first and has had {minutes} minutes.': '{role} werd eerst gevraagd en heeft {minutes} min. gehad.',
@@ -343,8 +333,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} heeft de sleutel van het model geweigerd ({status}), dus er kan geen werk draaien dat het model nodig heeft. Open Instellingen, Deze installatie, Model, plak een werkende sleutel, test hem en sla op.',
   '{host} refused the model key, and work is waiting': '{host} heeft de modelsleutel geweigerd, en het werk wacht',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'Werk dat op het model wacht, gaat vanzelf verder zodra een werkende sleutel in gebruik is.',
   'A task ended before it was done: {task}':
     'Een taak eindigde voordat ze klaar was: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -408,4 +396,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ingetrokken: het ticket waar het over ging is gesloten.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'Factuur {number} ({amount}, {customer}) is verlopen sinds {due}, en is uitgeschreven zonder e-mailadres om een herinnering naartoe te sturen. Volg haar zelf op, of zeg de CEO wat u wilt.',
+  'Kept as your word: {words}':
+    'Bewaard als je eigen woorden: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'Vastgelegd als jouw cijfer: {value} voor {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'Uitvoeringen die werden hervat nadat hun worker stopte: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'Ingetrokken: de taak waar het over ging is opnieuw uitgevoerd.',
+  'Withdrawn: the day it was about has ended.':
+    'Ingetrokken: de dag waar het over ging is voorbij.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ingetrokken: de periode waar het over ging is voorbij en beoordeeld.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ingetrokken: het doel waar het over ging is gesloten.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'Ingetrokken: het plafond van de maand is bereikt, en de kaart die zegt dat het bedrijf gepauzeerd is neemt de plaats in.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'Werk dat na ongeveer {hours} uur nog wacht, stopt, en deze kaart blijft dan open zodat je het opnieuw kunt uitvoeren.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} antwoordt niet, en het werk dat ervan afhangt wacht',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'Het werk heeft ongeveer {minutes} min. gewacht, telkens opnieuw gekeken, en wacht nog: het gaat vanzelf verder zodra de dienst antwoordt, en deze kaart sluit dan vanzelf.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'Het werk wacht en gaat vanzelf verder zodra het model antwoordt, en deze kaart sluit dan vanzelf.',
+  'Model {model} is not answering, and work is waiting for it':
+    'Model {model} antwoordt niet, en er wacht werk op',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'Werk dat op het model wacht, gaat vanzelf verder zodra een werkende sleutel in gebruik is, en deze kaart sluit dan vanzelf.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'Werk dat haar nodig heeft, wacht in plaats van te starten, en gaat vanzelf verder zodra de controle slaagt; deze kaart sluit dan vanzelf. Gebruikelijke oorzaken zijn verlopen inloggegevens of inloggegevens met de verkeerde rechten, een quotum dat op is, of een verkeerd adres.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} werd gestopt: het werk op deze kaart is weer opgepakt.',
+  'Withdrawn: the month it was about has ended.':
+    'Ingetrokken: de maand waar het over ging is voorbij.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'Ingetrokken: de pauze is opgeheven, en het werk gaat door.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'Ingetrokken: het model antwoordt weer, en werk dat erop wachtte is teruggeroepen.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'Ingetrokken: de modelsleutel werkt weer, en werk dat erop wachtte is teruggeroepen.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'Ingetrokken: de dienst heeft zijn controle weer doorstaan, en werk dat erop wachtte is teruggeroepen.',
+  'Withdrawn: no work is waiting on it any more.':
+    'Ingetrokken: er wacht geen werk meer op.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'Ingetrokken: de rol waaraan het was overgedragen heeft het afgehandeld, en er valt voor u niets meer te beslissen.',
+  'Work finished: {count}':
+    'Werk klaar: {count}',
+  'Stopped: its work was taken up another way':
+    'Gestopt: het werk is op een andere manier opgepakt',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Het werk stopte, en elke keer nam het de worker die het uitvoerde mee.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Er is misschien naar een externe dienst geschreven, maar niet zoals bedoeld.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Werk dat op dezelfde budgetrekening drukt, staat stil tot die weer ruimte heeft.',
+  'Its work stopped before it was done.':
+    'Het werk stopte voordat het af was.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Het platform telde {lost} verloren workers, het hoogste aantal dat een taak mag verliezen.',
+  'The platform read back what was written, and it did not match.':
+    'Het platform las terug wat er geschreven was, en het kwam niet overeen.',
+  'The budget account had nothing left to reserve for the work.':
+    'Op de budgetrekening was niets meer over om voor het werk te reserveren.',
+  'The platform found it ended with no card raised for it.':
+    'Het platform zag dat het eindigde zonder dat er een kaart voor was aangemaakt.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'De kaart ging naar wie de afdeling ervoor aanwijst, en daarna naar u.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'De taak werd stilgezet, en u kreeg het te horen op een kaart in de inbox.',
+  'Postmortem: {cause} ({about})':
+    'Nabeschouwing: {cause} ({about})',
+  'What happened':
+    'Wat er gebeurde',
+  'Impact':
+    'Gevolgen',
+  'Trigger':
+    'Aanleiding',
+  'Detection':
+    'Ontdekking',
+  'What was done':
+    'Wat er gedaan is',
+  'A task of {role} stopped before it was done.':
+    'Een taak van {role} stopte voordat hij af was.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Zo los je het op: zoek de hoofdoorzaak door bij elk antwoord te vragen waarom en het te toetsen aan wat is vastgelegd, besluit één keer, en maak de acties aan die het besluit uitvoeren, elk met één zetel.',
+  'Off track: {name}':
+    'Niet op koers: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} was {value} in de week van {week}, tegenover een weekdoel van {target}.',
+  '{role} answers for it.':
+    '{role} is hiervoor verantwoordelijk.',
+  'No seat answers for it.':
+    'Geen functie is hiervoor verantwoordelijk.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Het platform las dit vóór het wekelijkse operationele overleg uit de wekelijkse scorecard.',
+  'Not done at two meetings: {title}':
+    'Niet gedaan bij twee overleggen: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'De actie "{title}", te doen op {due}, was niet gedaan bij het wekelijkse operationele overleg van {previous}, en ook niet bij dit overleg.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Het platform las dit vóór het wekelijkse operationele overleg uit de acties.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Wekelijks operationeel overleg gehouden ({week}): {where}',
+  'see its task under Work':
+    'zie de taak ervan onder Werk',
+  'New goals proposed, to approve line by line':
+    'Nieuwe doelen voorgesteld, regel voor regel goed te keuren',
+  'Line {line}: the {kind} "{goal}"':
+    'Regel {line}: {kind} ‘{goal}’',
+  'Under: {goal}':
+    'Onder: {goal}',
+  'Under line {line}: {goal}':
+    'Onder regel {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periode: {from} tot en met {to}',
+  'Committed: done in full, or missed.':
+    'Toegezegd: helemaal gehaald, of gemist.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Ambitieus: krijgt een cijfer, en 0,6 tot 0,7 is een goed resultaat.',
+  'Learning: a test of the prediction below.':
+    'Leren: toetst de voorspelling hieronder.',
+  'Owned by: {role}':
+    'Verantwoordelijk: {role}',
+  'Done when: {doneWhen}':
+    'Klaar als: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'De voorspelling, vastgelegd voor het werk: {name} bereikt {target}, vanaf {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Gemeten met {name}: van {baseline} naar {target}.',
+  'Watched with: {measure}':
+    'Bekeken samen met: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Doelen voor dit jaar: {count}, meer dan de {limit} die een bedrijf in het oog houdt.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Kernresultaten onder deze doelstelling: {count}, meer dan de {limit} die één doelstelling in het oog houdt.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Kwartaalprioriteiten tegelijk: {count}, meer dan de {limit} die een bedrijf in het oog houdt.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Kwartaalprioriteiten van {seat} tegelijk: {count}, meer dan de {limit} die één stoel kan dragen.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Goedkeuren maakt van elke goedgekeurde regel een doel, met zijn maat; een afgewezen regel wordt niet gemaakt. Tot die tijd gaat het werk door onder de doelen zoals ze zijn.',
+  'No goal is made.':
+    'Er wordt geen doel gemaakt.',
+  'Missed: {statement}':
+    'Gemist: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, toegezegd voor {from} tot {to}, is niet gehaald.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Gemeten aan zijn cijfers kwam het {progress} van de weg.',
+  'It was not marked met by its due date.':
+    'Het is niet vóór de einddatum als gehaald gemarkeerd.',
+  'The platform graded it when its period ended.':
+    'Het platform gaf het een cijfer toen zijn periode eindigde.',
+  'Off pace: {statement}':
+    'Achter op schema: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} is een toegezegde prioriteit met einddatum {due}. De cijfers zijn pas {progress} van de weg gekomen, terwijl {elapsed} van de periode voorbij is.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Er is niets veranderd om in te halen, en geen agent wordt dat gevraagd: een toegezegd getal dat achterloopt op zijn tijd nodigt uit tot riskanter handelen om het goed te maken, en of dat risico genomen wordt, beslis jij. Beslis of de datum opschuift, het doel omlaag gaat, het ambitieus wordt, of dat het doorloopt en gemist wordt.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Er stopt niets, wat je ook antwoordt. De prioriteit blijft zoals ze is en krijgt een cijfer als haar periode eindigt; pas haar aan onder Team, Doelen als je dat besluit.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Onze waarden',
+  'Purpose and niche': 'Doel en niche',
+  'Long-range target': 'Langetermijndoel',
+  'Who we serve and what makes us different': 'Wie we dienen en wat ons onderscheidt',
+  'Where we will be in three years': 'Waar we over drie jaar staan',
+  'Our promise': 'Onze belofte',
 };

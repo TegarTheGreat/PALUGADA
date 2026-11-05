@@ -266,10 +266,7 @@ export function reminderMailboxAsked(language: string | null): string {
 export type AlertFacts =
   | { kind: 'daily_cost'; costCents: number; limitCents: number }
   | { kind: 'task_failure_rate'; failed: number; finished: number; rate: number; limit: number }
-  | { kind: 'policy_denials'; count: number; limit: number }
-  | { kind: 'verification_failures'; count: number }
-  | { kind: 'preflight_failures'; count: number }
-  | { kind: 'orphaned_runs'; count: number };
+  | { kind: 'policy_denials'; count: number; limit: number };
 
 export function alertCard(reading: OwnerReading, facts: AlertFacts): Card {
   const { language } = reading;
@@ -294,27 +291,6 @@ export function alertCard(reading: OwnerReading, facts: AlertFacts): Card {
         detail: say(language,
           'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.',
           { count: number(reading, facts.count), limit: number(reading, facts.limit) }),
-      };
-    case 'verification_failures':
-      return {
-        title: say(language, 'External writes failed verification'),
-        detail: say(language,
-          'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.',
-          { count: number(reading, facts.count) }),
-      };
-    case 'preflight_failures':
-      return {
-        title: say(language, 'A capability stopped being usable'),
-        detail: say(language,
-          'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.',
-          { count: number(reading, facts.count) }),
-      };
-    case 'orphaned_runs':
-      return {
-        title: say(language, 'A worker stopped reporting mid-run'),
-        detail: say(language,
-          'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.',
-          { count: number(reading, facts.count) }),
       };
   }
 }
@@ -360,28 +336,45 @@ export function crashLoopCard(reading: OwnerReading, facts: { task: string; lost
   };
 }
 
-export function serviceUnreachableCard(reading: OwnerReading, facts: { failures: ReadonlyArray<{ capability: string; detail: string }>; minutes: number }): Card {
+/**
+ * What becomes of work that waits for a cause past its ceiling, said on every
+ * card about one (src/engine/recovered.ts): it stops, and the card is where
+ * it is reported, so the card stays.
+ */
+function stopsAfterSaid(reading: OwnerReading, hours: number): string {
+  return say(reading.language, 'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.',
+    { hours: number(reading, hours) });
+}
+
+/**
+ * One card for a service that stays down, however much work waits for it
+ * (src/engine/recovered.ts). The work waits, and the card closes itself
+ * when the service answers.
+ */
+export function serviceUnreachableCard(reading: OwnerReading, facts: { capability: string; detail: string; minutes: number; hours: number }): Card {
   const { language } = reading;
-  const services = [...new Set(facts.failures.map((failure) => capabilitySaid(language, failure.capability)))];
+  const service = capabilitySaid(language, facts.capability);
   return {
-    title: say(language, '{services} stayed unreachable, and the work that needs it stopped', { services: services.join(', ') }),
-    detail: withRecord(say(language,
-      'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.',
-      { minutes: number(reading, facts.minutes) }),
-    facts.failures.map((failure) => `${capabilitySaid(language, failure.capability)}: ${failure.detail}`).join('\n')),
+    title: say(language, '{service} is not answering, and the work that needs it is waiting', { service }),
+    detail: withRecord(`${say(language,
+      'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.',
+      { minutes: number(reading, facts.minutes) })} ${stopsAfterSaid(reading, facts.hours)}`,
+    `${service}: ${facts.detail}`),
   };
 }
 
-export function modelFailedCard(reading: OwnerReading, facts: { model: string; tries: number; minutes: number; irreversible: boolean; record: string }): Card {
+/** One card for a model that stays down, however much work waits for it, as for a service. */
+export function modelFailedCard(reading: OwnerReading, facts: { model: string; tries: number; minutes: number; irreversible: boolean; record: string; hours: number }): Card {
   const { language } = reading;
   const tried = say(language, 'It was tried {tries} times over about {minutes} minutes.',
     { tries: number(reading, facts.tries), minutes: number(reading, facts.minutes) });
   const why = facts.irreversible
     ? say(language, 'This role can take actions that cannot be undone, so the run was not silently moved to a different model.')
     : say(language, 'No fallback model is left for this role.');
+  const waits = say(language, 'The work waits and carries on by itself once the model answers, and this card then closes itself.');
   return {
-    title: say(language, 'Model {model} failed and the run was not moved', { model: facts.model }),
-    detail: withRecord(`${tried} ${why}`, facts.record),
+    title: say(language, 'Model {model} is not answering, and work is waiting for it', { model: facts.model }),
+    detail: withRecord(`${tried} ${why} ${waits} ${stopsAfterSaid(reading, facts.hours)}`, facts.record),
   };
 }
 
@@ -397,11 +390,12 @@ export function modelKeyRefusedSaid(language: string | null, facts: { host: stri
     { host: facts.host, status: String(facts.status) }), facts.providerSaid);
 }
 
-export function modelKeyRefusedCard(reading: OwnerReading, facts: { host: string; status: number; providerSaid: string | null }): Card {
+export function modelKeyRefusedCard(reading: OwnerReading, facts: { host: string; status: number; providerSaid: string | null; hours: number }): Card {
   const { language } = reading;
   return {
     title: say(language, '{host} refused the model key, and work is waiting', { host: facts.host }),
-    detail: `${modelKeyRefusedSaid(language, facts)}\n\n${say(language, 'What is waiting for the model carries on by itself once a key that works is in use.')}`,
+    detail: `${modelKeyRefusedSaid(language, facts)}\n\n${say(language,
+      'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.')} ${stopsAfterSaid(reading, facts.hours)}`,
   };
 }
 
@@ -426,6 +420,168 @@ export function writeUnverifiedCard(reading: OwnerReading, facts: { record: stri
     detail: withRecord(say(language,
       'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.'),
     facts.record),
+  };
+}
+
+/* ---------------------------------------------------------- postmortems --- */
+
+/** How the platform learned of a failure it files a postmortem for (src/engine/postmortem.ts). */
+export type PostmortemHow = 'crash_loop' | 'verification' | 'budget' | 'ended';
+
+/**
+ * A failure the platform files as an issue (F18.4): a short blameless
+ * postmortem -- what happened, its impact, what triggered it, how it was
+ * detected and what was done -- and how to solve it, in the owner's language.
+ *
+ * Only the platform's own facts. The task is linked on the ticket, not
+ * quoted: what a task was asked can name a customer ("reply to Budi about his
+ * refund"), and an issue is read at every weekly meeting and by every run
+ * that lists the board, long after the customer's own conversation is gone.
+ * A record a service or a check gave is on the card the issue links, for the
+ * same reason, and for another: it can be a stranger's words.
+ */
+export function postmortemIssue(reading: OwnerReading, facts: {
+  how: PostmortemHow; reason: string | null; role: string; about: string; lost?: number;
+}): { title: string; body: string } {
+  const { language } = reading;
+  const cause = haltSaid(language, facts.reason);
+  const impact = {
+    crash_loop: () => say(language, 'Its work stopped, and each time it took down the worker running it.'),
+    verification: () => say(language, 'A write to an outside service may have happened without being what was meant.'),
+    budget: () => say(language, 'Work charged to the same budget account stops until it has room again.'),
+    ended: () => say(language, 'Its work stopped before it was done.'),
+  }[facts.how]();
+  const detection = {
+    crash_loop: () => say(language, 'The platform counted {lost} lost workers, the most a task may lose.',
+      { lost: number(reading, facts.lost ?? 0) }),
+    verification: () => say(language, 'The platform read back what was written, and it did not match.'),
+    budget: () => say(language, 'The budget account had nothing left to reserve for the work.'),
+    ended: () => say(language, 'The platform found it ended with no card raised for it.'),
+  }[facts.how]();
+  const done = facts.how === 'ended'
+    ? say(language, 'The card went to whoever the division names to deal with it, and to you after.')
+    : say(language, 'The task was halted, and you were told on a card in the inbox.');
+  return {
+    title: say(language, 'Postmortem: {cause} ({about})', { cause, about: facts.about }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, 'A task of {role} stopped before it was done.', { role: facts.role })}`,
+      `${say(language, 'Impact')}: ${impact}`,
+      `${say(language, 'Trigger')}: ${cause}`,
+      `${say(language, 'Detection')}: ${detection}`,
+      `${say(language, 'What was done')}: ${done}`,
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/** How every issue the platform files ends: the way an issue is solved. */
+function toSolve(language: string | null): string {
+  return say(language, 'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.');
+}
+
+function seatSaid(language: string | null, seat: string | null): string {
+  return seat ? say(language, '{role} answers for it.', { role: seat }) : say(language, 'No seat answers for it.');
+}
+
+/**
+ * A line of the weekly scorecard that missed its weekly goal last week
+ * (F18.4), put on the issues list before the weekly operating meeting
+ * (src/engine/meeting.ts). The measure's name and goal are the owner's, since
+ * no agent writes a measure (0053), so nothing in it is a stranger's.
+ */
+export function offTrackIssue(reading: OwnerReading, facts: {
+  name: string; value: number; week: string; target: number; seat: string | null;
+}): { title: string; body: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Off track: {name}', { name: facts.name }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, '{name} was {value} in the week of {week}, against a weekly goal of {target}.', {
+        name: facts.name, value: number(reading, facts.value, 2), week: facts.week, target: number(reading, facts.target, 2),
+      })}`,
+      seatSaid(language, facts.seat),
+      `${say(language, 'Detection')}: ${say(language, 'The platform read it from the weekly scorecard before the weekly operating meeting.')}`,
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/**
+ * A to-do not done at two weekly meetings in a row (F18.5), put on the
+ * issues list before the second. The to-do's title is quoted, so the issue
+ * carries the to-do's provenance (the caller files it as outside when the
+ * to-do was).
+ */
+export function notDoneTwiceIssue(reading: OwnerReading, facts: {
+  title: string; due: string; previous: string; seat: string | null;
+}): { title: string; body: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Not done at two meetings: {title}', { title: facts.title }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, 'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.', {
+        title: facts.title, due: facts.due, previous: facts.previous,
+      })}`,
+      seatSaid(language, facts.seat),
+      `${say(language, 'Detection')}: ${say(language, 'The platform read it from the to-dos before the weekly operating meeting.')}`,
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/** A share, 0 to 1, as a percentage in the owner's language. */
+function percent(reading: OwnerReading, share: number): string {
+  return share.toLocaleString(reading.language ?? 'en', { style: 'percent', maximumFractionDigits: 0 });
+}
+
+/**
+ * A committed goal that was not done by the end of its period (F18.8), put on
+ * the issues list when the platform grades it (src/engine/quarter.ts). A
+ * committed goal is a promise, so a miss is a postmortem: what happened, who
+ * answered for it, how it was found, and how to solve it. The statement is
+ * the owner's, since only the owner makes a goal (F3.10).
+ */
+export function missedGoalIssue(reading: OwnerReading, facts: {
+  statement: string; startsOn: string; dueOn: string; seat: string | null; progress: number | null;
+}): { title: string; body: string } {
+  const { language } = reading;
+  const how = facts.progress === null
+    ? say(language, 'It was not marked met by its due date.')
+    : say(language, 'Measured by its numbers, it came {progress} of the way.', { progress: percent(reading, facts.progress) });
+  return {
+    title: say(language, 'Missed: {statement}', { statement: facts.statement }),
+    body: [
+      `${say(language, 'What happened')}: ${say(language, '{statement}, committed for {from} to {to}, was not done.', {
+        statement: facts.statement, from: facts.startsOn, to: facts.dueOn,
+      })} ${how}`,
+      seatSaid(language, facts.seat),
+      `${say(language, 'Detection')}: ${say(language, 'The platform graded it when its period ended.')}`,
+      toSolve(language),
+    ].join('\n\n'),
+  };
+}
+
+/**
+ * A committed quarterly priority behind its quarter (F18.8), put to the
+ * owner once a period (src/engine/outcomes.ts). Not to the CEO as work: a
+ * committed number behind its time is what tempts a company of agents to
+ * take a riskier road to make it up -- the "goals gone wild" of the OKR
+ * literature -- and that risk is the owner's to take or refuse.
+ */
+export function offPaceCard(reading: OwnerReading, facts: {
+  statement: string; dueOn: string; progress: number; elapsed: number; seat: string | null;
+}): Card & { consequence: string } {
+  const { language } = reading;
+  return {
+    title: say(language, 'Off pace: {statement}', { statement: facts.statement }),
+    detail: [
+      say(language, '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.', {
+        statement: facts.statement, due: facts.dueOn, progress: percent(reading, facts.progress), elapsed: percent(reading, facts.elapsed),
+      }),
+      seatSaid(language, facts.seat),
+      say(language, 'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.'),
+    ].join('\n\n'),
+    consequence: say(language, 'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.'),
   };
 }
 
@@ -509,12 +665,12 @@ export function scheduleRepeatsCard(reading: OwnerReading, facts: { schedule: st
   };
 }
 
-export function capabilityFailedCard(reading: OwnerReading, facts: { capability: string; record: string }): Card {
+export function capabilityFailedCard(reading: OwnerReading, facts: { capability: string; record: string; hours: number }): Card {
   const { language } = reading;
   return {
     title: say(language, 'Capability {capability} failed preflight', { capability: capabilitySaid(language, facts.capability) }),
-    detail: withRecord(say(language,
-      'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.'),
+    detail: withRecord(`${say(language,
+      'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.')} ${stopsAfterSaid(reading, facts.hours)}`,
     facts.record),
   };
 }
@@ -562,6 +718,16 @@ export function handledSaid(reading: OwnerReading, facts: { role: string; summar
   }
 }
 
+/**
+ * Said on a card a coordinator was handling when the work on it was taken up
+ * again -- run again by the owner, or gone on with -- and the coordinator's
+ * task was stopped for it, rather than "stopped without an account", which
+ * read as if it had failed.
+ */
+export function handlingStoppedSaid(reading: OwnerReading, facts: { role: string }): string {
+  return say(reading.language, '{role} was stopped: the work on this card has been taken up again.', { role: facts.role });
+}
+
 export function goalChangeCard(reading: OwnerReading, facts: {
   kind: string; statement: string; status: string; to: { statement?: string; status?: string }; reason: string;
   /** Where the goal's own measures stand, as the platform reads them: the evidence beside the agent's reason. */
@@ -597,6 +763,84 @@ export function goalChangeCard(reading: OwnerReading, facts: {
       say(language, 'Approving it changes the goal; until then the work carries on under the goal as it is.'),
     ].join('\n'),
     consequence: say(language, 'The goal stays as it is.'),
+  };
+}
+
+/** A soft limit a planned goal would pass (F18.1), with the seat it names by its name. */
+export type PlanWarningSaid =
+  | { kind: 'year_goals' | 'objective_key_results' | 'quarter_priorities'; count: number; limit: number }
+  | { kind: 'seat_priorities'; count: number; limit: number; seat: string };
+
+/** One line of a plan of new goals, as the card tells it. */
+export interface PlanLineSaid {
+  line: number;
+  kind: string;
+  statement: string;
+  /** The goal it hangs from: one that exists, or an earlier line of the plan. */
+  under: { statement: string; line?: number };
+  /** The period, as days written YYYY-MM-DD. */
+  period: { startsOn: string; dueOn: string } | null;
+  commitment: string | null;
+  seat: string | null;
+  doneWhen: string | null;
+  measure: { name: string; baseline: number; target: number; pairedWith: string | null } | null;
+  warnings: ReadonlyArray<PlanWarningSaid>;
+}
+
+/**
+ * A plan of new goals (`goal.propose` with a plan, F18.7): one card for the
+ * whole of it, each line numbered as the owner approves or refuses it, with
+ * where it hangs, its period, how firmly, whose it is, what done means, its
+ * measure -- for a learning goal, the prediction -- and the soft limits it
+ * would pass. The channel a line tests is shown beside the line's choice in
+ * the console, by the name the console already gives it.
+ */
+export function planCard(reading: OwnerReading, facts: { reason: string; lines: ReadonlyArray<PlanLineSaid> }): Card & { consequence: string } {
+  const { language } = reading;
+  const days = (from: string, to: string) => {
+    const format = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString(language ?? 'en', { dateStyle: 'medium', timeZone: 'UTC' });
+    return { from: format(from), to: format(to) };
+  };
+  const lines = facts.lines.flatMap((line) => {
+    const said = [
+      say(language, 'Line {line}: the {kind} "{goal}"', { line: String(line.line), kind: goalKindSaid(language, line.kind), goal: line.statement }),
+      line.under.line === undefined
+        ? say(language, 'Under: {goal}', { goal: line.under.statement })
+        : say(language, 'Under line {line}: {goal}', { line: String(line.under.line), goal: line.under.statement }),
+      ...(line.period ? [say(language, 'Period: {from} to {to}', days(line.period.startsOn, line.period.dueOn))] : []),
+      ...(line.commitment === 'committed' ? [say(language, 'Committed: done in full, or missed.')] : []),
+      ...(line.commitment === 'aspirational' ? [say(language, 'Aspirational: graded, and 0.6 to 0.7 is a good result.')] : []),
+      ...(line.commitment === 'learning' ? [say(language, 'Learning: a test of the prediction below.')] : []),
+      ...(line.seat ? [say(language, 'Owned by: {role}', { role: line.seat })] : []),
+      ...(line.doneWhen ? [say(language, 'Done when: {doneWhen}', { doneWhen: line.doneWhen })] : []),
+    ];
+    if (line.measure) {
+      const values = { name: line.measure.name, baseline: number(reading, line.measure.baseline, 2), target: number(reading, line.measure.target, 2) };
+      said.push(line.commitment === 'learning'
+        ? say(language, 'The prediction, written before the work: {name} reaches {target}, from {baseline}.', values)
+        : say(language, 'Measured by {name}: from {baseline} to {target}.', values));
+      if (line.measure.pairedWith) said.push(say(language, 'Watched with: {measure}', { measure: line.measure.pairedWith }));
+    }
+    for (const warning of line.warnings) {
+      const values = { count: number(reading, warning.count), limit: number(reading, warning.limit) };
+      switch (warning.kind) {
+        case 'year_goals': said.push(say(language, 'Goals for this year: {count}, more than the {limit} a company keeps in view.', values)); break;
+        case 'objective_key_results': said.push(say(language, 'Key results under this objective: {count}, more than the {limit} one objective keeps in view.', values)); break;
+        case 'quarter_priorities': said.push(say(language, 'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.', values)); break;
+        case 'seat_priorities': said.push(say(language, 'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.', { ...values, seat: warning.seat })); break;
+      }
+    }
+    return ['', ...said];
+  });
+  return {
+    title: say(language, 'New goals proposed, to approve line by line'),
+    detail: [
+      say(language, 'Reason given: {reason}', { reason: facts.reason }),
+      ...lines,
+      '',
+      say(language, 'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.'),
+    ].join('\n'),
+    consequence: say(language, 'No goal is made.'),
   };
 }
 

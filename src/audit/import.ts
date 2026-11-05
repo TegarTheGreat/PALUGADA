@@ -40,6 +40,7 @@ import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { PAUSED_TITLE } from '../governance/spend-guard.ts';
 import { slugTaken } from '../templates/company.ts';
 import type { ArchiveLine } from './export.ts';
 
@@ -64,9 +65,28 @@ interface ImportSection {
    * JSON columns whose values may carry ids from the archive -- an inbox
    * item's payload names the memory, skill or schedule its answer acts on.
    * Any string in them that is an id this import has mapped is replaced by
-   * the id it has here.
+   * the id it has here, and so is each id inside a card's name (`once`) and
+   * inside the key an ended-work card is found again by (`endedKey`). A
+   * task's key is mapped the same way, once every section is in
+   * (`taskKeysFromArchive`).
    */
   remapJson?: readonly string[];
+  /**
+   * Text columns holding ids joined by colons, mapped part by part as a
+   * card's `once` is: an issue's source names the seat or the account it is
+   * about (`task:<reason>:<role>`, `budget:<account>`), and one restored as it
+   * was would never be found again, so the next failure there filed a second
+   * issue beside the restored one.
+   */
+  remapJoined?: readonly string[];
+  /**
+   * The section's ids are assigned before any section is imported, because a
+   * payload imported earlier names its rows -- a hire's card names its ticket
+   * -- while the rows reference something imported later by a foreign key.
+   * Nothing earlier may reference them by a foreign key, which would point at
+   * a row not there yet.
+   */
+  idsFirst?: boolean;
 }
 
 /**
@@ -106,9 +126,18 @@ interface ImportSection {
 const SECTIONS: ImportSection[] = [
   { name: 'projects', table: 'projects', references: [] },
   { name: 'divisions', table: 'divisions', references: ['parent_division_id'] },
-  { name: 'goals', table: 'goals', references: ['parent_goal_id'] },
-  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
   { name: 'roles', table: 'roles', references: ['division_id'] },
+  // After the roles, since a goal names the seat that owns it (0136). A
+  // quarterly priority measured rather than worded is checked against its
+  // measure at commit, so the measure coming after it is in time.
+  { name: 'goals', table: 'goals', references: ['parent_goal_id', 'owner_role_id'] },
+  // After the roles, which own a line on the weekly scorecard (0137). A pair
+  // names a sibling in either order; its key is checked when the import ends.
+  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id', 'owner_role_id', 'paired_metric_id'] },
+  // A period's grade (0144), after the goal it grades: written once by the
+  // platform where the company was, and restored as it was, so the next
+  // sweep does not grade the same period again.
+  { name: 'goal_grades', table: 'goal_grades', references: ['goal_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
     // F12.1: what travels is the reference and its division, never a value --
@@ -192,14 +221,16 @@ const SECTIONS: ImportSection[] = [
   { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'], remapJson: ['grounds'] },
   { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
-  {
-    name: 'tickets',
-    table: 'tickets',
-    references: ['project_id', 'division_id', 'opened_by_task_id', 'working_task_id'],
-  },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'run_notes', table: 'run_notes', references: ['task_id', 'agent_run_id'] },
-  { name: 'events', table: 'events', references: ['project_id', 'task_id'] },
+  // Its payload names rows by their ids, and the code finds state by them:
+  // an issue's earlier solves (`issue.solved`), a seat's refusal of a to-do
+  // (`ticket.not_handed`), the work a rerun replaced. Every id mapped by now
+  // is mapped in it -- the tickets' among them, which are assigned first --
+  // so a restored issue still shows what was tried before, and a to-do whose
+  // seat gave up is not offered to that seat again. A row imported after the
+  // events (a memory, a card) is still named by the archive's id.
+  { name: 'events', table: 'events', references: ['project_id', 'task_id'], remapJson: ['payload'] },
   {
     name: 'memories',
     table: 'memories',
@@ -208,7 +239,8 @@ const SECTIONS: ImportSection[] = [
   {
     name: 'skills',
     table: 'skills',
-    references: ['scope_id'],
+    // A core process names the seat that owns it (0143); the roles come first.
+    references: ['scope_id', 'owner_role_id'],
     // `quarantined` travels as it was, and the destination's own gate is
     // applied afterwards instead of here. Forcing it true looked like the
     // stricter choice and was not: 0026 refuses a quarantined skill that is
@@ -264,6 +296,20 @@ const SECTIONS: ImportSection[] = [
     table: 'inbox_items',
     references: ['task_id'],
     remapJson: ['payload'],
+  },
+  {
+    // After the inbox, since an issue the platform filed names the card it
+    // came from (0139); its ids are assigned first, since a hire's card names
+    // its ticket in its payload. Issues before the to-dos that solve them,
+    // as the export writes them.
+    name: 'tickets',
+    table: 'tickets',
+    references: [
+      'project_id', 'division_id', 'opened_by_task_id', 'working_task_id', 'goal_id', 'metric_id', 'from_inbox_item_id',
+      'solves_ticket_id', 'assignee_role_id',
+    ],
+    remapJoined: ['source_key'],
+    idsFirst: true,
   },
 
   // F1.5's configuration, restored last because it references divisions and
@@ -413,6 +459,11 @@ export interface ImportSummary {
   skipped: string[];
 }
 
+/** A whole number in a range as the archive wrote it, or null for anything else. */
+function wholeIn(value: unknown, from: number, to: number): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= from && value <= to ? value : null;
+}
+
 /**
  * Rebuilds a company from an archive.
  *
@@ -445,6 +496,8 @@ export async function importCompany(
   const skipped = [...bySection.keys()].filter(
     (name) => !SECTIONS.some((section) => section.name === name),
   );
+  escalationSetFromHistory(bySection);
+  goalsParentsFirst(bySection);
 
   // One transaction, on the control plane, for the whole company.
   //
@@ -465,8 +518,9 @@ export async function importCompany(
     try {
       ({ rows } = await tx.query<{ id: string }>(
         // A restored company is not a new one: its first hour (0109) is over.
-        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
+                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -477,6 +531,14 @@ export async function importCompany(
           isStage(source!.stage) ? source!.stage : null,
           // A safeguard the owner turned on does not come back off (0092).
           source!.guardian === true,
+          // When the CEO holds the weekly meeting (0140); an archive from
+          // before it has none, and gets Monday at nine, held.
+          wholeIn(source!.meeting_weekday, 0, 6) ?? 1,
+          wholeIn(source!.meeting_hour, 0, 23) ?? 9,
+          source!.meeting_enabled !== false,
+          // Where its fiscal year starts (0144); an archive from before it
+          // has none, and gets January, a calendar year.
+          wholeIn(source!.fiscal_year_start_month, 1, 12) ?? 1,
         ],
       ));
     } catch (error) {
@@ -491,6 +553,11 @@ export async function importCompany(
     // should not appear, but might in a payload -- resolves rather than dangles.
     const remap = new Map<string, string>([[String(source!.id), companyId]]);
     const counts: Record<string, number> = {};
+    for (const section of SECTIONS.filter((one) => one.idsFirst)) {
+      for (const row of bySection.get(section.name) ?? []) {
+        if (typeof row.id === 'string' && !remap.has(row.id)) remap.set(row.id, randomUUID());
+      }
+    }
 
     for (const section of SECTIONS) {
       const sectionRows = bySection.get(section.name) ?? [];
@@ -498,6 +565,17 @@ export async function importCompany(
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
 
+    // The headline the owner chose (0142), once its measure is here: the
+    // company row was written before any measure, and the key needs one. An
+    // archive from before it, or one whose measure did not travel, has none,
+    // and the portfolio infers it as for any company.
+    const headline = typeof source!.headline_metric_id === 'string' ? remap.get(source!.headline_metric_id) : undefined;
+    if (headline) {
+      await tx.query('UPDATE companies SET headline_metric_id = $2 WHERE id = $1', [companyId, headline]);
+    }
+
+    await taskKeysFromArchive(tx, companyId, remap);
+    await periodsFromHistory(tx, companyId, bySection.get('events') ?? [], remap);
     await requireLocalVouching(tx, companyId);
     // An archive from before every company had a CEO has none; it gets the
     // one it would have been given (governance/ceo.ts).
@@ -512,6 +590,166 @@ export async function importCompany(
 
     return { companyId, slug: options.slug, sections: counts, skipped };
   });
+}
+
+/**
+ * Whether the owner said who hears first about each division (0133), for an
+ * archive written before the column existed: read as the migration read a
+ * deployment's own divisions -- a role or a time held, or the event the
+ * owner's setting left, which the archive carries. Without it every division
+ * of an older archive would come back as never set, and an owner's "straight
+ * to me" as the CEO's to hear first. Rows are replaced, not changed: they are
+ * the caller's.
+ */
+function escalationSetFromHistory(bySection: Map<string, Array<Record<string, unknown>>>): void {
+  const divisions = bySection.get('divisions') ?? [];
+  if (divisions.every((row) => 'escalation_set' in row)) return;
+  const said = new Set<string>();
+  for (const event of bySection.get('events') ?? []) {
+    const payload = event.payload as { divisionId?: unknown } | null | undefined;
+    if (event.type === 'division.escalation_set' && typeof payload?.divisionId === 'string') said.add(payload.divisionId);
+  }
+  bySection.set('divisions', divisions.map((row) => 'escalation_set' in row ? row : {
+    ...row,
+    escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
+      || (typeof row.id === 'string' && said.has(row.id)),
+  }));
+}
+
+/**
+ * The archive's goals, each after the goal it hangs from. The key to the
+ * parent is checked as each row is written, and an archive written before
+ * the export put them in order (by `created_at` alone) could name a key
+ * result before its objective: the two tie when a plan approved at once wrote
+ * them together, and the objective changed since came out after its
+ * children. Sorted by how far each is from the top of the archive's own
+ * ladder, and otherwise kept in the archive's order; a parent the archive
+ * does not carry counts as the top. Rows are reordered, not changed.
+ */
+function goalsParentsFirst(bySection: Map<string, Array<Record<string, unknown>>>): void {
+  const goals = bySection.get('goals');
+  if (!goals || goals.length < 2) return;
+  const parentOf = new Map<string, unknown>();
+  for (const row of goals) if (typeof row.id === 'string') parentOf.set(row.id, row.parent_goal_id);
+  const depth = (row: Record<string, unknown>): number => {
+    let steps = 0;
+    let parent = row.parent_goal_id;
+    // Bounded by the number of goals, so a malformed archive with a cycle
+    // cannot hold the import; the database refuses that row anyway.
+    while (typeof parent === 'string' && parentOf.has(parent) && steps < goals.length) {
+      steps += 1;
+      parent = parentOf.get(parent);
+    }
+    return steps;
+  };
+  const ranked = goals.map((row, index) => ({ row, index, depth: depth(row) }));
+  ranked.sort((a, b) => a.depth - b.depth || a.index - b.index);
+  bySection.set('goals', ranked.map((one) => one.row));
+}
+
+/**
+ * The day's cards and 80% warnings of an archive written before 0135, in the
+ * shape the code before it raised them: with nothing in the payload the
+ * closes read their period from. 0135 ran here before the archive arrived,
+ * so they are labelled as it labelled a deployment's own, by its statements
+ * scoped to this company -- or they stay open for good. Which alert raised a
+ * card is said only by the archive's `alert.raised`, under the id the card
+ * had there, mapped here. As in 0135, each statement reaches only a card in
+ * the old shape, so an archive written since leaves nothing for it.
+ */
+async function periodsFromHistory(
+  tx: TenantClient,
+  companyId: string,
+  events: Array<Record<string, unknown>>,
+  remap: ReadonlyMap<string, string>,
+): Promise<void> {
+  const raised = new Map<string, string>();
+  for (const event of events) {
+    const payload = event.payload as { kind?: unknown; inboxItemId?: unknown } | null | undefined;
+    if (event.type !== 'alert.raised' || typeof payload?.kind !== 'string' || typeof payload.inboxItemId !== 'string') continue;
+    const id = remap.get(payload.inboxItemId);
+    if (id) raised.set(id, payload.kind);
+  }
+  const ids = [...raised.keys()];
+
+  // A day's card: its alert, and the day it was raised as `claimAlertSlot`
+  // counts one, in the database's time zone.
+  await tx.query(
+    `UPDATE inbox_items i
+        SET payload = i.payload || jsonb_build_object(
+              'alert', k.kind, 'day', to_char(date_trunc('day', i.created_at), 'YYYY-MM-DD'))
+       FROM unnest($2::uuid[], $3::text[]) AS k(id, kind)
+      WHERE i.company_id = $1 AND i.id = k.id
+        AND i.kind = 'budget_alert' AND i.status = 'open' AND NOT i.payload ? 'alert'`,
+    [companyId, ids, [...raised.values()]],
+  );
+
+  // An incident an alert raised is one of the daily counts nothing raises any
+  // more, closed with the event the code writes when it withdraws a card.
+  const { rows: counts } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'day_ended'
+      WHERE company_id = $1 AND id = ANY($2::uuid[]) AND kind = 'incident' AND status = 'open'
+      RETURNING id`,
+    [companyId, ids],
+  );
+  for (const count of counts) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: count.id, closedReason: 'day_ended' },
+    });
+  }
+
+  // What is left of the task-less budget cards with nothing in their payload,
+  // other than the pause card its title names, is the 80% warning: its month
+  // is UTC's, written as `toISOString` writes the start the close compares.
+  await tx.query(
+    `UPDATE inbox_items
+        SET payload = jsonb_build_object('spendWarning', jsonb_build_object(
+              'periodStart', to_char(date_trunc('month', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+      WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open' AND task_id IS NULL
+        AND payload = '{}'::jsonb AND title <> $2`,
+    [companyId, PAUSED_TITLE],
+  );
+}
+
+/**
+ * The ids inside the restored tasks' keys, mapped part by part as a card's
+ * name is (`remapJoined`). A key names rows by their ids, and the code finds
+ * work by it: the task a run again does again (`rerun:<task>`, which Run
+ * again's once-per-task check, the close of the cards it answers, ended.ts,
+ * a coordinator's brief and a duty's rerun all read), the card a
+ * coordinator was handed (`escalation:<card>`), a follow-up's task, a
+ * schedule's occurrence, a hook's trigger, a ticket given out, a customer's
+ * message, and an ordinary task's role and parent. Kept as the archive had
+ * them, a restored company read work run again as never run again -- Run
+ * again made a second task beside the first -- and a coordinator was told
+ * nothing of its restored card. After every section rather than in the
+ * tasks', because the cards, triggers, tickets and messages some keys name
+ * are imported after the tasks and have no id here until then. A key that
+ * names a row by a hash of its id (`triage:`, `review:`) cannot be mapped,
+ * and the next such errand is made anew. The ids are fresh, so a mapped key
+ * cannot meet another on the table's unique key.
+ */
+async function taskKeysFromArchive(
+  tx: TenantClient,
+  companyId: string,
+  remap: ReadonlyMap<string, string>,
+): Promise<void> {
+  const { rows } = await tx.query<{ id: string; key: string }>(
+    'SELECT id, idempotency_key AS key FROM tasks WHERE company_id = $1', [companyId]);
+  const ids: string[] = [];
+  const keys: string[] = [];
+  for (const row of rows) {
+    const key = remapJoined(row.key, remap);
+    if (key === row.key) continue;
+    ids.push(row.id);
+    keys.push(key);
+  }
+  if (ids.length === 0) return;
+  await tx.query(
+    `UPDATE tasks t SET idempotency_key = k.key
+       FROM unnest($2::uuid[], $3::text[]) AS k(id, key)
+      WHERE t.company_id = $1 AND t.id = k.id`,
+    [companyId, ids, keys]);
 }
 
 async function importSection(
@@ -565,6 +803,9 @@ async function importSection(
       if (values[column] !== null && values[column] !== undefined) {
         values[column] = remapIds(values[column], remap);
       }
+    }
+    for (const column of section.remapJoined ?? []) {
+      if (typeof values[column] === 'string') values[column] = remapJoined(values[column] as string, remap);
     }
 
     values.company_id = companyId;
@@ -681,16 +922,46 @@ async function requireLocalVouching(tx: TenantClient, companyId: string): Promis
  * Only whole strings, and only ids this import itself assigned: text that
  * merely contains an id is left alone, and a string that happens to look
  * like one but was never in the archive is not rewritten into something else.
+ * The keys a card is found again by are the exception (`JOINED_KEYS`), as
+ * are the tasks' own keys (`taskKeysFromArchive`).
  */
 function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
   if (typeof value === 'string') return remap.get(value) ?? value;
   if (Array.isArray(value)) return value.map((item) => remapIds(item, remap));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, remapIds(item, remap)]),
+      Object.entries(value).map(([key, item]) => [
+        key,
+        JOINED_KEYS.has(key) && typeof item === 'string' ? remapJoined(item, remap) : remapIds(item, remap),
+      ]),
     );
   }
   return value;
+}
+
+/**
+ * The payload keys whose strings have ids inside them, joined by colons, and
+ * by which a card is found again:
+ *
+ * - a card's name for what it is about (`once`): `capability:<division>:<name>`,
+ *   `service_down:<division>:<name>`, `reminder_unconfirmed:<attempt>`
+ *   (src/engine/recovered.ts, the collections duty);
+ * - the cause under a goal an ended-work card groups by (`endedKey`):
+ *   `<goal or none>:<halt reason>` (src/engine/ended.ts).
+ *
+ * Restored as it was, each named a division or a goal the restored company
+ * does not have: a credential's card never closed itself, and the next
+ * failure of the same cause raised a second card beside the restored one.
+ */
+const JOINED_KEYS: ReadonlySet<string> = new Set(['once', 'endedKey']);
+
+/**
+ * One of those strings with each id in it mapped. Split where the parts are
+ * joined, and only a part that is an id this import assigned is replaced, so
+ * a model's name with a colon in it is left as it is.
+ */
+function remapJoined(joined: string, remap: ReadonlyMap<string, string>): string {
+  return joined.split(':').map((part) => remap.get(part) ?? part).join(':');
 }
 
 function normalise(value: unknown, isJson: boolean): unknown {

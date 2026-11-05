@@ -210,9 +210,12 @@ test("the portfolio judges each company by its highest goal's measure, and none 
   });
 
   const portfolio = await withControlPlane((tx) => headlines(tx));
-  assert.deepEqual(portfolio.get(measured.companyId), {
+  const { metricId, ...standing } = portfolio.get(measured.companyId)!;
+  assert.ok(metricId);
+  assert.deepEqual(standing, {
     name: 'Paying customers', unit: 'count', target: 200, value: 50, verified: false, progress: 0.25,
-  });
+    chosen: false, pair: null,
+  }, 'inferred, since the owner chose none');
   assert.equal(portfolio.has(unmeasured.companyId), false, 'a company with nothing measured has no headline');
 
   // A mission that is no longer active stops being the headline.

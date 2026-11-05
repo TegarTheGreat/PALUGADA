@@ -27,6 +27,7 @@ import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../components/ui.tsx';
 import { MetricLine } from '../components/Metrics.tsx';
+import { Scorecard } from '../components/Scorecard.tsx';
 import { StageCard } from '../components/Stage.tsx';
 import { FirstHourCard } from '../components/FirstHour.tsx';
 import { TaskProgress } from './Work.tsx';
@@ -158,7 +159,10 @@ export function Overview({ ctx }: PageProps) {
           >
             {measured.length > 0 && (
               <Stack gap="md" mb="lg">
-                {measured.slice(0, 4).map((metric) => <MetricLine key={metric.id} metric={metric} companyId={companyId} />)}
+                {measured.slice(0, 4).map((metric) => (
+                  <MetricLine key={metric.id} metric={metric} companyId={companyId}
+                    team={{ roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics) }} />
+                ))}
               </Stack>
             )}
             {objectives.length === 0 ? (
@@ -188,6 +192,9 @@ export function Overview({ ctx }: PageProps) {
           </Section>
         </Grid.Col>
       </Grid>
+
+      {/* The weekly numbers, under the goals they serve; drawn once there is a line. */}
+      <Scorecard companyId={companyId} compact more={() => ctx.open('team', { item: 'scorecard' })} />
 
       <Grid gap="lg">
         <Grid.Col span={{ base: 12, md: 4 }}>

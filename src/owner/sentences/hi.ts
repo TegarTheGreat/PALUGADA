@@ -209,12 +209,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'आज {finished} में से {failed} कार्य विफल हुए या रोके गए ({rate}%), जो {limit}% की सीमा से ज़्यादा है।',
   'Unusual number of policy refusals': 'नीति द्वारा असामान्य संख्या में अस्वीकृतियाँ',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'आज किसी नीति द्वारा अस्वीकार की गई कार्रवाइयाँ: {count}, जो {limit} की सीमा से ज़्यादा है। या तो कोई एजेंट अपनी सीमाएँ परख रहा है, या कोई नीति ठीक से तय नहीं है।',
-  'External writes failed verification': 'बाहर लिखे गए बदलाव जाँच में विफल',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'बाहर लिखे गए ऐसे बदलाव जिन्होंने सफलता बताई, पर वापस पढ़ने पर अलग निकले: {count}। कोई चीज़ उन्हें माँगे गए से अलग तरह से बदल रही है।',
-  'A capability stopped being usable': 'एक क्षमता इस्तेमाल लायक नहीं रही',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'आज जो कार्य इसलिए शुरू नहीं हो सके क्योंकि उनकी भूमिका के लिए ज़रूरी एक क्षमता अपनी जाँच में विफल रही: {count}। शायद कोई क्रेडेंशियल समाप्त हो गया है या कोई कोटा खत्म हो गया है।',
-  'A worker stopped reporting mid-run': 'रन के बीच में एक वर्कर ने रिपोर्ट करना बंद कर दिया',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'आज जिन रनों ने रिपोर्ट करना बंद किया और जिन्हें वापस लिया गया: {count}। काम फिर से उठा लिया गया; जो टोकन वे पहले ही खर्च कर चुके थे, वे वापस नहीं मिले।',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'आज {role} को {denials} बार अस्वीकार किया गया, जो {limit} की सीमा है। जब तक आप इसे अनफ़्रीज़ नहीं करते, इस भूमिका से कोई कार्य नहीं चलेगा। आम कारण होते हैं: किसी क्षमता की अनुमति न होना, कोई ऐसी नीति जिसका भूमिका के चार्टर में ध्यान नहीं रखा गया, या ऐसा काम जिसके लिए भूमिका कभी तैयार ही नहीं की गई।',
   'Role {role} is frozen after repeated denials': 'बार-बार अस्वीकृति के बाद भूमिका {role} फ़्रीज़ की गई',
   'What it was refused: {capabilities}': 'जो अस्वीकार किया गया: {capabilities}',
@@ -225,12 +219,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” {since} से इंतज़ार कर रहा है। {why} जहाँ यह रुका था, वहीं से इसे फिर चलाने के लिए स्वीकृत करें, या रद्द करने के लिए अस्वीकार करें।',
   'A task keeps stopping the worker running it': 'एक कार्य की वजह से उसे चलाने वाला वर्कर बार-बार रुक रहा है',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” ने अपना वर्कर {lost} बार खोया: हर बार इसे चलाने वाले वर्कर ने काम पूरा होने से पहले जवाब देना बंद कर दिया। इसने जो कर लिया था, वह सुरक्षित है। इसे रोक दिया गया है ताकि यह किसी और वर्कर को न गिराए; कारण मिल जाने पर इसे फिर चलाएँ, या रद्द करें।',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} तक पहुँच नहीं हो पाई, और उस पर निर्भर काम रुक गया',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'कार्य ने लगभग {minutes} मिनट इंतज़ार किया, हर बार दोबारा जाँचते हुए, और अब रुक गया है। सेवा जवाब देने लगे, तो इसे फिर चलाएँ।',
   'It was tried {tries} times over about {minutes} minutes.': 'लगभग {minutes} मिनट में {tries} बार प्रयास किया गया।',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'यह भूमिका ऐसी कार्रवाइयाँ कर सकती है जिन्हें पलटा न जा सके, इसलिए रन को चुपचाप किसी दूसरे मॉडल पर नहीं ले जाया गया।',
   'No fallback model is left for this role.': 'इस भूमिका के लिए कोई वैकल्पिक मॉडल नहीं बचा है।',
-  'Model {model} failed and the run was not moved': 'मॉडल {model} विफल हुआ और रन को दूसरे मॉडल पर नहीं ले जाया गया',
   'External write failed verification': 'बाहर लिखा गया बदलाव जाँच में विफल',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'कार्य ने एक बाहरी सेवा में लिखा और उसे वापस पढ़ा, और जो पढ़ा वह मेल नहीं खाया। इसे फिर चलाने से पहले वह जगह देखें जहाँ इसने लिखा था: हो सकता है कि लिखा जा चुका हो।',
   'Review deadlocked after {rounds} revisions: {capability}': '{rounds} संशोधनों के बाद समीक्षा अटक गई: {capability}',
@@ -255,7 +246,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'शेड्यूल “{schedule}” बार-बार एक ही नतीजा दे रहा है',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'इसके पिछले {runs} रन एक ही आउटपुट के साथ खत्म हुए। कभी-कभी यह बिल्कुल सही होता है — जैसे कोई रिपोर्ट जिसमें कहने को कुछ नया नहीं — और अक्सर यह ऐसा शेड्यूल होता है जो कुछ भी काम का करना बंद कर चुका है, पर जिसका भुगतान अब भी हो रहा है। इसे बंद करने के लिए अस्वीकार करें; इसे चलने देने और इस नतीजे के बारे में फिर न पूछे जाने के लिए स्वीकृत करें।',
   'Capability {capability} failed preflight': 'क्षमता {capability} शुरुआती जाँच में विफल रही',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'जिस काम को इसकी ज़रूरत है, उसे शुरू करने के बजाय रोका गया है: कारण ठीक करें, फिर वह काम दोबारा चलाएँ। आम कारण होते हैं: समाप्त या गलत दायरे वाला क्रेडेंशियल, खत्म हो चुका कोटा, या गलत पता।',
   'Batch guard stopped {capability}': 'बैच गार्ड ने {capability} को रोका',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'यह उस योजना से मेल नहीं खाया जो इसके रन ने दर्ज की थी। कुछ भी नहीं भेजा गया, और किसी सेवा को कॉल नहीं किया गया।',
   '{role} was asked first and has had {minutes} minutes.': 'पहले {role} से कहा गया था, और उसे {minutes} मिनट मिल चुके हैं।',
@@ -343,8 +333,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} ने मॉडल की कुंजी अस्वीकार कर दी ({status}), इसलिए मॉडल पर निर्भर कोई भी काम नहीं चल सकता। सेटिंग्स, यह डिप्लॉयमेंट, मॉडल खोलें, काम करने वाली कुंजी चिपकाएँ, उसे जाँचें और सहेजें।',
   '{host} refused the model key, and work is waiting': '{host} ने मॉडल की कुंजी अस्वीकार कर दी, और काम प्रतीक्षा में है',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'मॉडल की प्रतीक्षा कर रहा काम, काम करने वाली कुंजी इस्तेमाल होते ही अपने-आप आगे बढ़ जाएगा।',
   'A task ended before it was done: {task}':
     'एक काम पूरा होने से पहले ही खत्म हो गया: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -408,4 +396,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस टिकट के बारे में था, वह बंद हो गया।',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'चालान {number} ({amount}, {customer}) {due} से बकाया है, और यह बिना किसी ईमेल पते के जारी हुआ था जिस पर अनुस्मारक भेजा जा सके। खुद पीछा करें, या CEO को बताएँ कि आप क्या चाहते हैं।',
+  'Kept as your word: {words}':
+    'आपके शब्दों के रूप में रखा गया: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'आपके आँकड़े के रूप में दर्ज किया गया: {measure} के लिए {value}',
+  'Runs picked up again after their worker stopped: {count}':
+    'वर्कर रुकने के बाद फिर से उठाए गए रन: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'वापस लिया गया: जिस कार्य के बारे में था, उसे फिर से चलाया गया।',
+  'Withdrawn: the day it was about has ended.':
+    'वापस लिया गया: जिस दिन के बारे में था, वह बीत गया।',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'वापस लिया गया: जिस अवधि के बारे में था, वह बीत गई और उसका मूल्यांकन हो गया।',
+  'Withdrawn: the goal it was about was closed.':
+    'वापस लिया गया: जिस लक्ष्य के बारे में था, वह बंद कर दिया गया।',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'वापस लिया गया: महीने की सीमा पूरी हो गई, और इसकी जगह वह कार्ड है जो बताता है कि कंपनी रोक दी गई है।',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'लगभग {hours} घंटे बाद भी इंतज़ार कर रहा काम रुक जाता है, और तब यह कार्ड खुला रहता है ताकि आप उसे फिर चला सकें।',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} से जवाब नहीं मिल रहा है, और उस पर निर्भर काम इंतज़ार कर रहा है',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'काम ने लगभग {minutes} मिनट इंतज़ार किया, हर बार दोबारा जाँचते हुए, और अब भी इंतज़ार कर रहा है: सेवा के जवाब देते ही यह अपने-आप आगे बढ़ जाएगा, और तब यह कार्ड अपने-आप बंद हो जाएगा।',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'काम इंतज़ार करता है और मॉडल के जवाब देते ही अपने-आप आगे बढ़ जाता है, और तब यह कार्ड अपने-आप बंद हो जाता है।',
+  'Model {model} is not answering, and work is waiting for it':
+    'मॉडल {model} से जवाब नहीं मिल रहा है, और काम उसका इंतज़ार कर रहा है',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'मॉडल की प्रतीक्षा कर रहा काम, काम करने वाली कुंजी इस्तेमाल होते ही अपने-आप आगे बढ़ जाएगा, और तब यह कार्ड अपने-आप बंद हो जाएगा।',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'जिस काम को इसकी ज़रूरत है, वह शुरू होने के बजाय इंतज़ार करता है, और जाँच पास होते ही अपने-आप आगे बढ़ जाता है; तब यह कार्ड अपने-आप बंद हो जाता है। आम कारण होते हैं: समाप्त या गलत दायरे वाला क्रेडेंशियल, खत्म हो चुका कोटा, या गलत पता।',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} का काम रोका गया: इस कार्ड का काम फिर से शुरू कर दिया गया है।',
+  'Withdrawn: the month it was about has ended.':
+    'वापस लिया गया: जिस महीने के बारे में था, वह बीत गया।',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'वापस लिया गया: रोक हटा दी गई है, और काम जारी है।',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'वापस लिया गया: मॉडल फिर से जवाब दे रहा है, और उसका इंतज़ार कर रहा काम वापस बुला लिया गया।',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'वापस लिया गया: मॉडल की कुंजी फिर से काम कर रही है, और उसका इंतज़ार कर रहा काम वापस बुला लिया गया।',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'वापस लिया गया: सेवा फिर से अपनी जाँच में सफल रही, और उसका इंतज़ार कर रहा काम वापस बुला लिया गया।',
+  'Withdrawn: no work is waiting on it any more.':
+    'वापस लिया गया: अब कोई काम इसका इंतज़ार नहीं कर रहा है।',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'वापस लिया गया: जिस भूमिका को यह सौंपा गया था, उसने इसे संभाल लिया, और आपके तय करने को कुछ नहीं बचा।',
+  'Work finished: {count}':
+    'पूरे हुए काम: {count}',
+  'Stopped: its work was taken up another way':
+    'रोका गया: इसका काम दूसरे तरीके से उठा लिया गया',
+  'Its work stopped, and each time it took down the worker running it.':
+    'इसका काम रुक गया, और हर बार इसने इसे चलाने वाले वर्कर को भी गिरा दिया।',
+  'A write to an outside service may have happened without being what was meant.':
+    'हो सकता है किसी बाहरी सेवा में कुछ लिखा गया हो, पर वैसा नहीं जैसा चाहा गया था।',
+  'Work charged to the same budget account stops until it has room again.':
+    'उसी बजट खाते पर चलने वाला काम तब तक रुका रहता है जब तक उसमें फिर से गुंजाइश न हो।',
+  'Its work stopped before it was done.':
+    'इसका काम पूरा होने से पहले रुक गया।',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'प्लेटफ़ॉर्म ने {lost} खोए हुए वर्कर गिने, जितने किसी कार्य को अधिकतम खोने की अनुमति है।',
+  'The platform read back what was written, and it did not match.':
+    'प्लेटफ़ॉर्म ने लिखा हुआ वापस पढ़ा, और वह मेल नहीं खाया।',
+  'The budget account had nothing left to reserve for the work.':
+    'बजट खाते में काम के लिए रखने को कुछ नहीं बचा था।',
+  'The platform found it ended with no card raised for it.':
+    'प्लेटफ़ॉर्म ने पाया कि यह बिना किसी कार्ड के खत्म हो गया।',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'कार्ड उस भूमिका को गया जिसे विभाग इसे संभालने के लिए नामित करता है, और उसके बाद आपको।',
+  'The task was halted, and you were told on a card in the inbox.':
+    'कार्य रोक दिया गया, और इनबॉक्स में एक कार्ड से आपको बताया गया।',
+  'Postmortem: {cause} ({about})':
+    'घटना के बाद समीक्षा: {cause} ({about})',
+  'What happened':
+    'क्या हुआ',
+  'Impact':
+    'असर',
+  'Trigger':
+    'कारण बना',
+  'Detection':
+    'पता कैसे चला',
+  'What was done':
+    'क्या किया गया',
+  'A task of {role} stopped before it was done.':
+    '{role} का एक कार्य पूरा होने से पहले रुक गया।',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'इसे सुलझाने के लिए: हर जवाब पर ‘क्यों’ पूछकर और उसे रिकॉर्ड से जाँचकर मूल कारण खोजें, एक बार फ़ैसला करें, और फ़ैसले को लागू करने वाले काम दर्ज करें, हर काम एक सीट के साथ।',
+  'Off track: {name}':
+    'लक्ष्य से भटका: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{week} वाले सप्ताह में {name} {value} रहा, जबकि साप्ताहिक लक्ष्य {target} है।',
+  '{role} answers for it.':
+    'इसकी ज़िम्मेदारी {role} की है।',
+  'No seat answers for it.':
+    'इसकी ज़िम्मेदारी किसी पद की नहीं है।',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'प्लेटफ़ॉर्म ने इसे साप्ताहिक संचालन बैठक से पहले साप्ताहिक स्कोरकार्ड से पढ़ा।',
+  'Not done at two meetings: {title}':
+    'दो बैठकों में पूरा नहीं हुआ: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'करने का काम "{title}", जिसकी नियत तारीख {due} थी, {previous} की साप्ताहिक संचालन बैठक में पूरा नहीं हुआ, और इस बैठक में भी नहीं।',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'प्लेटफ़ॉर्म ने इसे साप्ताहिक संचालन बैठक से पहले करने के कामों से पढ़ा।',
+  'Weekly operating meeting held ({week}): {where}':
+    'साप्ताहिक संचालन बैठक हुई ({week}): {where}',
+  'see its task under Work':
+    'इसका कार्य काम में देखें',
+  'New goals proposed, to approve line by line':
+    'नए लक्ष्य प्रस्तावित, हर पंक्ति अलग से स्वीकृत करने के लिए',
+  'Line {line}: the {kind} "{goal}"':
+    'पंक्ति {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'इसके तहत: {goal}',
+  'Under line {line}: {goal}':
+    'पंक्ति {line} के तहत: {goal}',
+  'Period: {from} to {to}':
+    'अवधि: {from} से {to}',
+  'Committed: done in full, or missed.':
+    'पक्का: पूरा हुआ, या चूका।',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'महत्वाकांक्षी: अंक मिलते हैं, और 0.6 से 0.7 अच्छा परिणाम है।',
+  'Learning: a test of the prediction below.':
+    'सीखना: नीचे दिए अनुमान को परखता है।',
+  'Owned by: {role}':
+    'ज़िम्मेदार: {role}',
+  'Done when: {doneWhen}':
+    'पूरा तब, जब: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'अनुमान, काम से पहले लिखा गया: {name} {baseline} से {target} तक पहुँचेगा।',
+  'Measured by {name}: from {baseline} to {target}.':
+    'मापदंड {name}: {baseline} से {target} तक।',
+  'Watched with: {measure}':
+    'इसके साथ देखा जाता है: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'इस साल के लक्ष्य: {count}, जो एक कंपनी की नज़र में रह सकने वाले {limit} से ज़्यादा हैं।',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'इस उद्देश्य के मुख्य परिणाम: {count}, जो एक उद्देश्य की नज़र में रह सकने वाले {limit} से ज़्यादा हैं।',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'एक साथ चल रही तिमाही प्राथमिकताएँ: {count}, जो एक कंपनी की नज़र में रह सकने वाली {limit} से ज़्यादा हैं।',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} की एक साथ चल रही तिमाही प्राथमिकताएँ: {count}, जो एक सीट के सँभाल सकने वाली {limit} से ज़्यादा हैं।',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'स्वीकृत करने पर आपकी स्वीकृत हर पंक्ति अपने मापदंड के साथ एक लक्ष्य बन जाती है; अस्वीकृत पंक्ति नहीं बनती। तब तक काम मौजूदा लक्ष्यों के तहत ही चलता रहेगा।',
+  'No goal is made.':
+    'कोई लक्ष्य नहीं बनता।',
+  'Missed: {statement}':
+    'चूक गया: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, जो {from} से {to} तक पक्का होना था, पूरा नहीं हुआ।',
+  'Measured by its numbers, it came {progress} of the way.':
+    'उसके आँकड़ों से मापा जाए तो वह {progress} रास्ता तय कर पाया।',
+  'It was not marked met by its due date.':
+    'उसे नियत तारीख़ तक पूरा चिह्नित नहीं किया गया।',
+  'The platform graded it when its period ended.':
+    'उसकी अवधि ख़त्म होने पर प्लेटफ़ॉर्म ने उसे अंक दिए।',
+  'Off pace: {statement}':
+    'रफ़्तार से पीछे: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} एक पक्की प्राथमिकता है, जिसकी नियत तारीख़ {due} है। उसके आँकड़े अभी {progress} रास्ते तक ही पहुँचे हैं, जबकि उसकी अवधि का {elapsed} बीत चुका है।',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'पकड़ने के लिए कुछ नहीं बदला गया, और किसी एजेंट से नहीं कहा गया: समय से पीछे चल रहा पक्का आँकड़ा उसे पूरा करने के लिए ज़्यादा जोखिम भरे कदम को न्योता देता है, और ऐसा जोखिम उठाना है या नहीं, यह आपका फ़ैसला है। तय करें कि तारीख़ आगे बढ़ानी है, लक्ष्य घटाना है, उसे महत्वाकांक्षी बनाना है, या उसे चलने देना है और चूकने देना है।',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'जवाब जो भी हो, कुछ नहीं रुकता। प्राथमिकता जैसी है वैसी रहती है और अवधि ख़त्म होने पर उसे अंक दिए जाते हैं; अगर आप तय करें तो टीम, लक्ष्य में उसे बदलें।',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'हमारे मूल्य',
+  'Purpose and niche': 'उद्देश्य और विशिष्ट क्षेत्र',
+  'Long-range target': 'दीर्घकालिक लक्ष्य',
+  'Who we serve and what makes us different': 'हम किसकी सेवा करते हैं और हमें क्या अलग बनाता है',
+  'Where we will be in three years': 'तीन साल में हम कहाँ होंगे',
+  'Our promise': 'हमारा वादा',
 };

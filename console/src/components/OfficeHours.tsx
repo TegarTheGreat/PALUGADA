@@ -28,7 +28,7 @@ const REPLIES = 'chat.send';
 const same = (a: number[], b: number[]) => a.length === b.length && a.every((day, index) => day === b[index]);
 
 /** A day of the week by name, in the owner's language; 0 is Sunday. */
-function dayName(day: number): string {
+export function dayName(day: number): string {
   return new Intl.DateTimeFormat(locale(), { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2023, 0, 1 + day)));
 }
 

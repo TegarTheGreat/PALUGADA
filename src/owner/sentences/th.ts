@@ -212,12 +212,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'วันนี้มีงานล้มเหลวหรือถูกหยุด {failed} จาก {finished} งาน ({rate}%) เกินเกณฑ์ {limit}%',
   'Unusual number of policy refusals': 'นโยบายปฏิเสธบ่อยผิดปกติ',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'การกระทำที่ถูกนโยบายปฏิเสธวันนี้: {count} ครั้ง เกินเกณฑ์ {limit} ครั้ง อาจเป็นเพราะเอเจนต์กำลังลองหยั่งขอบเขตของตัวเอง หรือนโยบายตั้งค่าไว้ไม่เหมาะสม',
-  'External writes failed verification': 'การเขียนไปยังภายนอกไม่ผ่านการยืนยัน',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'การเขียนไปยังภายนอกที่รายงานว่าสำเร็จ แต่อ่านกลับมาแล้วไม่ตรงกัน: {count} รายการ มีบางอย่างกำลังเปลี่ยนข้อมูลเหล่านั้นโดยไม่เป็นไปตามที่สั่ง',
-  'A capability stopped being usable': 'ความสามารถหนึ่งใช้งานไม่ได้แล้ว',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'งานที่เริ่มไม่ได้วันนี้เพราะความสามารถที่บทบาทต้องใช้ไม่ผ่านการตรวจสอบ: {count} งาน ข้อมูลรับรองอาจหมดอายุ หรือโควตาอาจหมดแล้ว',
-  'A worker stopped reporting mid-run': 'เวิร์กเกอร์หยุดรายงานกลางรอบการทำงาน',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'รอบการทำงานที่หยุดรายงานและถูกดึงกลับวันนี้: {count} รอบ งานถูกรับไปทำต่อแล้ว แต่โทเค็นที่ใช้ไปแล้วไม่ได้คืนมา',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': '{role} ถูกปฏิเสธ {denials} ครั้งในวันนี้ ถึงขีดจำกัด {limit} ครั้งแล้ว จะไม่มีงานใดทำงานในบทบาทนี้จนกว่าคุณจะยกเลิกการแช่แข็ง สาเหตุที่พบบ่อยคือขาดสิทธิ์ใช้ความสามารถ มีนโยบายที่กฎบัตรของบทบาทไม่ได้คำนึงถึง หรือเป็นงานที่บทบาทนี้ไม่เคยถูกเตรียมไว้ให้ทำ',
   'Role {role} is frozen after repeated denials': 'บทบาท {role} ถูกแช่แข็งหลังจากถูกปฏิเสธซ้ำๆ',
   'What it was refused: {capabilities}': 'สิ่งที่ถูกปฏิเสธ: {capabilities}',
@@ -228,12 +222,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '“{task}” รอมาตั้งแต่ {since} {why} อนุมัติเพื่อให้ทำอีกครั้งจากจุดที่หยุด หรือปฏิเสธเพื่อยกเลิกงาน',
   'A task keeps stopping the worker running it': 'งานหนึ่งทำให้เวิร์กเกอร์ที่รันงานนี้หยุดซ้ำๆ',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': '“{task}” ทำให้เสียเวิร์กเกอร์ไป {lost} ครั้ง: ทุกครั้งเวิร์กเกอร์ที่รันงานนี้หยุดตอบสนองก่อนงานจะเสร็จ สิ่งที่ทำไปแล้วยังเก็บไว้ งานถูกหยุดไว้เพื่อไม่ให้เวิร์กเกอร์ตัวอื่นล่มไปด้วย เมื่อพบสาเหตุแล้วให้ทำอีกครั้ง หรือยกเลิกงาน',
-  '{services} stayed unreachable, and the work that needs it stopped': '{services} ยังติดต่อไม่ได้ และงานที่ต้องใช้จึงหยุดลง',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'งานรอประมาณ {minutes} นาที โดยลองตรวจซ้ำทุกครั้ง และตอนนี้หยุดแล้ว เมื่อบริการตอบสนองแล้ว ให้ทำอีกครั้ง',
   'It was tried {tries} times over about {minutes} minutes.': 'ลองไปแล้ว {tries} ครั้งในช่วงประมาณ {minutes} นาที',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'บทบาทนี้สามารถดำเนินการที่ย้อนกลับไม่ได้ รอบการทำงานจึงไม่ถูกย้ายไปใช้โมเดลอื่นอย่างเงียบๆ',
   'No fallback model is left for this role.': 'ไม่มีโมเดลสำรองเหลือสำหรับบทบาทนี้แล้ว',
-  'Model {model} failed and the run was not moved': 'โมเดล {model} ล้มเหลว และรอบการทำงานไม่ได้ถูกย้าย',
   'External write failed verification': 'การเขียนไปยังภายนอกไม่ผ่านการยืนยัน',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'งานเขียนข้อมูลไปยังบริการภายนอกแล้วอ่านกลับมา และสิ่งที่อ่านได้ไม่ตรงกัน ตรวจดูปลายทางที่งานเขียนไปก่อนจะทำอีกครั้ง: การเขียนอาจเกิดขึ้นแล้ว',
   'Review deadlocked after {rounds} revisions: {capability}': 'การตรวจทานหาข้อยุติไม่ได้หลังแก้ไข {rounds} รอบ: {capability}',
@@ -258,7 +249,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'กำหนดการ “{schedule}” ให้ผลลัพธ์เดิมซ้ำๆ',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': '{runs} รอบล่าสุดจบด้วยผลลัพธ์เดียวกันทั้งหมด บางครั้งนั่นก็ถูกต้องแล้ว เช่น รายงานที่ไม่มีอะไรใหม่ให้บอก แต่บ่อยครั้งคือกำหนดการที่ไม่ได้ทำอะไรที่มีประโยชน์แล้วทั้งที่ยังเสียเงินอยู่ ปฏิเสธเพื่อปิดกำหนดการ อนุมัติเพื่อให้ทำงานต่อและไม่ต้องถามเรื่องผลลัพธ์นี้อีก',
   'Capability {capability} failed preflight': 'ความสามารถ {capability} ไม่ผ่านการตรวจสอบ',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'งานที่ต้องใช้ความสามารถนี้ถูกหยุดแทนที่จะเริ่ม แก้ไขสาเหตุ แล้วทำงานนั้นอีกครั้ง สาเหตุที่พบบ่อยคือข้อมูลรับรองหมดอายุหรือกำหนดขอบเขตไว้ไม่ถูกต้อง โควตาหมด หรือที่อยู่ไม่ถูกต้อง',
   'Batch guard stopped {capability}': 'ตัวป้องกันชุดคำสั่งหยุด {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'ไม่ตรงกับแผนที่รอบการทำงานบันทึกไว้ ไม่มีสิ่งใดถูกส่ง และไม่มีบริการใดถูกเรียก',
   '{role} was asked first and has had {minutes} minutes.': '{role} ได้รับเรื่องก่อนและมีเวลาไปแล้ว {minutes} นาที',
@@ -346,8 +336,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     '{host} ปฏิเสธคีย์โมเดล ({status}) งานที่ต้องใช้โมเดลจึงทำงานไม่ได้ เปิด การตั้งค่า, ระบบนี้, โมเดล แล้ววางคีย์ที่ใช้ได้ ทดสอบ แล้วบันทึก',
   '{host} refused the model key, and work is waiting': '{host} ปฏิเสธคีย์โมเดล และงานกำลังรออยู่',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'งานที่รอโมเดลอยู่จะทำต่อเองทันทีที่ใช้คีย์ที่ใช้ได้',
   'A task ended before it was done: {task}':
     'งานหนึ่งจบลงก่อนเสร็จ: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -411,4 +399,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ถอนแล้ว: ทิกเก็ตที่เกี่ยวข้องถูกปิดแล้ว',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'ใบแจ้งหนี้ {number} ({amount}, {customer}) เกินกำหนดตั้งแต่ {due} และออกโดยไม่มีที่อยู่อีเมลสำหรับส่งการเตือน โปรดติดตามเอง หรือบอก CEO ว่าต้องการให้ทำอะไร',
+  'Kept as your word: {words}':
+    'บันทึกไว้เป็นคำของคุณ: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'บันทึกเป็นตัวเลขของคุณ: {value} สำหรับ {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'การรันที่ทำต่อหลังเวิร์กเกอร์หยุด: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'ถอนออกแล้ว: งานที่เกี่ยวข้องถูกเรียกใช้อีกครั้งแล้ว',
+  'Withdrawn: the day it was about has ended.':
+    'ถอนออกแล้ว: วันที่เกี่ยวข้องผ่านไปแล้ว',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'ถอนออกแล้ว: ช่วงเวลาที่เกี่ยวข้องสิ้นสุดและได้รับการประเมินแล้ว',
+  'Withdrawn: the goal it was about was closed.':
+    'ถอนออกแล้ว: เป้าหมายที่เกี่ยวข้องถูกปิดแล้ว',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'ถอนออกแล้ว: ถึงเพดานของเดือนแล้ว และการ์ดที่แจ้งว่าบริษัทหยุดชั่วคราวเข้ามาแทนที่',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'งานที่ยังรออยู่หลังจากประมาณ {hours} ชั่วโมงจะหยุด และการ์ดนี้จะยังเปิดอยู่เพื่อให้คุณสั่งทำงานนั้นอีกครั้ง',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} ไม่ตอบสนอง และงานที่ต้องใช้กำลังรออยู่',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'งานรอมาประมาณ {minutes} นาที โดยลองตรวจซ้ำทุกครั้ง และยังรออยู่ งานจะทำต่อเองทันทีที่บริการตอบสนอง และการ์ดนี้จะปิดเอง',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'งานจะรอและทำต่อเองทันทีที่โมเดลตอบสนอง และการ์ดนี้จะปิดเอง',
+  'Model {model} is not answering, and work is waiting for it':
+    'โมเดล {model} ไม่ตอบสนอง และมีงานรอโมเดลนี้อยู่',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'งานที่รอโมเดลอยู่จะทำต่อเองทันทีที่ใช้คีย์ที่ใช้ได้ และการ์ดนี้จะปิดเอง',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'งานที่ต้องใช้ความสามารถนี้จะรอแทนที่จะเริ่ม และจะทำต่อเองทันทีที่ผ่านการตรวจสอบ แล้วการ์ดนี้จะปิดเอง สาเหตุที่พบบ่อยคือข้อมูลรับรองหมดอายุหรือกำหนดขอบเขตไว้ไม่ถูกต้อง โควตาหมด หรือที่อยู่ไม่ถูกต้อง',
+  '{role} was stopped: the work on this card has been taken up again.':
+    '{role} ถูกหยุดแล้ว เพราะงานในการ์ดนี้ได้กลับมาทำต่อแล้ว',
+  'Withdrawn: the month it was about has ended.':
+    'ถอนออกแล้ว: เดือนที่เกี่ยวข้องผ่านไปแล้ว',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'ถอนออกแล้ว: ยกเลิกการหยุดชั่วคราวแล้ว และงานดำเนินต่อไป',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'ถอนออกแล้ว: โมเดลตอบสนองอีกครั้งแล้ว และงานที่รออยู่ถูกเรียกกลับมาแล้ว',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'ถอนออกแล้ว: คีย์โมเดลใช้ได้อีกครั้งแล้ว และงานที่รออยู่ถูกเรียกกลับมาแล้ว',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'ถอนออกแล้ว: บริการผ่านการตรวจสอบอีกครั้งแล้ว และงานที่รออยู่ถูกเรียกกลับมาแล้ว',
+  'Withdrawn: no work is waiting on it any more.':
+    'ถอนออกแล้ว: ไม่มีงานใดรอสิ่งนี้อยู่อีกแล้ว',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'ถอนออกแล้ว: บทบาทที่ได้รับมอบหมายจัดการเรื่องนี้แล้ว และไม่มีอะไรเหลือให้คุณตัดสินใจ',
+  'Work finished: {count}':
+    'งานที่เสร็จแล้ว: {count}',
+  'Stopped: its work was taken up another way':
+    'หยุดแล้ว: งานนี้ถูกดำเนินการต่อด้วยวิธีอื่น',
+  'Its work stopped, and each time it took down the worker running it.':
+    'งานหยุดลง และทุกครั้งทำให้ worker ที่รันอยู่ล่มไปด้วย',
+  'A write to an outside service may have happened without being what was meant.':
+    'การเขียนไปยังบริการภายนอกอาจเกิดขึ้นแล้ว แต่ไม่ตรงกับที่ตั้งใจ',
+  'Work charged to the same budget account stops until it has room again.':
+    'งานที่เรียกเก็บจากบัญชีงบประมาณเดียวกันจะหยุดจนกว่าบัญชีจะมีที่ว่างอีกครั้ง',
+  'Its work stopped before it was done.':
+    'งานหยุดก่อนจะเสร็จ',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'แพลตฟอร์มนับ worker ที่หายไปได้ {lost} ตัว ซึ่งเป็นจำนวนสูงสุดที่งานหนึ่งเสียได้',
+  'The platform read back what was written, and it did not match.':
+    'แพลตฟอร์มอ่านสิ่งที่เขียนกลับมา และไม่ตรงกัน',
+  'The budget account had nothing left to reserve for the work.':
+    'บัญชีงบประมาณไม่เหลืออะไรให้จองไว้สำหรับงาน',
+  'The platform found it ended with no card raised for it.':
+    'แพลตฟอร์มพบว่ามันจบลงโดยไม่มีการ์ดใดถูกเปิดให้',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'การ์ดส่งไปให้ผู้ที่แผนกกำหนดให้จัดการ แล้วจึงถึงคุณ',
+  'The task was halted, and you were told on a card in the inbox.':
+    'งานถูกหยุด และแจ้งคุณด้วยการ์ดในกล่องข้อความ',
+  'Postmortem: {cause} ({about})':
+    'การทบทวนหลังเหตุการณ์: {cause} ({about})',
+  'What happened':
+    'เกิดอะไรขึ้น',
+  'Impact':
+    'ผลกระทบ',
+  'Trigger':
+    'ตัวกระตุ้น',
+  'Detection':
+    'การตรวจพบ',
+  'What was done':
+    'สิ่งที่ทำไปแล้ว',
+  'A task of {role} stopped before it was done.':
+    'งานหนึ่งของ {role} หยุดก่อนจะเสร็จ',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'วิธีแก้: หาสาเหตุที่แท้จริงโดยถามว่าทำไมกับทุกคำตอบและตรวจกับบันทึก ตัดสินใจครั้งเดียว แล้วเปิดสิ่งที่ต้องทำที่ลงมือตามการตัดสินใจ โดยแต่ละข้อมีที่นั่งเดียว',
+  'Off track: {name}':
+    'หลุดเป้า: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} ได้ {value} ในสัปดาห์ของ {week} เทียบกับเป้าหมายรายสัปดาห์ {target}',
+  '{role} answers for it.':
+    '{role} รับผิดชอบเรื่องนี้',
+  'No seat answers for it.':
+    'ไม่มีตำแหน่งใดรับผิดชอบเรื่องนี้',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'แพลตฟอร์มอ่านจากสกอร์การ์ดรายสัปดาห์ก่อนการประชุมปฏิบัติการประจำสัปดาห์',
+  'Not done at two meetings: {title}':
+    'ไม่เสร็จในการประชุมสองครั้ง: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'สิ่งที่ต้องทำ "{title}" ครบกำหนด {due} ยังไม่เสร็จในการประชุมปฏิบัติการประจำสัปดาห์ของ {previous} และยังไม่เสร็จในครั้งนี้',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'แพลตฟอร์มอ่านจากรายการสิ่งที่ต้องทำก่อนการประชุมปฏิบัติการประจำสัปดาห์',
+  'Weekly operating meeting held ({week}): {where}':
+    'จัดการประชุมปฏิบัติการประจำสัปดาห์แล้ว ({week}): {where}',
+  'see its task under Work':
+    'ดูงานของการประชุมได้ที่ งาน',
+  'New goals proposed, to approve line by line':
+    'เสนอเป้าหมายใหม่ เพื่ออนุมัติทีละบรรทัด',
+  'Line {line}: the {kind} "{goal}"':
+    'บรรทัด {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'อยู่ภายใต้: {goal}',
+  'Under line {line}: {goal}':
+    'อยู่ภายใต้บรรทัด {line}: {goal}',
+  'Period: {from} to {to}':
+    'ช่วงเวลา: {from} ถึง {to}',
+  'Committed: done in full, or missed.':
+    'ให้คำมั่น: ทำสำเร็จครบ หรือพลาด',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'มุ่งหวังสูง: ได้รับคะแนน และ 0.6 ถึง 0.7 คือผลที่ดี',
+  'Learning: a test of the prediction below.':
+    'การเรียนรู้: ทดสอบคำทำนายด้านล่าง',
+  'Owned by: {role}':
+    'ผู้รับผิดชอบ: {role}',
+  'Done when: {doneWhen}':
+    'เสร็จเมื่อ: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'คำทำนาย เขียนไว้ก่อนเริ่มงาน: {name} ไปถึง {target} จาก {baseline}',
+  'Measured by {name}: from {baseline} to {target}.':
+    'วัดด้วย {name}: จาก {baseline} ถึง {target}',
+  'Watched with: {measure}':
+    'ดูคู่กับ: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'เป้าหมายของปีนี้: {count} มากกว่า {limit} ที่บริษัทหนึ่งจะดูแลได้',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'ผลลัพธ์หลักภายใต้วัตถุประสงค์นี้: {count} มากกว่า {limit} ที่วัตถุประสงค์หนึ่งจะดูแลได้',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'ลำดับความสำคัญรายไตรมาสพร้อมกัน: {count} มากกว่า {limit} ที่บริษัทหนึ่งจะดูแลได้',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'ลำดับความสำคัญรายไตรมาสของ {seat} พร้อมกัน: {count} มากกว่า {limit} ที่ตำแหน่งหนึ่งจะรับได้',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'การอนุมัติจะทำให้ทุกบรรทัดที่คุณอนุมัติเป็นเป้าหมายพร้อมตัวชี้วัด บรรทัดที่คุณปฏิเสธจะไม่ถูกสร้าง ระหว่างนี้งานจะดำเนินต่อตามเป้าหมายเดิม',
+  'No goal is made.':
+    'ไม่มีการสร้างเป้าหมาย',
+  'Missed: {statement}':
+    'พลาด: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement} ซึ่งให้คำมั่นไว้สำหรับช่วง {from} ถึง {to} ไม่เสร็จ',
+  'Measured by its numbers, it came {progress} of the way.':
+    'วัดจากตัวเลขแล้ว ไปได้ {progress} ของทาง',
+  'It was not marked met by its due date.':
+    'ไม่ได้ถูกทำเครื่องหมายว่าบรรลุภายในวันครบกำหนด',
+  'The platform graded it when its period ended.':
+    'แพลตฟอร์มให้คะแนนเมื่อช่วงเวลาของมันสิ้นสุด',
+  'Off pace: {statement}':
+    'ช้ากว่ากำหนด: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} เป็นลำดับความสำคัญที่ให้คำมั่นไว้ ครบกำหนดวันที่ {due} ตัวเลขของมันไปได้เพียง {progress} ของทาง ขณะที่เวลาผ่านไปแล้ว {elapsed} ของช่วงเวลา',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'ไม่มีการเปลี่ยนแปลงใดเพื่อเร่งตามให้ทัน และไม่มีเอเจนต์ใดถูกขอให้ทำ ตัวเลขที่ให้คำมั่นไว้ซึ่งช้ากว่าเวลาชวนให้ใช้วิธีที่เสี่ยงขึ้นเพื่อชดเชย และการรับความเสี่ยงนั้นหรือไม่เป็นการตัดสินใจของคุณ ตัดสินใจว่าจะเลื่อนวัน ลดเป้า เปลี่ยนเป็นแบบมุ่งหวังสูง หรือปล่อยให้ดำเนินต่อไปและพลาด',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'ไม่ว่าคำตอบจะเป็นอย่างไรก็ไม่มีสิ่งใดหยุด ลำดับความสำคัญยังคงเดิมและจะได้รับคะแนนเมื่อช่วงเวลาสิ้นสุด เปลี่ยนได้ที่ ทีม, เป้าหมาย หากคุณตัดสินใจเช่นนั้น',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'ค่านิยมของเรา',
+  'Purpose and niche': 'จุดมุ่งหมายและตลาดเฉพาะ',
+  'Long-range target': 'เป้าหมายระยะยาว',
+  'Who we serve and what makes us different': 'เรารับใช้ใครและอะไรทำให้เราแตกต่าง',
+  'Where we will be in three years': 'เราจะอยู่ที่ไหนในอีกสามปี',
+  'Our promise': 'คำมั่นสัญญาของเรา',
 };

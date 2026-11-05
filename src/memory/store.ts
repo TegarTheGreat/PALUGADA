@@ -201,6 +201,38 @@ export async function learn(tx: TenantClient, input: RememberInput): Promise<{ i
 }
 
 /**
+ * The owner's own word already held in the same place, in the same words:
+ * what they say again is that memory, not a second one. The pack gives the
+ * owner's word a few places of each kind (context/builder.ts), so a repeat
+ * kept twice pushed another thing they said out of every run -- and the
+ * owner's assistant, which writes what it is told to remember at once, is
+ * told it need not look first. Compared on letters and digits, as `learn`
+ * compares, and only with what is in use: something taken back or replaced
+ * and then said again is said anew. Under a lock on those words, so the same
+ * sentence sent twice at once is kept once.
+ */
+export async function ownerSaidAlready(
+  tx: TenantClient,
+  input: { memoryType: MemoryType; scopeType: ScopeType; scopeId: string | null; body: string },
+): Promise<string | null> {
+  const where = [input.memoryType, input.scopeType, input.scopeId, input.body];
+  await tx.query(
+    `SELECT pg_advisory_xact_lock(hashtextextended(
+       'owner-said:' || $1 || ':' || $2 || ':' || coalesce($3::text, '') || ':'
+         || btrim(regexp_replace(lower($4), '[^[:alnum:]]+', ' ', 'g')), 0))`,
+    where);
+  const { rows } = await tx.query<{ id: string }>(
+    `SELECT id FROM memories
+      WHERE memory_type = $1 AND scope_type = $2 AND scope_id IS NOT DISTINCT FROM $3::uuid
+        AND source = 'owner' AND approval_state = 'active' AND superseded_by IS NULL
+        AND btrim(regexp_replace(lower(body), '[^[:alnum:]]+', ' ', 'g'))
+          = btrim(regexp_replace(lower($4), '[^[:alnum:]]+', ' ', 'g'))
+      ORDER BY valid_from LIMIT 1`,
+    where);
+  return rows[0]?.id ?? null;
+}
+
+/**
  * Records that a newer fact replaces an older one (F4.3).
  *
  * The old row stays exactly as it was; only its forward pointer is set. An

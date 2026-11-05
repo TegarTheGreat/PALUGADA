@@ -206,12 +206,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{failed} of {finished} tasks failed or stopped today ({rate}%), over the {limit}% threshold.': 'المهام التي فشلت أو توقفت اليوم: {failed} من أصل {finished} ({rate}%)، متجاوزةً العتبة البالغة {limit}%.',
   'Unusual number of policy refusals': 'عدد غير معتاد من مرات الرفض بسبب السياسات',
   'Actions refused by a policy today: {count}, over the threshold of {limit}. Either an agent is probing its limits or a policy is miscalibrated.': 'الإجراءات التي رفضتها سياسةٌ اليوم: {count}، متجاوزةً العتبة البالغة {limit}. فإما أن وكيلًا يختبر حدوده، وإما أن سياسةً معايَرة على نحو خاطئ.',
-  'External writes failed verification': 'فشلت عمليات كتابة خارجية في القراءة للتحقق',
-  'Writes outside that reported success but read back differently: {count}. Something is changing them other than as asked.': 'عمليات الكتابة الخارجية التي أفادت بالنجاح لكن القراءة للتحقق أظهرت غير ذلك: {count}. ثمة ما يغيّرها على غير ما طُلب.',
-  'A capability stopped being usable': 'قدرة لم تعد صالحة للاستخدام',
-  'Tasks that could not start today because a capability their role needs failed its check: {count}. A credential has probably expired or a quota is used up.': 'المهام التي تعذّر بدؤها اليوم لأن قدرةً يحتاجها دورها فشلت في فحصها: {count}. على الأرجح انتهت صلاحية بيانات اعتماد أو نفدت حصة.',
-  'A worker stopped reporting mid-run': 'توقف عاملٌ عن الإبلاغ في منتصف التشغيل',
-  'Runs that stopped reporting and were taken back today: {count}. The work was picked up again; the tokens they had already spent were not recovered.': 'عمليات التشغيل التي توقفت عن الإبلاغ وسُحبت من عمّالها اليوم: {count}. استُؤنف العمل؛ أما التوكنات التي كانت قد أُنفقت فلم تُسترد.',
   '{role} was refused {denials} times today, at the limit of {limit}. No task will run as this role until you lift the freeze. The usual causes are a missing capability grant, a policy the role\'s charter does not account for, or work the role was never equipped to do.': 'عدد مرات رفض {role} اليوم: {denials}، وهو الحد البالغ {limit}. لن تُشغَّل أي مهمة بهذا الدور إلى أن يُلغى تجميده. والأسباب المعتادة: نقص إذن لقدرة ما، أو سياسة لا يراعيها ميثاق الدور، أو عمل لم يُجهَّز الدور قط للقيام به.',
   'Role {role} is frozen after repeated denials': 'جُمّد الدور {role} بعد رفض متكرر',
   'What it was refused: {capabilities}': 'ما رُفض له: {capabilities}',
@@ -222,12 +216,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '"{task}" has been waiting since {since}. {why} Approve to run it again from where it stopped, or deny to cancel it.': '«{task}» تنتظر منذ {since}. {why} «موافقة» تُعيد تشغيلها من حيث توقفت، و«رفض» يُلغيها.',
   'A task keeps stopping the worker running it': 'مهمة تتسبب مرارًا في توقف العامل الذي يشغّلها',
   '"{task}" lost its worker {lost} times: each time the worker running it stopped answering before the work finished. What it had done is kept. It is halted so it cannot take another worker down; run it again once the cause is found, or cancel it.': 'عدد مرات فقدان «{task}» لعاملها: {lost}؛ ففي كل مرة توقف العامل الذي يشغّلها عن الرد قبل انتهاء العمل. وما أنجزته محفوظ. أُوقفت كي لا تُسقط عاملًا آخر؛ ويمكن إعادة تشغيلها بعد معرفة السبب، أو إلغاؤها.',
-  '{services} stayed unreachable, and the work that needs it stopped': 'تعذّر الوصول إلى {services}، فتوقف العمل الذي يعتمد على ذلك',
-  'The task waited about {minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.': 'انتظرت المهمة نحو {minutes} من الدقائق، تعاود المحاولة في كل مرة، ثم توقفت. ويمكن إعادة تشغيلها حين تستجيب الخدمة.',
   'It was tried {tries} times over about {minutes} minutes.': 'عدد المحاولات: {tries}، خلال نحو {minutes} من الدقائق.',
   'This role can take actions that cannot be undone, so the run was not silently moved to a different model.': 'يستطيع هذا الدور اتخاذ إجراءات لا رجعة فيها، لذا لم يُنقل التشغيل بصمت إلى نموذج آخر.',
   'No fallback model is left for this role.': 'لم يتبقَّ نموذج بديل لهذا الدور.',
-  'Model {model} failed and the run was not moved': 'فشل النموذج {model} ولم يُنقل التشغيل',
   'External write failed verification': 'فشلت عملية كتابة خارجية في القراءة للتحقق',
   'The task wrote to an outside service and read it back, and what it read did not match. Look at the place it wrote to before you run it again: the write may have happened.': 'كتبت المهمة إلى خدمة خارجية ثم قرأت ما كتبته للتحقق، فلم يتطابق ما قرأته. يُرجى فحص المكان الذي كتبت إليه قبل إعادة تشغيلها: فقد تكون الكتابة قد تمّت.',
   'Review deadlocked after {rounds} revisions: {capability}': 'تعثّرت المراجعة بعد {rounds} من جولات التعديل: {capability}',
@@ -252,7 +243,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'The schedule "{schedule}" keeps producing the same result': 'الجدول الزمني «{schedule}» يُنتج النتيجة نفسها مرارًا',
   'Its last {runs} runs all ended with the same output. That is sometimes exactly right -- a report with nothing new to say -- and often a schedule that stopped doing anything useful while still being paid for. Deny to turn it off; approve to keep it running and not be asked about this result again.': 'عمليات التشغيل الأخيرة، وعددها {runs}، انتهت كلها بالمُخرَج نفسه. وهذا أحيانًا هو الصواب تمامًا — تقرير ليس فيه جديد — وكثيرًا ما يكون جدولًا زمنيًا كفّ عن فعل أي شيء مفيد بينما لا يزال يُدفع ثمنه. «رفض» يوقفه؛ و«موافقة» تُبقيه يعمل دون السؤال عن هذه النتيجة مرة أخرى.',
   'Capability {capability} failed preflight': 'فشلت القدرة {capability} في الفحص المسبق',
-  'Work that needs it is stopped rather than started: fix the cause, then run that work again. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.': 'العمل الذي يحتاجها يُوقف بدلًا من أن يبدأ: يُرجى إصلاح السبب، ثم إعادة تشغيل ذلك العمل. والأسباب المعتادة: بيانات اعتماد منتهية الصلاحية أو بنطاق صلاحيات خاطئ، أو حصة نفدت، أو عنوان خاطئ.',
   'Batch guard stopped {capability}': 'أوقف فحصُ حجم الدفعة {capability}',
   'It did not match the plan its run recorded. Nothing was sent, and no service was called.': 'لم يطابق الخطة التي سجّلها تشغيله. لم يُرسَل شيء، ولم تُستدعَ أي خدمة.',
   '{role} was asked first and has had {minutes} minutes.': 'أُحيل هذا إلى {role} أولًا، وقد مضى على ذلك {minutes} من الدقائق.',
@@ -340,8 +330,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   '{host} refused the model key ({status}), so nothing that needs the model can run. Open Settings, This deployment, Model, paste a key that works, test it and save.':
     'رفض {host} مفتاح النموذج ({status})، لذا لا يمكن تشغيل أي عمل يحتاج إلى النموذج. افتح الإعدادات، هذه المنصة، النموذج، والصق مفتاحًا صالحًا، ثم اختبره واحفظه.',
   '{host} refused the model key, and work is waiting': 'رفض {host} مفتاح النموذج، والعمل في انتظار',
-  'What is waiting for the model carries on by itself once a key that works is in use.':
-    'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح.',
   'A task ended before it was done: {task}':
     'انتهت مهمة قبل إتمامها: {task}',
   'It ended as: {reason}. No other card was raised for it, so it is here rather than silent.':
@@ -405,4 +393,173 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سُحب: أُغلقت التذكرة التي كان يتعلق بها.',
   'Invoice {number} ({amount}, {customer}) has been overdue since {due}, and it was issued with no email address to send a reminder to. Follow it up yourself, or tell the CEO what you want done.':
     'الفاتورة {number} ({amount}، {customer}) متأخرة منذ {due}، وقد صدرت دون عنوان بريد إلكتروني يُرسل إليه تذكير. تابعها بنفسك، أو أخبر المدير التنفيذي بما تريد.',
+  'Kept as your word: {words}':
+    'حُفظ على أنه كلامك: {words}',
+  'Recorded as your figure: {value} for {measure}':
+    'سُجّل على أنه رقمك: {value} لـ {measure}',
+  'Runs picked up again after their worker stopped: {count}':
+    'عمليات تشغيل استُؤنفت بعد توقف عاملها: {count}',
+  'Withdrawn: the task it was about was run again.':
+    'سُحب: أُعيد تشغيل المهمة التي كان يتعلق بها.',
+  'Withdrawn: the day it was about has ended.':
+    'سُحب: انتهى اليوم الذي كان يتعلق به.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'سُحب: انتهت الفترة التي كان يتعلق بها وقُيّمت.',
+  'Withdrawn: the goal it was about was closed.':
+    'سُحب: أُغلق الهدف الذي كان يتعلق به.',
+  'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
+    'سُحب: بلغ الإنفاق سقف الشهر، وتحل محله البطاقة التي تقول إن الشركة متوقفة مؤقتًا.',
+  'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
+    'العمل الذي يظل منتظرًا بعد نحو {hours} من الساعات يتوقف، وتبقى هذه البطاقة عندئذٍ مفتوحة لتتمكن من إعادة تشغيله.',
+  '{service} is not answering, and the work that needs it is waiting':
+    '{service} لا يستجيب، والعمل الذي يحتاجه في الانتظار',
+  'The work waited about {minutes} minutes, looking again each time, and is still waiting: it carries on by itself once the service answers, and this card then closes itself.':
+    'انتظر العمل نحو {minutes} من الدقائق، يعاود المحاولة في كل مرة، وما زال ينتظر: سيستأنف من تلقاء نفسه بمجرد أن تستجيب الخدمة، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
+  'The work waits and carries on by itself once the model answers, and this card then closes itself.':
+    'ينتظر العمل ويستأنف من تلقاء نفسه بمجرد أن يستجيب النموذج، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
+  'Model {model} is not answering, and work is waiting for it':
+    'النموذج {model} لا يستجيب، والعمل في انتظاره',
+  'What is waiting for the model carries on by itself once a key that works is in use, and this card then closes itself.':
+    'سيتابع العمل المنتظر للنموذج من تلقاء نفسه بمجرد استخدام مفتاح صالح، وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها.',
+  'Work that needs it waits rather than starts, and carries on by itself once the check passes; this card then closes itself. The usual causes are an expired or wrongly scoped credential, a quota used up, or an address that is wrong.':
+    'العمل الذي يحتاجها ينتظر بدلًا من أن يبدأ، ويستأنف من تلقاء نفسه بمجرد نجاح الفحص؛ وتُغلق هذه البطاقة عندئذٍ من تلقاء نفسها. والأسباب المعتادة: بيانات اعتماد منتهية الصلاحية أو بنطاق صلاحيات خاطئ، أو حصة نفدت، أو عنوان خاطئ.',
+  '{role} was stopped: the work on this card has been taken up again.':
+    'أُوقف {role}: فالعمل الذي في هذه البطاقة استُؤنف من جديد.',
+  'Withdrawn: the month it was about has ended.':
+    'سُحب: انتهى الشهر الذي كان يتعلق به.',
+  'Withdrawn: the pause was lifted, and work goes on.':
+    'سُحب: رُفع الإيقاف المؤقت، ويستمر العمل.',
+  'Withdrawn: the model is answering again, and any work waiting for it was called back.':
+    'سُحب: النموذج يستجيب مجددًا، واستُدعي أي عمل كان ينتظره.',
+  'Withdrawn: the model key works again, and any work waiting for it was called back.':
+    'سُحب: مفتاح النموذج يعمل مجددًا، واستُدعي أي عمل كان ينتظره.',
+  'Withdrawn: the service passed its check again, and any work waiting for it was called back.':
+    'سُحب: اجتازت الخدمة فحصها مجددًا، واستُدعي أي عمل كان ينتظرها.',
+  'Withdrawn: no work is waiting on it any more.':
+    'سُحب: لم يعد أي عمل ينتظره.',
+  'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.':
+    'سُحب: تولّى أمره الدور الذي أُسند إليه، ولم يبقَ شيء عليك أن تقرره.',
+  'Work finished: {count}':
+    'أعمال اكتملت: {count}',
+  'Stopped: its work was taken up another way':
+    'أُوقفت: تُولّي عملها بطريقة أخرى',
+  'Its work stopped, and each time it took down the worker running it.':
+    'توقف عمله، وفي كل مرة أسقط العامل الذي يشغّله.',
+  'A write to an outside service may have happened without being what was meant.':
+    'ربما حدثت كتابة إلى خدمة خارجية على غير ما كان مقصوداً.',
+  'Work charged to the same budget account stops until it has room again.':
+    'يتوقف العمل المحمّل على حساب الميزانية نفسه حتى يتسع مجدداً.',
+  'Its work stopped before it was done.':
+    'توقف عمله قبل أن يكتمل.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'أحصت المنصة {lost} من العمال المفقودين، وهو أقصى ما يجوز لمهمة أن تفقده.',
+  'The platform read back what was written, and it did not match.':
+    'قرأت المنصة ما كُتب، ولم يتطابق.',
+  'The budget account had nothing left to reserve for the work.':
+    'لم يبقَ في حساب الميزانية ما يُحجز للعمل.',
+  'The platform found it ended with no card raised for it.':
+    'وجدت المنصة أنها انتهت دون رفع بطاقة لها.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'ذهبت البطاقة إلى من يسمّيه القسم للتعامل معها، ثم إليك بعد ذلك.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'أُوقفت المهمة، وأُبلغت ببطاقة في صندوق الوارد.',
+  'Postmortem: {cause} ({about})':
+    'تحليل ما بعد الحادث: {cause} ({about})',
+  'What happened':
+    'ما حدث',
+  'Impact':
+    'الأثر',
+  'Trigger':
+    'المسبب',
+  'Detection':
+    'الاكتشاف',
+  'What was done':
+    'ما تم فعله',
+  'A task of {role} stopped before it was done.':
+    'توقفت مهمة لـ {role} قبل أن تكتمل.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'لحلها: جد السبب الجذري بالسؤال «لماذا» عن كل جواب ومطابقته مع السجل، وقرر مرة واحدة، وافتح مهام المتابعة التي تنفذ القرار، لكل منها مقعد واحد.',
+  'Off track: {name}':
+    'خارج المسار: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    'كان {name} {value} في أسبوع {week}، مقابل هدف أسبوعي قدره {target}.',
+  '{role} answers for it.':
+    '{role} هو المسؤول عنه.',
+  'No seat answers for it.':
+    'لا يوجد منصب مسؤول عنه.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'قرأته المنصة من بطاقة الأداء الأسبوعية قبل اجتماع التشغيل الأسبوعي.',
+  'Not done at two meetings: {title}':
+    'لم تُنجز في اجتماعين: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'المهمة المتابعة «{title}»، المستحقة في {due}، لم تُنجز في اجتماع التشغيل الأسبوعي بتاريخ {previous}، ولا في هذا الاجتماع.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'قرأته المنصة من المهام المتابعة قبل اجتماع التشغيل الأسبوعي.',
+  'Weekly operating meeting held ({week}): {where}':
+    'عُقد اجتماع التشغيل الأسبوعي ({week}): {where}',
+  'see its task under Work':
+    'انظر مهمته في العمل',
+  'New goals proposed, to approve line by line':
+    'أهداف جديدة مقترحة، للموافقة عليها سطرًا سطرًا',
+  'Line {line}: the {kind} "{goal}"':
+    'السطر {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'تحت: {goal}',
+  'Under line {line}: {goal}':
+    'تحت السطر {line}: {goal}',
+  'Period: {from} to {to}':
+    'المدة: من {from} إلى {to}',
+  'Committed: done in full, or missed.':
+    'ملتزم به: يُنجَز كاملًا أو يُخفَق فيه.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'طموح: يُقيَّم بدرجة، ومن 0.6 إلى 0.7 نتيجة جيدة.',
+  'Learning: a test of the prediction below.':
+    'تعلّم: يختبر التوقع أدناه.',
+  'Owned by: {role}':
+    'المقعد المسؤول: {role}',
+  'Done when: {doneWhen}':
+    'يكتمل عندما: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'التوقع، مكتوبًا قبل العمل: يبلغ {name} القيمة {target}، بدءًا من {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'يُقاس بـ {name}: من {baseline} إلى {target}.',
+  'Watched with: {measure}':
+    'يُراقَب مع: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'أهداف هذا العام: {count}، أكثر من {limit} يمكن لشركة أن تبقيها في نظرها.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'النتائج الرئيسية تحت هذا الهدف: {count}، أكثر من {limit} يمكن لهدف واحد أن يبقيها في نظره.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'الأولويات الربع سنوية في وقت واحد: {count}، أكثر من {limit} يمكن لشركة أن تبقيها في نظرها.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'الأولويات الربع سنوية لـ {seat} في وقت واحد: {count}، أكثر من {limit} يمكن لمقعد واحد أن يحملها.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'الموافقة تجعل كل سطر توافق عليه هدفًا مع مقياسه؛ والسطر الذي ترفضه لا يُنشأ. وحتى ذلك الحين يستمر العمل في إطار الأهداف كما هي.',
+  'No goal is made.':
+    'لا يُنشأ أي هدف.',
+  'Missed: {statement}':
+    'لم يتحقق: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}، الملتزم به من {from} إلى {to}، لم يُنجز.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'بقياس أرقامه، قطع {progress} من الطريق.',
+  'It was not marked met by its due date.':
+    'لم يُوسم بأنه تحقق حتى تاريخ استحقاقه.',
+  'The platform graded it when its period ended.':
+    'قيّمته المنصة عند انتهاء فترته.',
+  'Off pace: {statement}':
+    'متأخر عن الوتيرة: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} أولوية ملتزم بها يستحق موعدها في {due}. لم تقطع أرقامها إلا {progress} من الطريق، بينما مضى {elapsed} من فترتها.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'لم يُغيَّر شيء للّحاق، ولم يُطلب ذلك من أي وكيل: الرقم الملتزم به المتأخر عن وقته يغري باتخاذ إجراء أكثر خطورة لتعويضه، وقرار تحمّل هذه المخاطرة لك. قرّر هل تؤجل الموعد، أو تخفض الهدف، أو تجعله طموحًا، أو تتركه يمضي ولا يتحقق.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'لا يتوقف شيء أيًّا كان الجواب. تبقى الأولوية كما هي وتُقيَّم عند انتهاء فترتها؛ غيّرها من الفريق، الأهداف إن قررت ذلك.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'قيمنا',
+  'Purpose and niche': 'الغاية والتخصص',
+  'Long-range target': 'الهدف بعيد المدى',
+  'Who we serve and what makes us different': 'من نخدم وما الذي يميزنا',
+  'Where we will be in three years': 'أين سنكون بعد ثلاث سنوات',
+  'Our promise': 'وعدنا',
 };

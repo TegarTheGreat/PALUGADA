@@ -196,7 +196,7 @@ test("a measure that reaches its target starts one task for the CEO under the me
   assert.equal(task!.input.metricId, one.id);
   assert.match(task!.input.goal, /Paying customers/);
   assert.match(task!.input.context, new RegExp(one.slug));
-  for (const wanted of [/\b10\b/, /\b12\b/, /owner\.ask/, /Goals page/]) assert.match(task!.input.context, wanted);
+  for (const wanted of [/\b10\b/, /\b12\b/, /owner\.ask/, /Team, Goals/]) assert.match(task!.input.context, wanted);
   const outside = await withTenant(fixture.companyId, (tx) => tx.query(
     "SELECT 1 FROM events WHERE task_id = $1 AND type = 'content.read_outside'", [task!.id]));
   assert.equal(outside.rows.length, 0, 'the brief holds nothing from outside, so it is not marked as outside');
@@ -500,7 +500,7 @@ test("the brief is the platform's numbers and the owner's words, and nothing an 
     'UPDATE roles SET display_name = $2, title = $2, system_prompt = $2 WHERE id = $1', [helper, sentinel]));
   await withTenant(fixture.companyId, (tx) => openTicket(tx, {
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: sentinel, openedBy: 'agent',
-    openedByTaskId: writer.id,
+    openedByTaskId: writer.id, outside: true,
   }));
 
   assert.ok(await ensureOutcomes(fixture.companyId));

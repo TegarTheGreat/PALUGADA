@@ -532,6 +532,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       divisionId: 'its division', slug: 'short id', systemPrompt: 'what it does and how',
       tools: 'list of capability names, at most twelve', model: 'fast, standard or deep', doneCriteria: 'list of what done means',
+      accountabilities: 'optional list of what the seat answers for, one result each, at most five',
       displayName: 'the name the owner calls it, such as Arka; give every role one', title: 'its title, such as CEO, CTO or Head of Support (GET /api/personas lists them)',
       persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
       grantTools: 'true to also let its division use the tools it lacks, except those that cannot be undone; say true whenever you name tools',
@@ -540,11 +541,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
-    what: 'Change a role: its charter, what done means, tools or model, how long one run may take, or who it is -- its name, title or persona.',
+    what: 'Change a role: its charter, what done means, what its seat is accountable for, tools or model, how long one run may take, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
       grantTools: 'true, with tools, to also let its division use the tools it lacks, except those that cannot be undone',
       doneCriteria: 'optional list, one testable sentence each, at most 12; replaces the role\'s',
+      accountabilities: 'optional list of what the seat answers for, one result each, at most five; replaces the seat\'s, and [] leaves it none',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
       maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',
       displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',

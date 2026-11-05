@@ -92,6 +92,7 @@ export function Organization({ ctx, route }: PageProps) {
 
         <Tabs.Panel value="chart">
           <Grow companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
+          <SeatWarnings structure={structure} openRole={setRole} />
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
@@ -175,12 +176,16 @@ function Grow({ companyId, company, structure, changed }: {
             { name: 'doneCriteria', label: t('How to know it is done'), type: 'textarea', required: true, wide: true,
               description: t('One per line. Work is checked against these before it counts as finished.'),
               placeholder: t('e.g. every claim about the product is one the product page makes') },
+            { name: 'accountabilities', label: t('Accountable for'), type: 'textarea', wide: true,
+              description: ACCOUNTABLE_FOR_HELP(),
+              placeholder: t('e.g. Newsletters sent on time') },
           ]}
           factor={t('Hire a role')}
           submit={async (values, proof) => {
             const hired: { roleId: string; ungranted: string[]; granted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
               divisionId: values.divisionId, slug: values.slug, systemPrompt: values.systemPrompt,
               tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/), grantTools: true,
+              accountabilities: list(values.accountabilities, /\n/),
               ...(values.person ? { person: values.person } : {}),
               ...(values.displayName ? { displayName: values.displayName } : {}), ...(values.title ? { title: values.title } : {}), proof,
             });
@@ -328,6 +333,7 @@ function OrgChart({
                   <Badge size="sm" variant="filled" leftSection={<IconCrown size={11} />}>CEO</Badge>
                 </Group>
                 <Text size="xs" c="dimmed" truncate>{t('Runs {company} for you', { company: company.name })}</Text>
+                <SeatLine role={ceo} />
                 {(() => {
                   const preset = personas.data?.personas.find((one) => one.id === ceo.persona?.preset);
                   return preset
@@ -382,6 +388,63 @@ function OrgChart({
   );
 }
 
+/* ------------------------------------------------ seats and accountabilities --- */
+
+/** What the owner is told about the list wherever they write one (F18.3, migration 0138). */
+const ACCOUNTABLE_FOR_HELP = () =>
+  t('At most five, one per line: the results this seat answers for. Every run of it is told them, and the CEO hands work about them to this seat.');
+
+/**
+ * A seat's accountabilities on the chart, under its name: what it answers
+ * for, or that it answers for nothing yet. A seat with none is drawn in the
+ * warning colour rather than refused: the owner may be halfway through.
+ */
+function SeatLine({ role }: { role: Role }) {
+  return role.accountabilities.length > 0
+    ? <Text size="xs" c="dimmed" lineClamp={2} title={role.accountabilities.join('\n')}>{role.accountabilities.join(' · ')}</Text>
+    : <Text size="xs" c="orange" truncate>{t('No accountabilities yet')}</Text>;
+}
+
+/**
+ * What the chart warns of (F18.3): a seat with no accountabilities, and an
+ * accountability two seats both claim, which is one result nobody is sure is
+ * theirs. Each seat named opens it, where the list is changed. Shown, never
+ * refused; the checks are the server's (`seatChecksOf`, src/domain/seats.ts).
+ */
+function SeatWarnings({ structure, openRole }: { structure: Structure; openRole: (role: Role) => void }) {
+  const { withoutAccountabilities, sharedAccountabilities } = structure.seatChecks;
+  if (withoutAccountabilities.length === 0 && sharedAccountabilities.length === 0) return null;
+  const seats = (ids: string[]) => {
+    const roles = ids.map((id) => structure.roles.find((role) => role.id === id)).filter((role): role is Role => role !== undefined);
+    return (
+      <Group gap={6} component="span" style={{ display: 'inline-flex' }}>
+        {roles.map((role) => (
+          <Anchor key={role.id} size="sm" component="button" type="button" onClick={() => openRole(role)}>{role.displayName ?? role.slug}</Anchor>
+        ))}
+      </Group>
+    );
+  };
+  return (
+    <Alert variant="light" color="yellow" mb="md" title={t('Seats to look at')}>
+      <Stack gap={6}>
+        <Text size="sm">{t('A seat answers for at most five results. One with none, or a result two seats both claim, is work nobody is sure is theirs.')}</Text>
+        {withoutAccountabilities.length > 0 && (
+          <Group gap={6} wrap="wrap">
+            <Text size="sm" fw={600}>{t('No accountabilities yet')}</Text>
+            {seats(withoutAccountabilities)}
+          </Group>
+        )}
+        {sharedAccountabilities.map((shared) => (
+          <Group key={shared.accountability} gap={6} wrap="wrap">
+            <Text size="sm" fw={600}>{t('Claimed by more than one seat: {accountability}', { accountability: shared.accountability })}</Text>
+            {seats(shared.roleIds)}
+          </Group>
+        ))}
+      </Stack>
+    </Alert>
+  );
+}
+
 const GOAL_STATUS: Record<string, string> = { active: N('Active'), met: N('Met'), abandoned: N('Abandoned') };
 
 function goalStatus(status: string): string {
@@ -428,6 +491,7 @@ function DivisionCard({
                     {role.persona?.preset && <Tooltip label={t('Has a persona')}><IconSparkles size={12} color="var(--mantine-color-grape-5)" style={{ flexShrink: 0 }} /></Tooltip>}
                   </Group>
                   {role.title && <Text size="xs" c="dimmed" truncate>{role.title}</Text>}
+                  <SeatLine role={role} />
                 </div>
                 <Tooltip label={role.frozenReason ?? t('{open} open · {done} done this week', { open: role.openTasks, done: role.doneLastWeek })}>
                   <Badge size="sm" variant="dot" color={state.color} style={{ flexShrink: 0 }}>{state.label}</Badge>
@@ -594,6 +658,12 @@ function RoleDrawer({
                 </List>
               </>
             )}
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mt="md" mb={6}>{t('Accountable for')}</Text>
+            {role.accountabilities.length > 0 ? (
+              <List size="sm" spacing={4}>
+                {role.accountabilities.map((line) => <List.Item key={line}>{line}</List.Item>)}
+              </List>
+            ) : <Text size="sm" c="orange">{t('Nothing yet. Say what this seat answers for, so work about it comes here.')}</Text>}
           </Paper>
           <div>
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>{t('Tools')}</Text>
@@ -618,6 +688,27 @@ function RoleDrawer({
             <Accordion.Item value="runtime">
               <Accordion.Control>{t('Who does its work')}</Accordion.Control>
               <Accordion.Panel><RoleRuntime companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
+            </Accordion.Item>
+            <Accordion.Item value="seat">
+              <Accordion.Control>{t('What its seat is accountable for')}</Accordion.Control>
+              <Accordion.Panel>
+                <ActionForm
+                  columns={1}
+                  fields={[{
+                    name: 'accountabilities', label: t('Accountable for'), type: 'textarea',
+                    initial: role.accountabilities.join('\n'), description: ACCOUNTABLE_FOR_HELP(),
+                  }]}
+                  submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, {
+                    accountabilities: String(values.accountabilities ?? '').split('\n').map((line) => line.trim()).filter(Boolean),
+                    summary: t('What {role} is accountable for', { role: role.displayName ?? role.slug }),
+                    proof,
+                  })}
+                  factor={t('Change what {role} is accountable for', { role: role.displayName ?? role.slug })}
+                  action={t('Change it')}
+                  success={t('Accountabilities changed.')}
+                  done={changed}
+                />
+              </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
               <Accordion.Control>{t('Change its charter, done criteria, model or run length')}</Accordion.Control>

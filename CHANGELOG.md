@@ -787,3 +787,12 @@ The first version. What it holds, in the order an owner meets it.
 - A weekly goal met is not a milestone: it starts no outcome task, a
   short week does not stop a goal being proposed met, and a weekly line is
   never the portfolio's headline (STATUS 2.191).
+
+- Seats and accountabilities: each role says, in at most five lines, what
+  its seat answers for. The owner sets them from the role, or when hiring,
+  and each change is versioned like the charter. Every run of the seat is
+  told them, and the CEO's list of the roles it can hand work to shows every
+  seat's, so work about a result goes to the seat accountable for it. The
+  Team page shows them on the chart and warns of a seat with none and of an
+  accountability two seats both claim. It never refuses either (F18.3,
+  STATUS 2.192).

@@ -821,6 +821,17 @@ const NINETEEN_CHANNELS = [
   'direct sales', 'affiliates', 'existing platforms', 'trade shows', 'offline events', 'speaking', 'community',
 ];
 
+test('the kit\'s description names every skill it brings, so the owner deciding to install it reads what it adds', () => {
+  // The owner decides on Settings, Bundles from this line. 1.6.0 added four
+  // skills and the monthly money review, which hands the strategist the
+  // books every month, and the line still ended at "the weekly review".
+  const description = COMPANY_OS.description.toLowerCase();
+  for (const skill of COMPANY_OS.body.skills) {
+    const title = skill.source.split('\n').find((line) => line.startsWith('# '))!.slice(2).trim();
+    assert.ok(description.includes(title.toLowerCase()), `the kit's description does not name "${title}" (${skill.slug})`);
+  }
+});
+
 test('the kit tests channels and drafts the one-page model, the fit survey and the press release, in its own words (F18.11, F18.15)', () => {
   // 1.6.0 brought these; 1.7.0 has the stage gates read the period's grade (F18.8).
   assert.equal(COMPANY_OS.version, '1.7.0');
@@ -891,7 +902,7 @@ test('the kit tests channels and drafts the one-page model, the fit survey and t
 test('the kit says what it brings, and its skills ask for nothing a reader of them may not hold (F18.11, F18.12, F18.15)', () => {
   // The owner reads the description before installing: a cadence that hands
   // the strategist the books is one they are told of.
-  for (const said of [/monthly money review/, /books/, /channel tests/, /one-page model/, /fit survey/, /press release/]) {
+  for (const said of [/monthly money review/, /books/, /channel testing/, /one-page business model/, /fit survey/, /press release/]) {
     assert.match(COMPANY_OS.description, said);
   }
   const skill = (slug: string) => COMPANY_OS.body.skills.find((one) => one.slug === slug)!.source;

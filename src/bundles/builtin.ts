@@ -532,8 +532,16 @@ Approving is a claim that you checked. Say what you checked.
  *
  * With them comes a strategist: the role nobody else is, which reads the
  * goals, their numbers and last week's work, and proposes at most three bets
- * -- never applies them. And the one cadence every company needs: the weekly
- * business review, Monday morning in the company's time zone.
+ * -- never applies them. And two cadences on its clock, in the company's time
+ * zone: the weekly business review on Monday morning, and the monthly money
+ * review on the first of the month (1.6.0, F18.12), which hands the
+ * strategist the last month's books and ends with issues for the CEO's
+ * weekly operating meeting, which is handed the review.
+ *
+ * And how a company finds its customers and argues an offer before it is
+ * built (1.6.0, F18.11, F18.15): channel testing, the one-page business
+ * model, the fit survey and the press release first, each attributed in its
+ * description to the method it follows.
  *
  * And the stage gates (0057): the strategist proposes a move with the evidence
  * the stage-gates skill names, the owner decides, and three rules read the
@@ -566,11 +574,10 @@ export const COMPANY_OS: Bundle = {
   description:
     'A strategist, a critic who reviews every stage move before the owner does, a weekly business ' +
     'review handed the week\'s numbers and the grades of the periods just ended, a monthly money review ' +
-    'handed the company\'s books -- profit, cash, what customers owe and who is late -- stage gates, and ' +
-    'the operating skills a company decides with: validating an idea, premortems, pricing, unit ' +
-    'economics, customer discovery, positioning, market research, channel tests, the one-page model, ' +
-    'the fit survey, the press release before building, launch readiness, outbound rules, and the weekly ' +
-    'and monthly reviews.',
+    'handed the last month\'s books, stage gates, and the operating skills a company decides with: ' +
+    'validating an idea, premortems, pricing, unit economics, customer discovery, positioning, market ' +
+    'research, channel testing, a one-page business model, a fit survey, press release first, launch ' +
+    'readiness and outbound messages.',
   body: {
     divisions: [
       { slug: 'strategy', name: 'Strategy', maxConcurrency: 1 },

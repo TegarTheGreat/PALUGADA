@@ -1734,10 +1734,22 @@ the recipe for each is in the sections that follow it:
   meeting and the meeting rhythm in *Scaling Up* by Verne Harnish.
 - **Quarterly planning and grades**, after the quarterly cycle both *Traction*
   and the OKR books describe, and Deming's plan-do-study-act.
+- **A plan of new goals, approved line by line**, as objectives and key
+  results are planned in *Measure What Matters* by John Doerr and a
+  quarter's priorities in *Traction* by Gino Wickman.
 - **Channel testing**, after the Bullseye framework in *Traction* by Gabriel
   Weinberg and Justin Mares.
+- **Drafting before building**: the one-page business model, adapted from
+  Lean Canvas by Ash Maurya (CC BY-SA); the fit survey, after Sean Ellis;
+  and the press release first, after Amazon's working backwards.
 - **Learning priorities**, after validated learning in *The Lean Startup* by
   Eric Ries.
+- **The monthly money review**, after the Power of One in *Scaling Up* by
+  Verne Harnish.
+- **The headline metric and funnel steps**, after the north star metric as
+  Sean Ellis describes it and the funnel of Dave McClure's *Startup Metrics
+  for Pirates*.
+- **Core processes**, after the process part of *Traction* by Gino Wickman.
 - **Vision and plan**, after the vision half of the one-page plan in
   *Traction* by Gino Wickman and the one-page strategic plan in *Scaling Up*
   by Verne Harnish, with the long-range goal of *Built to Last* by Jim
@@ -1748,8 +1760,8 @@ approve every goal, and decide whatever cannot be undone. The CEO is the
 integrator: it runs the meeting, holds each seat to its numbers and solves
 issues between seats.
 
-PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, the
-authors or their publishers. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
+PALUGADA is not affiliated with or endorsed by EOS Worldwide, Scaling Up, or
+any author, publisher or holder of the marks and methods named here. EOS®, Rocks™, Level 10 Meeting™, V/TO® and
 Accountability Chart™ are marks of EOS Worldwide. These pages are PALUGADA's
 own descriptions of published methods, and none of their templates is copied.
 
@@ -1761,7 +1773,7 @@ Output Management* by Andy Grove describe them. A goal on the ladder can say
 by when, whose it is, how firmly it is meant and what done looks like; you
 set all four, and agents read them.
 
-1. Open the company, then **Organization**, **Goals**, and press **Add a
+1. Open the company, then **Team**, **Goals**, and press **Add a
    goal**.
 2. For one of this year's goals, choose **Objective** under the mission and
    give it a period of the year: **Starts on** the first day, **Due on** the
@@ -2003,7 +2015,13 @@ company's own books -- the ones on **Books** -- and writes you one page:
    less on the cost of goods or on overhead, one day fewer of receivables or
    of stock, and one day more of payables would be worth on this month's
    books, and the one or two worth pulling first.
-6. **Issues for the weekly meeting**, for the CEO to take up.
+6. **Issues for the weekly meeting**, for the CEO to take up. The CEO's
+   weekly operating meeting in the week after the review is handed the end
+   of its page, weighs its issues beside the list, and puts on the list each
+   one it takes up and does not solve that day. A
+   company whose meeting is off, or that has nothing else to review that
+   week, holds no meeting, and the issues are then in the review's page
+   alone.
 
 Every figure is read from the books and handed to the review as it starts;
 no model works one out. The review proposes; spending stays your decision,
@@ -2059,7 +2077,9 @@ seats, and you read the record.
      week's were done (the aim is nine in ten);
    - the **issues** on this week's list, by priority and then age, with any
      older than eight weeks flagged;
-   - the operating kit's **weekly business review**, when there is one.
+   - the operating kit's **weekly business review**, when there is one;
+   - the operating kit's **monthly money review**, in the week after it is
+     written, so the CEO takes up the issues it ends with.
 3. **What is on the issues list before it starts.** A line off track last
    week, and a to-do not done at two meetings in a row, are filed as issues
    by PALUGADA before the meeting is made, each once while it is open. The
@@ -2280,7 +2300,7 @@ records, and no agent can write a grade.
    - a **learning** goal keeps its prediction, its measure's target, beside
      what happened.
 
-   The goal ladder on **Organization**, **Goals**, shows each goal's latest
+   The goal ladder on **Team**, **Goals**, shows each goal's latest
    grade, with its period and how it was reached when you point at it.
    Moving a goal's due date later grades it again at the new end. Grades are
    for you and the next plan: nothing that pays, trusts or stops a role reads

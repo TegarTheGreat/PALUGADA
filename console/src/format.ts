@@ -377,6 +377,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'ticket.not_handed': N('A to-do could not be handed to its seat yet'),
   'issue.solved': N('An issue was solved'),
   'issue.recurred': N('An open issue happened again'),
+  'goal.graded': N('A goal was graded at the end of its period'),
   'tool.verified': N('Read back, and it matched'),
   'tool.verify_failed': N('Read back, and it did not match'),
   'trigger.secret_unavailable': N('A trigger could not read its secret, so events are not arriving'),

@@ -801,7 +801,11 @@ const CHANNEL_AND_DRAFTING_RULES: Record<string, string[]> = {
   'press-release-first': [
     'press release', 'questions and answers', 'Before the company builds a new offer', 'never invent a customer', 'critic',
   ],
-  'stage-gates': ['learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment'],
+  'stage-gates': [
+    'learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment',
+    // 1.7.0 (F18.8): the pivot is decided from the grade the platform wrote.
+    'the platform grades it', 'predicted beside what', 'pivot or persevere',
+  ],
 };
 
 /**
@@ -816,7 +820,8 @@ const NINETEEN_CHANNELS = [
 ];
 
 test('the kit tests channels and drafts the one-page model, the fit survey and the press release, in its own words (F18.11, F18.15)', () => {
-  assert.equal(COMPANY_OS.version, '1.6.0');
+  // 1.6.0 brought these; 1.7.0 has the stage gates read the period's grade (F18.8).
+  assert.equal(COMPANY_OS.version, '1.7.0');
   const skill = (slug: string) => {
     const found = COMPANY_OS.body.skills.find((one) => one.slug === slug);
     assert.ok(found, `the kit has no ${slug} skill`);
@@ -951,7 +956,7 @@ function kitBeforeChannelTesting(): Bundle {
   };
 }
 
-test('installing 1.6.0 over 1.5.0 brings the new skills as candidates and leaves the live stage gates live (F18.15, F15.3)', async () => {
+test('installing the kit over 1.5.0 brings the new skills as candidates and leaves the live stage gates live (F18.15, F15.3)', async () => {
   const fixture = await createCompany('bundle-company-os-channels');
   const { companyId } = fixture;
   await registerStandardCatalogue();
@@ -1008,7 +1013,7 @@ test('installing 1.6.0 over 1.5.0 brings the new skills as candidates and leaves
 
   const { rows: installs } = await withTenant(companyId, (tx) => tx.query<{ version: string; quarantined: boolean }>(
     "SELECT version, quarantined FROM bundle_installs WHERE slug = 'company-os'"));
-  assert.deepEqual(installs, [{ version: '1.6.0', quarantined: false }]);
+  assert.deepEqual(installs, [{ version: COMPANY_OS.version, quarantined: false }]);
 });
 
 /* ------------------------------------------------------------------ F14.4 --- */

@@ -685,6 +685,8 @@ test('more than 7 priorities in a quarter warns and does not refuse (F18.1)', as
       id: undefined, parentId: undefined, ownerRole: 'worker', kind: 'key_result', slug: 'p10', statement: 'Priority p10.', status: 'active',
       startsOn: '2026-10-01', dueOn: '2026-12-31', ownerRoleId: fixture.roleId, commitment: 'committed', doneWhen: 'p10 is live.',
       channel: null, period: 'quarter', warnings: undefined, metrics: undefined, tasksDone: undefined, tasksTotal: undefined,
+      // Its period has not ended, so it has no grade yet (F18.8).
+      grade: null,
     });
 });
 

@@ -539,4 +539,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Approuver fait de chaque ligne approuvée un objectif, avec sa mesure ; une ligne refusée n’est pas créée. D’ici là, le travail continue sous les objectifs tels qu’ils sont.',
   'No goal is made.':
     'Aucun objectif n’est créé.',
+  'Missed: {statement}':
+    'Manqué : {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, engagé pour la période du {from} au {to}, n\'a pas été atteint.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Mesuré par ses chiffres, il a parcouru {progress} du chemin.',
+  'It was not marked met by its due date.':
+    'Il n\'a pas été marqué atteint avant son échéance.',
+  'The platform graded it when its period ended.':
+    'La plateforme l\'a noté à la fin de sa période.',
+  'Off pace: {statement}':
+    'En retard : {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} est une priorité engagée, à échéance le {due}. Ses chiffres n\'ont parcouru que {progress} du chemin, alors que {elapsed} de sa période est écoulé.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Rien n\'a été changé pour rattraper le retard, et aucun agent n\'est chargé de le faire : un chiffre engagé en retard sur son temps pousse à des actions plus risquées pour le combler, et prendre ce risque vous revient. Décidez s\'il faut repousser la date, baisser la cible, le rendre ambitieux, ou le laisser courir et le manquer.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Rien n\'est arrêté, quelle que soit la réponse. La priorité reste telle quelle et sera notée à la fin de sa période ; modifiez-la sur la page Objectifs si vous en décidez ainsi.',
 };

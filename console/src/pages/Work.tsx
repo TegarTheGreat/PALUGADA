@@ -621,6 +621,7 @@ function outsideLabel(name: string): string {
   if (name === 'the week it was handed') return t('the week it was handed');
   if (name === 'the month it was handed') return t('the month it was handed');
   if (name === 'the meeting facts it was handed') return t('the meeting facts it was handed');
+  if (name === 'the quarter facts it was handed') return t('the quarter facts it was handed');
   if (name === 'memory') return t('a lesson learned from outside');
   return name;
 }

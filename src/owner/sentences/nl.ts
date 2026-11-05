@@ -536,4 +536,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Goedkeuren maakt van elke goedgekeurde regel een doel, met zijn maat; een afgewezen regel wordt niet gemaakt. Tot die tijd gaat het werk door onder de doelen zoals ze zijn.',
   'No goal is made.':
     'Er wordt geen doel gemaakt.',
+  'Missed: {statement}':
+    'Gemist: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, toegezegd voor {from} tot {to}, is niet gehaald.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Gemeten aan zijn cijfers kwam het {progress} van de weg.',
+  'It was not marked met by its due date.':
+    'Het is niet vóór de einddatum als gehaald gemarkeerd.',
+  'The platform graded it when its period ended.':
+    'Het platform gaf het een cijfer toen zijn periode eindigde.',
+  'Off pace: {statement}':
+    'Achter op schema: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} is een toegezegde prioriteit met einddatum {due}. De cijfers zijn pas {progress} van de weg gekomen, terwijl {elapsed} van de periode voorbij is.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Er is niets veranderd om in te halen, en geen agent wordt dat gevraagd: een toegezegd getal dat achterloopt op zijn tijd nodigt uit tot riskanter handelen om het goed te maken, en of dat risico genomen wordt, beslis jij. Beslis of de datum opschuift, het doel omlaag gaat, het ambitieus wordt, of dat het doorloopt en gemist wordt.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Er stopt niets, wat je ook antwoordt. De prioriteit blijft zoals ze is en krijgt een cijfer als haar periode eindigt; pas haar aan op de pagina Doelen als je dat besluit.',
 };

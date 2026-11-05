@@ -536,4 +536,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Approvare rende ogni riga approvata un obiettivo, con la sua misura; una riga rifiutata non viene creata. Fino ad allora il lavoro continua con gli obiettivi così come sono.',
   'No goal is made.':
     'Non viene creato alcun obiettivo.',
+  'Missed: {statement}':
+    'Mancato: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, vincolante dal {from} al {to}, non è stato raggiunto.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Misurato dai suoi numeri, ha percorso il {progress} della strada.',
+  'It was not marked met by its due date.':
+    'Non è stato segnato come raggiunto entro la scadenza.',
+  'The platform graded it when its period ended.':
+    'La piattaforma lo ha valutato alla fine del suo periodo.',
+  'Off pace: {statement}':
+    'In ritardo: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} è una priorità vincolante con scadenza il {due}. I suoi numeri hanno percorso solo il {progress} della strada, mentre è passato il {elapsed} del suo periodo.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Non è stato cambiato nulla per recuperare, e a nessun agente viene chiesto di farlo: un numero vincolante in ritardo sui tempi spinge ad azioni più rischiose per recuperarlo, e se correre questo rischio lo decidi tu. Decidi se spostare la data, abbassare l\'obiettivo, renderlo ambizioso o lasciarlo andare e mancarlo.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Non si ferma nulla, qualunque sia la risposta. La priorità resta com\'è e viene valutata alla fine del suo periodo; cambiala nella pagina Obiettivi se lo decidi.',
 };

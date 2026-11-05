@@ -2240,3 +2240,79 @@ so in the share's place:
 
 The method's names for these tools are marks of EOS Worldwide, and PALUGADA
 uses its own.
+
+### Grade the quarter, and let the CEO plan the next one
+
+A goal is graded when its period ends, and ten days before each quarter ends
+the CEO plans the next one. This follows the scoring of objectives and key
+results in *Measure What Matters* by John Doerr, the quarterly priorities and
+the quarterly planning in *Traction* by Gino Wickman, and the study step of
+Deming's plan-do-study-act. You do not grade anything: PALUGADA does, from the
+records, and no agent can write a grade.
+
+1. **Choose where the year starts.** Open **Settings**, **Company**, **Fiscal
+   year**, choose the month under **The fiscal year starts in**, and press
+   **Save**. January, a calendar year, is the default. The quarters are cut
+   from it, three months each, and a fiscal year is named by the calendar
+   year it starts in: one starting in April 2026 is 2026.
+2. **Grades.** The day after a goal's due date, where the company is,
+   PALUGADA grades it:
+   - a goal with measures scores how far each came from its baseline to its
+     target by its last checked reading of the period, from 0 to 1, averaged.
+     A measure with no checked reading counts as no progress, and an objective
+     with no measure of its own is graded from its key results' measures;
+   - a goal with no number scores 1 if you marked it met by then, and 0 if
+     not;
+   - a goal with measures that you marked met by then scores 1 whatever its
+     readings say, since you may know it was reached before its source
+     records it. Its tooltip says you marked it met;
+   - a **committed** goal is done or missed: 1 only when it was reached in
+     full. A miss is filed as a postmortem on this week's issues list, for the
+     weekly operating meeting;
+   - an **aspirational** goal keeps its score. 0.6 to 0.7 is a good result;
+     an average near 1.0 quarter after quarter says the goals were set too
+     safe, and one under 0.3 says too ambitious. Both are the OKR books'
+     heuristics, not targets;
+   - a **learning** goal keeps its prediction, its measure's target, beside
+     what happened.
+
+   The goal ladder on **Organization**, **Goals**, shows each goal's latest
+   grade, with its period and how it was reached when you point at it.
+   Moving a goal's due date later grades it again at the new end. Grades are
+   for you and the next plan: nothing that pays, trusts or stops a role reads
+   them.
+3. **Off pace.** When a committed quarterly priority's numbers are behind
+   the share of its quarter that has gone, once a quarter of it has, a card
+   comes to you, once a quarter. It comes to you rather than to an agent: a
+   committed number behind its time tempts work to take a riskier road to
+   make it up, and that is yours to decide. Move the date, lower the target,
+   make it aspirational on the goal, or let it run. Nothing is stopped
+   whatever you answer.
+4. **Quarterly planning.** Ten days before the quarter's last day, the CEO is
+   handed the quarter's facts, read from the records: the grades so far, the
+   share of priorities done against the aim of 80%, the committed pass rate,
+   the aspirational average, the share of to-dos finished within seven days
+   (a to-do still inside its week is not counted yet), this year's goals, the long-term issues list, thirteen weeks of the
+   weekly scorecard, the vision from the company's charter, and the core
+   processes not changed in ninety days. It reviews the quarter, keeps,
+   kills or combines the candidate priorities down to at most seven, each
+   with one seat, carries an aspirational one that was not met forward
+   unless it says why not, cleans the long-term list, solves the top three
+   issues, and writes its reflection, ending with what you need to know in
+   your language.
+5. **Approve the plan.** The planning ends in one card, **New goals
+   proposed, to approve line by line**, for the next quarter (see *Approve a
+   plan of new goals, line by line*). In the fiscal year's last quarter the
+   same plan carries next year's goals, with the priorities under them.
+
+A company winding down, one with nothing to plan (no goal under the mission,
+no grade this year and no long-term issue), one whose weekly operating
+meeting is not held (**Settings**, **Company**, **Weekly operating meeting**,
+**Held** set to **Off**), and a deployment with no model get no planning: the meeting's switch stops the CEO's whole
+rhythm, so turning it off stops its spending too. Moving the fiscal year's
+start does not skip a quarter: each planning belongs to its quarter's dates,
+not its name. If the platform is stopped for all ten days, that quarter has
+none.
+
+From a script, `POST /api/companies/:companyId/fiscal-year` takes
+`startMonth`, 1 to 12.

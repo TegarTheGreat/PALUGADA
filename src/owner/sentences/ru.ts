@@ -536,4 +536,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Одобрение делает каждую одобренную строку целью вместе с её показателем; отклонённая строка не создаётся. До тех пор работа идёт по целям в их нынешнем виде.',
   'No goal is made.':
     'Ни одна цель не создаётся.',
+  'Missed: {statement}':
+    'Не выполнено: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, обязательная на период с {from} по {to}, не выполнена.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'По её цифрам она прошла {progress} пути.',
+  'It was not marked met by its due date.':
+    'К сроку она не была отмечена выполненной.',
+  'The platform graded it when its period ended.':
+    'Платформа оценила её, когда закончился её период.',
+  'Off pace: {statement}':
+    'Отстаёт от темпа: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} — обязательный приоритет со сроком {due}. Её цифры прошли лишь {progress} пути, а прошло уже {elapsed} её периода.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Ничего не менялось, чтобы наверстать, и ни одного агента об этом не просят: обязательная цифра, отстающая от своего времени, толкает к более рискованным действиям, чтобы догнать, а идти ли на такой риск — решаете вы. Решите, перенести ли срок, снизить ли цель, сделать её амбициозной или оставить как есть и не выполнить.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Как бы вы ни ответили, ничего не останавливается. Приоритет остаётся как есть и будет оценён по окончании периода; измените его на странице «Цели», если решите.',
 };

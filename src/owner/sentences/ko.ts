@@ -534,4 +534,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '승인하면 승인한 각 줄이 지표와 함께 목표가 돼요. 거절한 줄은 만들어지지 않아요. 그 전까지는 현재 목표대로 일이 계속돼요.',
   'No goal is made.':
     '목표가 만들어지지 않아요.',
+  'Missed: {statement}':
+    '미달: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{from}부터 {to}까지 필달로 정한 {statement}이(가) 완료되지 않았습니다.',
+  'Measured by its numbers, it came {progress} of the way.':
+    '수치로 보면 {progress}까지 왔습니다.',
+  'It was not marked met by its due date.':
+    '기한까지 달성으로 표시되지 않았습니다.',
+  'The platform graded it when its period ended.':
+    '기간이 끝났을 때 플랫폼이 채점했습니다.',
+  'Off pace: {statement}':
+    '속도 뒤처짐: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement}은(는) 기한이 {due}인 필달 우선순위입니다. 수치는 {progress}까지밖에 오지 않았는데 기간은 {elapsed}가 지났습니다.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    '따라잡기 위해 바꾼 것은 없으며 어떤 에이전트에게도 요청하지 않았습니다. 시간보다 뒤처진 필달 수치는 만회하려고 더 위험한 행동을 부르기 쉽고, 그런 위험을 질지는 당신이 결정합니다. 날짜를 미룰지, 목표를 낮출지, 도전 목표로 바꿀지, 그대로 두고 미달을 받아들일지 결정하세요.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    '어느 쪽으로 답해도 멈추는 것은 없습니다. 우선순위는 그대로이며 기간이 끝나면 채점됩니다. 바꾸기로 했다면 목표 페이지에서 바꾸세요.',
 };

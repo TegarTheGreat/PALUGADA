@@ -535,4 +535,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Aprovar torna cada linha aprovada uma meta, com sua medida; uma linha recusada não é criada. Até lá, o trabalho continua sob as metas como estão.',
   'No goal is made.':
     'Nenhuma meta é criada.',
+  'Missed: {statement}':
+    'Não cumprida: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, comprometida para {from} a {to}, não foi concluída.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Medida pelos seus números, percorreu {progress} do caminho.',
+  'It was not marked met by its due date.':
+    'Não foi marcada como cumprida até a data de vencimento.',
+  'The platform graded it when its period ended.':
+    'A plataforma deu a nota quando o período terminou.',
+  'Off pace: {statement}':
+    'Fora do ritmo: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} é uma prioridade comprometida que vence em {due}. Seus números percorreram {progress} do caminho, com {elapsed} do período já passado.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Nada foi mudado para recuperar o atraso, e nenhum agente foi solicitado a isso: um número comprometido atrasado em relação ao tempo convida a ações mais arriscadas para compensar, e assumir esse risco cabe a você. Decida se adia a data, reduz a meta, a torna aspiracional ou deixa seguir e não ser cumprida.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Nada é interrompido, seja qual for a resposta. A prioridade continua como está e recebe nota quando o período terminar; altere-a na página de Metas se decidir.',
 };

@@ -134,6 +134,10 @@ const SECTIONS: ImportSection[] = [
   // After the roles, which own a line on the weekly scorecard (0137). A pair
   // names a sibling in either order; its key is checked when the import ends.
   { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id', 'owner_role_id', 'paired_metric_id'] },
+  // A period's grade (0144), after the goal it grades: written once by the
+  // platform where the company was, and restored as it was, so the next
+  // sweep does not grade the same period again.
+  { name: 'goal_grades', table: 'goal_grades', references: ['goal_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
     // F12.1: what travels is the reference and its division, never a value --
@@ -507,8 +511,8 @@ export async function importCompany(
       ({ rows } = await tx.query<{ id: string }>(
         // A restored company is not a new one: its first hour (0109) is over.
         `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
-                                meeting_weekday, meeting_hour, meeting_enabled)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10) RETURNING id`,
+                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -524,6 +528,9 @@ export async function importCompany(
           wholeIn(source!.meeting_weekday, 0, 6) ?? 1,
           wholeIn(source!.meeting_hour, 0, 23) ?? 9,
           source!.meeting_enabled !== false,
+          // Where its fiscal year starts (0144); an archive from before it
+          // has none, and gets January, a calendar year.
+          wholeIn(source!.fiscal_year_start_month, 1, 12) ?? 1,
         ],
       ));
     } catch (error) {

@@ -556,7 +556,9 @@ Approving is a claim that you checked. Say what you checked.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.6.0',
+  // 1.7.0 (F18.8): the stage gates read a learning priority's grade, which
+  // the platform now writes at its period's end, to pivot or persevere.
+  version: '1.7.0',
   name: 'Company operating kit',
   description:
     'A strategist, a critic who reviews every stage move before the owner does, a weekly business ' +
@@ -1364,10 +1366,15 @@ the evidence, and never act as though it had moved before they approve.
 In explore and validate, prefer learning priorities: goals whose result is
 what the company learns, each with its measure and a target written before
 its first task. The target is the prediction, and the result is read against
-it; a missed prediction is something learned, not a failure. The fit-survey
-skill gives the GO one more piece of evidence: 40% or more of about 40
-recent users very disappointed without the product. That is a heuristic,
-never the only evidence and never a stand-in for payment.
+it; a missed prediction is something learned, not a failure. When its period
+ends the platform grades it, writing what was predicted beside what happened:
+read that grade, never a recollection, to pivot or persevere. A prediction
+met is a reason to persevere; one missed by far, test after test, is a
+reason to pivot.
+
+The fit-survey skill gives the GO one more piece of evidence: 40% or more of
+about 40 recent users very disappointed without the product. That is a
+heuristic, never the only evidence and never a stand-in for payment.
 
 When the evidence says the idea is wrong, pivot rather than start again:
 keep what was learned and change one thing -- the customer segment (the
@@ -1391,6 +1398,11 @@ would make the owner move the company back.
             name: 'prefers learning priorities and names both ways a pivot fails',
             input: { question: 'nobody is paying yet; do we change course?' },
             expectContains: ['learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment'],
+          },
+          {
+            name: 'decides from the grade the platform wrote',
+            input: { question: 'the test is over; was it right?' },
+            expectContains: ['the platform grades it', 'predicted beside what', 'pivot or persevere'],
           },
         ],
       },

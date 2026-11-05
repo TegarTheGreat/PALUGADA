@@ -406,6 +406,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/fiscal-year',
+    what: 'The month the company\'s fiscal year starts in, which cuts its quarters: the CEO plans the next quarter ten days before each ends, and the next year in the last quarter.',
+    fields: { startMonth: '1-12, January 1' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/office-hours/clear',
     what: 'Run a company round the clock again: no office hours.',
     fields: {},

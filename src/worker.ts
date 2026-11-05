@@ -52,9 +52,10 @@ import { reportEndedBadly } from './engine/ended.ts';
 import { callBackKeyWaits, closeRecovered } from './engine/recovered.ts';
 import { ensureTriage, handTodos } from './engine/triage.ts';
 import { ensureCollections } from './duties/collections.ts';
-import { ensureOutcomes } from './engine/outcomes.ts';
+import { ensureOffPace, ensureOutcomes } from './engine/outcomes.ts';
 import { ensureGoalReview } from './engine/goal-review.ts';
 import { ensureWeeklyMeeting } from './engine/meeting.ts';
+import { ensurePeriodClose, ensureQuarterlyPlanning } from './engine/quarter.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -189,8 +190,9 @@ export interface WorkerOptions {
   reviewsGoals?: boolean;
   /**
    * Whether the CEO holds the weekly operating meeting (src/engine/meeting.ts,
-   * F18.6). The same gate as `reviewsGoals`, for the same reason: without a
-   * model the meeting would halt every week, and the owner be told so.
+   * F18.6), and plans each fiscal quarter (src/engine/quarter.ts, F18.9).
+   * The same gate as `reviewsGoals`, for the same reason: without a model
+   * the meeting would halt every week, and the owner be told so.
    */
   holdsMeetings?: boolean;
   /** Turns an item into a deep link into the owner's app, when there is one. */
@@ -266,6 +268,12 @@ export interface TickReport {
   reviews: number;
   /** Weekly operating meetings made for the CEO (src/engine/meeting.ts). */
   meetings: number;
+  /** Goals graded because their period ended (src/engine/quarter.ts, F18.8). */
+  grades: number;
+  /** Committed priorities behind their quarter, put to the owner (src/engine/outcomes.ts, F18.8). */
+  offPace: number;
+  /** Quarterly plannings made for the CEO (src/engine/quarter.ts, F18.9). */
+  plannings: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -348,6 +356,9 @@ function emptyReport(): TickReport {
     outcomes: 0,
     reviews: 0,
     meetings: 0,
+    grades: 0,
+    offPace: 0,
+    plannings: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
@@ -643,6 +654,25 @@ export class Worker {
       // a look the CEO was given this tick is on the record the meeting reads.
       if (this.#options.holdsMeetings) await this.#stage(report, 'meetings', async () => {
         if (await ensureWeeklyMeeting(company, now)) report.meetings += 1;
+      });
+
+      // The periods that ended, graded (F18.8): arithmetic on the rows, so on
+      // every deployment, model or not, and one read when none ended. Before
+      // the off-pace look and the planning, which read the grades.
+      await this.#stage(report, 'grades', async () => {
+        report.grades += await ensurePeriodClose(company, now);
+      });
+
+      // A committed priority behind its quarter, put to the owner once a
+      // period rather than to an agent to catch up (F18.8). No model, no task.
+      await this.#stage(report, 'off-pace', async () => {
+        report.offPace += await ensureOffPace(company, now);
+      });
+
+      // Quarterly planning, ten days before the fiscal quarter ends: one read
+      // of the company on any other day, and gated like the meeting.
+      if (this.#options.holdsMeetings) await this.#stage(report, 'plannings', async () => {
+        if (await ensureQuarterlyPlanning(company, now)) report.plannings += 1;
       });
 
       if (runs) await this.#stage(report, 'wakes', async () => {

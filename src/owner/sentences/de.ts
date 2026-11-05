@@ -536,4 +536,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Eine Genehmigung macht jede genehmigte Zeile zu einem Ziel, mit seiner Kennzahl; eine abgelehnte Zeile wird nicht angelegt. Bis dahin geht die Arbeit unter den bisherigen Zielen weiter.',
   'No goal is made.':
     'Es wird kein Ziel angelegt.',
+  'Missed: {statement}':
+    'Verfehlt: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, verbindlich für {from} bis {to}, wurde nicht erreicht.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'An seinen Zahlen gemessen, kam es {progress} des Weges.',
+  'It was not marked met by its due date.':
+    'Es wurde bis zum Fälligkeitsdatum nicht als erreicht markiert.',
+  'The platform graded it when its period ended.':
+    'Die Plattform hat es am Ende seines Zeitraums bewertet.',
+  'Off pace: {statement}':
+    'Hinter dem Plan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} ist eine verbindliche Priorität, fällig am {due}. Ihre Zahlen sind erst {progress} des Weges gekommen, während {elapsed} ihres Zeitraums vorbei sind.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Nichts wurde geändert, um aufzuholen, und kein Agent wird darum gebeten: Eine verbindliche Zahl, die hinter ihrer Zeit liegt, verleitet zu riskanterem Handeln, um sie aufzuholen, und ob dieses Risiko eingegangen wird, entscheidest du. Entscheide, ob das Datum verschoben, das Ziel gesenkt, sie ambitioniert gemacht oder laufen gelassen und verfehlt wird.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'Nichts wird angehalten, wie auch immer du antwortest. Die Priorität bleibt, wie sie ist, und wird am Ende ihres Zeitraums bewertet; ändere sie auf der Seite Ziele, wenn du dich dafür entscheidest.',
 };

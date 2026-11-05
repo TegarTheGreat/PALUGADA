@@ -539,4 +539,22 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'การอนุมัติจะทำให้ทุกบรรทัดที่คุณอนุมัติเป็นเป้าหมายพร้อมตัวชี้วัด บรรทัดที่คุณปฏิเสธจะไม่ถูกสร้าง ระหว่างนี้งานจะดำเนินต่อตามเป้าหมายเดิม',
   'No goal is made.':
     'ไม่มีการสร้างเป้าหมาย',
+  'Missed: {statement}':
+    'พลาด: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement} ซึ่งให้คำมั่นไว้สำหรับช่วง {from} ถึง {to} ไม่เสร็จ',
+  'Measured by its numbers, it came {progress} of the way.':
+    'วัดจากตัวเลขแล้ว ไปได้ {progress} ของทาง',
+  'It was not marked met by its due date.':
+    'ไม่ได้ถูกทำเครื่องหมายว่าบรรลุภายในวันครบกำหนด',
+  'The platform graded it when its period ended.':
+    'แพลตฟอร์มให้คะแนนเมื่อช่วงเวลาของมันสิ้นสุด',
+  'Off pace: {statement}':
+    'ช้ากว่ากำหนด: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} เป็นลำดับความสำคัญที่ให้คำมั่นไว้ ครบกำหนดวันที่ {due} ตัวเลขของมันไปได้เพียง {progress} ของทาง ขณะที่เวลาผ่านไปแล้ว {elapsed} ของช่วงเวลา',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'ไม่มีการเปลี่ยนแปลงใดเพื่อเร่งตามให้ทัน และไม่มีเอเจนต์ใดถูกขอให้ทำ ตัวเลขที่ให้คำมั่นไว้ซึ่งช้ากว่าเวลาชวนให้ใช้วิธีที่เสี่ยงขึ้นเพื่อชดเชย และการรับความเสี่ยงนั้นหรือไม่เป็นการตัดสินใจของคุณ ตัดสินใจว่าจะเลื่อนวัน ลดเป้า เปลี่ยนเป็นแบบมุ่งหวังสูง หรือปล่อยให้ดำเนินต่อไปและพลาด',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it on the Goals page if you decide to.':
+    'ไม่ว่าคำตอบจะเป็นอย่างไรก็ไม่มีสิ่งใดหยุด ลำดับความสำคัญยังคงเดิมและจะได้รับคะแนนเมื่อช่วงเวลาสิ้นสุด เปลี่ยนได้ที่หน้าเป้าหมายหากคุณตัดสินใจเช่นนั้น',
 };

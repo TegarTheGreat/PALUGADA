@@ -323,7 +323,7 @@ test('a person of one company sees nothing of another', async () => {
   }
   await refused(() => withPeople(ours.companyId, siti.person, (tx) => tx.query(
     "INSERT INTO room_messages (company_id, room_id, kind, author, body) VALUES ($1, $2, 'text', $3, 'hello')",
-    [theirs.companyId, theirOpen, siti.person.principal])), '42501', RLS, 'writing into another company');
+    [theirs.companyId, theirOpen, siti.person.principal])), '42501', undefined, 'writing into another company');
   await refused(() => withPeople(ours.companyId, siti.person, (tx) => tx.query(
     "INSERT INTO room_messages (company_id, room_id, kind, author, body) VALUES ($1, $2, 'text', $3, 'hello')",
     [ours.companyId, theirOpen, siti.person.principal])), '42501', RLS, 'a message of ours in their room');
@@ -450,6 +450,23 @@ test("the platform writes no text, changes no person's message, and a card holds
   assert.equal(byId.get(work)!.body, null);
   assert.equal(byId.get(work)!.via, 'platform');
   assert.deepEqual(byId.get(work)!.feed, ['message', 'card'], 'a card that changes is drawn again');
+
+  // And a card never keeps what it shows alive: retention takes an item on
+  // the control plane, as it does, and the card lets go of it.
+  const itemId = await withControlPlane(async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items (company_id, kind, title, action_summary, rationale, consequence_if_denied)
+     VALUES ($1, 'fact_candidate', 'Our roaster delivers on Tuesdays', 'Remember it', 'Seen in three orders.', '') RETURNING id`,
+    [fixture.companyId])).rows[0]!.id);
+  const approval = await withRoomPlatform(fixture.companyId, async (tx) => {
+    const id = randomUUID();
+    await tx.query("INSERT INTO room_messages (id, company_id, room_id, kind, author, inbox_item_id) VALUES ($1, $2, $3, 'approval', 'platform', $4)",
+      [id, fixture.companyId, division, itemId]);
+    return id;
+  });
+  await withControlPlane((tx) => tx.query('DELETE FROM inbox_items WHERE id = $1', [itemId]));
+  const released = await withControlPlane((tx) => tx.query<{ inbox_item_id: string | null }>(
+    'SELECT inbox_item_id FROM room_messages WHERE id = $1', [approval]));
+  assert.deepEqual(released.rows, [{ inbox_item_id: null }]);
 });
 
 test('a person changes only their own place in a room, and never moves a read mark back', async () => {

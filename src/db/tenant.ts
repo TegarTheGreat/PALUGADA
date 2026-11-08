@@ -12,7 +12,9 @@
  * reaching this function from a task payload cannot terminate the literal and
  * append SQL.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type pg from 'pg';
+import { PalugadaError } from '../errors.ts';
 import { appPool, adminPool } from './pool.ts';
 
 export interface TenantClient {
@@ -26,11 +28,165 @@ export async function withTenant<T>(
   companyId: string,
   fn: (tx: TenantClient) => Promise<T>,
 ): Promise<T> {
-  const client = await appPool().connect();
+  return scoped(appPool(), companyId, null, fn);
+}
+
+/**
+ * Who reads the people's rooms in a transaction (0150). An agent's
+ * transaction names none, and every room table then returns nothing and
+ * refuses every write, even in its own company.
+ *
+ * - `people`: a person, as themselves, sees what that person may see.
+ * - `delivery`: what tells people something changed -- rooms, membership,
+ *   places, the feed, attention -- and never a message, a revision, a
+ *   reaction or a file.
+ * - `platform`: the card sweep and the rooms every company has; it writes
+ *   only the platform's own rows.
+ */
+type PeopleReader = 'people' | 'delivery' | 'platform';
+
+interface Reading {
+  reader: PeopleReader;
+  principal: string;
+  principalName: string;
+  via: string;
+  viaRelay: string;
+}
+
+/**
+ * A person in a room: the owner (`'owner'`), or a staff seat
+ * (`'seat:<uuid>'`), with the name the owner gave the seat -- never a name a
+ * request body sent. Made by `principalOf` (src/workspace/principal.ts) from a
+ * verified session, or by the relay's inbound code for the person a token
+ * names.
+ */
+export interface Person {
+  readonly principal: string;
+  /** The seat's name as the owner set it; null for the owner, who is drawn as the owner. */
+  readonly name: string | null;
+}
+
+/**
+ * Set while the owner's assistant (the CEO's or PALUGADA's own) dispatches a
+ * route on the owner's behalf; the owner API enters it around the handler.
+ * The people's helpers refuse inside it, so no person's words reach a model
+ * through the assistant, even by a route somebody forgot to keep from it.
+ */
+export const assistantDispatch = new AsyncLocalStorage<true>();
+
+function refuseTheAssistant(): void {
+  if (assistantDispatch.getStore() !== undefined) {
+    throw new PalugadaError('staff.forbidden', "the assistant does not read or write people's words", {});
+  }
+}
+
+const PRINCIPAL = /^(owner|seat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A person's transaction in one company: they see the rooms they may see
+ * and write only as themselves (F19.3). What the database records as the
+ * message's author, its name and where it came from is set here, from the
+ * person, and nowhere else: the room tables' triggers read these settings
+ * rather than what an insert says. A relay's inbound code passes the relay
+ * it came through; everything else came from the console.
+ */
+export async function withPeople<T>(
+  companyId: string,
+  person: Person,
+  fn: (tx: TenantClient) => Promise<T>,
+  via?: { relayId: string },
+): Promise<T> {
+  refuseTheAssistant();
+  if (!PRINCIPAL.test(person.principal)) {
+    throw new PalugadaError('contract.violation',
+      `a room is read and written by a person, the owner or a seat, never by ${JSON.stringify(person.principal)}`,
+      { principal: person.principal });
+  }
+  const isOwner = person.principal === 'owner';
+  if (isOwner ? person.name !== null : !(typeof person.name === 'string' && person.name.length >= 1 && person.name.length <= 120)) {
+    throw new PalugadaError('contract.violation',
+      isOwner ? 'the owner is drawn as the owner, with no name of their own in a room'
+        : 'a seat is named in a room by the name the owner gave it, 1 to 120 characters',
+      { principal: person.principal });
+  }
+  if (via && !UUID.test(via.relayId)) {
+    throw new PalugadaError('contract.violation', 'a message through a relay names the relay by its id', { relayId: via.relayId });
+  }
+  return scoped(appPool(), companyId, {
+    reader: 'people',
+    principal: person.principal,
+    principalName: person.name ?? '',
+    via: via ? 'relay' : 'console',
+    viaRelay: via?.relayId ?? '',
+  }, fn);
+}
+
+/**
+ * What tells people that something changed: the live hub, the planner of
+ * people's notices, the relay's people envelopes. It reads positions and ids,
+ * never words, and writes nothing.
+ */
+export async function withDelivery<T>(companyId: string, fn: (tx: TenantClient) => Promise<T>): Promise<T> {
+  refuseTheAssistant();
+  return scoped(appPool(), companyId, { reader: 'delivery', principal: '', principalName: '', via: '', viaRelay: '' }, fn);
+}
+
+/**
+ * The platform in a company's rooms: the rooms every company has and the
+ * cards drawn from its work. It sees every room table of the company and
+ * writes only the platform's own rows -- a card, never a person's words.
+ */
+export async function withRoomPlatform<T>(companyId: string, fn: (tx: TenantClient) => Promise<T>): Promise<T> {
+  refuseTheAssistant();
+  return scoped(appPool(), companyId, { reader: 'platform', principal: '', principalName: '', via: '', viaRelay: '' }, fn);
+}
+
+/**
+ * Before the control plane writes a room table -- revoking a seat, a
+ * retention purge, a restore -- inside a `withControlPlane` transaction. The
+ * admin pool bypasses row security, but the room tables' triggers run as the
+ * schema's owner, which does not: they need the company, and they read
+ * `control` to allow what only the control plane does (a revoked seat's
+ * leaving, a tombstone). `importing` is a restore or an import, which writes
+ * no feed, notice, mention or follow per row.
+ */
+export async function roomsOnControlPlane(
+  tx: TenantClient,
+  companyId: string,
+  options: { importing?: boolean } = {},
+): Promise<void> {
+  await tx.query(
+    "SELECT set_config('app.company_id', $1, true), set_config('app.reader', 'control', true), set_config('app.importing', $2, true)",
+    [companyId, options.importing ? 'on' : '']);
+}
+
+/**
+ * One transaction on `pool`, scoped to a company and, for the people's
+ * rooms, to a reader. Commits, or fails loudly.
+ */
+async function scoped<T>(
+  pool: pg.Pool,
+  companyId: string,
+  reading: Reading | null,
+  fn: (tx: TenantClient) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
   let committing = false;
   try {
     await client.query('BEGIN');
-    await client.query('SELECT set_config($1, $2, true)', ['app.company_id', companyId]);
+    if (reading === null) {
+      await client.query('SELECT set_config($1, $2, true)', ['app.company_id', companyId]);
+    } else {
+      // Every setting the room tables read, in one statement, each local to
+      // the transaction: a pooled connection carries none of them to the
+      // next borrower.
+      await client.query(
+        `SELECT set_config('app.company_id', $1, true), set_config('app.reader', $2, true),
+                set_config('app.principal', $3, true), set_config('app.principal_name', $4, true),
+                set_config('app.via', $5, true), set_config('app.via_relay', $6, true)`,
+        [companyId, reading.reader, reading.principal, reading.principalName, reading.via, reading.viaRelay]);
+    }
     const result = await fn({ query: (text, values) => client.query(text, values) });
     committing = true;
     await commitOrFail(client);

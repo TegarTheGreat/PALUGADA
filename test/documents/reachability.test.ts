@@ -118,6 +118,15 @@ const UNREACHABLE: Record<string, string> = {
 
   // Entry points.
   runWorker: 'entry: the worker as a process, for a deployment that wants one',
+
+  // F19: the people's workspace, laid as ground before the sets that use it
+  // (the workspace plan, §18). Each set strikes its own line when it wires
+  // the helper up.
+  withPeople: 'helper: S3 uses it (the rooms server; S6 too)',
+  withDelivery: 'helper: S7 uses it (the live hub; S10 too)',
+  withRoomPlatform: 'helper: S3 uses it (the card sweep and ensureCompanyRooms)',
+  roomsOnControlPlane: "helper: S0a's seat revocation in staff.ts uses it",
+  assertPeopleOf: 'helper: S3 uses it (who is added to a room or mentioned)',
 };
 
 async function walk(directory: string): Promise<string[]> {

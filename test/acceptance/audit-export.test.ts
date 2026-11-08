@@ -748,6 +748,7 @@ test('every column of every exported table travels, or is named as deliberately 
     'companies.erase_attempts': 'how often erasing it failed here, which belongs to that closing',
     'companies.erase_failure': 'the same failures',
     'companies.erase_retry_at': 'the same failures',
+    'tasks.requested_by_seat': "a staff seat is this deployment's, and not restored; the task's created_by and its content.staff_said events keep the staff mark",
     'tasks.lease_holder': 'the worker that held it is on the other instance',
     'tasks.lease_expires_at': 'the same lease',
     'spend_limits.paused_at': 'a pause is spending that has not happened here',

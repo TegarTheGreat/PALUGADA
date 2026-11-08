@@ -214,11 +214,13 @@ const SECTIONS: Section[] = [
     // Issues and to-dos (0139): what an issue is about, its list, its root
     // cause, the card it came from and its source; a to-do's issue, seat and
     // date. An issue is written before the to-dos filed with it, so the
-    // reference a to-do holds finds it on the way back in.
+    // reference a to-do holds finds it on the way back in. `instigators`
+    // (0148): the seats whose words were in the work that filed it, the mark
+    // that the work it becomes is staff work.
     name: 'tickets',
     sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
                  working_task_id, closed_reason, goal_id, metric_id, horizon, root_cause, from_inbox_item_id,
-                 solves_ticket_id, assignee_role_id, due_on, source_key, created_at, updated_at, closed_at
+                 solves_ticket_id, assignee_role_id, due_on, source_key, instigators, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at, solves_ticket_id IS NOT NULL, id`,
   },
   {
@@ -374,12 +376,14 @@ const SECTIONS: Section[] = [
     // so an archive holding one could not be restored; `payload` because it is
     // what an answer acts on -- the memory an SOP candidate is, the schedule
     // an escalation is about -- and an item without it is a question whose
-    // answer does nothing.
+    // answer does nothing. `instigators` (0148) because it is the mark that
+    // a seat's words are in the work the card asks about: without it a
+    // restored card would be the owner's own work, decided like it.
     sql: `SELECT id, task_id, kind, status, title, action_summary, rationale, tier,
                  estimated_cost_cents, consequence_if_denied, capability_name,
                  expires_at, decision, decided_at, decided_via, owner_note,
                  closed_reason, notify_after, payload, action_fingerprint,
-                 consumed_at, snoozed_until, created_at
+                 consumed_at, snoozed_until, instigators, created_at
             FROM inbox_items ORDER BY created_at`,
   },
   {

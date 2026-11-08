@@ -292,6 +292,10 @@ const SECTIONS: ImportSection[] = [
   { name: 'charters', table: 'charters', references: [] },
   {
     // After everything its payload can name: memories, skills, schedules.
+    // `instigators` comes back as it was, as the tickets' does: the seats it
+    // names are the other deployment's and are not mapped to anything here,
+    // as a former seat's are not, and what it carries is that a seat's words
+    // are in the work, which a restore must not make the owner's (0148).
     name: 'inbox_items',
     table: 'inbox_items',
     references: ['task_id'],

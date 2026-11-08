@@ -129,7 +129,7 @@ test('another role may be named, a no makes nothing, and a name taken since is r
   const proposed = (await propose({ ...PROPOSAL, name: 'tutup-buku', role: 'bookkeeper', cron: '0 17 * * 5' })).output;
   // A seat beside the owner reads schedules and makes none: the yes that makes one is the owner's.
   await assert.rejects(inbox.decide(fixture.companyId, proposed.inboxItemId, 'approve', '', {
-    seat: { id: '00000000-0000-4000-8000-000000000002', name: 'Rina' },
+    seat: { id: '00000000-0000-4000-8000-000000000002', name: 'Rina', kind: 'approver' },
   }), /making a schedule is the owner's to do: it stays in their inbox/);
   const denied = (await propose({ ...PROPOSAL, name: 'cek-stok' })).output;
   await inbox.decide(fixture.companyId, denied.inboxItemId, 'deny', 'Belum perlu.');

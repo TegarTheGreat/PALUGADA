@@ -66,6 +66,16 @@ import { HookPipeline } from '../engine/hooks.ts';
 import { givePlaceBack, takePlace, type PlaceHolder } from './in-flight.ts';
 import type { Guardian } from './guardian.ts';
 
+/**
+ * Whether the broker holds work a member of staff began or steered (F19.9):
+ * at tier 2 and above it asks a person who did not ask for it, and never
+ * uses what the owner allowed for the owner's own work. Until it does, no
+ * staff work may be made at all (`staff.not_ready`), since the owner's
+ * standing approvals would let a seat's request through as if it were the
+ * owner's.
+ */
+export const STAFF_WORDS_HELD: boolean = false;
+
 export interface InvokeContext {
   companyId: string;
   projectId: string;

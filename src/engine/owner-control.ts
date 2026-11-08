@@ -20,7 +20,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { TERMINAL_STATUSES, isTerminal, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.ts';
+import { DEFAULT_TASK_RESERVE_TOKENS, assertStaffWorkHeld, getTask, outsideContentIn } from './tasks.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
@@ -35,6 +35,61 @@ export const INSTRUCTION_MAX = 2_000;
  * this, cancel and do it again with one note.
  */
 export const INSTRUCTIONS_PER_TASK = 10;
+
+/**
+ * Who said something to a task: the owner, or a member of staff by their
+ * seat (F19.9). Required wherever words reach a task, so a caller that does
+ * not say whose they are does not compile, rather than recording the
+ * owner's authority by default. `composedBy` is the owner's words as the
+ * CEO or the assistant composed them in the owner's conversation.
+ */
+export type Author =
+  | { readonly kind: 'owner'; readonly composedBy?: 'ceo' | 'assistant' }
+  | { readonly kind: 'seat'; readonly seatId: string; readonly name: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The author as given, checked: a caller that is not type-checked, or that
+ * built one from a request, cannot make an author by leaving something out.
+ */
+function authorOf(by: unknown): Author {
+  const author = (by ?? {}) as Record<string, unknown>;
+  if (author.kind === 'owner') {
+    if (author.composedBy === undefined) return { kind: 'owner' };
+    if (author.composedBy === 'ceo' || author.composedBy === 'assistant') return { kind: 'owner', composedBy: author.composedBy };
+  } else if (author.kind === 'seat' && typeof author.seatId === 'string' && UUID.test(author.seatId)
+    && typeof author.name === 'string' && author.name.trim().length >= 1 && author.name.length <= 120) {
+    return { kind: 'seat', seatId: author.seatId, name: author.name };
+  }
+  throw new PalugadaError('contract.violation',
+    'words told to a task say who said them: the owner, or a seat by its id and the name the owner gave it', { field: 'by' });
+}
+
+/**
+ * Who an event about a task's words was written by, as every reader of the
+ * owner's events already reads it: the owner, or `staff` with the seat named
+ * in the payload (0110). One place, so the record of whose words they were
+ * cannot be written two ways.
+ */
+export function recordedAs(by: Author): { actor: 'owner' | 'staff'; payload: Record<string, unknown> } {
+  if (by.kind === 'seat') return { actor: 'staff', payload: { staff: { seatId: by.seatId, name: by.name } } };
+  return { actor: 'owner', payload: by.composedBy ? { composedBy: by.composedBy } : {} };
+}
+
+/**
+ * The record an instruction to a task makes, by who gave it. A seat's is
+ * written as an instruction with the actor `staff` and the seat named in it,
+ * the form every reader of instructions already takes as the seat's (an
+ * answer from a seat has been written so since 0110), so nothing a seat
+ * says is lost to a reader that knows only that form.
+ */
+export function instructionRecord(by: Author, payload: Record<string, unknown>): {
+  type: 'owner.instructed'; actor: 'owner' | 'staff'; payload: Record<string, unknown>;
+} {
+  const as = recordedAs(by);
+  return { type: 'owner.instructed', actor: as.actor, payload: { ...payload, ...as.payload } };
+}
 
 /**
  * Releases what a set of cancelled tasks had reserved.
@@ -232,17 +287,16 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     detail: `the owner asked for task ${taskId} again`,
   });
   const handling = await withTenant(companyId, async (tx) => {
+    // Running work again is the owner's alone, so the note is the owner's.
     await appendEvent(tx, {
       companyId,
       projectId: task.projectId,
       taskId: task.id,
-      type: 'owner.instructed',
-      actor: 'owner',
-      payload: {
+      ...instructionRecord({ kind: 'owner' }, {
         text,
         rerunOf: taskId,
         previous: { status: previous.status, haltReason: previous.haltReason },
-      },
+      }),
     });
     await appendEvent(tx, {
       companyId,
@@ -783,7 +837,25 @@ export async function continueAllHalted(companyId: string, accountId: string): P
  * decides: the grants, the tier and the budget are what they were. Work that
  * has ended is done again with a note instead.
  */
-export async function instructTask(companyId: string, taskId: string, instruction: string): Promise<void> {
+export async function instructTask(companyId: string, taskId: string, instruction: string, by: Author): Promise<void> {
+  await withTenant(companyId, (tx) => instructTaskWithin(tx, companyId, taskId, instruction, by));
+}
+
+/**
+ * The same, in the caller's transaction, for a caller whose instruction must
+ * be recorded with what it wrote beside it or not at all. `by` says whose
+ * words they are: a member of staff's are recorded as theirs, never as the
+ * owner's, and are refused while the broker does not hold staff work
+ * (`staff.not_ready`).
+ */
+export async function instructTaskWithin(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string,
+  instruction: string,
+  by: Author,
+): Promise<void> {
+  const author = authorOf(by);
   const text = String(instruction ?? '').trim();
   if (!text) {
     throw new PalugadaError('contract.violation', 'say something to tell the task', { field: 'text' });
@@ -791,7 +863,11 @@ export async function instructTask(companyId: string, taskId: string, instructio
   if (text.length > INSTRUCTION_MAX) {
     throw new PalugadaError('contract.violation', `an instruction is at most ${INSTRUCTION_MAX} characters`, { field: 'text' });
   }
-  const task = await taskHere(companyId, taskId);
+  if (author.kind === 'seat') await assertStaffWorkHeld('an instruction from a member of staff');
+  const task = await getTask(tx, taskId);
+  if (!task) {
+    throw new PalugadaError('contract.violation', 'no such task in this company', { taskId });
+  }
   if (isTerminal(task.status)) {
     throw new PalugadaError(
       'contract.violation',
@@ -799,26 +875,22 @@ export async function instructTask(companyId: string, taskId: string, instructio
       { taskId },
     );
   }
-  await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'owner.instructed'",
-      [taskId],
+  const { rows } = await tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'owner.instructed'",
+    [taskId],
+  );
+  if ((rows[0]?.n ?? 0) >= INSTRUCTIONS_PER_TASK) {
+    throw new PalugadaError(
+      'contract.violation',
+      `this task has had ${INSTRUCTIONS_PER_TASK} instructions; cancel it and do it again with one note instead`,
+      { taskId },
     );
-    if ((rows[0]?.n ?? 0) >= INSTRUCTIONS_PER_TASK) {
-      throw new PalugadaError(
-        'contract.violation',
-        `this task has had ${INSTRUCTIONS_PER_TASK} instructions; cancel it and do it again with one note instead`,
-        { taskId },
-      );
-    }
-    await appendEvent(tx, {
-      companyId,
-      projectId: task.projectId,
-      taskId,
-      type: 'owner.instructed',
-      actor: 'owner',
-      payload: { text },
-    });
+  }
+  await appendEvent(tx, {
+    companyId,
+    projectId: task.projectId,
+    taskId,
+    ...instructionRecord(author, { text }),
   });
 }
 

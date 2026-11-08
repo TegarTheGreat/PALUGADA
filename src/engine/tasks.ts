@@ -162,8 +162,21 @@ export interface CreateTaskInput {
    * `createSubTask` does to satisfy F5.4.
    */
   budgetAccountId?: string;
-  /** `webhook`: begun by an inbound trigger, so from outside the company (0054, F8.9). */
-  createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner' | 'webhook';
+  /**
+   * `webhook`: begun by an inbound trigger, so from outside the company (0054, F8.9).
+   * `staff`: a member of staff's words began it, whoever pressed (0148, F19.9).
+   * Their words are not the owner's, so the work is never recorded as the
+   * owner's request, and it is refused until the broker holds such work
+   * (`STAFF_WORDS_HELD`).
+   */
+  createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner' | 'webhook' | 'staff';
+  /**
+   * The seat that pressed for the work, when a member of staff did (0148):
+   * what a seat's daily asks are counted from, and who is named when its
+   * actions ask a person. Only on staff work; staff work the owner pressed
+   * names no seat here.
+   */
+  requestedBySeat?: string | undefined;
   /**
    * F8.9: the task is made from words written outside the company -- a
    * rerun of tainted work, a ticket a run filed -- and carries them from its
@@ -234,6 +247,7 @@ export interface CreateTaskInput {
  * its first step.
  */
 export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
+  await assertWhoAskedIsHeld(input);
   await assertSpendIsNotPaused(input.companyId);
   return withTenant(input.companyId, (tx) => createRootTaskWithin(tx, input));
 }
@@ -247,6 +261,7 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
  * `createRootTask` does, since that is read on the control plane.
  */
 export async function createRootTaskWithin(tx: TenantClient, input: CreateTaskInput): Promise<TaskRow> {
+  await assertWhoAskedIsHeld(input);
   // An explicit key means the caller can retry safely. Returning the
   // existing task rather than reserving again keeps a retry from quietly
   // consuming a second allowance.
@@ -488,11 +503,12 @@ async function findByIdempotencyKey(
  */
 export async function createSubTask(
   parentTaskId: string,
-  input: Omit<CreateTaskInput, 'budgetAccountId' | 'createdBy'> & {
+  input: Omit<CreateTaskInput, 'budgetAccountId' | 'createdBy' | 'requestedBySeat'> & {
     createdBy?: CreateTaskInput['createdBy'];
     fanOutMax?: number | undefined;
   },
 ): Promise<TaskRow> {
+  await assertWhoAskedIsHeld({ createdBy: input.createdBy ?? 'agent_run' });
   await assertSpendIsNotPaused(input.companyId);
   return withTenant(input.companyId, async (tx) => {
     const parent = await getTask(tx, parentTaskId);
@@ -569,6 +585,8 @@ export async function createSubTask(
           ...input,
           budgetAccountId: parent.budgetAccountId,
           createdBy: input.createdBy ?? 'agent_run',
+          // A seat presses for root work only; what it is part of says the rest.
+          requestedBySeat: undefined,
           goalId: inherited,
           // As urgent as what it is part of, unless told otherwise: P0 work was
           // P2 by its first hop, and the urgent place could never be reached
@@ -662,8 +680,8 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id, lane_key, priority, schedule_id, wait_until)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       batchable, goal_id, lane_key, priority, schedule_id, wait_until, requested_by_seat)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
@@ -680,6 +698,7 @@ async function insertTask(
       input.priority ?? DEFAULT_PRIORITY,
       input.scheduleId ?? null,
       input.waitUntil ?? null,
+      input.requestedBySeat ?? null,
     ],
   );
   const task = toTask(rows[0]!);
@@ -689,9 +708,59 @@ async function insertTask(
     taskId: task.id,
     type: 'task.created',
     actor: input.createdBy,
-    payload: { roleId: task.roleId, hopDepth: task.hopDepth, parentTaskId: meta.parentTaskId },
+    payload: {
+      roleId: task.roleId, hopDepth: task.hopDepth, parentTaskId: meta.parentTaskId,
+      ...(input.requestedBySeat ? { requestedBySeat: input.requestedBySeat } : {}),
+    },
   });
   return task;
+}
+
+const SEAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Refuses work a member of staff began, or claims a seat pressed for, while
+ * nothing holds such work (F19.9).
+ *
+ * A seat's request is not the owner's: the broker must ask a person who did
+ * not make it before any action at tier 2 or above, and must not use the
+ * standing approvals the owner gave for their own work. Until the broker
+ * does (`STAFF_WORDS_HELD`), staff work would run as the owner's, so none is
+ * made. Checked before anything is read or reserved, so a refusal holds
+ * nothing.
+ */
+async function assertWhoAskedIsHeld(input: Pick<CreateTaskInput, 'createdBy' | 'requestedBySeat'>): Promise<void> {
+  if (input.requestedBySeat !== undefined && input.requestedBySeat !== null) {
+    if (input.createdBy !== 'staff') {
+      throw new PalugadaError('contract.violation',
+        'a seat that pressed for the work is named only on work a member of staff began (createdBy "staff")',
+        { field: 'requestedBySeat' });
+    }
+    if (typeof input.requestedBySeat !== 'string' || !SEAT_ID.test(input.requestedBySeat)) {
+      throw new PalugadaError('contract.violation', 'the seat that pressed for the work is named by its id, a uuid',
+        { field: 'requestedBySeat' });
+    }
+  }
+  if (input.createdBy === 'staff') await assertStaffWorkHeld('work asked for by a member of staff');
+}
+
+/**
+ * Refuses a member of staff's words as part of any work -- a task they began,
+ * an instruction they give -- while the broker does not hold such work apart
+ * from the owner's own (`STAFF_WORDS_HELD`). `what` names what was refused.
+ */
+export async function assertStaffWorkHeld(what: string): Promise<void> {
+  // Read here rather than imported at the top: the broker imports this
+  // module, and a module that loads this one first would otherwise load the
+  // whole broker before this one had finished, while modules the broker
+  // loads read this one's constants as they load (engine/self-heal.ts).
+  const { STAFF_WORDS_HELD } = await import('../broker/broker.ts');
+  if (!STAFF_WORDS_HELD) {
+    throw new PalugadaError('staff.not_ready',
+      `${what} is not switched on here yet: the broker does not yet hold a member of staff's words apart from the owner's, `
+        + 'so for now the owner gives the work its words',
+      {});
+  }
 }
 
 export interface TransitionOptions {

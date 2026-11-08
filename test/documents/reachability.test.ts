@@ -125,7 +125,6 @@ const UNREACHABLE: Record<string, string> = {
   withPeople: 'helper: S3 uses it (the rooms server; S6 too)',
   withDelivery: 'helper: S7 uses it (the live hub; S10 too)',
   withRoomPlatform: 'helper: S3 uses it (the card sweep and ensureCompanyRooms)',
-  roomsOnControlPlane: "helper: S0a's seat revocation in staff.ts uses it",
   assertPeopleOf: 'helper: S3 uses it (who is added to a room or mentioned)',
 };
 

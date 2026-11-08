@@ -1366,8 +1366,10 @@ export class OwnerApi {
               // F18.7: the lines of a plan of new goals a yes approves;
               // `decide` checks them against the plan.
               ...(body.lines === undefined || body.lines === null ? {} : { lines: body.lines }),
-              // A staff seat's decision: `decide` holds it to tier 2 and below.
-              seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
+              // A staff seat's decision, with its kind as the verified
+              // session read it: `decide` holds it to an approver, at tier 2
+              // and below.
+              seat: staff ? { id: staff.seat.id, name: staff.seat.name, kind: staff.seat.kind } : null,
             },
           );
           return { ok: true };
@@ -1429,7 +1431,7 @@ export class OwnerApi {
         // would be a second rule to keep in step with the first.
         handle: async ({ params, body, staff }) => inbox.decideMany(
           params.companyId!, body.itemIds as string[], body.decision as 'approve' | 'deny', String(body.note ?? ''),
-          { channel: 'app', assurance: 'session', seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null },
+          { channel: 'app', assurance: 'session', seat: staff ? { id: staff.seat.id, name: staff.seat.name, kind: staff.seat.kind } : null },
         ),
       },
 
@@ -3561,7 +3563,8 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/tasks/:taskId/instruct',
         handle: async ({ params, body }) => {
-          await instructTask(params.companyId!, params.taskId!, requireText(body.text, 'text'));
+          // The owner's own words: no seat reaches this route (staff-policy.ts).
+          await instructTask(params.companyId!, params.taskId!, requireText(body.text, 'text'), { kind: 'owner' });
           return { ok: true };
         },
       },
@@ -5035,7 +5038,8 @@ export class OwnerApi {
           const carried = Array.isArray(body.files) && body.files.length > 0;
           await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''), {
             channel: 'app',
-            seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
+            // What the seat may answer is decided by its kind, in `answerEscalation`.
+            seat: staff ? { id: staff.seat.id, name: staff.seat.name, kind: staff.seat.kind } : null,
             ...(carried ? { keepFiles: () => keepAnswerFiles(this.#filesRoot(), params.companyId!, params.itemId!, body.files) } : {}),
           });
           return { ok: true };

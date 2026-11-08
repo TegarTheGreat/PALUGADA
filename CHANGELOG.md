@@ -1029,4 +1029,11 @@ The first version. What it holds, in the order an owner meets it.
   The database holds the rooms to people: no agent can read or write a word
   in them, even in its own company, each person sees only the rooms they
   may, and only people write, each as themselves. An archive keeps the mark
-  that a member of staff's words are in a piece of work (STATUS 2.202).
+  that a member of staff's words are in a piece of work. A seat can now be a
+  member, between a viewer and an approver. Work, instructions and answers
+  record which member of staff gave them rather than putting them in your
+  name, though no member of staff can ask for work or instruct it until it
+  is held apart from yours. In the inbox a viewer answers nothing, a member
+  answers only a question put to them and decides nothing, and nobody but
+  you answers what you alone are asked. Revoking a seat also takes the
+  person out of every room and frees their handle (STATUS 2.202).

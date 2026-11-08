@@ -116,6 +116,11 @@ export type ErrorCode =
   | 'owner.claimed'
   /** A staff seat asked for what is the owner's (0110). */
   | 'staff.forbidden'
+  /**
+   * Work a member of staff began or steered, asked for before the broker
+   * holds such work (F19.9, `STAFF_WORDS_HELD`): refused, not made.
+   */
+  | 'staff.not_ready'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

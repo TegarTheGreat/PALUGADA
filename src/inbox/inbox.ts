@@ -19,7 +19,9 @@ import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
 import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
-import { ANSWERED_BEFORE_HANDED, cancelTask, releaseReservations, stopHandlingLeftWorking } from '../engine/owner-control.ts';
+import {
+  ANSWERED_BEFORE_HANDED, cancelTask, instructionRecord, recordedAs, releaseReservations, stopHandlingLeftWorking, type Author,
+} from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -46,6 +48,38 @@ interface StageChange {
 import type { Tier } from '../domain/tier.ts';
 import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.ts';
 import type { OwnerSessions } from '../owner/session.ts';
+import type { StaffKind } from '../owner/staff.ts';
+
+/**
+ * A member of staff pressing in the inbox, with the kind of seat they hold
+ * read fresh by the caller at the moment of the press: from the verified
+ * session, which reads the seat on every request. What a seat may do here is
+ * decided here, by its kind, whoever called -- a route, a chat, a batch --
+ * and not only by the list of routes a seat may reach.
+ */
+export interface SeatActor {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: StaffKind;
+}
+
+/** The words of a seat, as the record of an answer or an instruction names them. */
+function seatAuthor(seat: SeatActor | null | undefined): Author {
+  return seat ? { kind: 'seat', seatId: seat.id, name: seat.name } : { kind: 'owner' };
+}
+
+/** Why a seat below an approver is refused a decision, by its kind. */
+function decidesNothing(seat: SeatActor, details: Record<string, unknown>): PalugadaError {
+  return new PalugadaError('staff.forbidden', seat.kind === 'viewer'
+    ? 'a viewer reads and answers nothing, and decides nothing: an approver or the owner decides this'
+    : 'a member decides nothing: it answers a question put to it with its answer, and an approver or the owner decides this',
+  details);
+}
+
+/** What the owner alone is asked -- a meeting waiting for them -- is no seat's to answer or decide. */
+function theOwnersAlone(itemId: string): PalugadaError {
+  return new PalugadaError('staff.forbidden', 'this is asked of the owner alone: no seat answers or decides it', { inboxItemId: itemId });
+}
 
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
 export const DEFAULT_APPROVAL_TTL_HOURS = 72;
@@ -2118,11 +2152,13 @@ export interface DecideOptions {
    */
   forSchedule?: boolean;
   /**
-   * A staff seat deciding, not the owner (0110). A seat decides nothing at
-   * tier 3 -- yes or no -- and gives no yes for a while; who decided is
-   * written on the item and its record.
+   * A staff seat deciding, not the owner (0110). Only an approver decides,
+   * and nothing at tier 3 -- yes or no -- and gives no yes for a while; who
+   * decided is written on the item and its record. A member's answer to a
+   * question put to it is the one decision a member makes, and it is made
+   * through `answerEscalation`, never from here.
    */
-  seat?: { id: string; name: string } | null;
+  seat?: SeatActor | null;
   /** The files an answer to a run's question carried, already kept (`keepAnswerFiles`): recorded with the answer in the same step. */
   answerFiles?: AnswerFile[];
   /**
@@ -2169,6 +2205,22 @@ export async function decide(
   note = '',
   options: DecideOptions = {},
 ): Promise<void> {
+  await decideItem(companyId, itemId, decision, note, options, false);
+}
+
+/**
+ * `decide`, and the one call that may decide as a member: `answering`, made
+ * only by `answerEscalation` for a run's question put to that member. Not an
+ * option a caller can pass, so no request body can reach it.
+ */
+async function decideItem(
+  companyId: string,
+  itemId: string,
+  decision: Decision,
+  note: string,
+  options: DecideOptions,
+  answering: boolean,
+): Promise<void> {
   const channel = options.channel ?? 'api';
   // Defaulted to the weakest, so a caller that says nothing cannot approve a
   // tier 3 action. The safe default is the one that refuses.
@@ -2177,15 +2229,19 @@ export async function decide(
   // sessions, which answer for it, and not taken from the caller.
   const login = await signedInWithDevice(options);
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, goalChange, goalPlan, overdue, standing, scheduled, proposesSchedule, addressee } = await withTenant(companyId, async (tx) => {
+  const {
+    tier, stageChange, goalChange, goalPlan, overdue, standing, scheduled, proposesSchedule, addressee, question, ownerOnly,
+  } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; goal_plan: GoalPlanProposal | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
       schedule_id: string | null; action_fingerprint: string | null; proposes_schedule: boolean;
-      addressee_seat: string | null; addressee_name: string | null;
+      addressee_seat: string | null; addressee_name: string | null; question: boolean; owner_only: boolean;
     }>(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
               i.addressee_seat, i.payload->'addressee'->>'name' AS addressee_name,
+              coalesce(i.payload->>'askedBy' = 'agent', false) AS question,
+              coalesce(i.payload->>'ownerOnly' = 'true', false) AS owner_only,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalPlan' END AS goal_plan,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
@@ -2212,17 +2268,26 @@ export async function decide(
         : null,
       proposesSchedule: row?.proposes_schedule ?? false,
       addressee: row?.addressee_seat ? { seatId: row.addressee_seat, name: row.addressee_name ?? 'someone else' } : null,
+      question: row?.question ?? false,
+      ownerOnly: row?.owner_only ?? false,
     };
   });
   // A seat beside the owner (0110): tier 3 is the owner's whichever way it
   // is answered, and a yes for a while loosens a control, which is too.
   if (options.seat) {
+    if (ownerOnly) throw theOwnersAlone(itemId);
     // A question put to one person is theirs and the owner's: another seat
     // cannot see it in its inbox, and cannot reach it by its id either.
     if (addressee && addressee.seatId !== options.seat.id) {
       throw new PalugadaError('staff.forbidden',
         `this question is for ${addressee.name}: only they and the owner can answer it`, { inboxItemId: itemId });
     }
+    // Seats are a ladder (F19.8): only an approver decides. A member's one
+    // decision is its answer to a run's question put to it, which its answer
+    // makes; read from the kind, so a seat whose kind is not given is not an
+    // approver.
+    const answersItsOwn = answering && options.seat.kind === 'member' && question && addressee?.seatId === options.seat.id;
+    if (options.seat.kind !== 'approver' && !answersItsOwn) throw decidesNothing(options.seat, { inboxItemId: itemId });
     if ((tier ?? 0) >= 3) {
       throw new PalugadaError('staff.forbidden',
         'tier 3 is the owner\'s to decide, yes or no: it stays in their inbox', { inboxItemId: itemId });
@@ -2466,7 +2531,7 @@ export async function decide(
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.decided',
-      actor: options.seat ? 'staff' : 'owner',
+      actor: recordedAs(seatAuthor(options.seat)).actor,
       // F10.8, and F12.5's audit half: which device the owner used is part of
       // what was decided. An approval that names the authenticator can be
       // matched to the row in `owner_authentications` that authorised it; one
@@ -2488,7 +2553,7 @@ export async function decide(
         ...(planning
           ? { lines: { approved: planned, refused: goalPlan!.lines.map((line) => line.line).filter((line) => !planned!.includes(line)) } }
           : {}),
-        ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
+        ...recordedAs(seatAuthor(options.seat)).payload,
       },
     });
 
@@ -2783,6 +2848,9 @@ export async function decideMany(
   if (bad !== undefined) {
     throw new PalugadaError('contract.violation', `${String(bad)} is not an item id`, {});
   }
+  // A batch is decisions, which only an approver among the seats makes:
+  // refused whole, before anything is read or recorded.
+  if (options.seat && options.seat.kind !== 'approver') throw decidesNothing(options.seat, {});
   const unique = [...new Set(itemIds)];
   const { rows } = await withTenant(companyId, (tx) => tx.query<{
     id: string; kind: InboxKind; tier: number | null; status: InboxStatus;
@@ -2820,14 +2888,12 @@ export async function decideMany(
       outcome.skipped.push({ itemId, reason: error.message });
     }
   }
+  const by = recordedAs(seatAuthor(options.seat));
   await withTenant(companyId, (tx) => appendEvent(tx, {
     companyId,
     type: 'owner.decided_batch',
-    actor: options.seat ? 'staff' : 'owner',
-    payload: {
-      batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length,
-      ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
-    },
+    actor: by.actor,
+    payload: { batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length, ...by.payload },
   }));
   return outcome;
 }
@@ -2944,7 +3010,13 @@ export async function answerEscalation(
   answer: string,
   options: {
     channel?: DecisionChannel;
-    seat?: { id: string; name: string } | null;
+    /**
+     * A staff seat answering, with its kind (F19.8): an approver answers what
+     * is put to nobody and what is not a question, as well as what is put to
+     * it; a member only a run's question put to it; a viewer nothing. What
+     * the owner alone is asked, and anything at tier 3, no seat answers.
+     */
+    seat?: SeatActor | null;
     /**
      * Keeps the files that come with the answer, and says where they are. Called
      * once the answerer's right to answer is settled and the question is open,
@@ -2956,20 +3028,41 @@ export async function answerEscalation(
 ): Promise<void> {
   const text = String(answer ?? '').trim();
   if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
-  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null; open: boolean }>(
-    "SELECT payload->>'askedBy' = 'agent' AS question, tier, status = 'open' AS open FROM inbox_items WHERE id = $1", [itemId]));
-  // A seat answers nothing at tier 3 (0110), as it decides nothing there.
-  if (options.seat && (asked[0]?.tier ?? 0) >= 3) {
-    throw new PalugadaError('staff.forbidden', 'tier 3 is the owner\'s to answer: it stays in their inbox', { inboxItemId: itemId });
+  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{
+    question: boolean; tier: number | null; open: boolean; addressee_seat: string | null; owner_only: boolean;
+  }>(
+    `SELECT payload->>'askedBy' = 'agent' AS question, tier, status = 'open' AS open, addressee_seat,
+            coalesce(payload->>'ownerOnly' = 'true', false) AS owner_only
+       FROM inbox_items WHERE id = $1`, [itemId]));
+  const seat = options.seat ?? null;
+  if (seat && asked[0]) {
+    if (asked[0].owner_only) throw theOwnersAlone(itemId);
+    // A seat answers nothing at tier 3 (0110), as it decides nothing there.
+    if ((asked[0].tier ?? 0) >= 3) {
+      throw new PalugadaError('staff.forbidden', 'tier 3 is the owner\'s to answer: it stays in their inbox', { inboxItemId: itemId });
+    }
+    // Seats are a ladder (F19.8), and the kind is read, not assumed: a seat
+    // whose kind is not given answers as a viewer does, which is nothing.
+    if (seat.kind !== 'member' && seat.kind !== 'approver') {
+      throw new PalugadaError('staff.forbidden',
+        'a viewer reads and answers nothing: a member answers what is put to it, and an approver or the owner the rest',
+        { inboxItemId: itemId });
+    }
+    // Before anything is written: another person's question is not this seat's to answer with files either.
+    if (asked[0].question) await assertSeatMayRead(companyId, itemId, seat);
+    if (seat.kind === 'member' && !(asked[0].question && asked[0].addressee_seat === seat.id)) {
+      throw new PalugadaError('staff.forbidden', asked[0].question
+        ? 'a question put to nobody is an approver\'s to answer, or the owner\'s: a member answers what is put to it'
+        : 'an escalation that is not a question is an approver\'s to answer, or the owner\'s, since the answer is told to the work',
+      { inboxItemId: itemId });
+    }
   }
   if (options.keepFiles && !asked[0]?.question) {
     throw new PalugadaError('contract.violation', 'files can come with the answer to a question a run asked, not with this', { field: 'files' });
   }
   if (asked[0]?.question) {
-    // Before anything is written: another person's question is not this seat's to answer with files either.
-    if (options.seat) await assertSeatMayRead(companyId, itemId, options.seat);
     const files = options.keepFiles && asked[0].open ? await options.keepFiles() : [];
-    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null, answerFiles: files });
+    await decideItem(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat, answerFiles: files }, true);
     return;
   }
   await withTenant(companyId, async (tx) => {
@@ -2981,27 +3074,29 @@ export async function answerEscalation(
         WHERE id = $1 AND status = 'open'
         RETURNING task_id`,
       // Who answered: the owner, or the seat by its name (0110).
-      [itemId, text, options.seat?.name ?? 'owner'],
+      [itemId, text, seat?.name ?? 'owner'],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
 
+    // Whose words they are, by the same rule an instruction is recorded by:
+    // a seat's answer is the seat's, under the name the owner gave it.
+    const by = seatAuthor(seat);
+    const as = recordedAs(by);
     await appendEvent(tx, {
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.answered',
-      actor: options.seat ? 'staff' : 'owner',
-      payload: { inboxItemId: itemId, answer: text, ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}) },
+      actor: as.actor,
+      payload: { inboxItemId: itemId, answer: text, ...as.payload },
     });
     if (!row.task_id) return;
     // The same record an instruction makes, so the run reads it where it
-    // reads the owner's word ("What the owner told you about this task").
+    // reads what it was told about this task.
     await appendEvent(tx, {
       companyId,
       taskId: row.task_id,
-      type: 'owner.instructed',
-      actor: options.seat ? 'staff' : 'owner',
-      payload: { text, inboxItemId: itemId, ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}) },
+      ...instructionRecord(by, { text, inboxItemId: itemId }),
     });
     const task = await getTask(tx, row.task_id);
     if (task && WAITING_STATUSES.has(task.status)) {

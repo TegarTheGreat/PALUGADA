@@ -1,6 +1,8 @@
 /**
  * Staff seats beside the one owner (the analysis of 3 October, §9 P2 item
- * 18; 0110): a viewer, and an approver for tier 2 and below.
+ * 18; 0110): a viewer, a member, and an approver for tier 2 and below. The
+ * kinds are a ladder (F19.8, 0149): a viewer reads and talks, a member also
+ * asks for work and answers what is put to it, an approver also decides.
  *
  * PALUGADA has one owner, and nothing here makes a second: a seat cannot
  * loosen a control, change a setting, see a key, manage a device or decide
@@ -20,14 +22,14 @@
  * invite alone gives no secret.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { withControlPlane } from '../db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { redactor, type SecretManager } from '../secrets/manager.ts';
 import { deleteSecret, putSecret, type MasterKey } from '../settings/store.ts';
 import { TOTP_DRIFT_STEPS, decodeBase32, encodeBase32, stepFor, totpCode, totpUri } from './mfa.ts';
 import { qrMatrix } from './qr.ts';
 
-export type StaffKind = 'viewer' | 'approver';
+export type StaffKind = 'viewer' | 'member' | 'approver';
 
 export interface StaffSeat {
   id: string;
@@ -69,9 +71,10 @@ export function seatRequest(body: Record<string, unknown>): { name: string; kind
   if (name.length < 1 || name.length > 80) {
     throw new PalugadaError('contract.violation', 'a seat is named for the person, in 1 to 80 characters', { field: 'name' });
   }
-  if (body.kind !== 'viewer' && body.kind !== 'approver') {
+  if (body.kind !== 'viewer' && body.kind !== 'member' && body.kind !== 'approver') {
     throw new PalugadaError('contract.violation',
-      'a seat is a viewer, who reads, or an approver, who also decides at tier 2 and below', { field: 'kind' });
+      'a seat is a viewer, who reads; a member, who also asks for work and answers what is put to it; '
+        + 'or an approver, who also decides at tier 2 and below', { field: 'kind' });
   }
   return { name, kind: body.kind };
 }
@@ -208,15 +211,32 @@ export class StaffSeats {
       'UPDATE staff_sessions SET ended_at = $2 WHERE token_hash = $1 AND ended_at IS NULL', [tokenHash(token), this.#now()]));
   }
 
-  /** The owner ends a seat: its sessions now, its invite with it, and its secret. */
+  /**
+   * The owner ends a seat: its sessions now, its invite with it, and its
+   * secret. And the person goes from the company's rooms: they leave every
+   * room they were in, the direct ones too, with the platform named as who
+   * took them out, so nothing in a room is planned for them again and what
+   * they were owed there goes with them (the room triggers). Their own
+   * settings go, and their handle is free for whoever is seated next. What
+   * they said stays the company's.
+   */
   async revoke(companyId: string, seatId: string): Promise<void> {
     const revoked = await withControlPlane(async (tx) => {
       const { rows } = await tx.query<{ secret_ref: string | null }>(
-        `UPDATE staff_seats SET revoked_at = $3, invite_hash = NULL, invite_expires_at = NULL
+        `UPDATE staff_seats SET revoked_at = $3, invite_hash = NULL, invite_expires_at = NULL, handle = NULL
           WHERE id = $1 AND company_id = $2 AND revoked_at IS NULL RETURNING secret_ref`,
         [seatId, companyId, this.#now()]);
       if (!rows[0]) return null;
       await tx.query('UPDATE staff_sessions SET ended_at = $2 WHERE seat_id = $1 AND ended_at IS NULL', [seatId, this.#now()]);
+      // The room triggers run as the schema's owner under forced row
+      // security, so the control plane names the company and itself as the
+      // reader first: only that reader may take someone out of a direct room.
+      await roomsOnControlPlane(tx, companyId);
+      await tx.query(
+        `UPDATE room_members SET left_at = $3, left_by = 'platform'
+          WHERE company_id = $1 AND principal = $2 AND left_at IS NULL`,
+        [companyId, `seat:${seatId}`, this.#now()]);
+      await tx.query('DELETE FROM principal_prefs WHERE principal = $1', [`seat:${seatId}`]);
       return rows[0];
     });
     if (!revoked) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is already ended', { seatId });

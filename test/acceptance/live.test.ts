@@ -18,6 +18,7 @@ import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -101,6 +102,84 @@ test("the owner hears each of the company's events as it is written, and no othe
     const closing = api.close(5_000);
     await Promise.race([stream.done, new Promise((_, reject) => setTimeout(() => reject(new Error('the stream outlived the API')), 3_000))]);
     await closing;
+  } finally {
+    await api.close();
+  }
+});
+
+type Console = Awaited<ReturnType<typeof consoleWithSettings>>;
+
+/** The owner seats someone, who joins with an authenticator app of their own and is signed in (staff.ts). */
+async function seated(api: Console, owner: string, fixture: Fixture, name: string): Promise<{ seatId: string; token: string; signIn: () => Promise<string> }> {
+  const made = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind: 'viewer', proof: { totp: api.code() } });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  const opened = await api.call('POST', '/api/auth/join', '', { code: made.body.invite });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  // Their app's code, a step ahead each time so none is a replay.
+  let step = stepFor(new Date()) - 1;
+  const code = () => totpCode(decodeBase32(String(opened.body.secret)), Math.min(step += 1, stepFor(new Date()) + 1));
+  const joined = await api.call('POST', '/api/auth/join/confirm', '', { code: made.body.invite, offer: opened.body.offer, totp: code() });
+  assert.equal(joined.status, 200, JSON.stringify(joined.body));
+  const signIn = async () => {
+    const response = await api.call('POST', '/api/auth/sign-in', '', { totp: code() });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    return String(response.body.token);
+  };
+  return { seatId: String(made.body.seatId), token: String(joined.body.token), signIn };
+}
+
+/**
+ * A stream outlived the session that opened it: a signed-out browser kept
+ * hearing the company's work until it closed the tab. Each stream is now
+ * held by the session it was opened with and the person behind it, and
+ * ending either ends it, in this process at once (F19.11; the workspace
+ * plan, §11.2).
+ */
+test('signing out ends the streams that session opened', async () => {
+  const fixture = await createCompany('live-signed-out');
+  const api = await consoleWithSettings();
+  try {
+    const first = await api.signIn();
+    const second = await api.signIn();
+    const open = async (token: string) => {
+      const response = await fetch(`${api.url}/api/companies/${fixture.companyId}/live`, { headers: { authorization: `Bearer ${token}` } });
+      assert.equal(response.status, 200);
+      return listen(response.body!);
+    };
+    const ended = (stream: ReturnType<typeof listen>, what: string) => Promise.race([
+      stream.done,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} outlived its session`)), 3_000)),
+    ]);
+    const stillOpen = async (stream: ReturnType<typeof listen>, what: string) => {
+      const task = await rootTask(fixture, `Still heard: ${what}`);
+      await until(() => stream.heard.some((one) => one.taskId === task.id), `${what} to hear the next event`);
+    };
+
+    // Two tabs of one session, one of another.
+    const tab = await open(first);
+    const otherTab = await open(first);
+    const elsewhere = await open(second);
+    assert.equal((await api.call('POST', '/api/auth/sign-out', first)).status, 200);
+    await ended(tab, 'the first tab');
+    await ended(otherTab, 'the second tab');
+    await stillOpen(elsewhere, 'the other session');
+
+    // A seat's: its own sign-out ends its own, and the owner ending the seat ends the rest.
+    const owner = second;
+    const siti = await seated(api, owner, fixture, 'Siti Rahayu');
+    const hers = await open(siti.token);
+    const herOtherSession = await siti.signIn();
+    const herPhone = await open(herOtherSession);
+    assert.equal((await api.call('POST', '/api/auth/sign-out', siti.token)).status, 200);
+    await ended(hers, "the seat's stream");
+    await stillOpen(herPhone, "the seat's other session");
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/staff/${siti.seatId}/revoke`, owner)).status, 200);
+    await ended(herPhone, "the revoked seat's stream");
+
+    // And signing out everywhere ends every owner's stream, this one's too.
+    await stillOpen(elsewhere, 'the owner\'s stream');
+    assert.equal((await api.call('POST', '/api/auth/sign-out-everywhere', owner)).status, 200);
+    await ended(elsewhere, 'the owner\'s last stream');
   } finally {
     await api.close();
   }

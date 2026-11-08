@@ -8,8 +8,9 @@
  * had happened: fifty-two of sixty-one routes were unreachable from the page
  * when this test was written.
  *
- * So this reads the route patterns out of `src/owner/api.ts`, reads the paths
- * `console/console.js` fetches, and lists the ones the page never asks for.
+ * So this reads the route patterns out of `src/owner/api.ts` and the route
+ * modules beside it (`test/helpers/route-sources.ts`), reads the paths the
+ * console fetches, and lists the ones the page never asks for.
  * Like the other guard, the list below is an inventory rather than an
  * exemption: an API-only route is a legitimate thing, and the reason it is one
  * is written next to it.
@@ -19,6 +20,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { routeFiles, routeSource } from '../helpers/route-sources.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -98,8 +100,7 @@ function normalise(path: string): string {
 }
 
 test('every API route is either pressed by the console or recorded as API-only', async () => {
-  const api = await readFile(new URL('../../src/owner/api.ts', import.meta.url), 'utf8');
-  const routes = [...api.matchAll(PATTERN)].map((match) => [match[1]!, match[2]!] as const);
+  const routes = [...(await routeSource()).matchAll(PATTERN)].map((match) => [match[1]!, match[2]!] as const);
   assert.ok(routes.length > 40, `only ${routes.length} routes were found; the scan is broken`);
 
   const fetched = await pathsThePageFetches();
@@ -134,4 +135,76 @@ test('nothing sits in the API-only list without a reason', () => {
       `${route} has no category; it must say why the page does not call it`,
     );
   }
+});
+
+/**
+ * The scans above read routes where they are written. A route module that
+ * `#buildRoutes` does not spread serves nothing however well it is tested, and
+ * a route written anywhere else is one no scan reads -- not the console's, not
+ * a seat's list, not the assistant's.
+ */
+test('the route scan reads every route module', async () => {
+  const files = await routeFiles();
+  const modules = [...files.keys()].filter((path) => path.startsWith('src/owner/routes/'));
+  assert.ok(modules.length >= 7, `only ${modules.length} route modules were found; the scan is broken`);
+  const api = files.get('src/owner/api.ts')!;
+  const build = api.slice(api.indexOf('#buildRoutes(): Route[]'), api.indexOf('#kit(): RouteKit'));
+  assert.ok(build.length > 0, 'src/owner/api.ts keeps #buildRoutes, then #kit');
+  for (const path of modules) {
+    const made = [...files.get(path)!.matchAll(/^export function (\w+Routes)\(/gm)].map((match) => match[1]!);
+    assert.equal(made.length, 1, `${path} exports one function that makes its routes, named for its area`);
+    assert.match(build, new RegExp(`\\.\\.\\.${made[0]}\\(kit\\)`), `${path}: #buildRoutes does not serve ${made[0]}`);
+  }
+
+  // No route is written outside the files the scans read.
+  const elsewhere: string[] = [];
+  const walk = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.name.endsWith('.ts')) {
+        const name = path.slice(ROOT.length).replace(/^\//, '');
+        if (!files.has(name) && /method: '[A-Z]+',\s*\n\s*pattern: '/.test(await readFile(path, 'utf8'))) elsewhere.push(name);
+      }
+    }
+  };
+  await walk(join(ROOT, 'src'));
+  assert.deepEqual(elsewhere, [], 'routes written where no route test reads them');
+});
+
+/**
+ * Pairs of routes that one path matches, each with why the path both match
+ * is not a request anybody makes. `#match` takes the first route that fits, so
+ * any other such pair is a route that can never be reached by the path it was
+ * written for.
+ */
+const SHARED_PATHS: Record<string, string> = {
+  'POST /api/control/channels/chat/:kind ~ /api/control/channels/:name/clear':
+    'the one path both match, /api/control/channels/chat/clear, is neither: no chat kind is called clear, and no channel is called chat',
+};
+
+/**
+ * New routes avoid one another by name -- `room-stream`, `direct-rooms`,
+ * `staff-batch` -- rather than by their order in the file, because `#match`
+ * takes the first route that fits and a parameter takes any literal. So for
+ * each pair of one method and one length, some position must hold two
+ * different literals.
+ */
+test('no two routes of one method match the same path', async () => {
+  const routes = [...(await routeSource()).matchAll(PATTERN)].map((match) => [match[1]!, match[2]!] as const);
+  assert.ok(routes.length > 200, `only ${routes.length} routes were found; the scan is broken`);
+  const shared: string[] = [];
+  for (const [index, [method, pattern]] of routes.entries()) {
+    const segments = pattern.split('/').filter(Boolean);
+    for (const [otherMethod, other] of routes.slice(index + 1)) {
+      const others = other.split('/').filter(Boolean);
+      if (otherMethod !== method || others.length !== segments.length) continue;
+      const apart = segments.some((segment, at) => !segment.startsWith(':') && !others[at]!.startsWith(':') && segment !== others[at]);
+      if (!apart) shared.push(`${method} ${pattern} ~ ${other}`);
+    }
+  }
+  assert.deepEqual(shared.filter((pair) => !(pair in SHARED_PATHS)), [],
+    'two routes one path reaches: name the new one apart, with a literal where the other has a different one');
+  assert.deepEqual(Object.keys(SHARED_PATHS).filter((pair) => !shared.includes(pair)), [],
+    'recorded as sharing a path and no longer do: strike these off');
 });

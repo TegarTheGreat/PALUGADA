@@ -29,7 +29,7 @@ import { promisify } from 'node:util';
 import pg from 'pg';
 import { connectionString } from '../../src/config.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withPeople, withRoomPlatform, withTenant } from '../../src/db/tenant.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { remember } from '../../src/memory/store.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
@@ -249,6 +249,61 @@ test('a closed company is frozen at once, and every row of it is erased when its
 
   assert.deepEqual(await rowsOf(staying.companyId), stayingBefore, 'and the other company is as it was');
   assert.deepEqual(await eraseDueCompanies(), { erased: [], failed: [], leftBehind: [] }, 'erased once');
+});
+
+/**
+ * A company's people go with it (F19.2, UU PDP). Each seat's own settings --
+ * its language, its time zone, when it sleeps -- are kept on the control
+ * plane beside the seat, and are the company's as much as its rows are: an
+ * erasure that left them would keep a record of when someone sleeps for a
+ * company that no longer exists. The owner's own settings are nobody's
+ * company's, and stay. So do another company's people's.
+ */
+test('erasing a company leaves no setting of its people', async () => {
+  const closing = await createCompany('closing-people');
+  const staying = await createCompany('staying-people');
+  const seatOf = async (fixture: Fixture, name: string) => withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO staff_seats (company_id, name, kind, secret_ref, joined_at, handle, picture)
+       VALUES ($1, $2, 'member', 'db://staff-totp-closing', now(), $3, 'person-03') RETURNING id`,
+      [fixture.companyId, name, name.toLowerCase().split(' ')[0]]);
+    await tx.query(
+      `INSERT INTO principal_prefs (principal, company_id, language, timezone, quiet_start, quiet_end)
+       VALUES ($1, $2, 'id', 'Asia/Jakarta', 22, 6)`,
+      [`seat:${rows[0]!.id}`, fixture.companyId]);
+    return rows[0]!.id;
+  });
+  const siti = await seatOf(closing, 'Siti Rahayu');
+  const dewi = await seatOf(staying, 'Dewi Kusuma');
+  await withControlPlane((tx) => tx.query(
+    "INSERT INTO principal_prefs (principal, owner_hears_people) VALUES ('owner', true) ON CONFLICT (principal) DO NOTHING"));
+  // And what Siti said in her company's rooms, so the erasure goes through
+  // every room table and its triggers.
+  await withRoomPlatform(closing.companyId, (tx) => tx.query(
+    "INSERT INTO rooms (company_id, kind, created_by, shows_work) VALUES ($1, 'company', 'platform', 'asked_here')",
+    [closing.companyId]));
+  await withPeople(closing.companyId, { principal: `seat:${siti}`, name: 'Siti Rahayu' }, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>("SELECT id FROM rooms WHERE kind = 'company'");
+    await tx.query(
+      `INSERT INTO room_members (company_id, room_id, principal, name, added_by) VALUES ($1, $2, $3, 'Siti Rahayu', $3)`,
+      [closing.companyId, rows[0]!.id, `seat:${siti}`]);
+    await tx.query(
+      `INSERT INTO room_messages (company_id, room_id, kind, author, body, mentions)
+       VALUES ($1, $2, 'text', $3, 'I sleep from ten.', ARRAY['owner'])`,
+      [closing.companyId, rows[0]!.id, `seat:${siti}`]);
+  });
+
+  await closeCompany(closing.companyId, 30);
+  await graceOver(closing.companyId);
+  const { erased, failed } = await eraseDueCompanies();
+  assert.deepEqual(failed, []);
+  assert.deepEqual(erased.map((one) => one.companyId), [closing.companyId]);
+  assert.deepEqual(await rowsOf(closing.companyId), {}, 'not a row of it left, its rooms with the rest');
+
+  const prefs = await withControlPlane((tx) => tx.query<{ principal: string }>('SELECT principal FROM principal_prefs ORDER BY principal'));
+  assert.deepEqual(prefs.rows.map((row) => row.principal), ['owner', `seat:${dewi}`].sort());
+  const seats = await withControlPlane((tx) => tx.query<{ id: string }>('SELECT id FROM staff_seats WHERE id = ANY($1::uuid[])', [[siti, dewi]]));
+  assert.deepEqual(seats.rows.map((row) => row.id), [dewi], 'its seats went with it, handles and all');
 });
 
 test('the worker erases a company whose day has come, and a worker kept to one company does not', async () => {

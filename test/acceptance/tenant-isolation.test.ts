@@ -568,6 +568,50 @@ test('the application role may write what the platform writes, and no more (F12,
     assert.equal(await may(check), false, why);
   }
 
+  // The people's rooms (0150): each table opens to the application role
+  // only what the people's helpers write, and the rest is the triggers'.
+  const ROOM_GRANTS: Record<string, { table: string[]; columns?: string[] }> = {
+    rooms: { table: ['SELECT', 'INSERT'], columns: ['name', 'about', 'archived_at', 'archived_by', 'shows_work'] },
+    room_members: { table: ['SELECT', 'INSERT'], columns: ['name', 'role', 'left_at', 'left_by'] },
+    room_places: { table: ['SELECT'], columns: ['read_position', 'notify', 'muted_until'] },
+    room_access: { table: ['SELECT'] },
+    room_feed: { table: ['SELECT'] },
+    room_clock: { table: ['SELECT'] },
+    room_messages: {
+      table: ['SELECT', 'INSERT'],
+      columns: ['body', 'edited_at', 'deleted_at', 'deleted_by', 'task_id', 'inbox_item_id', 'notice_values', 'became',
+        'became_by', 'became_at'],
+    },
+    room_message_revisions: { table: ['SELECT'] },
+    room_reactions: { table: ['SELECT', 'INSERT', 'DELETE'] },
+    room_pins: { table: ['SELECT', 'INSERT', 'DELETE'] },
+    room_files: { table: ['SELECT', 'INSERT'] },
+    room_mentions: { table: ['SELECT', 'INSERT'], columns: ['seen_at'] },
+    room_follows: { table: ['SELECT', 'INSERT'], columns: ['following', 'updated_at'] },
+  };
+  for (const [table, granted] of Object.entries(ROOM_GRANTS)) {
+    for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
+      assert.equal(await may(`has_table_privilege(${app}, '${table}', '${privilege}')`), granted.table.includes(privilege),
+        `${table}: ${privilege}`);
+    }
+    const { rows: columns } = await withControlPlane((tx) => tx.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`, [table]));
+    const updatable: string[] = [];
+    for (const { column_name: column } of columns) {
+      if (await may(`has_column_privilege(${app}, '${table}', '${column}', 'UPDATE')`)) updatable.push(column);
+    }
+    assert.deepEqual(updatable.sort(), [...(granted.columns ?? [])].sort(), `${table}: the columns it may change`);
+  }
+  for (const fn of ['app.advance_card_cursor(uuid, timestamptz)', 'app.touch_room_card(uuid, uuid, uuid)', 'app.may_see(uuid, uuid, text)']) {
+    assert.equal(await may(`has_function_privilege(${app}, '${fn}', 'EXECUTE')`), true, fn);
+  }
+  assert.equal(await may(`has_function_privilege(${app}, 'app.next_room_position(uuid)', 'EXECUTE')`), false,
+    'a position is taken by a write, never by hand');
+  // A person's own settings and a seat's handle are the control plane's (0149).
+  for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
+    assert.equal(await may(`has_table_privilege(${app}, 'principal_prefs', '${privilege}')`), false, `principal_prefs: ${privilege}`);
+  }
+
   // And a table added later does not inherit a delete nobody decided on.
   const inherits = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ body: string }>(

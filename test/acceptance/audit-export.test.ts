@@ -941,3 +941,57 @@ test('an archive restores from a terminal, in either form it is kept in (F16.4)'
   await assert.rejects(run(process.execPath, ['scripts/import-company.ts', file], { cwd: process.cwd(), env: process.env }),
     (error: { code?: number; stderr?: string }) => error.code === 64 && /usage: npm run company:import/.test(error.stderr ?? ''));
 });
+
+/**
+ * Staff work stays staff work (F19.9; the workspace plan, set S0a). A task a
+ * member of staff asked for, the card it raised and a ticket its run filed
+ * each carry the mark that a seat's words are in the work: none of it may
+ * use what the owner allowed for the owner's own work, and none may come back
+ * to that seat to decide. A restore that dropped the mark would hand the
+ * restored company's owner work that looks like their own. The seat itself
+ * is this deployment's and is not restored; the mark is.
+ */
+test("a restored company's staff work is still marked as staff work", async () => {
+  const fixture = await createCompany('export-staff-work');
+  const { requestApproval } = await import('../../src/inbox/inbox.ts');
+  const { transition } = await import('../../src/engine/tasks.ts');
+  const seat = await withControlPlane(async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO staff_seats (company_id, name, kind, secret_ref, joined_at)
+     VALUES ($1, 'Siti Rahayu', 'member', 'db://staff-totp-export', now()) RETURNING id`, [fixture.companyId])).rows[0]!.id);
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'email the March invoices' },
+    createdBy: 'owner', reserveTokens: 1_000,
+  });
+  // As the assignment door records a seat's press (later in this plan): the
+  // task is staff work, pressed by the seat.
+  await withControlPlane((tx) => tx.query(
+    "UPDATE tasks SET created_by = 'staff', requested_by_seat = $2 WHERE id = $1", [task.id, seat]));
+  await transition(fixture.companyId, task.id, 'running');
+  const itemId = await requestApproval({
+    companyId: fixture.companyId, taskId: task.id, capabilityName: 'email.send', tier: 2,
+    actionSummary: 'Email the invoices to the customer', rationale: 'Siti asked for it', consequenceIfDenied: 'they wait',
+  });
+  await withControlPlane((tx) => tx.query('UPDATE inbox_items SET instigators = ARRAY[$2::uuid] WHERE id = $1', [itemId, seat]));
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO tickets (company_id, project_id, title, opened_by, opened_by_task_id, outside, instigators)
+     VALUES ($1, $2, 'Chase the late invoice', 'agent', $3, false, ARRAY[$4::uuid])`,
+    [fixture.companyId, fixture.projectId, task.id, seat]));
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+
+  const found = await withControlPlane(async (tx) => ({
+    tasks: (await tx.query<{ created_by: string; requested_by_seat: string | null }>(
+      "SELECT created_by, requested_by_seat FROM tasks WHERE company_id = $1 AND input->>'goal' = 'email the March invoices'",
+      [restored.companyId])).rows,
+    items: (await tx.query<{ instigators: string[] }>(
+      "SELECT instigators FROM inbox_items WHERE company_id = $1 AND capability_name = 'email.send'", [restored.companyId])).rows,
+    tickets: (await tx.query<{ instigators: string[] }>(
+      "SELECT instigators FROM tickets WHERE company_id = $1 AND title = 'Chase the late invoice'", [restored.companyId])).rows,
+  }));
+  assert.deepEqual(found.tasks, [{ created_by: 'staff', requested_by_seat: null }], 'staff work, pressed by a seat not seated here');
+  assert.deepEqual(found.items, [{ instigators: [seat] }], 'whose words are in the work the card asks about');
+  assert.deepEqual(found.tickets, [{ instigators: [seat] }], 'and in the work a ticket its run filed becomes');
+});

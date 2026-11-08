@@ -83,6 +83,7 @@
  * sentence is written to read right for 1 as well.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Meta for Developers에서 WhatsApp을 사용하는 앱을 만들고, 비즈니스 번호를 추가한 다음, 그 번호로 메시지를 보낼 수 있는 영구 토큰을 가진 시스템 사용자(System user)를 만드세요.",
@@ -2945,6 +2946,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "이번 분기에 점수가 매겨진 필달 목표 {count}개 중 {passed}개가 통과했습니다.",
   "Numbers for {quarter}": "{quarter}의 숫자",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. 각 기간이 끝날 때 기록된 점수로, 분기 계획이 읽는 방식 그대로 셉니다. 다음 계획의 참고일 뿐, 어떤 지급이나 신뢰도 이것으로 정해지지 않습니다.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ko'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2963,4 +2966,5 @@ export const KEPT: readonly string[] = [
   "URL",
   "WhatsApp",
   "ntfy",
+  ...areaKept('ko'),
 ];

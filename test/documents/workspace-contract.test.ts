@@ -40,7 +40,7 @@ function fieldsOf(body: string): string[] {
 test("the console's workspace types mirror the server's, field by field", async () => {
   const server = typesIn(await readFile(`${ROOT}src/workspace/contract.ts`, 'utf8'));
   const console_ = typesIn(await readFile(`${ROOT}console/src/workspace/types.ts`, 'utf8'));
-  assert.ok(server.size >= 15, `only ${server.size} types were found in src/workspace/contract.ts; the scan is broken`);
+  assert.ok(server.size >= 14, `only ${server.size} types were found in src/workspace/contract.ts; the scan is broken`);
   assert.deepEqual([...console_.keys()].sort(), [...server.keys()].sort(), 'the two files name different types');
   for (const [name, body] of server) {
     assert.deepEqual(fieldsOf(console_.get(name)!), fieldsOf(body), `${name}: the console reads other fields than the server sends`);

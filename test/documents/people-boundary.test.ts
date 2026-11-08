@@ -48,7 +48,7 @@ function code(text: string): string {
 }
 
 /**
- * Who may open which reader (the workspace plan, §5.2). Routes get
+ * Who may open which reader. Routes get
  * `withPeople` only; delivery reads ids and positions for the hub, the
  * notices and the relay; the platform reader is the card sweep's and the
  * rooms every company has.

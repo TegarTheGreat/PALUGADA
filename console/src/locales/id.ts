@@ -6,6 +6,7 @@
  * nothing says any more.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Di Meta for Developers, buat aplikasi dengan WhatsApp, tambahkan nomor bisnis Anda, lalu buat system user dengan token permanen yang boleh mengirim untuk nomor itu.",
@@ -2868,6 +2869,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} dari {count} sasaran wajib yang dinilai triwulan ini lulus.",
   "Numbers for {quarter}": "Angka untuk {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Dihitung dari nilai yang ditulis saat tiap periode berakhir, seperti yang dibaca perencanaan triwulanan: angka ini menjadi bahan rencana berikutnya, dan tidak ada pembayaran atau kepercayaan yang ditentukan olehnya.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('id'),
 };
 
 /**
@@ -2922,4 +2925,5 @@ export const KEPT: readonly string[] = [
   "skill",
   "tier {tier}",
   "{name}, tier {tier}",
+  ...areaKept('id'),
 ];

@@ -2,6 +2,8 @@
  * Bahasa Indonesia: what the platform itself says to the owner outside the
  * console (src/owner/say.ts), keyed by its English.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Insiden: {title}',
   'Done: {goal}': 'Selesai: {goal}',
@@ -559,4 +561,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Siapa yang kami layani dan apa yang membedakan kami',
   'Where we will be in three years': 'Di mana kami tiga tahun lagi',
   'Our promise': 'Janji kami',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('id'),
 };

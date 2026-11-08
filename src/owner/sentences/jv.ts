@@ -6,6 +6,8 @@
  * console's glossary (console/src/locales/jv.ts), so a button on the phone
  * says what the same button says in the panel: Setujoni, Tolak, Taken.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Insiden: {title}',
   'Done: {goal}': 'Rampung: {goal}',
@@ -563,4 +565,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Sinten ingkang kita layani lan punapa ingkang mbedakaken kita',
   'Where we will be in three years': 'Wonten pundi kita tigang taun malih',
   'Our promise': 'Janji kita',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('jv'),
 };

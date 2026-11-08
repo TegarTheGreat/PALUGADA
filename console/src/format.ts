@@ -390,6 +390,17 @@ const EVENT_SENTENCES: Record<string, string> = {
   'policy.created': N('Policy added'),
   'policy.updated': N('Policy changed'),
   'policy.deleted': N('Policy removed'),
+  // The people's workspace (F19): the events written when a person's words
+  // become work, and what follows from them.
+  'staff.instructed': N('A member of staff told the work something'),
+  'content.staff_said': N('A member of staff\'s words are in this work'),
+  'task.given_in_room': N('Given as work in a room'),
+  'security.own_instigation_refused': N('A member of staff tried to decide work they asked for'),
+  'inbox.team_item_escalated': N('Nobody else on the team decided it, so it went to the owner'),
+  'meeting.owner_joined': N('The owner joined the meeting'),
+  'meeting.went_on': N('The meeting went on without an answer'),
+  'meeting.called': N('A meeting was called from a room'),
+  'security.relay_refused': N('A relay was refused'),
 };
 
 export function eventSentence(type: string): string {

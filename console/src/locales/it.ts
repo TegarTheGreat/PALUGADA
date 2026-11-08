@@ -107,6 +107,7 @@
  * PALUGADA is masculine ("PALUGADA è collegato").
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. In Meta for Developers, crea un'app con WhatsApp, aggiungi il numero aziendale e crea un utente di sistema (system user) con un token permanente autorizzato a inviare messaggi da quel numero.",
@@ -2969,6 +2970,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} su {count} obiettivi vincolanti valutati questo trimestre superati.",
   "Numbers for {quarter}": "Numeri di {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Contati dai voti scritti alla fine di ogni periodo, come li legge la pianificazione trimestrale: servono al prossimo piano, e nessun pagamento né fiducia dipende da essi.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('it'),
 };
 
 /**
@@ -3002,4 +3005,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('it'),
 ];

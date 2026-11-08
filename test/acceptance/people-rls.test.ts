@@ -939,7 +939,7 @@ test('a person is made from the session alone, and only the owner and joined sea
  * routes from inside a scope the owner API enters around them (`#dispatch`).
  * Whatever a route there does, a person's transaction and the person behind a
  * request are refused inside it: a people's route nobody kept from the
- * assistant still reads it no words (F19.3; the workspace plan, I11).
+ * assistant still reads it no words (F19.3).
  */
 test("the people's helpers refuse inside the assistant's dispatch", async () => {
   const fixture = await createCompany('rooms-assistant');

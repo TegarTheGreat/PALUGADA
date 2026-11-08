@@ -86,6 +86,7 @@
  * they are translated here.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. En Meta for Developers, cree una app con WhatsApp, añada el número de su empresa y cree un usuario del sistema con un token permanente que pueda enviar mensajes desde ese número.",
@@ -2948,6 +2949,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} de {count} metas comprometidas calificadas este trimestre se cumplieron.",
   "Numbers for {quarter}": "Cifras de {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Contadas a partir de las calificaciones escritas al terminar cada periodo, como las lee la planificación trimestral: sirven para el próximo plan, y ningún pago ni confianza depende de ellas.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('es'),
 };
 
 /**
@@ -2973,4 +2976,5 @@ export const KEPT: readonly string[] = [
   "URL",
   "WhatsApp",
   "ntfy",
+  ...areaKept('es'),
 ];

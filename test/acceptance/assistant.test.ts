@@ -269,8 +269,7 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
 });
 
 /**
- * No person's words reach a model through the assistant (F19.3; the
- * workspace plan, I11). A read is refused by its pattern, not by whether the
+ * No person's words reach a model through the assistant (F19.3). A read is refused by its pattern, not by whether the
  * prompt listed it: the prompt's list is only what the model is told, and a
  * path it makes up is matched to its route all the same. So both gates ask
  * one question, and the owner's search across rooms is a route of its own,
@@ -313,9 +312,12 @@ test('the assistant cannot read a room by its path, nor search messages', async 
       assert.equal(answer.isError, true, answer.content);
       assert.match(answer.content, /not a route the assistant reads/);
     }
-    // And the model is told of none of them.
+    // And the model is told of none of them as a route it may read.
     const system = model.requests[0]!.system;
-    assert.doesNotMatch(system, /\/rooms|room-search|\/people\b|\/me\/|\/relays/);
+    const listed = system.slice(system.indexOf('Readable routes (GET):')).split('\n').slice(1);
+    const readable = listed.slice(0, listed.findIndex((line) => !line.startsWith('- '))).join('\n');
+    assert.ok(readable.includes('/api/companies/:companyId/work'), 'the readable routes were not found in the prompt');
+    assert.doesNotMatch(readable, /\/rooms|room-search|\/people\b|\/me\/|\/relays/);
   } finally {
     await api.close();
   }

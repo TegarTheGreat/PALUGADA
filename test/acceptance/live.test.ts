@@ -132,8 +132,7 @@ async function seated(api: Console, owner: string, fixture: Fixture, name: strin
  * A stream outlived the session that opened it: a signed-out browser kept
  * hearing the company's work until it closed the tab. Each stream is now
  * held by the session it was opened with and the person behind it, and
- * ending either ends it, in this process at once (F19.11; the workspace
- * plan, §11.2).
+ * ending either ends it, in this process at once (F19.11).
  */
 test('signing out ends the streams that session opened', async () => {
   const fixture = await createCompany('live-signed-out');

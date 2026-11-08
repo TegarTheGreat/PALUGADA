@@ -4,15 +4,24 @@
  * it on a list, and `test/documents/staff-routes.test.ts` asks that every
  * read is put on one list or the other, with a reason for leaving it off.
  *
- * Both kinds read their own company -- its work, inbox, money, team, memory
- * and history -- and nothing of another company or of the deployment. An
- * approver also decides and answers the inbox, at tier 2 and below; the
- * route checks the tier, since a pattern cannot.
+ * Every seat reads its own company -- its work, inbox, money, team, memory
+ * and history -- and nothing of another company or of the deployment. What a
+ * seat may post is a ladder (F19.2): any seat talks in the rooms, about
+ * itself; a member also asks for work and answers what is put to it; an
+ * approver also decides, at tier 2 and below. The route checks the tier and
+ * the inbox's functions check the rest, since a pattern cannot.
+ *
+ * The lists are data. The people's workspace adds its routes area by area,
+ * and each area keeps its own block below, fenced and named by the STATUS
+ * section that builds it, so building an area edits its block and no other
+ * line. This file imports no route module: a list is never read before the
+ * module that would fill it has loaded, and the staff-routes test reads it
+ * without starting the server.
  */
-import type { StaffSeat } from './staff.ts';
+import type { StaffKind, StaffSeat } from './staff.ts';
 
 /** Reads a seat may make: its own company's pages, and what the console needs to draw them. */
-export const STAFF_READS: readonly string[] = [
+const CORE_READS: readonly string[] = [
   '/api/me',
   '/api/companies',
   '/api/control/languages',
@@ -69,7 +78,7 @@ export const STAFF_READS: readonly string[] = [
 ];
 
 /** Reads left off, and why: each is the owner's, or the deployment's. */
-export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
+const CORE_HIDDEN: Readonly<Record<string, string>> = {
   '/api/search': 'it searches every company',
   '/api/runtimes': 'the deployment\'s',
   '/api/control/setup': 'the deployment\'s',
@@ -105,20 +114,138 @@ export const STAFF_HIDDEN: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/browser/tabs/:tabId': 'a picture of a signed-in page is the owner\'s alone',
 };
 
-/** What an approver may also do: decide and answer the inbox (at tier 2 and below, which the route checks). */
-export const STAFF_DECIDES: readonly string[] = [
-  '/api/companies/:companyId/inbox/:itemId/decide',
-  '/api/companies/:companyId/inbox/:itemId/answer',
-  '/api/companies/:companyId/inbox/batch',
+/** What one area of the people's workspace gives a seat, and keeps from it. */
+interface AreaPolicy {
+  /** Reads any seat may make. */
+  readonly reads: readonly string[];
+  /** Reads kept from every seat, each with why. */
+  readonly hidden: Readonly<Record<string, string>>;
+  /** What any seat may post: its own words, its own place in rooms, its own profile and phone. */
+  readonly talks: readonly string[];
+  /** What a member or an approver may also post: asking for work, and steering or stopping what it asked for. */
+  readonly asks: readonly string[];
+  /** What an approver may also post: deciding, and calling an agent meeting. */
+  readonly decides: readonly string[];
+}
+
+// --- rooms (STATUS 2.206; the stream 2.210) ---
+const ROOM_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- the conversation's money (STATUS 2.205) ---
+const TALK_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- relay (STATUS 2.208) ---
+const RELAY_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- people (STATUS 2.209) ---
+const PEOPLE_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- agent meetings (STATUS 2.211) ---
+const MEETING_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- find and keep (STATUS 2.212) ---
+const FIND_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- import (STATUS 2.214) ---
+const IMPORT_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- people's meetings (STATUS 2.215) ---
+const MEET_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
+// --- end of the areas ---
+
+const AREAS: readonly AreaPolicy[] = [
+  ROOM_STAFF, TALK_STAFF, RELAY_STAFF, PEOPLE_STAFF, MEETING_STAFF, FIND_STAFF, IMPORT_STAFF, MEET_STAFF,
 ];
 
-/** Whether a seat may make this request: on a list, and about its own company when it names one. */
+/** Reads a seat may make: its own company's pages, the console's needs, and each area's. */
+export const STAFF_READS: readonly string[] = [...CORE_READS, ...AREAS.flatMap((area) => area.reads)];
+
+/** Reads left off, and why. */
+export const STAFF_HIDDEN: Readonly<Record<string, string>> = Object.assign({}, CORE_HIDDEN, ...AREAS.map((area) => area.hidden));
+
+/** What any seat may post: its own words, its own place in rooms, its own profile and phone. */
+export const STAFF_TALKS: readonly string[] = AREAS.flatMap((area) => area.talks);
+
+/**
+ * What a member or an approver may also post: ask for work, steer or stop
+ * what it pressed for, and answer what is put to it. Who may answer which
+ * item is the inbox's to say (`answerEscalation`), whoever calls it.
+ */
+export const STAFF_ASKS: readonly string[] = [
+  ...AREAS.flatMap((area) => area.asks),
+  '/api/companies/:companyId/inbox/:itemId/answer',
+];
+
+/** What an approver may also post: decide tier 2 and below (the route checks the tier), and call an agent meeting. */
+export const STAFF_DECIDES: readonly string[] = [
+  '/api/companies/:companyId/inbox/:itemId/decide',
+  '/api/companies/:companyId/inbox/batch',
+  ...AREAS.flatMap((area) => area.decides),
+];
+
+/**
+ * Where each kind stands on the ladder. A kind the ladder does not know --
+ * one a later migration adds before this does -- stands nowhere, and may
+ * only talk.
+ */
+const RANK: Readonly<Record<StaffKind | 'member', number>> = { viewer: 0, member: 1, approver: 2 };
+
+/** Whether a seat may make this request: on a list its kind reaches, and about its own company when it names one. */
 export function staffMay(seat: StaffSeat, method: string, pattern: string, params: Record<string, string>): boolean {
   if (params.companyId !== undefined && params.companyId !== seat.companyId) return false;
   if (method === 'GET') return STAFF_READS.includes(pattern);
-  if (method === 'POST') {
-    if (pattern === '/api/auth/sign-out') return true;
-    return seat.kind === 'approver' && STAFF_DECIDES.includes(pattern);
-  }
-  return false;
+  if (method !== 'POST') return false;
+  if (pattern === '/api/auth/sign-out' || STAFF_TALKS.includes(pattern)) return true;
+  const rank = RANK[seat.kind] ?? -1;
+  if (STAFF_ASKS.includes(pattern)) return rank >= RANK.member;
+  return rank >= RANK.approver && STAFF_DECIDES.includes(pattern);
 }

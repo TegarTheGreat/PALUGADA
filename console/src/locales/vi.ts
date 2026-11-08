@@ -110,6 +110,7 @@
  *                          Nghe, Ngữ nghĩa
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Trong Meta for Developers, tạo một ứng dụng có WhatsApp, thêm số điện thoại doanh nghiệp của bạn, rồi tạo một system user có token vĩnh viễn được phép gửi tin thay cho số đó.",
@@ -2972,6 +2973,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} trên {count} mục tiêu cam kết được chấm điểm trong quý này đã đạt.",
   "Numbers for {quarter}": "Số liệu của {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Đếm từ các điểm được ghi khi mỗi kỳ kết thúc, như kế hoạch quý đọc chúng: chúng là cơ sở cho kế hoạch tiếp theo, và không khoản trả hay mức tin cậy nào dựa vào chúng.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('vi'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2993,4 +2996,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('vi'),
 ];

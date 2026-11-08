@@ -7,6 +7,8 @@
  * Tanya; "Pemasangan ini, Alatan, Mendengar" is the page it names there. The
  * app the owner is sent to is "apl", as Malaysian software writes it.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Insiden: {title}',
   'Done: {goal}': 'Selesai: {goal}',
@@ -564,4 +566,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Siapa yang kami layani dan apa yang membezakan kami',
   'Where we will be in three years': 'Di mana kami dalam tiga tahun',
   'Our promise': 'Janji kami',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ms'),
 };

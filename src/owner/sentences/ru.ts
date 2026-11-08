@@ -8,6 +8,8 @@
  * («Ваш собеседник — {name}»). Telegram and WhatsApp buttons stay short:
  * WhatsApp cuts a button at 20 characters and a list row at 24.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Инцидент: {title}',
   'Done: {goal}': 'Готово: {goal}',
@@ -565,4 +567,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Кому мы служим и чем мы отличаемся',
   'Where we will be in three years': 'Где мы будем через три года',
   'Our promise': 'Наше обещание',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ru'),
 };

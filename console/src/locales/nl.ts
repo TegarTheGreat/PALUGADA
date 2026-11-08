@@ -87,6 +87,7 @@
  * Trigger, Tickets, incident, budget, persona).
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Maak in Meta for Developers een app met WhatsApp, voeg je zakelijke nummer toe en maak een systeemgebruiker met een permanent token dat namens dat nummer mag versturen.",
@@ -2949,6 +2950,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} van {count} toegezegde doelen die dit kwartaal zijn beoordeeld, gehaald.",
   "Numbers for {quarter}": "Cijfers voor {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Geteld uit de beoordelingen die aan het eind van elke periode zijn geschreven, zoals de kwartaalplanning ze leest: ze dienen het volgende plan, en geen betaling of vertrouwen hangt ervan af.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('nl'),
 };
 
 /** Sentences written as they are in English on purpose: names, and words Dutch writes the same way. */
@@ -2994,4 +2997,5 @@ export const KEPT: readonly string[] = [
   "ntfy",
   "via Telegram",
   "{count} incident",
+  ...areaKept('nl'),
 ];

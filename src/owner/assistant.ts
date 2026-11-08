@@ -34,7 +34,8 @@ import { say } from './say.ts';
 import { modelKeyRefusedSaid } from './platform-cards.ts';
 import { firstHourBrief, firstHourOf, firstHourOpener } from './first-hour.ts';
 import {
-  ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, READS_OF_NO_ONE_ELSES_WORDS, UNREADABLE, type AssistantAction,
+  ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, NOT_FOR_THE_ASSISTANT_UNDER, READS_OF_NO_ONE_ELSES_WORDS, unreadable,
+  type AssistantAction,
 } from './assistant-actions.ts';
 
 export type AssistantChannel = 'console' | 'telegram' | 'whatsapp';
@@ -323,9 +324,12 @@ function systemPrompt(language: string, readable: string[]): string {
   const checks = Object.entries(ASSISTANT_CHECKS).map(([path, what]) => `- POST ${path} -- ${what}`).join('\n');
   // What it may not do, with where the owner does it instead, so it can say
   // so rather than guess.
-  const kept = Object.entries(NOT_FOR_THE_ASSISTANT)
-    .filter(([path]) => !path.startsWith('/api/assistant'))
-    .map(([path, why]) => `- POST ${path} -- ${why}`).join('\n');
+  const kept = [
+    ...Object.entries(NOT_FOR_THE_ASSISTANT)
+      .filter(([path]) => !path.startsWith('/api/assistant'))
+      .map(([path, why]) => `- POST ${path} -- ${why}`),
+    ...Object.entries(NOT_FOR_THE_ASSISTANT_UNDER).map(([prefix, why]) => `- POST ${prefix}… -- ${why}`),
+  ].join('\n');
   return [
     'You are PALUGADA\'s assistant, speaking with its owner. PALUGADA runs companies whose work is done by AI agents; the owner decides what cannot be undone.',
     `Answer in ${languageName(language)}, briefly, as a capable colleague would. Say what you found and what you propose; do not narrate your tools.`,
@@ -521,7 +525,7 @@ export async function converse(options: AssistantOptions, text: string, channel:
   // itself says here (no model, a key not kept) stays the panel's.
   const spoken = speaker ? await talkLanguageOf(speaker.companyId) : language;
 
-  const readable = options.reach.readable().filter((path) => !UNREADABLE.includes(path));
+  const readable = options.reach.readable().filter((path) => !unreadable(path));
   const system = [
     speaker
       ? ceoPrompt(spoken, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
@@ -633,7 +637,7 @@ async function tool(
 
   if (name === 'read') {
     const pattern = reach.routeOf('GET', path);
-    if (!pattern || UNREADABLE.includes(pattern)) throw new Error(`${path} is not a route the assistant reads`);
+    if (!pattern || unreadable(pattern)) throw new Error(`${path} is not a route the assistant reads`);
     // A CEO reads its own company, and the lists a hire is chosen from.
     if (companyId && !insideCompany(path, companyId) && !CEO_ALSO_READS.includes(pattern)) {
       throw new Error(`${path} is outside this company; the owner can ask PALUGADA about it`);

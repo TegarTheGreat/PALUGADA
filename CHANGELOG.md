@@ -1030,3 +1030,9 @@ The first version. What it holds, in the order an owner meets it.
   in them, even in its own company, each person sees only the rooms they
   may, and only people write, each as themselves. An archive keeps the mark
   that a member of staff's words are in a piece of work (STATUS 2.202).
+- Signing out, signing out everywhere, ending a seat or revoking an
+  authenticator now ends the live views those sessions had open at once,
+  rather than when the tab was closed. Your assistant and the CEO can
+  neither read nor write anything people say to each other: every room,
+  profile, relay and import route is closed to them by its address, and
+  refused inside their conversation whatever its address (STATUS 2.203).

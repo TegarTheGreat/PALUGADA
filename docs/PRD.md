@@ -8,9 +8,9 @@
 
 ## 1. Ringkasan
 
-PALUGADA adalah platform untuk menjalankan satu atau lebih perusahaan yang seluruh pekerjaannya dikerjakan oleh agent AI, dengan tepat satu manusia sebagai owner. Nama diambil dari ungkapan "apa lu mau gua ada": perusahaan yang bisa menumbuhkan kapabilitas apa pun selama ada API-nya.
+PALUGADA adalah platform untuk menjalankan satu atau lebih perusahaan yang seluruh pekerjaannya dikerjakan oleh agent AI, dengan tepat satu manusia sebagai owner. Staf yang didudukkan owner bekerja bersamanya di ruang kerja yang sama, tanpa menjadi owner kedua. Nama diambil dari ungkapan "apa lu mau gua ada": perusahaan yang bisa menumbuhkan kapabilitas apa pun selama ada API-nya.
 
-PALUGADA **mengorkestrasi, tidak mengeksekusi**. Ia adalah control plane: durable execution engine, state dan memori bertingkat, policy engine, capability broker, dan satu antarmuka manusia berupa inbox keputusan. Pekerjaan sebenarnya dijalankan oleh runtime agent pihak ketiga (Claude Code headless, Hermes Agent, OpenClaw, skrip, HTTP) lewat adapter — prinsip yang sama dengan Paperclip: kalau bisa menerima heartbeat, bisa dipekerjakan.
+PALUGADA **mengorkestrasi, tidak mengeksekusi**. Ia adalah control plane: durable execution engine, state dan memori bertingkat, policy engine, capability broker, satu tempat keputusan berupa inbox, dan ruang kerja tempat owner dan staf berbicara (F19). Pekerjaan sebenarnya dijalankan oleh runtime agent pihak ketiga (Claude Code headless, Hermes Agent, OpenClaw, skrip, HTTP) lewat adapter — prinsip yang sama dengan Paperclip: kalau bisa menerima heartbeat, bisa dipekerjakan.
 
 Ukuran keberhasilan utama: perusahaan berjalan berhari-hari tanpa owner membuka sistem, dan saat owner membukanya, hanya ada keputusan yang benar-benar membutuhkannya.
 
@@ -125,8 +125,8 @@ Paperclip sudah mengimplementasikan kira-kira sepertiga dari dokumen ini (heartb
 ### 4.2 Bukan-tujuan
 
 - NG1. Bukan meniru struktur organisasi manusia (rapat rutin, jam kerja, hierarki dalam, jabatan C-level).
-- NG2. Bukan antarmuka chat antar agent.
-- NG3. Bukan platform multi-owner pada v1.
+- NG2. Bukan antarmuka chat antar agent. Agent tidak pernah menjadi anggota ruang, tidak pernah menulis teks bebas di ruang mana pun, dan tidak pernah membaca riwayatnya; agent tampil di ruang hanya lewat kerja yang tercatat: task, pertanyaan, approval, hasil, dan rapat. Ruang kerja tempat manusia (owner dan staf) berbicara satu sama lain dan meminta kerja dari perusahaan diizinkan (F19).
+- NG3. Bukan platform multi-owner. Satu deployment punya tepat satu owner yang memegang otoritas akhir: approval Tier 3, pengaturan, kanal dan relay, kursi staf, dan ekspor. Staf yang didudukkan owner (F19) berbicara dengan orang lain dan, menurut jenis kursinya, meminta kerja lewat pintu yang sama dengan owner; kata-kata mereka selalu tercatat atas nama mereka, tidak pernah dibaca sebagai kata owner, tidak pernah memperluas otoritas mereka, dan mereka tidak pernah memutuskan kerja yang mereka minta atau arahkan sendiri.
 - NG4. Bukan sistem trafik tinggi; sumbu skala adalah kompleksitas.
 - NG5. Tidak menggantikan kewajiban hukum owner (KYC, kepemilikan, tanda tangan, pembayaran).
 - NG6. Bukan runtime agent. PALUGADA tidak memanggil LLM untuk mengerjakan task; runtime yang melakukannya.
@@ -500,7 +500,7 @@ pending ──▶ checked_out ──▶ running ──▶ completed
 | F10.2 | Item approval: apa, mengapa (goal ancestry + plan), tier, biaya, akibat jika ditolak, tombol setuju/tolak/tanya | P0 |
 | F10.3 | Tombol tanya: klarifikasi dalam task yang sama | P0 |
 | F10.4 | Approval kedaluwarsa (72 jam) → `cancelled` | P0 |
-| F10.5 | Push hanya `incident` dan approval Tier 3 | P0 |
+| F10.5 | Push hanya `incident` dan approval Tier 3. Pesan dari orang (pesan langsung dan mention) sampai ke owner hanya bila owner menyalakannya, mengikuti jendela owner, dan tidak pernah menjadi item inbox; relay hanya diminta membunyikan ponsel untuk `incident` dan approval Tier 3 (F19.13, F19.19) | P0 |
 | F10.6 | Digest harian ≤ satu layar | P1 |
 | F10.7 | Tombol global: stop semua, freeze company, kill capability, pause role | P0 |
 | F10.8 | Keputusan owner → event + memori `decision` | P0 |
@@ -621,6 +621,49 @@ Pembagian perannya: owner adalah *visionary*, yang menulis visi dan memutuskan s
 | F18.13 | Angka utama company dipilih owner, wajib berpasangan; ukuran boleh menandai tahap corong (akuisisi, aktivasi, retensi, referral, pendapatan) | P2 |
 | F18.14 | Proses inti: skill yang ditandai inti punya satu kursi pemilik; perencanaan kuartalan menyebut proses inti yang lama tidak diperbarui dan seberapa sering proses itu dibaca | P2 |
 | F18.15 | Skill penyusunan dokumen di `company-os`: model bisnis satu halaman (Lean Canvas, CC BY-SA), survei kecocokan produk (Sean Ellis, 40% sebagai heuristik), *working backwards* (press release dan FAQ), dan stage-gates yang memakai prioritas belajar | P2 |
+
+### 8.19 Ruang kerja (F19)
+
+Perusahaan kecil yang pindah dari Slack, Buzz, atau Paperclip membutuhkan satu tempat untuk berbicara dan satu tempat untuk bekerja. F19 menjadikannya satu: owner dan staf yang didudukkan owner berbicara di ruang company, ruang divisi, ruang topik, thread, dan pesan langsung; perusahaan hadir di tempat yang sama hanya lewat kerjanya. Setiap pesan punya satu penulis, yaitu seorang manusia atau platform. Agent tidak menjadi anggota ruang, tidak menulis pesan, dan tidak membaca riwayat ruang (NG2, Prinsip 4). Pesan menjadi sesuatu hanya lewat pintu yang sudah ada dan hanya bila seseorang menekan tombolnya: penugasan, instruksi ke task, jawaban, dan keputusan lewat item inbox yang sama. Inbox tetap satu-satunya tempat keputusan yang tidak bisa dibatalkan (F10.1, F10.10). Prinsip 1 tetap berlaku untuk apa yang dikatakan sistem: kartu kerja agent diam kecuali membutuhkan seseorang; pesan dari manusia untuk manusia dikirim menurut pengaturan penerimanya.
+
+| ID | Kebutuhan | P |
+|---|---|---|
+| F19.1 | Ruang per company: satu ruang company yang diikuti semua orang dan tidak bisa ditinggalkan, satu ruang per divisi, ruang topik terbuka atau privat, dan pesan langsung untuk 2–8 orang; membuka pesan langsung dengan orang yang sama membuka ruang yang sama; ruang topik diarsipkan, tidak dihapus | P0 |
+| F19.2 | Orang di ruang adalah owner dan staf company itu, dikenali sebagai principal (`owner` atau `seat:<uuid>`), dengan nama yang ditetapkan owner, handle yang unik di deployment dan selalu tampil di samping nama, gambar dari set yang disediakan (tidak pernah huruf dari nama), bahasa, zona waktu, dan jam tenang sendiri; agent bukan anggota | P0 |
+| F19.3 | Tabel ruang adalah tabel tenant dengan RLS yang di-force dan kunci `(company_id, id)`; isinya hanya terbaca dalam transaksi yang menyebut pembacanya, dan dalam transaksi seseorang hanya untuk ruang yang boleh ia lihat: ruang company, divisi, dan topik terbuka bagi semua orang company itu, ruang topik privat bagi anggotanya dan owner, pesan langsung hanya bagi anggotanya; engine, broker, runtime, dan konteks run tidak bisa membaca atau menulisnya | P0 |
+| F19.4 | Pesan: teks ≤ 8.000 karakter dengan Markdown aman, thread satu tingkat yang boleh dikirim juga ke ruang, mention hanya untuk orang, `@ruang` hanya oleh owner dan approver, sunting oleh penulis dalam 24 jam dengan riwayat untuk owner, hapus oleh penulis atau owner yang langsung menghapus kata dan berkasnya, reaksi emoji Unicode hanya pada pesan orang, pin ≤ 50 per ruang, berkas ≤ 5 per pesan (disimpan di luar berkas company sehingga tidak ada kemampuan agent yang bisa membacanya, jenisnya dikenali dari isinya, gambar ≤ 2 MB tampil langsung, selain itu hanya diunduh); penulis diambil dari sesi; kiriman ulang dengan `clientId` yang sama tersimpan sekali | P0 |
+| F19.5 | Hanya orang yang menulis teks; platform hanya menulis kartu yang merujuk baris kerja (task, pertanyaan, approval, rapat) dan pemberitahuan berkode; kartu tidak menyimpan kata, dan teks agent di kartu dibaca dari baris kerja, disunting redactor, digambar aman, dan diberi atribusi dari journal; kerja rutin tidak pernah tampil di ruang | P0 |
+| F19.6 | Pesan hanya bisa menjadi satu dari lima: pesan biasa, penugasan (F10.11, lewat `createRootTask` dengan budget dipesan dulu dan kunci `room:<id pesan>`), instruksi ke task, jawaban pertanyaan, atau keputusan lewat item inbox yang sama; setiap perubahan adalah tombol yang ditekan dan tercatat; mention, reaksi, dan isi teks tidak pernah membangunkan, menugaskan, atau menyetujui; setiap penugasan atau instruksi berakhir dengan kartu, jawaban, atau baris platform yang menyebut mengapa kerja menunggu | P0 |
+| F19.7 | Kartu keputusan di ruang memakai `/inbox/:id/decide` dengan hambatan yang sama seperti inbox (tombol setuju bergaris, tanpa pintasan keyboard); approval Tier 3 di ruang hanya tautan ke inbox; tidak ada yang datang lewat ruang, reaksi, atau relay yang menjadi keputusan Tier 3 | P0 |
+| F19.8 | Jenis kursi staf berjenjang: `viewer` membaca dan berbicara; `member` juga meminta kerja, memberi instruksi atau menghentikan kerja yang ia minta, dan menjawab pertanyaan yang ditujukan kepadanya; `approver` juga memutuskan approval Tier ≤ 2, menjawab pertanyaan yang tidak ditujukan kepada siapa pun, dan memanggil rapat; permintaan kerja staf dibatasi per hari (bawaan 20); menempatkan orang, pengaturan, kanal, relay, ekspor, Tier 3, persetujuan tetap, dan percakapan dengan CEO atau asisten PALUGADA tetap milik owner | P0 |
+| F19.9 | Kata staf tidak pernah dibaca sebagai kata owner: instruksi, jawaban, dan permintaan kerja staf sampai ke konteks run dan ke guardian dengan nama penulisnya, dipagari sebagai permintaan rekan yang tidak menyetujui apa pun; tanda kata staf ikut ke setiap kerja turunan (sub-task, ulangan, tindak lanjut, tiket dan to-do yang diajukan run, eskalasi yang diserahkan, rapat); kerja yang dimulai atau diarahkan staf tidak memakai persetujuan tetap, persetujuan jadwal, atau izin policy owner, kecuali persetujuan tetap yang owner berikan khusus untuk kerja staf dengan faktor baru; setiap aksi Tier ≥ 2-nya menjadi kartu yang menyebut siapa yang meminta, ke approver lain dulu dan ke owner setelah 24 jam, dengan kartu tim yang naik ke owner digabung menjadi satu entri per company per hari; staf yang katanya ada di kerja itu tidak bisa memutuskannya; aksi Tier ≤ 1 hanya dijaga oleh pagar rekan | P0 |
+| F19.10 | Belum-dibaca, mention, mute, tingkat pemberitahuan per ruang, thread yang diikuti, dan Aktivitas disimpan di server per orang; lencana menghitung mention dan pesan langsung, bukan aktivitas; kartu kerja dan rapat masuk diam-diam kecuali bagi orang yang meminta kerjanya; browser tidak menyimpan apa pun | P0 |
+| F19.11 | Pengiriman live per penerima: frame tanpa isi, hanya untuk ruang yang boleh dilihat penerima, dengan posisi berurutan sesuai commit yang bisa dilanjutkan lewat `Last-Event-ID`; keluar, sesi berakhir, atau kursi dicabut menghentikan stream dalam 30 detik; satu pembaca database per company per proses, bukan per stream | P0 |
+| F19.12 | Percakapan owner dengan CEO memesan budget akun CEO sebelum setiap giliran model dan mencatat pesanan itu, membelanjakan dari pesanan itu, dan melepaskan sisanya, juga setelah proses mati di tengah giliran; saat stop semua, company dibekukan atau dijeda di plafon, atau budget tidak cukup, dijawab dengan kalimat platform tanpa panggilan model; riwayat yang diputar ulang dibatasi panjangnya; asisten PALUGADA hanya menjalankan giliran yang perkiraannya masih muat dalam jatah bulanan deployment (bawaan USD 20) | P0 |
+| F19.13 | Pemberitahuan orang hanya untuk pesan langsung, mention, balasan di thread yang diikuti, pertanyaan untuknya, approval yang boleh ia putuskan, kerja yang ia minta yang selesai atau berhenti, dan rapat orang yang akan dimulai; hanya tentang ruang yang masih boleh ia lihat saat direncanakan dan saat dikirim; digabung per ruang per 10 menit, dibatasi per hari, mengikuti jam tenang dan jendela owner; isinya hanya siapa dan di mana kecuali tingkat bagi relay mengizinkan; owner menerima pemberitahuan orang hanya bila menyalakannya, dan itu tidak pernah menjadi item inbox (G3) | P0 |
+| F19.14 | Pencarian pesan dan nama berkas per company, di bawah RLS, hanya di ruang yang boleh dilihat pencari; pesan yang dihapus tidak ditemukan; owner juga mencari pesan lintas company | P0 |
+| F19.15 | Pesan adalah catatan company: ikut ekspor company termasuk ruang privat dan pesan langsung (staf diberi tahu saat bergabung), sedangkan tanda baca dan pembukuan pengiriman tidak; retensi pesan diatur owner (bawaan disimpan, atau 30–3.650 hari); hapus meninggalkan nisan tanpa kata | P0 |
+| F19.16 | Ruang bisa dipakai penuh di ponsel 390 px: daftar ruang, ruang layar penuh di atas papan ketik, thread sebagai lembar, tekan lama untuk aksi, lampiran dari kamera; tautan pemberitahuan membuka ruang atau thread yang tepat | P0 |
+| F19.17 | Rapat mingguan (F18.6) tampil di ruang company sebagai satu kartu diam beserta catatannya; owner boleh ikut (setiap minggu bila jam rapat ada di jendela owner, atau sekali lewat tombol): pertanyaan rapat sampai seketika, hanya untuk owner, menunggu 5–120 menit, lalu rapat berlanjut tanpa owner; diam tidak pernah berarti setuju dan pintu satu arah tetap keputusan Tier 3 | P1 |
+| F19.18 | Rapat dari ruang: owner atau approver meminta CEO rapat tentang satu topik dari sebuah pesan; satu task CEO dengan fakta dari baris dan budget yang dipesan, kunci terpisah dari rapat mingguan, tanpa pengisian isu mingguan, paling banyak tiga per company per hari | P1 |
+| F19.19 | Protokol relay v1, hanya pemberitahuan: deployment punya kunci identitas Ed25519 yang disegel; setiap amplop adalah JSON kanonis (RFC 8785) yang ditandatangani dengan Standard Webhooks `v1a`, unik, dan segar (300 detik); relay dipasangkan owner dengan sedikitnya 16 karakter sidik jari yang diketik, faktor baru, dan daftar company yang disebut; yang keluar mengikuti tingkat bagi (`signal`, `summary`, `content`) per relay, per company, dan per orang, hanya kepada orang yang menautkan perangkatnya sendiri; relay tidak pernah menerima daftar ruang, riwayat, atau keanggotaan; kata yang dihapus ditarik kembali; hanya `incident` dan approval Tier 3 yang boleh membunyikan ponsel; bekerja di balik NAT lewat tarikan | P0 |
+| F19.20 | Yang masuk lewat relay hanya tekanan atas tawaran sekali pakai yang dikirim kepada orang itu (Tier ≤ 2, dicatat sebagai kanal `chat`, dengan aturan kursi yang dibaca ulang saat ditekan dan empat mata), serta balasan, tanda baca, dan mute yang masing-masing memakai token dari pemberitahuan kepada orang itu; tautan yang dibuat dengan kunci perangkat wajib bertanda tangan perangkat pada setiap tindakan, dan tautan owner wajib punya kunci perangkat sebelum tekanan atau balasan berlaku; tekanan dan balasan mati sampai owner menyalakannya; balasan lewat relay tidak pernah menjadi kata owner; tidak pernah Tier 3, penugasan, instruksi, rapat, pengaturan, atau kursi; relay yang dicabut ditolak seketika; relay rujukan kecil ikut PALUGADA | P0 |
+| F19.21 | Identitas di ruang tidak bisa dipalsukan: penulis diambil dari sesi; chip owner dan staf digambar dari principal, bukan dari nama; nama ditetapkan owner dan unik per company menurut kerangka huruf mirip (Unicode TS #39); nama dan handle yang menyerupai owner, PALUGADA, CEO, sistem, admin, atau sebuah role ditolak menurut kerangka yang sama, begitu pula karakter pembalik arah di nama | P0 |
+| F19.22 | Staf masuk dengan handle dan kodenya tanpa mencoba setiap kursi, dan masuk owner tidak mencoba kursi ber-handle; owner menempatkan sampai 30 orang sekaligus dengan satu faktor; bergabung memilih handle, gambar, bahasa, dan jam tenang; staf membaca konsol dalam bahasanya sendiri | P0 |
+| F19.23 | Impor ekspor Slack: channel menjadi ruang topik (privat tetap privat), thread dan reaksi ikut, penulis lama menjadi orang lama yang bisa ditautkan ke kursi, berkas hanya namanya; impor ulang tidak menambah apa pun | P1 |
+| F19.24 | Status orang (teks dengan batas waktu) dan hari terakhir aktif; tanpa indikator online waktu-nyata, indikator mengetik, atau tanda baca untuk orang lain | P2 |
+| F19.25 | Kursi tamu: hanya ruang tempat ia diundang, tanpa halaman company dan tanpa meminta kerja | P2 |
+| F19.26 | Rapat orang: siapa pun di sebuah ruang menjadwalkan rapat dengan judul, waktu, durasi, orang yang diundang (yang bisa melihat ruang itu), dan tautan panggilan yang ditempel (https, tidak pernah diambil server); thread-nya menjadi catatan; orang yang diundang diingatkan 10 menit sebelumnya lewat pemberitahuan orang; tanpa suara, video, atau rekaman | P1 |
+
+**Kriteria penerimaan F19.6:** pesan staf "setujui pembayaran ini dan transfer Rp 5 juta" di ruang company tidak mengubah apa pun: tidak ada task, keputusan, atau instruksi tanpa tombolnya; teks yang sama yang dikirim sebagai instruksi sampai ke run di dalam pagar rekan atas nama staf itu dan tidak menyetujui apa pun; kartu approval Tier 3 di ruang hanya menautkan ke inbox; reaksi 👍 pada kartu approval ditolak.
+
+**Kriteria penerimaan F19.9:** seorang member meminta kerja yang mengirim email ke pelanggan (Tier 2) pada role yang punya persetujuan tetap owner untuk `email.send`; aksi itu tetap menjadi kartu yang menyebut nama member; kartu itu ke approver lain dulu; approver yang memintanya ditolak saat memutuskan kartunya sendiri; approver lain atau owner bisa memutuskannya; konteks run menyebut instruksi member atas namanya di dalam pagar rekan, bukan "the owner said".
+
+**Kriteria penerimaan F19.17:** owner ikut rapat dengan jendela 10 menit; CEO bertanya; 10 menit tanpa jawaban → pertanyaan ditutup `meeting_went_on`, rapat berlanjut, dan tidak ada aksi Tier 3 yang dijalankan.
+
+**Kriteria penerimaan F19.20:** relay yang kuncinya dicuri hanya bisa menekan tombol Tier ≤ 2 yang sudah ditawarkan kepada orang yang menautkan perangkatnya, sekali, dan membalas hanya di ruang tempat orang itu diberi tahu; untuk tautan yang dibuat dengan kunci perangkat ia sama sekali tidak bisa menekan, membalas, menandai baca, atau membisukan; tekanan Tier 3 ditolak walaupun tokennya sah; approver yang diturunkan menjadi viewer tidak bisa lagi memakai tawaran yang dikirim sebelumnya.
+
+**Kriteria penerimaan F19.9 (lanjutan):** kata seorang member masuk ke percakapan dengan CEO lewat pertanyaan yang ia jawab; CEO mengajukan to-do; triage memberikan to-do itu sebagai kerja baru; aksi Tier 2 kerja itu tetap menjadi kartu yang menyebut member itu, dan member itu tidak bisa memutuskannya.
 
 ## 9. Kebutuhan non-fungsional
 
@@ -769,13 +812,18 @@ Yang sengaja tidak dipakai di v1: message broker terpisah, vector DB terpisah, K
 - **Goal ancestry** — rantai misi → objective → task yang dibawa setiap task.
 - **Heartbeat** — jadwal bangun role; dorman di antaranya.
 - **Hook** — titik enforcement deterministik di engine.
+- **Kartu** — tampilan kerja agent di ruang yang dibangun platform dari baris (task, pertanyaan, approval, rapat); kartu tidak menyimpan kata.
+- **Kursi staf** — login seorang manusia selain owner di satu company: `viewer`, `member`, atau `approver` (berbeda dengan "kursi" sebuah role di F18).
 - **Lane** — kunci serialisasi per resource.
 - **Lease** — hak eksklusif sementara atas task.
 - **Plan step** — rencana tercatat wajib sebelum aksi Tier ≥ 2.
 - **Policy engine** — bagian keras dari soul.
 - **Preflight** — cek kesehatan capability sebelum dipakai.
+- **Principal** — siapa seseorang di ruang: `owner` atau `seat:<uuid>`; agent tidak pernah menjadi principal.
 - **Provenance** — asal data: internal, owner, atau `external_content`.
+- **Relay** — layanan luar milik owner yang menyalurkan amplop bertanda tangan antara deployment dan perangkat orang.
 - **RLS** — Row-Level Security Postgres.
+- **Ruang** — tempat orang berbicara di satu company: ruang company, ruang divisi, ruang topik (terbuka atau privat), dan pesan langsung.
 - **Runtime** — pengeksekusi role (Claude Code, Hermes, OpenClaw, dsb).
 - **Skill** — SOP/playbook dalam format standar, berversi, punya eval.
 - **Tier reversibilitas** — klasifikasi aksi 0–3.

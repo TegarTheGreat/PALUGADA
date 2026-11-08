@@ -1020,3 +1020,13 @@ The first version. What it holds, in the order an owner meets it.
   channel testing wrote as a list of most of the nineteen, so a later report
   of one test does not replace it. The rings are read from the goals and
   never stored (STATUS 2.197).
+
+### The workspace (F19)
+
+- The ground for rooms where you and the staff you seat talk to each other
+  and ask the company for work. Upgrading gives every company its own room
+  and a room per division, nobody in them yet and nothing showing them yet.
+  The database holds the rooms to people: no agent can read or write a word
+  in them, even in its own company, each person sees only the rooms they
+  may, and only people write, each as themselves. An archive keeps the mark
+  that a member of staff's words are in a piece of work (STATUS 2.202).

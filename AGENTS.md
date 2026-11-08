@@ -37,6 +37,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
+| `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub, search, files; `principal.ts` is who a person is |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
@@ -99,6 +100,12 @@ Each of these is a test, and each exists because the mistake was made once.
   it ran. `test/acceptance/process.test.ts`.
 - **Every tenant table has row level security, forced, with a policy.**
   `test/acceptance/tenant-isolation.test.ts`.
+- **Room tables are opened only by `withPeople`, `withDelivery` and
+  `withRoomPlatform`**, and only `src/db/tenant.ts` sets `app.reader` or
+  `app.principal`. An agent's transaction (`withTenant`) names no reader, so
+  it sees and writes nothing in a room table, even in its own company; a
+  person sees only the rooms they may see, whatever the query.
+  `test/acceptance/people-rls.test.ts`.
 - **References between tenant tables carry the company**: composite keys on
   `(company_id, id)`, so a row cannot point into another company.
 - **The application role has only the grants it needs** (migration 0047).
@@ -126,7 +133,8 @@ Each of these is a test, and each exists because the mistake was made once.
   `test/acceptance/console-phone.test.ts`, which skips where no Chromium is
   installed; `PALUGADA_CHROMIUM` names one.
 - **Every column of an exported table is exported**, or listed with a reason
-  in `test/acceptance/audit-export.test.ts`.
+  in `test/acceptance/audit-export.test.ts`. A change that adds a column to
+  an exported table exports it, or lists it there, in the same commit.
 - **Every requirement in the PRD appears in `docs/STATUS.md`.**
 - **A version is one number everywhere**: `package.json`, its lockfile and
   the newest section of `CHANGELOG.md`. A change an owner or an operator

@@ -74,6 +74,7 @@ means less than that, the row says so.
 | F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 | F18 operating rhythm | F18.1–F18.12, F18.14, F18.15 (sections 2.190 to 2.201, in the order section 2.189 gives; F18.1's year and quarter are read from a period's length, section 2.1) | F18.13 (the headline metric's pair is warned of, not required: section 2.200) | — |
+| F19 workspace | — | — | F19.1–F19.26 |
 
 Read as a whole: every requirement in v2 sections 8.1 to 8.18 is built except
 one part of F9.4 and one of F18.13, the owner has a console to run it from
@@ -82,7 +83,10 @@ specific way — a vendor account this repository cannot hold. F9.4 is partial
 in another way: its monthly budget review is built, and a company has it only
 with the operating kit (section 2.199). F18.13 is partial by choice: the
 headline metric the owner chooses is warned of when it has no pair rather
-than refused, for the reason section 2.200 gives.
+than refused, for the reason section 2.200 gives. Section 8.19, the people's
+workspace (F19), is the newest part of the specification and none of its
+requirements is built yet: sections 2.202 to 2.215 are kept for it, one for
+each part, and section 2.202 says what ground is already laid.
 
 That distinction is worth stating precisely, because for a long time this
 document ran them together and stopped at the wrong place. There is a
@@ -6450,6 +6454,17 @@ What changed:
   in the deployment's figure. Distillation's calls are traced. A paused
   company's worker distils nothing until resumed.
 
+**Amended by section 2.205** (F19.12). The third bullet is the one the
+workspace changes: a CEO's answer is to reserve from the CEO's account before
+every model turn and spend from that reservation, and is to be refused with a
+platform sentence and no model call while everything is stopped, the company
+is frozen or paused at its ceiling, or the account has no room; PALUGADA's own
+assistant is to stop at the deployment's monthly allowance. The allowance is
+already a column, `platform_control.assistant_month_cents`, USD 20 unless the
+owner sets another (0149, section 2.202); nothing reads it yet, and section
+2.205 rewrites the bullet when the reservation and the allowance are built.
+Distillation is unchanged.
+
 ## 2.79 Signing in to an MCP server takes the owner's device (B4)
 
 Found by the audit of 30 September and still open on 2 October (B4).
@@ -7723,7 +7738,10 @@ What changed:
   `staff-routes.test.ts`: every read is given to staff or kept from them
   with a reason, and the approver's actions are the inbox's alone.
 - **Not done**: a seat in the Telegram or WhatsApp chats, a passkey for a
-  seat, and a seat over several companies.
+  seat, and a seat over several companies. Seats are to talk, ask and be told
+  through the workspace and the relay (F19, sections 2.206 to 2.213, each
+  written as its part is built); Telegram and WhatsApp for seats are still
+  not done.
 
 ## 2.117 Customers write to the company on Telegram, and every reply waits for the owner (§9 P2)
 
@@ -11277,7 +11295,7 @@ The owner asked for "something already very well known, used and valid, like the
 - *Hedgehog, flywheel, Seven Strata, the One-Page Strategic Plan as a form.* Metaphors or branded forms with nothing to check. Positioning already lives in the positioning skill.
 - *Benchmark numbers as norms.* McClure's example conversions are labelled "not actuals" by him. The thresholds that ship (40% on the fit survey, 0.6–0.7 on an aspirational grade, 80% of priorities done) are named as heuristics with their source.
 - *Agents answering customer interviews or surveys.* The method depends on real people. Agents draft and tally; customers answer; outreach stays tier 2.
-- *New tables for meetings, scorecards and postmortems, or a new inbox kind for issues.* The owner's inbox is for decisions (F10.1). Issues are tickets, the scorecard is `goal_metrics`, and a meeting is a task with its facts and its record.
+- *New tables for meetings, scorecards and postmortems, or a new inbox kind for issues.* The owner's inbox is for decisions (F10.1). Issues are tickets, the scorecard is `goal_metrics`, and a meeting is a task with its facts and its record. Still true with the workspace (F19): a meeting shown in a room is the same task (section 2.211), and people's own meetings, which are not agents' work, belong to a room (section 2.215).
 
 ## 2.190 A goal has a period, one seat, a commitment and a finish line (F18.1, and F18.11's column)
 
@@ -11788,6 +11806,33 @@ A company had skills, each checked, reviewed and switched on by the owner (F15),
   - A capability for a seat to propose a new version of its process itself. It needs a tool slot, and so a decision about which of a seat's twelve it replaces.
   - The share counts every run of the division, whatever its work. A run whose task had nothing to do with the process counts against it, so a busy division with one process reads lower than one with many. Telling which runs were about which process would need tasks to say so.
   - The founding template and the built-in bundles name no core processes. That is deliberate, because the owner chooses them, but a template could suggest some later.
+
+## 2.202 The ground for the people's workspace: schema and authorship
+
+The owner asked for a workspace beside the inbox: rooms where the owner and the staff the owner seats talk to each other and ask the company for work, a replacement for Slack, Buzz and Paperclip (F19, PRD section 8.19). None of F19 is built by this section. It lays what every later part stands on, so that each of them is held by the database from its first line rather than by the code that serves it: the schema, the readers the database opens rooms to, the person a request is, and the columns that carry a member of staff's words through the work. NG2 and NG3 now say what the workspace may and may not be, and F10.5 what people's messages may do to the owner's day.
+
+- **A person is a principal (0149).** The owner is `'owner'` and a seat is `'seat:<uuid>'`: text, not a row, so there is no owner row that could ever become a second owner, and a record outlives the seat it names, as `decided_by_seat` already does. `app.is_person`, `app.is_author` (which also admits an imported `former:<source>:<id>`, never as a member) and `app.are_people` are the rule, immutable so a CHECK can call them. `principalOf(session, staff)` in `src/workspace/principal.ts` is the only maker of one: from the verified session, never from a body. `seatOf` reads the seat back, `isPerson` is the same rule in TypeScript, and `assertPeopleOf` checks on the control plane that each principal is the owner or a joined, unrevoked seat of the company, because a seat's row is the control plane's alone and no tenant query or trigger can read it.
+- **Seats become a ladder (0149).** `staff_seats.kind` admits `member` between `viewer` and `approver`; 0110's unnamed check (`staff_seats_kind_check`) is replaced by `staff_seats_kind_known`. A seat gains a `handle` (unique among live seats of the deployment, since sign-in will name a seat by it before any company is known), a `picture` from the twelve the console will ship, and `asks_per_day` (20 unless the owner says otherwise, at most 200). Nothing offers a member yet: the owner's seating still takes a viewer or an approver.
+- **A person's own settings (0149).** `principal_prefs` holds a person's language, time zone, quiet hours, whether the owner hears people at all (off by default, F10.5), how many notices a day, and whether a hidden tab may notify. It is the control plane's alone, as `staff_seats` is: forced row security, a `control_plane_only` policy, and no grant to the application role. A seat's row names its company and cascades with it, so erasing a company leaves no setting of its people; the owner's names none.
+- **The assistant's allowance and the deployment's name (0149).** `platform_control.assistant_month_cents` is USD 20 a month unless set, and never NULL, which would have meant no ceiling; `deployment_id` is made once for the relay's envelopes. Nothing reads either yet (sections 2.205 and 2.208).
+- **Staff work is marked as such (0148).** `tasks.created_by` admits `staff`. `tasks.requested_by_seat` is the seat that pressed for the work, a bare uuid that only staff work may carry (`tasks_seat_means_staff`), indexed for a seat's daily count. `inbox_items.instigators` and `tickets.instigators` are the seats whose words began or steered the work a card asks about or a ticket's work becomes; none of them may decide it (section 2.204). The application role's UPDATE on `tickets` is still 0134's column list, which leaves `instigators` out: a ticket's mark is written when it is filed and never changed.
+- **The rooms (0150).** Thirteen tenant tables: `room_clock`, `rooms`, `room_members`, `room_places`, `room_access`, `room_messages`, `room_message_revisions`, `room_reactions`, `room_pins`, `room_files`, `room_mentions`, `room_follows` and `room_feed`, each with forced row security, `tenant_isolation`, keys on `(company_id, id)` and composite foreign keys. Every room table is opened only to a transaction that names its reader (`room_readers`): `people` (a person, as themselves), `delivery` (positions and ids, never a message, revision, reaction or file) or `platform` (the card sweep and the rooms every company has). An agent's transaction names none, so it reads nothing and writes nothing in them, even in its own company. On top of that, a restrictive policy per table and command holds who sees and writes what:
+  - a person sees the company's room, every division's room, every open topic room, the private topic rooms they are in and the direct rooms they are in; the owner also sees every private topic room, and a direct room only as one of its people. The rule is the `rooms` policy, and every other table reaches it through a subquery on `rooms`. `room_access`, kept by trigger for private and direct rooms, has a self-only policy, which is what lets `rooms` read it without the two policies reading each other;
+  - only people write text, and only as themselves; the platform writes only cards and coded notices, which hold no words (`room_messages_people_write_text`, `room_messages_cards_have_no_words`, `room_messages_platform_writes_as_itself`);
+  - a person's read mark, notification level and mute are theirs alone to read and change, so a colleague's last read is no read receipt;
+  - the application role holds only the grants each table needs, column by column where it updates: no DELETE on a message, and no change to its author, room, kind or position.
+- **The triggers.** All are `SECURITY DEFINER`, owned by the schema's owner, with a fixed search path, and still bound by `tenant_isolation`. Every room write takes its company's clock row first, as a statement trigger (`app.lock_room_clock`), so every writer locks in one order and an edit racing a reply on one root cannot deadlock. A message's position and every feed row's come from that clock, so positions follow commit order with no gaps. The insert guard sets a person's name and where the message came from from the session's settings, whatever the insert says, and refuses a message that arrives already marked as work. The update guard lets a person edit only their own words within a day (the earlier words kept as a revision only the owner reads), remove their own (the owner anyone's: words, files' paths and revisions go at once), and mark their own press; the platform changes only what a card points at and the state it was drawn in; the control plane only leaves a tombstone or recounts an import; and an update from inside the database itself, a reply's count or a foreign key letting go of purged work, changes those and nothing else. A reaction on a card is refused, so a 👍 approves nothing. A direct room's people are fixed when it is opened, and only a revoked seat leaves one. Leaving a room ends its follows and unseen mentions there. Mentions, replies to followers and card attention reach only someone who can see the room (`app.may_see`). The card sweep's cursor moves only forward, through `app.advance_card_cursor`.
+- **Every company has its rooms.** The migration gives every existing company its clock, its company room and a room per division, which shows the work that needs people; nobody is a member of any until they first look. A company made afterwards gets them from the rooms server (section 2.206).
+- **The readers (`src/db/tenant.ts`).** `withPeople(companyId, person, fn, via?)`, `withDelivery` and `withRoomPlatform` share one private `scoped` with `withTenant`, which commits or fails loudly as before. `withPeople` takes only the owner or a seat with the name the owner gave it, and sets the reader, the principal, its name and where its words come from (the console, or a relay its inbound code names) in one statement, local to the transaction. `roomsOnControlPlane(tx, companyId, { importing })` is for the control plane's own writes: a revoked seat's leaving, a tombstone, a restore. `assistantDispatch` is the scope the owner API will run the assistant's routes in; the people's helpers and `principalOf` refuse inside it, so no person's words can reach a model through the assistant, even by a route somebody forgot to keep from it.
+- **Export and import.** `inbox_items.instigators` and `tickets.instigators` are exported and restored as they were: the seats they name are another deployment's, as a former seat is, and what they carry is that staff words are in the work, which a restore must not make the owner's. `tasks.requested_by_seat` is left behind: a seat is this deployment's and is not restored, and `created_by` keeps the mark. The room tables are not exported yet (section 2.212).
+- **Where the plan and the code differ.**
+  - 0110's kind check was unnamed; the plan names it `staff_seats_kind_check`, which is what PostgreSQL called it, and it is replaced by name.
+  - Added to the plan's schema: a direct room's key must be its people's principals, distinct and in byte order, two to eight of them (`rooms_direct_people`), so one set of people has one key; a platform row says it came from the platform (`room_messages_platform_writes_as_itself`); a pin names a message of its own room; a handle cannot be `owner` or `room`, which every message may hold as `@owner` and `@room`; who archived a room, who removed a member and a person's own name on their membership are taken from the session, as a message's author name is.
+  - The clock is not given a clock-first trigger of its own: it is the lock itself, and locking it from its own trigger would recurse. A transaction with no company, the control plane erasing one, takes no clock and writes no position.
+  - `app.may_see` answers nothing to a transaction with no reader, so an agent cannot use it to learn that a room exists.
+  - A room is given access rows only when it is private, since an open room's visibility never reads them; a member who joins again gets a read mark no earlier than the clock, so they have no backlog either.
+- **Tested** in `people-rls.test.ts`, each case as the real application role through the helpers above: an agent's transaction reads and writes nothing in any room table of its own company; a person sees exactly the rooms they may see by a query with no filter, the owner every private topic room and no direct room they are not in, and nothing of another company; nobody writes in another's name, as the platform, as work already given or as a relay the session did not name, and a message's name is the session's; the platform writes no text and changes no person's message, and a card holds no words and lets go of a purged item; a read mark is one's own, only moves forward and is nobody else's to read; only the author edits, within a day, with the earlier words kept for the owner; a reaction on a card or a removed message is refused; delivery reads no words; positions follow commit order with no gaps; an edit and replies racing on one root all succeed; a seat opens a direct and a private room in one request, and the same insert asking for RETURNING is refused; a direct room's people are fixed and its key names its opener; leaving ends attention; reply and card attention reach only people who can see the room; the card cursor moves only forward; the application role cannot delete a message or change its author, room, kind or position; people cannot read the clock; a person is made from the session alone; and a database migrated with companies in it gives each its clock and rooms and no members. `tenant-isolation.test.ts` lists every room table's grants and that `principal_prefs` grants the application role nothing; `company-closing.test.ts` that erasing a company leaves no setting of its people; `audit-export.test.ts` that a restored company's staff work is still marked as staff work.
+- **Not done here.** No route, page or worker stage uses any of it yet; the people's helpers are recorded in the reachability inventory with the part that wires each up.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -117,10 +117,24 @@ export async function settingsOf(principal: string): Promise<Settings> {
 /**
  * Writes what changed over what was there. A seat's row names its company,
  * so erasing the company erases it; the owner's names none.
+ *
+ * A seat's are written only while it is seated, and with its row held: the
+ * owner ending the seat deletes its settings in the transaction that ends
+ * it, so a change already on its way when that commits, verified a moment
+ * before, finds the seat ended rather than making them again.
  */
 export async function changeSettings(principal: string, companyId: string | null, change: SettingsChange): Promise<void> {
   if (Object.keys(change).length === 0) return;
   await withControlPlane(async (tx) => {
+    if (principal !== 'owner') {
+      const seatId = /^seat:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(principal)?.[1];
+      const { rows: seated } = seatId
+        ? await tx.query('SELECT 1 FROM staff_seats WHERE id = $1 AND revoked_at IS NULL FOR SHARE', [seatId])
+        : { rows: [] };
+      if (seated.length === 0) {
+        throw new PalugadaError('owner.unauthenticated', 'this seat has been ended, so it keeps no settings: sign in again', {});
+      }
+    }
     const { rows } = await tx.query<{
       language: string | null; timezone: string | null; quiet_start: number | null; quiet_end: number | null;
       notify_in_tab: boolean; notices_per_day: number; owner_hears_people: boolean;

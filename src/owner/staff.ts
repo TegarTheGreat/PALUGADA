@@ -30,7 +30,7 @@
  * seat's, and is locked after repeated wrong codes from wherever they come.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { roomsOnControlPlane, withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { assistantDispatch, roomsOnControlPlane, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { redactor, type SecretManager } from '../secrets/manager.ts';
 import { deleteSecret, putSecret, type MasterKey } from '../settings/store.ts';
@@ -108,7 +108,7 @@ export const SEAT_LADDER: Readonly<Record<StaffKind, number>> = { viewer: 0, mem
  * the one it is written in, so a room can show "Siti" where something else is
  * stored, to everyone in it; refused outright (F19.21).
  */
-const DIRECTION_OVERRIDES = /[‪-‮⁦-⁩]/;
+const DIRECTION_OVERRIDES = /[\u202A-\u202E\u2066-\u2069]/;
 
 /** A name as the owner gives it: trimmed, 1 to 80 characters, read in the order it is written. */
 export function nameShape(value: unknown): string {
@@ -121,7 +121,7 @@ export function nameShape(value: unknown): string {
       'a name is written as it reads: it may not hold a line break, a control character, or a character that turns the text around it',
       { field: 'name' });
   }
-  if (skeleton(name) === '') {
+  if (!/[\p{L}\p{N}]/u.test(skeleton(name))) {
     throw new PalugadaError('contract.violation', 'a name has letters or digits in it, not only spaces, marks and symbols', { field: 'name' });
   }
   return name;
@@ -147,10 +147,16 @@ function caseFolded(text: string): string {
 
 /**
  * What a name or a handle looks like, for comparing two (UTS #39's skeleton,
- * for the letters in `confusables.ts`): folded by NFKC, its look-alike
+ * for the letters in `confusables.ts`): taken apart by NFKD, its look-alike
  * letters mapped to what they look like, case folded, and its spaces,
  * punctuation, symbols and invisible characters removed. "Siti Rahayu",
  * "Siti-Rahayu" and "Sіti Rahayu" with a Cyrillic і are one skeleton.
+ *
+ * Taken apart rather than composed, as UTS #39 does it: Unicode lists a
+ * Cyrillic е as an e, but not a Cyrillic ё as an ë, so a letter is mapped
+ * without its mark and the mark kept beside it, and "Zoё" is "Zoë". The
+ * compatibility form, so that a full-width or a mathematical letter is the
+ * one it is before it is mapped.
  *
  * Mapped before it is folded, so a capital Greek eta at the start of a name
  * is read as the H it looks like rather than as the small eta it folds to;
@@ -158,9 +164,9 @@ function caseFolded(text: string): string {
  * once folded (an m, which is an r and an n in a small font) is caught too.
  */
 export function skeleton(text: string): string {
-  let folded = lookalikes([...text.normalize('NFKC')].map((char) => DIGITS_AS_LETTERS[char] ?? char).join(''));
-  for (let round = 0; round < 2; round += 1) folded = lookalikes(caseFolded(folded.normalize('NFKC')));
-  return caseFolded(folded.normalize('NFKC')).replace(/[\p{Z}\p{P}\p{S}\p{C}]/gu, '');
+  let folded = lookalikes([...text.normalize('NFKD')].map((char) => DIGITS_AS_LETTERS[char] ?? char).join(''));
+  for (let round = 0; round < 2; round += 1) folded = lookalikes(caseFolded(folded.normalize('NFKD')));
+  return caseFolded(folded.normalize('NFKD')).normalize('NFKD').replace(/[\p{Z}\p{P}\p{S}\p{C}]/gu, '');
 }
 
 /**
@@ -171,7 +177,7 @@ export function skeleton(text: string): string {
  * And a 1 looks like an l, but is written for an i as often: "adm1n".
  */
 function looks(text: string): string[] {
-  const folded = caseFolded(text.normalize('NFKC'));
+  const folded = caseFolded(text.normalize('NFKD'));
   return [...new Set([skeleton(text), skeleton(folded), skeleton(folded.replaceAll('1', 'i'))])];
 }
 
@@ -234,14 +240,40 @@ function unusable(): PalugadaError {
   return new PalugadaError('handle.unusable', 'that handle cannot be used: choose another', {});
 }
 
-function nameTaken(): PalugadaError {
-  return new PalugadaError('name.taken', 'someone here has a name that looks like that: choose another', { field: 'name' });
+/**
+ * Which name of what the owner sent a refusal is about: the name as they
+ * wrote it, and, in a list of several, its place, so the owner knows which
+ * of thirty lines to change. Never the colleague's name it looks like.
+ */
+interface Named {
+  name: string;
+  index?: number;
 }
 
-/** A unique index broken by a write that raced another: the refusal the check before it would have given. */
+function said(named: Named): string {
+  return named.index === undefined ? JSON.stringify(named.name) : `${JSON.stringify(named.name)}, number ${named.index + 1} of the list,`;
+}
+
+function nameTaken(named: Named): PalugadaError {
+  return new PalugadaError('name.taken', `${said(named)} looks like the name or the handle of someone here: choose another`,
+    { field: 'name', ...named });
+}
+
+function nameReserved(named: Named): PalugadaError {
+  return new PalugadaError('name.reserved',
+    `${said(named)} reads as the owner, PALUGADA, the CEO, the system or one of the company's roles: choose another`, { field: 'name', ...named });
+}
+
+/**
+ * A unique index broken by a write that raced another: the refusal the check
+ * before it would have given. Every write that names or hands a seat waits
+ * for the others (`PEOPLE_NAMES_LOCK`), so this is a write that took no turn.
+ */
 function apartOrThrow(error: unknown): never {
   const failure = error as { code?: string; constraint?: string };
-  if (failure.code === '23505' && failure.constraint === 'staff_seats_name_apart') throw nameTaken();
+  if (failure.code === '23505' && failure.constraint === 'staff_seats_name_apart') {
+    throw new PalugadaError('name.taken', 'someone here has a name that looks like that: choose another', { field: 'name' });
+  }
   if (failure.code === '23505' && failure.constraint === 'staff_seats_live_handle') throw unusable();
   throw error;
 }
@@ -254,6 +286,20 @@ function apartOrThrow(error: unknown): never {
 const HANDLE_LOCK_AFTER = 5;
 const HANDLE_LOCK_FIRST_MINUTES = 1;
 const HANDLE_LOCK_MOST_MINUTES = 60;
+
+/**
+ * Taken by every write that names a seat or gives it a handle, for the rest
+ * of its transaction. The unique index holds one reading of a name, but two
+ * names look alike when any reading matches, and a handle is compared with
+ * colleagues' names: "SITI" and "Siti" written at the same moment would each
+ * find the other not yet there. People are named and handled a few times a
+ * day, so the deployment takes them one at a time.
+ */
+const PEOPLE_NAMES_LOCK = "SELECT pg_advisory_xact_lock(hashtext('palugada:people-names'))";
+
+function replayed(): PalugadaError {
+  return new PalugadaError('mfa.replayed', 'that code has already been used', {});
+}
 
 /** A seat as the owner's list shows it. */
 export interface SeatListed {
@@ -332,8 +378,14 @@ export class StaffSeats {
     }
   }
 
-  /** The company's seats, revoked ones left out. */
+  /**
+   * The company's seats, revoked ones left out. A handle is words its person
+   * chose, so the owner's assistant, which reads this list through the
+   * owner's routes, is shown every seat without one (F19.2; STATUS 2.203):
+   * what people write is never a model's to read.
+   */
   async list(companyId: string): Promise<SeatListed[]> {
+    const forTheAssistant = assistantDispatch.getStore() !== undefined;
     return withControlPlane(async (tx) => {
       await this.#fillSkeletons(tx, companyId);
       const { rows } = await tx.query<{
@@ -346,7 +398,7 @@ export class StaffSeats {
         [companyId, this.#now()]);
       const seen = rows.map((row) => looks(row.name));
       return rows.map((row, index) => ({
-        id: row.id, name: row.name, kind: row.kind, handle: row.handle, picture: row.picture, asksPerDay: row.asks_per_day,
+        id: row.id, name: row.name, kind: row.kind, handle: forTheAssistant ? null : row.handle, picture: row.picture, asksPerDay: row.asks_per_day,
         joined: row.joined_at !== null, invitePending: row.invite_pending,
         sharesName: row.name_skeleton === null || seen.some((other, at) => at !== index && looksAlike(other, seen[index]!)),
         createdAt: row.created_at, joinedAt: row.joined_at, lastUsedAt: row.last_used_at,
@@ -435,11 +487,16 @@ export class StaffSeats {
     await putSecret(name, secret, this.#requireMaster());
     let rowCount: number | null;
     try {
-      ({ rowCount } = await withControlPlane((tx) => tx.query(
-        `UPDATE staff_seats SET secret_ref = $2, joined_at = $3, last_step = $4, last_used_at = $3,
-                invite_hash = NULL, invite_expires_at = NULL, handle = coalesce($5, handle), picture = coalesce($6, picture)
-          WHERE id = $1 AND invite_hash IS NOT NULL AND revoked_at IS NULL`,
-        [seat.id, `db://${name}`, this.#now(), step, chosen.handle ?? null, chosen.picture ?? null])));
+      ({ rowCount } = await withControlPlane(async (tx) => {
+        // Asked again in the transaction that takes it, in its turn, so a
+        // look-alike handle taken while the code was being read is not taken twice.
+        if (chosen.handle !== undefined) await this.#vetHandle(tx, seat, chosen.handle);
+        return tx.query(
+          `UPDATE staff_seats SET secret_ref = $2, joined_at = $3, last_step = $4, last_used_at = $3,
+                  invite_hash = NULL, invite_expires_at = NULL, handle = coalesce($5, handle), picture = coalesce($6, picture)
+            WHERE id = $1 AND invite_hash IS NOT NULL AND revoked_at IS NULL`,
+          [seat.id, `db://${name}`, this.#now(), step, chosen.handle ?? null, chosen.picture ?? null]);
+      }));
     } catch (error) {
       apartOrThrow(error);
     }
@@ -485,6 +542,15 @@ export class StaffSeats {
    * whatever address they came from, for a minute that doubles at each lock
    * after, to an hour at most; a right code clears the count. A handle
    * nobody has is refused in the same words as a wrong code.
+   *
+   * The lock, the comparison and the count are one transaction that holds
+   * the seat's row, so attempts at one handle are judged one at a time,
+   * across replicas too. Guesses are not sent one after another: read in one
+   * transaction and counted in another, thirty sent at once all read "no
+   * wrong codes yet", and all thirty were compared. The secret is read
+   * before the row is held, so the transaction waits on nothing while it
+   * holds it. A refusal is returned from inside rather than thrown, since a
+   * throw would roll back the count that says somebody tried.
    */
   async signInAs(handle: unknown, totp: string): Promise<StaffSession> {
     const wrong = () => new PalugadaError('mfa.code_invalid', 'that code does not sign anyone in by that handle', {});
@@ -496,42 +562,54 @@ export class StaffSeats {
       throw wrong();
     }
     if (!secrets) throw wrong();
-    const now = this.#now();
-    const { rows } = await withControlPlane((tx) => tx.query<{
-      id: string; company_id: string; name: string; kind: StaffKind; secret_ref: string; locked_until: Date | null;
-    }>(
-      `SELECT id, company_id, name, kind, secret_ref, locked_until FROM staff_seats
-        WHERE handle = $1 AND joined_at IS NOT NULL AND revoked_at IS NULL`,
-      [named]));
-    const row = rows[0];
-    if (!row) throw wrong();
-    if (row.locked_until && row.locked_until > now) {
-      throw new PalugadaError('auth.handle_locked',
-        `too many wrong codes for this handle: it can be tried again after ${row.locked_until.toISOString()}`,
-        { until: row.locked_until.toISOString() });
-    }
+    const { rows } = await withControlPlane((tx) => tx.query<{ id: string; secret_ref: string }>(
+      'SELECT id, secret_ref FROM staff_seats WHERE handle = $1 AND joined_at IS NOT NULL AND revoked_at IS NULL', [named]));
+    const found = rows[0];
+    if (!found) throw wrong();
     let secret: Buffer;
     try {
-      secret = decodeBase32(await secrets.resolve(row.secret_ref));
+      secret = decodeBase32(await secrets.resolve(found.secret_ref));
     } catch {
       // A secret that cannot be read is not a guess, and is not counted as one.
       throw wrong();
     }
-    const step = this.#matching(secret, totp);
-    if (step === null) {
-      await withControlPlane((tx) => tx.query(
-        `UPDATE staff_seats
-            SET sign_in_failures = LEAST(sign_in_failures + 1, 10000),
-                locked_until = CASE WHEN (sign_in_failures + 1) % $2::int = 0
-                  THEN $3::timestamptz + interval '1 minute'
-                    * LEAST($5::int, $4::int * power(2, LEAST(6, (sign_in_failures + 1) / $2::int - 1)))
-                  ELSE locked_until END
-          WHERE id = $1`,
-        [row.id, HANDLE_LOCK_AFTER, now, HANDLE_LOCK_FIRST_MINUTES, HANDLE_LOCK_MOST_MINUTES]));
-      throw wrong();
-    }
-    await this.#claim(row.id, step);
-    return this.#session({ id: row.id, companyId: row.company_id, name: row.name, kind: row.kind });
+    const outcome = await withControlPlane(async (tx): Promise<{ seat: StaffSeat } | { refused: PalugadaError }> => {
+      // The same seat, still holding this handle and this secret, once the
+      // attempts before this one are on the record.
+      const { rows: held } = await tx.query<{ id: string; company_id: string; name: string; kind: StaffKind; locked_until: Date | null }>(
+        `SELECT id, company_id, name, kind, locked_until FROM staff_seats
+          WHERE id = $1 AND handle = $2 AND secret_ref = $3 AND joined_at IS NOT NULL AND revoked_at IS NULL
+          FOR UPDATE`,
+        [found.id, named, found.secret_ref]);
+      const row = held[0];
+      if (!row) return { refused: wrong() };
+      const now = this.#now();
+      // Before the comparison, so a right code waits for the lock as a wrong one does.
+      if (row.locked_until && row.locked_until > now) {
+        return {
+          refused: new PalugadaError('auth.handle_locked',
+            `too many wrong codes for this handle: it can be tried again after ${row.locked_until.toISOString()}`,
+            { until: row.locked_until.toISOString() }),
+        };
+      }
+      const step = this.#matching(secret, totp);
+      if (step === null) {
+        await tx.query(
+          `UPDATE staff_seats
+              SET sign_in_failures = LEAST(sign_in_failures + 1, 10000),
+                  locked_until = CASE WHEN (sign_in_failures + 1) % $2::int = 0
+                    THEN $3::timestamptz + interval '1 minute'
+                      * LEAST($5::int, $4::int * power(2, LEAST(6, (sign_in_failures + 1) / $2::int - 1)))
+                    ELSE locked_until END
+            WHERE id = $1`,
+          [row.id, HANDLE_LOCK_AFTER, now, HANDLE_LOCK_FIRST_MINUTES, HANDLE_LOCK_MOST_MINUTES]);
+        return { refused: wrong() };
+      }
+      if (!await this.#claimWithin(tx, row.id, step)) return { refused: replayed() };
+      return { seat: { id: row.id, companyId: row.company_id, name: row.name, kind: row.kind } };
+    });
+    if ('refused' in outcome) throw outcome.refused;
+    return this.#session(outcome.seat);
   }
 
   /** The seat behind a bearer token, while the session is open and the seat is not revoked. */
@@ -633,35 +711,42 @@ export class StaffSeats {
    * wrong codes starts again.
    */
   async #claim(seatId: string, step: number): Promise<void> {
-    const { rowCount } = await withControlPlane((tx) => tx.query(
+    if (!await withControlPlane((tx) => this.#claimWithin(tx, seatId, step))) throw replayed();
+  }
+
+  /** The claim inside a transaction the caller holds; false when the step was used already. */
+  async #claimWithin(tx: TenantClient, seatId: string, step: number): Promise<boolean> {
+    const { rowCount } = await tx.query(
       `UPDATE staff_seats SET last_step = $2, last_used_at = $3, sign_in_failures = 0, locked_until = NULL
         WHERE id = $1 AND revoked_at IS NULL AND (last_step IS NULL OR last_step < $2)`,
-      [seatId, step, this.#now()]));
-    if (rowCount !== 1) throw new PalugadaError('mfa.replayed', 'that code has already been used', {});
+      [seatId, step, this.#now()]);
+    return rowCount === 1;
   }
 
   /**
    * Refuses any of these names the owner may not give in this company, and
    * answers each one's skeleton to keep: a name like the owner's, PALUGADA's,
    * the CEO's, the system's or a role's is reserved; one like a live
-   * colleague's (other than `except`, the seat being renamed), or like
-   * another of the same batch, is taken.
+   * colleague's name or handle (other than `except`'s, the seat being
+   * renamed), or like another of the same batch, is taken, so `@rina` and a
+   * Rina are one person. The refusal names the name as the owner wrote it,
+   * and its place when there are several. Taken in its turn
+   * (`PEOPLE_NAMES_LOCK`), so the seats it reads are all there are.
    */
   async #vetNames(tx: TenantClient, companyId: string, names: readonly string[], except: string | null): Promise<string[]> {
+    await tx.query(PEOPLE_NAMES_LOCK);
     await this.#fillSkeletons(tx, companyId);
     const reserved = await reservedLooks(tx, companyId, RESERVED_NAMES);
-    const { rows } = await tx.query<{ name: string }>(
-      'SELECT name FROM staff_seats WHERE company_id = $1 AND revoked_at IS NULL AND ($2::uuid IS NULL OR id <> $2::uuid)',
+    const { rows } = await tx.query<{ name: string; handle: string | null }>(
+      'SELECT name, handle FROM staff_seats WHERE company_id = $1 AND revoked_at IS NULL AND ($2::uuid IS NULL OR id <> $2::uuid)',
       [companyId, except]);
-    const colleagues = rows.map((row) => looks(row.name));
+    const colleagues = rows.flatMap((row) => [looks(row.name), ...(row.handle === null ? [] : [looks(row.handle)])]);
     const batch: string[][] = [];
-    for (const name of names) {
+    for (const [index, name] of names.entries()) {
+      const named: Named = names.length > 1 ? { name, index } : { name };
       const mine = looks(name);
-      if (looksAlike(mine, reserved)) {
-        throw new PalugadaError('name.reserved',
-          'that name reads as the owner, PALUGADA, the CEO, the system or one of the company\'s roles: choose another', { field: 'name' });
-      }
-      if (colleagues.some((other) => looksAlike(mine, other)) || batch.some((other) => looksAlike(mine, other))) throw nameTaken();
+      if (looksAlike(mine, reserved)) throw nameReserved(named);
+      if (colleagues.some((other) => looksAlike(mine, other)) || batch.some((other) => looksAlike(mine, other))) throw nameTaken(named);
       batch.push(mine);
     }
     return names.map(skeleton);
@@ -674,6 +759,7 @@ export class StaffSeats {
    * Siti in a room's mention list.
    */
   async #vetHandle(tx: TenantClient, seat: { id: string; companyId: string }, handle: string): Promise<void> {
+    await tx.query(PEOPLE_NAMES_LOCK);
     const mine = looks(handle);
     if (looksAlike(mine, await reservedLooks(tx, seat.companyId, RESERVED_HANDLES))) throw unusable();
     const { rows } = await tx.query<{ handle: string | null; name: string; company_id: string }>(
@@ -694,10 +780,14 @@ export class StaffSeats {
    * so the index holds every seat that can hold one.
    */
   async #fillSkeletons(tx: TenantClient, companyId: string): Promise<void> {
-    const { rows } = await tx.query<{ id: string; name: string; name_skeleton: string | null }>(
+    const read = () => tx.query<{ id: string; name: string; name_skeleton: string | null }>(
       'SELECT id, name, name_skeleton FROM staff_seats WHERE company_id = $1 AND revoked_at IS NULL ORDER BY created_at, id',
       [companyId]);
+    let { rows } = await read();
     if (rows.every((row) => row.name_skeleton !== null)) return;
+    // Filled in the turn names are given in, and read again once it is ours.
+    await tx.query(PEOPLE_NAMES_LOCK);
+    ({ rows } = await read());
     // Those that hold a skeleton keep it; the rest are given theirs in the
     // order they were seated, unless they look like one already held.
     const held = rows.filter((row) => row.name_skeleton !== null).map((row) => ({ skeleton: row.name_skeleton!, looks: looks(row.name) }));

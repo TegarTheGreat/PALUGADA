@@ -86,9 +86,15 @@ test('a seat signs in with its handle and code', async () => {
     assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/work`, String(signed.body.token))).status, 200);
 
     // Typed as people type a handle: with its @, in capitals.
-    const typed = await api.call('POST', '/api/auth/sign-in', '', { handle: ' @Rina', totp: rina.code() });
+    const code = rina.code();
+    const typed = await api.call('POST', '/api/auth/sign-in', '', { handle: ' @Rina', totp: code });
     assert.equal(typed.status, 200, JSON.stringify(typed.body));
     assert.deepEqual(typed.body.staff, { name: 'Rina', kind: 'viewer', companyId: fixture.companyId });
+
+    // A code once used opens nothing again, and is not counted as a guess.
+    const again = await api.call('POST', '/api/auth/sign-in', '', { handle: 'rina', totp: code });
+    assert.deepEqual([again.status, again.body.code], [401, 'mfa.replayed']);
+    assert.equal((await failuresOf(rina.seatId)).sign_in_failures, 0);
   } finally {
     await api.close();
   }

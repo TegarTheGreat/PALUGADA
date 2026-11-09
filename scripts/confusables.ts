@@ -11,10 +11,12 @@
  *
  * Only what a person's name or handle is written in here is kept: a single
  * Latin, Cyrillic or Greek letter, or a digit, that looks like something
- * else. A letter NFKC already folds (a full-width A, a mathematical bold a)
- * is left out, since a name is folded before it is mapped. Whole scripts the
- * owner's people do not write in would make the table ten times longer and
- * catch nobody.
+ * else. A letter NFKD already takes apart or folds (an e with its mark, a
+ * full-width A, a mathematical bold a) is left out, since a name is taken
+ * apart that way before it is mapped, as UTS #39 does: its base letter is
+ * what is mapped, and the mark stays beside it. Whole scripts the owner's
+ * people do not write in would make the table ten times longer and catch
+ * nobody.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -41,7 +43,7 @@ for (const line of text.split('\n')) {
   const from = fromHex(entry[1]!);
   if ([...from].length !== 1) continue;
   if (!/\p{Script=Latin}|\p{Script=Cyrillic}|\p{Script=Greek}|\p{Nd}/u.test(from)) continue;
-  if (from.normalize('NFKC') !== from) continue;
+  if (from.normalize('NFKD') !== from) continue;
   kept.push({ from, to: fromHex(entry[2]!), name: entry[3]! });
 }
 kept.sort((a, b) => a.from.codePointAt(0)! - b.from.codePointAt(0)!);

@@ -6,7 +6,8 @@
  * who ask for work as well as viewers and approvers, and changes what each
  * may do later: a change that lets someone do more takes the owner's code
  * now, one that lets them do less takes effect at once and closes what the
- * person had open, so their console redraws its controls. A member can hold
+ * person had open, so nothing they held open goes on as what they were; their
+ * console draws the new controls when it next loads. A member can hold
  * a role that is a person. And each person chooses their own handle,
  * picture, language and quiet hours; only the owner chooses whether people
  * reach them outside the inbox.
@@ -139,7 +140,7 @@ test("widening a seat's kind or its daily number takes the owner's fresh code; n
     const listed = (await api.call('GET', `/api/companies/${fixture.companyId}/staff`, owner)).body.seats as Array<{ asksPerDay: number }>;
     assert.equal(listed[0]!.asksPerDay, 10);
 
-    // Narrowing takes effect now, and what she had open closes so her console redraws.
+    // Narrowing takes effect now, and what she had open closes, so it goes on as nothing she no longer is.
     const response = await fetch(`${api.url}/api/companies/${fixture.companyId}/live`, { headers: { authorization: `Bearer ${rina.token}` } });
     assert.equal(response.status, 200);
     const stream = listen(response.body!);

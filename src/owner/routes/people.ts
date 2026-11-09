@@ -114,8 +114,15 @@ export function peopleRoutes(kit: RouteKit): Route[] {
           throw new PalugadaError('contract.violation', `people is a list of 1 to ${STAFF_BATCH_MOST} people, each a name and a kind`,
             { field: 'people' });
         }
-        const people = (body.people as unknown[])
-          .map((one) => seatRequest(one !== null && typeof one === 'object' ? one as Record<string, unknown> : {}));
+        // A refusal says which of the list it is about, so the owner changes one line of thirty.
+        const people = (body.people as unknown[]).map((one, index) => {
+          try {
+            return seatRequest(one !== null && typeof one === 'object' ? one as Record<string, unknown> : {});
+          } catch (error) {
+            if (!(error instanceof PalugadaError)) throw error;
+            throw new PalugadaError(error.code, `number ${index + 1} of the list: ${error.message}`, { ...error.details, index });
+          }
+        });
         await kit.staff.vetNames(params.companyId!, people.map((one) => one.name));
         await kit.requireFactor(context, `seat ${people.length} people`, true);
         return { seats: await kit.staff.createMany(params.companyId!, people) };
@@ -126,8 +133,10 @@ export function peopleRoutes(kit: RouteKit): Route[] {
       // The owner renames a seat, or changes its kind or its asks a day.
       // What lets the person do more takes the owner's code now, as seating
       // them did; what lets them do less, and a rename, takes the session.
-      // A kind changed ends the streams the seat holds open, so its console
-      // reconnects and draws the controls its kind now has.
+      // A kind changed holds at once, since every request reads the seat's
+      // kind afresh, and it ends the streams the seat holds open, so nothing
+      // it had open goes on as the kind it was. Its console draws the
+      // controls of its new kind when it is next loaded (STATUS 2.209).
       method: 'POST',
       pattern: '/api/companies/:companyId/staff/:seatId/change',
       handle: async (context) => {

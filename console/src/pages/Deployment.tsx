@@ -371,7 +371,8 @@ function AssistantAllowance() {
         <Text size="sm" c="dimmed">{t('{spent} spent this month.', { spent: money(view.data.spentThisMonthCents) })}</Text>
         <Group align="flex-end" gap="xs" wrap="nowrap">
           <NumberInput label={t('Each month')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} {...numberSeparators()} style={{ flex: 1 }} />
-          <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>
+          {/* An empty field is no amount: read as 0, it would switch the conversation off. */}
+          <Button loading={busy} disabled={String(value).trim() === ''} onClick={() => void save()}>{t('Set')}</Button>
         </Group>
         {error && <Alert color="red" variant="light">{error}</Alert>}
       </Stack>

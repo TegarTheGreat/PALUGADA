@@ -91,18 +91,31 @@ const HISTORY = 30;
  */
 const HISTORY_CHARS_MAX = 24_000;
 
+/** The label a message of what happened is sent under, so the model does not read it as the owner speaking. */
+const HAPPENED = '[What happened] ';
+
+/** Which side of the conversation a message is sent as: what happened is told to the model as the owner's turn. */
+const sideOf = (role: string): 'user' | 'assistant' => (role === 'assistant' ? 'assistant' : 'user');
+
 /**
  * The end of the conversation that fits beside the owner's new line: the
  * newest messages, as many as fit in `HISTORY_CHARS_MAX` with it, and none
  * older than one that does not, so the model never reads a conversation
- * with a gap in it.
+ * with a gap in it. What is counted is what is sent: a message of what
+ * happened with its label, and the line break that joins a message to the
+ * newer one of the same side, which are sent as one turn.
  */
-function bounded<T extends { body: string }>(history: T[], said: string): T[] {
+function bounded<T extends { role: string; body: string }>(history: T[], said: string): T[] {
   let room = HISTORY_CHARS_MAX - said.length;
+  let newer = sideOf('owner');
   let from = history.length;
-  while (from > 0 && history[from - 1]!.body.length <= room) {
+  while (from > 0) {
+    const one = history[from - 1]!;
+    const size = (one.role === 'event' ? HAPPENED.length : 0) + one.body.length + (sideOf(one.role) === newer ? 2 : 0);
+    if (size > room) break;
+    room -= size;
+    newer = sideOf(one.role);
     from -= 1;
-    room -= history[from]!.body.length;
   }
   return history.slice(from);
 }
@@ -531,8 +544,8 @@ export async function converse(options: AssistantOptions, text: string, channel:
   const heard = { readOthersWords: false };
   const messages: Array<{ role: 'user' | 'assistant'; content: string | LlmBlock[] }> = [];
   for (const one of [...before, { role: 'owner' as const, body: said }]) {
-    const role = one.role === 'assistant' ? 'assistant' : 'user';
-    const content = one.role === 'event' ? `[What happened] ${one.body}` : one.body;
+    const role = sideOf(one.role);
+    const content = one.role === 'event' ? `${HAPPENED}${one.body}` : one.body;
     const last = messages.at(-1);
     if (last && last.role === role && typeof last.content === 'string') last.content = `${last.content}\n\n${content}`;
     else messages.push({ role, content });

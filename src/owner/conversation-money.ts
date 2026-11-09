@@ -7,7 +7,7 @@
  * reserves its estimate from the narrowest account that covers the CEO --
  * its role's, its division's, the company's -- before the call, and spends
  * from that reservation when the call answers (`budget.ts`). The reservation
- * is also a row (`conversation_holds`, 0151), written in the transaction that
+ * is also a row (`conversation_holds`, STATUS 2.205), written in the transaction that
  * reserves and deleted in the one that spends or lets it go, so a process
  * killed in the middle of a call leaves something the worker's sweep can
  * release rather than an account short for the rest of the month.
@@ -104,8 +104,12 @@ async function takeHold(tx: TenantClient, hold: Hold): Promise<number> {
  * Spends what a turn used from its reservation and lets the rest go, in the
  * transaction that records the call (`recordCallOutsideTask`). False when
  * the account cannot pay for it: the call was made and stays a trace, which
- * the month's ceiling reads, but nothing moves in the account, everything
- * the turn held goes back, and the answer goes no further.
+ * the month's ceiling reads, everything the turn held goes back, its tokens
+ * are not spent, and the answer goes no further. Its money is still settled
+ * into the account and every account above it, past the ceiling, as a
+ * task's refused call is (`budget_settle`, 0037): the provider billed it,
+ * and an account that never read as spent would admit the next question,
+ * and buy one more call past its ceiling with each.
  */
 export async function spendTurn(tx: TenantClient, hold: Hold, used: number, moneyCents: number): Promise<boolean> {
   const held = await takeHold(tx, hold);
@@ -114,6 +118,7 @@ export async function spendTurn(tx: TenantClient, hold: Hold, used: number, mone
   // it held; what is left of it goes back now.
   const left = paid ? Math.max(0, held - used) : held;
   if (left > 0) await release(tx, hold.accountId, left);
+  if (!paid && moneyCents > 0) await tx.query('SELECT app.budget_settle($1, $2)', [hold.accountId, moneyCents]);
   return paid;
 }
 
@@ -158,7 +163,7 @@ export async function assistantAllowance(now = new Date()): Promise<{ monthCents
 }
 
 /**
- * Sets what PALUGADA's own conversation may spend each month; nothing
+ * Sets what PALUGADA's own conversation may spend each month; zero
  * switches it off. The value is checked before `allowed` is asked, with what
  * the allowance was, so the caller can tell a raise, which loosens a control,
  * from a cut, and a mistyped value costs no second factor.

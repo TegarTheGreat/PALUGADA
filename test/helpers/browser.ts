@@ -27,6 +27,13 @@ export interface Page {
   waitFor(expression: string, what: string, timeoutMs?: number): Promise<void>;
   /** Types into whatever has the focus, one key at a time, as a person does. */
   type(text: string): Promise<void>;
+  /**
+   * Presses one named key (`Enter`, `ArrowUp`, `Escape`) with the modifiers
+   * held, as a keyboard sends it: what the page does with it is the page's.
+   */
+  press(key: string, modifiers?: { shift?: boolean; alt?: boolean }): Promise<void>;
+  /** Draws the page at another size, as a window resized or a phone turned. */
+  viewport(size: { width: number; height: number }): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -144,6 +151,25 @@ export async function openPage(
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key, text: key });
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key });
       }
+    },
+    press: async (key, modifiers = {}) => {
+      // The key code and the text a keyboard sends with each named key;
+      // without them Chromium delivers an event no text field acts on.
+      const known: Record<string, { code: number; text?: string }> = {
+        Enter: { code: 13, text: '\r' }, Escape: { code: 27 }, Backspace: { code: 8 }, Tab: { code: 9 },
+        ArrowUp: { code: 38 }, ArrowDown: { code: 40 }, ArrowLeft: { code: 37 }, ArrowRight: { code: 39 },
+      };
+      const sent = known[key];
+      if (!sent) throw new Error(`press() knows no key called ${key}`);
+      const held = (modifiers.alt ? 1 : 0) | (modifiers.shift ? 8 : 0);
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown', key, code: key, windowsVirtualKeyCode: sent.code, modifiers: held,
+        ...(sent.text ? { text: sent.text, unmodifiedText: sent.text } : {}),
+      });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: sent.code, modifiers: held });
+    },
+    viewport: async (size) => {
+      await send('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 1, mobile: true });
     },
     close: async () => {
       socket.close();

@@ -266,9 +266,15 @@ test('a card holds no words; the result is read from the task when shown, redact
     await syncRoomCards(fixture.companyId);
     assert.ok((await cards(fixture)).every((card) => card.body === null));
     await transition(fixture.companyId, taskId, 'running');
+    // What it wrote for a person to read, committed in its journal.
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, output, committed_at)
+       VALUES ($1, 1, $2, 'capability:document.write', 'tool', 'committed', 'h', 'k1', $3, now())`,
+      [taskId, fixture.companyId, JSON.stringify({ path: 'drafts/link.md', text: '# Payment link sk-live-0123456789abcdef\n\nIt is ready.' })]));
     await transition(fixture.companyId, taskId, 'completed', { output: { summary: 'Made the link with key sk-live-0123456789abcdef.' } });
     const shown = ok(await owner.page(room)).messages.find((one: { id: string }) => one.id === message);
     assert.equal(shown.card.result, 'Made the link with key [redacted].');
+    assert.deepEqual(shown.card.deliverables, [{ id: '1', title: 'Payment link [redacted]' }]);
     const stored = JSON.stringify((await withControlPlane((tx) => tx.query(
       'SELECT body, notice_values FROM room_messages WHERE company_id = $1', [fixture.companyId]))).rows);
     assert.ok(!stored.includes('Made the link'), 'the result lives on the task, not in the room');

@@ -248,6 +248,14 @@ test('Activity lists mentions, followed replies, questions for you, approvals yo
     // The owner's own: the questions that are theirs, none of the team's cards that are with an approver.
     const owners = ok(await owner.activity()).items as Array<Record<string, unknown>>;
     assert.ok(!owners.some((item) => item.kind === 'team_item'));
+    // And the badge beside the rooms counts the owner's open items as the
+    // inbox does: Sari's card is still with Budi and is not counted; Budi's
+    // own, which nobody else can decide, reached the owner as one day.
+    const queue = await inbox.ownerInbox(fixture.companyId);
+    assert.deepEqual(queue.team.map((entry) => [entry.day === null, entry.items.map((one) => one.id)]).sort(),
+      [[false, [own.itemId]], [true, [team.itemId]]]);
+    const across = ok(await api.call('GET', '/api/rooms/unread', owner.token)).unread[0];
+    assert.equal(across.openCount, queue.items.length + 1);
   } finally {
     await api.close();
   }

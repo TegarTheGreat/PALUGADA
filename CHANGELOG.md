@@ -1069,3 +1069,11 @@ The first version. What it holds, in the order an owner meets it.
   a tier 3 approval there is a link to your inbox. Nothing people say in
   rooms is written into the work's record. The rooms' page in the console
   comes next (STATUS 2.206).
+- People: you name everyone you seat, and a name that looks like a
+  colleague's, yours, PALUGADA's, the CEO's or a role's is refused, in
+  look-alike letters too. Seat a member, who asks for work and answers what
+  is put to them, or up to thirty people at once with one code, and change
+  what each may do (letting someone do more takes your code). Staff choose
+  a handle, a picture, their language and quiet hours as they join, sign in
+  with their handle and code, and are locked out of a handle after five
+  wrong codes; everyone has a profile in the menu (STATUS 2.209).

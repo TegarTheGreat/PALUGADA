@@ -191,10 +191,13 @@ const RELAY_STAFF: AreaPolicy = {
 };
 
 // --- people (STATUS 2.209) ---
+// Every person reads and sets their own profile, whatever their kind: their
+// handle, picture, language and quiet hours. Seating people, naming them and
+// changing what they may do stay the owner's, on no list.
 const PEOPLE_STAFF: AreaPolicy = {
-  reads: [],
+  reads: ['/api/me/profile'],
   hidden: {},
-  talks: [],
+  talks: ['/api/me/profile'],
   asks: [],
   decides: [],
 };

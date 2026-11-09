@@ -4,15 +4,23 @@
  *
  * The owner's link is `#/join/<code>`; the code is in the fragment, which a
  * browser never sends, so no proxy or server log keeps it. Opened, the page
- * shows a new secret as a QR code; the person adds it to their own
- * authenticator app, types the code the app shows, and is signed in to their
- * seat. Their app is then how they sign in.
+ * first asks how the person will appear (F19.22): the name the owner gave
+ * them, shown as it is; the handle colleagues mention them by and they sign
+ * in with; a picture; their language and quiet hours; and what joining means
+ * for what they write. Then it shows a new secret as a QR code; the person
+ * adds it to their own authenticator app, types the code the app shows, and
+ * is signed in to their seat. Their app and their handle are then how they
+ * sign in.
  */
 import { useEffect, useState } from 'react';
-import { Alert, Anchor, Button, Center, Code, CopyButton, Loader, Paper, PinInput, Stack, Text, Title } from '@mantine/core';
+import {
+  Alert, Anchor, Avatar, Button, Center, Code, CopyButton, Group, Loader, Paper, PinInput, Stack, Text, TextInput, Title,
+} from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { api, explain } from '../api.ts';
-import { t } from '../i18n.ts';
+import { api, ApiError, explain } from '../api.ts';
+import { isLanguage, language, setLanguage, t } from '../i18n.ts';
+import { personPicture } from '../images.ts';
+import { kindAbout, kindLabel, LanguagePicker, PicturePicker, QuietHours } from '../workspace/Profile.tsx';
 import { QrCode } from './Claim.tsx';
 
 /** The invite code in the address the console was opened at, if it was an invite. */
@@ -25,8 +33,11 @@ interface Offer {
   offer: string;
   secret: string;
   qr: string[];
-  seat: { name: string; kind: 'viewer' | 'approver' };
+  seat: { id: string; name: string; kind: 'viewer' | 'member' | 'approver'; company: string };
 }
+
+/** A handle as 0149 shapes it: what the field accepts before the server is asked whether it can be used. */
+const HANDLE = /^[a-z][a-z0-9._-]{2,31}$/;
 
 export function Join({ code, onSignedIn }: {
   code: string;
@@ -36,6 +47,12 @@ export function Join({ code, onSignedIn }: {
   const [error, setError] = useState<string | null>(null);
   const [totp, setTotp] = useState('');
   const [busy, setBusy] = useState(false);
+  // How the person will appear, chosen before the code.
+  const [step, setStep] = useState<'choose' | 'code'>('choose');
+  const [handle, setHandle] = useState('');
+  const [picture, setPicture] = useState<string | null>(null);
+  const [chosenLanguage, setChosenLanguage] = useState<string | null>(null);
+  const [quiet, setQuiet] = useState<{ start: number | null; end: number | null }>({ start: null, end: null });
   const narrow = useMediaQuery('(max-width: 26em)') ?? false;
 
   useEffect(() => {
@@ -43,13 +60,22 @@ export function Join({ code, onSignedIn }: {
     opening.then(setOffer, (failure: unknown) => setError(explain(failure)));
   }, [code]);
 
+  // The page is drawn in the language they choose, as the console will be.
+  const chooseLanguage = (next: string | null) => {
+    setChosenLanguage(next);
+    if (isLanguage(next) && next !== language()) setLanguage(next);
+  };
+
   const confirm = async (value: string) => {
     if (value.length !== 6 || busy) return;
     setBusy(true);
     setError(null);
     try {
       const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/join/confirm', {
-        code, offer: offer?.offer, totp: value,
+        code, offer: offer?.offer, totp: value, handle,
+        ...(picture ? { picture } : {}),
+        ...(chosenLanguage ? { language: chosenLanguage } : {}),
+        ...(quiet.start !== null && quiet.end !== null ? { quietStart: quiet.start, quietEnd: quiet.end } : {}),
       });
       // Spent: out of the address bar, and out of the back button's reach.
       window.history.replaceState(null, '', '#/home');
@@ -58,6 +84,8 @@ export function Join({ code, onSignedIn }: {
       setError(explain(failure));
       setTotp('');
       setBusy(false);
+      // Someone has that handle: back to choosing, where it is.
+      if (failure instanceof ApiError && failure.code === 'handle.unusable') setStep('choose');
     }
   };
 
@@ -65,6 +93,8 @@ export function Join({ code, onSignedIn }: {
     window.history.replaceState(null, '', '#/home');
     window.location.reload();
   };
+
+  const principal = offer ? `seat:${offer.seat.id}` : 'seat:';
 
   return (
     <Center mih="100vh" p="md">
@@ -77,16 +107,45 @@ export function Join({ code, onSignedIn }: {
               <Text c="dimmed" size="sm" mt={6}>
                 {offer.seat.kind === 'approver'
                   ? t('You can follow the company\'s work here, and approve or deny what waits at tier 2 and below. Everything else stays the owner\'s.')
-                  : t('You can follow the company\'s work here. Changing it stays the owner\'s.')}
+                  : offer.seat.kind === 'member'
+                    ? t('You can follow the company\'s work here, ask for work, and answer what is put to you. Everything else stays the owner\'s.')
+                    : t('You can follow the company\'s work here. Changing it stays the owner\'s.')}
               </Text>
             )}
-            <Text c="dimmed" size="sm" mt={6}>
-              {t('Scan this with your authenticator app, then enter the six-digit code it shows. That app is then how you sign in.')}
-            </Text>
           </div>
           {!offer && !error && <Loader />}
-          {offer && (
+          {offer && step === 'choose' && (
+            <Stack gap="md" w="100%">
+              <Group gap="sm" wrap="nowrap">
+                <Avatar src={personPicture(principal, picture)} alt="" size={48} radius="xl" />
+                <div style={{ minWidth: 0 }}>
+                  <Text fw={600}>{offer.seat.name}{HANDLE.test(handle) ? ` @${handle}` : ''}</Text>
+                  <Text size="xs" c="dimmed">{kindLabel(offer.seat.kind)}: {kindAbout(offer.seat.kind)} {t('The owner sets names.')}</Text>
+                </div>
+              </Group>
+              <TextInput name="handle" label={t('Your handle')} description={t('How colleagues mention you, and how you sign in.')}
+                leftSection="@" value={handle} maxLength={32} autoComplete="username" required
+                error={handle && !HANDLE.test(handle) ? t('3 to 32 letters, digits, dots, dashes or underscores, starting with a letter.') : undefined}
+                onChange={(event) => setHandle(event.currentTarget.value.trim().replace(/^@/, '').toLowerCase())} />
+              <div>
+                <Text size="sm" fw={500} mb={6}>{t('Picture')}</Text>
+                <PicturePicker principal={principal} value={picture} onChange={setPicture} />
+              </div>
+              <LanguagePicker value={chosenLanguage} onChange={chooseLanguage} />
+              <QuietHours start={quiet.start} end={quiet.end} onChange={(start, end) => setQuiet({ start, end })} />
+              <Text size="xs" c="dimmed">
+                {t("What you write here belongs to {company}. The owner can read every room except direct messages they are not in, and the owner's export of the company includes everything, direct messages too. The owner keeps the earlier words of an edited message. Messages to someone who linked a phone also go to that phone's relay, and a notice already sent stays sent after a delete. People can infer how busy the company's rooms are, never what was said or where.", { company: offer.seat.company })}
+              </Text>
+              <Button fullWidth size="md" disabled={!HANDLE.test(handle)} onClick={() => { setError(null); setStep('code'); }}>
+                {t('Continue')}
+              </Button>
+            </Stack>
+          )}
+          {offer && step === 'code' && (
             <>
+              <Text c="dimmed" size="sm" ta="center">
+                {t('Scan this with your authenticator app, then enter the six-digit code it shows. That app is then how you sign in.')}
+              </Text>
               <QrCode rows={offer.qr} />
               <Stack gap={4} align="center">
                 <Text size="xs" c="dimmed">{t('Cannot scan? Enter this key in the app instead:')}</Text>
@@ -112,6 +171,7 @@ export function Join({ code, onSignedIn }: {
               <Button fullWidth size="md" loading={busy} disabled={totp.length !== 6} onClick={() => void confirm(totp)}>
                 {t('Join')}
               </Button>
+              <Anchor component="button" type="button" size="sm" onClick={() => setStep('choose')}>{t('Back')}</Anchor>
             </>
           )}
           {error && <Alert color="red" variant="light" w="100%">{error}</Alert>}

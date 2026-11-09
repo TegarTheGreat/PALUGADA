@@ -75,15 +75,20 @@ test("only the people's code opens a room transaction, and only tenant.ts names 
   const named = (all.get('src/db/tenant.ts') ?? '').split("set_config('app.reader'").length - 1;
   assert.ok(named >= 1, "src/db/tenant.ts no longer names a reader; the scan is broken");
 
+  // A stray is any file outside a helper's list that names it at all, not
+  // only one that calls it: imported under another name, or handed on as a
+  // value, it opens the same transaction, and the database cannot tell
+  // which code did. The floor counts the calls.
   let calls = 0;
   const strays: string[] = [];
   for (const [path, text] of all) {
     if (path === 'src/db/tenant.ts') continue;
+    const bare = code(text);
     for (const [helper, allowed] of Object.entries(MAY_OPEN)) {
-      const found = (code(text).match(new RegExp(`\\b${helper}\\s*(?:<[^>]*>)?\\(`, 'g')) ?? []).length;
-      if (found === 0) continue;
-      if (allowed.some((prefix) => path === prefix || (prefix.endsWith('/') && path.startsWith(prefix)))) calls += found;
-      else strays.push(`${path} calls ${helper}`);
+      if (!new RegExp(`\\b${helper}\\b`).test(bare)) continue;
+      if (allowed.some((prefix) => path === prefix || (prefix.endsWith('/') && path.startsWith(prefix)))) {
+        calls += (bare.match(new RegExp(`\\b${helper}\\s*(?:<[^>]*>)?\\(`, 'g')) ?? []).length;
+      } else strays.push(`${path} names ${helper}`);
     }
   }
   assert.deepEqual(strays, [], 'a room transaction opened outside the people\'s code');

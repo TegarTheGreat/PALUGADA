@@ -183,3 +183,75 @@ test('signing out ends the streams that session opened', async () => {
     await api.close();
   }
 });
+
+/** A company's live stream, opened with a session's token. */
+async function openLive(api: Console, fixture: Fixture, token: string) {
+  const response = await fetch(`${api.url}/api/companies/${fixture.companyId}/live`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(response.status, 200);
+  return listen(response.body!);
+}
+
+/** The stream ends within three seconds, or `what` outlived what ended it. */
+async function endsSoon(stream: ReturnType<typeof listen>, what: string): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      stream.done,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} outlived what ended it`)), 3_000); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The database reads a uuid in any letter case, so a seat named in capitals
+ * in the address is still revoked, with its sessions. Its streams are filed
+ * under the id as the database spells it, so they must be ended by that
+ * spelling too, or a revoked seat goes on hearing the company.
+ */
+test('a seat revoked by its id in capitals loses its streams as well', async () => {
+  const fixture = await createCompany('live-capitals');
+  const api = await consoleWithSettings();
+  try {
+    const owner = await api.signIn();
+    const siti = await seated(api, owner, fixture, 'Siti Rahayu');
+    const hers = await openLive(api, fixture, siti.token);
+    // Braces are a spelling the database also reads; one spelling is taken, and this is refused before it is asked.
+    const braced = await api.call('POST', `/api/companies/${fixture.companyId}/staff/{${siti.seatId}}/revoke`, owner);
+    assert.equal(braced.status, 400, JSON.stringify(braced.body));
+    const task = await rootTask(fixture, 'Still heard by the seat');
+    await until(() => hers.heard.some((one) => one.taskId === task.id), 'the seat, still seated, to hear the next event');
+    const revoked = await api.call('POST', `/api/companies/${fixture.companyId}/staff/${siti.seatId.toUpperCase()}/revoke`, owner);
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    await endsSoon(hers, "the revoked seat's stream");
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * New recovery codes end the old set, and every session it signed in
+ * (mfa.ts): a sheet the owner threw away stops working. The streams those
+ * sessions opened end with them.
+ */
+test('new recovery codes end the streams the old ones signed in', async () => {
+  const fixture = await createCompany('live-recovery');
+  const api = await consoleWithSettings();
+  try {
+    const owner = await api.signIn();
+    const made = await api.call('POST', '/api/mfa/recovery-codes', owner, { proof: { totp: api.code() } });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    const signedIn = await api.call('POST', '/api/auth/sign-in', '', { recovery: made.body.codes[0] });
+    assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+    const byRecovery = await openLive(api, fixture, String(signedIn.body.token));
+    const byDevice = await openLive(api, fixture, owner);
+    const again = await api.call('POST', '/api/mfa/recovery-codes', owner, { proof: { totp: api.code() } });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    await endsSoon(byRecovery, 'the stream a thrown-away recovery code signed in');
+    const task = await rootTask(fixture, 'Still heard by the device');
+    await until(() => byDevice.heard.some((one) => one.taskId === task.id), "the device session's stream to hear the next event");
+  } finally {
+    await api.close();
+  }
+});

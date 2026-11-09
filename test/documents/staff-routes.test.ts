@@ -88,14 +88,22 @@ test('what a member may ask for is a list written here', async () => {
   assert.deepEqual(STAFF_ASKS.filter((pattern) => pattern.endsWith('/assign') || pattern.endsWith('/instruct')), []);
 });
 
-test("an approver's decisions are the inbox's and a meeting's alone", () => {
+/**
+ * Deciding is an approver's alone, and so is calling an agent meeting from a
+ * room, which spends the company's money (F19.17). The meeting's route
+ * arrives with the agent meetings (section 2.211); from then on it must be
+ * here, and nowhere lower: on the talk list the room's shape would let any
+ * viewer call one.
+ */
+test("an approver's decisions are the inbox's and a meeting's alone", async () => {
   const decidable = [
     '/api/companies/:companyId/inbox/:itemId/decide',
     '/api/companies/:companyId/inbox/batch',
     '/api/companies/:companyId/rooms/:roomId/messages/:messageId/meeting',
   ];
-  assert.deepEqual(STAFF_DECIDES.filter((pattern) => !decidable.includes(pattern)), []);
-  for (const pattern of decidable.slice(0, 2)) assert.ok(STAFF_DECIDES.includes(pattern), pattern);
+  const real = await posts();
+  assert.ok(real.has(decidable[0]!) && real.has(decidable[1]!), "the inbox's decisions are routes; the scan is broken");
+  assert.deepEqual([...STAFF_DECIDES].sort(), decidable.filter((pattern) => real.has(pattern)).sort());
 });
 
 /** A seat as the database hands it to `staffMay`: its kind is the row's, read when the session was verified. */

@@ -67,4 +67,12 @@ test('every refusal the workspace answers with has a status, and a sentence for 
   const table = explained.slice(explained.indexOf('const EXPLAINED'), explained.indexOf('export function explain'));
   const said = new Set([...table.matchAll(/^ {2}'([a-z_.]+)': N\(/gm)].map((match) => match[1]!));
   assert.deepEqual(refusals.map(([code]) => code).filter((code) => !said.has(code)), [], 'refusals the owner would read in the server\'s English');
+
+  // Each is a code a refusal can be thrown with (`ErrorCode`, src/errors.ts),
+  // written there now, so no part built later edits that union for its own.
+  const errors = await readFile(`${ROOT}src/errors.ts`, 'utf8');
+  const union = errors.slice(errors.indexOf('export type ErrorCode'), errors.indexOf('export class PalugadaError'));
+  const codes = new Set([...union.matchAll(/^\s*\| '([a-z_.]+)'/gm)].map((match) => match[1]!));
+  assert.ok(codes.size > 100, `only ${codes.size} error codes were found in src/errors.ts; the scan is broken`);
+  assert.deepEqual(refusals.map(([code]) => code).filter((code) => !codes.has(code)), [], 'refusals no PalugadaError can be thrown with');
 });

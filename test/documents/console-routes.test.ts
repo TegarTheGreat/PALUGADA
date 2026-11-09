@@ -156,6 +156,19 @@ test('the route scan reads every route module', async () => {
     assert.match(build, new RegExp(`\\.\\.\\.${made[0]}\\(kit\\)`), `${path}: #buildRoutes does not serve ${made[0]}`);
   }
 
+  // Every route in those files is written in the one form the scans read:
+  // `method: 'X',` with `pattern: '…',` on the next line, in single quotes.
+  // `#match` serves a route however it is spelt, so one written otherwise --
+  // a comment between the two lines, a pattern in backticks, a route on one
+  // line -- would be served and read by no scan: not pressed, on no seat's
+  // list, never kept from the assistant. So in these files `pattern:` is a
+  // route's, and every one is read.
+  for (const [path, text] of files) {
+    const written = (text.match(/\bpattern\s*:/g) ?? []).length;
+    const read = [...text.matchAll(PATTERN)].length;
+    assert.equal(read, written, `${path}: ${written - read} of its ${written} routes are not written as \`method: 'X',\` with \`pattern: '…',\` on the next line`);
+  }
+
   // No route is written outside the files the scans read.
   const elsewhere: string[] = [];
   const walk = async (directory: string): Promise<void> => {

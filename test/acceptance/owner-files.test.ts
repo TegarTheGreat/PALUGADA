@@ -19,11 +19,13 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readdir, readFile, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { declarationFor } from '../../src/broker/catalogue.ts';
-import { filesList, filesRead, plainFileName, UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES } from '../../src/capabilities/files.ts';
+import { companyRoot, filesList, filesRead, plainFileName, UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES } from '../../src/capabilities/files.ts';
+import { isPalugadaError } from '../../src/errors.ts';
+import { peopleFilesFolder } from '../../src/owner/route.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -436,4 +438,38 @@ test('a listing is sorted, folders first, and says when it is cut', async () => 
   } finally {
     await api.close();
   }
+});
+
+/**
+ * Room files are people's words (F19.4, invariant I1 of the workspace plan):
+ * no agent capability and not the owner's Files page may reach them, and all
+ * of those read a company's folder (`companyRoot`). So a company's room files
+ * are kept beside its folder, or under a root of their own, and a root of
+ * their own that is the files root itself, or inside a company's folder there,
+ * is refused when the API starts rather than taken.
+ */
+test("room files are kept where no company's folder reaches, whichever root is set", async () => {
+  const root = await mkdtemp(join(tmpdir(), 'palugada-people-files-'));
+  const elsewhere = await mkdtemp(join(tmpdir(), 'palugada-people-elsewhere-'));
+  const companyId = randomUUID();
+  const mine = await companyRoot(root, companyId);
+  const reaches = (folder: string) => {
+    const path = relative(mine, folder);
+    return path === '' || (!path.startsWith(`..${sep}`) && path !== '..');
+  };
+  for (const files of [{ root }, { root, peopleRoot: elsewhere }, { root, peopleRoot: join(root, 'people') }]) {
+    const folder = peopleFilesFolder(files, companyId)!;
+    assert.ok(!reaches(folder), `${folder} is inside ${mine}`);
+  }
+  assert.equal(peopleFilesFolder(undefined, companyId), null, 'a deployment that keeps no files keeps no room files');
+
+  const link = join(elsewhere, 'a-company');
+  await symlink(mine, link);
+  const refused = (error: unknown) => isPalugadaError(error, 'config.invalid');
+  for (const peopleRoot of [root, `${root}/`, mine, join(root, companyId.toUpperCase(), 'rooms'), link]) {
+    assert.throws(() => peopleFilesFolder({ root, peopleRoot }, companyId), refused, peopleRoot);
+    await assert.rejects(consoleWithSettings({ files: { root, peopleRoot } }), refused, `the API started with ${peopleRoot}`);
+  }
+  // Nothing is named from what is not a company's id.
+  assert.throws(() => peopleFilesFolder({ root }, '../other'), (error) => isPalugadaError(error, 'contract.violation'));
 });

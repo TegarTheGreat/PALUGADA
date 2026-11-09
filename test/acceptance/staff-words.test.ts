@@ -36,7 +36,9 @@ import { CapabilityBroker, STAFF_WORDS_HELD } from '../../src/broker/broker.ts';
 import { Guardian } from '../../src/broker/guardian.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { buildContext, wrapColleague } from '../../src/context/builder.ts';
-import { instructTask, instructTaskWithin, instructionsFor, INSTRUCTIONS_PER_TASK } from '../../src/engine/owner-control.ts';
+import {
+  cancelTask, instructTask, instructTaskWithin, instructionsFor, INSTRUCTIONS_PER_TASK, rerunTask,
+} from '../../src/engine/owner-control.ts';
 import {
   createRootTask, createRootTaskWithin, createSubTask, getTask, staffWordsIn, transition, type CreateTaskInput,
 } from '../../src/engine/tasks.ts';
@@ -70,6 +72,24 @@ async function seat(fixture: Fixture, name: string, kind: StaffKind): Promise<in
     return rows[0]!.id;
   });
   return { id, name, kind };
+}
+
+/**
+ * A seat the owner seats in the console and who joins with its own device:
+ * what a seat's routes are pressed with, the session its token is.
+ */
+async function seatedThrough(
+  api: Awaited<ReturnType<typeof consoleWithSettings>>, fixture: Fixture, owner: string, name: string, kind: StaffKind,
+): Promise<inbox.SeatActor & { token: string }> {
+  const made = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind, proof: { totp: api.code() } });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  const opened = await api.call('POST', '/api/auth/join', '', { code: made.body.invite });
+  const secret = decodeBase32(String(opened.body.secret));
+  const joined = await api.call('POST', '/api/auth/join/confirm', '', {
+    code: made.body.invite, offer: opened.body.offer, totp: totpCode(secret, stepFor(new Date())),
+  });
+  assert.equal(joined.status, 200, JSON.stringify(joined.body));
+  return { id: String(made.body.seatId), name, kind, token: String(joined.body.token) };
 }
 
 function work(fixture: Fixture, goal: string): CreateTaskInput {
@@ -884,19 +904,8 @@ test('a question put to one seat is not readable by another seat through the tas
   const api = await consoleWithSettings();
   try {
     const owner = await api.signIn();
-    const join = async (name: string, kind: StaffKind) => {
-      const made = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind, proof: { totp: api.code() } });
-      assert.equal(made.status, 200, JSON.stringify(made.body));
-      const opened = await api.call('POST', '/api/auth/join', '', { code: made.body.invite });
-      const secret = decodeBase32(String(opened.body.secret));
-      const joined = await api.call('POST', '/api/auth/join/confirm', '', {
-        code: made.body.invite, offer: opened.body.offer, totp: totpCode(secret, stepFor(new Date())),
-      });
-      assert.equal(joined.status, 200, JSON.stringify(joined.body));
-      return { id: String(made.body.seatId), name, kind, token: String(joined.body.token) };
-    };
-    const budi = await join('Budi', 'member');
-    const sari = await join('Sari', 'approver');
+    const budi = await seatedThrough(api, fixture, owner, 'Budi', 'member');
+    const sari = await seatedThrough(api, fixture, owner, 'Sari', 'approver');
 
     const asked = await question(fixture, 'the bundle', { id: budi.id, name: 'Budi', kind: 'member' });
     await withTenant(fixture.companyId, (tx) => tx.query(
@@ -931,9 +940,136 @@ test('a question put to one seat is not readable by another seat through the tas
     assert.doesNotMatch(said(task.body), /Priced at what Budi said/, 'the task\'s output is kept from her');
     const mine = await api.call('GET', base, budi.token);
     assert.match(said(mine.body), /Priced at what Budi said/);
+
+    // Nor are the output and the drafts to be had from the lists that show every task's.
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, output, committed_at)
+       VALUES ($1, 0, $2, 'capability:doc.draft', 'tool', 'committed', 'h', 'privacy-draft', $3, now())`,
+      [asked.taskId, fixture.companyId, JSON.stringify({ path: 'drafts/bundle.md', text: 'The bundle list, priced as Budi said.', words: 6, model: 'm' })]));
+    for (const path of ['/work', '/work?group=active', '/gallery']) {
+      const theirs = await api.call('GET', `/api/companies/${fixture.companyId}${path}`, sari.token);
+      assert.equal(theirs.status, 200, path);
+      assert.doesNotMatch(said(theirs.body), /Priced at what Budi said|priced as Budi said/, `${path} keeps it from her`);
+      const his = await api.call('GET', `/api/companies/${fixture.companyId}${path}`, budi.token);
+      assert.match(said(his.body), /Priced at what Budi said|priced as Budi said/, `${path} shows it to him`);
+    }
+    const listed = await api.call('GET', `/api/companies/${fixture.companyId}/work`, sari.token);
+    assert.ok((listed.body.items as Array<{ id: string }>).some((one) => one.id === asked.taskId), 'the task itself is still listed to her');
+
+    // A card the same work raises later is hers to decide, and its trace is
+    // the task's: what the runs were told is kept from her there too.
+    const card = await inbox.requestApproval({
+      companyId: fixture.companyId, taskId: asked.taskId, capabilityName: 'social.publish', tier: 2,
+      actionSummary: 'Publish the bundle price', rationale: 'ready', consequenceIfDenied: 'not published',
+    });
+    const cards = await api.call('GET', `/api/companies/${fixture.companyId}/inbox`, sari.token);
+    assert.ok(said(cards.body).includes(card), 'she lists the card');
+    const viaCard = await api.call('GET', `/api/companies/${fixture.companyId}/inbox/${card}/trace?prompts=1`, sari.token);
+    assert.deepEqual([viaCard.status, viaCard.body.code], [403, 'staff.forbidden']);
+    for (const token of [owner, budi.token]) {
+      assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/inbox/${card}/trace?prompts=1`, token)).status, 200);
+    }
+
+    // Running the work again tells the new run what Budi was asked and said,
+    // among what the earlier attempts heard, so the rerun is kept from her too.
+    await cancelTask(fixture.companyId, asked.taskId, 'priced wrongly');
+    const again = await rerunTask(fixture.companyId, asked.taskId);
+    const rerunTrace = await api.call('GET', `/api/companies/${fixture.companyId}/tasks/${again}/trace`, sari.token);
+    assert.deepEqual([rerunTrace.status, rerunTrace.body.code], [403, 'staff.forbidden']);
+    assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/tasks/${again}/trace`, budi.token)).status, 200);
   } finally {
     await api.close();
   }
+});
+
+test('a member still reads the work they asked for once another approver decides its card, since a yes or a no is not words', async () => {
+  const fixture = await createCompany('staff-words-decided');
+  const api = await consoleWithSettings();
+  try {
+    const owner = await api.signIn();
+    const budi = await seatedThrough(api, fixture, owner, 'Budi', 'member');
+    const sari = await seatedThrough(api, fixture, owner, 'Sari', 'approver');
+    const output = (taskId: string, summary: string) => withTenant(fixture.companyId, (tx) => tx.query(
+      'UPDATE tasks SET output = $2::jsonb WHERE id = $1', [taskId, JSON.stringify({ summary })]));
+    const reads = async (token: string, taskId: string) => {
+      const task = await api.call('GET', `/api/companies/${fixture.companyId}/tasks/${taskId}`, token);
+      const trace = await api.call('GET', `/api/companies/${fixture.companyId}/tasks/${taskId}/trace`, token);
+      return { output: JSON.stringify(task.body.task?.output ?? null), trace: trace.status };
+    };
+
+    // The member's own request, which the approver approves, as four eyes asks.
+    const his = await askedBy(fixture, budi, 'Publish the spring post', 'social.publish');
+    await output(his, 'Published the spring post');
+    const card = await inbox.requestApproval({
+      companyId: fixture.companyId, taskId: his, capabilityName: 'social.publish', tier: 2,
+      actionSummary: 'Publish the spring post', rationale: 'ready', consequenceIfDenied: 'not published', instigators: [budi.id],
+    });
+    const decided = await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${card}/decide`, sari.token, { decision: 'approve', note: 'Looks right.' });
+    assert.equal(decided.status, 200, JSON.stringify(decided.body));
+    const after = await reads(budi.token, his);
+    assert.match(after.output, /Published the spring post/, 'he still reads what his request produced');
+    assert.equal(after.trace, 200);
+
+    // The owner's own work, which the approver turns down: nothing of hers is in it either.
+    const own = await ownWork(fixture, 'Publish the autumn post', 'social.publish');
+    await output(own, 'Drafted the autumn post');
+    const second = await inbox.requestApproval({
+      companyId: fixture.companyId, taskId: own, capabilityName: 'social.publish', tier: 2,
+      actionSummary: 'Publish the autumn post', rationale: 'ready', consequenceIfDenied: 'not published',
+    });
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${second}/decide`, sari.token, { decision: 'deny', note: 'Not yet.' })).status, 200);
+    const plain = await reads(budi.token, own);
+    assert.match(plain.output, /Drafted the autumn post/);
+    assert.equal(plain.trace, 200);
+
+    // A question back is words to the run, and those are hers and the owner's.
+    const third = await ownWork(fixture, 'Publish the winter post', 'social.publish');
+    const asking = await inbox.requestApproval({
+      companyId: fixture.companyId, taskId: third, capabilityName: 'social.publish', tier: 2,
+      actionSummary: 'Publish the winter post', rationale: 'ready', consequenceIfDenied: 'not published',
+    });
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${asking}/decide`, sari.token, { decision: 'ask', note: 'Why this photo?' })).status, 200);
+    assert.equal((await reads(budi.token, third)).trace, 403);
+  } finally {
+    await api.close();
+  }
+});
+
+test("a seat's question back about a card is recorded and shown as the seat's, never as the owner's", async () => {
+  const fixture = await createCompany('staff-words-ask');
+  const sari = await seat(fixture, 'Sari', 'approver');
+  const card = await approval(fixture, 'Publish the post');
+  const { rows: [{ task_id: taskId }] } = await withTenant(fixture.companyId, (tx) => tx.query<{ task_id: string }>(
+    'SELECT task_id FROM inbox_items WHERE id = $1', [card]));
+  // The model's turn that asked for the action, which the question reopens.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, output, committed_at)
+     VALUES ($1, 0, $2, 'model:turn 1', 'llm', 'committed', 'h', 'ask-turn', '{}'::jsonb, now())`, [taskId, fixture.companyId]));
+
+  await inbox.decide(fixture.companyId, card, 'ask', 'Why this photo?', { seat: sari });
+  const asked = await events(fixture, ['owner.asked'], taskId);
+  assert.deepEqual(asked.map((event) => [event.actor, event.payload.staff, event.payload.question]),
+    [['staff', { seatId: sari.id, name: 'Sari' }, 'Why this photo?']], 'the record names her, not the owner');
+  const { rows: [step] } = await withTenant(fixture.companyId, (tx) => tx.query<{ error: string }>(
+    'SELECT error FROM task_steps WHERE task_id = $1', [taskId]));
+  assert.equal(step!.error, 'Sari (staff) asked: Why this photo?');
+  const open = (await inbox.listOpen(fixture.companyId)).find((one) => one.id === card)!;
+  assert.deepEqual(open.asked, [{ question: 'Why this photo?', answer: null, by: 'Sari' }], 'the card says she asked');
+
+  // The run comes back to the action: the exchange kept on the card still names her.
+  await inbox.requestApproval({
+    companyId: fixture.companyId, taskId, capabilityName: 'social.publish', tier: 2,
+    actionSummary: 'Publish the post', rationale: 'the draft is ready', consequenceIfDenied: 'the post is not published',
+  });
+  const back = (await inbox.listOpen(fixture.companyId)).find((one) => one.id === card)!;
+  assert.deepEqual(back.asked, [{ question: 'Why this photo?', answer: null, by: 'Sari' }]);
+
+  // The owner's own question is the owner's, as it was.
+  await inbox.decide(fixture.companyId, card, 'ask', 'And the caption?');
+  const mine = await events(fixture, ['owner.asked'], taskId);
+  assert.deepEqual([mine[1]!.actor, mine[1]!.payload.staff], ['owner', undefined]);
+  const both = (await inbox.listOpen(fixture.companyId)).find((one) => one.id === card)!;
+  assert.deepEqual(both.asked.at(-1), { question: 'And the caption?', answer: null });
 });
 
 test('a message telling the work to approve or pay approves nothing', async () => {

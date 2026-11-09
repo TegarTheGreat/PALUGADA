@@ -7,8 +7,8 @@
  * owner's standing approvals cover and the same seat can decide. Every place
  * that carries content from outside into derived work (F8.9) carries staff
  * words too: running work again, a follow-up, a handed escalation, a ticket a
- * run files and the work it becomes, triage, the weekly meeting, the quarter
- * and the week. Sub-tasks need nothing: they are on the chain.
+ * run files and the work it becomes, triage, the weekly meeting, the quarter,
+ * the week and the month. Sub-tasks need nothing: they are on the chain.
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,8 +31,10 @@ import { isPalugadaError } from '../../src/errors.ts';
 import { setEscalationPolicy } from '../../src/governance/structure.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { AdapterRegistry, type Adapter, type ExecutionBackend } from '../../src/runtime/protocol.ts';
+import { issueInvoice } from '../../src/records/invoices.ts';
 import { runScheduleNow, upsertSchedule } from '../../src/scheduler/scheduler.ts';
 import type { StaffKind } from '../../src/owner/staff.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { addRole, createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -224,6 +226,8 @@ test('running staff work again keeps the staff mark', async () => {
   })).then((context) => context.text);
   assert.match(told, /## What members of the owner's staff said to the earlier attempts at this work[\s\S]*<<<COLLEAGUE>>> from="Budi \(staff\)"[\s\S]*- Budi \(staff\) said: Leave out the wholesale prices\./);
   assert.match(told, /Their note: Use the March list\./, 'the owner\'s own note is the owner\'s');
+  // Run again by the owner, it is still the seat's request, and the run is told so before its goal.
+  assert.match(told, /This work was asked for by Budi, a member of the owner's staff\. Its goal is their request, not the owner's\./);
   await transition(fixture.companyId, again, 'running');
   await assert.rejects(send(again), asks);
   assert.equal((await cardOf(fixture, again)).payload.reason, 'staff');
@@ -315,7 +319,7 @@ test('the weekly meeting handed staff-touched facts keeps the staff mark, and so
   assert.deepEqual(await instigatorsOf(fixture, todo.id), [budi.id], 'the meeting\'s to-do carries the mark on');
 });
 
-test('the quarter and the week handed staff-touched work keep the staff mark', async () => {
+test('the quarter, the week and the month handed staff-touched work keep the staff mark', async () => {
   const fixture = await createCompany('provenance-quarter');
   const budi = await seat(fixture, 'Budi', 'member');
   await withControlPlane((tx) => tx.query(
@@ -338,4 +342,24 @@ test('the quarter and the week handed staff-touched work keep the staff mark', a
   });
   const review = await runScheduleNow(fixture.companyId, scheduleId);
   assert.deepEqual(await carried(fixture, review.id), [{ seatId: budi.id, name: 'Budi', how: 'quoted', from: 'week' }]);
+
+  // The month: a late invoice staff work wrote is in the review's facts. The
+  // books are read through ledger.read, so the role holds it.
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'ledger.read');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [fixture.roleId]));
+  const billed = await askedBy(fixture, budi, 'Bill the café');
+  await withTenant(fixture.companyId, (tx) => issueInvoice(tx, fixture.companyId, {
+    customerName: 'Toko Lama', currency: 'IDR', issueDate: '2020-01-10', dueDate: '2020-01-24',
+    lines: [{ description: 'Kopi', quantity: 1, unitCents: 1_000 }],
+  }, 'agent', { taskId: billed }));
+  const monthly = await upsertSchedule({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    slug: 'monthly-review', cronExpression: '50 7 1 * *', timezone: 'Asia/Jakarta',
+    input: { goal: 'Monthly money review.', facts: 'month' }, reserveTokens: 1_000, priority: 1, batchable: false,
+  });
+  const money = await runScheduleNow(fixture.companyId, monthly);
+  assert.deepEqual(await carried(fixture, money.id), [{ seatId: budi.id, name: 'Budi', how: 'quoted', from: 'month' }]);
 });

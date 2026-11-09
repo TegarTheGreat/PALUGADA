@@ -1,5 +1,6 @@
 /**
- * The pictures the console draws for companies, roles and the owner.
+ * The pictures the console draws for companies, roles, the owner and the
+ * people the owner seats.
  *
  * Nothing here is drawn from the letters of a name. A letter says nothing the
  * name beside it does not, and two companies that start with the same one look
@@ -105,6 +106,29 @@ export function companyEmblem(company: { id: string; name: string }): string {
 
 /** The owner, who is one person and is drawn as one. */
 export const OWNER_PICTURE = '/avatars/owner.webp';
+
+/** The pictures a person chooses from as they join, or later in their profile (F19.2). */
+export const PEOPLE_PICTURES = [
+  'person-01', 'person-02', 'person-03', 'person-04', 'person-05', 'person-06',
+  'person-07', 'person-08', 'person-09', 'person-10', 'person-11', 'person-12',
+] as const;
+
+/** The file of one of the people's pictures. */
+export function peoplePicture(picture: (typeof PEOPLE_PICTURES)[number]): string {
+  return `/avatars/people/${picture}.webp`;
+}
+
+/**
+ * A person as the console draws them: the owner as the owner, whatever is
+ * asked; a seat as the picture it chose, or until it chooses, one given from
+ * its id, so the same person is drawn the same everywhere and two people of
+ * one name are not drawn alike by it. Never from the letters of the name.
+ */
+export function personPicture(principal: string, picture?: string | null): string {
+  if (principal === 'owner') return OWNER_PICTURE;
+  const chosen = PEOPLE_PICTURES.find((one) => one === picture);
+  return peoplePicture(chosen ?? PEOPLE_PICTURES[spread(principal) % PEOPLE_PICTURES.length]!);
+}
 
 /**
  * A number from a string that spreads neighbouring strings apart (FNV-1a).

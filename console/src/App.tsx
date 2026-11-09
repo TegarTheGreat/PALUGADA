@@ -23,6 +23,7 @@ import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
   IconBook2, IconCoin, IconCompass, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
+  IconUserCircle,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
@@ -30,7 +31,8 @@ import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
-import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
+import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
+import { ChooseHandle, kindLabel, ProfileDrawer, useProfile } from './workspace/Profile.tsx';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { Onboarding } from './pages/Onboarding.tsx';
@@ -184,6 +186,10 @@ function Console({ device, staff, recovered, signOut }: {
   const [tourNew, setTourNew] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
   const spotted = (name: TourSpot) => (spot === name ? ' tour-spot' : '');
+  // The person signed in, as they set themselves (F19.2, F19.22): a seat's
+  // language, handle and picture, and the profile drawer everyone keeps.
+  const me = useProfile();
+  const [profiling, setProfiling] = useState(false);
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages, money]: [
@@ -216,10 +222,14 @@ function Console({ device, staff, recovered, signOut }: {
     void api('POST', '/api/control/tour', { finished: true }).catch(() => undefined);
   }, []);
 
-  // The deployment's choice wins over the browser's once the owner is in.
+  // The deployment's choice wins over the browser's once the owner is in. A
+  // member of staff reads in the language they chose, when they chose one
+  // (F19.22), and the deployment's otherwise; theirs is waited for, so the
+  // console is not drawn in one and then the other.
   useEffect(() => {
     const chosen = base.data?.languages.console;
-    if (isLanguage(chosen) && chosen !== language()) setLanguage(chosen);
+    const wanted = staff ? (me.data ? (isLanguage(me.data.language) ? me.data.language : chosen) : null) : chosen;
+    if (isLanguage(wanted) && wanted !== language()) setLanguage(wanted);
     // No choice yet: the console has been drawn in the browser's language, and
     // the deployment has never been told. Everything the server writes for the
     // owner -- the CEO's first words, a push, a card -- and every agent that has
@@ -233,7 +243,7 @@ function Console({ device, staff, recovered, signOut }: {
     // console as a language does when it changes.
     const money = base.data?.money;
     if (money) setMoneyDisplay(money.currency && money.rate ? { currency: money.currency, rate: money.rate } : null);
-  }, [base.data]);
+  }, [base.data, me.data]);
 
   const companies = base.data?.companies ?? [];
   const stopAll = base.data?.stopAll ?? false;
@@ -332,7 +342,11 @@ function Console({ device, staff, recovered, signOut }: {
 
   const pickLanguage = async (code: Language) => {
     try {
-      await chooseLanguage(code);
+      // The deployment's language is the owner's; a member of staff's is their own.
+      if (staff) {
+        await api('POST', '/api/me/profile', { language: code });
+        setLanguage(code);
+      } else await chooseLanguage(code);
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
     }
@@ -629,16 +643,20 @@ function Console({ device, staff, recovered, signOut }: {
             <Menu.Target>
               <UnstyledButton w="100%" px={6} py={4} style={{ borderRadius: 'var(--mantine-radius-md)' }}>
                 <Group gap="sm" wrap="nowrap">
-                  <Avatar radius="xl" size={32} src={OWNER_PICTURE} alt="" />
+                  <Avatar radius="xl" size={32} src={staff ? personPicture(me.data?.principal ?? 'seat:', me.data?.picture) : OWNER_PICTURE} alt="" />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <Text size="sm" fw={600}>{staff ? staff.name : t('Owner')}</Text>
-                    <Text size="xs" c="dimmed" truncate>{staff ? (staff.kind === 'approver' ? t('Approver') : t('Viewer')) : device}</Text>
+                    <Text size="sm" fw={600} truncate>{staff ? staff.name : t('Owner')}</Text>
+                    <Text size="xs" c="dimmed" truncate>
+                      {staff ? `${kindLabel(staff.kind)}${me.data?.handle ? ` · @${me.data.handle}` : ''}` : device}
+                    </Text>
                   </div>
                   <IconDots size={16} />
                 </Group>
               </UnstyledButton>
             </Menu.Target>
             <Menu.Dropdown>
+              <Menu.Item leftSection={<IconUserCircle size={16} />} onClick={() => setProfiling(true)}>{t('Your profile')}</Menu.Item>
+              <Menu.Divider />
               {languageMenu}
               <Menu.Divider />
               <Menu.Item leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />} onClick={toggleColorScheme}>
@@ -735,9 +753,13 @@ function Console({ device, staff, recovered, signOut }: {
             <NavLink key={one.code} label={one.name} leftSection={<IconLanguage size={18} />} active={one.code === language()} onClick={() => void pickLanguage(one.code)} />
           ))}
           <NavLink label={colorScheme === 'dark' ? t('Light theme') : t('Dark theme')} leftSection={<IconMoon size={18} />} onClick={toggleColorScheme} />
+          <NavLink label={t('Your profile')} leftSection={<IconUserCircle size={18} />} onClick={() => { setMore(false); setProfiling(true); }} />
           <NavLink label={t('Sign out')} leftSection={<IconLogout size={18} />} onClick={() => void signOut()} />
         </Stack>
       </Drawer>
+
+      <ProfileDrawer opened={profiling} onClose={() => setProfiling(false)} profile={me.data} changed={() => me.reload()} />
+      {staff && me.data && <ChooseHandle profile={me.data} chosen={() => me.reload()} />}
 
       <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null} setup={setup} reloadSetup={base.reload}
         started={(id) => { arrive(id); setGreeting(id); }} />

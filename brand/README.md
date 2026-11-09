@@ -6,8 +6,8 @@
 # The PALUGADA brand
 
 Everything the product is drawn with: the logo in every shape a place asks
-for, the banners, and the pictures the console uses for companies, roles and
-the owner. `test/documents/console-images.test.ts` holds the kit to what this
+for, the banners, and the pictures the console uses for companies, roles, the
+owner and the people the owner seats. `test/documents/console-images.test.ts` holds the kit to what this
 page says: every vector here is named below, every PNG is the size its name
 gives, and nothing in the console is drawn from the letters of a name.
 
@@ -112,6 +112,15 @@ new sizes.
   picture is read from the words of the role's slug, so a role the owner hires
   as `content-writer` is drawn writing.
 - `avatars/owner.webp`: the owner.
+- `avatars/people/`: twelve people, `person-01.webp` to `person-12.webp`,
+  one of whom each member of staff chooses to be drawn as when they join,
+  or later in their profile. Until they choose, a person is given one from
+  their seat's id, never from the letters of their name, so two people with
+  one name are not drawn alike by it (`personPicture`, `console/src/images.ts`).
+  They are different people -- in a hijab, with glasses, a beard, an afro, a
+  bun -- so a room of colleagues is told apart at a glance, in the owner's
+  colours, so the people and the owner read as one family and none of them
+  as the agent.
 
 ## How it was made
 
@@ -129,6 +138,15 @@ With fal (fal.ai):
   (`fal-ai/nano-banana-pro/edit`): one agent drawn first, and every role, the
   owner and the company emblems drawn from it as a reference, so they are one
   family. Each was cropped to its subject and saved as a 256-pixel WebP.
+
+The people's twelve pictures were to be drawn with the same editor from
+`avatars/owner.webp`; when they were made, the fal account had no credit
+left, so they are drawn from shapes instead by `scripts/people-pictures.ts`
+(`node scripts/people-pictures.ts`): a face, hair, clothes and a soft light
+from the upper left, each on a pastel ground, rendered to 256-pixel WebPs by
+the platform's own Chromium driver (`src/browser/cdp.ts`), so nothing is added
+to draw them. Drawing them again with the editor, with the owner as the
+reference, needs only the files replaced under the same names.
 
 PNGs are rendered from the vectors by Chromium, so they match the SVGs pixel
 for pixel.

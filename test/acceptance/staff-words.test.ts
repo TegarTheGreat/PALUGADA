@@ -1,5 +1,5 @@
 /**
- * Words carry their author (F19.9; the workspace plan, set S0a).
+ * Words carry their author (F19.9; STATUS section 2.202).
  *
  * The owner seats staff beside them, and a seat's words are never the
  * owner's. Before anything reads that difference, it has to be recorded:
@@ -29,7 +29,7 @@ import {
 import { isPalugadaError, type ErrorCode } from '../../src/errors.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import type { StaffKind } from '../../src/owner/staff.ts';
-import { assignTask } from '../../src/scheduler/wake.ts';
+import { assignTask, enqueueWake } from '../../src/scheduler/wake.ts';
 import { createCompany, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -151,6 +151,37 @@ test("work a seat asks for, and an instruction a seat gives, are recorded as tha
       ['owner', 'And keep last year\'s prices beside them.', null],
     ]);
   });
+
+/**
+ * What of the record runs in every build. Until the hold exists no staff
+ * work is made, so these are the parts a seat's request reaches before it is
+ * refused, and the wake that hands it over once it is not.
+ */
+test('the wake that hands work over names a member of staff who did, and only staff work names a seat', async () => {
+  const fixture = await createCompany('staff-words-wake');
+  const budi = await seat(fixture, 'Budi', 'member');
+
+  await enqueueWake({ companyId: fixture.companyId, roleId: fixture.roleId, reason: 'assignment', assignedBy: 'staff' });
+  await enqueueWake({ companyId: fixture.companyId, roleId: fixture.roleId, reason: 'assignment' });
+  await enqueueWake({ companyId: fixture.companyId, roleId: fixture.roleId, reason: 'assignment', assignedBy: 'owner' });
+  // A day off, so it is not folded into the assignments above.
+  await enqueueWake({ companyId: fixture.companyId, roleId: fixture.roleId, reason: 'heartbeat', wakeAt: new Date(Date.now() + 86_400_000) });
+  const woken = await events(fixture, ['wake.queued']);
+  assert.deepEqual(woken.map((event) => [event.actor, event.payload.reason]),
+    [['staff', 'assignment'], ['owner', 'assignment'], ['owner', 'assignment'], ['system', 'heartbeat']],
+    'a seat that handed work over is on the wake, never the owner in its place');
+
+  // A seat is named only on work a member of staff began, and only by its id,
+  // whether or not the hold exists yet: the owner's own work never carries one.
+  for (const createdBy of ['owner', 'agent_run', 'scheduler'] as const) {
+    await assert.rejects(createRootTask({ ...work(fixture, 'Count the stock'), createdBy, requestedBySeat: budi.id }),
+      refused('contract.violation', /only on work a member of staff began/), createdBy);
+  }
+  await assert.rejects(createRootTask({ ...work(fixture, 'Count the stock'), createdBy: 'staff', requestedBySeat: 'Budi' }),
+    refused('contract.violation', /by its id/));
+  const made = await withTenant(fixture.companyId, (tx) => tx.query('SELECT id FROM tasks'));
+  assert.equal(made.rowCount, 0, 'no task was made');
+});
 
 test("a seat's answer to an escalation is recorded under the seat's name", async () => {
   const fixture = await createCompany('staff-words-answer');

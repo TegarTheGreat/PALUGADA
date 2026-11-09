@@ -607,6 +607,10 @@ test('the application role may write what the platform writes, and no more (F12,
   }
   assert.equal(await may(`has_function_privilege(${app}, 'app.next_room_position(uuid)', 'EXECUTE')`), false,
     'a position is taken by a write, never by hand');
+  // Who may see a room, asked about anyone, is the triggers' alone; the
+  // application asks app.may_see, which answers a person only about themselves.
+  assert.equal(await may(`has_function_privilege(${app}, 'app.room_visible_to(uuid, uuid, text)', 'EXECUTE')`), false,
+    'whether someone else may see a room is not the application\'s to ask');
   // A person's own settings and a seat's handle are the control plane's (0149).
   for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
     assert.equal(await may(`has_table_privilege(${app}, 'principal_prefs', '${privilege}')`), false, `principal_prefs: ${privilege}`);

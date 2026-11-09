@@ -1,6 +1,6 @@
 /**
- * Rooms are for people, and the database says so (F19.3; the workspace plan,
- * §4 I1 to I3 and §6.3).
+ * Rooms are for people, and the database says so (F19.1, F19.3, F19.10;
+ * STATUS section 2.202).
  *
  * A company's rooms hold what its people say to each other. Agents are never
  * members, never write, and never read a word of it (NG2), and a person sees
@@ -222,6 +222,19 @@ test('a room table read without a reader returns nothing, even in its own compan
     "UPDATE room_messages SET body = 'changed' WHERE company_id = $1", [fixture.companyId]));
   assert.equal(changed.rowCount, 0, 'an agent changed a message');
 
+  // A statement of an agent's that changes nothing writes nothing either,
+  // not even its company's clock, and holds no lock people's writes wait on.
+  const quiet = await createCompany('rooms-no-reader-quiet');
+  await withTenant(quiet.companyId, async (tx) => {
+    await tx.query("UPDATE rooms SET about = 'agents were here' WHERE false");
+    await tx.query('DELETE FROM room_reactions WHERE false');
+    await tx.query(
+      "INSERT INTO room_messages (company_id, room_id, kind, author, body) SELECT company_id, id, 'text', 'owner', 'hi' FROM rooms WHERE false");
+  });
+  const clocks = await withControlPlane((tx) => tx.query<{ n: number }>(
+    'SELECT count(*)::int AS n FROM room_clock WHERE company_id = $1', [quiet.companyId]));
+  assert.equal(clocks.rows[0]!.n, 0, "an agent's statement wrote its company's clock");
+
   // Nor does an application connection that names the control plane's
   // reader, which only the admin pool's triggers read.
   const client = await appPool().connect();
@@ -409,6 +422,83 @@ test("a person's name on a message is the one the session gave, whatever the ins
   const member = await withControlPlane((tx) => tx.query<{ name: string }>(
     'SELECT name FROM room_members WHERE company_id = $1 AND room_id = $2', [fixture.companyId, room]));
   assert.equal(member.rows[0]!.name, 'Siti Rahayu');
+
+  // A room is made now and open, whatever its insert says: nobody makes one
+  // already archived in someone else's name, nor dated before it was made.
+  await refused(() => withPeople(fixture.companyId, siti.person, (tx) => tx.query(
+    "INSERT INTO rooms (id, company_id, kind, name, created_by, archived_at, archived_by) VALUES ($1, $2, 'topic', 'old', $3, now(), 'owner')",
+    [randomUUID(), fixture.companyId, siti.person.principal])), '23514', /made open/, 'a room made archived by the owner');
+  const dated = randomUUID();
+  await withPeople(fixture.companyId, siti.person, (tx) => tx.query(
+    "INSERT INTO rooms (id, company_id, kind, name, created_by, created_at) VALUES ($1, $2, 'topic', 'history', $3, '2020-01-01')",
+    [dated, fixture.companyId, siti.person.principal]));
+  const made = await withControlPlane((tx) => tx.query<{ age: number }>(
+    'SELECT extract(epoch FROM clock_timestamp() - created_at)::float8 AS age FROM rooms WHERE id = $1', [dated]));
+  assert.ok(made.rows[0]!.age < 600, `a room is dated when it was made, not ${made.rows[0]!.age} s before`);
+
+  // Archiving is a person's act, named from their session: the platform
+  // archives nothing, in nobody's name.
+  await refused(() => withRoomPlatform(fixture.companyId, (tx) => tx.query(
+    "UPDATE rooms SET archived_at = now(), archived_by = 'owner' WHERE id = $1", [dated])), '23514', /archived by a person/,
+  'the platform archiving a room as the owner');
+  await withPeople(fixture.companyId, siti.person, (tx) => tx.query(
+    "UPDATE rooms SET archived_at = now(), archived_by = 'owner' WHERE id = $1", [dated]));
+  const archived = await withControlPlane((tx) => tx.query<{ archived_by: string }>(
+    'SELECT archived_by FROM rooms WHERE id = $1', [dated]));
+  assert.equal(archived.rows[0]!.archived_by, siti.person.principal, 'who archived it is who asked');
+});
+
+test("only a topic room's creator, one of its admins or the owner makes someone its admin", async () => {
+  const fixture = await createCompany('rooms-admins');
+  const siti = await seat(fixture, 'Siti Rahayu');
+  const budi = await seat(fixture, 'Budi Santoso');
+  const citra = await seat(fixture, 'Citra Lestari', 'viewer');
+  const { company } = await sharedRooms(fixture);
+  const ADMINS = /admins are made by its creator, one of its admins or the owner/;
+  const join = (who: Person, room: string, role: 'member' | 'admin' = 'member') => withPeople(fixture.companyId, who, (tx) => tx.query(
+    'INSERT INTO room_members (company_id, room_id, principal, name, role, added_by) VALUES ($1, $2, $3, $4, $5, $3)',
+    [fixture.companyId, room, who.principal, who.name, role]));
+  const make = (who: Person, room: string, principal: string, role: 'member' | 'admin') => withPeople(fixture.companyId, who, (tx) => tx.query(
+    'UPDATE room_members SET role = $3 WHERE room_id = $1 AND principal = $2', [room, principal, role]));
+  const roles = (room: string) => withControlPlane(async (tx) => Object.fromEntries((await tx.query<{ principal: string; role: string }>(
+    'SELECT principal, role FROM room_members WHERE company_id = $1 AND room_id = $2', [fixture.companyId, room])).rows
+    .map((row) => [row.principal, row.role])));
+
+  // Its creator is its admin from the start.
+  const launch = await withPeople(fixture.companyId, siti.person, async (tx) => {
+    const id = randomUUID();
+    await tx.query("INSERT INTO rooms (id, company_id, kind, name, created_by) VALUES ($1, $2, 'topic', 'launch', $3)",
+      [id, fixture.companyId, siti.person.principal]);
+    await tx.query(
+      "INSERT INTO room_members (company_id, room_id, principal, name, role, added_by) VALUES ($1, $2, $3, $4, 'admin', $3)",
+      [fixture.companyId, id, siti.person.principal, siti.person.name]);
+    return id;
+  });
+
+  // Nobody else makes themselves one, by joining or afterwards, and nobody
+  // who is not one takes it from the creator.
+  await refused(() => join(citra.person, launch, 'admin'), '42501', ADMINS, 'joining as an admin');
+  await join(citra.person, launch);
+  await join(budi.person, launch);
+  await refused(() => make(citra.person, launch, siti.person.principal, 'member'), '42501', ADMINS, 'demoting its creator');
+  await refused(() => make(budi.person, launch, budi.person.principal, 'admin'), '42501', ADMINS, 'promoting oneself');
+  assert.deepEqual(await roles(launch),
+    { [siti.person.principal]: 'admin', [budi.person.principal]: 'member', [citra.person.principal]: 'member' });
+
+  // Its creator makes one, an admin makes another, and the owner may too.
+  await make(siti.person, launch, budi.person.principal, 'admin');
+  await make(budi.person, launch, citra.person.principal, 'admin');
+  await make(OWNER, launch, citra.person.principal, 'member');
+  assert.deepEqual(await roles(launch),
+    { [siti.person.principal]: 'admin', [budi.person.principal]: 'admin', [citra.person.principal]: 'member' });
+
+  // An admin who has left is one no longer.
+  await withPeople(fixture.companyId, budi.person, (tx) => tx.query(
+    'UPDATE room_members SET left_at = now() WHERE room_id = $1 AND principal = $2', [launch, budi.person.principal]));
+  await refused(() => make(budi.person, launch, citra.person.principal, 'admin'), '42501', ADMINS, 'an admin who left');
+
+  // And a room that is not a topic room has no admins at all.
+  await refused(() => join(siti.person, company, 'admin'), '23514', /only a topic room has admins/, 'an admin of the company room');
 });
 
 test("the platform writes no text, changes no person's message, and a card holds no words", async () => {
@@ -467,6 +557,69 @@ test("the platform writes no text, changes no person's message, and a card holds
   const released = await withControlPlane((tx) => tx.query<{ inbox_item_id: string | null }>(
     'SELECT inbox_item_id FROM room_messages WHERE id = $1', [approval]));
   assert.deepEqual(released.rows, [{ inbox_item_id: null }]);
+
+  // Two questions one task put, each a card in the same room: retention may
+  // take both items while the task stays, and each card lets go of its own
+  // without the two becoming the same card.
+  const asked = await withControlPlane(async (tx) => {
+    const made: string[] = [];
+    for (const title of ['Which roaster?', 'Which day?']) {
+      made.push((await tx.query<{ id: string }>(
+        `INSERT INTO inbox_items (company_id, task_id, kind, title, action_summary, rationale)
+         VALUES ($1, $2, 'escalation', $3, 'Answer it', 'The run cannot choose.') RETURNING id`,
+        [fixture.companyId, taskId, title])).rows[0]!.id);
+    }
+    return made;
+  });
+  const questions = await withRoomPlatform(fixture.companyId, async (tx) => {
+    const made: string[] = [];
+    for (const itemOf of asked) {
+      const id = randomUUID();
+      await tx.query(
+        "INSERT INTO room_messages (id, company_id, room_id, kind, author, task_id, inbox_item_id) VALUES ($1, $2, $3, 'question', 'platform', $4, $5)",
+        [id, fixture.companyId, division, taskId, itemOf]);
+      made.push(id);
+    }
+    return made;
+  });
+  await refused(() => withRoomPlatform(fixture.companyId, (tx) => tx.query(
+    "INSERT INTO room_messages (company_id, room_id, kind, author, task_id, inbox_item_id) VALUES ($1, $2, 'question', 'platform', $3, $4)",
+    [fixture.companyId, division, taskId, asked[0]])), '23505', /room_cards_once/, 'a second card for one question');
+  await withControlPlane((tx) => tx.query('DELETE FROM inbox_items WHERE id = ANY($1::uuid[])', [asked]));
+  const letGo = await withControlPlane((tx) => tx.query<{ inbox_item_id: string | null; task_id: string | null }>(
+    'SELECT inbox_item_id, task_id FROM room_messages WHERE id = ANY($1::uuid[])', [questions]));
+  assert.deepEqual(letGo.rows, [{ inbox_item_id: null, task_id: taskId }, { inbox_item_id: null, task_id: taskId }]);
+  // One work card per task in a room, as before.
+  await refused(() => card(fixture, division, 'work', taskId), '23505', /room_work_cards_once/, 'a second card for one piece of work');
+});
+
+test("a room file's path is its own place in its room, never a way out of it", async () => {
+  const fixture = await createCompany('rooms-file-paths');
+  const siti = await seat(fixture, 'Siti Rahayu');
+  const { company } = await sharedRooms(fixture);
+  const hers = await post(fixture, siti.person, company, 'The payroll is attached.');
+  const attach = (id: string, path: string | null) => withPeople(fixture.companyId, siti.person, (tx) => tx.query(
+    `INSERT INTO room_files (id, company_id, message_id, name, mime, bytes, sha256, path)
+     VALUES ($1, $2, $3, 'payroll.pdf', 'application/pdf', 1024, $4, $5)`,
+    [id, fixture.companyId, hers, 'a'.repeat(64), path]));
+
+  const id = randomUUID();
+  for (const path of [
+    '../../other/secret.pdf',
+    `rooms/${company}/../../${id}.pdf`,
+    `/rooms/${company}/${id}.pdf`,
+    `rooms/${company}/${randomUUID()}.pdf`,
+    `rooms/${company}/${id}`,
+    `rooms/${company}/${id}.pdf/../x.pdf`,
+    `rooms/${company}/${id}.PDF`,
+    `rooms/not-a-room/${id}.pdf`,
+  ]) {
+    await refused(() => attach(id, path), '23514', /room_files_path_shape/, path);
+  }
+  // The shape the people's files root keeps: the room, the file's own id and
+  // the extension sniffed from its bytes. A file not kept has no path.
+  await attach(id, `rooms/${company}/${id}.pdf`);
+  await attach(randomUUID(), null);
 });
 
 test('a person changes only their own place in a room, and never moves a read mark back', async () => {
@@ -772,6 +925,58 @@ test("a direct room's people are fixed: nobody is added, and its key names its o
   });
   assert.deepEqual(await ids(fixture, budi.person, "SELECT id FROM rooms WHERE kind = 'direct'"), []);
   assert.deepEqual(await ids(fixture, siti.person, "SELECT id FROM rooms WHERE kind = 'direct'"), [pair]);
+
+  // Its people are all of its key, from the moment it is opened: one of them
+  // cannot open it alone and so keep the others from ever having it.
+  await refused(() => withPeople(fixture.companyId, siti.person, async (tx) => {
+    const id = randomUUID();
+    await tx.query(
+      "INSERT INTO rooms (id, company_id, kind, private, direct_key, created_by) VALUES ($1, $2, 'direct', true, $3, $4)",
+      [id, fixture.companyId, keyOf([siti.person, citra.person]), siti.person.principal]);
+    await addMembers(tx, fixture, id, siti.person, [siti.person]);
+  }), '23514', /everyone its key names/, 'a direct room opened with only its opener in it');
+  const theirs = await direct(fixture, citra.person, [siti.person]);
+  assert.deepEqual(await ids(fixture, siti.person, "SELECT id FROM rooms WHERE kind = 'direct'"), [pair, theirs].sort());
+});
+
+test('who else may see a room is asked by delivery and the platform, never by a person', async () => {
+  const fixture = await createCompany('rooms-may-see');
+  const siti = await seat(fixture, 'Siti Rahayu');
+  const budi = await seat(fixture, 'Budi Santoso');
+  const citra = await seat(fixture, 'Citra Lestari');
+  const secret = await topic(fixture, siti.person, 'salaries', true, [budi.person]);
+  const pair = await direct(fixture, budi.person, [citra.person]);
+  const ask = (tx: TenantClient, room: string, who: Person) => tx.query<{ seen: boolean }>(
+    'SELECT app.may_see($1, $2, $3) AS seen', [fixture.companyId, room, who.principal]).then((result) => result.rows[0]!.seen);
+
+  // Delivery plans what each person is told, so it asks about anyone; so may
+  // the platform, which owes card attention.
+  for (const reader of [withDelivery, withRoomPlatform]) {
+    assert.deepEqual(await reader(fixture.companyId, async (tx) => [
+      await ask(tx, secret, budi.person), await ask(tx, secret, citra.person), await ask(tx, secret, OWNER),
+      await ask(tx, pair, citra.person), await ask(tx, pair, siti.person), await ask(tx, pair, OWNER),
+      await ask(tx, randomUUID(), OWNER),
+    ]), [true, false, true, true, false, false, false]);
+  }
+
+  // A person asks only about themselves, which tells them no more than the
+  // rooms they can read.
+  assert.deepEqual(await withPeople(fixture.companyId, citra.person, async (tx) => [
+    await ask(tx, secret, citra.person), await ask(tx, pair, citra.person)]), [false, true]);
+
+  // Never about anyone else: neither whether a room they cannot see exists,
+  // nor who is in it, even once they have left it.
+  await refused(() => withPeople(fixture.companyId, citra.person, (tx) => ask(tx, secret, budi.person)), '42501', /only about themselves/,
+    'a private room asked about by someone outside it');
+  await refused(() => withPeople(fixture.companyId, siti.person, (tx) => ask(tx, pair, citra.person)), '42501', /only about themselves/,
+    'a direct room asked about by someone outside it');
+  await withPeople(fixture.companyId, budi.person, (tx) => tx.query(
+    'UPDATE room_members SET left_at = now() WHERE room_id = $1 AND principal = $2', [secret, budi.person.principal]));
+  await refused(() => withPeople(fixture.companyId, budi.person, (tx) => ask(tx, secret, siti.person)), '42501', /only about themselves/,
+    'a private room asked about by someone who left it');
+  // And the rule the triggers ask is not the application's to call at all.
+  await refused(() => withPeople(fixture.companyId, citra.person, (tx) => tx.query('SELECT app.room_visible_to($1, $2, $3)',
+    [fixture.companyId, secret, budi.person.principal])), '42501', DENIED, 'the triggers\' own rule');
 });
 
 test('leaving a private room ends its follows and unseen mentions there', async () => {
@@ -917,7 +1122,11 @@ test('a person is made from the session alone, and only the owner and joined sea
     assert.equal(isPerson(thing), false, String(thing));
   }
 
-  await assertPeopleOf(fixture.companyId, ['owner', siti.person.principal]);
+  // What it answers is each person as the control plane knows them: the
+  // name a room's rows are written with comes from the seat, not from
+  // whoever adds them.
+  assert.deepEqual(await assertPeopleOf(fixture.companyId, ['owner', siti.person.principal, 'owner']),
+    [{ principal: 'owner', name: null }, { principal: siti.person.principal, name: 'Siti Rahayu' }]);
   const pending = await withControlPlane(async (tx) => (await tx.query<{ id: string }>(
     "INSERT INTO staff_seats (company_id, name, kind) VALUES ($1, 'Not Yet', 'viewer') RETURNING id", [fixture.companyId])).rows[0]!.id);
   const revoked = await seat(fixture, 'Gone Away');

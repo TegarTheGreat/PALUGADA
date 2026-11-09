@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { assistantDispatch, withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -24,6 +24,8 @@ import { createRootTask } from '../../src/engine/tasks.ts';
 import { PersonAdapter } from '../../src/runtime/person.ts';
 import { AdapterRegistry } from '../../src/runtime/protocol.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
+import { changeSettings } from '../../src/owner/profile.ts';
+import { StaffSeats } from '../../src/owner/staff.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -236,6 +238,10 @@ test('a person sets their handle, picture, language and quiet hours in Profile',
     // The owner sees each seat's handle and picture; and has neither of their own.
     const listed = (await api.call('GET', `/api/companies/${fixture.companyId}/staff`, owner)).body.seats as Array<{ handle: string; picture: string | null }>;
     assert.deepEqual(listed.map((one) => [one.handle, one.picture]), [['rina.w', null]]);
+    // A handle is words a person chose, so the owner's assistant, reading the same list, is not shown it.
+    const seats = new StaffSeats({ master: () => api.master, secrets: () => api.secrets });
+    const theAssistants = await assistantDispatch.run(true, () => seats.list(fixture.companyId));
+    assert.deepEqual(theAssistants.map((one) => [one.name, one.handle]), [['Rina', null]]);
     const own = await api.call('GET', '/api/me/profile', owner);
     assert.equal(own.status, 200, JSON.stringify(own.body));
     assert.deepEqual([own.body.principal, own.body.name, own.body.handle, own.body.picture, own.body.noticesPerDay],
@@ -247,6 +253,14 @@ test('a person sets their handle, picture, language and quiet hours in Profile',
     const owners = await api.call('POST', '/api/me/profile', owner, { quietStart: 23, quietEnd: 7, timezone: 'Asia/Makassar' });
     assert.equal(owners.status, 200, JSON.stringify(owners.body));
     assert.deepEqual([owners.body.quietStart, owners.body.quietEnd, owners.body.timezone, owners.body.noticesPerDay], [23, 7, 'Asia/Makassar', 10]);
+
+    // A seat ended while a change of its settings was on its way keeps none:
+    // the change is written only for a seat that is still seated.
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/staff/${rina.seatId}/revoke`, owner, {})).status, 200);
+    await assert.rejects(changeSettings(`seat:${rina.seatId}`, fixture.companyId, { language: 'id' }),
+      (error: { code?: string }) => error.code === 'owner.unauthenticated');
+    const kept = await withControlPlane((tx) => tx.query('SELECT principal FROM principal_prefs WHERE principal = $1', [`seat:${rina.seatId}`]));
+    assert.equal(kept.rowCount, 0, 'her settings went with her seat, and are not made again');
   } finally {
     await api.close();
   }
@@ -286,6 +300,25 @@ test('a staff member reads the console in their own language', { skip: browser ?
 
     // His choice is his: the deployment's stays the owner's.
     assert.equal((await api.call('GET', '/api/control/languages', owner)).body.console, 'en');
+
+    // In another tab he reads Japanese now. Saving his quiet hours in this
+    // one, which still shows Indonesian, sends what he changed and nothing
+    // it had read before, so his language is not written back.
+    const other = await api.call('POST', '/api/auth/sign-in', '', { handle: 'budi', totp: budi.code() });
+    assert.equal(other.status, 200, JSON.stringify(other.body));
+    assert.equal((await api.call('POST', '/api/me/profile', String(other.body.token), { language: 'ja' })).status, 200);
+    await page.evaluate(`[...document.querySelectorAll('button')].find((one) => one.innerText.includes('Budi') && one.innerText.includes('Anggota')).click()`);
+    await page.waitFor(`[...document.querySelectorAll('[role="menuitem"]')].some((one) => one.innerText.trim() === 'Profil Anda')`, 'the menu');
+    await page.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find((one) => one.innerText.trim() === 'Profil Anda').click()`);
+    // A switch's label holds its description too.
+    await page.waitFor(`[...document.querySelectorAll('label')].some((one) => one.innerText.startsWith('Jam tenang'))`, 'the profile');
+    await page.evaluate(`[...document.querySelectorAll('label')].find((one) => one.innerText.startsWith('Jam tenang')).click()`);
+    await page.waitFor(`[...document.querySelectorAll('label')].some((one) => one.innerText.trim() === 'Mulai')`, 'quiet hours on');
+    await page.evaluate(`[...document.querySelectorAll('.mantine-Drawer-content button')].find((one) => one.innerText.trim() === 'Simpan').click()`);
+    const saved = async () => (await api.call('GET', '/api/me/profile', budi.token)).body as { language: string | null; quietStart: number | null };
+    for (let waited = 0; (await saved()).quietStart === null && waited < 50; waited += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    const result = await saved();
+    assert.deepEqual([result.quietStart, result.language], [22, 'ja'], 'his quiet hours are saved, and his language is the one he chose last');
   } finally {
     await page.close();
     await api.close();

@@ -41,15 +41,19 @@ function app(secret: string) {
   };
 }
 
-/** A code no app of this secret shows now, or a step either side: a wrong guess. */
-function wrongFor(secret: string): string {
+/** Codes no app of this secret shows now, or a step either side: wrong guesses, each different. */
+function wrongCodesFor(secret: string, count: number): string[] {
   const now = stepFor(new Date());
   const right = new Set([-2, -1, 0, 1, 2].map((drift) => totpCode(decodeBase32(secret), now + drift)));
-  for (let guess = 0; ; guess += 1) {
+  const wrong: string[] = [];
+  for (let guess = 0; wrong.length < count; guess += 1) {
     const code = String(guess * 7919 % 1_000_000).padStart(6, '0');
-    if (!right.has(code)) return code;
+    if (!right.has(code)) wrong.push(code);
   }
+  return wrong;
 }
+
+const wrongFor = (secret: string): string => wrongCodesFor(secret, 1)[0]!;
 
 /** The owner seats someone; they open the link, choose what they chose, add the secret to their app, and confirm. */
 async function seat(api: Console, owner: string, fixture: Fixture, name: string, chosen: Record<string, unknown> = {}) {
@@ -258,6 +262,36 @@ test('a handle is locked after repeated wrong codes, whichever address they come
       const lasts = await lockedFor();
       assert.ok(lasts > expected - 10 && lasts <= expected, `after ${before + 1} wrong codes the lock lasts ${expected} s, not ${lasts} s`);
     }
+  } finally {
+    await api.close();
+  }
+});
+
+test('wrong codes sent at once are judged one at a time, so no more are compared than the lock allows', async () => {
+  const fixture = await createCompany('sign-in-at-once');
+  const api = await consoleWithSettings({ behindProxy: true });
+  try {
+    const owner = await api.signIn();
+    const rina = await seat(api, owner, fixture, 'Rina', { handle: 'rina' });
+
+    // Guesses are not sent one after another. Thirty different wrong codes,
+    // all at once and each from an address of its own, must still meet a lock
+    // that lets five through: had each read the count before any had added to
+    // it, all thirty would have been compared.
+    const answers = await Promise.all(wrongCodesFor(rina.secret, 30).map(async (totp, at) => {
+      const response = await fetch(`${api.url}/api/auth/sign-in`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': `198.51.100.${at + 1}` },
+        body: JSON.stringify({ handle: 'rina', totp }),
+      });
+      return `${response.status} ${((await response.json()) as { code?: string }).code}`;
+    }));
+    const counted: Record<string, number> = {};
+    for (const answer of answers) counted[answer] = (counted[answer] ?? 0) + 1;
+    assert.deepEqual(counted, { '401 mfa.code_invalid': 5, '429 auth.handle_locked': 25 }, 'five compared, the rest refused by the lock');
+    const after = await failuresOf(rina.seatId);
+    assert.equal(after.sign_in_failures, 5, 'and five counted');
+    assert.ok(after.locked_until && after.locked_until.getTime() > Date.now(), 'and the handle is locked');
   } finally {
     await api.close();
   }

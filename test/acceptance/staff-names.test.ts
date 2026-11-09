@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
+import { StaffSeats } from '../../src/owner/staff.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -38,12 +39,12 @@ function app(secret: string) {
   };
 }
 
-async function seat(api: Console, owner: string, fixture: Fixture, name: string, kind = 'viewer') {
+async function seat(api: Console, owner: string, fixture: Fixture, name: string, kind = 'viewer', chosen: Record<string, unknown> = {}) {
   const made = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind, proof: { totp: api.code() } });
   assert.equal(made.status, 200, JSON.stringify(made.body));
   const opened = await api.call('POST', '/api/auth/join', '', { code: made.body.invite });
   const code = app(String(opened.body.secret));
-  const joined = await api.call('POST', '/api/auth/join/confirm', '', { code: made.body.invite, offer: opened.body.offer, totp: code() });
+  const joined = await api.call('POST', '/api/auth/join/confirm', '', { code: made.body.invite, offer: opened.body.offer, totp: code(), ...chosen });
   assert.equal(joined.status, 200, JSON.stringify(joined.body));
   return { seatId: String(made.body.seatId), token: String(joined.body.token) };
 }
@@ -105,6 +106,13 @@ test('a seat named like the owner, PALUGADA, the CEO, the system or a role is re
       proof: { totp: api.code() },
     });
     assert.deepEqual([batch.status, batch.body.code], [400, 'name.reserved'], 'one reserved name refuses the batch');
+    assert.deepEqual(batch.body.details, { field: 'name', index: 2, name: 'C E O' }, 'and says which of the list it is, as the owner wrote it');
+    assert.match(batch.body.error, /C E O/);
+    const unknownKind = await api.call('POST', `/api/companies/${fixture.companyId}/staff-batch`, owner, {
+      people: [{ name: 'Rina', kind: 'viewer' }, { name: 'Budi', kind: 'boss' }], proof: { totp: api.code() },
+    });
+    assert.deepEqual([unknownKind.status, unknownKind.body.code, unknownKind.body.details], [400, 'contract.violation', { field: 'kind', index: 1 }],
+      'so does a kind the ladder does not know');
     assert.deepEqual(await seated(api, owner, fixture), [], 'and nobody is seated by any of it');
 
     // A name that only contains one of them is a name.
@@ -125,14 +133,27 @@ test("a name that looks like a colleague's is refused", async () => {
     const owner = await api.signIn();
     await seat(api, owner, fixture, 'Siti Rahayu');
     const rima = await seat(api, owner, fixture, 'Rima');
+    // Written with letters that carry their marks: a Cyrillic letter with the same mark is the same name.
+    for (const name of ['Zo\u00eb', '\u00cfvan', '\u00c8va']) await seat(api, owner, fixture, name);
     const alike = [
       'Siti Rahayu', 'SITI RAHAYU', 'siti rahayu', 'Siti  Rahayu', 'Siti-Rahayu', 'SitiRahayu',
       'S\u0456ti Rahayu', '\u0405iti Rahayu', 'Siti R\u0430hayu', 'S1ti Rahayu', '5iti Rahayu', 'Siti\u200bRahayu',
+      'Zo\u0451', 'Zoe\u0308', '\u0407van', '\u0400va', '\u0415\u0300va',
     ];
     for (const name of alike) {
       const refused = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind: 'viewer', proof: { totp: api.code() } });
       assert.deepEqual([refused.status, refused.body.code], [409, 'name.taken'], JSON.stringify(name));
+      // The refusal names the name the owner gave, never the colleague's it looks like.
+      assert.deepEqual(refused.body.details, { field: 'name', name }, JSON.stringify(name));
     }
+    assert.doesNotMatch(JSON.stringify((await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner,
+      { name: 'S1ti Rahayu', kind: 'viewer', proof: { totp: api.code() } })).body), /Siti Rahayu/);
+    // Nor is a name given that reads as a colleague's handle, so a mention list cannot hold two Rinas.
+    const budi = await seat(api, owner, fixture, 'Budi', 'viewer', { handle: 'rina' });
+    const asHandle = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name: 'Rina', kind: 'viewer', proof: { totp: api.code() } });
+    assert.deepEqual([asHandle.status, asHandle.body.code], [409, 'name.taken'], "a name that reads as Budi's @rina");
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/staff/${budi.seatId}/change`, owner, { name: 'Rina Budiman' })).status, 200,
+      'though Budi may be named after his own handle');
     // An m is an r and an n in a small font, and Unicode says so.
     const rirna = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name: 'Rirna', kind: 'viewer', proof: { totp: api.code() } });
     assert.deepEqual([rirna.status, rirna.body.code], [409, 'name.taken']);
@@ -142,6 +163,7 @@ test("a name that looks like a colleague's is refused", async () => {
       people: [{ name: 'Dewi', kind: 'viewer' }, { name: 'DEWI', kind: 'member' }], proof: { totp: api.code() },
     });
     assert.deepEqual([twice.status, twice.body.code], [409, 'name.taken'], 'nor two of one batch');
+    assert.deepEqual(twice.body.details, { field: 'name', index: 1, name: 'DEWI' }, 'and the refusal says which of the list to change');
 
     // A different name, the same name in another company, and the name of someone who left are all free.
     assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner,
@@ -155,6 +177,29 @@ test("a name that looks like a colleague's is refused", async () => {
     const own = (await api.call('GET', `/api/companies/${fixture.companyId}/staff`, owner)).body.seats
       .find((one: { name: string }) => one.name === 'Rima') as { id: string };
     assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/staff/${own.id}/change`, owner, { name: 'RIMA' })).status, 200);
+  } finally {
+    await api.close();
+  }
+});
+
+test('two look-alike names given at once seat only one of them', async () => {
+  const fixture = await createCompany('names-at-once');
+  const api = await consoleWithSettings();
+  try {
+    // "SITI" and "Siti" are kept under different skeletons, since Unicode
+    // reads a capital I as an l, so the unique index alone would let both
+    // in when they are written at the same moment.
+    const seats = new StaffSeats({ master: () => api.master, secrets: () => api.secrets });
+    for (const surname of ['Rahayu', 'Lestari', 'Wulandari', 'Pratiwi', 'Kusuma']) {
+      const both = await Promise.allSettled([
+        seats.create(fixture.companyId, { name: `SITI ${surname.toUpperCase()}`, kind: 'viewer' }),
+        seats.create(fixture.companyId, { name: `Siti ${surname}`, kind: 'viewer' }),
+      ]);
+      assert.deepEqual(both.map((one) => one.status).sort(), ['fulfilled', 'rejected'], surname);
+      const refused = both.find((one) => one.status === 'rejected') as PromiseRejectedResult;
+      assert.equal((refused.reason as { code?: string }).code, 'name.taken', surname);
+    }
+    assert.equal((await seats.list(fixture.companyId)).filter((one) => one.sharesName).length, 0, 'and nobody is left sharing a name');
   } finally {
     await api.close();
   }

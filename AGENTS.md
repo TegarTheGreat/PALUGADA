@@ -114,6 +114,12 @@ Each of these is a test, and each exists because the mistake was made once.
   query, and is told nothing about anyone else's.
   `test/acceptance/people-rls.test.ts`,
   `test/documents/people-boundary.test.ts`.
+- **Room activity writes no `events` row.** People's words, even a private
+  room's name or that it exists, stay out of the work's journal, which every
+  seat and the context builder read: only a door that turns a message into
+  work writes an event, and it names a private or direct room only as
+  `room: 'private'`. `test/acceptance/rooms-write-no-events.test.ts`,
+  `test/acceptance/room-doors.test.ts`.
 - **No route that reads people's words is readable by the assistant.** Every
   GET of a people's route module is under `UNREADABLE_UNDER`, both of the
   assistant's gates ask `unreadable()`, and the people's helpers throw inside

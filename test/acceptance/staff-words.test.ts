@@ -1039,8 +1039,8 @@ test("a seat's question back about a card is recorded and shown as the seat's, n
   const fixture = await createCompany('staff-words-ask');
   const sari = await seat(fixture, 'Sari', 'approver');
   const card = await approval(fixture, 'Publish the post');
-  const { rows: [{ task_id: taskId }] } = await withTenant(fixture.companyId, (tx) => tx.query<{ task_id: string }>(
-    'SELECT task_id FROM inbox_items WHERE id = $1', [card]));
+  const taskId = await withTenant(fixture.companyId, (tx) => tx.query<{ task_id: string }>(
+    'SELECT task_id FROM inbox_items WHERE id = $1', [card])).then((result) => result.rows[0]!.task_id);
   // The model's turn that asked for the action, which the question reopens.
   await withTenant(fixture.companyId, (tx) => tx.query(
     `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, output, committed_at)

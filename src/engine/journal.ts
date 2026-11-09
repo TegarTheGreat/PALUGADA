@@ -314,13 +314,18 @@ export async function reopenFinalTurns(companyId: string, taskId: string, reason
  * their context; the tool steps before them stay committed, so nothing done
  * is done twice, and the call waiting on the card was never committed.
  */
-export async function reopenForQuestionWithin(tx: TenantClient, taskId: string, question: string): Promise<number> {
+export async function reopenForQuestionWithin(
+  tx: TenantClient, taskId: string, question: string, asker: string | null = null,
+): Promise<number> {
+  // Who asked, as the journal is read later: a member of staff's question
+  // back is theirs, by the name the owner gave them, never the owner's (F19.9).
+  const who = asker === null ? 'the owner' : `${asker.trim() || 'a member of staff'} (staff)`;
   const { rowCount } = await tx.query(
     `UPDATE task_steps SET status = 'failed', error = $2
       WHERE task_id = $1 AND kind = 'llm' AND status = 'committed'
         AND step_index > coalesce((SELECT max(step_index) FROM task_steps
                                     WHERE task_id = $1 AND kind <> 'llm' AND status = 'committed'), -1)`,
-    [taskId, `the owner asked: ${question}`.slice(0, 2_000)],
+    [taskId, `${who} asked: ${question}`.slice(0, 2_000)],
   );
   return rowCount ?? 0;
 }

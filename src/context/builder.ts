@@ -373,13 +373,21 @@ function namesOf(words: readonly StaffWord[]): string {
  * where nothing says whose it is; this section is what tells the run.
  */
 async function askedForBySection(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
+  // Up the work this is part of, and back along reruns: the owner pressing
+  // "run again" makes a root task of their own, keyed rerun:<the task it
+  // reruns>, and the work is still the seat's request (as the guardian
+  // reads it). A rerun is the same work, so it is still "this work".
   const { rows } = await tx.query<{ id: string; own: boolean }>(
     `WITH RECURSIVE up AS (
-       SELECT id, parent_task_id, created_by, 0 AS depth FROM tasks WHERE id = $1
+       SELECT id, parent_task_id, idempotency_key, created_by, 0 AS depth, true AS own FROM tasks WHERE id = $1
        UNION ALL
-       SELECT t.id, t.parent_task_id, t.created_by, up.depth + 1 FROM tasks t JOIN up ON t.id = up.parent_task_id WHERE up.depth < 64
+       SELECT t.id, t.parent_task_id, t.idempotency_key, t.created_by, up.depth + 1, up.own AND t.id IS DISTINCT FROM up.parent_task_id
+         FROM up JOIN tasks t
+           ON t.id = up.parent_task_id
+           OR (up.parent_task_id IS NULL AND up.idempotency_key = 'rerun:' || t.id::text)
+        WHERE up.depth < 64
      )
-     SELECT id, depth = 0 AS own FROM up WHERE created_by = 'staff' ORDER BY depth LIMIT 1`,
+     SELECT id, own FROM up WHERE created_by = 'staff' ORDER BY depth LIMIT 1`,
     [taskId],
   );
   const asked = rows[0];

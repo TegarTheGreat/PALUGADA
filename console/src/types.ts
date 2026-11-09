@@ -104,7 +104,11 @@ export interface InboxItem {
    * What the owner asked on this card and what the agent answered, oldest
    * first; a question still waiting for its answer is last, with none (N6).
    */
-  asked?: Array<{ question: string; answer: string | null }>;
+  asked?: Array<{
+    question: string; answer: string | null;
+    /** The member of staff who asked, or '' when no name survives; absent when you asked (F19.9). */
+    by?: string;
+  }>;
 }
 
 /** A yes the owner gave for a while (0083). */

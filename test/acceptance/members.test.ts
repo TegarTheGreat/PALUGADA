@@ -39,10 +39,12 @@ after(async () => {
 type Console = Awaited<ReturnType<typeof consoleWithSettings>>;
 
 function app(secret: string) {
-  let step = stepFor(new Date()) - 1;
+  let step = 0;
   return () => {
-    step += 1;
-    return totpCode(decodeBase32(secret), Math.min(step, stepFor(new Date()) + 1));
+    // The earliest step the window still takes, a step ahead of the last each time, up to the latest it takes.
+    const now = stepFor(new Date());
+    step = Math.max(step + 1, now - 1);
+    return totpCode(decodeBase32(secret), Math.min(step, now + 1));
   };
 }
 
@@ -53,7 +55,8 @@ async function join(api: Console, invite: string, chosen: Record<string, unknown
   const code = app(String(opened.body.secret));
   const joined = await api.call('POST', '/api/auth/join/confirm', '', { code: invite, offer: opened.body.offer, totp: code(), ...chosen });
   assert.equal(joined.status, 200, JSON.stringify(joined.body));
-  return { token: String(joined.body.token), code, seat: opened.body.seat as { name: string; kind: string } };
+  const { name, kind } = opened.body.seat as { name: string; kind: string };
+  return { token: String(joined.body.token), code, seat: { name, kind } };
 }
 
 async function seat(api: Console, owner: string, fixture: Fixture, name: string, kind: string, chosen: Record<string, unknown> = {}) {

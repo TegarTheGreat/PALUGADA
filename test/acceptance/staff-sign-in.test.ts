@@ -32,10 +32,12 @@ type Console = Awaited<ReturnType<typeof consoleWithSettings>>;
 
 /** A staff member's authenticator app: the code it shows, a step ahead each time so none is a replay. */
 function app(secret: string) {
-  let step = stepFor(new Date()) - 1;
+  let step = 0;
   return () => {
-    step += 1;
-    return totpCode(decodeBase32(secret), Math.min(step, stepFor(new Date()) + 1));
+    // The earliest step the window still takes, a step ahead of the last each time, up to the latest it takes.
+    const now = stepFor(new Date());
+    step = Math.max(step + 1, now - 1);
+    return totpCode(decodeBase32(secret), Math.min(step, now + 1));
   };
 }
 

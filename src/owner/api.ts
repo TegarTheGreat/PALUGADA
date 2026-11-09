@@ -200,7 +200,8 @@ import {
 } from './assistant.ts';
 import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
-import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
+import { changeSettings, settingsChange } from './profile.ts';
+import { handleOf, pictureOf, seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
 import {
   EventStream, StreamRegistry, WithStatus, peopleFilesApart, peopleFilesFolder, type Route, type RouteKit, type StreamOpener,
@@ -748,10 +749,22 @@ export class OwnerApi {
           this.#signInThrottle.check(address);
           let session: Awaited<ReturnType<OwnerSessions['signIn']>>;
           try {
-            // A staff seat's code first (0110): a seat's sign-in must not be
-            // counted against the owner's factor, whose lockout is global.
-            // A code no seat's app shows goes on to the owner's.
             const proof = proofFrom(body);
+            // A member of staff names their handle (F19.22): that seat's
+            // secret alone is read, a wrong code counts against that handle
+            // wherever it comes from, and the owner's door is never tried.
+            if (body.handle !== undefined) {
+              if (!('totp' in proof)) {
+                throw new PalugadaError('contract.violation', 'a member of staff signs in with their handle and the code their app shows', {});
+              }
+              const named = await this.#staff.signInAs(body.handle, proof.totp);
+              this.#signInThrottle.succeeded(address);
+              return { token: named.token, expiresAt: named.expiresAt.toISOString(), staff: staffOf(named) };
+            }
+            // Then a code from a seat seated before handles (0110), so such a
+            // seat's sign-in is not counted against the owner's factor, whose
+            // lockout is global. A seat that has a handle is not tried. A
+            // code no such seat's app shows goes on to the owner's.
             const seated = 'totp' in proof ? await this.#staff.signIn(proof.totp) : null;
             if (seated) {
               this.#signInThrottle.succeeded(address);
@@ -820,14 +833,24 @@ export class OwnerApi {
         handle: async ({ body, request }) => {
           const address = addressOf(request, this.#options.behindProxy === true);
           this.#signInThrottle.check(address);
+          // What the person chose for themselves as they join (F19.22), each
+          // checked before the invite is spent: a handle someone has is
+          // refused and they choose again with the same page.
+          const chosen: { handle?: string; picture?: string | null } = {};
+          if (body.handle !== undefined) chosen.handle = handleOf(body.handle);
+          if (body.picture !== undefined) chosen.picture = pictureOf(body.picture);
+          const settings = settingsChange({
+            language: body.language, timezone: body.timezone, quietStart: body.quietStart, quietEnd: body.quietEnd,
+          });
           let seated: StaffSession;
           try {
-            seated = await this.#staff.confirm(String(body.code ?? ''), String(body.offer ?? ''), String(body.totp ?? ''));
+            seated = await this.#staff.confirm(String(body.code ?? ''), String(body.offer ?? ''), String(body.totp ?? ''), chosen);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;
           }
           this.#signInThrottle.succeeded(address);
+          await changeSettings(`seat:${seated.seat.id}`, seated.seat.companyId, settings);
           return {
             token: seated.token, expiresAt: seated.expiresAt.toISOString(), device: seated.seat.name, factor: 'totp', staff: staffOf(seated),
           };
@@ -1076,6 +1099,8 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/staff',
         handle: async ({ params, body }) => {
           const request = seatRequest(body);
+          // A name the owner may not give is refused before their code is asked for (F19.21).
+          await this.#staff.vetNames(params.companyId!, [request.name]);
           await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!, true);
           return this.#staff.create(params.companyId!, request);
         },

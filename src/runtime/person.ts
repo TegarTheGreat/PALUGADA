@@ -23,7 +23,7 @@
  */
 import { withTenant } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import { QUESTION_ESCALATES_AFTER_HOURS, askOwner, askableSeats } from '../inbox/inbox.ts';
+import { QUESTION_ESCALATES_AFTER_HOURS, askOwner, askableSeats, seatedKind } from '../inbox/inbox.ts';
 import type { Adapter, AdapterHealth, AdapterResult, ExecutionBackend, RunRequest } from './protocol.ts';
 
 /** The longest brief put to a person as the question: as long as a run may ask one. */
@@ -66,7 +66,14 @@ export class PersonAdapter implements Adapter {
     // away (the review of 20 October).
     if (!seated && !(await alreadyAsked(task.companyId, task.id, question))) {
       // Terminal, and the owner is told by the halt: the same refusal would
-      // follow a retry, and a model must not do a person's work unasked.
+      // follow a retry, and a model must not do a person's work unasked. A
+      // person the owner made a viewer is still seated, and reads only
+      // (F19.8): the halt says so, and what to do, rather than that they left.
+      if (bound.person_seat && await seatedKind(task.companyId, bound.person_seat) === 'viewer') {
+        throw new PalugadaError('policy.denied',
+          `${bound.person_name} can only read now, so there is no one to do this: make them a member again, or give the work to another role`,
+          { roleId: task.roleId });
+      }
       throw new PalugadaError('policy.denied',
         `${bound.person_name} is no longer seated, so there is no one to do this: seat them again, or give the work to another role`,
         { roleId: task.roleId });

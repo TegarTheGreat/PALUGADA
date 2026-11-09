@@ -29,10 +29,12 @@ after(async () => {
 type Console = Awaited<ReturnType<typeof consoleWithSettings>>;
 
 function app(secret: string) {
-  let step = stepFor(new Date()) - 1;
+  let step = 0;
   return () => {
-    step += 1;
-    return totpCode(decodeBase32(secret), Math.min(step, stepFor(new Date()) + 1));
+    // The earliest step the window still takes, a step ahead of the last each time, up to the latest it takes.
+    const now = stepFor(new Date());
+    step = Math.max(step + 1, now - 1);
+    return totpCode(decodeBase32(secret), Math.min(step, now + 1));
   };
 }
 
@@ -89,10 +91,10 @@ test('a seat named like the owner, PALUGADA, the CEO, the system or a role is re
   try {
     const owner = await api.signIn();
     const reserved = [
-      'Owner', 'The Owner', 'the-owner', '0wner', 'Pemilik', 'PALUGADA', 'Palugаda', 'C.E.O.', 'ceo',
-      'Ѕystem', 'Sistem', 'ADM1N', 'Platform',
+      'Owner', 'The Owner', 'the-owner', '0wner', 'Pemilik', 'PALUGADA', 'Palug\u0430da', 'C.E.O.', 'ceo',
+      '\u0405ystem', 'Sistem', 'ADM1N', '\u0391DMIN', 'Platform',
       // The fixture's CEO is the role `worker`, titled CEO; and the role added above.
-      'Worker', 'Wоrker', 'Head of Sales', 'Sales Lead', 'sales_lead',
+      'Worker', 'W\u043erker', 'Head of Sales', 'Sales Lead', 'sales_lead',
     ];
     for (const name of reserved) {
       const refused = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind: 'viewer', proof: { totp: api.code() } });
@@ -107,7 +109,7 @@ test('a seat named like the owner, PALUGADA, the CEO, the system or a role is re
 
     // A name that only contains one of them is a name.
     const budi = await seat(api, owner, fixture, 'Budi Owner-Santoso');
-    const renamed = await api.call('POST', `/api/companies/${fixture.companyId}/staff/${budi.seatId}/change`, owner, { name: 'Pаlugada' });
+    const renamed = await api.call('POST', `/api/companies/${fixture.companyId}/staff/${budi.seatId}/change`, owner, { name: 'P\u0430lugada' });
     assert.deepEqual([renamed.status, renamed.body.code], [400, 'name.reserved'], 'nor is a seat renamed into one');
     assert.deepEqual(await seated(api, owner, fixture), ['Budi Owner-Santoso']);
   } finally {
@@ -125,7 +127,7 @@ test("a name that looks like a colleague's is refused", async () => {
     const rima = await seat(api, owner, fixture, 'Rima');
     const alike = [
       'Siti Rahayu', 'SITI RAHAYU', 'siti rahayu', 'Siti  Rahayu', 'Siti-Rahayu', 'SitiRahayu',
-      'Sіti Rahayu', 'Ѕiti Rahayu', 'Siti Rahayу', '5iti Rahayu', 'Siti​Rahayu',
+      'S\u0456ti Rahayu', '\u0405iti Rahayu', 'Siti R\u0430hayu', 'S1ti Rahayu', '5iti Rahayu', 'Siti\u200bRahayu',
     ];
     for (const name of alike) {
       const refused = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind: 'viewer', proof: { totp: api.code() } });
@@ -194,7 +196,7 @@ test('a name with a direction override is refused', async () => {
   try {
     const owner = await api.signIn();
     const budi = await seat(api, owner, fixture, 'Budi');
-    for (const name of ['Siti‮ayahaR', '⁦Siti⁩', 'Siti‪Rahayu', 'Siti\nRahayu']) {
+    for (const name of ['Siti\u202eayahaR', '\u2066Siti\u2069', 'Siti\u202aRahayu', 'Siti\nRahayu']) {
       const refused = await api.call('POST', `/api/companies/${fixture.companyId}/staff`, owner, { name, kind: 'viewer', proof: { totp: api.code() } });
       assert.deepEqual([refused.status, refused.body.code], [400, 'contract.violation'], JSON.stringify(name));
       assert.equal(refused.body.details?.field ?? 'name', 'name');

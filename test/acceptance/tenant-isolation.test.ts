@@ -615,6 +615,11 @@ test('the application role may write what the platform writes, and no more (F12,
   for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
     assert.equal(await may(`has_table_privilege(${app}, 'principal_prefs', '${privilege}')`), false, `principal_prefs: ${privilege}`);
   }
+  // A conversation's turn holds its reservation in a row it writes and deletes, and never changes (STATUS 2.205).
+  for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
+    assert.equal(await may(`has_table_privilege(${app}, 'conversation_holds', '${privilege}')`), ['SELECT', 'INSERT', 'DELETE'].includes(privilege),
+      `conversation_holds: ${privilege}`);
+  }
 
   // And a table added later does not inherit a delete nobody decided on.
   const inherits = await withControlPlane(async (tx) => {

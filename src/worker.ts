@@ -82,6 +82,7 @@ import {
 } from './owner/notify.ts';
 import { buildDailyDigest } from './reporting/digest.ts';
 import { renderDailyDigest } from './owner/digest-said.ts';
+import { releaseStaleHolds } from './owner/conversation-money.ts';
 import { deploymentLanguages } from './domain/language.ts';
 import { moneyDisplay } from './domain/money-display.ts';
 import {
@@ -403,6 +404,8 @@ export class Worker {
   readonly #retainedAt = new Map<string, number>();
   /** When this worker last looked for what dead workers left running. */
   #sweptAt: number | null = null;
+  /** When this worker last released the conversations' holds that dead processes left. See the holds stage. */
+  #heldAt: number | null = null;
   /** Whether this worker has removed what earlier erasures left on disk. See the erasure stage. */
   #erasuresFinished = false;
   /** The companies whose work waiting for a model key this process has called back, once each. See the recovered stage. */
@@ -575,6 +578,21 @@ export class Worker {
       await this.#stage(report, 'heartbeats', async () => {
         report.scheduled += (await scheduleHeartbeats(company, now)).length;
       });
+    }
+
+    // What a turn of the owner's conversation with a CEO reserved, and its
+    // process died before it was spent or let go (F19.12, STATUS 2.205): a
+    // hold older than any live turn goes back to the account it was taken
+    // from. At most once a minute, like the leftovers: one indexed delete a
+    // company that finds nothing.
+    if (this.#heldAt === null || now.getTime() - this.#heldAt >= SWEEP_EVERY_MS) {
+      this.#heldAt = now.getTime();
+      for (const company of companies) {
+        await this.#stage(report, 'holds', async () => {
+          const released = await releaseStaleHolds(company, now);
+          if (released > 0) this.#options.log?.({ level: 'warn', event: 'holds.released', companyId: company, released });
+        });
+      }
     }
 
     // Schedules scan across tenants on the control plane, so this is one call

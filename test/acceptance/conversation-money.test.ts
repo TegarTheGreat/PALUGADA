@@ -230,24 +230,24 @@ test('an account with no room refuses the turn with a line, and spends nothing',
 });
 
 test('a turn that would pass the ceiling ends the answer where it is', async () => {
-  // The first turn uses nearly all of the account's million tokens, so the
-  // second has no room left to be reserved in.
+  // The first turn uses all of the account's million tokens but what it was
+  // reserved for, so the second, which sends more, has no room left.
   const tokens = await createCompany('talk-tokens');
   // The first turn costs five cents, and the account has three: its spend is
   // refused after the call, so the answer goes no further.
   const money = await createCompany('talk-money', { moneyMaxCents: 3 });
   const model = new Model([
-    reads(`/api/companies/${tokens.companyId}/structure`, { inputTokens: 990_000 }),
-    says('Not reached.'),
+    async (request) => ({ ...await reads(`/api/companies/${tokens.companyId}/structure`)(request), inputTokens: 1_000_000 - 100 - estimateOf(request) }),
     reads(`/api/companies/${money.companyId}/structure`, { costCents: 5 }),
-    says('Not reached either.'),
+    says('Not reached.'),
   ]);
   const api = await consoleWithSettings({ assistant: { llm: model } });
   try {
     const token = await api.signIn();
     assert.equal(await ask(api, token, tokens.companyId, 'Bagaimana minggu ini?'), `Looking.\n\n${NO_ROOM}`);
     assert.equal(model.requests.length, 1, 'the second turn was never asked');
-    assert.deepEqual(await accountOf(tokens.companyId, tokens.budgetAccountId), { reserved: 0, spent: 990_100, money: 1 });
+    assert.deepEqual(await accountOf(tokens.companyId, tokens.budgetAccountId),
+      { reserved: 0, spent: 1_000_000 - estimateOf(model.requests[0]!), money: 1 });
 
     assert.equal(await ask(api, token, money.companyId, 'Dan uangnya?'), `Looking.\n\n${NO_ROOM}`);
     assert.equal(model.requests.length, 2, 'nor was the turn after a call the account could not pay for');
@@ -308,9 +308,10 @@ test('a turn whose process dies leaves a hold that the sweep releases', async ()
     return { content: [{ type: 'text', text: 'Late.' }], stopReason: 'end_turn' };
   }]);
   const api = await consoleWithSettings({ assistant: { llm: model } });
+  let asking: ReturnType<Console['call']> | null = null;
   try {
     const token = await api.signIn();
-    const asking = api.call('POST', `/api/companies/${fixture.companyId}/conversation/messages`, token, { text: 'Halo' });
+    asking = api.call('POST', `/api/companies/${fixture.companyId}/conversation/messages`, token, { text: 'Halo' });
     while (model.requests.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
     const [held] = await holdsOf(fixture.companyId);
     assert.ok(held, 'the turn is held in a row while the model thinks');
@@ -340,7 +341,10 @@ test('a turn whose process dies leaves a hold that the sweep releases', async ()
     assert.equal(said.body.messages.at(-1).body, 'Late.');
     assert.deepEqual(await accountOf(fixture.companyId, fixture.budgetAccountId), { reserved: 1_000, spent: 1_100, money: 1 });
   } finally {
+    // The answer is let through and waited for even when a check above
+    // failed, so it never writes into the next test's database.
     answer();
+    await asking?.catch(() => undefined);
     await api.close();
   }
 });

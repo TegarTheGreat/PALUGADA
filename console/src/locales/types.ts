@@ -12,3 +12,16 @@ export type PluralForms = Readonly<Partial<Record<Intl.LDMLPluralRule, string>> 
 export type Translation = string | PluralForms;
 
 export type Dictionary = Readonly<Record<string, Translation>>;
+
+/** The languages the console offers beside English, each with a dictionary in this folder. */
+export type LanguageCode =
+  | 'id' | 'ms' | 'jv' | 'su' | 'tl' | 'vi' | 'th' | 'zh' | 'ja' | 'ko'
+  | 'hi' | 'ar' | 'es' | 'pt-BR' | 'fr' | 'de' | 'nl' | 'it' | 'tr' | 'ru';
+
+/**
+ * One feature's sentences in every language, kept in `areas/` and spread into
+ * each dictionary through `areas/index.ts`. A feature built beside others
+ * writes its own file, rather than lines in twenty dictionaries every other
+ * feature is also writing; `KEPT` is the same per language.
+ */
+export type Area = Readonly<Record<LanguageCode, { readonly dictionary: Dictionary; readonly kept: readonly string[] }>>;

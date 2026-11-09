@@ -9,6 +9,8 @@
  * owner is "bạn"; the assistant says "tôi". Telegram and WhatsApp buttons
  * stay short: WhatsApp cuts a button at 20 characters and a list row at 24.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Sự cố: {title}',
   'Done: {goal}': 'Đã xong: {goal}',
@@ -569,4 +571,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Chúng tôi phục vụ ai và điều gì làm chúng tôi khác biệt',
   'Where we will be in three years': 'Chúng tôi sẽ ở đâu sau ba năm',
   'Our promise': 'Lời hứa của chúng tôi',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('vi'),
 };

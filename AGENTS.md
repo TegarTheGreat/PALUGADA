@@ -38,12 +38,17 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub, search, files; `principal.ts` is who a person is |
+| `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
+| `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
+| `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
+| `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
 | `src/templates/` | what a company starts from: `founding.ts`, the CEO and nothing else; `work.ts`, what every role is built from. A team is the CEO's to build, and `test/helpers/standard-team.ts` is the full company the tests that need one use |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
+| `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
 | `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem and a role's picture |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
@@ -101,11 +106,18 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Every tenant table has row level security, forced, with a policy.**
   `test/acceptance/tenant-isolation.test.ts`.
 - **Room tables are opened only to a transaction that names its reader**,
-  as `withPeople`, `withDelivery` and `withRoomPlatform` do. An agent's
-  transaction (`withTenant`) names none, so it sees and writes nothing in a
-  room table, even in its own company; a person sees only the rooms they may
-  see, whatever the query, and is told nothing about anyone else's.
-  `test/acceptance/people-rls.test.ts`.
+  as `withPeople`, `withDelivery` and `withRoomPlatform` do; no code on an
+  agent's path names a room table, and only `src/db/tenant.ts` sets
+  `app.reader` or `app.principal`. An agent's transaction (`withTenant`)
+  names no reader, so it sees and writes nothing in a room table, even in
+  its own company; a person sees only the rooms they may see, whatever the
+  query, and is told nothing about anyone else's.
+  `test/acceptance/people-rls.test.ts`,
+  `test/documents/people-boundary.test.ts`.
+- **No route that reads people's words is readable by the assistant.** Every
+  GET of a people's route module is under `UNREADABLE_UNDER`, both of the
+  assistant's gates ask `unreadable()`, and the people's helpers throw inside
+  the assistant's dispatch. `test/documents/people-boundary.test.ts`.
 - **References between tenant tables carry the company**: composite keys on
   `(company_id, id)`, so a row cannot point into another company.
 - **The application role has only the grants it needs** (migration 0047).
@@ -114,6 +126,16 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Every API route is pressed from the console**, written as
   `api('METHOD', '/api/...')` with the path spelled out.
   `test/documents/console-routes.test.ts`.
+- **Routes live in `src/owner/api.ts` and the modules of `src/owner/routes/`**,
+  the route tests read both through `test/helpers/route-sources.ts`, and no
+  two routes of one method match the same path.
+  `test/documents/console-routes.test.ts`.
+- **Every POST a seat may make is on one list: talk, ask or decide**, in
+  its area's block of `src/owner/staff-policy.ts`.
+  `test/documents/staff-routes.test.ts`.
+- **The workspace's shapes are written twice and held together**:
+  `src/workspace/contract.ts` and `console/src/workspace/types.ts`, type by
+  type and field by field. `test/documents/workspace-contract.test.ts`.
 - **Every sentence the console shows goes through `t()`** and has a
   translation in every dictionary in `console/src/locales/` (Indonesian in
   `console/src/locales/id.ts`, and one file for each other language). Write
@@ -121,7 +143,10 @@ Each of these is a test, and each exists because the mistake was made once.
   plural form the language has. `test/documents/console-i18n.test.ts` names
   anything missing, left in English, or short of a form. What the server says
   to the owner (`src/owner/say.ts`) has one dictionary per language in
-  `src/owner/sentences/`, held the same way.
+  `src/owner/sentences/`, held the same way, and is said from a file directly
+  in `src/owner/`, the only level `test/acceptance/owner-channels.test.ts`
+  reads. The people's workspace keeps its sentences by feature, in
+  `console/src/locales/areas/` and `src/owner/sentences/areas/`.
 - **Nothing is drawn from the letters of a name.** A company, a role and the
   owner are pictures (`console/src/images.ts`), and every image the console
   names ships in `console/public`. `test/documents/console-images.test.ts`.

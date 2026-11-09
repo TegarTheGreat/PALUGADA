@@ -8,6 +8,8 @@
  * reply button's title at 20 characters and a list row's at 24, so those
  * stay short.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Vorfall: {title}',
   'Done: {goal}': 'Erledigt: {goal}',
@@ -565,4 +567,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Wem wir dienen und was uns unterscheidet',
   'Where we will be in three years': 'Wo wir in drei Jahren stehen',
   'Our promise': 'Unser Versprechen',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('de'),
 };

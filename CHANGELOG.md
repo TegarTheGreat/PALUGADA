@@ -1037,3 +1037,10 @@ The first version. What it holds, in the order an owner meets it.
   answers only a question put to them and decides nothing, and nobody but
   you answers what you alone are asked. Revoking a seat also takes the
   person out of every room and frees their handle (STATUS 2.202).
+- Signing out, signing out everywhere, ending a seat, revoking an
+  authenticator or making new recovery codes now ends the live views those
+  sessions had open at once, rather than when the tab was closed. Your
+  assistant and the CEO can neither read nor write anything people say to
+  each other: every room, profile, relay and import route is closed to them
+  by its address, and refused inside their conversation whatever its
+  address (STATUS 2.203).

@@ -8,6 +8,8 @@
  * button's title at 20 characters and a list row's at 24, so those stay
  * short.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Incidente: {title}',
   'Done: {goal}': 'Completata: {goal}',
@@ -565,4 +567,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Chi serviamo e cosa ci rende diversi',
   'Where we will be in three years': 'Dove saremo tra tre anni',
   'Our promise': 'La nostra promessa',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('it'),
 };

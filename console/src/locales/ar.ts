@@ -83,6 +83,7 @@
  * PALUGADA is feminine, as المنصة is («PALUGADA متصلة»).
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. إنشاء تطبيق يتضمن WhatsApp في Meta for Developers، وإضافة رقم نشاطك التجاري، وإنشاء مستخدم نظام (system user) برمز مميز دائم يُسمح له بالإرسال من هذا الرقم.",
@@ -2945,6 +2946,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": { "zero": "نجح {passed} من {count} هدف ملتزم به قُيّم هذا الربع.", "two": "نجح {passed} من {count} هدفين ملتزم بهما قُيّما هذا الربع.", "few": "نجح {passed} من {count} أهداف ملتزم بها قُيّمت هذا الربع.", "many": "نجح {passed} من {count} هدفًا ملتزمًا به قُيّم هذا الربع.", "other": "نجح {passed} من {count} هدف ملتزم به قُيّم هذا الربع." },
   "Numbers for {quarter}": "أرقام {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. محسوبة من التقييمات المكتوبة عند انتهاء كل فترة، كما يقرؤها التخطيط الربعي: هي مادة للخطة التالية، ولا يُبنى عليها أي دفع أو ثقة.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ar'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2963,4 +2966,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('ar'),
 ];

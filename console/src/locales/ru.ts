@@ -90,6 +90,7 @@
  * PALUGADA is feminine (платформа): «PALUGADA подключена».
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. В Meta for Developers создайте приложение с WhatsApp, добавьте номер своей компании и создайте системного пользователя (system user) с постоянным токеном, которому разрешено отправлять сообщения с этого номера.",
@@ -2952,6 +2953,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": { "few": "Пройдено {passed} из {count} обязательных целей, оценённых в этом квартале.", "many": "Пройдено {passed} из {count} обязательных целей, оценённых в этом квартале.", "other": "Пройдено {passed} из {count} обязательной цели, оценённой в этом квартале." },
   "Numbers for {quarter}": "Цифры за {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Подсчитано по оценкам, записанным в конце каждого периода, так, как их читает квартальное планирование: они служат следующему плану, и никакие выплаты или доверие от них не зависят.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ru'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2972,4 +2975,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('ru'),
 ];

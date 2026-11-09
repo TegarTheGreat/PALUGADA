@@ -8,6 +8,8 @@
  * non-breaking space before : ; ? ! and inside « ». WhatsApp cuts a reply
  * button's title at 20 characters and a list row's at 24, so those stay short.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   "Incident: {title}": "Incident : {title}",
   "Done: {goal}": "Terminée : {goal}",
@@ -568,4 +570,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Qui nous servons et ce qui nous distingue',
   'Where we will be in three years': 'Où nous serons dans trois ans',
   'Our promise': 'Notre promesse',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('fr'),
 };

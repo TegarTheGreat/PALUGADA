@@ -21,7 +21,7 @@ import pg from 'pg';
 import { connectionString } from '../../src/config.ts';
 import { appPool, closePools } from '../../src/db/pool.ts';
 import {
-  roomsOnControlPlane, withControlPlane, withDelivery, withPeople, withRoomPlatform, withTenant,
+  assistantDispatch, roomsOnControlPlane, withControlPlane, withDelivery, withPeople, withRoomPlatform, withTenant,
   type Person, type TenantClient,
 } from '../../src/db/tenant.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
@@ -1141,6 +1141,46 @@ test('a person is made from the session alone, and only the owner and joined sea
     (error: unknown) => isPalugadaError(error, 'contract.violation'));
   await assert.rejects(withPeople(fixture.companyId, { principal: siti.person.principal, name: null }, async () => undefined),
     (error: unknown) => isPalugadaError(error, 'contract.violation'), 'a seat with no name');
+});
+
+/**
+ * The assistant -- the CEO's and PALUGADA's own -- reaches the owner API's
+ * routes from inside a scope the owner API enters around them (`#dispatch`).
+ * Whatever a route there does, a person's transaction and the person behind a
+ * request are refused inside it: a people's route nobody kept from the
+ * assistant still reads it no words (F19.3).
+ */
+test("the people's helpers refuse inside the assistant's dispatch", async () => {
+  const fixture = await createCompany('rooms-assistant');
+  const rooms = await sharedRooms(fixture);
+  const siti = await seat(fixture, 'Siti Rahayu');
+  await post(fixture, siti.person, rooms.company, 'my salary is in the attached letter');
+  const ownerSession = {
+    token: 'owner-session', factor: { kind: 'totp' }, issuedAt: new Date(), expiresAt: new Date(Date.now() + 3_600_000), provedAt: new Date(),
+  } as unknown as OwnerSession;
+  const theAssistant = (error: unknown) => isPalugadaError(error, 'staff.forbidden') && /people's words/.test((error as Error).message);
+  let reached = 0;
+  const read = async (tx: TenantClient) => {
+    reached += 1;
+    return (await tx.query('SELECT body FROM room_messages')).rows;
+  };
+
+  await assistantDispatch.run(true, async () => {
+    // Still inside after the work it awaits: the scope follows the request.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await assert.rejects(withPeople(fixture.companyId, OWNER, read), theAssistant, 'the owner, through the assistant');
+    await assert.rejects(withPeople(fixture.companyId, siti.person, read), theAssistant, 'a seat, through the assistant');
+    await assert.rejects(withDelivery(fixture.companyId, read), theAssistant, 'the delivery reader');
+    await assert.rejects(withRoomPlatform(fixture.companyId, read), theAssistant, 'the platform reader');
+    assert.throws(() => principalOf(ownerSession, null), theAssistant, 'the owner behind a request');
+    assert.throws(() => principalOf(null, siti.session), theAssistant, 'a seat behind a request');
+  });
+  assert.equal(reached, 0, 'no transaction was opened');
+
+  // Outside it, the same calls read the room as before.
+  assert.deepEqual(principalOf(ownerSession, null), OWNER);
+  assert.deepEqual((await withPeople(fixture.companyId, OWNER, read)).map((row) => row.body), ['my salary is in the attached letter']);
+  assert.equal(reached, 1);
 });
 
 /**

@@ -86,6 +86,7 @@
  * (Name, Status, Team, Mission, Persona, Token, Skills, Passkey, Worker).
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Erstellen Sie in Meta for Developers eine App mit WhatsApp, fügen Sie Ihre Geschäftsnummer hinzu und legen Sie einen Systemnutzer mit einem dauerhaften Token an, der für diese Nummer senden darf.",
@@ -2948,6 +2949,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} von {count} in diesem Quartal bewerteten verbindlichen Zielen erreicht.",
   "Numbers for {quarter}": "Zahlen für {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Gezählt aus den Bewertungen, die am Ende jedes Zeitraums geschrieben wurden, so wie die Quartalsplanung sie liest: Sie dienen dem nächsten Plan, und keine Zahlung und kein Vertrauen hängt an ihnen.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('de'),
 };
 
 /** Sentences written as they are in English on purpose: names, and words German writes the same way. */
@@ -2984,4 +2987,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "Worker {worker}",
   "ntfy",
+  ...areaKept('de'),
 ];

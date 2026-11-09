@@ -56,6 +56,7 @@
  *   Making pictures चित्र बनाना · Web search वेब खोज · Meaning अर्थ से खोज
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Meta for Developers में WhatsApp वाला एक ऐप बनाएँ, अपना बिज़नेस नंबर जोड़ें, और एक system user बनाएँ जिसके पास स्थायी टोकन हो और जो उस नंबर से संदेश भेज सके।",
@@ -2918,6 +2919,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "इस तिमाही आँके गए {count} पक्के लक्ष्यों में से {passed} पास हुए।",
   "Numbers for {quarter}": "{quarter} के आँकड़े",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}। हर अवधि के ख़त्म होने पर लिखे गए अंकों से गिना गया, जैसे तिमाही योजना उन्हें पढ़ती है: ये अगली योजना के लिए हैं, और कोई भुगतान या भरोसा इन पर नहीं टिका है।",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('hi'),
 };
 
 /**
@@ -2941,4 +2944,5 @@ export const KEPT: readonly string[] = [
   "URL",
   "WhatsApp",
   "ntfy",
+  ...areaKept('hi'),
 ];

@@ -6,6 +6,8 @@
  * glossary (console/src/locales/su.ts), so a button on the phone says what
  * the same button says in the panel: Satujuan, Tolak, Naros.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Insidén: {title}',
   'Done: {goal}': 'Réngsé: {goal}',
@@ -563,4 +565,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Saha nu ku urang dilayanan sareng naon nu ngabédakeun urang',
   'Where we will be in three years': 'Di mana urang tilu taun deui',
   'Our promise': 'Jangji urang',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('su'),
 };

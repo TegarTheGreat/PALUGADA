@@ -10,18 +10,20 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { closePools } from '../../src/db/pool.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { setDeploymentLanguages } from '../../src/domain/language.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { looksLikeSecret } from '../../src/owner/assistant.ts';
-import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT } from '../../src/owner/assistant-actions.ts';
+import {
+  ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, NOT_FOR_THE_ASSISTANT_UNDER, UNREADABLE_UNDER, unreadable,
+} from '../../src/owner/assistant-actions.ts';
 import { AGENT_CATALOGUE } from '../../src/settings/agents.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { routeSource } from '../helpers/route-sources.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -71,14 +73,23 @@ function results(model: ScriptedModel): Array<{ content: string; isError?: boole
   return (last.content as LlmBlock[]).filter((block): block is Extract<LlmBlock, { type: 'tool_result' }> => block.type === 'tool_result');
 }
 
-test('every POST route is one the assistant may propose, may check, or is kept from, with a reason', () => {
-  const source = readFileSync(new URL('../../src/owner/api.ts', import.meta.url), 'utf8');
+/** Whether a POST pattern is under a prefix the assistant is kept from as a whole: the people's workspace, and the relay. */
+const keptUnder = (pattern: string) => Object.keys(NOT_FOR_THE_ASSISTANT_UNDER).some((prefix) => pattern.startsWith(prefix));
+
+test('every POST route is one the assistant may propose, may check, or is kept from, with a reason', async () => {
+  const source = await routeSource();
   const posts = [...source.matchAll(/method: 'POST',\s*\n\s*pattern: '([^']+)'/g)].map((match) => match[1]!);
   const proposed = new Set(ASSISTANT_ACTIONS.map((action) => action.pattern));
-  const unplaced = posts.filter((path) => !proposed.has(path) && !(path in ASSISTANT_CHECKS) && !(path in NOT_FOR_THE_ASSISTANT));
+  const unplaced = posts.filter((path) => !proposed.has(path) && !(path in ASSISTANT_CHECKS) && !(path in NOT_FOR_THE_ASSISTANT) && !keptUnder(path));
   assert.deepEqual(unplaced, [], 'a POST route added to the API is a decision about the assistant too');
   for (const listed of [...proposed, ...Object.keys(ASSISTANT_CHECKS), ...Object.keys(NOT_FOR_THE_ASSISTANT)]) {
     assert.ok(posts.includes(listed), `${listed} is not a POST route any more`);
+  }
+  // What it may propose or check is never under a prefix it is kept from.
+  assert.deepEqual([...proposed, ...Object.keys(ASSISTANT_CHECKS)].filter(keptUnder), []);
+  for (const [prefix, why] of Object.entries(NOT_FOR_THE_ASSISTANT_UNDER)) {
+    assert.match(prefix, /^\/api\//, prefix);
+    assert.ok(why.length > 10, `${prefix} is kept from the assistant without a reason`);
   }
   for (const action of ASSISTANT_ACTIONS) {
     for (const secret of Object.keys(action.secrets ?? {})) {
@@ -252,6 +263,61 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
     assert.match(answers[11]!.content, /looks at a server already saved: send \{ name \}/);
     assert.match(answers[12]!.content, /looks at a server already saved: send \{ name \}/);
     assert.deepEqual(said.body.messages[1].proposals, [], 'no card was made');
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * No person's words reach a model through the assistant (F19.3). A read is refused by its pattern, not by whether the
+ * prompt listed it: the prompt's list is only what the model is told, and a
+ * path it makes up is matched to its route all the same. So both gates ask
+ * one question, and the owner's search across rooms is a route of its own,
+ * under the same prefix list, rather than a hit in `/api/search`, which the
+ * assistant reads.
+ */
+test('the assistant cannot read a room by its path, nor search messages', async () => {
+  for (const pattern of [
+    '/api/companies/:companyId/rooms', '/api/companies/:companyId/rooms/:roomId/messages',
+    '/api/companies/:companyId/rooms/:roomId/threads/:messageId', '/api/companies/:companyId/room-search',
+    '/api/companies/:companyId/room-stream', '/api/companies/:companyId/people', '/api/companies/:companyId/me/activity',
+    '/api/rooms/unread', '/api/me/profile', '/api/room-search', '/api/relays/links', '/api/control/relays',
+    '/api/companies/:companyId/room-imports/:importId', '/api/companies/:companyId/former-people',
+  ]) {
+    assert.equal(unreadable(pattern), true, pattern);
+  }
+  for (const pattern of ['/api/me', '/api/search', '/api/companies/:companyId/work', '/api/companies/:companyId/inbox']) {
+    assert.equal(unreadable(pattern), false, `${pattern} is the company's work, not a person's words`);
+  }
+  assert.ok(UNREADABLE_UNDER.every((prefix) => prefix.startsWith('/api/')));
+
+  const fixture = await createCompany('assistant-rooms');
+  const room = '00000000-0000-4000-8000-000000000001';
+  const model = new ScriptedModel([
+    uses(
+      ['read', { path: `/api/companies/${fixture.companyId}/rooms/${room}/messages` }],
+      ['read', { path: '/api/room-search?q=salary' }],
+      ['read', { path: `/api/companies/${fixture.companyId}/room-search?q=salary` }],
+    ),
+    says('I cannot read those.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', '/api/assistant/messages', token, { text: 'what did Siti say about salaries?' });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    const answers = results(model);
+    assert.equal(answers.length, 3);
+    for (const answer of answers) {
+      assert.equal(answer.isError, true, answer.content);
+      assert.match(answer.content, /not a route the assistant reads/);
+    }
+    // And the model is told of none of them as a route it may read.
+    const system = model.requests[0]!.system;
+    const listed = system.slice(system.indexOf('Readable routes (GET):')).split('\n').slice(1);
+    const readable = listed.slice(0, listed.findIndex((line) => !line.startsWith('- '))).join('\n');
+    assert.ok(readable.includes('/api/companies/:companyId/work'), 'the readable routes were not found in the prompt');
+    assert.doesNotMatch(readable, /\/rooms|room-search|\/people\b|\/me\/|\/relays/);
   } finally {
     await api.close();
   }

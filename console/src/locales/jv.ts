@@ -103,6 +103,7 @@
  * and a noun after a number is not doubled: "{count} tugas".
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Wonten ing Meta for Developers, damel aplikasi mawi WhatsApp, tambahaken nomer usaha panjenengan, lajeng damel system user kanthi token permanen ingkang angsal ngintun kangge nomer punika.",
@@ -2965,6 +2966,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} saking {count} ancas wajib ingkang dipunbiji triwulan punika lulus.",
   "Numbers for {quarter}": "Angka kangge {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Dipunetang saking biji ingkang dipunserat nalika saben periode rampung, kados ingkang dipunwaos perencanaan triwulanan: angka punika dados bahan rencana salajengipun, lan boten wonten bayaran utawi kapitadosan ingkang dipuntemtokaken dening angka punika.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('jv'),
 };
 
 /**
@@ -3001,4 +3004,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('jv'),
 ];

@@ -281,3 +281,29 @@ test('the language is kept by the deployment, never by the browser', async () =>
   assert.match(app, /api\('GET', '\/api\/control\/languages'\)/);
   assert.match(app, /api\('POST', '\/api\/control\/languages'/);
 });
+
+/**
+ * The people's workspace keeps its sentences by feature, in
+ * `console/src/locales/areas/`, so features built side by side write their
+ * own files and never the same lines of twenty dictionaries. An area file
+ * missing from the index reaches no dictionary, and a sentence in two areas
+ * is translated twice, the later one silently winning.
+ */
+test('every area of sentences reaches every dictionary, and no sentence is in two areas', async () => {
+  const folder = join(LOCALES, 'areas');
+  const files = (await readdir(folder)).filter((name) => name.endsWith('.ts') && name !== 'index.ts').map((name) => name.replace(/\.ts$/, ''));
+  const { AREAS } = await import(join(folder, 'index.ts')) as { AREAS: Record<string, Record<string, { dictionary: Dictionary; kept: readonly string[] }>> };
+  assert.deepEqual(Object.keys(AREAS).sort(), files.sort(), 'areas/index.ts lists every area file, and only those');
+  for (const [code, { dictionary }] of await dictionaries()) {
+    const seen = new Map<string, string>();
+    for (const [area, languages] of Object.entries(AREAS)) {
+      const own = languages[code];
+      assert.ok(own, `${area} has no ${code}`);
+      for (const [english, translation] of Object.entries(own.dictionary)) {
+        assert.ok(!seen.has(english), `${code}: "${english}" is in both ${seen.get(english)} and ${area}`);
+        seen.set(english, area);
+        assert.deepEqual(dictionary[english], translation, `${code}: "${english}" of ${area} does not reach the dictionary`);
+      }
+    }
+  }
+});

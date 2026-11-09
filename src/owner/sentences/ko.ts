@@ -9,6 +9,8 @@
  * Sentences are polite 해요체; buttons are short labels, within WhatsApp's
  * twenty characters.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': '인시던트: {title}',
   'Done: {goal}': '완료: {goal}',
@@ -563,4 +565,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': '우리가 섬기는 사람과 우리를 다르게 만드는 것',
   'Where we will be in three years': '3년 후 우리의 모습',
   'Our promise': '우리의 약속',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ko'),
 };

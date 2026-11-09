@@ -81,6 +81,7 @@
  * written to read right for 1 as well.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Meta for Developers で WhatsApp を使うアプリを作成し、ビジネス用の電話番号を追加したうえで、その番号から送信できる永続トークンを持つシステムユーザー（System user）を作成します。",
@@ -2943,6 +2944,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "今四半期に評点がついた必達目標 {count} 件のうち {passed} 件が達成。",
   "Numbers for {quarter}": "{quarter} の数字",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}。各期間の終わりに書かれた評点から、四半期計画が読むとおりに数えています。次の計画の材料であり、支払いや信頼がこれで決まることはありません。",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ja'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2961,4 +2964,5 @@ export const KEPT: readonly string[] = [
   "URL",
   "WhatsApp",
   "ntfy",
+  ...areaKept('ja'),
 ];

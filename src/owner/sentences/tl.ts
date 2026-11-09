@@ -4,6 +4,8 @@
  * console's (console/src/locales/tl.ts), so a button on the phone reads
  * as the same button in the app.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Insidente: {title}',
   'Done: {goal}': 'Tapos na: {goal}',
@@ -562,4 +564,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Sino ang aming pinaglilingkuran at ano ang nagpapaiba sa amin',
   'Where we will be in three years': 'Nasaan kami sa loob ng tatlong taon',
   'Our promise': 'Ang aming pangako',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('tl'),
 };

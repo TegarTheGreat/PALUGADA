@@ -194,6 +194,56 @@ export type ErrorCode =
    * give one call another call's answer.
    */
   | 'journal.divergence'
+  // --- the people's workspace (F19) ---
+  /**
+   * The refusals of the people's workspace, written here before the parts
+   * that throw them are built, so none of those parts edits this union: their
+   * statuses are `PEOPLE_REFUSALS` in src/owner/api.ts and their sentences the
+   * console's `EXPLAINED`, and workspace-contract.test.ts holds the three
+   * together. Section 2.202, which throws `staff.not_ready` first, declares
+   * it beside `staff.forbidden` as well: a union may name a member twice, and
+   * each block stays whole.
+   */
+  | 'room.not_visible'
+  | 'room.archived'
+  | 'room.not_member'
+  | 'room.too_fast'
+  | 'room.too_many_people'
+  | 'room.direct_fixed'
+  | 'room.company_room_stays'
+  | 'room.not_creator'
+  | 'room.pins_full'
+  | 'mention.room_not_yours'
+  | 'message.not_yours'
+  | 'message.edit_window'
+  | 'message.not_the_owners'
+  | 'message.files'
+  | 'file.not_kept'
+  | 'staff.ask_limit'
+  | 'staff.not_ready'
+  | 'approval.own_instigation'
+  | 'name.reserved'
+  | 'name.taken'
+  | 'name.owner_sets'
+  | 'handle.unusable'
+  | 'auth.handle_locked'
+  | 'meeting.too_many'
+  | 'meeting.outside_window'
+  | 'meeting.no_model'
+  | 'people_meeting.past'
+  | 'people_meeting.cannot_see'
+  | 'stream.too_many'
+  | 'relay.unreachable'
+  | 'relay.fingerprint'
+  | 'relay.fingerprint_short'
+  | 'relay.other_host'
+  | 'relay.companies'
+  | 'relay.owner_device'
+  | 'import.zip'
+  | 'import.part_missing'
+  | 'import.too_large'
+  | 'import.former_linked'
+  // --- end of the people's workspace ---
   | 'tenant.context_missing'
   /** Section 12: the metrics endpoint was asked for and none is configured. */
   | 'metrics.off'

@@ -48,8 +48,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { PalugadaError, isPalugadaError } from '../errors.ts';
-import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { PalugadaError, isPalugadaError, type ErrorCode } from '../errors.ts';
+import { assistantDispatch, withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
@@ -202,6 +202,16 @@ import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
+import {
+  EventStream, StreamRegistry, WithStatus, peopleFilesApart, peopleFilesFolder, type Route, type RouteKit, type StreamOpener,
+} from './route.ts';
+import { findRoutes } from './routes/find.ts';
+import { importRoutes } from './routes/imports.ts';
+import { meetingRoutes } from './routes/meetings.ts';
+import { peopleRoutes } from './routes/people.ts';
+import { relayRoutes } from './routes/relay.ts';
+import { roomRoutes } from './routes/rooms.ts';
+import { talkRoutes } from './routes/talk.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
 import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
 import { appointCeo } from '../governance/ceo.ts';
@@ -336,7 +346,15 @@ export interface OwnerApiOptions {
    * owner hands files into and takes them out of. Absent, the console says this
    * deployment keeps none.
    */
-  files?: { root: string };
+  files?: {
+    root: string;
+    /**
+     * Where room files are kept instead (`PALUGADA_PEOPLE_FILES_ROOT`), one
+     * folder per company. Absent, they are kept beside each company's own
+     * folder under `root`, as `<companyId>.people`, never inside it.
+     */
+    peopleRoot?: string;
+  };
   /**
    * The runtimes this deployment employs (F13.1), so the owner can see which
    * answer and move a role onto one. Absent means none can be chosen: a role
@@ -404,32 +422,6 @@ export interface OwnerApiOptions {
   secrets?: SecretManager;
 }
 
-interface Handler {
-  (context: {
-    request: IncomingMessage;
-    /** The owner's session; null for an open route, or a staff seat's request. */
-    session: OwnerSession | null;
-    /** A staff seat's session (0110), already held to what its seat may reach (staff-policy.ts). */
-    staff: StaffSession | null;
-    body: Record<string, unknown>;
-    /** The body's bytes as they arrived, for a route that reads them itself. */
-    raw: Buffer;
-    params: Record<string, string>;
-    query: URLSearchParams;
-  }): Promise<unknown>;
-}
-
-/** A route's answer with a status other than 200: only the health and readiness checks need one. */
-class WithStatus {
-  readonly status: number;
-  readonly body: unknown;
-
-  constructor(status: number, body: unknown) {
-    this.status = status;
-    this.body = body;
-  }
-}
-
 /** Plain text rather than JSON: only for the metrics scraper, which reads its own format. */
 class PlainText {
   readonly contentType: string;
@@ -457,19 +449,6 @@ class HtmlPage {
   }
 }
 
-/**
- * An answer that goes on: server-sent events, written as they come, until
- * the owner goes or the API closes. `run` writes each one with `send` and
- * returns when `signal` aborts.
- */
-class EventStream {
-  readonly run: (send: (data: unknown, id?: string) => void, signal: AbortSignal) => Promise<void>;
-
-  constructor(run: EventStream['run']) {
-    this.run = run;
-  }
-}
-
 /** How often a live stream looks for new events. */
 const LIVE_POLL_MS = 1_000;
 /** How far back each look reads again, for a transaction that committed late. */
@@ -477,23 +456,6 @@ const LIVE_LOOKBACK_MS = 30_000;
 
 /** How long a quiet stream waits before saying it is still there, inside any proxy's idle limit. */
 const STREAM_HEARTBEAT_MS = 15_000;
-
-interface Route {
-  method: string;
-  /** Path with `:name` segments. Matched segment by segment, never by regex. */
-  pattern: string;
-  /** Whether a session is required. Only sign-in and the challenge are not. */
-  open?: boolean;
-  /** The largest body this route reads. A megabyte unless the route says otherwise. */
-  maxBodyBytes?: number;
-  /**
-   * The route reads the body's bytes itself, and they are not parsed as a JSON
-   * object first. Only the inbound hook, whose senders sign bytes and send
-   * forms and text as well as JSON.
-   */
-  raw?: boolean;
-  handle: Handler;
-}
 
 /**
  * The deployment's settings without what the platform learned by itself: the
@@ -520,8 +482,14 @@ export class OwnerApi {
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
   #server: Server | null = null;
-  /** The live streams open now (`EventStream`), ended when the API closes rather than waited for. */
-  readonly #streams = new Set<AbortController>();
+  /**
+   * The live streams open now (`EventStream`), by the session that opened
+   * them and the person behind it: ended when that session signs out or the
+   * seat is ended, and when the API closes, rather than waited for.
+   */
+  readonly #streams = new StreamRegistry();
+  /** What a route module is handed (`#kit()`), made once so that what is set on it later, the live hub, stays. */
+  #madeKit: RouteKit | null = null;
   #allowedHosts: ReadonlySet<string> | null = null;
   /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
   readonly #answering = new Set<ServerResponse>();
@@ -614,7 +582,7 @@ export class OwnerApi {
     this.#server = null;
     this.#letConnectionsGo();
     // A stream never finishes by itself: it is told to end, not given time.
-    for (const stream of this.#streams) stream.abort();
+    this.#streams.endAll();
     // Before anything is awaited, so no connection is accepted after this line.
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     server.closeIdleConnections();
@@ -640,6 +608,7 @@ export class OwnerApi {
   }
 
   #buildRoutes(): Route[] {
+    const kit = this.#kit();
     return [
       /* ------------------------------------------------------- signing in --- */
 
@@ -810,6 +779,8 @@ export class OwnerApi {
         handle: async ({ session, staff }) => {
           if (staff) await this.#staff.signOut(staff.token);
           else await this.#sessions.signOut(session!.token);
+          // And what that session holds open: a signed-out tab hears nothing more.
+          this.#streams.endSession(staff ? staff.token : session!.token);
           return { ok: true };
         },
       },
@@ -1115,7 +1086,11 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/staff/:seatId/revoke',
         handle: async ({ params }) => {
-          await this.#staff.revoke(params.companyId!, params.seatId!);
+          // In the spelling its streams are filed under (`pathId`).
+          const seatId = pathId(params.seatId!, 'a seat');
+          await this.#staff.revoke(params.companyId!, seatId);
+          // Its sessions ended with it; so does every stream they opened.
+          this.#streams.endPrincipal(`seat:${seatId}`);
           return { ok: true };
         },
       },
@@ -6148,9 +6123,13 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/authenticators/:authenticatorId/revoke',
         handle: async ({ params, body }) => {
+          // In the spelling its sessions' streams are filed under (`pathId`).
+          const authenticatorId = pathId(params.authenticatorId!, 'an authenticator');
           await this.#requireFactor(body.proof, 'revoke an authenticator', null, true);
-          await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
-          return { signedOut: await this.#sessions.signOutFactor(params.authenticatorId!) };
+          await this.#options.mfa.revokeOwnDevice(authenticatorId);
+          const signedOut = await this.#sessions.signOutFactor(authenticatorId);
+          this.#streams.endFactor(authenticatorId);
+          return { signedOut };
         },
       },
 
@@ -6159,7 +6138,12 @@ export class OwnerApi {
         // only takes power away, so the session is enough to ask.
         method: 'POST',
         pattern: '/api/auth/sign-out-everywhere',
-        handle: async () => ({ signedOut: await this.#sessions.signOutAll() }),
+        handle: async () => {
+          const signedOut = await this.#sessions.signOutAll();
+          // The owner's sessions, every one: the streams they opened end with them.
+          this.#streams.endPrincipal('owner');
+          return { signedOut };
+        },
       },
 
       {
@@ -6189,7 +6173,10 @@ export class OwnerApi {
         pattern: '/api/mfa/recovery-codes',
         handle: async ({ body }) => {
           await this.#requireFactor(body.proof, 'make new recovery codes', null, true);
-          return { codes: await this.#options.mfa.issueRecoveryCodes() };
+          const { codes, ended } = await this.#options.mfa.issueRecoveryCodes();
+          // The old set's sessions ended with it; so does every stream they opened.
+          for (const authenticatorId of ended) this.#streams.endFactor(authenticatorId);
+          return { codes };
         },
       },
 
@@ -6223,7 +6210,46 @@ export class OwnerApi {
           return this.#options.mfa.enrolPasskey(made);
         },
       },
+
+      /* ------------------------------------------------ the people's workspace --- */
+
+      // Each area's routes are written in its own module (route.ts), and served
+      // here beside the API's own. No route of one matches a path another
+      // matches (console-routes.test.ts), so their order is not a rule.
+      ...roomRoutes(kit),
+      ...peopleRoutes(kit),
+      ...talkRoutes(kit),
+      ...relayRoutes(kit),
+      ...meetingRoutes(kit),
+      ...findRoutes(kit),
+      ...importRoutes(kit),
     ];
+  }
+
+  /**
+   * What a route module may reach of this API (`RouteKit`, route.ts): the
+   * same second factor, sessions, settings and streams the API's own routes
+   * use, so a route written in a module keeps every rule a route here does.
+   */
+  #kit(): RouteKit {
+    if (this.#madeKit) return this.#madeKit;
+    // Made with the API, so a people files root that would put room files in
+    // a company's folder stops the API from starting rather than taking one.
+    if (this.#options.files) peopleFilesApart(this.#options.files);
+    this.#madeKit = {
+      requireFactor: (context, purpose, fresh = false) =>
+        this.#requireFactor(context.body.proof, purpose, context.params.companyId ?? null, fresh),
+      sessions: this.#sessions,
+      staff: this.#staff,
+      options: this.#options,
+      deploymentSettings: () => this.#deploymentSettings(),
+      applySettings: () => this.#applySettings(),
+      filesRoot: () => this.#options.files?.root ?? null,
+      peopleFilesRoot: (companyId) => peopleFilesFolder(this.#options.files, companyId),
+      streams: this.#streams,
+      hub: null,
+    };
+    return this.#madeKit;
   }
 
   /* --------------------------------------------------------------- plumbing --- */
@@ -6551,7 +6577,14 @@ export class OwnerApi {
     if (!match || match.route.open || match.route.raw) {
       throw new PalugadaError('contract.violation', `${method} ${url.pathname} is not a route of this console`, {});
     }
-    const answer = await this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams }));
+    // The assistant's: inside this scope the people's helpers refuse (tenant.ts),
+    // so a route that reads people's words answers it with a refusal even if
+    // nobody listed it among the routes the assistant may not read. Work the
+    // handler starts and leaves running inherits the scope too, so such work
+    // leaves room cards and people's notices to the sweep or the worker, or
+    // opens them inside `assistantDispatch.exit(...)` where that is meant.
+    const answer = await assistantDispatch.run(true, () =>
+      this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams })));
     if (answer instanceof WithStatus) {
       if (answer.status >= 400) {
         throw new PalugadaError('contract.violation', String((answer.body as { error?: unknown } | null)?.error ?? `answered ${answer.status}`), {});
@@ -7054,7 +7087,14 @@ export class OwnerApi {
         query: url.searchParams,
       }));
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
-      else if (answer instanceof EventStream) await this.#stream(req, res, answer);
+      else if (answer instanceof EventStream) {
+        await this.#stream(req, res, answer, {
+          token: session?.token ?? staff?.token ?? null,
+          principal: staff ? `seat:${staff.seat.id}` : session ? 'owner' : null,
+          factor: session?.factor.authenticatorId ?? null,
+          companyId: match.params.companyId ?? null,
+        });
+      }
       else if (answer instanceof HtmlPage) sendPage(res, answer);
       else if (answer instanceof PlainText) {
         res.writeHead(200, { 'content-type': answer.contentType, 'cache-control': 'no-store' });
@@ -7097,14 +7137,13 @@ export class OwnerApi {
   }
 
   /**
-   * Writes an event stream until the owner goes or the API closes. A comment
-   * line now and then keeps a quiet stream from being cut by a proxy that
-   * closes what it thinks is idle; `X-Accel-Buffering` asks one that buffers
-   * answers not to hold these back.
+   * Writes an event stream until the owner goes, the session that opened it
+   * ends, or the API closes. A comment line now and then keeps a quiet
+   * stream from being cut by a proxy that closes what it thinks is idle;
+   * `X-Accel-Buffering` asks one that buffers answers not to hold these back.
    */
-  async #stream(req: IncomingMessage, res: ServerResponse, stream: EventStream): Promise<void> {
-    const stop = new AbortController();
-    this.#streams.add(stop);
+  async #stream(req: IncomingMessage, res: ServerResponse, stream: EventStream, opener: StreamOpener): Promise<void> {
+    const stop = this.#streams.open(opener);
     req.once('close', () => stop.abort());
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -7120,7 +7159,7 @@ export class OwnerApi {
       }, stop.signal);
     } finally {
       clearInterval(beat);
-      this.#streams.delete(stop);
+      this.#streams.closed(stop);
       res.end();
     }
   }
@@ -7251,6 +7290,55 @@ function staffOf(session: StaffSession): { name: string; kind: string; companyId
 }
 
 /**
+ * The refusals of the people's workspace, and the status each deserves (F19).
+ * Written here, with a sentence for each in the console's `EXPLAINED`, before
+ * the parts of the workspace that throw them are built, so that none of them
+ * edits this function or the console's table; `workspace-contract.test.ts`
+ * holds the two together.
+ */
+const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
+  'room.not_visible': 404,
+  'room.archived': 409,
+  'room.not_member': 403,
+  'room.too_fast': 429,
+  'room.too_many_people': 400,
+  'room.direct_fixed': 409,
+  'room.company_room_stays': 409,
+  'room.not_creator': 403,
+  'room.pins_full': 409,
+  'mention.room_not_yours': 403,
+  'message.not_yours': 403,
+  'message.edit_window': 409,
+  'message.not_the_owners': 409,
+  'message.files': 400,
+  'file.not_kept': 404,
+  'staff.ask_limit': 429,
+  'staff.not_ready': 503,
+  'approval.own_instigation': 403,
+  'name.reserved': 400,
+  'name.taken': 409,
+  'name.owner_sets': 403,
+  'handle.unusable': 409,
+  'auth.handle_locked': 429,
+  'meeting.too_many': 429,
+  'meeting.outside_window': 409,
+  'meeting.no_model': 409,
+  'people_meeting.past': 400,
+  'people_meeting.cannot_see': 400,
+  'stream.too_many': 503,
+  'relay.unreachable': 502,
+  'relay.fingerprint': 400,
+  'relay.fingerprint_short': 400,
+  'relay.other_host': 400,
+  'relay.companies': 400,
+  'relay.owner_device': 409,
+  'import.zip': 400,
+  'import.part_missing': 409,
+  'import.too_large': 400,
+  'import.former_linked': 409,
+};
+
+/**
  * The status a refusal deserves.
  *
  * Mapped rather than defaulted to 400, because the console draws a different
@@ -7258,6 +7346,9 @@ function staffOf(session: StaffSession): { name: string; kind: string; companyId
  * wrong". An owner who cannot tell them apart cannot act on any of them.
  */
 function statusFor(code: string): number {
+  // A code no refusal of the workspace has is simply not in the table.
+  const people = PEOPLE_REFUSALS[code as ErrorCode];
+  if (people !== undefined) return people;
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
@@ -7832,6 +7923,24 @@ function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'rev
     fields.funnelStep = (body.funnelStep === '' ? null : body.funnelStep) as FunnelStep | null;
   }
   return fields;
+}
+
+/**
+ * An id from a path, in the one spelling the database answers with.
+ *
+ * PostgreSQL reads a uuid in capitals, in braces or without its hyphens as
+ * the same row, so a route that only hands the id to a query would act on it
+ * however it was typed. But what this process files by an id -- the open
+ * streams, which revoking a seat or an authenticator ends -- is filed under
+ * the database's own spelling, and an id typed otherwise would end nothing.
+ * So a route that does both takes the id in that spelling, lowercased, and
+ * refuses any other before the database is asked.
+ */
+function pathId(value: string, what: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new PalugadaError('contract.violation', `${what} is named by its id, a uuid such as 0f8fad5b-d9cb-469f-a165-70867728950e, not ${JSON.stringify(value)}`, { id: value });
+  }
+  return value.toLowerCase();
 }
 
 function requireText(value: unknown, field: string): string {

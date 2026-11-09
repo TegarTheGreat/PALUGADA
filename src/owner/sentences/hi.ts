@@ -8,6 +8,8 @@
  * speaking as "I" -- the CEO a company chose, or PALUGADA -- is given no
  * gender: the sentences are turned so that no verb needs one.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'घटना: {title}',
   'Done: {goal}': 'पूरा हुआ: {goal}',
@@ -565,4 +567,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'हम किसकी सेवा करते हैं और हमें क्या अलग बनाता है',
   'Where we will be in three years': 'तीन साल में हम कहाँ होंगे',
   'Our promise': 'हमारा वादा',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('hi'),
 };

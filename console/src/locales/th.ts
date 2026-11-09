@@ -105,6 +105,7 @@
  *                          ความหมาย
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. ใน Meta for Developers ให้สร้างแอปที่มี WhatsApp เพิ่มหมายเลขธุรกิจของคุณ แล้วสร้าง system user ที่มีโทเค็นถาวรซึ่งส่งข้อความในนามหมายเลขนั้นได้",
@@ -2967,6 +2968,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} จาก {count} เป้าหมายที่ให้คำมั่นซึ่งได้รับคะแนนในไตรมาสนี้ผ่าน",
   "Numbers for {quarter}": "ตัวเลขของ {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period} นับจากคะแนนที่บันทึกเมื่อแต่ละช่วงจบลง ตามที่การวางแผนรายไตรมาสอ่าน: ใช้ประกอบแผนถัดไป และไม่มีการจ่ายเงินหรือความไว้วางใจใดขึ้นกับตัวเลขเหล่านี้",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('th'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2986,4 +2989,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('th'),
 ];

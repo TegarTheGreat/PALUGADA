@@ -133,6 +133,11 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Every POST a seat may make is on one list: talk, ask or decide**, in
   its area's block of `src/owner/staff-policy.ts`.
   `test/documents/staff-routes.test.ts`.
+- **Every place that carries outside words into derived work carries staff
+  words too**: a call that passes `carriesOutside`, or reads
+  `carriesOutsideFrom`, passes `carriesStaff` or `carriesStaffFrom`, so a
+  member of staff's words held at tier 2 in one task are held in the work
+  made from it. `test/documents/provenance-sites.test.ts`.
 - **The workspace's shapes are written twice and held together**:
   `src/workspace/contract.ts` and `console/src/workspace/types.ts`, type by
   type and field by field. `test/documents/workspace-contract.test.ts`.

@@ -1008,7 +1008,7 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/companies/:companyId/work',
-        handle: async ({ params, query }) => {
+        handle: async ({ params, query, staff }) => {
           const group = query.get('group');
           if (group !== null && group !== '' && !isWorkGroup(group)) {
             throw new PalugadaError(
@@ -1031,6 +1031,8 @@ export class OwnerApi {
             ...id('project'), ...id('role'), ...id('goal'),
             // The `next` of the page before: read, not trusted (inbox.ts readCursor).
             ...(query.get('before') ? { before: query.get('before')! } : {}),
+            // What a task produced from another seat's words is not this seat's, here as on the task (F19.9).
+            seat: staff ? { id: staff.seat.id } : null,
           });
         },
       },
@@ -1134,10 +1136,12 @@ export class OwnerApi {
         // deliverables, across every task.
         method: 'GET',
         pattern: '/api/companies/:companyId/gallery',
-        handle: async ({ params, query }) => galleryOf(params.companyId!, {
+        handle: async ({ params, query, staff }) => galleryOf(params.companyId!, {
           ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
           // The `next` of the page before: read, not trusted (views.ts galleryCursor).
           ...(query.get('before') ? { before: query.get('before')! } : {}),
+          // A draft is what a task produced, kept from a seat as the task's output is (F19.9).
+          seat: staff ? { id: staff.seat.id } : null,
         }),
       },
 
@@ -1435,7 +1439,8 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox/:itemId/trace',
         handle: async ({ params, query, staff }) => {
-          if (staff) await inbox.assertSeatMayRead(params.companyId!, params.itemId!, { id: staff.seat.id });
+          // The trace is the task's: a card is no way round its refusal (F19.9).
+          if (staff) await inbox.assertSeatMayReadItemTrace(params.companyId!, params.itemId!, { id: staff.seat.id });
           const trace = await traceFromInboxItem(params.companyId!, params.itemId!, {
             includePrompts: query.get('prompts') === '1',
           });
@@ -3484,14 +3489,14 @@ export class OwnerApi {
           if (!task) {
             throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
           }
-          const listed = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1 })).items[0] ?? null;
+          const seat = staff ? { id: staff.seat.id } : null;
+          const item = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1, seat })).items[0] ?? null;
           // What the work produced from another seat's question or words is
           // theirs and the owner's, as its briefing is (F19.9): a seat sees
           // the task, not its output.
-          const hidden = staff !== null && staff !== undefined
-            && !await inbox.seatMayReadTask(params.companyId!, params.taskId!, { id: staff.seat.id });
-          if (hidden) Object.assign(task, { output: null, done: null, deliverables: [] });
-          const item = hidden && listed ? { ...listed, result: null } : listed;
+          if (seat && !await inbox.seatMayReadTask(params.companyId!, params.taskId!, seat)) {
+            Object.assign(task, { output: null, done: null, deliverables: [] });
+          }
           // Whether a replay can run here: only for a role this deployment
           // runs as an in-process handler. The console offered it on every
           // task, and on a deployment started by `npm start` -- which runs

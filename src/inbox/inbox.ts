@@ -237,6 +237,11 @@ export interface InboxItem {
 export interface Exchange {
   question: string;
   answer: string | null;
+  /**
+   * The member of staff who asked it, by the name the owner gave them, or ''
+   * when none survives; absent when the owner asked (F19.9).
+   */
+  by?: string;
 }
 
 /**
@@ -295,12 +300,14 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       // the new proposal is asked about in its place.
       const { rows } = await tx.query<{
         id: string; action_fingerprint: string | null; decision: string | null; owner_note: string | null;
-        payload: { asked?: Exchange[] };
+        payload: { asked?: Exchange[] }; asked_by: string | null;
       }>(
-        `SELECT id, action_fingerprint, decision, owner_note, payload FROM inbox_items
-          WHERE task_id = $1 AND kind = 'approval' AND status = 'open'
-            AND capability_name IS NOT DISTINCT FROM $2
-          ORDER BY created_at LIMIT 1`,
+        `SELECT i.id, i.action_fingerprint, i.decision, i.owner_note, i.payload,
+                CASE WHEN i.decided_by_seat IS NOT NULL THEN coalesce(${SEAT_THAT_DECIDED}, '') END AS asked_by
+           FROM inbox_items i
+          WHERE i.task_id = $1 AND i.kind = 'approval' AND i.status = 'open'
+            AND i.capability_name IS NOT DISTINCT FROM $2
+          ORDER BY i.created_at LIMIT 1`,
         [input.taskId, input.capabilityName],
       );
       const open = rows[0] ?? null;
@@ -310,7 +317,10 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       // decision again -- on this card, or on the one that supersedes it.
       asked = [...(open?.payload.asked ?? [])];
       if (open?.decision === 'ask') {
-        asked.push({ question: open.owner_note ?? '', answer: await answerSince(tx, input.taskId, open.id) });
+        asked.push({
+          question: open.owner_note ?? '', answer: await answerSince(tx, input.taskId, open.id),
+          ...(open.asked_by !== null ? { by: open.asked_by } : {}),
+        });
         await appendEvent(tx, {
           companyId: input.companyId, taskId: input.taskId, type: 'approval.answered', actor: 'broker',
           payload: { inboxItemId: open.id, answered: asked.at(-1)!.answer !== null },
@@ -1454,28 +1464,56 @@ export async function assertSeatMayRead(companyId: string, itemId: string, seat:
 /**
  * Whether a seat may read what a task's runs were told and said (F19.9): its
  * briefings, its transcript, its trace and its output. Not when the task, or
- * work it is part of, holds a question put to another seat, or another seat's
- * words to it -- an instruction, an answer, a question back about a card --
- * since a briefing carries each of those as they were said. The owner reads
+ * work it is part of or reruns, holds a question put to another seat, or
+ * another seat's words to it -- an instruction, an answer, a question back
+ * about a card -- since a briefing carries each of those as they were said,
+ * and a rerun's carries what the earlier attempts were told. The owner reads
  * everything; a seat reads its own words and the owner's.
  */
 export async function seatMayReadTask(companyId: string, taskId: string, seat: { id: string }): Promise<boolean> {
-  const { rows } = await withTenant(companyId, (tx) => tx.query<{ hidden: boolean }>(
+  const kept = await withTenant(companyId, (tx) => tasksKeptFromSeat(tx, [taskId], seat));
+  return !kept.has(taskId);
+}
+
+/**
+ * Of some tasks, those whose runs' words a seat may not read
+ * (`seatMayReadTask`), in one query: for a list, which shows each task's
+ * output beside it.
+ *
+ * Another seat's decision counts only when it is words to the run, as
+ * `staffWordsIn` counts it: a question back, or an escalation answered with
+ * a note. An approver's yes or no on a card is not, and four eyes makes
+ * such a decision on every piece of staff work, so counting it would keep
+ * from the member who asked for the work what came of it.
+ */
+export async function tasksKeptFromSeat(tx: TenantClient, taskIds: readonly string[], seat: { id: string }): Promise<Set<string>> {
+  if (taskIds.length === 0) return new Set();
+  const { rows } = await tx.query<{ start: string }>(
     `WITH RECURSIVE up AS (
-       SELECT id, parent_task_id, 0 AS depth FROM tasks WHERE id = $1
+       SELECT id AS start, id, parent_task_id, idempotency_key, 0 AS depth FROM tasks WHERE id = ANY($1::uuid[])
        UNION ALL
-       SELECT t.id, t.parent_task_id, up.depth + 1 FROM tasks t JOIN up ON t.id = up.parent_task_id WHERE up.depth < 64
+       -- The work a task is part of, and the attempt a rerun (a root task
+       -- keyed rerun:<the task it reruns>) was asked again for.
+       SELECT up.start, t.id, t.parent_task_id, t.idempotency_key, up.depth + 1
+         FROM up JOIN tasks t
+           ON t.id = up.parent_task_id
+           OR (up.parent_task_id IS NULL AND up.idempotency_key = 'rerun:' || t.id::text)
+        WHERE up.depth < 64
      )
-     SELECT EXISTS (SELECT 1 FROM inbox_items i
-                     WHERE i.task_id IN (SELECT id FROM up) AND i.addressee_seat IS NOT NULL AND i.addressee_seat <> $2::uuid)
+     SELECT DISTINCT up.start::text AS start FROM up
+      WHERE EXISTS (SELECT 1 FROM inbox_items i
+                     WHERE i.task_id = up.id AND i.addressee_seat IS NOT NULL AND i.addressee_seat <> $2::uuid)
          OR EXISTS (SELECT 1 FROM events e
-                     WHERE e.task_id IN (SELECT id FROM up)
+                     WHERE e.task_id = up.id
                        AND ((e.type = 'content.staff_said' AND e.payload->>'how' IN ('instructed', 'answered')
                              AND e.payload->>'seatId' IS DISTINCT FROM $2::text)
-                            OR (e.actor = 'staff' AND e.type IN ('staff.instructed', 'owner.instructed', 'owner.answered', 'owner.decided')
-                                AND e.payload->'staff'->>'seatId' IS DISTINCT FROM $2::text))) AS hidden`,
-    [taskId, seat.id]));
-  return !(rows[0]?.hidden ?? false);
+                            OR (e.actor = 'staff' AND e.payload->'staff'->>'seatId' IS DISTINCT FROM $2::text
+                                AND (e.type IN ('staff.instructed', 'owner.instructed', 'owner.answered')
+                                     OR (e.type = 'owner.decided'
+                                         AND (e.payload->>'decision' = 'ask'
+                                              OR (e.payload->>'kind' = 'escalation' AND coalesce(e.payload->>'note', '') <> '')))))))`,
+    [[...taskIds], seat.id]);
+  return new Set(rows.map((row) => row.start));
 }
 
 /** `seatMayReadTask`, as a refusal, for the reads that would show what another seat was asked or said. */
@@ -1485,6 +1523,20 @@ export async function assertSeatMayReadTask(companyId: string, taskId: string, s
       'this work holds a question put to someone else, or someone else\'s words to it: only they and the owner can read what its runs were told',
       { taskId });
   }
+}
+
+/**
+ * Whether a seat may read the trace behind an item: the item's own rule
+ * (`assertSeatMayRead`), and then its task's, since the trace is the task's
+ * runs and what they were told (F19.9). A card every approver lists is no
+ * way round the refusal of the task's own trace.
+ */
+export async function assertSeatMayReadItemTrace(companyId: string, itemId: string, seat: { id: string }): Promise<void> {
+  await assertSeatMayRead(companyId, itemId, seat);
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ task_id: string | null }>(
+    'SELECT task_id FROM inbox_items WHERE id = $1', [itemId]));
+  const taskId = rows[0]?.task_id;
+  if (taskId) await assertSeatMayReadTask(companyId, taskId, seat);
 }
 
 /**
@@ -1836,7 +1888,7 @@ export async function listOpen(
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
-      allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
+      allow_for: boolean; asked: Exchange[] | null; asking: string | null; asking_by: string | null; skill_count: number | null; browser: boolean;
       key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
       addressee: { seatId: string; name: string } | null; escalated: boolean;
       staff: string[] | null; team: boolean;
@@ -1872,6 +1924,7 @@ export async function listOpen(
                   FROM jsonb_array_elements(i.payload->'goalPlan'->'lines') l) END AS plan,
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
+              CASE WHEN i.decision = 'ask' AND i.decided_by_seat IS NOT NULL THEN coalesce(${SEAT_THAT_DECIDED}, '') END AS asking_by,
               CASE WHEN i.kind = 'skill_candidate'
                    THEN coalesce(jsonb_array_length(i.payload->'skillVersionIds'), 1) END AS skill_count,
               CASE WHEN jsonb_typeof(i.payload->'endedTaskIds') = 'array' THEN (
@@ -1935,7 +1988,8 @@ export async function listOpen(
         ...(budgetHalt ? { budgetHalt } : {}),
         // What the owner asked and the run answered, and a question still
         // waiting for its answer last (N6).
-        asked: [...(r.asked ?? []), ...(r.asking !== null ? [{ question: r.asking, answer: null }] : [])],
+        asked: [...(r.asked ?? []), ...(r.asking !== null
+          ? [{ question: r.asking, answer: null, ...(r.asking_by !== null ? { by: r.asking_by } : {}) }] : [])],
       });
     }
     return items;
@@ -2887,18 +2941,23 @@ async function decideItem(
       // task goes back on the queue, and the run that picks it up reads the
       // question in its context. The approval item stays open: asking is not
       // deciding, and the owner still has to say yes.
+      // Whose question it is, by the rule an instruction is recorded by: a
+      // seat's question back is the seat's, never the owner's (F19.9).
+      const asker = recordedAs(seatAuthor(options.seat));
       await appendEvent(tx, {
         companyId,
         taskId: row.task_id,
         type: 'owner.asked',
-        actor: 'owner',
-        payload: { inboxItemId: itemId, question: note },
+        actor: asker.actor,
+        payload: { inboxItemId: itemId, question: note, ...asker.payload },
       });
       // And the model is asked again, with the question in front of it (N6):
       // replayed, the turn that asked for the action asked for it again and
       // nobody read the question. What it says is the answer on this card
       // (`requestApproval`).
-      if (row.kind === 'approval') await reopenForQuestionWithin(tx, row.task_id, note ?? '');
+      if (row.kind === 'approval') {
+        await reopenForQuestionWithin(tx, row.task_id, note ?? '', options.seat ? options.seat.name : null);
+      }
     }
     // Through `running` for a question too, because that is the only edge out
     // of waiting_approval and the task genuinely is running again -- with a

@@ -236,9 +236,14 @@ test('a turn that would pass the ceiling ends the answer where it is', async () 
   // The first turn costs five cents, and the account has three: its spend is
   // refused after the call, so the answer goes no further.
   const money = await createCompany('talk-money', { moneyMaxCents: 3 });
+  // An account allowed no money at all, as a company's is until the owner
+  // states one: a call may go while it might cost nothing, and the first that
+  // costs a cent is the last.
+  const nothing = await createCompany('talk-nothing', { moneyMaxCents: 0 });
   const model = new Model([
     async (request) => ({ ...await reads(`/api/companies/${tokens.companyId}/structure`)(request), inputTokens: 1_000_000 - 100 - estimateOf(request) }),
     reads(`/api/companies/${money.companyId}/structure`, { costCents: 5 }),
+    says('Nothing is set.'),
     says('Not reached.'),
   ]);
   const api = await consoleWithSettings({ assistant: { llm: model } });
@@ -251,11 +256,24 @@ test('a turn that would pass the ceiling ends the answer where it is', async () 
 
     assert.equal(await ask(api, token, money.companyId, 'Dan uangnya?'), `Looking.\n\n${NO_ROOM}`);
     assert.equal(model.requests.length, 2, 'nor was the turn after a call the account could not pay for');
-    // The call was made, so it is a trace the month's ceiling reads; the
-    // account refused it, so nothing moved there, and nothing is held.
+    // The call was made, so it is a trace the month's ceiling reads. The
+    // account refused to pay for it, so no tokens moved there and nothing is
+    // held; but the provider billed it, so its money is settled into the
+    // account above the ceiling, as a task's refused call is.
     assert.deepEqual((await tracesOf(money.companyId)).map((row) => row.cost_cents), [5]);
-    assert.deepEqual(await accountOf(money.companyId, money.budgetAccountId), { reserved: 0, spent: 0, money: 0 });
-    assert.deepEqual([...await holdsOf(tokens.companyId), ...await holdsOf(money.companyId)], []);
+    assert.deepEqual(await accountOf(money.companyId, money.budgetAccountId), { reserved: 0, spent: 0, money: 5 });
+    // So the next question finds the account spent, and buys no call past it.
+    assert.equal(await ask(api, token, money.companyId, 'Dan sekarang?'), NO_ROOM);
+    assert.equal(model.requests.length, 2, 'no call is made past the ceiling');
+    assert.deepEqual((await tracesOf(money.companyId)).map((row) => row.cost_cents), [5]);
+
+    assert.equal(await ask(api, token, nothing.companyId, 'Halo'), `Nothing is set.\n\n${NO_ROOM}`);
+    assert.equal(model.requests.length, 3);
+    assert.deepEqual(await accountOf(nothing.companyId, nothing.budgetAccountId), { reserved: 0, spent: 0, money: 1 });
+    assert.equal(await ask(api, token, nothing.companyId, 'Halo lagi'), NO_ROOM);
+    assert.equal(model.requests.length, 3, 'an account allowed nothing pays for one call, and no more');
+    assert.deepEqual((await tracesOf(nothing.companyId)).map((row) => row.cost_cents), [1]);
+    assert.deepEqual([...await holdsOf(tokens.companyId), ...await holdsOf(money.companyId), ...await holdsOf(nothing.companyId)], []);
   } finally {
     await api.close();
   }
@@ -349,14 +367,18 @@ test('a turn whose process dies leaves a hold that the sweep releases', async ()
   }
 });
 
-/** Writes a conversation that already happened, oldest first, a minute apart, ending a minute ago. */
-async function happened(companyId: string, bodies: string[]): Promise<void> {
+/**
+ * Writes a conversation that already happened, oldest first, a minute apart,
+ * ending a minute ago: the owner and the CEO in turn, unless every message is
+ * of one role.
+ */
+async function happened(companyId: string, bodies: string[], role?: 'event'): Promise<void> {
   await withControlPlane(async (tx) => {
     for (const [at, body] of bodies.entries()) {
       await tx.query(
         `INSERT INTO assistant_messages (role, channel, body, company_id, at)
          VALUES ($1, 'console', $2, $3, now() - make_interval(mins => $4))`,
-        [at % 2 === 0 ? 'owner' : 'assistant', body, companyId, bodies.length - at]);
+        [role ?? (at % 2 === 0 ? 'owner' : 'assistant'), body, companyId, bodies.length - at]);
     }
   });
 }
@@ -378,7 +400,13 @@ test("the history sent to the model is bounded by length, newest kept, the owner
   // is sent is the end of the conversation and never a conversation with a
   // gap in it.
   await happened(huge.companyId, [`${marker(1)} short`, `${marker(2)} ${'h'.repeat(15_000 - 6)}`, `${marker(3)} ${'s'.repeat(6_000 - 6)}`]);
-  const model = new Model([says('Baik.'), says('Baik.'), says('Baik.')]);
+  // Nine things that happened, of 2,500 characters each. Each is sent with a
+  // label before it, and all of them, with the owner's line, as one turn of
+  // the owner's, two line breaks apart: what is counted is what is sent, so
+  // seven fit where the bodies alone would let eight in.
+  const events = await createCompany('talk-events');
+  await happened(events.companyId, Array.from({ length: 9 }, (_, at) => `${marker(at + 1)} ${'e'.repeat(2_500 - 6)}`), 'event');
+  const model = new Model([says('Baik.'), says('Baik.'), says('Baik.'), says('Baik.')]);
   const api = await consoleWithSettings({ assistant: { llm: model } });
   try {
     const token = await api.signIn();
@@ -407,6 +435,13 @@ test("the history sent to the model is bounded by length, newest kept, the owner
     assert.equal(third.text.includes(marker(1)), false, 'nor is anything older than it');
     assert.deepEqual(model.requests[2]!.messages.map((one) => one.content), [`${marker(3)} ${'s'.repeat(6_000 - 6)}\n\n${line}`],
       "the owner's newest words and their line, sent together as one turn of theirs");
+
+    await ask(api, token, events.companyId, line);
+    const fourth = sent(3);
+    for (let n = 1; n <= 9; n += 1) assert.equal(fourth.text.includes(marker(n)), n > 2, marker(n));
+    const merged = model.requests[3]!.messages;
+    assert.equal(merged.length, 1, 'one turn of the owner\'s');
+    assert.ok((merged[0]!.content as string).length <= 24_000, `${(merged[0]!.content as string).length} characters sent`);
   } finally {
     await api.close();
   }
@@ -454,12 +489,25 @@ test("PALUGADA's own conversation stops before a turn that would pass the deploy
     assert.equal(await askPalugada(api, token, 'Look at the setup.'), `Looking.\n\n${ALLOWANCE_SPENT}`);
     assert.equal(model.requests.length, 3);
 
-    // Nothing is a bad allowance; nothing switches the conversation off.
+    // None of these is an allowance; zero switches the conversation off.
     for (const bad of [-1, 1.5, 'lots', null, 3_000_000_000]) {
       const refused = await api.call('POST', '/api/control/assistant-allowance', token, { monthCents: bad });
       assert.equal(refused.status, 400, `${JSON.stringify(bad)}: ${JSON.stringify(refused.body)}`);
     }
-    const off = await api.call('POST', '/api/control/assistant-allowance', token, { monthCents: 0 });
+
+    // A raise takes the owner's factor. A session opened with a recovery code
+    // has proved no device, so it has none to give and may not raise it; it
+    // may still cut it, which tightens the control, here to nothing at all.
+    const codes = await api.call('POST', '/api/mfa/recovery-codes', token, { proof: { totp: api.code() } });
+    assert.equal(codes.status, 200, JSON.stringify(codes.body));
+    const signedIn = await fetch(`${api.url}/api/auth/sign-in`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recovery: codes.body.codes[0] }),
+    });
+    const recovered = String(((await signedIn.json()) as { token: string }).token);
+    const unproved = await api.call('POST', '/api/control/assistant-allowance', recovered, { monthCents: 9_000 });
+    assert.equal(unproved.body.code, 'approval.channel_forbidden', JSON.stringify(unproved.body));
+    assert.equal((await allowance()).monthCents, 5_000, 'the raise changed nothing');
+    const off = await api.call('POST', '/api/control/assistant-allowance', recovered, { monthCents: 0 });
     assert.equal(off.status, 200, JSON.stringify(off.body));
     assert.equal((await allowance()).monthCents, 0);
     assert.equal(await askPalugada(api, token, 'Hello?'), ALLOWANCE_SPENT);

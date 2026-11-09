@@ -1061,17 +1061,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     );
     const task = rows[0];
     if (!task) return null;
-    const { rows: steps } = await tx.query<{
-      step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
-    }>(
-      `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
-        WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
-          AND jsonb_typeof(s.output -> 'path') = 'string'
-          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
-          AND ${NOT_A_READ}
-        ORDER BY s.step_index`,
-      [taskId],
-    );
+    const deliverables = await deliverablesWithin(tx, taskId);
     const made = await madeFiles(tx, taskId);
     const { rows: pieces } = await tx.query<{
       id: string; role: string; role_name: string | null; status: TaskStatus; output: unknown;
@@ -1130,19 +1120,41 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
       })),
       handedBy: by[0] ? { id: by[0].id, role: by[0].role, roleName: by[0].role_name } : null,
       files: made.slice(-FILES_LISTED).map((file) => ({ capability: file.capability, path: redactor.redact(file.path) })),
-      deliverables: steps.map((step) => ({
-        step: step.step_index,
-        capability: step.name.replace(/^capability:/, ''),
-        title: text(step.output.subject) ?? text(step.output.title) ?? headingOf(text(step.output.text))
-          ?? text(step.output.path)!,
-        path: text(step.output.path)!,
-        text: text(step.output.text) ?? text(step.output.body) ?? '',
-        words: typeof step.output.words === 'number' ? step.output.words : null,
-        to: text(step.output.to),
-        at: step.committed_at,
-      })),
+      deliverables,
     };
   });
+}
+
+/**
+ * The drafts a task committed, as `taskDetailOf` lists them, read on the
+ * caller's transaction: a room's card shows them inside the reader's own
+ * transaction, which must not wait on a second connection from the pool it
+ * already holds one of.
+ */
+export async function deliverablesWithin(tx: TenantClient, taskId: string): Promise<Deliverable[]> {
+  const { rows: steps } = await tx.query<{
+    step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
+  }>(
+    `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
+      WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+        AND jsonb_typeof(s.output -> 'path') = 'string'
+        AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+        AND ${NOT_A_READ}
+      ORDER BY s.step_index`,
+    [taskId],
+  );
+  const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+  return steps.map((step) => ({
+    step: step.step_index,
+    capability: step.name.replace(/^capability:/, ''),
+    title: text(step.output.subject) ?? text(step.output.title) ?? headingOf(text(step.output.text))
+      ?? text(step.output.path)!,
+    path: text(step.output.path)!,
+    text: text(step.output.text) ?? text(step.output.body) ?? '',
+    words: typeof step.output.words === 'number' ? step.output.words : null,
+    to: text(step.output.to),
+    at: step.committed_at,
+  }));
 }
 
 /* ------------------------------------------------------------- gallery --- */

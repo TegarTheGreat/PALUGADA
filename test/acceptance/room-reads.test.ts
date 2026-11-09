@@ -204,18 +204,19 @@ test('a person mentioned in a room they have not joined marks it seen there, wit
     if (!division.joined) ok(await owner.join(division.id));
     const root = await said(owner, division.id, { body: '@budi the stock count is off', mentions: [seat.principal] });
     const reply = ok(await owner.say(division.id, { body: '@budi start with the back room', mentions: [seat.principal], threadOf: root })).message;
+    const later = await said(owner, division.id, { body: '@budi and the till', mentions: [seat.principal] });
     const badge = async () => (ok(await api.call('GET', '/api/rooms/unread', seat.token)).unread as Array<{ mentions: number }>)[0]!.mentions;
-    assert.equal(await badge(), 2, 'both mentions are his, though the room is not in his rail');
+    assert.equal(await badge(), 3, 'every mention is his, though the room is not in his rail');
     assert.equal((ok(await budi.rooms()).rooms as Listed[]).some((one) => one.id === division.id), false);
 
     // Read in the thread, then in the room, as the console marks them.
     assert.equal(ok(await budi.read(division.id, { position: reply.position, threadOf: root })).readPosition, 0);
-    assert.equal(await badge(), 1, "the thread's mention is seen");
-    const rootAt = (ok(await budi.page(division.id)).messages as Array<{ id: string; position: number }>).find((one) => one.id === root)!.position;
-    assert.equal(ok(await budi.read(division.id, { position: rootAt })).readPosition, 0, 'no mark is kept in a room he is not in');
+    assert.equal(await badge(), 1, "the thread's mentions are seen, the room's later one not");
+    const laterAt = (ok(await budi.page(division.id)).messages as Array<{ id: string; position: number }>).find((one) => one.id === later)!.position;
+    assert.equal(ok(await budi.read(division.id, { position: laterAt })).readPosition, 0, 'no mark is kept in a room he is not in');
     assert.equal(await badge(), 0, "the room's is seen too");
     const activity = ok(await budi.activity()).items as Array<{ kind: string; seen?: boolean }>;
-    assert.deepEqual(activity.filter((one) => one.kind === 'mention').map((one) => one.seen), [true, true]);
+    assert.deepEqual(activity.filter((one) => one.kind === 'mention').map((one) => one.seen), [true, true, true]);
     assert.equal((ok(await budi.rooms()).rooms as Listed[]).some((one) => one.id === division.id), false, 'and he has not joined it');
     void fixture;
   } finally {

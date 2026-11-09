@@ -14,7 +14,8 @@ import { withControlPlane, withPeople, withTenant } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { ownerInbox, TEAM_SQL } from '../inbox/inbox.ts';
 import type { ActivityItem, Unread } from './contract.ts';
-import { assertMember, ensureCompanyMember, visibleRoom } from './rooms.ts';
+import { messageIdOf } from './messages.ts';
+import { ensureCompanyMember, visibleRoom } from './rooms.ts';
 import type { Viewer } from './views.ts';
 
 /**
@@ -23,18 +24,22 @@ import type { Viewer } from './views.ts';
  * which is said here as a refusal rather than an error. The person's mentions
  * up to the mark are seen. Read in a thread, only the thread's are: the
  * room's own mark stays where the room was read to.
+ *
+ * A mark is a member's, but what is addressed to a person is theirs in any
+ * room they can see: someone mentioned in an open room they have not joined,
+ * or owed a card there, reads it and has it seen without joining the room,
+ * which keeps no mark for them (0).
  */
 export async function markRead(viewer: Viewer, roomId: string, input: Record<string, unknown>): Promise<{ readPosition: number }> {
   const position = input.position;
   if (typeof position !== 'number' || !Number.isSafeInteger(position) || position < 0) {
     throw new PalugadaError('contract.violation', 'position is the position read up to, a whole number', { field: 'position' });
   }
-  const threadOf = input.threadOf === undefined || input.threadOf === null ? null : String(input.threadOf);
+  const threadOf = input.threadOf === undefined || input.threadOf === null ? null : messageIdOf(String(input.threadOf));
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
     await ensureCompanyMember(tx, viewer, room);
-    assertMember(room);
-    if (threadOf === null) {
+    if (room.member && threadOf === null) {
       await tx.query('SAVEPOINT read_mark');
       try {
         await tx.query(
@@ -56,8 +61,7 @@ export async function markRead(viewer: Viewer, roomId: string, input: Record<str
       [roomId, viewer.person.principal, position, threadOf]);
     const { rows } = await tx.query<{ read_position: string }>(
       'SELECT read_position FROM room_places WHERE room_id = $1 AND principal = $2', [roomId, viewer.person.principal]);
-    if (!rows[0]) throw new PalugadaError('room.not_member', 'join the room first', { roomId });
-    return { readPosition: Number(rows[0].read_position) };
+    return { readPosition: Number(rows[0]?.read_position ?? 0) };
   });
 }
 

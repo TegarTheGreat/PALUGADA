@@ -1,5 +1,5 @@
--- Rooms are for people (F19.1, F19.3, F19.4, F19.5, F19.10, F19.11; the
--- workspace plan, set S0a).
+-- Rooms are for people (F19.1, F19.3, F19.4, F19.5, F19.10, F19.11; STATUS
+-- section 2.202).
 --
 -- Each company gets a workspace where the owner and the staff the owner
 -- seated talk: a company room, a room per division, topic rooms, direct
@@ -197,9 +197,15 @@ CREATE INDEX room_messages_of_work ON room_messages (company_id, task_id) WHERE 
 CREATE INDEX room_messages_of_items ON room_messages (company_id, inbox_item_id) WHERE inbox_item_id IS NOT NULL;
 -- A browser's retry with the same clientId is the same message.
 CREATE UNIQUE INDEX room_messages_once ON room_messages (company_id, author, client_id) WHERE client_id IS NOT NULL;
--- One card per subject in a room, changed in place rather than posted again.
-CREATE UNIQUE INDEX room_cards_once ON room_messages (company_id, room_id, kind, coalesce(inbox_item_id, task_id))
-  WHERE kind IN ('work', 'question', 'approval', 'meeting');
+-- One card per subject in a room, changed in place rather than posted again:
+-- a question or an approval is its inbox item's, and work or a meeting its
+-- task's. Each is keyed on its own subject alone, so that when retention
+-- takes the items of two questions one task put, both cards let go of them
+-- without becoming the same card.
+CREATE UNIQUE INDEX room_cards_once ON room_messages (company_id, room_id, kind, inbox_item_id)
+  WHERE kind IN ('question', 'approval') AND inbox_item_id IS NOT NULL;
+CREATE UNIQUE INDEX room_work_cards_once ON room_messages (company_id, room_id, kind, task_id)
+  WHERE kind IN ('work', 'meeting') AND task_id IS NOT NULL;
 CREATE INDEX room_messages_mentions ON room_messages USING gin (mentions);
 CREATE INDEX room_messages_body_trgm ON room_messages USING gin (body gin_trgm_ops) WHERE deleted_at IS NULL;
 
@@ -255,7 +261,13 @@ CREATE TABLE room_files (
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   UNIQUE (company_id, id),
   FOREIGN KEY (company_id, message_id) REFERENCES room_messages (company_id, id) ON DELETE CASCADE,
-  CONSTRAINT room_files_kept_has_hash CHECK (path IS NULL OR sha256 IS NOT NULL)
+  CONSTRAINT room_files_kept_has_hash CHECK (path IS NULL OR sha256 IS NOT NULL),
+  -- Whoever attaches a file writes its path, and the bytes are served from
+  -- it: so its shape is held here, a room's directory and the file's own id,
+  -- with nothing in it that could climb out of the people's files root into
+  -- the company's own files, which agents read.
+  CONSTRAINT room_files_path_shape CHECK (path IS NULL OR path ~ (
+    '^rooms/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/' || id::text || '\.[a-z0-9]{1,10}$'))
 );
 CREATE INDEX room_files_of ON room_files (company_id, message_id);
 CREATE INDEX room_files_names ON room_files USING gin (name gin_trgm_ops);
@@ -319,14 +331,17 @@ CREATE INDEX room_feed_age ON room_feed (created_at);
 -- before any row is located: one lock order for every writer, so an edit and
 -- a reply racing on one root cannot deadlock. The row is made the first time
 -- a company writes a room. A transaction with no company (the control plane
--- erasing a company, whose cascade reaches these tables) takes nothing: it
--- writes no position either.
+-- erasing a company, whose cascade reaches these tables) takes nothing, and
+-- neither does one that names no reader: an agent's, whose every write the
+-- reader policy refuses, or a cascade from purged work, which only lets go of
+-- a link. Neither writes a feed row, so neither has an order to keep, and an
+-- agent's statement must not write even the clock.
 CREATE FUNCTION app.lock_room_clock() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   company uuid := nullif(current_setting('app.company_id', true), '')::uuid;
 BEGIN
-  IF company IS NULL THEN RETURN NULL; END IF;
+  IF company IS NULL OR app.reader() = 'none' THEN RETURN NULL; END IF;
   PERFORM 1 FROM room_clock WHERE company_id = company FOR UPDATE;
   IF NOT FOUND AND TG_OP <> 'DELETE' THEN
     INSERT INTO room_clock (company_id) VALUES (company) ON CONFLICT DO NOTHING;
@@ -398,12 +413,12 @@ SELECT app.enable_room_rls(t) FROM unnest(ARRAY['room_clock', 'rooms', 'room_mem
   'room_access', 'room_messages', 'room_message_revisions', 'room_reactions', 'room_pins', 'room_files',
   'room_mentions', 'room_follows', 'room_feed']::regclass[]) AS t;
 
--- Who may see a room, asked about someone other than the caller: by the
--- triggers, and by whatever plans what people are told. SECURITY DEFINER:
--- room_access's self-only policy binds only palugada_app. An agent's
--- transaction names no reader and is told nothing, so it cannot use this to
--- learn that a room exists.
-CREATE FUNCTION app.may_see(company uuid, room uuid, p text) RETURNS boolean
+-- Who may see a room, asked about anyone: the rule the triggers ask when they
+-- owe someone attention. SECURITY DEFINER, since room_access's self-only
+-- policy binds only palugada_app; and not the application's to call, because
+-- answering any question about anyone would tell a person whether a private
+-- room they cannot see exists and who is in it.
+CREATE FUNCTION app.room_visible_to(company uuid, room uuid, p text) RETURNS boolean
   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT app.reader() <> 'none' AND EXISTS (
     SELECT 1 FROM rooms r
@@ -412,6 +427,27 @@ CREATE FUNCTION app.may_see(company uuid, room uuid, p text) RETURNS boolean
             OR (r.kind = 'topic' AND (NOT r.private OR p = 'owner'))
             OR EXISTS (SELECT 1 FROM room_access a
                         WHERE a.company_id = company AND a.room_id = room AND a.principal = p))) $$;
+REVOKE EXECUTE ON FUNCTION app.room_visible_to(uuid, uuid, text) FROM PUBLIC;
+
+-- The same question as the application may ask it. Delivery plans what each
+-- person is told and the platform owes card attention, so both ask about
+-- anyone. A person asks only about themselves, which tells them nothing the
+-- rooms they read do not. An agent's transaction names no reader and is told
+-- nothing, so it cannot learn that a room exists.
+CREATE FUNCTION app.may_see(company uuid, room uuid, p text) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF app.reader() IN ('delivery', 'platform') THEN
+    RETURN app.room_visible_to(company, room, p);
+  ELSIF app.reader() = 'people' THEN
+    IF p IS DISTINCT FROM app.principal() THEN
+      RAISE EXCEPTION 'a person asks only about themselves whether they may see a room'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN app.room_visible_to(company, room, p);
+  END IF;
+  RETURN false;
+END $$;
 REVOKE EXECUTE ON FUNCTION app.may_see(uuid, uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.may_see(uuid, uuid, text) TO palugada_app;
 
@@ -625,18 +661,42 @@ REVOKE INSERT, UPDATE ON room_clock FROM palugada_app;
 -- RETURNING: the row is checked against the rooms policy before this trigger
 -- has given its maker access, so a private room returned at insert is
 -- refused. The id is made by the caller instead.
+--
+-- A room is made now and open, whatever its insert says: nobody makes one
+-- already archived in someone else's name, or dated before it was made. An
+-- archive or an export read in on the control plane keeps its dates.
+-- Archiving is a person's act, and who archived a room is whoever's
+-- transaction this is; the platform archives nothing.
 CREATE FUNCTION app.rooms_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  reader text := app.reader();
 BEGIN
-  IF app.reader() = 'people' THEN
-    -- Who archived a room is whoever's transaction this is.
-    IF NEW.archived_at IS DISTINCT FROM OLD.archived_at THEN
-      NEW.archived_by := CASE WHEN NEW.archived_at IS NULL THEN NULL ELSE app.principal() END;
+  IF TG_OP = 'INSERT' THEN
+    IF reader <> 'control' THEN
+      NEW.created_at := clock_timestamp();
+      IF NEW.archived_at IS NOT NULL OR NEW.archived_by IS NOT NULL THEN
+        RAISE EXCEPTION 'a room is made open; it is archived afterwards, by whoever archives it'
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.archived_at IS DISTINCT FROM OLD.archived_at OR NEW.archived_by IS DISTINCT FROM OLD.archived_by THEN
+    IF reader = 'people' THEN
+      IF NEW.archived_at IS DISTINCT FROM OLD.archived_at THEN
+        NEW.archived_by := CASE WHEN NEW.archived_at IS NULL THEN NULL ELSE app.principal() END;
+      ELSE
+        -- Who archived it stays who did.
+        NEW.archived_by := OLD.archived_by;
+      END IF;
+    ELSIF reader = 'platform' THEN
+      RAISE EXCEPTION 'a room is archived by a person, never by the platform' USING ERRCODE = 'check_violation';
     END IF;
   END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER rooms_guard BEFORE UPDATE ON rooms FOR EACH ROW EXECUTE FUNCTION app.rooms_guard();
+CREATE TRIGGER rooms_guard BEFORE INSERT OR UPDATE ON rooms FOR EACH ROW EXECUTE FUNCTION app.rooms_guard();
 
 CREATE FUNCTION app.rooms_after() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -651,6 +711,35 @@ BEGIN
   RETURN NULL;
 END $$;
 CREATE TRIGGER rooms_after AFTER INSERT OR UPDATE ON rooms FOR EACH ROW EXECUTE FUNCTION app.rooms_after();
+
+-- A direct room's people are exactly the ones its key names, from the moment
+-- it is opened: checked when the transaction that opened it commits, after
+-- its members have followed it in. One of them opening it alone would keep
+-- the others from ever having that room, since nobody joins a direct room
+-- later and the key opens only one. A room read in from an archive or an
+-- export comes with whatever people it had.
+CREATE FUNCTION app.rooms_direct_complete() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  missing text[];
+BEGIN
+  IF app.importing() THEN RETURN NULL; END IF;
+  -- A room the same transaction removed again owes nobody anything.
+  IF NOT EXISTS (SELECT 1 FROM rooms WHERE company_id = NEW.company_id AND id = NEW.id) THEN RETURN NULL; END IF;
+  SELECT array_agg(p ORDER BY p) INTO missing
+    FROM unnest(string_to_array(NEW.direct_key, ',')) AS p
+   WHERE NOT EXISTS (SELECT 1 FROM room_members m
+                      WHERE m.company_id = NEW.company_id AND m.room_id = NEW.id AND m.principal = p);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'a direct room is opened with everyone its key names in it: % %', array_to_string(missing, ', '),
+      CASE WHEN cardinality(missing) = 1 THEN 'is not' ELSE 'are not' END
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'rooms_direct_complete';
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER rooms_direct_complete AFTER INSERT ON rooms
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW WHEN (NEW.kind = 'direct') EXECUTE FUNCTION app.rooms_direct_complete();
 
 -- room_members: a direct room's people are fixed at its opening: nobody is
 -- added, nobody leaves, and nobody is removed except by revoking a seat, on
@@ -677,7 +766,10 @@ CREATE TRIGGER room_members_direct_fixed BEFORE INSERT OR UPDATE ON room_members
   FOR EACH ROW EXECUTE FUNCTION app.room_members_direct_fixed();
 
 -- What a person may write about membership. Their own row's name is the one
--- their session gave, whatever the insert says; a row arrives present.
+-- their session gave, whatever the insert says; a row arrives present. Only a
+-- topic room has admins, and only its creator, one of its present admins or
+-- the owner makes someone one or takes it away, on adding them or after:
+-- being an admin is what lets a person remove others from a private room.
 CREATE FUNCTION app.room_members_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -686,6 +778,18 @@ DECLARE
 BEGIN
   IF app.reader() <> 'people' THEN RETURN NEW; END IF;
   SELECT * INTO room FROM rooms WHERE company_id = NEW.company_id AND id = NEW.room_id;
+  IF (TG_OP = 'INSERT' AND NEW.role <> 'member') OR (TG_OP = 'UPDATE' AND NEW.role IS DISTINCT FROM OLD.role) THEN
+    IF room.kind IS DISTINCT FROM 'topic' THEN
+      RAISE EXCEPTION 'only a topic room has admins' USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT coalesce(me = 'owner' OR me = room.created_by
+                    OR EXISTS (SELECT 1 FROM room_members m
+                                WHERE m.company_id = NEW.company_id AND m.room_id = NEW.room_id AND m.principal = me
+                                  AND m.role = 'admin' AND m.left_at IS NULL), false) THEN
+      RAISE EXCEPTION 'a room''s admins are made by its creator, one of its admins or the owner'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.left_at IS NOT NULL OR NEW.left_by IS NOT NULL THEN
       RAISE EXCEPTION 'a member is added present' USING ERRCODE = 'check_violation';
@@ -700,9 +804,6 @@ BEGIN
   IF NEW.name IS DISTINCT FROM OLD.name
      AND (NEW.principal <> me OR NEW.name IS DISTINCT FROM nullif(current_setting('app.principal_name', true), '')) THEN
     RAISE EXCEPTION 'a member''s name is the one the owner gave them' USING ERRCODE = 'check_violation';
-  END IF;
-  IF NEW.role IS DISTINCT FROM OLD.role AND room.kind <> 'topic' THEN
-    RAISE EXCEPTION 'only a topic room has admins' USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.left_at IS DISTINCT FROM OLD.left_at THEN
     IF room.kind = 'company' THEN
@@ -855,7 +956,7 @@ BEGIN
   END IF;
 
   FOREACH person IN ARRAY NEW.mentions LOOP
-    IF person <> NEW.author AND app.may_see(NEW.company_id, NEW.room_id, person) THEN
+    IF person <> NEW.author AND app.room_visible_to(NEW.company_id, NEW.room_id, person) THEN
       INSERT INTO room_mentions (company_id, message_id, principal, reason)
       VALUES (NEW.company_id, NEW.id, person, 'mention') ON CONFLICT DO NOTHING;
     END IF;
@@ -867,7 +968,7 @@ BEGIN
       JOIN room_places p ON p.company_id = m.company_id AND p.room_id = m.room_id AND p.principal = m.principal
      WHERE m.company_id = NEW.company_id AND m.room_id = NEW.room_id AND m.left_at IS NULL
        AND p.notify <> 'none' AND m.principal <> NEW.author
-       AND app.may_see(NEW.company_id, NEW.room_id, m.principal)
+       AND app.room_visible_to(NEW.company_id, NEW.room_id, m.principal)
     ON CONFLICT DO NOTHING;
   END IF;
   IF NEW.thread_of IS NOT NULL THEN
@@ -875,7 +976,7 @@ BEGIN
     SELECT NEW.company_id, NEW.id, f.principal, 'reply'
       FROM room_follows f
      WHERE f.company_id = NEW.company_id AND f.root_id = NEW.thread_of AND f.following
-       AND f.principal <> NEW.author AND app.may_see(NEW.company_id, NEW.room_id, f.principal)
+       AND f.principal <> NEW.author AND app.room_visible_to(NEW.company_id, NEW.room_id, f.principal)
     ON CONFLICT DO NOTHING;
   END IF;
 
@@ -885,7 +986,7 @@ BEGIN
   END IF;
   IF NEW.thread_of IS NULL THEN
     FOREACH person IN ARRAY NEW.mentions LOOP
-      IF app.may_see(NEW.company_id, NEW.room_id, person) THEN
+      IF app.room_visible_to(NEW.company_id, NEW.room_id, person) THEN
         INSERT INTO room_follows (company_id, root_id, principal) VALUES (NEW.company_id, NEW.id, person)
         ON CONFLICT DO NOTHING;
       END IF;
@@ -1114,7 +1215,7 @@ DECLARE
   room uuid;
 BEGIN
   SELECT room_id INTO room FROM room_messages WHERE company_id = NEW.company_id AND id = NEW.message_id;
-  IF room IS NULL OR NOT app.may_see(NEW.company_id, room, NEW.principal) THEN
+  IF room IS NULL OR NOT app.room_visible_to(NEW.company_id, room, NEW.principal) THEN
     RAISE EXCEPTION 'attention goes only to someone who can see the room' USING ERRCODE = 'check_violation';
   END IF;
   IF app.reader() <> 'control' THEN NEW.created_at := clock_timestamp(); END IF;

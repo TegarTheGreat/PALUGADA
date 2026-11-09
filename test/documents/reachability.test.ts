@@ -120,12 +120,13 @@ const UNREACHABLE: Record<string, string> = {
   runWorker: 'entry: the worker as a process, for a deployment that wants one',
 
   // F19: the people's workspace, laid as ground before the sets that use it
-  // (the workspace plan, §18). Each set strikes its own line when it wires
-  // the helper up.
+  // (STATUS sections 2.202 to 2.215, one for each set named here). Each set
+  // strikes its own line when it wires the helper up.
   withPeople: 'helper: S3 uses it (the rooms server; S6 too)',
   withDelivery: 'helper: S7 uses it (the live hub; S10 too)',
   withRoomPlatform: 'helper: S3 uses it (the card sweep and ensureCompanyRooms)',
-  assertPeopleOf: 'helper: S3 uses it (who is added to a room or mentioned)',
+  assertPeopleOf: 'helper: S3 uses it (who is added to a room or mentioned, and the names written for them)',
+  principalOf: 'helper: S3 uses it (who a request to a room is, from its session)',
 };
 
 async function walk(directory: string): Promise<string[]> {

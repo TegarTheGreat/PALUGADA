@@ -1,5 +1,5 @@
 /**
- * Who a person is in a company's rooms (F19.2; the workspace plan, §5.1).
+ * Who a person is in a company's rooms (F19.2, F19.21; STATUS section 2.202).
  *
  * A person is the owner or a staff seat the owner made, never an agent, a
  * role or a name. They are named by a principal, which is text rather than a
@@ -11,7 +11,7 @@
  * A principal is made here from a verified session and from nothing else: a
  * body field that says who is writing is never read, so nobody writes in
  * another's name. And nothing made here reaches the assistant: inside its
- * dispatch, `principalOf` refuses, as the people's database helpers do.
+ * dispatch, the maker refuses, as the people's database helpers do.
  */
 import { assistantDispatch, withControlPlane, type Person } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
@@ -67,17 +67,23 @@ export function seatOf(principal: string): string | null {
  * a room or mentioned in one, on the control plane, because a seat's row is
  * the control plane's alone (0110): no tenant query, not even a trigger, can
  * read it. Refused naming each that is not.
+ *
+ * Answers each of them once, in the order given, as the control plane knows
+ * them: the owner with no name, a seat with the name the owner gave it. That
+ * is the name to write on anyone else's row -- a membership a colleague adds
+ * -- since the database can check a name only against the session's own, and
+ * so cannot check one written for somebody else.
  */
-export async function assertPeopleOf(companyId: string, principals: readonly string[]): Promise<void> {
+export async function assertPeopleOf(companyId: string, principals: readonly string[]): Promise<Person[]> {
   const notPeople = principals.filter((principal) => !isPerson(principal));
   const seats = [...new Set(principals.filter(isPerson).map(seatOf).filter((seat): seat is string => seat !== null))];
-  let found = new Set<string>();
+  let found = new Map<string, string>();
   if (seats.length > 0) {
-    const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
-      `SELECT id FROM staff_seats
+    const { rows } = await withControlPlane((tx) => tx.query<{ id: string; name: string }>(
+      `SELECT id, name FROM staff_seats
         WHERE company_id = $1 AND id = ANY($2::uuid[]) AND joined_at IS NOT NULL AND revoked_at IS NULL`,
       [companyId, seats]));
-    found = new Set(rows.map((row) => row.id));
+    found = new Map(rows.map((row) => [row.id, row.name]));
   }
   const strangers = [
     ...notPeople,
@@ -88,4 +94,7 @@ export async function assertPeopleOf(companyId: string, principals: readonly str
       `only the owner and the company's seated, joined people are its people: ${strangers.join(', ')} ${strangers.length === 1 ? 'is' : 'are'} not`,
       { notPeople: strangers });
   }
+  return [...new Set(principals)].map((principal) => principal === 'owner'
+    ? { principal, name: null }
+    : { principal, name: found.get(seatOf(principal)!)! });
 }

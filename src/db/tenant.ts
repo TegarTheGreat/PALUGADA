@@ -56,9 +56,9 @@ interface Reading {
 /**
  * A person in a room: the owner (`'owner'`), or a staff seat
  * (`'seat:<uuid>'`), with the name the owner gave the seat -- never a name a
- * request body sent. Made by `principalOf` (src/workspace/principal.ts) from a
- * verified session, or by the relay's inbound code for the person a token
- * names.
+ * request body sent. Made from a verified session in
+ * src/workspace/principal.ts, or by the relay's inbound code for the person a
+ * token names.
  */
 export interface Person {
   readonly principal: string;

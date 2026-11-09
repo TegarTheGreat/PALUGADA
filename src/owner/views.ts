@@ -25,7 +25,8 @@ import { prioritiesOnPace, type PacedPriority } from '../reporting/meeting.ts';
 import { visionSectionsOf, type VisionSection } from './vision.ts';
 import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
 import { coreProcessesOf, type CoreProcess, type CoreProcessesReport } from '../skills/core.ts';
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { say } from './say.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
@@ -1310,10 +1311,40 @@ export const ROUTINE_EVENTS = [
 ] as const;
 
 /** What happened lately, newest first: the company's event log, from the top. */
+/**
+ * Events as a seat may read them (F19.9): a question a run put to another
+ * seat, and that seat's answer, are theirs and the owner's, so where an
+ * event names such an item its words are replaced by "A question for
+ * {name}". Every seat reads a task's events and the activity feed; the
+ * question and the answer are still in the inbox for those they are for.
+ */
+export async function hideOthersQuestions<T extends { type: string; payload: Record<string, unknown> }>(
+  tx: TenantClient, events: T[], seat: { id: string },
+): Promise<T[]> {
+  const items = [...new Set(events.map((event) => event.payload.inboxItemId).filter((id): id is string => typeof id === 'string'))];
+  if (items.length === 0) return events;
+  const { rows } = await tx.query<{ id: string; name: string | null; language: string | null }>(
+    `SELECT id::text, payload->'addressee'->>'name' AS name, (SELECT console_language FROM platform_control) AS language
+       FROM inbox_items
+      WHERE id::text = ANY($1::text[]) AND addressee_seat IS NOT NULL AND addressee_seat <> $2::uuid`,
+    [items, seat.id]);
+  if (rows.length === 0) return events;
+  const theirs = new Map(rows.map((row) => [row.id, say(row.language, 'A question for {name}', { name: row.name ?? '' })]));
+  return events.map((event) => {
+    const instead = typeof event.payload.inboxItemId === 'string' ? theirs.get(event.payload.inboxItemId) : undefined;
+    if (!instead) return event;
+    const payload = { ...event.payload };
+    for (const field of ['title', 'note', 'answer', 'text', 'question'] as const) {
+      if (typeof payload[field] === 'string') payload[field] = instead;
+    }
+    return { ...event, payload };
+  });
+}
+
 export async function activityOf(
   companyId: string,
   limit = 30,
-  options: { routine?: boolean } = {},
+  options: { routine?: boolean; seat?: { id: string } | null } = {},
 ): Promise<ActivityItem[]> {
   const bounded = Math.min(Math.max(limit, 1), 100);
   const hidden = options.routine ? [] : [...ROUTINE_EVENTS];
@@ -1329,7 +1360,7 @@ export async function activityOf(
         LIMIT $1`,
       [bounded, hidden],
     );
-    return rows.map((row) => ({
+    const items = rows.map((row) => ({
       id: row.id,
       type: row.type,
       actor: row.actor,
@@ -1337,6 +1368,7 @@ export async function activityOf(
       taskId: row.task_id,
       payload: row.payload ?? {},
     }));
+    return options.seat ? hideOthersQuestions(tx, items, options.seat) : items;
   });
 }
 

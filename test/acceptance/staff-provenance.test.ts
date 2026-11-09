@@ -16,6 +16,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { buildContext } from '../../src/context/builder.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { ensureWeeklyMeeting } from '../../src/engine/meeting.ts';
@@ -102,9 +103,11 @@ async function mail(fixture: Fixture) {
   await grantCapability(fixture, 'email.send');
   const broker = new CapabilityBroker(registry);
   let n = 0;
+  const planned = new Set<string>();
   const send = async (taskId: string) => {
     n += 1;
-    await planTask(fixture.companyId, taskId, [{ capability: 'email.send' }]);
+    if (!planned.has(taskId)) await planTask(fixture.companyId, taskId, [{ capability: 'email.send' }]);
+    planned.add(taskId);
     return broker.invoke({
       companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
       taskId, roleId: fixture.roleId, idempotencyKey: `provenance-${taskId}-${n}`,
@@ -210,10 +213,17 @@ test('running staff work again keeps the staff mark', async () => {
   const budi = await seat(fixture, 'Budi', 'member');
   const { send } = await mail(fixture);
   const first = await askedBy(fixture, budi, 'Email the customer the new prices');
+  await instructTask(fixture.companyId, first, 'Leave out the wholesale prices.', as(budi));
   await cancelTask(fixture.companyId, first, 'wrong list');
   const again = await rerunTask(fixture.companyId, first, 'Use the March list.');
   assert.deepEqual(await carried(fixture, again), [{ seatId: budi.id, name: 'Budi', how: 'quoted', from: 'rerun' }]);
   assert.deepEqual(await words(fixture, again), [{ seatId: budi.id, name: 'Budi' }]);
+  // What the seat told the first attempt is told to this one as theirs, fenced, beside the owner's note.
+  const told = await withTenant(fixture.companyId, (tx) => buildContext(tx, {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: again,
+  })).then((context) => context.text);
+  assert.match(told, /## What members of the owner's staff said to the earlier attempts at this work[\s\S]*<<<COLLEAGUE>>> from="Budi \(staff\)"[\s\S]*- Budi \(staff\) said: Leave out the wholesale prices\./);
+  assert.match(told, /Their note: Use the March list\./, 'the owner\'s own note is the owner\'s');
   await transition(fixture.companyId, again, 'running');
   await assert.rejects(send(again), asks);
   assert.equal((await cardOf(fixture, again)).payload.reason, 'staff');

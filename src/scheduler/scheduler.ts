@@ -23,7 +23,7 @@ import { PalugadaError } from '../errors.ts';
 // and destructuring works under both.
 import cronParser from 'cron-parser';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
-import { createRootTask, type TaskRow } from '../engine/tasks.ts';
+import { createRootTask, staffWordsIn, type StaffWord, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
@@ -846,6 +846,7 @@ async function createScheduledTask(
   const month = schedule.input.facts === 'month' ? await buildMonthFacts(schedule.company_id, schedule.role_id, run.now) : null;
   const outside = week?.finished.filter((one) => one.outside).map((one) => one.task) ?? [];
   const outsideInvoices = month ? outsideInvoicesOf(month) : [];
+  const staff = await staffHandedIn(schedule.company_id, week, month);
   return createRootTask({
     companyId: schedule.company_id,
     projectId: schedule.project_id,
@@ -859,6 +860,8 @@ async function createScheduledTask(
     // read an email, in the month.
     ...(outside.length > 0 ? { carriesOutside: { capability: 'the week it was handed', tasks: outside } } : {}),
     ...(outsideInvoices.length > 0 ? { carriesOutside: { capability: 'the month it was handed', invoices: outsideInvoices } } : {}),
+    // And what staff work reported, or a late invoice staff work wrote (F19.9).
+    carriesStaff: staff.staff.length > 0 ? staff : undefined,
     createdBy: run.createdBy,
     reserveTokens: Number(schedule.reserve_tokens),
     idempotencyKey: run.idempotencyKey,
@@ -866,6 +869,28 @@ async function createScheduledTask(
     priority: schedule.priority,
     batchable: schedule.batchable,
     ...(schedule.goal_id ? { goalId: schedule.goal_id } : {}),
+  });
+}
+
+/**
+ * The members of staff whose words are in what a review is handed (F19.9):
+ * the week's finished work, and the work that wrote the month's late
+ * invoices, which the review reads as data and acts on as its own.
+ */
+async function staffHandedIn(
+  companyId: string,
+  week: Awaited<ReturnType<typeof buildWeekFacts>> | null,
+  month: Awaited<ReturnType<typeof buildMonthFacts>> | null,
+): Promise<{ from: 'week' | 'month'; staff: StaffWord[] }> {
+  if (!week && !month) return { from: 'week', staff: [] };
+  return withTenant(companyId, async (tx) => {
+    const tasks = week ? week.finished.map((one) => one.task)
+      : (await tx.query<{ task_id: string }>(
+        'SELECT DISTINCT task_id FROM invoices WHERE task_id IS NOT NULL AND number = ANY($1::text[])',
+        [month!.overdue.invoices.map((one) => one.number)])).rows.map((row) => row.task_id);
+    const staff: StaffWord[] = [];
+    for (const taskId of tasks) staff.push(...await staffWordsIn(tx, taskId));
+    return { from: week ? 'week' : 'month', staff };
   });
 }
 

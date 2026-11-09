@@ -23,7 +23,7 @@ import { useLivePulse, useLoad, useNow } from '../hooks.ts';
 import { go, ISSUES_ITEM } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
-  actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
+  actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventAuthor, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
 } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -437,6 +437,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask, owner }:
                     </Group>}
                     color={/refused|denied|failed|halt/.test(event.type) ? 'red' : 'blue'}>
                     <Text size="xs" c="dimmed">{actorSaid(event.actor)} · {dateTime(event.occurredAt)}</Text>
+                    {eventAuthor(event.payload) && <Text size="xs" c="dimmed" mt={2}>{eventAuthor(event.payload)}</Text>}
                     {/* Why it halted, by its reason; what a service or a check refused with, as it put it. */}
                     {eventDetail(event.payload) && (
                       <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{eventDetail(event.payload)}</Text>

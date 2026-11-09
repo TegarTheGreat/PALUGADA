@@ -28,6 +28,7 @@ import type { TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { learn, MEMORY_BODY_MAX } from '../memory/store.ts';
+import { seatsOf, staffOfSeats, staffWordsIn, type StaffWord } from './tasks.ts';
 
 export const TICKET_STATUSES = ['open', 'in_progress', 'done', 'closed'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
@@ -290,6 +291,19 @@ async function companyDayFromNow(tx: TenantClient, companyId: string, days: numb
   return rows[0].day;
 }
 
+/**
+ * The members of staff whose words are in the work some tickets were filed
+ * from (`instigators`, F19.9), by name: what work made from them carries
+ * (`carriesStaff`), so its tier 2 action asks and none of them decides it.
+ */
+export async function staffOfTickets(tx: TenantClient, companyId: string, ticketIds: readonly string[]): Promise<StaffWord[]> {
+  if (ticketIds.length === 0) return [];
+  const { rows } = await tx.query<{ seat: string }>(
+    'SELECT DISTINCT unnest(instigators)::text AS seat FROM tickets WHERE company_id = $1 AND id = ANY($2::uuid[])',
+    [companyId, ticketIds]);
+  return staffOfSeats(tx, companyId, rows.map((row) => row.seat));
+}
+
 /** Writes the row and the event that says it was filed. Every statement names the company: the platform files on the control plane too. */
 async function insertTicket(
   tx: TenantClient,
@@ -297,13 +311,21 @@ async function insertTicket(
   shape: ReturnType<typeof checked>,
 ): Promise<Ticket> {
   const dueOn = input.dueOn ?? (input.solvesTicketId ? await companyDayFromNow(tx, input.companyId, TODO_DAYS) : null);
+  // F19.9: a ticket a run files carries the seats whose words were in its
+  // work, as it carries whether the work read outside content; the work the
+  // ticket becomes is then theirs as much as the run's was (`staffWordsIn`).
+  // Written once, here: the application role cannot change it afterwards.
+  const instigators = input.openedBy === 'agent' && input.openedByTaskId
+    ? seatsOf(await staffWordsIn(tx, input.openedByTaskId)) : [];
   const { rows } = await tx.query<RawTicket>(
     `INSERT INTO tickets (company_id, project_id, division_id, title, body, priority, opened_by, opened_by_task_id, kind, outside,
-                          horizon, goal_id, metric_id, from_inbox_item_id, solves_ticket_id, assignee_role_id, due_on, source_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::date, $18) RETURNING ${COLUMNS}`,
+                          horizon, goal_id, metric_id, from_inbox_item_id, solves_ticket_id, assignee_role_id, due_on, source_key,
+                          instigators)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::date, $18, $19::uuid[]) RETURNING ${COLUMNS}`,
     [input.companyId, input.projectId, input.divisionId, shape.title, shape.body, shape.priority, input.openedBy,
       input.openedByTaskId ?? null, shape.kind, input.outside, shape.horizon, input.goalId ?? null, input.metricId ?? null,
-      input.fromInboxItemId ?? null, input.solvesTicketId ?? null, input.assigneeRoleId ?? null, dueOn, input.sourceKey ?? null]);
+      input.fromInboxItemId ?? null, input.solvesTicketId ?? null, input.assigneeRoleId ?? null, dueOn, input.sourceKey ?? null,
+      instigators]);
   const ticket = toTicket(rows[0]!);
   await appendEvent(tx, {
     companyId: input.companyId,

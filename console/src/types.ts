@@ -69,8 +69,12 @@ export interface InboxItem {
   browser?: boolean;
   /** The person a question was put to; only they and the owner see it. Absent when it was put to no one in particular. */
   addressee?: { seatId: string; name: string };
-  /** A question put to a person who has not answered in a day: the owner has been told. */
+  /** A question put to a person who has not answered in a day, or a team's card no other approver decided in a day: the owner has been told. */
   escalated?: boolean;
+  /** The members of staff whose words are in the work, by name: the card is theirs, and none of them decides it (F19.9). */
+  staff?: string[];
+  /** A card from staff work at tier 2 and below: another approver's first, folded into a day's entry in the owner's queue. */
+  team?: boolean;
   /** A role the CEO proposes hiring (a ticket of kind `hire`): the owner hires it with the CEO, or closes the ticket. */
   hire?: { ticketId: string; role: string; why: string };
   /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
@@ -116,6 +120,17 @@ export interface StandingApproval {
   expiresAt: string;
   uses: number;
   lastUsedAt: string | null;
+  /** Whether it covers work members of staff began or steered as well (F19.9). */
+  coversStaff: boolean;
+}
+
+/**
+ * The team's cards in the owner's queue, folded (F19.9): a day's that reached
+ * the owner, or (`day` null) those another approver still has.
+ */
+export interface TeamEntry {
+  day: string | null;
+  items: InboxItem[];
 }
 
 /** A yes the owner gave a schedule for one exact action (0116). */

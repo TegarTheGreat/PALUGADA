@@ -16,11 +16,11 @@ import { hashInput } from '../engine/hash.ts';
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { createRootTask, getTask, outsideContentIn, transitionWithin } from '../engine/tasks.ts';
+import { createRootTask, getTask, outsideContentIn, seatsOf, staffWordsIn, transitionWithin, type StaffWord } from '../engine/tasks.ts';
 import { saidNotDone } from '../engine/done.ts';
 import { reopenForQuestionWithin } from '../engine/journal.ts';
 import {
-  ANSWERED_BEFORE_HANDED, cancelTask, instructionRecord, recordedAs, releaseReservations, stopHandlingLeftWorking, type Author,
+  ANSWERED_BEFORE_HANDED, cancelTask, instructionRecord, recordStaffSaid, recordedAs, releaseReservations, stopHandlingLeftWorking, type Author,
 } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
@@ -124,7 +124,17 @@ export interface ApprovalInput {
    * approve a different amount proposed after it.
    */
   actionFingerprint?: string;
+  /**
+   * The seats whose words are in the work this asks about (F19.9). None of
+   * them decides it; at tier 2 and below another approver is asked first, and
+   * the owner a day later -- at once when nobody else on the team can decide
+   * it. Tier 3 is the owner's at once whoever asked.
+   */
+  instigators?: readonly string[];
 }
+
+/** How long the team's approvers have a card from staff work before it is the owner's too (F19.9). */
+export const TEAM_ITEM_ESCALATES_AFTER_HOURS = 24;
 
 export interface InboxItem {
   id: string;
@@ -164,6 +174,14 @@ export interface InboxItem {
   addressee?: { seatId: string; name: string };
   /** The seat's turn is over, and the question is the owner's too: it went unanswered for the time it was given. */
   escalated?: boolean;
+  /** The members of staff whose words are in the work, by name, when the card says who asked (F19.9). */
+  staff?: string[];
+  /**
+   * A card from staff work at tier 2 and below (F19.9): the team's approvers'
+   * first, and the owner's too once `escalated`. The owner's queue folds these
+   * into one entry a day (`ownerInbox`).
+   */
+  team?: boolean;
   /** A role the CEO proposes hiring (a ticket of kind `hire`, 0132): the owner hires it with the CEO, or closes the ticket. */
   hire?: { ticketId: string; role: string; why: string };
   /**
@@ -245,6 +263,13 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
   // their window. The item is created either way -- only the moment they are
   // told about it moves.
   const notifyAfter = await notifyAfterFor('approval', { tier: input.tier });
+  // F19.9: a card from staff work is the team's first. Whether anyone else on
+  // the team can decide it is read where seats are kept, before the item is
+  // written: when nobody but the seats who asked is an approver, it is the
+  // owner's at once rather than a day later for nothing.
+  const instigators = [...new Set(input.instigators ?? [])];
+  const team = instigators.length > 0 && input.tier <= 2;
+  const othersDecide = team && (await askableSeats(input.companyId)).some((one) => !instigators.includes(one.seatId));
 
   // One transaction for the item and the task it parks. As two, a crash
   // between them left an approval open against a task still `running`, and
@@ -332,16 +357,18 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       `INSERT INTO inbox_items (
          company_id, task_id, kind, title, action_summary, rationale, tier,
          estimated_cost_cents, consequence_if_denied, capability_name, payload,
-         expires_at, notify_after, action_fingerprint)
+         expires_at, notify_after, action_fingerprint, instigators, escalate_at, escalated_at)
        VALUES ($1,$2,'approval',$3,$4,$5,$6,$7,$8,$9,$10,
-               now() + make_interval(hours => $11), $12, $13)
+               now() + make_interval(hours => $11), $12, $13, $14::uuid[],
+               CASE WHEN $15::boolean THEN now() + make_interval(hours => $17) END,
+               CASE WHEN $15::boolean AND NOT $16::boolean THEN now() END)
        RETURNING id`,
       [
         input.companyId, input.taskId ?? null, input.title ?? input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
         JSON.stringify({ ...(input.payload ?? {}), ...(asked.length > 0 ? { asked } : {}) }), ttl, notifyAfter,
-        input.actionFingerprint ?? null,
+        input.actionFingerprint ?? null, instigators, team, othersDecide, TEAM_ITEM_ESCALATES_AFTER_HOURS,
       ],
     );
     const id = rows[0]!.id;
@@ -945,6 +972,10 @@ async function handOver(companyId: string, item: {
         break;
       }
     }
+    // F19.9: the same for a member of staff's words, from every task on the
+    // card: what the coordinator does about it is still their request.
+    const staff: StaffWord[] = [];
+    for (const id of new Set([...(lead ? [lead] : []), ...(briefed ?? [])])) staff.push(...await staffWordsIn(tx, id));
     return {
       role: roles[0] ?? null,
       goalId: stuck[0]?.goal_id ?? goal[0]?.id ?? null,
@@ -952,6 +983,7 @@ async function handOver(companyId: string, item: {
       headline,
       others,
       carried,
+      staff,
     };
   });
   if (!found) return false;
@@ -1000,6 +1032,7 @@ async function handOver(companyId: string, item: {
       ...(found.carried === null ? {} : {
         carriesOutside: { capability: 'the escalation it was given', from: found.carried.from, escalationOf: found.carried.of },
       }),
+      carriesStaff: found.staff.length > 0 ? { from: 'escalation', staff: found.staff } : undefined,
     });
     taskId = task.id;
   } catch (error) {
@@ -1326,13 +1359,15 @@ export async function answersFor(
   taskId: string,
 ): Promise<Array<{ question: string; answer: string; files: AnswerFile[]; by: string | null }>> {
   const { rows } = await tx.query<{ question: string; answer: string | null; files: AnswerFile[]; by: string | null }>(
-    `SELECT payload->>'question' AS question, owner_note AS answer, answer_files AS files,
-            -- Who answered, when it was not the owner: the person it was put to (only they can answer it), or staff ('').
-            CASE WHEN decided_by_seat IS NULL THEN NULL ELSE coalesce(payload->'addressee'->>'name', '') END AS by
-       FROM inbox_items
-      WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
-        AND status = 'decided' AND decision = 'approve'
-      ORDER BY created_at`,
+    `SELECT i.payload->>'question' AS question, i.owner_note AS answer, i.answer_files AS files,
+            -- Who answered, when it was not the owner: the person it was put to
+            -- (only they can answer it), or the seat its decision names, or staff ('').
+            CASE WHEN i.decided_by_seat IS NULL THEN NULL
+                 ELSE coalesce(i.payload->'addressee'->>'name', ${SEAT_THAT_DECIDED}, '') END AS by
+       FROM inbox_items i
+      WHERE i.task_id = $1 AND i.kind = 'escalation' AND i.payload->>'askedBy' = 'agent'
+        AND i.status = 'decided' AND i.decision = 'approve'
+      ORDER BY i.created_at`,
     [taskId],
   );
   return rows.map((row) => ({ question: row.question, answer: row.answer ?? '', files: row.files, by: row.by }));
@@ -1413,6 +1448,42 @@ export async function assertSeatMayRead(companyId: string, itemId: string, seat:
   if (row?.addressee_seat && row.addressee_seat !== seat.id) {
     throw new PalugadaError('staff.forbidden',
       `this question is for ${row.name ?? 'someone else'}: only they and the owner can read it`, { inboxItemId: itemId });
+  }
+}
+
+/**
+ * Whether a seat may read what a task's runs were told and said (F19.9): its
+ * briefings, its transcript, its trace and its output. Not when the task, or
+ * work it is part of, holds a question put to another seat, or another seat's
+ * words to it -- an instruction, an answer, a question back about a card --
+ * since a briefing carries each of those as they were said. The owner reads
+ * everything; a seat reads its own words and the owner's.
+ */
+export async function seatMayReadTask(companyId: string, taskId: string, seat: { id: string }): Promise<boolean> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ hidden: boolean }>(
+    `WITH RECURSIVE up AS (
+       SELECT id, parent_task_id, 0 AS depth FROM tasks WHERE id = $1
+       UNION ALL
+       SELECT t.id, t.parent_task_id, up.depth + 1 FROM tasks t JOIN up ON t.id = up.parent_task_id WHERE up.depth < 64
+     )
+     SELECT EXISTS (SELECT 1 FROM inbox_items i
+                     WHERE i.task_id IN (SELECT id FROM up) AND i.addressee_seat IS NOT NULL AND i.addressee_seat <> $2::uuid)
+         OR EXISTS (SELECT 1 FROM events e
+                     WHERE e.task_id IN (SELECT id FROM up)
+                       AND ((e.type = 'content.staff_said' AND e.payload->>'how' IN ('instructed', 'answered')
+                             AND e.payload->>'seatId' IS DISTINCT FROM $2::text)
+                            OR (e.actor = 'staff' AND e.type IN ('staff.instructed', 'owner.instructed', 'owner.answered', 'owner.decided')
+                                AND e.payload->'staff'->>'seatId' IS DISTINCT FROM $2::text))) AS hidden`,
+    [taskId, seat.id]));
+  return !(rows[0]?.hidden ?? false);
+}
+
+/** `seatMayReadTask`, as a refusal, for the reads that would show what another seat was asked or said. */
+export async function assertSeatMayReadTask(companyId: string, taskId: string, seat: { id: string }): Promise<void> {
+  if (!await seatMayReadTask(companyId, taskId, seat)) {
+    throw new PalugadaError('staff.forbidden',
+      'this work holds a question put to someone else, or someone else\'s words to it: only they and the owner can read what its runs were told',
+      { taskId });
   }
 }
 
@@ -1725,10 +1796,11 @@ function workOf(input: Record<string, unknown>): string {
 /**
  * Whether an approval may be answered for a while (0083), over `inbox_items i`
  * joined to its task `t`. The broker writes why it asked into the payload;
- * a card from before it did says nothing and is not eligible.
+ * a card from before it did says nothing and is not eligible. A card from
+ * staff work may be too, by a yes that says it covers staff work (F19.9).
  */
 const ALLOW_FOR_SQL = `i.kind = 'approval' AND i.tier <= 2 AND i.capability_name IS NOT NULL
-  AND i.payload->>'reason' = 'policy' AND t.role_id IS NOT NULL`;
+  AND i.payload->>'reason' IN ('policy', 'staff') AND t.role_id IS NOT NULL`;
 
 /**
  * Whether an approval may be answered for every time its schedule does
@@ -1736,7 +1808,16 @@ const ALLOW_FOR_SQL = `i.kind = 'approval' AND i.tier <= 2 AND i.capability_name
  * its fingerprint, in work a schedule made -- whyever it was asked.
  */
 const FOR_SCHEDULE_SQL = `(i.kind = 'approval' AND i.tier <= 2 AND i.capability_name IS NOT NULL
-  AND i.action_fingerprint IS NOT NULL AND i.task_id IS NOT NULL AND app.task_schedule(i.task_id) IS NOT NULL)`;
+  AND i.action_fingerprint IS NOT NULL AND i.task_id IS NOT NULL AND app.task_schedule(i.task_id) IS NOT NULL
+  -- Staff work never goes on a schedule's yes (F19.9), so none is offered for it.
+  AND NOT i.payload ? 'staff')`;
+
+/**
+ * Whether an item is the team's (F19.9), over `inbox_items i`: a card from
+ * staff work at tier 2 and below, which another approver sees first. Tier 3
+ * is the owner's at once and never one of these.
+ */
+export const TEAM_SQL = `(cardinality(i.instigators) > 0 AND coalesce(i.tier, 0) <= 2)`;
 
 /**
  * The open items. `seat` is a staff seat reading: it sees what is nobody's in
@@ -1758,6 +1839,7 @@ export async function listOpen(
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
       key: AskedKey | null; for_schedule: string | null; budget_account: string | null;
       addressee: { seatId: string; name: string } | null; escalated: boolean;
+      staff: string[] | null; team: boolean;
       hire: { ticketId: string; role: string; why: string } | null;
       stopped: Array<{ taskId: string; role: string; roleName: string | null }> | null;
       plan: InboxItem['plan'] | null;
@@ -1774,6 +1856,9 @@ export async function listOpen(
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
               CASE WHEN i.addressee_seat IS NOT NULL THEN i.payload->'addressee' END AS addressee,
               (i.escalated_at IS NOT NULL) AS escalated,
+              CASE WHEN jsonb_typeof(i.payload->'staff') = 'array'
+                   THEN ARRAY(SELECT jsonb_array_elements_text(i.payload->'staff')) END AS staff,
+              (${TEAM_SQL}) AS team,
               CASE WHEN i.kind = 'escalation' AND i.payload->>'hire' = 'true'
                    THEN jsonb_build_object('ticketId', i.payload->>'ticketId', 'role', coalesce(i.payload->>'role', ''),
                                            'why', coalesce(i.payload->>'why', '')) END AS hire,
@@ -1836,6 +1921,8 @@ export async function listOpen(
         ...(r.key ? { key: r.key } : {}),
         ...(r.addressee ? { addressee: r.addressee } : {}),
         ...(r.escalated ? { escalated: true } : {}),
+        ...(r.staff && r.staff.length > 0 ? { staff: r.staff } : {}),
+        ...(r.team ? { team: true } : {}),
         ...(r.hire ? { hire: r.hire } : {}),
         ...(r.stopped && r.stopped.length > 0 ? { stopped: r.stopped } : {}),
         ...(r.plan ? { plan: r.plan } : {}),
@@ -2146,6 +2233,13 @@ export interface DecideOptions {
    */
   allowForHours?: number;
   /**
+   * With `allowForHours` on a card from staff work (F19.9): the yes for a
+   * while covers work members of staff began or steered, which no other yes
+   * does. It loosens the hold on a seat's words, so it takes the owner's
+   * second factor given now, even in a session signed in with a device.
+   */
+  coversStaff?: boolean;
+  /**
    * Approve, and allow this exact action every time the card's schedule does
    * it, for ninety days (0116). Only for a card at tier 2 or below in work a
    * schedule made, with the owner's second factor.
@@ -2185,6 +2279,8 @@ export interface StandingApproval {
   expiresAt: Date;
   uses: number;
   lastUsedAt: Date | null;
+  /** Whether it covers work members of staff began or steered as well (F19.9). */
+  coversStaff: boolean;
 }
 
 /**
@@ -2231,14 +2327,16 @@ async function decideItem(
   // F10.10: read the tier before the update, so a refusal changes nothing.
   const {
     tier, stageChange, goalChange, goalPlan, overdue, standing, scheduled, proposesSchedule, addressee, question, ownerOnly,
+    fromStaff, ownWords,
   } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; goal_plan: GoalPlanProposal | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
       schedule_id: string | null; action_fingerprint: string | null; proposes_schedule: boolean;
       addressee_seat: string | null; addressee_name: string | null; question: boolean; owner_only: boolean;
+      task_id: string | null; instigators: string[]; reason: string | null;
     }>(
-      `SELECT i.tier, i.payload->'stageChange' AS stage_change,
+      `SELECT i.tier, i.payload->'stageChange' AS stage_change, i.task_id, i.instigators, i.payload->>'reason' AS reason,
               i.addressee_seat, i.payload->'addressee'->>'name' AS addressee_name,
               coalesce(i.payload->>'askedBy' = 'agent', false) AS question,
               coalesce(i.payload->>'ownerOnly' = 'true', false) AS owner_only,
@@ -2254,7 +2352,13 @@ async function decideItem(
     );
     const row = rows[0];
     const schedule = row?.schedule_id ? await scheduleDefinition(tx, row.schedule_id) : null;
+    // F19.9, four eyes: whose words are in the work, read now, so words that
+    // entered it after the card was raised count as well as those it named.
+    const words: StaffWord[] = options.seat && row?.task_id ? await staffWordsIn(tx, row.task_id) : [];
     return {
+      fromStaff: row?.reason === 'staff',
+      ownWords: options.seat !== null && options.seat !== undefined
+        && (row?.instigators.includes(options.seat.id) || seatsOf(words).includes(options.seat.id)),
       tier: row?.tier ?? null,
       stageChange: row?.stage_change ?? null,
       goalChange: row?.goal_change ?? null,
@@ -2288,6 +2392,19 @@ async function decideItem(
     // approver.
     const answersItsOwn = answering && options.seat.kind === 'member' && question && addressee?.seatId === options.seat.id;
     if (options.seat.kind !== 'approver' && !answersItsOwn) throw decidesNothing(options.seat, { inboxItemId: itemId });
+    // Four eyes (F19.9): a seat whose words are in the work does not decide
+    // what that work asks, however it came to be in it. An answer to a run's
+    // question is words, not a decision, and is the seat's to give.
+    if (ownWords && !question) {
+      const seat = options.seat;
+      await withTenant(companyId, (tx) => appendEvent(tx, {
+        companyId, type: 'security.own_instigation_refused', actor: 'staff',
+        payload: { inboxItemId: itemId, seat: { id: seat.id, name: seat.name } },
+      }));
+      throw new PalugadaError('approval.own_instigation',
+        `${seat.name}'s words are in this work, so someone who did not ask for it decides it: another approver, or the owner`,
+        { inboxItemId: itemId });
+    }
     if ((tier ?? 0) >= 3) {
       throw new PalugadaError('staff.forbidden',
         'tier 3 is the owner\'s to decide, yes or no: it stays in their inbox', { inboxItemId: itemId });
@@ -2314,6 +2431,9 @@ async function decideItem(
   if (overdue) {
     await expireOverdue(companyId);
     throw await withTenant(companyId, (tx) => notOpen(tx, itemId));
+  }
+  if (options.coversStaff === true && options.allowForHours === undefined) {
+    throw new PalugadaError('contract.violation', 'coversStaff is said with allowForHours, of a yes for a while', { field: 'coversStaff' });
   }
   // A yes is for a while (0083) or for a schedule (0116), never both: two
   // loosenings with two different bounds are not one decision.
@@ -2342,6 +2462,23 @@ async function decideItem(
           + 'a tier 3 action is approved one at a time, and work that read content from outside is asked about every time (F8.9)',
         { inboxItemId: itemId },
       );
+    }
+    // F19.9: a yes for a while on staff work's card says that it covers staff
+    // work, since no other yes does; and only such a card is one to say it on.
+    if (fromStaff && options.coversStaff !== true) {
+      throw new PalugadaError('contract.violation',
+        'this card is from work members of staff asked for, which a yes for a while covers only when it says so: send coversStaff',
+        { field: 'coversStaff' });
+    }
+    if (!fromStaff && options.coversStaff === true) {
+      throw new PalugadaError('contract.violation',
+        'coversStaff is said on a card from work members of staff asked for; this one is the owner\'s own work', { field: 'coversStaff' });
+    }
+    if (options.coversStaff === true && (!options.mfa || !options.proof)) {
+      throw new PalugadaError('approval.channel_forbidden',
+        `allowing ${standing.capabilityName} for a while to work members of staff asked for needs a fresh second factor: `
+          + 'a code given now, even in a session signed in with a device (PRD F12.5)',
+        { inboxItemId: itemId, reason: options.mfa ? 'no_proof' : 'no_verifier' });
     }
     // It loosens a rule for a while, so it takes the owner's device, as a
     // policy made looser does -- whatever the tier of the card itself.
@@ -2475,12 +2612,17 @@ async function decideItem(
       assurance = 'mfa';
     }
   }
+  const coversStaff = granting && options.coversStaff === true;
   if (granting || forSchedule) {
-    if (login) {
+    // A yes that covers staff work takes a code given now (F19.9), so the
+    // device's sign-in does not stand in for it.
+    if (login && !coversStaff) {
       factor = login;
       assurance = 'login';
     } else {
-      const asking = { purpose: granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId };
+      const asking = {
+        purpose: coversStaff ? 'approval.standing_staff' : granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId,
+      };
       factor = 'totp' in options.proof!
         ? await options.mfa!.verifyTotp(options.proof.totp, asking)
         : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
@@ -2556,14 +2698,20 @@ async function decideItem(
         ...recordedAs(seatAuthor(options.seat)).payload,
       },
     });
+    // A seat's words to the run -- its answer to a question, or its question
+    // back about a card -- are staff words in the work from now on (F19.9).
+    if (options.seat && row.task_id && ((question && decision === 'approve') || decision === 'ask')) {
+      await recordStaffSaid(tx, { companyId, taskId: row.task_id }, { seatId: options.seat.id, name: options.seat.name },
+        decision === 'ask' ? 'instructed' : 'answered');
+    }
 
     // 0083: the same capability, to the same role, for a while.
     if (granting) {
       const { rows: granted } = await tx.query<{ id: string; expires_at: Date }>(
-        `INSERT INTO standing_approvals (company_id, role_id, capability_name, granted_by_item, expires_at)
-         VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5))
+        `INSERT INTO standing_approvals (company_id, role_id, capability_name, granted_by_item, expires_at, covers_staff)
+         VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5), $6)
          RETURNING id, expires_at`,
-        [companyId, standing!.roleId, standing!.capabilityName, itemId, allowForHours],
+        [companyId, standing!.roleId, standing!.capabilityName, itemId, allowForHours, coversStaff],
       );
       await appendEvent(tx, {
         companyId,
@@ -2573,6 +2721,7 @@ async function decideItem(
         payload: {
           standingApprovalId: granted[0]!.id, inboxItemId: itemId, roleId: standing!.roleId,
           capability: standing!.capabilityName, expiresAt: granted[0]!.expires_at.toISOString(),
+          ...(coversStaff ? { coversStaff: true } : {}),
         },
       });
     }
@@ -3096,8 +3245,9 @@ export async function answerEscalation(
     await appendEvent(tx, {
       companyId,
       taskId: row.task_id,
-      ...instructionRecord(by, { text, inboxItemId: itemId }),
+      ...instructionRecord(by, { text, inboxItemId: itemId, ...(seat ? { via: 'inbox' } : {}) }),
     });
+    if (seat) await recordStaffSaid(tx, { companyId, taskId: row.task_id }, { seatId: seat.id, name: seat.name }, 'answered');
     const task = await getTask(tx, row.task_id);
     if (task && WAITING_STATUSES.has(task.status)) {
       await transitionWithin(tx, companyId, row.task_id, 'running');
@@ -3105,49 +3255,114 @@ export async function answerEscalation(
   });
 }
 
-/** The owner's open questions on a task, for the run that has to answer them. */
+/**
+ * The name a seat's decision of an item was recorded under, as SQL over
+ * `inbox_items i`: the item names the seat by id only, and its record names
+ * it as the owner named it (F19.9).
+ */
+const SEAT_THAT_DECIDED = `(SELECT e.payload->'staff'->>'name' FROM events e
+   WHERE e.task_id = i.task_id AND e.type = 'owner.decided' AND e.actor = 'staff'
+     AND e.payload->>'inboxItemId' = i.id::text ORDER BY e.occurred_at DESC LIMIT 1)`;
+
+/**
+ * The open questions about a task's cards, for the run that has to answer
+ * them: the owner's, and an approver's, which is a colleague's (`by`, the
+ * seat's name; F19.9).
+ */
 export async function openQuestionsFor(
   tx: TenantClient,
   taskId: string,
-): Promise<Array<{ inboxItemId: string; question: string }>> {
-  const { rows } = await tx.query<{ id: string; owner_note: string | null }>(
-    `SELECT id, owner_note FROM inbox_items
-      WHERE task_id = $1 AND status = 'open' AND decision = 'ask'
-      ORDER BY decided_at`,
+): Promise<Array<{ inboxItemId: string; question: string; by: string | null }>> {
+  const { rows } = await tx.query<{ id: string; owner_note: string | null; by: string | null }>(
+    `SELECT i.id, i.owner_note,
+            CASE WHEN i.decided_by_seat IS NULL THEN NULL ELSE coalesce(${SEAT_THAT_DECIDED}, '') END AS by
+       FROM inbox_items i
+      WHERE i.task_id = $1 AND i.status = 'open' AND i.decision = 'ask'
+      ORDER BY i.decided_at`,
     [taskId],
   );
-  return rows.map((row) => ({ inboxItemId: row.id, question: row.owner_note ?? '' }));
+  return rows.map((row) => ({ inboxItemId: row.id, question: row.owner_note ?? '', by: row.by }));
 }
 
 /**
- * A question put to a person that has gone unanswered past its day: the owner
- * is told, once.
+ * What went unanswered by the people it was for, past its time: the owner is
+ * told, once. Two kinds, kept apart until now (`undelivered` leaves both out):
  *
- * Until now the owner is not told of it -- it is for someone else, and asking
- * the owner at once would defeat asking that person (`undelivered` leaves it
- * out) -- but a person can be away, and a run parked for ever on one is the
- * one outcome nobody wants. So it is marked, an event says so, and the owner's
- * channels carry it from the next dispatch. It stays the person's to answer;
- * the owner could always answer it too. Nothing is decided by the silence.
- * Returns how many were brought to the owner.
+ * - a question put to a person, after its day. It is for someone else, and
+ *   asking the owner at once would defeat asking that person; but a person
+ *   can be away, and a run parked for ever on one is the one outcome nobody
+ *   wants. It stays the person's to answer.
+ * - a card from staff work at tier 2 and below (F19.9), after a day with the
+ *   team's approvers. Nobody else on the team decided it, so it is the
+ *   owner's too; the owner's queue folds these into one entry a day.
+ *
+ * Each is marked, an event says so, and the owner's channels carry it from
+ * the next dispatch. The owner could always answer or decide it. Nothing is
+ * decided by the silence. Returns how many were brought to the owner.
  */
-export async function escalateQuestions(companyId: string, now = new Date()): Promise<number> {
+export async function escalateTeamItems(companyId: string, now = new Date()): Promise<number> {
   return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ id: string; task_id: string | null; name: string | null }>(
-      `UPDATE inbox_items
+    const { rows } = await tx.query<{ id: string; task_id: string | null; name: string | null; question: boolean }>(
+      `UPDATE inbox_items i
           SET escalated_at = $1
-        WHERE status = 'open' AND addressee_seat IS NOT NULL AND escalated_at IS NULL AND escalate_at <= $1
-        RETURNING id, task_id, payload->'addressee'->>'name' AS name`,
+        WHERE i.status = 'open' AND i.escalated_at IS NULL AND i.escalate_at <= $1
+          AND (i.addressee_seat IS NOT NULL OR ${TEAM_SQL})
+        RETURNING i.id, i.task_id, i.payload->'addressee'->>'name' AS name, i.addressee_seat IS NOT NULL AS question`,
       [now],
     );
     for (const row of rows) {
-      await appendEvent(tx, {
-        companyId, taskId: row.task_id ?? undefined, type: 'inbox.question_escalated', actor: 'system',
-        payload: { inboxItemId: row.id, addressee: row.name },
-      });
+      await appendEvent(tx, row.question
+        ? {
+          companyId, taskId: row.task_id ?? undefined, type: 'inbox.question_escalated', actor: 'system',
+          payload: { inboxItemId: row.id, addressee: row.name },
+        }
+        : {
+          companyId, taskId: row.task_id ?? undefined, type: 'inbox.team_item_escalated', actor: 'system',
+          payload: { inboxItemId: row.id },
+        });
     }
     return rows.length;
   });
+}
+
+/** The team's cards in the owner's queue, folded (F19.9): those waiting a day with the team, or a day's that reached the owner. */
+export interface TeamEntry {
+  /** The day, in the company's time zone, they reached the owner; null for those still with the team's approvers. */
+  day: string | null;
+  items: InboxItem[];
+}
+
+/**
+ * The owner's queue: their own items one by one, and the team's cards folded
+ * (F19.9). A card from staff work at tier 2 and below is one of a day's
+ * entry once it has reached the owner -- "your team's work: so many
+ * waiting" -- and one of a quiet entry while the team's approvers have it,
+ * so the owner's day stays a handful of entries whatever the team asks for.
+ * The owner may open either and decide any of them at any time.
+ */
+export async function ownerInbox(companyId: string, options: { snoozed?: boolean } = {}): Promise<{ items: InboxItem[]; team: TeamEntry[] }> {
+  const items = await listOpen(companyId, { snoozed: options.snoozed ?? false });
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string; day: string | null }>(
+    `SELECT i.id, CASE WHEN i.escalated_at IS NULL THEN NULL
+                       ELSE to_char(i.escalated_at AT TIME ZONE coalesce(c.timezone, 'UTC'), 'YYYY-MM-DD') END AS day
+       FROM inbox_items i JOIN companies c ON c.id = i.company_id
+      WHERE i.status = 'open' AND ${TEAM_SQL}`));
+  const dayOf = new Map(rows.map((row) => [row.id, row.day]));
+  const own: InboxItem[] = [];
+  const folded = new Map<string | null, InboxItem[]>();
+  for (const item of items) {
+    if (!item.team || !dayOf.has(item.id)) {
+      own.push(item);
+      continue;
+    }
+    const day = dayOf.get(item.id) ?? null;
+    folded.set(day, [...(folded.get(day) ?? []), item]);
+  }
+  // The days that reached the owner, newest first, then the team's own.
+  const team = [...folded.entries()]
+    .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : b.localeCompare(a)))
+    .map(([day, list]) => ({ day, items: list }));
+  return { items: own, team };
 }
 
 /**
@@ -3261,10 +3476,10 @@ export async function standingApprovals(companyId: string): Promise<StandingAppr
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; role_id: string; role_slug: string; role_name: string | null; capability_name: string; granted_by_item: string;
-      created_at: Date; expires_at: Date; uses: number; last_used_at: Date | null;
+      created_at: Date; expires_at: Date; uses: number; last_used_at: Date | null; covers_staff: boolean;
     }>(
       `SELECT s.id, s.role_id, r.slug AS role_slug, r.display_name AS role_name, s.capability_name, s.granted_by_item,
-              s.created_at, s.expires_at, s.uses, s.last_used_at
+              s.created_at, s.expires_at, s.uses, s.last_used_at, s.covers_staff
          FROM standing_approvals s JOIN roles r ON r.id = s.role_id
         WHERE s.revoked_at IS NULL AND s.expires_at > now()
         ORDER BY s.expires_at, s.id`,
@@ -3272,7 +3487,7 @@ export async function standingApprovals(companyId: string): Promise<StandingAppr
     return rows.map((row) => ({
       id: row.id, roleId: row.role_id, roleSlug: row.role_slug, roleName: row.role_name, capabilityName: row.capability_name,
       grantedByItem: row.granted_by_item, createdAt: row.created_at, expiresAt: row.expires_at,
-      uses: row.uses, lastUsedAt: row.last_used_at,
+      uses: row.uses, lastUsedAt: row.last_used_at, coversStaff: row.covers_staff,
     }));
   });
 }
@@ -3306,20 +3521,24 @@ export async function revokeStanding(companyId: string, standingId: string): Pro
 /**
  * A standing yes that covers this role and capability now, counted as used,
  * or null (0083). What the broker asks before raising a card a policy wants.
+ * For work members of staff began or steered (`staff`), only a yes the owner
+ * gave for staff work too covers it (F19.9).
  */
 export async function useStanding(
   tx: TenantClient,
   roleId: string,
   capabilityName: string,
+  options: { staff: boolean },
 ): Promise<{ id: string; grantedByItem: string } | null> {
   const { rows } = await tx.query<{ id: string; granted_by_item: string }>(
     `UPDATE standing_approvals SET uses = uses + 1, last_used_at = now()
       WHERE id = (SELECT id FROM standing_approvals
                    WHERE role_id = $1 AND capability_name = $2
                      AND revoked_at IS NULL AND expires_at > now()
+                     AND (covers_staff OR NOT $3::boolean)
                    ORDER BY expires_at DESC LIMIT 1)
       RETURNING id, granted_by_item`,
-    [roleId, capabilityName],
+    [roleId, capabilityName, options.staff],
   );
   return rows[0] ? { id: rows[0].id, grantedByItem: rows[0].granted_by_item } : null;
 }

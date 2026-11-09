@@ -75,7 +75,9 @@ function code(text: string): string {
 /**
  * The text of the call around `at` -- the innermost `(` opened by a name,
  * as `assignTask(` or `withTenant(` is, rather than by `if`, a spread or a
- * group -- or, when no call holds it, of the innermost braces.
+ * group -- or, when no call holds it, of the innermost braces. The call that
+ * writes the mark itself (`appendEvent`) is part of the place that carries
+ * it, which is the call around that.
  */
 function holding(source: string, at: number): string {
   const opened: Array<{ char: string; at: number }> = [];
@@ -96,16 +98,18 @@ function holding(source: string, at: number): string {
     }
     return source.length;
   };
+  let outside = at;
   for (let n = opened.length - 1; n >= 0; n -= 1) {
     const one = opened[n]!;
     if (one.char !== '(') continue;
     const before = source.slice(Math.max(0, one.at - 40), one.at);
     const name = /([A-Za-z_$][\w$]*)\s*(<[^()]*>)?\s*$/.exec(before)?.[1];
-    if (name && !['if', 'for', 'while', 'switch', 'catch', 'return', 'await', 'typeof', 'function'].includes(name)) {
+    if (name === 'appendEvent') outside = one.at;
+    else if (name && !['if', 'for', 'while', 'switch', 'catch', 'return', 'await', 'typeof', 'function'].includes(name)) {
       return source.slice(one.at, close(one.at) + 1);
     }
   }
-  const braces = [...opened].reverse().find((one) => one.char === '{');
+  const braces = [...opened].reverse().find((one) => one.char === '{' && one.at < outside);
   return braces ? source.slice(braces.at, close(braces.at) + 1) : source;
 }
 

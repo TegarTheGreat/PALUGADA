@@ -16,7 +16,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { ownerAskCapability } from '../../src/broker/platform-capabilities.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
-import { escalateQuestions, QUESTION_ESCALATES_AFTER_HOURS } from '../../src/inbox/inbox.ts';
+import { escalateTeamItems, QUESTION_ESCALATES_AFTER_HOURS } from '../../src/inbox/inbox.ts';
 import { undelivered } from '../../src/owner/notify.ts';
 import { Worker } from '../../src/worker.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -89,13 +89,13 @@ test('the owner is not told of a question for someone else until it has gone a d
 
     // The question for no one in particular reaches the owner's channels as it always did; Budi's does not.
     assert.deepEqual(await owed(fixture), [toNoOne.itemId]);
-    assert.equal(await escalateQuestions(fixture.companyId, hours(QUESTION_ESCALATES_AFTER_HOURS - 1)), 0, 'not yet');
+    assert.equal(await escalateTeamItems(fixture.companyId, hours(QUESTION_ESCALATES_AFTER_HOURS - 1)), 0, 'not yet');
     assert.deepEqual(await owed(fixture), [toNoOne.itemId]);
 
     // A day on: the owner is told, once, and only of Budi's.
     const later = hours(QUESTION_ESCALATES_AFTER_HOURS + 1);
-    assert.equal(await escalateQuestions(fixture.companyId, later), 1);
-    assert.equal(await escalateQuestions(fixture.companyId, later), 0, 'once');
+    assert.equal(await escalateTeamItems(fixture.companyId, later), 1);
+    assert.equal(await escalateTeamItems(fixture.companyId, later), 0, 'once');
     assert.deepEqual((await owed(fixture)).sort(), [toNoOne.itemId, toBudi.itemId].sort());
     assert.deepEqual((await events(fixture, toBudi.itemId)).map((event) => [event.actor, event.payload.addressee]), [['system', 'Budi']]);
     assert.deepEqual(await events(fixture, toNoOne.itemId), []);
@@ -121,7 +121,7 @@ test('a question already answered, or asked of no one, is never escalated', asyn
     const answeredQuestion = await ask(fixture, 'Cek harga gula', { question: 'Berapa harga gula?', to: 'Budi' });
     assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/inbox/${answeredQuestion.itemId}/answer`, budi.token, { answer: '14.000' })).status, 200);
     const toNoOne = await ask(fixture, 'Cek harga susu', { question: 'Bolehkah diskon 10%?' });
-    assert.equal(await escalateQuestions(fixture.companyId, hours(QUESTION_ESCALATES_AFTER_HOURS * 3)), 0);
+    assert.equal(await escalateTeamItems(fixture.companyId, hours(QUESTION_ESCALATES_AFTER_HOURS * 3)), 0);
     assert.deepEqual(await events(fixture, answeredQuestion.itemId), []);
     assert.deepEqual(await events(fixture, toNoOne.itemId), []);
   } finally {

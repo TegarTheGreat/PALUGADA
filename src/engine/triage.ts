@@ -42,7 +42,7 @@ import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { TERMINAL_STATUSES } from '../domain/task.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { createRootTask, getTask, transitionWithin, type TaskRow } from './tasks.ts';
-import { readTicket, startTicket } from './tickets.ts';
+import { readTicket, staffOfTickets, startTicket } from './tickets.ts';
 
 /** The statuses work does not come back from, as SQL. */
 const TERMINAL = `(${TERMINAL_STATUSES.map((status) => `'${status}'`).join(', ')})`;
@@ -126,11 +126,12 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
       `SELECT id FROM goals WHERE status = 'active'
         ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1`);
     if (!goal[0]) return null;
-    return { ceo: ceo[0], goalId: goal[0].id, owed };
+    // F19.9: whose words were in the work that filed them, for the triage to carry.
+    return { ceo: ceo[0], goalId: goal[0].id, owed, staff: await staffOfTickets(tx, companyId, owed.map((one) => one.id)) };
   });
   if (!found) return null;
 
-  const { ceo, goalId, owed } = found;
+  const { ceo, goalId, owed, staff } = found;
   const fromOutside = owed.filter((one) => one.outside).map((one) => one.id);
   const fingerprint = createHash('sha256')
     .update(owed.map((one) => `${one.id}@${one.updated_at.toISOString()}`).join('|'))
@@ -156,6 +157,8 @@ export async function ensureTriage(companyId: string, now = new Date()): Promise
       ...(fromOutside.length > 0
         ? { carriesOutside: { capability: 'the tickets it was given', ticketIds: fromOutside } }
         : {}),
+      // And a ticket staff work filed makes it that work's, held at tier 2 (F19.9).
+      carriesStaff: staff.length > 0 ? { from: 'ticket', staff } : undefined,
     });
     return task.id;
   } catch (error) {
@@ -181,6 +184,8 @@ const LASTING = new Set(['role.frozen', 'role.incomplete', 'goal.required', 'goa
 
 interface Todo {
   id: string;
+  /** The issue it carries out the decision on, whose filing work's staff words it carries too (F19.9). */
+  issue_id: string | null;
   project_id: string;
   title: string;
   body: string;
@@ -224,7 +229,7 @@ export async function handTodos(companyId: string, now = new Date()): Promise<nu
     const { rows: stage } = await tx.query<{ stage: string | null }>('SELECT stage FROM companies WHERE id = $1', [companyId]);
     if (stage[0]?.stage === 'wind_down') return [];
     const { rows } = await tx.query<Todo>(
-      `SELECT k.id, k.project_id, k.title, k.body, k.priority, k.outside OR coalesce(i.outside, false) AS outside,
+      `SELECT k.id, k.solves_ticket_id AS issue_id, k.project_id, k.title, k.body, k.priority, k.outside OR coalesce(i.outside, false) AS outside,
               k.due_on::text AS due_on, r.id AS role_id, r.division_id, i.title AS issue_title,
               CASE WHEN i.status = 'done' THEN i.closed_reason END AS decision,
               (SELECT count(*)::int FROM events e
@@ -261,6 +266,10 @@ export async function handTodos(companyId: string, now = new Date()): Promise<nu
         todo.issue_title ? `It carries out the decision on the issue "${todo.issue_title}"${todo.decision ? `: ${todo.decision}` : '.'}` : '',
         todo.due_on ? `Due ${todo.due_on}.` : '',
       ].filter(Boolean).join('\n\n');
+      // F19.9: a to-do filed by work a member of staff's words were in, or
+      // for an issue that was, is still their request, wherever it goes.
+      const staff = await withTenant(companyId, (tx) =>
+        staffOfTickets(tx, companyId, [todo.id, ...(todo.issue_id ? [todo.issue_id] : [])]));
       ({ task: made } = await assignTask({
         companyId, projectId: todo.project_id, divisionId: todo.division_id, roleId: todo.role_id, goalId: todo.goal_id,
         createdBy: 'event', idempotencyKey: `todo:${todo.id}`, priority: todo.priority,
@@ -269,6 +278,7 @@ export async function handTodos(companyId: string, now = new Date()): Promise<nu
         // an issue that was, carries what it may hold (F8.9), as a ticket
         // given out from the board does.
         ...(todo.outside ? { carriesOutside: { capability: 'the to-do it was given', ticketId: todo.id } } : {}),
+        carriesStaff: staff.length > 0 ? { from: 'ticket', staff } : undefined,
         detail: `its to-do ${todo.id}`,
       }));
     } catch (error) {

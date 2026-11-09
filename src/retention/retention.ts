@@ -317,7 +317,8 @@ export async function purgeExpiredWork(companyId: string, now = new Date()): Pro
              SELECT r.id, r.parent_task_id FROM events e
                JOIN tasks r ON r.id = CASE WHEN e.payload->>'rerunOf' ~ '^[0-9a-f-]{36}$'
                                            THEN (e.payload->>'rerunOf')::uuid END
-              WHERE e.task_id = k.id AND e.type = 'owner.instructed'
+              -- Both records of an instruction (F19.9), though only the owner runs work again.
+              WHERE e.task_id = k.id AND e.type IN ('owner.instructed', 'staff.instructed')
              UNION ALL
              SELECT f.id, f.parent_task_id FROM task_handoffs h JOIN tasks f ON f.id = h.from_task_id
               WHERE h.to_task_id = k.id

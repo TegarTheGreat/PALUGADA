@@ -118,7 +118,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           </Paper>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 9 }}>
-          {current.id === 'model' && <ModelSettings />}
+          {current.id === 'model' && <ModelSettings allowance />}
           {current.id === 'agents' && <AgentSettings />}
           {current.id === 'tools' && <ToolSettings />}
           {current.id === 'channels' && <ChannelSettings />}
@@ -201,8 +201,12 @@ function ErasureList() {
   );
 }
 
-/** The model every role runs on: chosen here, and by the first run (Onboarding.tsx) when there is none. */
-export function ModelSettings() {
+/**
+ * The model every role runs on: chosen here, and by the first run
+ * (Onboarding.tsx) when there is none. Here it also shows what PALUGADA's own
+ * conversation may spend; the first run is about the model alone.
+ */
+export function ModelSettings({ allowance = false }: { allowance?: boolean }) {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;
@@ -210,7 +214,7 @@ export function ModelSettings() {
     <Stack gap="lg">
       <ModelForm view={view.data} reload={view.reload} />
       {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} sync={view.data.priceSync} reload={view.reload} />}
-      <AssistantAllowance />
+      {allowance && <AssistantAllowance />}
     </Stack>
   );
 }

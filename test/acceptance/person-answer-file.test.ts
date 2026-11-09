@@ -111,10 +111,11 @@ test('a person answers with a file: it is kept where the run can read it, and th
 
     // And a run resumed after the answer starts from it.
     const context = await withTenant(fixture.companyId, (tx) => buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id }));
-    const section = context.sections.find((one) => one.title === 'The owner answered your question');
+    // A colleague's answer, in their name and inside their fence (F19.9; STATUS 2.204).
+    const section = context.sections.find((one) => one.title === 'Budi, a member of the owner\'s staff, answered your question');
     assert.ok(section);
     assert.ok(section.body.includes(kept!.path), 'the context says where the file is');
-    assert.match(section.body, /Budi answered: Ini fakturnya\./, 'and who answered: not the owner');
+    assert.match(section.body, /<<<COLLEAGUE>>> from="Budi \(staff\)"[\s\S]*Ini fakturnya\./, 'and who answered: not the owner');
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, task.id)), [{
       question: 'Mana faktur gula dari pemasok?', answer: 'Ini fakturnya.', by: 'Budi',
       files: [{ kind: 'pdf', name: 'Faktur-Gula-(final).pdf', path: kept!.path, bytes: PDF.length }],

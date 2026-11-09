@@ -11,6 +11,8 @@ import type { Area } from '../types.ts';
 export const WORDS: Area = {
   id: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Dibatalkan oleh staf yang memintanya",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Seorang staf yang meminta pekerjaan ini di sebuah ruang membatalkannya, atau membatalkan pekerjaan yang menjadi asalnya. Lini waktunya menyebutkan siapa.",
       "Your team's work": "Pekerjaan tim Anda",
       "Your team's work: {count} waiting": "Pekerjaan tim Anda: {count} menunggu",
       "With your team's approvers: {count}": "Di tangan penyetuju tim Anda: {count}",
@@ -28,6 +30,8 @@ export const WORDS: Area = {
   },
   ms: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Dibatalkan oleh kakitangan yang memintanya",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Seorang kakitangan yang meminta kerja ini di sebuah bilik membatalkannya, atau membatalkan kerja yang menjadi asalnya. Garis masanya menyebut siapa.",
       "Your team's work": "Kerja pasukan anda",
       "Your team's work: {count} waiting": "Kerja pasukan anda: {count} menunggu",
       "With your team's approvers: {count}": "Di tangan pelulus pasukan anda: {count}",
@@ -45,6 +49,8 @@ export const WORDS: Area = {
   },
   jv: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Dipunbatalaken dening staf ingkang nyuwun",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Satunggaling staf ingkang nyuwun pakaryan menika wonten ing satunggaling ruangan mbatalaken, utawi mbatalaken pakaryan ingkang dados asalipun. Garis wekdalipun nyebataken sinten.",
       "Your team's work": "Pakaryan tim panjenengan",
       "Your team's work: {count} waiting": "Pakaryan tim panjenengan: {count} nengga",
       "With your team's approvers: {count}": "Wonten ing penyetuju tim panjenengan: {count}",
@@ -62,6 +68,8 @@ export const WORDS: Area = {
   },
   su: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Dibolaykeun ku staf anu nyuhunkeunana",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Salah saurang staf anu nyuhunkeun padamelan ieu di hiji rohangan ngabolaykeunana, atanapi ngabolaykeun padamelan anu janten asalna. Garis waktosna nyebatkeun saha.",
       "Your team's work": "Padamelan tim anjeun",
       "Your team's work: {count} waiting": "Padamelan tim anjeun: {count} ngantosan",
       "With your team's approvers: {count}": "Aya di panyatuju tim anjeun: {count}",
@@ -79,6 +87,8 @@ export const WORDS: Area = {
   },
   tl: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Kinansela ng isang staff na humiling nito",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Kinansela ito ng isang staff na humiling ng gawaing ito sa isang silid, o ang gawaing pinagmulan nito. Sinasabi ng timeline nito kung sino.",
       "Your team's work": "Gawain ng iyong team",
       "Your team's work: {count} waiting": "Gawain ng iyong team: {count} naghihintay",
       "With your team's approvers: {count}": "Nasa mga approver ng iyong team: {count}",
@@ -96,6 +106,8 @@ export const WORDS: Area = {
   },
   vi: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Đã bị hủy bởi một nhân viên đã yêu cầu nó",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Một nhân viên đã yêu cầu công việc này trong một phòng đã hủy nó, hoặc hủy công việc mà nó được bắt đầu cho. Dòng thời gian của nó cho biết là ai.",
       "Your team's work": "Việc của nhóm bạn",
       "Your team's work: {count} waiting": "Việc của nhóm bạn: {count} đang chờ",
       "With your team's approvers: {count}": "Đang ở người duyệt của nhóm bạn: {count}",
@@ -113,6 +125,8 @@ export const WORDS: Area = {
   },
   th: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "ยกเลิกโดยพนักงานที่ขอไว้",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "พนักงานที่ของานนี้ในห้องได้ยกเลิกงานนี้ หรือยกเลิกงานที่งานนี้เริ่มขึ้นเพื่อทำ ไทม์ไลน์ของงานบอกว่าเป็นใคร",
       "Your team's work": "งานของทีมคุณ",
       "Your team's work: {count} waiting": "งานของทีมคุณ: รออยู่ {count}",
       "With your team's approvers: {count}": "อยู่กับผู้อนุมัติของทีมคุณ: {count}",
@@ -130,6 +144,8 @@ export const WORDS: Area = {
   },
   zh: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "已由提出请求的员工取消",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "在某个房间提出这项工作的员工取消了它，或取消了它所服务的工作。它的时间线会写明是谁。",
       "Your team's work": "你团队的工作",
       "Your team's work: {count} waiting": "你团队的工作：{count} 项待处理",
       "With your team's approvers: {count}": "在你团队的审批人那里：{count}",
@@ -147,6 +163,8 @@ export const WORDS: Area = {
   },
   ja: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "依頼したスタッフが取り消しました",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "ルームでこの仕事を依頼したスタッフが、この仕事か、そのもとになった仕事を取り消しました。誰が取り消したかはタイムラインに記されています。",
       "Your team's work": "チームの仕事",
       "Your team's work: {count} waiting": "チームの仕事：{count} 件が待機中",
       "With your team's approvers: {count}": "チームの承認者のもと：{count}",
@@ -164,6 +182,8 @@ export const WORDS: Area = {
   },
   ko: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "요청한 직원이 취소함",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "룸에서 이 작업을 요청한 직원이 이를 취소했거나, 이 작업이 시작된 원래 작업을 취소했습니다. 누가 했는지는 타임라인에 나옵니다.",
       "Your team's work": "팀의 업무",
       "Your team's work: {count} waiting": "팀의 업무: {count}건 대기 중",
       "With your team's approvers: {count}": "팀 승인자에게 있음: {count}",
@@ -181,6 +201,8 @@ export const WORDS: Area = {
   },
   hi: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "इसे माँगने वाले स्टाफ़ के एक सदस्य ने रद्द किया",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "किसी रूम में यह काम माँगने वाले स्टाफ़ के एक सदस्य ने इसे रद्द किया, या उस काम को जिसके लिए यह शुरू हुआ था। इसकी टाइमलाइन बताती है कि किसने।",
       "Your team's work": "आपकी टीम का काम",
       "Your team's work: {count} waiting": "आपकी टीम का काम: {count} प्रतीक्षा में",
       "With your team's approvers: {count}": "आपकी टीम के अनुमोदकों के पास: {count}",
@@ -198,6 +220,8 @@ export const WORDS: Area = {
   },
   ar: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "ألغاه أحد الموظفين الذي طلبه",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "ألغى أحد الموظفين الذي طلب هذا العمل في غرفةٍ هذا العمل، أو العمل الذي بدأ من أجله. يذكر خطه الزمني من فعل ذلك.",
       "Your team's work": "عمل فريقك",
       "Your team's work: {count} waiting": "عمل فريقك: {count} بانتظار القرار",
       "With your team's approvers: {count}": "لدى موافقي فريقك: {count}",
@@ -215,6 +239,8 @@ export const WORDS: Area = {
   },
   es: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Cancelado por un miembro del personal que lo pidió",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Un miembro del personal que pidió este trabajo en una sala lo canceló, o canceló el trabajo para el que se inició. Su cronología dice quién.",
       "Your team's work": "Trabajo de tu equipo",
       "Your team's work: {count} waiting": "Trabajo de tu equipo: {count} en espera",
       "With your team's approvers: {count}": "Con los aprobadores de tu equipo: {count}",
@@ -232,6 +258,8 @@ export const WORDS: Area = {
   },
   'pt-BR': {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Cancelado por um membro da equipe que o pediu",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Um membro da equipe que pediu este trabalho em uma sala o cancelou, ou cancelou o trabalho para o qual ele foi iniciado. A linha do tempo diz quem.",
       "Your team's work": "Trabalho da sua equipe",
       "Your team's work: {count} waiting": "Trabalho da sua equipe: {count} aguardando",
       "With your team's approvers: {count}": "Com os aprovadores da sua equipe: {count}",
@@ -249,6 +277,8 @@ export const WORDS: Area = {
   },
   fr: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Annulé par un membre du personnel qui l'avait demandé",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Un membre du personnel qui avait demandé ce travail dans un salon l'a annulé, ou a annulé le travail pour lequel il avait été lancé. Sa chronologie dit qui.",
       "Your team's work": "Le travail de votre équipe",
       "Your team's work: {count} waiting": "Le travail de votre équipe : {count} en attente",
       "With your team's approvers: {count}": "Chez les approbateurs de votre équipe : {count}",
@@ -266,6 +296,8 @@ export const WORDS: Area = {
   },
   de: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Abgebrochen von einer Person aus dem Team, die darum gebeten hatte",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Eine Person aus dem Team, die diese Arbeit in einem Raum angefragt hatte, hat sie abgebrochen, oder die Arbeit, für die sie begonnen wurde. Der Verlauf zeigt, wer.",
       "Your team's work": "Arbeit Ihres Teams",
       "Your team's work: {count} waiting": "Arbeit Ihres Teams: {count} wartend",
       "With your team's approvers: {count}": "Bei den Freigebenden Ihres Teams: {count}",
@@ -283,6 +315,8 @@ export const WORDS: Area = {
   },
   nl: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Geannuleerd door een medewerker die erom vroeg",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Een medewerker die dit werk in een ruimte vroeg, heeft het geannuleerd, of het werk waarvoor het begon. De tijdlijn zegt wie.",
       "Your team's work": "Werk van je team",
       "Your team's work: {count} waiting": "Werk van je team: {count} wachtend",
       "With your team's approvers: {count}": "Bij de goedkeurders van je team: {count}",
@@ -300,6 +334,8 @@ export const WORDS: Area = {
   },
   it: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Annullato da un membro del personale che lo aveva chiesto",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Un membro del personale che aveva chiesto questo lavoro in una stanza lo ha annullato, oppure ha annullato il lavoro per cui era stato avviato. La sua cronologia dice chi.",
       "Your team's work": "Lavoro del tuo team",
       "Your team's work: {count} waiting": "Lavoro del tuo team: {count} in attesa",
       "With your team's approvers: {count}": "Presso gli approvatori del tuo team: {count}",
@@ -317,6 +353,8 @@ export const WORDS: Area = {
   },
   tr: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "İsteyen bir çalışan tarafından iptal edildi",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Bu işi bir odada isteyen bir çalışan onu ya da başlatıldığı işi iptal etti. Zaman çizelgesi kimin yaptığını söylüyor.",
       "Your team's work": "Ekibinizin işi",
       "Your team's work: {count} waiting": "Ekibinizin işi: {count} bekliyor",
       "With your team's approvers: {count}": "Ekibinizin onaylayıcılarında: {count}",
@@ -334,6 +372,8 @@ export const WORDS: Area = {
   },
   ru: {
     dictionary: {
+      "Cancelled by a member of staff who asked for it": "Отменено сотрудником, который об этом просил",
+      "A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.": "Сотрудник, который попросил об этой работе в комнате, отменил её или работу, ради которой она была начата. Кто именно — указано в её хронологии.",
       "Your team's work": "Работа вашей команды",
       "Your team's work: {count} waiting": "Работа вашей команды: ждут решения — {count}",
       "With your team's approvers: {count}": "У согласующих вашей команды: {count}",

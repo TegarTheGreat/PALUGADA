@@ -58,7 +58,7 @@ async function divisionWork(fixture: Fixture, goal: string): Promise<string> {
   return task.id;
 }
 
-async function approvalFor(fixture: Fixture, taskId: string, tier: number, summary: string): Promise<string> {
+async function approvalFor(fixture: Fixture, taskId: string, tier: 2 | 3, summary: string): Promise<string> {
   await planTask(fixture.companyId, taskId, [{ capability: 'social.publish' }]);
   return inbox.requestApproval({
     companyId: fixture.companyId, taskId, capabilityName: 'social.publish', tier,
@@ -77,7 +77,7 @@ const counts = (fixture: Fixture) => withControlPlane((tx) => tx.query<{ message
           (SELECT count(*)::int FROM room_feed WHERE company_id = $1) AS feed,
           (SELECT count(*)::int FROM room_mentions WHERE company_id = $1) AS mentions`, [fixture.companyId])).then((result) => result.rows[0]!);
 
-async function divisionRoom(fixture: Fixture, owner: PersonIn): Promise<string> {
+async function divisionRoom(owner: PersonIn): Promise<string> {
   const found = (ok(await owner.rooms(true)).rooms as Array<{ id: string; kind: string }>).find((room) => room.kind === 'division');
   return found!.id;
 }
@@ -126,9 +126,12 @@ test("a question a sub-task of the work asks shows in the work's thread", async 
     assert.deepEqual([shown.kind, shown.card.question.text, shown.card.question.options, shown.card.may.answer],
       ['question', 'Is 20% off too much?', ['Yes', 'No'], false], 'a member answers only what is put to it');
     assert.equal(ok(await owner.thread(room, message)).replies[0].card.may.answer, true);
-    const owed = await withControlPlane((tx) => tx.query<{ principal: string; reason: string }>(
-      'SELECT principal, reason FROM room_mentions WHERE message_id = $1', [card!.id]));
-    assert.deepEqual(owed.rows, [{ principal: seat.principal, reason: 'card' }], 'the person who asked for the work is told');
+    // The person who asked for the work is told. They follow its thread, so
+    // the card reaches them as the thread's news; the card's own attention
+    // goes to whoever does not follow it.
+    const owed = await withControlPlane((tx) => tx.query<{ principal: string }>(
+      'SELECT principal FROM room_mentions WHERE message_id = $1', [card!.id]));
+    assert.deepEqual(owed.rows, [{ principal: seat.principal }], 'the person who asked for the work is told, once');
   } finally {
     await api.close();
   }
@@ -157,7 +160,7 @@ test('a division room that shows what needs people shows unaddressed questions a
   const { fixture, api, owner } = await workspace('cards-division');
   try {
     const seat = await seated(fixture, 'Budi', 'approver');
-    const room = await divisionRoom(fixture, owner);
+    const room = await divisionRoom(owner);
     const asking = await divisionWork(fixture, 'Order packaging');
     const question = await inbox.askOwner({ companyId: fixture.companyId, taskId: asking, question: 'Brown or white boxes?' });
     const two = await approvalFor(fixture, await divisionWork(fixture, 'Post the offer'), 2, 'social.publish: the offer');
@@ -185,7 +188,7 @@ test('routine work never reaches a room', async () => {
     await syncRoomCards(fixture.companyId);
     assert.deepEqual(await cards(fixture), []);
     // Unless the owner has the division's room show all of its work.
-    const room = await divisionRoom(fixture, owner);
+    const room = await divisionRoom(owner);
     ok(await owner.post(`/rooms/${room}`, { showsWork: 'all' }));
     const seat = personIn(api, (await seated(fixture, 'Budi', 'member')).token, fixture.companyId);
     refusedWith(await seat.post(`/rooms/${room}`, { showsWork: 'needs_people' }), 403, 'room.not_creator');
@@ -262,6 +265,7 @@ test('a card holds no words; the result is read from the task when shown, redact
     await approvalFor(fixture, taskId, 2, 'social.publish: the link');
     await syncRoomCards(fixture.companyId);
     assert.ok((await cards(fixture)).every((card) => card.body === null));
+    await transition(fixture.companyId, taskId, 'running');
     await transition(fixture.companyId, taskId, 'completed', { output: { summary: 'Made the link with key sk-live-0123456789abcdef.' } });
     const shown = ok(await owner.page(room)).messages.find((one: { id: string }) => one.id === message);
     assert.equal(shown.card.result, 'Made the link with key [redacted].');

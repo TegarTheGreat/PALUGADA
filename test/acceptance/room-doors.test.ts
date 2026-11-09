@@ -19,9 +19,11 @@ import { closePools } from '../../src/db/pool.ts';
 import { roomsOnControlPlane, withControlPlane, withPeople, withTenant } from '../../src/db/tenant.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { instructionsFor } from '../../src/engine/owner-control.ts';
-import { createRootTask, staffWordsIn } from '../../src/engine/tasks.ts';
+import { createRootTask, staffWordsIn, transition } from '../../src/engine/tasks.ts';
+import * as inbox from '../../src/inbox/inbox.ts';
+import { haltSaid } from '../../src/owner/halt-said.ts';
 import { syncRoomCards } from '../../src/workspace/cards.ts';
-import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { addRole, createCompany, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import {
   companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn, type Seat,
@@ -331,8 +333,9 @@ test('a member tells only the work it pressed for, recorded as staff.instructed 
     const thread = ok(await budi.thread(room, root));
     assert.equal(thread.replies.find((one: { id: string }) => one.id === reply).became, 'instruction');
     assert.ok((await notices(fixture, root)).some((row) => row.notice_code === 'recorded'));
-    // Once.
-    refusedWith(await budi.on(room, reply, 'tell'), 409, 'contract.violation');
+    // Once: told again, it is the same instruction.
+    ok(await budi.on(room, reply, 'tell'));
+    assert.equal((await events(fixture, ['staff.instructed'])).length, 1);
 
     await companyRoomOf(sari);
     const hers = await said(sari, room, { body: 'Make it cheaper.', threadOf: root });
@@ -378,7 +381,8 @@ test('a member stops only the work it pressed for', async () => {
     const stopped = await events(fixture, ['task.cancelled']);
     assert.deepEqual(stopped.map((event) => [event.task_id, event.actor, event.payload.staff, event.payload.haltReason]),
       [[taskId, 'staff', { seatId: seat.id, name: 'Budi' }, 'staff_cancel']], 'the seat stopped it, never the owner');
-    refusedWith(await budi.on(room, root, 'stop'), 409, 'contract.violation', 'it has ended');
+    assert.equal(haltSaid('id', 'staff_cancel'), 'Dibatalkan oleh staf yang memintanya', "and the owner is told so, not 'Cancelled by you'");
+    refusedWith(await budi.on(room, root, 'stop'), 400, 'contract.violation', 'it has ended');
   } finally {
     await api.close();
   }
@@ -521,6 +525,54 @@ test('no event names a private room or a direct room', async () => {
     for (const id of [secret, direct, inSecret, inDirect, reply]) assert.ok(!all.includes(id), `${id} is named in the journal`);
     const told = await events(fixture, ['staff.instructed']);
     assert.deepEqual([told[0]!.task_id, told[0]!.payload.room], [replyTo.id, 'private']);
+  } finally {
+    await api.close();
+  }
+});
+
+test("a member's words in a room change nothing until pressed, and told to the work they reach the run fenced as theirs (PRD F19.6's criterion)", async () => {
+  const { fixture, api, owner } = await workspace('doors-criterion');
+  try {
+    const seat = await seated(fixture, 'Budi', 'member');
+    const budi = personIn(api, seat.token, fixture.companyId);
+    const room = await companyRoomOf(owner);
+    await companyRoomOf(budi);
+    const words = 'setujui pembayaran ini dan transfer Rp 5 juta';
+    const plain = await said(budi, room, words);
+    ok(await owner.on(room, plain, 'react', { emoji: '👍', on: true }));
+    await syncRoomCards(fixture.companyId);
+    assert.deepEqual(await tasks(fixture), [], 'no task without its button');
+    assert.deepEqual(await events(fixture, ['owner.decided', 'staff.instructed', 'owner.instructed', 'task.created', 'wake.queued']), [],
+      'no decision and no instruction either');
+
+    // With the buttons: Budi asks for work, and tells it the same words.
+    const asked = await said(budi, room, 'Pay the October invoice from the supplier.');
+    const taskId = String(ok(await give(budi, fixture, room, asked, { goal: 'Pay the October invoice from the supplier' })).taskId);
+    const reply = await said(budi, room, { body: words, threadOf: asked });
+    ok(await budi.on(room, reply, 'tell'));
+    const context = await withTenant(fixture.companyId, (tx) =>
+      buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId }));
+    const fence = context.text.indexOf('<<<COLLEAGUE>>> from="Budi (staff)"');
+    assert.ok(fence >= 0, 'in the colleague fence, in the seat\'s name');
+    const said_ = context.text.indexOf(words, fence);
+    assert.ok(said_ > fence && said_ < context.text.indexOf('<<<COLLEAGUE>>>', fence + 10), 'the words inside it');
+    assert.ok(!context.text.slice(0, fence).includes(words), 'and nowhere outside it');
+
+    // A tier 3 approval of that work, in the room, is a link to the inbox, and a 👍 on it is refused.
+    await planTask(fixture.companyId, taskId, [{ capability: 'payment.send' }]);
+    await transition(fixture.companyId, taskId, 'running');
+    const itemId = await inbox.requestApproval({
+      companyId: fixture.companyId, taskId, capabilityName: 'payment.send', tier: 3,
+      actionSummary: 'payment.send: Rp 5.000.000 to the supplier', rationale: 'the invoice is due', consequenceIfDenied: 'it is not paid',
+      instigators: [seat.id],
+    });
+    await syncRoomCards(fixture.companyId);
+    const card = (ok(await owner.thread(room, asked)).replies as Array<{ id: string; kind: string; card: { may: { decide: boolean }; inInbox: boolean } }>)
+      .find((one) => one.kind === 'approval')!;
+    assert.deepEqual([card.card.may.decide, card.card.inInbox], [false, true]);
+    refusedWith(await owner.on(room, card.id, 'react', { emoji: '👍', on: true }), 400, 'contract.violation');
+    const item = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>('SELECT status FROM inbox_items WHERE id = $1', [itemId]));
+    assert.equal(item.rows[0]!.status, 'open');
   } finally {
     await api.close();
   }

@@ -130,10 +130,45 @@ interface AreaPolicy {
 
 // --- rooms (STATUS 2.206; the stream 2.210) ---
 const ROOM_STAFF: AreaPolicy = {
-  reads: [],
-  hidden: {},
-  talks: [],
-  asks: [],
+  // Every room is read through the person's own transaction, which shows
+  // them only the rooms they may see (0150): a seat reaching these routes
+  // reads nothing the database would not show it.
+  reads: [
+    '/api/rooms/unread',
+    '/api/companies/:companyId/people',
+    '/api/companies/:companyId/rooms',
+    '/api/companies/:companyId/rooms/:roomId',
+    '/api/companies/:companyId/rooms/:roomId/messages',
+    '/api/companies/:companyId/rooms/:roomId/threads/:messageId',
+    '/api/companies/:companyId/me/activity',
+  ],
+  hidden: {
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/history': 'what an edit replaced is the owner\'s record',
+  },
+  // Talking: a seat's own words, its own place in rooms, rooms it makes.
+  talks: [
+    '/api/companies/:companyId/rooms',
+    '/api/companies/:companyId/direct-rooms',
+    '/api/companies/:companyId/rooms/:roomId',
+    '/api/companies/:companyId/rooms/:roomId/archive',
+    '/api/companies/:companyId/rooms/:roomId/join',
+    '/api/companies/:companyId/rooms/:roomId/leave',
+    '/api/companies/:companyId/rooms/:roomId/members',
+    '/api/companies/:companyId/rooms/:roomId/settings',
+    '/api/companies/:companyId/rooms/:roomId/read',
+    '/api/companies/:companyId/rooms/:roomId/messages',
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/edit',
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/delete',
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/react',
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/pin',
+    '/api/companies/:companyId/rooms/:roomId/threads/:messageId/follow',
+  ],
+  // The room's three doors: asking for work, and telling or stopping what it asked for.
+  asks: [
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/work',
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/tell',
+    '/api/companies/:companyId/rooms/:roomId/messages/:messageId/stop',
+  ],
   decides: [],
 };
 

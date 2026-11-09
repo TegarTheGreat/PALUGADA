@@ -147,12 +147,13 @@ test('replying follows a thread, and its replies raise attention for followers w
     const root = await said(owner, room, 'Who takes the Bandung order?');
     await said(budi, room, { body: 'Me.', threadOf: root });
     assert.equal(ok(await budi.thread(room, root)).following, true, 'replying follows');
+    const unread = (await listed(budi, room)).unread;
     const reply = await said(sari, room, { body: 'I can help.', threadOf: root });
     const owed = await withControlPlane((tx) => tx.query<{ principal: string; reason: string }>(
       'SELECT principal, reason FROM room_mentions WHERE message_id = $1 ORDER BY principal', [reply]));
     assert.deepEqual(owed.rows.map((row) => [row.principal, row.reason]).sort(),
       [['owner', 'reply'], [budiSeat.principal, 'reply']].sort());
-    assert.equal((await listed(budi, room)).unread, 0, 'a reply makes no room unread');
+    assert.equal((await listed(budi, room)).unread, unread, 'a reply makes no room unread');
 
     ok(await budi.post(`/rooms/${room}/threads/${root}/follow`, { on: false }));
     assert.equal(ok(await budi.thread(room, root)).following, false);

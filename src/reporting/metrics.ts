@@ -169,6 +169,18 @@ async function deploymentMetrics(): Promise<Family[]> {
         WHERE i.status = 'open'
         GROUP BY c.slug, i.kind`,
     );
+    // The people's workspace (F19), counted without a word of it: the
+    // owner and each kind of seat, and how many messages each company's
+    // people have written.
+    const people = await tx.query<{ kind: string; count: string }>(
+      `SELECT 'owner' AS kind, 1 AS count
+       UNION ALL
+       SELECT kind, count(*) FROM staff_seats WHERE joined_at IS NOT NULL AND revoked_at IS NULL GROUP BY kind`,
+    );
+    const messages = await tx.query<{ slug: string; count: string }>(
+      `SELECT c.slug, count(*) AS count FROM room_messages m JOIN companies c ON c.id = m.company_id
+        WHERE m.kind = 'text' GROUP BY c.slug`,
+    );
     const budgets = await tx.query<{
       slug: string; money_spent: string; money_max: string; tokens_spent: string; tokens_max: string;
     }>(
@@ -214,6 +226,15 @@ async function deploymentMetrics(): Promise<Family[]> {
         name: 'palugada_inbox_open', type: 'gauge',
         help: 'Items waiting for the owner, by company and kind.',
         samples: inbox.rows.map((row) => ({ labels: { company: row.slug, kind: row.kind }, value: Number(row.count) })),
+      },
+      {
+        name: 'palugada_people', type: 'gauge', help: 'People of the workspace: the owner, and seats by kind.',
+        samples: people.rows.map((row) => ({ labels: { kind: row.kind }, value: Number(row.count) })),
+      },
+      {
+        name: 'palugada_room_messages_total', type: 'counter',
+        help: 'Messages people have written in rooms, by company (no words, only how many).',
+        samples: messages.rows.map((row) => ({ labels: { company: row.slug }, value: Number(row.count) })),
       },
       {
         name: 'palugada_budget_spent_cents', type: 'gauge',

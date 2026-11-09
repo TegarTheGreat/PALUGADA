@@ -11,7 +11,16 @@
 import type { SentenceArea } from './index.ts';
 
 export const RELAY: SentenceArea = {
-  id: {},
+  id: {
+    'Something urgent needs you in PALUGADA.': 'Ada hal mendesak yang menunggu Anda di PALUGADA.',
+    'Something new needs you in PALUGADA.': 'Ada hal baru yang menunggu Anda di PALUGADA.',
+    'This no longer needs you.': 'Hal ini tidak lagi menunggu Anda.',
+    'Work you gave has finished.': 'Pekerjaan yang Anda berikan sudah selesai.',
+    'Your daily digest from PALUGADA is ready.': 'Ringkasan harian Anda dari PALUGADA sudah siap.',
+    'Daily digest for {company}': 'Ringkasan harian untuk {company}',
+    'A test from PALUGADA: this relay is paired and hears this deployment.': 'Uji dari PALUGADA: relay ini sudah dipasangkan dan mendengar deployment ini.',
+    'This phone is linked to PALUGADA.': 'Ponsel ini sudah ditautkan ke PALUGADA.',
+  },
   ms: {},
   jv: {},
   su: {},

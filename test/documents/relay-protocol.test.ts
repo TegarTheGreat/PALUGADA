@@ -38,6 +38,8 @@ test('every envelope type in src/relay is described in docs/relay-protocol.md, a
     const source = await readFile(join(folder, name), 'utf8');
     for (const match of source.matchAll(/\btype: '([a-z_]+)'/g)) written.add(match[1]!);
   }
+  // Not envelopes: the DER form a key is read in, as node:crypto names it.
+  for (const notAnEnvelope of ['spki', 'pkcs8']) written.delete(notAnEnvelope);
   assert.ok(written.size >= 5, `only ${written.size} types are written in src/relay; the scan is broken`);
   assert.deepEqual([...written].filter((type) => !known.has(type)).sort(), []);
 });

@@ -90,7 +90,9 @@ test("an envelope is canonical JSON signed with the deployment's key, and still 
     assert.match(one.envelope.company.ref, /^co_[A-Z2-7]{16}$/);
     assert.equal(one.envelope.company.name, (await withControlPlane((tx) => tx.query<{ name: string }>(
       'SELECT name FROM companies WHERE id = $1', [fixture.companyId]))).rows[0]!.name);
-    assert.equal(JSON.stringify(one.envelope).includes(fixture.companyId), false, 'a company is named to a relay by its reference, never its id');
+    // Only the link into the console names the company, as the owner's own address for it does.
+    const { link: _link, ...told } = one.envelope;
+    assert.equal(JSON.stringify(told).includes(fixture.companyId), false, 'a company is named to a relay by its reference, never its id');
   } finally {
     await api.close();
     await relay.close();
@@ -485,7 +487,7 @@ test('spent offers, old receipts, old dead letters and old refusals are purged',
     assert.ok(purged.offers >= 1 && purged.receipts === 1 && purged.refusals === 1 && purged.outbox >= 2, JSON.stringify(purged));
     const count = async (sql: string) => (await withControlPlane((tx) => tx.query(sql, [relayId]))).rows.length;
     assert.equal(await count('SELECT 1 FROM relay_offers WHERE relay_id = $1'), 1, 'the live offer stays');
-    assert.equal(await count('SELECT 1 FROM relay_receipts WHERE relay_id = $1'), 1);
+    assert.equal(await count("SELECT 1 FROM relay_receipts WHERE relay_id = $1 AND envelope_id IN ('old', 'new')"), 1);
     assert.equal(await count('SELECT 1 FROM relay_refusals WHERE relay_id = $1'), 1);
     assert.equal(await count("SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND status = 'dead'"), 1, 'the new dead letter stays for the owner to see');
     assert.equal(await count("SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND status = 'delivered'"), 0);

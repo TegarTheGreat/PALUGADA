@@ -147,10 +147,15 @@ const TALK_STAFF: AreaPolicy = {
 };
 
 // --- relay (STATUS 2.208) ---
+// A seat links its own phone through a relay that hears about its company,
+// and ends its own links: its own attention, like its profile. Pairing a
+// relay, what it is told and the deployment's key are the owner's.
 const RELAY_STAFF: AreaPolicy = {
-  reads: [],
-  hidden: {},
-  talks: [],
+  reads: ['/api/relays/links'],
+  hidden: {
+    '/api/control/relays': 'the deployment\'s relays are the owner\'s',
+  },
+  talks: ['/api/relays/links', '/api/relays/links/:linkId/end'],
   asks: [],
   decides: [],
 };

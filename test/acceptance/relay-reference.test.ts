@@ -94,11 +94,15 @@ test('the reference relay pairs, receives, verifies and presses, end to end', as
     const told = relay.received().filter((envelope) => envelope.type === 'inbox_item');
     assert.equal(told.length, 2);
     assert.equal(relay.refused(), 0, 'every envelope verified');
-    const forwarded = ntfy.posts.filter((post) => post.path.startsWith('/'));
-    assert.equal(forwarded.length, 2);
+    // The phone is told it is linked, then the two notices, each under the person's own topic.
+    const forwarded = ntfy.posts;
+    assert.equal(forwarded.length, 3);
     assert.ok(forwarded.every((post) => post.headers.authorization === 'Bearer tk_test'));
-    const priorities = forwarded.map((post) => post.headers.priority).sort();
-    assert.deepEqual(priorities, ['3', '5'], 'the incident rings, the approval only shows');
+    assert.equal(new Set(forwarded.map((post) => post.path)).size, 1, 'one topic for the one person');
+    assert.equal(forwarded[0]!.body, 'This phone is linked to PALUGADA.');
+    const priority = (text: string) => forwarded.find((post) => post.body.startsWith(text))?.headers.priority;
+    assert.deepEqual([priority('Incident: The till is down'), priority('Approval needed: Send the newsletter')], ['5', '3'],
+      'the incident rings, the approval only shows');
     assert.ok(forwarded.some((post) => post.headers.click?.startsWith('https://palugada.example/')));
 
     // The owner presses Approve on the phone; the relay signs it with the device's key; the deployment pulls it.

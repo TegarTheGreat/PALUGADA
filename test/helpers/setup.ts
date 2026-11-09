@@ -109,6 +109,9 @@ export async function resetData(): Promise<void> {
   // quiet hours one file chose would be every later file's owner's. The
   // rooms (0150) all hang from a company and are gone with it.
   await ownerPool().query('TRUNCATE principal_prefs');
+  // And the deployment's relays and its key to them (STATUS section 2.208): every link, offer,
+  // envelope, receipt and refusal hangs from a relay and goes with it.
+  await ownerPool().query('TRUNCATE relays, relay_identity CASCADE');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default

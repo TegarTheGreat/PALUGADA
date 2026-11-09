@@ -24,7 +24,8 @@
     "compute:check": "node scripts/compute-check.ts",
     "start": "node --env-file-if-exists=.env src/main.ts",
     "console:install": "npm --prefix console ci",
-    "console:build": "npm --prefix console run build"
+    "console:build": "npm --prefix console run build",
+    "relay:reference": "node scripts/relay-reference.ts"
   },
   "dependencies": {
     "ajv": "^8.20.0",

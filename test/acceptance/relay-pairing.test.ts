@@ -21,7 +21,7 @@ import { settingsVersion } from '../../src/settings/store.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
-import { deviceKey, fakeRelay, type FakeRelay } from '../helpers/fake-relay.ts';
+import { deviceKey, fakeRelay } from '../helpers/fake-relay.ts';
 import { handToRelay, linkThrough, pairThrough, sendOutbox, tomorrow, type Console } from '../helpers/relay.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 

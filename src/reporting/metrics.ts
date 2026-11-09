@@ -24,6 +24,7 @@ import { withControlPlane } from '../db/tenant.ts';
 import { adminPool, appPool } from '../db/pool.ts';
 import { SILENT_AFTER_SECONDS } from '../engine/checkout.ts';
 import type { WorkerCounts } from '../worker.ts';
+import { RELAY_COUNTS } from '../relay/outbox.ts';
 
 type Labels = Record<string, string>;
 
@@ -53,7 +54,9 @@ export async function metricsText(source: MetricsSource): Promise<string> {
     loopDelay = monitorEventLoopDelay({ resolution: 20 });
     loopDelay.enable();
   }
-  return render([...processMetrics(), ...poolMetrics(), ...workerMetrics(source.worker), ...await deploymentMetrics()]);
+  return render([
+    ...processMetrics(), ...poolMetrics(), ...workerMetrics(source.worker), ...relayMetrics(), ...await deploymentMetrics(),
+  ]);
 }
 
 function processMetrics(): Family[] {
@@ -123,6 +126,26 @@ function workerMetrics(source: MetricsSource['worker']): Family[] {
         { labels: { loop: 'tick' }, value: counts.loopFailures.tick },
         { labels: { loop: 'place' }, value: counts.loopFailures.place },
       ],
+    },
+  ];
+}
+
+/**
+ * What this process sent relays and refused from them (STATUS section 2.208),
+ * counted as it happened: an inbound envelope nobody signed is counted here
+ * and written nowhere, so this is where a flood of them shows.
+ */
+function relayMetrics(): Family[] {
+  return [
+    {
+      name: 'palugada_relay_deliveries_total', type: 'counter',
+      help: 'Envelopes this process sent to relays since it started, by how each send ended.',
+      samples: [...RELAY_COUNTS.deliveries].map(([outcome, value]) => ({ labels: { outcome }, value })),
+    },
+    {
+      name: 'palugada_relay_refused_total', type: 'counter',
+      help: 'Envelopes from relays this process refused since it started, by why.',
+      samples: [...RELAY_COUNTS.refused].map(([reason, value]) => ({ labels: { reason }, value })),
     },
   ];
 }

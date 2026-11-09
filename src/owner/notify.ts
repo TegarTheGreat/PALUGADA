@@ -222,6 +222,14 @@ export interface OwnerChannel {
    * is drafted" is neither. A chat is where news is read when it is read.
    */
   deliverNotice?(notice: DoneNotice): Promise<DeliveryResult>;
+  /**
+   * Reads again whatever the channel's answers depend on, before each
+   * dispatch. Optional: only a channel whose settings live in the database
+   * and change while the process runs has any -- a relay the owner narrowed,
+   * revoked or linked a phone through on another replica (STATUS section
+   * 2.208) -- and `carries` must not ask the database item by item.
+   */
+  prepare?(): Promise<void>;
 }
 
 /** Work the owner gave, finished (0059), as a channel sends it. */

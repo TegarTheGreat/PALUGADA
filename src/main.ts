@@ -115,6 +115,8 @@ import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
+import { relayChannels } from './relay/channel.ts';
+import { RelayLoop } from './relay/loop.ts';
 import { metricsText } from './reporting/metrics.ts';
 import { guardProcess } from './process-guard.ts';
 import { Browsers } from './browser/browsers.ts';
@@ -1066,6 +1068,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
   const { channels, notes: channelNotes } = await channelsFrom(env, (reference) => secrets.resolve(reference));
   notes.push(...channelNotes);
+  // One channel for each relay the owner paired (STATUS section 2.208). A
+  // relay paired later is taken up by the soft start pairing asks for.
+  try {
+    channels.push(...await relayChannels());
+  } catch (failure) {
+    notes.push(`the paired relays could not be read, so none is told anything until the next start: ${(failure as Error).message}`);
+  }
 
   // The worker stops by an abort signal rather than a method, which is what
   // lets one `stop()` here reach both halves.
@@ -1202,6 +1211,11 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // Started last, so a console that failed to bind does not leave a worker
   // running with nobody able to stop it.
   const running = worker.start();
+  // The relay loop, beside the worker and never a stage of its tick: a slow
+  // relay, or a long poll held open, holds up nothing the worker does. It
+  // signs with the deployment's key, opened under the master key.
+  const relayLoop = new RelayLoop({ master: () => master(true), previousMasters: () => previousKeys, log });
+  relayLoop.start();
 
   // Settings changed on another replica: this one is running on the old ones
   // until it starts again, so it does. Checked every half minute, which is as
@@ -1283,6 +1297,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       // grace as a run, rather than cut off halfway.
       const closed = api.close(graceMs);
       shutdown.abort();
+      const relaysStopped = relayLoop.stop();
       // A run in flight gets a moment to finish, and then gives its task back
       // -- well inside the minute a supervisor waits before it kills (the
       // systemd unit's TimeoutStopSec, compose's stop_grace_period). Killed
@@ -1302,6 +1317,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
           // A charter sync halfway through its files would leave the record
           // of what it wrote behind them.
           Promise.race([charterRepository.settled(), graceOver]),
+          // A send in flight finishes within its own five seconds; a long
+          // poll is cut at the grace, and its lease lapses by itself.
+          Promise.race([relaysStopped, graceOver]),
         ]);
       } finally {
         clearTimeout(grace);

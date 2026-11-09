@@ -101,7 +101,7 @@ export async function sendOutbox(master: MasterKey, now = new Date()) {
   return relayPass({ master: () => master, now, pullWaitSeconds: 0, awaitPulls: true });
 }
 
-/** A moment past the owner's window, so nothing an item waits for holds it back. */
+/** Two days on: past the next opening of the owner's window, so nothing an item waits for holds it back. */
 export function tomorrow(): Date {
-  return new Date(Date.now() + 24 * 60 * 60_000);
+  return new Date(Date.now() + 48 * 60 * 60_000);
 }

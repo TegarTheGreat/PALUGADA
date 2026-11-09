@@ -2310,6 +2310,11 @@ export interface DecideOptions {
   /** The files an answer to a run's question carried, already kept (`keepAnswerFiles`): recorded with the answer in the same step. */
   answerFiles?: AnswerFile[];
   /**
+   * The decision was pressed on a phone, through a relay (STATUS section
+   * 2.208): a `chat` decision like any other, said so on its record.
+   */
+  via?: 'relay';
+  /**
    * On a plan of new goals (F18.7), the numbers of the lines a yes approves;
    * the rest are refused. Left out, a yes approves every line. Checked here,
    * as anything from a caller is.
@@ -2743,6 +2748,7 @@ async function decideItem(
           ? { authenticatorId: factor.authenticatorId, factor: factor.kind, device: factor.label }
           : {}),
         ...(options.batch ? { batch: options.batch } : {}),
+        ...(options.via ? { via: options.via } : {}),
         ...(granting ? { allowForHours } : {}),
         ...(forSchedule ? { forSchedule: scheduled!.slug } : {}),
         // Which lines of a plan the yes made, and which it refused (F18.7).
@@ -3232,6 +3238,8 @@ export async function answerEscalation(
      * Only the answer to a question a run asked can carry files.
      */
     keepFiles?: () => Promise<AnswerFile[]>;
+    /** Answered on a phone, through a relay (STATUS section 2.208). */
+    via?: 'relay';
   } = {},
 ): Promise<void> {
   const text = String(answer ?? '').trim();
@@ -3270,7 +3278,9 @@ export async function answerEscalation(
   }
   if (asked[0]?.question) {
     const files = options.keepFiles && asked[0].open ? await options.keepFiles() : [];
-    await decideItem(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat, answerFiles: files }, true);
+    await decideItem(companyId, itemId, 'approve', text, {
+      channel: options.channel ?? 'api', seat, answerFiles: files, ...(options.via ? { via: options.via } : {}),
+    }, true);
     return;
   }
   await withTenant(companyId, async (tx) => {
@@ -3296,7 +3306,7 @@ export async function answerEscalation(
       taskId: row.task_id ?? undefined,
       type: 'owner.answered',
       actor: as.actor,
-      payload: { inboxItemId: itemId, answer: text, ...as.payload },
+      payload: { inboxItemId: itemId, answer: text, ...(options.via ? { via: options.via } : {}), ...as.payload },
     });
     if (!row.task_id) return;
     // The same record an instruction makes, so the run reads it where it

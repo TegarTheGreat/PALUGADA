@@ -58,6 +58,10 @@ const API_ONLY: Record<string, string> = {
     'machine: a load balancer asks whether to send this process requests, which it is told not to from the moment the process begins to stop',
   'GET /api/metrics':
     'machine: a Prometheus scraper reads what the deployment is doing, with a token of its own',
+  'GET /api/relay/v1/identity':
+    'machine: a relay reads this deployment\'s public key here before the owner pairs it',
+  'POST /api/relay/v1/relays/:relayId/inbound':
+    'machine: a paired relay posts presses, messages and read marks here, signed with its own key',
 };
 
 const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;

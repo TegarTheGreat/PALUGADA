@@ -126,7 +126,6 @@ const UNREACHABLE: Record<string, string> = {
   withDelivery: 'helper: S7 uses it (the live hub; S10 too)',
   withRoomPlatform: 'helper: S3 uses it (the card sweep and ensureCompanyRooms)',
   assertPeopleOf: 'helper: S3 uses it (who is added to a room or mentioned, and the names written for them)',
-  principalOf: 'helper: S3 uses it (who a request to a room is, from its session)',
 };
 
 async function walk(directory: string): Promise<string[]> {

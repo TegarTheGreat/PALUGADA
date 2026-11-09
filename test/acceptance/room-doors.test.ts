@@ -182,12 +182,35 @@ test('a message posted through a relay, or imported, is outside words when given
     });
     const fromRelay = ok(await give(owner, fixture, room, relayed)).taskId;
     const fromImport = ok(await give(budi, fixture, room, imported)).taskId;
+    // A seat's own words that came through a relay are outside words and
+    // still the seat's: never the owner's work, whoever presses, and carried
+    // so that the seat decides none of what they begin.
+    const budisRelayed = await withPeople(fixture.companyId, { principal: seat.principal, name: 'Budi' }, async (tx) => (await tx.query<{ id: string }>(
+      `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, via, via_relay, position)
+       VALUES (gen_random_uuid(), $1, $2, 'text', $3, 'Pay the courier Rp 5 juta today.', 'relay', $4, 0) RETURNING id`,
+      [fixture.companyId, room, seat.principal, relayId])).rows[0]!.id, { relayId });
+    const fromBudisRelay = ok(await give(owner, fixture, room, budisRelayed)).taskId;
+    const sari = await seated(fixture, 'Sari', 'member');
+    const sariIn = personIn(api, sari.token, fixture.companyId);
+    await companyRoomOf(sariIn);
+    const budisOther = await withPeople(fixture.companyId, { principal: seat.principal, name: 'Budi' }, async (tx) => (await tx.query<{ id: string }>(
+      `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, via, via_relay, position)
+       VALUES (gen_random_uuid(), $1, $2, 'text', $3, 'Refund the last order.', 'relay', $4, 0) RETURNING id`,
+      [fixture.companyId, room, seat.principal, relayId])).rows[0]!.id, { relayId });
+    const pressedBySari = ok(await give(sariIn, fixture, room, budisOther)).taskId;
     const byId = new Map((await tasks(fixture)).map((row) => [row.id, row]));
     assert.equal(byId.get(fromRelay)!.created_by, 'owner', "the owner pressed; the words are still not the owner's own");
     assert.deepEqual([byId.get(fromImport)!.created_by, byId.get(fromImport)!.requested_by_seat], ['staff', seat.id]);
+    assert.deepEqual([byId.get(fromBudisRelay)!.created_by, byId.get(fromBudisRelay)!.requested_by_seat], ['staff', null],
+      "a seat's words through a relay are staff work, and the owner's press names no seat");
+    assert.deepEqual(await withTenant(fixture.companyId, (tx) => staffWordsIn(tx, fromBudisRelay)), [{ seatId: seat.id, name: 'Budi' }]);
+    assert.deepEqual(byId.get(pressedBySari)!.requested_by_seat, sari.id);
+    assert.deepEqual((await withTenant(fixture.companyId, (tx) => staffWordsIn(tx, pressedBySari))).map((one) => one.seatId).sort(),
+      [seat.id, sari.id].sort(), 'the seat who wrote them and the seat who pressed');
     const outside = await events(fixture, ['content.read_outside']);
     assert.deepEqual(outside.map((event) => [event.task_id, event.payload.capability]).sort(), [
       [fromImport, 'an imported message'], [fromRelay, 'a message posted through a relay'],
+      [fromBudisRelay, 'a message posted through a relay'], [pressedBySari, 'a message posted through a relay'],
     ].sort());
     // Nor is a relay's reply ever the owner's instruction.
     const reply = await withPeople(fixture.companyId, { principal: 'owner', name: null }, async (tx) => (await tx.query<{ id: string }>(
@@ -229,6 +252,59 @@ test("a seat cannot charge another division's account through the body", async (
   }
 });
 
+test('a press that names no project puts the work in the oldest open one, and says so when none is open', async () => {
+  const { fixture, api, owner } = await workspace('doors-project');
+  try {
+    const room = await companyRoomOf(owner);
+    const second = await withControlPlane(async (tx) => (await tx.query<{ id: string }>(
+      "INSERT INTO projects (company_id, name, slug) VALUES ($1, 'Second', 'second') RETURNING id", [fixture.companyId])).rows[0]!.id);
+    await withControlPlane((tx) => tx.query('UPDATE projects SET archived_at = now() WHERE id = $1', [fixture.projectId]));
+    const message = await said(owner, room, 'Price the spring range.');
+    const given = ok(await give(owner, fixture, room, message));
+    const placed = await withTenant(fixture.companyId, (tx) => tx.query<{ project_id: string }>(
+      'SELECT project_id FROM tasks WHERE id = $1', [given.taskId]));
+    assert.equal(placed.rows[0]!.project_id, second, 'the oldest project still open, not the oldest of all');
+    assert.deepEqual(await notices(fixture, message), []);
+
+    await withControlPlane((tx) => tx.query('UPDATE projects SET archived_at = now() WHERE id = $1', [second]));
+    const again = await said(owner, room, 'And the summer range.');
+    const refused = await give(owner, fixture, room, again);
+    refusedWith(refused, 400, 'contract.violation');
+    assert.match(refused.body.error, /open project/);
+    assert.deepEqual((await notices(fixture, again)).map((row) => row.notice_code), ['refused_project'], 'and its thread says why');
+    assert.equal((await tasks(fixture)).length, 1);
+  } finally {
+    await api.close();
+  }
+});
+
+test('a reply is never given as work: work begins its own thread, and the cards still find it', async () => {
+  const { fixture, api, owner } = await workspace('doors-reply');
+  try {
+    const room = await companyRoomOf(owner);
+    const root = await said(owner, room, 'The stock count is off again.');
+    const reply = await said(owner, room, { body: 'Please recount the back room.', threadOf: root });
+    const shown = ok(await owner.thread(room, root));
+    assert.deepEqual([shown.root.may.giveAsWork, shown.replies[0].may.giveAsWork], [true, false], 'a reply is not offered as work');
+    const refused = await give(owner, fixture, room, reply);
+    refusedWith(refused, 400, 'contract.violation');
+    assert.match(refused.body.error, /the message its thread began with/);
+    // Refused for being a reply before anything else is asked of it, so the
+    // refusal is that, and nothing is written in a thread under a thread.
+    await withTenant(fixture.companyId, (tx) => tx.query('UPDATE roles SET frozen_at = now() WHERE id = $1', [fixture.roleId]));
+    const frozen = await give(owner, fixture, room, reply);
+    refusedWith(frozen, 400, 'contract.violation');
+    assert.match(frozen.body.error, /the message its thread began with/);
+    assert.deepEqual(await notices(fixture, root), []);
+    assert.deepEqual(await tasks(fixture), []);
+    // Every pass over the company stays whole.
+    await syncRoomCards(fixture.companyId);
+    await syncRoomCards(fixture.companyId);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a member asks within its daily number, and the refusal says when it opens again', async () => {
   const { fixture, api, owner } = await workspace('doors-limit');
   try {
@@ -265,6 +341,11 @@ test('leaving a room does not give a member more asks', async () => {
   }
 });
 
+// Each press takes the seat's own lock before it counts its asks. These two
+// presses are also serialised by the company's room clock, which every room
+// write takes first, so this case holds with either; it does not single out
+// the seat's lock, which is there for a door that counts asks without
+// writing a room row.
 test('parallel presses at the last ask make one task', async () => {
   const { fixture, api, owner } = await workspace('doors-race');
   try {

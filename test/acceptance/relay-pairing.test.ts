@@ -460,3 +460,38 @@ test('a relay added and never paired is told nothing', async () => {
     await relay.close();
   }
 });
+
+test("a person ends their own phone's link, and the owner anyone's", async () => {
+  const fixture = await createCompany('relay-unlink');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const owner = await api.signIn();
+    const relayId = await pairThrough(api, owner, relay, { companies: [fixture.companyId] });
+    const siti = await seated(api, fixture, owner, 'member');
+    const budi = await seated(api, fixture, owner, 'approver');
+    const sitis = await linkThrough(api, siti.token, relay, relayId, { owner: false, device: true });
+    const budis = await linkThrough(api, budi.token, relay, relayId, { owner: false });
+    // Each sees their own link, and only their own.
+    const listed = await api.call('GET', '/api/relays/links', siti.token);
+    assert.deepEqual(listed.body.links.map((one: { id: string; device: boolean; status: string }) => [one.id, one.device, one.status]),
+      [[sitis.linkId, true, 'active']]);
+    // Another seat's link is not one's own to end.
+    const theirs = await api.call('POST', `/api/relays/links/${sitis.linkId}/end`, budi.token, {});
+    assert.equal(theirs.status, 400);
+    const own = await api.call('POST', `/api/relays/links/${sitis.linkId}/end`, siti.token, {});
+    assert.equal(own.status, 200, JSON.stringify(own.body));
+    assert.deepEqual((await api.call('GET', '/api/relays/links', siti.token)).body.links, []);
+    // The owner ends anyone's.
+    const ended = await api.call('POST', `/api/relays/links/${budis.linkId}/end`, owner, {});
+    assert.equal(ended.status, 200, JSON.stringify(ended.body));
+    const { rows } = await withControlPlane((tx) => tx.query<{ status: string }>(
+      'SELECT status FROM relay_links WHERE id = ANY($1::uuid[])', [[sitis.linkId, budis.linkId]]));
+    assert.deepEqual(rows.map((row) => row.status), ['ended', 'ended']);
+    const malformed = await api.call('POST', '/api/relays/links/not-an-id/end', owner, {});
+    assert.equal(malformed.status, 400);
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});

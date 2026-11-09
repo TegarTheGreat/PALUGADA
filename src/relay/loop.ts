@@ -115,22 +115,28 @@ function startPull(
 ): Promise<number> | null {
   if (pulling.has(relay.id)) return null;
   const pull = (async () => {
-    // The lease, so replicas never poll one relay twice; taken on the row,
-    // so no connection is held through the wait.
-    const leased = await withControlPlane(async (tx) => (await tx.query(
-      `UPDATE relays SET pulling_until = $2::timestamptz + make_interval(secs => $3)
-        WHERE id = $1 AND status = 'paired' AND (pulling_until IS NULL OR pulling_until <= $2)`,
-      [relay.id, now, PULL_LEASE_SECONDS])).rowCount === 1);
-    if (!leased) return 0;
     try {
-      return await pullOnce(relay, signing, now, options);
+      // The lease, so replicas never poll one relay twice; taken on the row,
+      // so no connection is held through the wait.
+      const leased = await withControlPlane(async (tx) => (await tx.query(
+        `UPDATE relays SET pulling_until = $2::timestamptz + make_interval(secs => $3)
+          WHERE id = $1 AND status = 'paired' AND (pulling_until IS NULL OR pulling_until <= $2)`,
+        [relay.id, now, PULL_LEASE_SECONDS])).rowCount === 1);
+      if (!leased) return 0;
+      try {
+        return await pullOnce(relay, signing, now, options);
+      } finally {
+        await withControlPlane((tx) => tx.query('UPDATE relays SET pulling_until = NULL WHERE id = $1', [relay.id]));
+      }
+    } catch (error) {
+      // Said, and tried again at the next pass: a relay's inbox that fails
+      // stops nothing else.
+      options.log?.({ level: 'warn', event: 'relay.pull_failed', relayId: relay.id, message: (error as Error).message });
+      return 0;
     } finally {
-      await withControlPlane((tx) => tx.query('UPDATE relays SET pulling_until = NULL WHERE id = $1', [relay.id]));
+      pulling.delete(relay.id);
     }
-  })().catch((error: unknown) => {
-    options.log?.({ level: 'warn', event: 'relay.pull_failed', relayId: relay.id, message: (error as Error).message });
-    return 0;
-  }).finally(() => pulling.delete(relay.id));
+  })();
   pulling.set(relay.id, pull);
   return pull;
 }

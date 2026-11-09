@@ -23,8 +23,8 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { jcs } from '../../src/relay/canonical.ts';
-import { RelayChannel } from '../../src/relay/channel.ts';
-import { relayBookkeeping } from '../../src/relay/loop.ts';
+import { RelayChannel, relayChannels } from '../../src/relay/channel.ts';
+import { RelayLoop, relayBookkeeping } from '../../src/relay/loop.ts';
 import { publicKeyFrom } from '../../src/relay/signature.ts';
 import { Worker } from '../../src/worker.ts';
 import { createCompany } from '../helpers/fixtures.ts';
@@ -343,7 +343,7 @@ test('an envelope whose send was cut off is sent again once, under the same id',
     assert.equal(items(relay.received).length, 1, 'a send in flight elsewhere is left to it');
     // A relay that already had it answers 409, which is as good as taken.
     await withControlPlane((tx) => tx.query(
-      `UPDATE relay_outbox SET status = 'pending', next_at = now() WHERE id = $1`, [row!.id]));
+      `UPDATE relay_outbox SET status = 'pending', next_at = now() - interval '1 second' WHERE id = $1`, [row!.id]));
     await sendOutbox(api.master);
     const { rows: [after] } = await withControlPlane((tx) => tx.query<{ status: string }>('SELECT status FROM relay_outbox WHERE id = $1', [row!.id]));
     assert.equal(after!.status, 'delivered');
@@ -438,22 +438,121 @@ test("a slow relay does not hold up the worker's tick", async () => {
 
 test('the relay loop delivers while everything is stopped', async () => {
   const fixture = await createCompany('relay-stopped');
-  const relay = await fakeRelay();
+  const relay = await fakeRelay({ inboxStatus: 500 });
   const api = await consoleWithSettings();
+  const said: Array<Record<string, unknown>> = [];
+  const loop = new RelayLoop({ master: () => api.master, pullWaitSeconds: 0, log: (entry) => said.push(entry) });
   try {
     const token = await api.signIn();
     const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId] });
     await linkThrough(api, token, relay, relayId);
     await inbox.raiseIncident({ companyId: fixture.companyId, title: 'Something is wrong', detail: 'the owner pressed stop' });
     await requestStopAll();
+    // The worker's channels, as the deployment makes them: one for each paired relay.
+    const channels = await relayChannels();
+    assert.deepEqual(channels.map((channel) => channel.name), [`relay:${relayId}`]);
     const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'worker-stopped' });
-    const worker = new Worker({ engine, companyId: fixture.companyId, ownerChannels: [new RelayChannel(relayId)] });
+    const worker = new Worker({ engine, companyId: fixture.companyId, ownerChannels: channels });
     const report = await worker.tick(tomorrow());
     assert.equal(report.stopped, true);
-    await sendOutbox(api.master);
+    // The loop on its own, as the deployment runs it beside the worker.
+    loop.start();
+    for (let waited = 0; items(relay.received).length === 0 && waited < 10_000; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     assert.equal(items(relay.received).length, 1, 'what the owner is owed reaches them while everything is stopped');
+    // A relay whose inbox fails is said, and stops nothing else.
+    for (let waited = 0; !said.some((entry) => entry.event === 'relay.pull_failed') && waited < 5_000; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(said.some((entry) => entry.event === 'relay.pull_failed'), JSON.stringify(said));
   } finally {
+    await loop.stop();
     await clearStopAll();
+    await api.close();
+    await relay.close();
+  }
+});
+
+test('a relay that forgot the deployment is paused, and the owner is told to pair it again', async () => {
+  const fixture = await createCompany('relay-gone');
+  let gone = false;
+  const relay = await fakeRelay({ answer: () => (gone ? { status: 410 } : undefined) });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId] });
+    await linkThrough(api, token, relay, relayId);
+    await sendOutbox(api.master);
+    gone = true;
+    await inbox.raiseIncident({ companyId: fixture.companyId, title: 'Down', detail: 'since noon' });
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const page = await api.call('GET', '/api/control/relays', token);
+    const shown = page.body.relays.find((one: { id: string }) => one.id === relayId);
+    assert.ok(shown.pausedUntil, 'paused');
+    assert.equal(shown.lastError, 'gone');
+    assert.equal(shown.outbox.pending, 1, 'what it was owed waits, rather than counting as a failure');
+    const before = relay.received.length;
+    await sendOutbox(api.master);
+    assert.equal(relay.received.length, before, 'nothing more is sent to a relay that forgot the deployment');
+    // Paired again, with what it was told kept, it is sent what it was owed.
+    gone = false;
+    const again = await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: relay.fingerprint, companies: [fixture.companyId], proof: { totp: api.code() },
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(again.body.relay.pausedUntil, null);
+    await sendOutbox(api.master);
+    assert.equal(items(relay.received).at(-1)!.envelope.data.kind, 'incident');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test("work done, a digest and a closed item reach the owner's phone at the share the relay is told", async () => {
+  const fixture = await createCompany('relay-news');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId] });
+    await linkThrough(api, token, relay, relayId);
+    const channel = new RelayChannel(relayId);
+    await channel.prepare();
+    const notice = { companyId: fixture.companyId, taskId: randomUUID(), text: 'Done: price the coffee\nRp 25.000 a cup\n— pricing', url: 'https://palugada.example/?task=1', language: 'en' };
+    const sent = await channel.deliverNotice!(notice);
+    assert.ok(sent.ref, 'the notice is owed, and named');
+    await channel.deliverDigest!({ companyId: fixture.companyId, day: '2026-11-08', text: 'Three tasks finished; Rp 40.000 spent.' });
+    const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    await inbox.decide(fixture.companyId, itemId, 'approve', '', { channel: 'app', assurance: 'session' });
+    const { retractClosed } = await import('../../src/owner/notify.ts');
+    await retractClosed(fixture.companyId, channel);
+    await sendOutbox(api.master);
+    const of = (type: string) => relay.received.find((one) => one.envelope?.type === type)!.envelope;
+    // At signal: that something happened, in the owner's words, and nothing of what.
+    assert.equal(of('work_done').text, 'Work you gave has finished.');
+    assert.equal(of('work_done').link, notice.url);
+    assert.equal(of('digest').text, 'Your daily digest from PALUGADA is ready.');
+    assert.equal(of('inbox_closed').text, 'This no longer needs you.');
+    for (const type of ['work_done', 'digest', 'inbox_closed']) {
+      assert.equal(relay.received.find((one) => one.envelope?.type === type)!.body.includes('coffee'), false);
+    }
+    // At content, what the owner was told in the app.
+    await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { share: 'content', proof: { totp: api.code() } });
+    await channel.prepare();
+    await channel.deliverNotice!({ ...notice, taskId: randomUUID() });
+    await channel.deliverDigest!({ companyId: fixture.companyId, day: '2026-11-09', text: 'Two tasks finished.' });
+    await sendOutbox(api.master);
+    const last = (type: string) => relay.received.filter((one) => one.envelope?.type === type).at(-1)!.envelope;
+    assert.equal(last('work_done').text, notice.text);
+    assert.equal(last('digest').text, 'Two tasks finished.');
+    // A company the relay does not hear about is owed nothing.
+    const other = await createCompany('relay-news-other');
+    assert.deepEqual(await channel.deliverNotice!({ ...notice, companyId: other.companyId }), {});
+  } finally {
     await api.close();
     await relay.close();
   }

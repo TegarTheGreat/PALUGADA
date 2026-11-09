@@ -43,6 +43,8 @@ export interface FakeRelayOptions {
   accept?: (request: Received) => Record<string, unknown>;
   /** Signs the accept with this key instead of the relay's own. */
   acceptKey?: KeyObject;
+  /** What the inbox answers a pull with, when it is not 200. */
+  inboxStatus?: number;
 }
 
 export interface FakeRelay {
@@ -121,6 +123,10 @@ export async function fakeRelay(options: FakeRelayOptions = {}): Promise<FakeRel
         }
         if (req.method === 'GET' && url.pathname === '/v1/inbox') {
           pulls.push({ path: `${url.pathname}${url.search}`, id: header('webhook-id'), timestamp: header('webhook-timestamp'), signature: header('webhook-signature') });
+          if (options.inboxStatus) {
+            json(res, options.inboxStatus, { error: 'the inbox is down' });
+            return;
+          }
           const after = Number(url.searchParams.get('after') ?? '0') || 0;
           const answer = inbox.slice(after);
           json(res, 200, { envelopes: answer, cursor: String(after + answer.length) });

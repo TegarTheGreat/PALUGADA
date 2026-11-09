@@ -199,7 +199,12 @@ async function sendOne(
       redirect: 'error',
     });
     status = response.status;
-    await response.body?.cancel().catch(() => undefined);
+    // The answer's body is not read: what the status says is all a send learns.
+    try {
+      await response.body?.cancel();
+    } catch {
+      // A body already gone is no failure of the send.
+    }
     if (!(response.ok || status === 409)) failure = `the relay answered ${status}`;
   } catch (error) {
     failure = redactor.redact(String((error as Error).message ?? error)).slice(0, 300);

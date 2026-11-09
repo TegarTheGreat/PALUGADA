@@ -51,7 +51,8 @@ export interface RelayRow {
   salt: Buffer;
   pair_request_id: string | null;
   inbound_cursor: string | null;
-  paused_until: Date | null;
+  /** Until when nothing is sent: a date, or `Infinity` for a relay that forgot this deployment and must be paired again. */
+  paused_until: Date | number | null;
   last_ok_at: Date | null;
   last_error: string | null;
   created_at: Date;
@@ -85,7 +86,7 @@ export function relayView(row: RelayRow) {
     mayPress: row.may_press,
     mayPost: row.may_post,
     pull: row.inbox_url !== null,
-    pausedUntil: row.paused_until?.toISOString() ?? null,
+    pausedUntil: row.paused_until === null ? null : row.paused_until instanceof Date ? row.paused_until.toISOString() : 'infinity',
     lastOkAt: row.last_ok_at?.toISOString() ?? null,
     lastError: row.last_error,
     createdAt: row.created_at.toISOString(),
@@ -189,7 +190,9 @@ export async function pairingTerms(relayId: string, body: Record<string, unknown
       'type at least the first sixteen characters of the fingerprint the relay\'s operator shows you', { typed: typed.length });
   }
   const relay = await withControlPlane((tx) => relayRow(tx, relayId));
-  if (!relay || relay.status !== 'pending') {
+  // A relay waiting to be paired, or one that answered that it forgot this
+  // deployment, which is paired again with its settings as they were.
+  if (!relay || !(relay.status === 'pending' || (relay.status === 'paired' && relay.paused_until !== null))) {
     throw new PalugadaError('contract.violation', relay ? `that relay is ${relay.status}, not waiting to be paired` : 'there is no such relay', { relayId });
   }
   const shown = Buffer.from(relay.fingerprint.slice(0, typed.length));
@@ -273,8 +276,9 @@ export async function pairRelay(
 
   const row = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<RelayRow>(
-      `UPDATE relays SET status = 'paired', paired_at = $2, companies = $3, all_companies = $4, last_ok_at = $2, last_error = NULL
-        WHERE id = $1 AND status = 'pending' AND pair_request_id = $5 RETURNING *`,
+      `UPDATE relays SET status = 'paired', paired_at = $2, companies = $3, all_companies = $4, last_ok_at = $2, last_error = NULL,
+              paused_until = NULL, failures = 0
+        WHERE id = $1 AND (status = 'pending' OR (status = 'paired' AND paused_until IS NOT NULL)) AND pair_request_id = $5 RETURNING *`,
       [relayId, now, terms.companies === 'all' ? [] : terms.companies, terms.companies === 'all', requestId]);
     if (!rows[0]) throw refuse('it was paired or revoked meanwhile');
     return rows[0];

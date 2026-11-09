@@ -162,14 +162,18 @@ function RelayCard({ relay, companies, reload }: { relay: RelayView; companies: 
           <Text size="xs" c="dimmed">{t('Its fingerprint')}</Text>
           <Code fz="md" style={{ letterSpacing: '0.08em' }}>{grouped(relay.fingerprint)}</Code>
         </Stack>
-        {relay.status === 'pending'
-          ? <PairForm relay={relay} companies={companies} reload={reload} />
+        {relay.status === 'pending' || relay.pausedUntil === 'infinity'
+          ? (
+            <>
+              {relay.pausedUntil === 'infinity' && <Alert color="orange" variant="light">{t('The relay forgot this deployment: pair it again.')}</Alert>}
+              <PairForm relay={relay} companies={companies} reload={reload} />
+            </>
+          )
           : (
             <>
               <Text size="sm">
                 {relay.allCompanies ? t('Hears about every company, later ones too.') : t('Hears about: {companies}', { companies: named(relay.companies) })}
               </Text>
-              {relay.pausedUntil && <Alert color="orange" variant="light">{t('The relay forgot this deployment: pair it again.')}</Alert>}
               <RelayControls relay={relay} companies={companies} reload={reload} />
               <Outbox relay={relay} reload={reload} />
               <LinkPhone relayId={relay.id} relayName={relay.name} />

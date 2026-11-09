@@ -1044,3 +1044,11 @@ The first version. What it holds, in the order an owner meets it.
   each other: every room, profile, relay and import route is closed to them
   by its address, and refused inside their conversation whatever its
   address (STATUS 2.203).
+- People: you name everyone you seat, and a name that looks like a
+  colleague's, yours, PALUGADA's, the CEO's or a role's is refused, in
+  look-alike letters too. Seat a member, who asks for work and answers what
+  is put to them, or up to thirty people at once with one code, and change
+  what each may do (letting someone do more takes your code). Staff choose
+  a handle, a picture, their language and quiet hours as they join, sign in
+  with their handle and code, and are locked out of a handle after five
+  wrong codes; everyone has a profile in the menu (STATUS 2.209).

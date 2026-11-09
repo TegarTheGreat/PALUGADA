@@ -41,6 +41,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
 | `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
 | `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
+| `src/owner/confusables.ts` | the look-alike letters people's names and handles are compared on, generated from Unicode's data by `scripts/confusables.ts` |
 | `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
@@ -49,7 +50,8 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
-| `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem and a role's picture |
+| `console/src/workspace/` | the people's workspace in the console: the shapes the server answers with (`types.ts`) and a person's profile (`Profile.tsx`) |
+| `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
 | `test/acceptance/` | behaviour, one file per area of the specification, against a real database |

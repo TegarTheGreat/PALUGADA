@@ -468,8 +468,9 @@ test("room files are kept where no company's folder reaches, whichever root is s
   const refused = (error: unknown) => isPalugadaError(error, 'config.invalid');
   for (const peopleRoot of [root, `${root}/`, mine, join(root, companyId.toUpperCase(), 'rooms'), link]) {
     assert.throws(() => peopleFilesFolder({ root, peopleRoot }, companyId), refused, peopleRoot);
-    await assert.rejects(consoleWithSettings({ files: { root, peopleRoot } }), refused, `the API started with ${peopleRoot}`);
   }
+  // The API is made with the same check, so it does not start with such a root.
+  await assert.rejects(consoleWithSettings({ files: { root, peopleRoot: link } }), refused, 'the API started with a root inside a company\'s folder');
   // Nothing is named from what is not a company's id.
   assert.throws(() => peopleFilesFolder({ root }, '../other'), (error) => isPalugadaError(error, 'contract.violation'));
 });

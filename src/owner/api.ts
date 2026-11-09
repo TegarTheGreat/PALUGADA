@@ -48,7 +48,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { PalugadaError, isPalugadaError } from '../errors.ts';
+import { PalugadaError, isPalugadaError, type ErrorCode } from '../errors.ts';
 import { assistantDispatch, withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { catalogueNames } from '../broker/catalogue.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -202,7 +202,9 @@ import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
-import { EventStream, StreamRegistry, WithStatus, type Route, type RouteKit, type StreamOpener } from './route.ts';
+import {
+  EventStream, StreamRegistry, WithStatus, peopleFilesApart, peopleFilesFolder, type Route, type RouteKit, type StreamOpener,
+} from './route.ts';
 import { findRoutes } from './routes/find.ts';
 import { importRoutes } from './routes/imports.ts';
 import { meetingRoutes } from './routes/meetings.ts';
@@ -1084,9 +1086,11 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/staff/:seatId/revoke',
         handle: async ({ params }) => {
-          await this.#staff.revoke(params.companyId!, params.seatId!);
+          // In the spelling its streams are filed under (`pathId`).
+          const seatId = pathId(params.seatId!, 'a seat');
+          await this.#staff.revoke(params.companyId!, seatId);
           // Its sessions ended with it; so does every stream they opened.
-          this.#streams.endPrincipal(`seat:${params.seatId!}`);
+          this.#streams.endPrincipal(`seat:${seatId}`);
           return { ok: true };
         },
       },
@@ -6115,10 +6119,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/mfa/authenticators/:authenticatorId/revoke',
         handle: async ({ params, body }) => {
+          // In the spelling its sessions' streams are filed under (`pathId`).
+          const authenticatorId = pathId(params.authenticatorId!, 'an authenticator');
           await this.#requireFactor(body.proof, 'revoke an authenticator', null, true);
-          await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
-          const signedOut = await this.#sessions.signOutFactor(params.authenticatorId!);
-          this.#streams.endFactor(params.authenticatorId!);
+          await this.#options.mfa.revokeOwnDevice(authenticatorId);
+          const signedOut = await this.#sessions.signOutFactor(authenticatorId);
+          this.#streams.endFactor(authenticatorId);
           return { signedOut };
         },
       },
@@ -6163,7 +6169,10 @@ export class OwnerApi {
         pattern: '/api/mfa/recovery-codes',
         handle: async ({ body }) => {
           await this.#requireFactor(body.proof, 'make new recovery codes', null, true);
-          return { codes: await this.#options.mfa.issueRecoveryCodes() };
+          const { codes, ended } = await this.#options.mfa.issueRecoveryCodes();
+          // The old set's sessions ended with it; so does every stream they opened.
+          for (const authenticatorId of ended) this.#streams.endFactor(authenticatorId);
+          return { codes };
         },
       },
 
@@ -6220,6 +6229,9 @@ export class OwnerApi {
    */
   #kit(): RouteKit {
     if (this.#madeKit) return this.#madeKit;
+    // Made with the API, so a people files root that would put room files in
+    // a company's folder stops the API from starting rather than taking one.
+    if (this.#options.files) peopleFilesApart(this.#options.files);
     this.#madeKit = {
       requireFactor: (context, purpose, fresh = false) =>
         this.#requireFactor(context.body.proof, purpose, context.params.companyId ?? null, fresh),
@@ -6229,15 +6241,7 @@ export class OwnerApi {
       deploymentSettings: () => this.#deploymentSettings(),
       applySettings: () => this.#applySettings(),
       filesRoot: () => this.#options.files?.root ?? null,
-      peopleFilesRoot: (companyId) => {
-        // A folder is named from it: only a company's id, never a path.
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(companyId)) {
-          throw new PalugadaError('contract.violation', `a company is named by its id, not ${JSON.stringify(companyId)}`, { companyId });
-        }
-        const files = this.#options.files;
-        if (!files) return null;
-        return files.peopleRoot ? join(files.peopleRoot, companyId) : join(files.root, `${companyId}.people`);
-      },
+      peopleFilesRoot: (companyId) => peopleFilesFolder(this.#options.files, companyId),
       streams: this.#streams,
       hub: null,
     };
@@ -6571,7 +6575,10 @@ export class OwnerApi {
     }
     // The assistant's: inside this scope the people's helpers refuse (tenant.ts),
     // so a route that reads people's words answers it with a refusal even if
-    // nobody listed it among the routes the assistant may not read.
+    // nobody listed it among the routes the assistant may not read. Work the
+    // handler starts and leaves running inherits the scope too, so such work
+    // leaves room cards and people's notices to the sweep or the worker, or
+    // opens them inside `assistantDispatch.exit(...)` where that is meant.
     const answer = await assistantDispatch.run(true, () =>
       this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams })));
     if (answer instanceof WithStatus) {
@@ -7285,7 +7292,7 @@ function staffOf(session: StaffSession): { name: string; kind: string; companyId
  * edits this function or the console's table; `workspace-contract.test.ts`
  * holds the two together.
  */
-const PEOPLE_REFUSALS: Readonly<Record<string, number>> = {
+const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
   'room.not_visible': 404,
   'room.archived': 409,
   'room.not_member': 403,
@@ -7335,7 +7342,8 @@ const PEOPLE_REFUSALS: Readonly<Record<string, number>> = {
  * wrong". An owner who cannot tell them apart cannot act on any of them.
  */
 function statusFor(code: string): number {
-  const people = PEOPLE_REFUSALS[code];
+  // A code no refusal of the workspace has is simply not in the table.
+  const people = PEOPLE_REFUSALS[code as ErrorCode];
   if (people !== undefined) return people;
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;
@@ -7911,6 +7919,24 @@ function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'rev
     fields.funnelStep = (body.funnelStep === '' ? null : body.funnelStep) as FunnelStep | null;
   }
   return fields;
+}
+
+/**
+ * An id from a path, in the one spelling the database answers with.
+ *
+ * PostgreSQL reads a uuid in capitals, in braces or without its hyphens as
+ * the same row, so a route that only hands the id to a query would act on it
+ * however it was typed. But what this process files by an id -- the open
+ * streams, which revoking a seat or an authenticator ends -- is filed under
+ * the database's own spelling, and an id typed otherwise would end nothing.
+ * So a route that does both takes the id in that spelling, lowercased, and
+ * refuses any other before the database is asked.
+ */
+function pathId(value: string, what: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new PalugadaError('contract.violation', `${what} is named by its id, a uuid such as 0f8fad5b-d9cb-469f-a165-70867728950e, not ${JSON.stringify(value)}`, { id: value });
+  }
+  return value.toLowerCase();
 }
 
 function requireText(value: unknown, field: string): string {

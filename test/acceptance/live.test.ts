@@ -235,7 +235,7 @@ test('a seat revoked by its id in capitals loses its streams as well', async () 
  * (mfa.ts): a sheet the owner threw away stops working. The streams those
  * sessions opened end with them.
  */
-test('new recovery codes end the streams the old ones signed in', async () => {
+test('new recovery codes, or the set revoked, end the streams the old ones signed in', async () => {
   const fixture = await createCompany('live-recovery');
   const api = await consoleWithSettings();
   try {
@@ -251,6 +251,16 @@ test('new recovery codes end the streams the old ones signed in', async () => {
     await endsSoon(byRecovery, 'the stream a thrown-away recovery code signed in');
     const task = await rootTask(fixture, 'Still heard by the device');
     await until(() => byDevice.heard.some((one) => one.taskId === task.id), "the device session's stream to hear the next event");
+
+    // Revoking the new set as an authenticator, named in capitals, ends the streams it signed in the same way.
+    const again2 = await api.call('POST', '/api/auth/sign-in', '', { recovery: again.body.codes[0] });
+    assert.equal(again2.status, 200, JSON.stringify(again2.body));
+    const bySecondSet = await openLive(api, fixture, String(again2.body.token));
+    const listed = await api.call('GET', '/api/mfa/authenticators', owner);
+    const recovery = (listed.body.authenticators as Array<{ id: string; kind: string }>).find((one) => one.kind === 'recovery')!;
+    const revoked = await api.call('POST', `/api/mfa/authenticators/${recovery.id.toUpperCase()}/revoke`, owner, { proof: { totp: api.code() } });
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    await endsSoon(bySecondSet, 'the stream a revoked recovery set signed in');
   } finally {
     await api.close();
   }

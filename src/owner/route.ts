@@ -17,7 +17,10 @@
  * it and `#kit()` together, and says so where it is merged.
  */
 import { createHash } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { PalugadaError } from '../errors.ts';
 import type { OwnerApiOptions } from './api.ts';
 import type { OwnerSession, OwnerSessions } from './session.ts';
 import type { StaffSeats, StaffSession } from './staff.ts';
@@ -253,4 +256,66 @@ export interface RouteKit {
   readonly streams: StreamRegistry;
   /** The live hub, once it exists; null before. */
   hub: PeopleHub | null;
+}
+
+/**
+ * The folder one company's room files are kept in: `<companyId>` under the
+ * deployment's people files root when it sets one, and otherwise
+ * `<companyId>.people` beside the company's own folder under the files root.
+ * Null on a deployment that keeps no files.
+ *
+ * Room files are people's words (F19.4). Every agent capability that reads
+ * files, and the owner's Files page, reads a company's folder under the files
+ * root (`companyRoot`, src/capabilities/files.ts), so room files are kept
+ * where none of them reaches: a people files root that would put them in a
+ * company's folder is refused (`peopleFilesApart`), here and when the API is
+ * made. And only a company's id becomes a folder's name, never a path.
+ */
+export function peopleFilesFolder(files: OwnerApiOptions['files'], companyId: string): string | null {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(companyId)) {
+    throw new PalugadaError('contract.violation', `a company is named by its id, not ${JSON.stringify(companyId)}`, { companyId });
+  }
+  if (!files) return null;
+  peopleFilesApart(files);
+  return files.peopleRoot ? join(files.peopleRoot, companyId) : join(files.root, `${companyId}.people`);
+}
+
+/**
+ * Refuses a people files root that is the files root itself, or lies inside
+ * a company's folder there: under either, a company's room files would be in
+ * the folder its agents and the owner's Files page read. Compared as the file
+ * system follows them, so a link into a company's folder is refused as the
+ * folder is, and a folder named by a company's id in capitals too, which is
+ * that company's on a file system that does not tell the two apart.
+ */
+export function peopleFilesApart(files: NonNullable<OwnerApiOptions['files']>): void {
+  if (!files.peopleRoot) return;
+  const root = followed(files.root);
+  const people = followed(files.peopleRoot);
+  const inside = relative(root, people);
+  const within = inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
+  const first = inside.split(sep)[0] ?? '';
+  if (inside === '' || (within && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(first))) {
+    throw new PalugadaError('config.invalid',
+      `PALUGADA_PEOPLE_FILES_ROOT (${files.peopleRoot}) is ${inside === '' ? '' : 'inside a company\'s folder in '}PALUGADA_FILES_ROOT `
+        + `(${files.root}), where every agent capability and the owner's Files page would read room files: `
+        + 'set it to a folder outside the companies\' folders, or leave it unset to keep them beside each company\'s',
+      { peopleRoot: files.peopleRoot, root: files.root });
+  }
+}
+
+/** A path as the file system follows it: the real path of as much of it as exists, then the rest as written. */
+function followed(path: string): string {
+  let at = resolve(path);
+  const rest: string[] = [];
+  while (!existsSync(at) && dirname(at) !== at) {
+    rest.unshift(basename(at));
+    at = dirname(at);
+  }
+  try {
+    return join(realpathSync(at), ...rest);
+  } catch {
+    // Unreadable on the way: compared as written, which still refuses the plain cases.
+    return resolve(path);
+  }
 }

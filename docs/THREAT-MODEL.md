@@ -27,6 +27,8 @@ refer to `docs/PRD.md`.
   refuse change (migrations 0004, 0007, 0082).
 - **The owner's factors and sessions**: the TOTP secret, passkeys, recovery
   codes, session tokens.
+- **The deployment's signing key** (section 2.10): the Ed25519 key a relay
+  checks every envelope against, PALUGADA's first private signing key.
 
 ## 2. Who attacks, and what stops each
 
@@ -642,6 +644,76 @@ sends stays until the owner removes it; an export carries no file.
   Only the owner, with a factor, sets one; an imported archive carries its
   references as they were, and they are checked where they are resolved.
 
+### 2.10 A relay, or someone holding its key or the deployment's
+
+A relay (F19.19, F19.20; `docs/relay-protocol.md`, STATUS section 2.208) is a
+service outside the deployment that tells people's phones what they are owed
+and carries back a few presses. It is someone else's machine, so everything it
+sends is treated as a stranger's until its signature says otherwise, and even
+then it can only ask.
+
+**The deployment's key.** An Ed25519 key made on first use. Its 32-byte seed
+is sealed under the master key in `deployment_secrets` like every secret the
+owner saves (`putSecret`, `src/settings/store.ts`), named by its key id, and
+opened only to sign an envelope or a pull (`src/relay/identity.ts`); only the
+public half is kept in the clear (`relay_identity`). A database backup without
+the master key cannot sign as the deployment (section 2.5). The application
+role has no grant on any relay table. The owner rotates it with a fresh
+factor; the old key keeps signing beside the new for a week, so a relay that
+pinned it is told by an envelope it can verify. Residual: someone holding the
+master key and a backup can sign as the deployment to every paired relay
+until the owner rotates the key and re-pairs; what they can make a relay do is
+show notices, not act in PALUGADA.
+
+**Pairing** takes the owner's factor given now, at least sixteen typed
+characters (80 bits) of the fingerprint the relay's operator shows, and the
+companies it may hear about, never all of them by default. The relay's accept
+must be signed by the key the owner compared and name this request and this
+deployment, so an accept cannot be replayed from another pairing
+(`src/relay/relays.ts`). The relay's envelopes and inbox must be on the host
+the owner gave. What a relay is told starts at `signal` -- that something
+happened, and where it opens -- with presses off; widening either takes the
+device again, and narrowing voids what it no longer allows.
+
+**What a relay is told** is what a person who linked a phone themselves is
+owed, at the lower of the relay's and the person's share level, and nothing
+else: never a room list, a history, a membership, a secret, a file's bytes, a
+prompt, a transcript or what a customer wrote. People and companies are HMACs
+under a salt per relay, so two relays cannot join what each knows. Titles and
+summaries are redacted on the way out. Residual: at `summary` and `content` a
+relay reads titles and words; the owner chooses that, per relay, with a fresh
+factor, and the console warns that a public ntfy topic is readable by anyone
+who guesses its name.
+
+**What a relay can do.** Everything inbound passes, in order: a paired relay;
+its `v1a` signature within 300 seconds; an envelope id never taken before; a
+link that is this relay's and active, for a company the relay hears about;
+the device's signature when the link has a device key; then a closed list of
+types (`src/relay/inbound.ts`). Nothing is written for an unknown relay or a
+bad signature, and the open route is throttled before the database is read,
+so a stranger cannot fill a table. The only act that changes anything is a
+press: it redeems a token PALUGADA sent with a notice to that person, for that
+item, once; it is refused at tier 3 even with a valid token (no offer is ever
+made there, and `decide` refuses a `chat` decision at tier 3 regardless); a
+seat's kind is read again at the press, and four eyes hold; it is recorded as
+a decision from a chat, through the relay. A stolen relay key can therefore
+press only the tier 2 and lower buttons already offered to people who linked
+a phone, once each -- and nothing at all for a link made with a device key,
+which needs the device's signature on every act, or for the owner, whose link
+counts for nothing without one. It can never assign, instruct, call a
+meeting, change a setting, seat anyone, pair, or export: there is no type for
+any of it. Revoking the relay refuses it at once and voids its offers.
+Residual: a relay can withhold or delay notices, and can show a person a
+notice PALUGADA never sent; the link it carries opens PALUGADA, where the
+truth is.
+
+**The deployment's own requests to a relay** are made only for the owner's
+actions that need its answer (its document, its accept) and by the relay loop,
+with five-second timeouts, `https` or this machine only, and no redirects. A
+relay that answers slowly holds up nothing the worker does: the loop is not a
+stage of its tick. The trigger door shares the signature verifier, so an
+inbound webhook signed with Ed25519 is checked the same way.
+
 ## 3. Out of scope, or not defended
 
 - Chromium itself. Its sandbox is on unless the operator turns it off
@@ -709,3 +781,7 @@ All under `test/acceptance/` unless named.
 | The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
 | A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |
+| The relay: a sealed identity showing only its public half; pairing with a fresh factor, sixteen typed characters and a bound accept; widening takes the device; revocation at once | `relay-pairing.test.ts` |
+| The relay: canonical signed envelopes; share levels; no button at tier 3 or on an incident; a slow relay holds up no tick | `relay-delivery.test.ts`, `test/documents/relay-protocol.test.ts` |
+| The relay: signature, freshness, once, nothing written for a stranger, throttled before the database; a press once, never at tier 3, the device's signature, the owner's link inert without one, a seat read again, four eyes | `relay-inbound.test.ts` |
+| A second implementation of the protocol that pins the deployment by fingerprint | `relay-reference.test.ts` |

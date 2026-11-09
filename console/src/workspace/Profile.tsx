@@ -82,7 +82,12 @@ function timeZones(): string[] {
   return supported ? supported('timeZone') : [];
 }
 
-/** Quiet hours: off, or from one hour until another, when nothing is sent to the person but what cannot wait. */
+/**
+ * Quiet hours: off, or from one hour until another, when nothing is sent to
+ * the person but what cannot wait. The two hours are labelled "Starts at" and
+ * "Ends at" rather than "From" and "Until": "From" is already an email's
+ * sender, and a sentence has one translation in each language.
+ */
 export function QuietHours({ start, end, onChange }: {
   start: number | null; end: number | null; onChange: (start: number | null, end: number | null) => void;
 }) {
@@ -93,9 +98,9 @@ export function QuietHours({ start, end, onChange }: {
         onChange={(event) => (event.currentTarget.checked ? onChange(22, 7) : onChange(null, null))} />
       {on && (
         <Group grow>
-          <Select label={t('From')} data={HOURS} value={String(start)} allowDeselect={false}
+          <Select label={t('Starts at')} data={HOURS} value={String(start)} allowDeselect={false}
             onChange={(value) => { if (value !== null) onChange(Number(value), end); }} comboboxProps={{ withinPortal: true }} />
-          <Select label={t('Until')} data={HOURS} value={String(end)} allowDeselect={false}
+          <Select label={t('Ends at')} data={HOURS} value={String(end)} allowDeselect={false}
             onChange={(value) => { if (value !== null) onChange(start, Number(value)); }} comboboxProps={{ withinPortal: true }} />
         </Group>
       )}

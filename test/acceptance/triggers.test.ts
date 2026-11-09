@@ -19,7 +19,7 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { recordPlan } from '../../src/engine/plan.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
-import { createHmac } from 'node:crypto';
+import { createHmac, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi } from '../../src/owner/api.ts';
 import { OwnerMfa } from '../../src/owner/mfa.ts';
@@ -428,6 +428,40 @@ test('a Standard Webhooks sender: its signed id is the delivery, under either pr
     refused('hook.refused'), 'an id changed after signing');
   await assert.rejects(receiveHook(opened.publicId, send('msg_4', body, 'webhook', now() - 400), secrets),
     /more than five minutes/);
+});
+
+/**
+ * Standard Webhooks' asymmetric form (`v1a`): the sender signs with an
+ * Ed25519 key and the door keeps only its public half, as `whpk_` and the key
+ * in base64. The verifier is the relay's (src/relay/signature.ts, STATUS
+ * section 2.208), so a relay and a trigger read one signature one way.
+ */
+test('a Standard Webhooks sender that signs with Ed25519 is taken with its public key', async () => {
+  const fixture = await createCompany('hook-standard-v1a');
+  const pair = generateKeyPairSync('ed25519');
+  const raw = Buffer.from(pair.publicKey.export({ format: 'jwk' }).x!, 'base64url');
+  const secrets = new InMemorySecretManager({ 'vault://hooks/standard': `whpk_${raw.toString('base64')}` });
+  const opened = await signedDoor(fixture, 'standard', secrets);
+  const send = (id: string, body: string, key = pair.privateKey, at = now()) => ({
+    raw: Buffer.from(body),
+    headers: {
+      'content-type': 'application/json',
+      'webhook-id': id,
+      'webhook-timestamp': String(at),
+      'webhook-signature': `v1a,${cryptoSign(null, Buffer.from(`${id}.${at}.${body}`), key).toString('base64')}`,
+    } as HookHeaders,
+  });
+  const body = '{"type":"order.paid","order":"A-7"}';
+  const first = started(await receiveHook(opened.publicId, send('msg_1', body), secrets));
+  assert.deepEqual(await receiveHook(opened.publicId, send('msg_1', body), secrets), { taskId: first.taskId, duplicate: true });
+  await assert.rejects(receiveHook(opened.publicId, send('msg_2', body, generateKeyPairSync('ed25519').privateKey), secrets),
+    refused('hook.refused'), 'signed by another key');
+  // A v1 HMAC made with the public key as its secret proves nothing.
+  const forged = createHmac('sha256', raw).update(`msg_3.${now()}.${body}`).digest('base64');
+  await assert.rejects(receiveHook(opened.publicId, {
+    raw: Buffer.from(body),
+    headers: { 'webhook-id': 'msg_3', 'webhook-timestamp': String(now()), 'webhook-signature': `v1,${forged}` } as HookHeaders,
+  }, secrets), refused('hook.refused'));
 });
 
 test('an event can be text or a form; bytes and broken JSON are refused', async () => {

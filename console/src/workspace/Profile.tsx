@@ -138,15 +138,28 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
     setBusy(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = {
-        ...(owner ? {} : { language: draft.language }), timezone: draft.timezone, quietStart: draft.quietStart, quietEnd: draft.quietEnd,
-        notifyInTab: draft.notifyInTab, noticesPerDay: draft.noticesPerDay,
-      };
+      // Only what was changed here is sent. The profile this drawer opened
+      // with can be older than the person's own, set since from the
+      // language menu or another tab, and sending all of it would write
+      // that back over what they chose there.
+      const body: Record<string, unknown> = {};
+      if (!owner && draft.language !== profile.language) body.language = draft.language;
+      if (draft.timezone !== profile.timezone) body.timezone = draft.timezone;
+      if (draft.quietStart !== profile.quietStart || draft.quietEnd !== profile.quietEnd) {
+        body.quietStart = draft.quietStart;
+        body.quietEnd = draft.quietEnd;
+      }
+      if (draft.notifyInTab !== profile.notifyInTab) body.notifyInTab = draft.notifyInTab;
+      if (draft.noticesPerDay !== profile.noticesPerDay) body.noticesPerDay = draft.noticesPerDay;
       if (!owner) {
         if (draft.handle !== profile.handle && draft.handle) body.handle = draft.handle;
         if (draft.picture !== profile.picture) body.picture = draft.picture;
       } else if (draft.ownerHearsPeople !== profile.ownerHearsPeople) {
         body.ownerHearsPeople = draft.ownerHearsPeople;
+      }
+      if (Object.keys(body).length === 0) {
+        onClose();
+        return;
       }
       const saved: Profile = await api('POST', '/api/me/profile', body);
       changed(saved);

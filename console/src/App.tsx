@@ -343,8 +343,10 @@ function Console({ device, staff, recovered, signOut }: {
   const pickLanguage = async (code: Language) => {
     try {
       // The deployment's language is the owner's; a member of staff's is their own.
+      // Read again, so the profile drawer opens with the choice made here.
       if (staff) {
         await api('POST', '/api/me/profile', { language: code });
+        me.reload();
         setLanguage(code);
       } else await chooseLanguage(code);
     } catch (failure) {

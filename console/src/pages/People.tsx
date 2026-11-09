@@ -17,7 +17,7 @@ import {
   Alert, Avatar, Badge, Button, CopyButton, Group, Modal, NumberInput, Paper, SegmentedControl, Stack, Table, Text, Textarea, TextInput, Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { api, explain } from '../api.ts';
+import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import { relative } from '../format.ts';
@@ -92,6 +92,8 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
   const [names, setNames] = useState('');
   const [invites, setInvites] = useState<Array<{ name: string; link: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  // Which of several names a refusal is about, as the line the owner wrote it on.
+  const [refusedLine, setRefusedLine] = useState<{ line: number; name: string } | null>(null);
   const [changing, setChanging] = useState<Seat | null>(null);
 
   // The fragment is never sent to a server, so no log keeps the invite.
@@ -100,6 +102,7 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
 
   const seatOne = async () => {
     setError(null);
+    setRefusedLine(null);
     try {
       let made: { invite: string } | null = null;
       const done = await requireFactor(t('Seat {name}', { name: name.trim() }), async (proof) => {
@@ -116,6 +119,7 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
 
   const seatSeveral = async () => {
     setError(null);
+    setRefusedLine(null);
     try {
       let made: { seats: Array<{ name: string; invite: string }> } | null = null;
       const done = await requireFactor(tp('Seat {count} person', 'Seat {count} people', listed.length, { count: listed.length }), async (proof) => {
@@ -127,6 +131,14 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
       seats.reload();
     } catch (failure) {
       setError(explain(failure));
+      // The API names the person by their place among the names sent, which
+      // leaves out blank lines; the owner reads the line they typed it on.
+      const index = failure instanceof ApiError ? failure.details.index : undefined;
+      if (typeof index === 'number' && listed[index] !== undefined) {
+        const lines = names.split('\n');
+        const at = lines.map((one, line) => (one.trim() ? line : -1)).filter((line) => line >= 0)[index]!;
+        setRefusedLine({ line: at + 1, name: listed[index]! });
+      }
     }
   };
 
@@ -154,8 +166,9 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
           {several ? (
             <>
               <Textarea label={t('Their names, one a line')} autosize minRows={3} maxRows={12} value={names}
-                onChange={(event) => setNames(event.currentTarget.value)}
-                error={listed.length > BATCH_MOST ? t('Up to thirty people at once.') : undefined} />
+                onChange={(event) => { setNames(event.currentTarget.value); setRefusedLine(null); }}
+                error={listed.length > BATCH_MOST ? t('Up to thirty people at once.')
+                  : refusedLine ? t('Line {line}: {name}', { line: refusedLine.line, name: refusedLine.name }) : undefined} />
               <Group gap="sm">
                 <Button disabled={listed.length === 0 || listed.length > BATCH_MOST} onClick={() => void seatSeveral()}>{t('Make the invites')}</Button>
                 <Button variant="subtle" onClick={() => setSeveral(false)}>{t('One person')}</Button>
@@ -169,7 +182,10 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
             </Group>
           )}
         </Stack>
-        {error && <Alert color="red" variant="light" mt="md">{error}</Alert>}
+        {error && (
+          <Alert color="red" variant="light" mt="md"
+            title={refusedLine ? t('Line {line}: {name}', { line: refusedLine.line, name: refusedLine.name }) : undefined}>{error}</Alert>
+        )}
         {invites.length > 0 && <Invites invites={invites} />}
       </Paper>
 
@@ -293,8 +309,8 @@ function ChangeSeat({ companyId, seat, close, changed }: { companyId: string; se
           <NumberInput label={t('Asks for work a day')} description={t('How many times a day they may ask the company for work.')}
             min={0} max={200} value={asks} onChange={(value) => setAsks(typeof value === 'number' ? value : asks)} />
         )}
-        {seat && (LADDER[kind] < LADDER[seat.kind]) && (
-          <Text size="xs" c="dimmed">{t('Their console redraws at once with what they may now do.')}</Text>
+        {seat && kind !== seat.kind && (
+          <Text size="xs" c="dimmed">{t('What they may do changes at once. Their console shows it the next time it is opened.')}</Text>
         )}
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group justify="flex-end">

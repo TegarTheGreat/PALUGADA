@@ -1,4 +1,4 @@
--- Words carry their author (F19.9; the workspace plan, set S0a).
+-- Words carry their author (F19.9; STATUS section 2.202).
 --
 -- The owner seats staff beside them, and a seat's words are never the
 -- owner's: work a member of staff asked for, or steered, must say so wherever

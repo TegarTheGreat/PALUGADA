@@ -944,7 +944,7 @@ test('an archive restores from a terminal, in either form it is kept in (F16.4)'
 });
 
 /**
- * Staff work stays staff work (F19.9; the workspace plan, set S0a). A task a
+ * Staff work stays staff work (F19.9; STATUS section 2.202). A task a
  * member of staff asked for, the card it raised and a ticket its run filed
  * each carry the mark that a seat's words are in the work: none of it may
  * use what the owner allowed for the owner's own work, and none may come back
@@ -964,8 +964,8 @@ test("a restored company's staff work is still marked as staff work", async () =
     budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'email the March invoices' },
     createdBy: 'owner', reserveTokens: 1_000,
   });
-  // As the assignment door records a seat's press (later in this plan): the
-  // task is staff work, pressed by the seat.
+  // As a room's assignment door will record a seat's press (section 2.206):
+  // the task is staff work, pressed by the seat.
   await withControlPlane((tx) => tx.query(
     "UPDATE tasks SET created_by = 'staff', requested_by_seat = $2 WHERE id = $1", [task.id, seat]));
   await transition(fixture.companyId, task.id, 'running');

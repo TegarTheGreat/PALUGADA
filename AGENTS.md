@@ -100,11 +100,11 @@ Each of these is a test, and each exists because the mistake was made once.
   it ran. `test/acceptance/process.test.ts`.
 - **Every tenant table has row level security, forced, with a policy.**
   `test/acceptance/tenant-isolation.test.ts`.
-- **Room tables are opened only by `withPeople`, `withDelivery` and
-  `withRoomPlatform`**, and only `src/db/tenant.ts` sets `app.reader` or
-  `app.principal`. An agent's transaction (`withTenant`) names no reader, so
-  it sees and writes nothing in a room table, even in its own company; a
-  person sees only the rooms they may see, whatever the query.
+- **Room tables are opened only to a transaction that names its reader**,
+  as `withPeople`, `withDelivery` and `withRoomPlatform` do. An agent's
+  transaction (`withTenant`) names none, so it sees and writes nothing in a
+  room table, even in its own company; a person sees only the rooms they may
+  see, whatever the query, and is told nothing about anyone else's.
   `test/acceptance/people-rls.test.ts`.
 - **References between tenant tables carry the company**: composite keys on
   `(company_id, id)`, so a row cannot point into another company.

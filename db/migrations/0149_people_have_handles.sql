@@ -1,4 +1,4 @@
--- People have handles (F19.2, F19.8, F19.12, F19.19; the workspace plan, set S0a).
+-- People have handles (F19.2, F19.8, F19.12, F19.19; STATUS section 2.202).
 --
 -- A person in a company's rooms is the owner or a seat the owner made, never
 -- an agent. They are named by a principal, which is text rather than a row:

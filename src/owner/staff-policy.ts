@@ -141,6 +141,8 @@ const ROOM_STAFF: AreaPolicy = {
     '/api/companies/:companyId/rooms/:roomId/messages',
     '/api/companies/:companyId/rooms/:roomId/threads/:messageId',
     '/api/companies/:companyId/me/activity',
+    // The room stream (STATUS 2.210): each frame goes to whoever may see its room, decided by the hub per batch.
+    '/api/companies/:companyId/room-stream',
   ],
   hidden: {
     '/api/companies/:companyId/rooms/:roomId/messages/:messageId/history': 'what an edit replaced is the owner\'s record',

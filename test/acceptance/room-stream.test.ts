@@ -15,10 +15,13 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { closePools } from '../../src/db/pool.ts';
+import { appPool, closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withPeople } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { OwnerApi } from '../../src/owner/api.ts';
+import { OwnerMfa } from '../../src/owner/mfa.ts';
 import { metricsText } from '../../src/reporting/metrics.ts';
+import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn } from '../helpers/rooms.ts';
@@ -93,8 +96,11 @@ function heard(response: Response, stop: AbortController): Heard {
   return { frames, ids, lastId: () => last, raw: () => text, ended: () => over, done, stop: () => stop.abort() };
 }
 
+/** Where a stream is asked for: a console's address. */
+type Served = Pick<Console, 'url'>;
+
 /** Asks for the room stream; the answer as it came, for a test that expects a refusal. */
-async function asked(api: Console, token: string, companyId: string, lastEventId?: string): Promise<{ response: Response; stop: AbortController }> {
+async function asked(api: Served, token: string, companyId: string, lastEventId?: string): Promise<{ response: Response; stop: AbortController }> {
   const stop = new AbortController();
   const response = await fetch(`${api.url}/api/companies/${companyId}/room-stream`, {
     headers: { authorization: `Bearer ${token}`, ...(lastEventId === undefined ? {} : { 'last-event-id': lastEventId }) },
@@ -104,7 +110,7 @@ async function asked(api: Console, token: string, companyId: string, lastEventId
 }
 
 /** A person's room stream, open and being read. */
-async function listening(api: Console, token: string, companyId: string, lastEventId?: string): Promise<Heard> {
+async function listening(api: Served, token: string, companyId: string, lastEventId?: string): Promise<Heard> {
   const { response, stop } = await asked(api, token, companyId, lastEventId);
   if (response.status !== 200) assert.fail(`the room stream answered ${response.status}: ${await response.text()}`);
   assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
@@ -297,7 +303,7 @@ test('a frame carries no words', async () => {
 });
 
 /** Reads /live as the console has, for the work frames the room stream must match. */
-async function liveStream(api: Console, token: string, companyId: string): Promise<Heard> {
+async function liveStream(api: Served, token: string, companyId: string): Promise<Heard> {
   const stop = new AbortController();
   const response = await fetch(`${api.url}/api/companies/${companyId}/live`, { headers: { authorization: `Bearer ${token}` }, signal: stop.signal });
   assert.equal(response.status, 200);
@@ -550,6 +556,19 @@ test('an @room frame is marked for every member who has not silenced the room', 
       assert.notEqual(about(sariHears, everyone)[0]!.mentioned, true, 'a member who silenced the room is not');
       assert.notEqual(about(ownerHears, everyone)[0]!.mentioned, true, 'nor is whoever wrote it');
       assert.notEqual(about(budiHears, plain)[0]!.mentioned, true, 'a plain message names nobody');
+
+      // Heard again after a gap, read as each person, it says the same.
+      const before = String(about(budiHears, everyone)[0]!.position! - 1);
+      const budiAgain = await listening(api, budi.token, fixture.companyId, before);
+      const sariAgain = await listening(api, sari.token, fixture.companyId, before);
+      try {
+        await until(() => about(budiAgain, plain).length > 0 && about(sariAgain, plain).length > 0, 'both replayed');
+        assert.equal(about(budiAgain, everyone)[0]!.mentioned, true, 'replayed, @room is still for a member who listens');
+        assert.notEqual(about(sariAgain, everyone)[0]!.mentioned, true, 'and still not for one who silenced the room');
+      } finally {
+        budiAgain.stop();
+        sariAgain.stop();
+      }
     } finally {
       budiHears.stop();
       sariHears.stop();
@@ -561,10 +580,11 @@ test('an @room frame is marked for every member who has not silenced the room', 
 });
 
 test("a revoked seat's stream ends within thirty seconds", { timeout: 60_000 }, async () => {
-  const { fixture, api } = await workspace('stream-revoked');
+  const { fixture, api, token } = await workspace('stream-revoked');
   try {
     const budi = await seated(fixture, 'Budi', 'member');
     const hears = await listening(api, budi.token, fixture.companyId);
+    const ownerHears = await listening(api, token, fixture.companyId);
     // Ended where no process heard of it: written straight into the database,
     // as a replica that went down before it could tell the others would leave it.
     await withControlPlane(async (tx) => {
@@ -574,16 +594,28 @@ test("a revoked seat's stream ends within thirty seconds", { timeout: 60_000 }, 
     const from = Date.now();
     await until(() => hears.ended(), 'the stream to end', 31_000);
     assert.ok(Date.now() - from <= 31_000);
+    assert.ok(!ownerHears.ended(), 'a session still live is asked again and goes on');
+    ownerHears.stop();
   } finally {
     await api.close();
   }
 });
 
+/**
+ * A second process of the same deployment, behind the same address: it
+ * reads the same sessions and seats from the database, and enrols nothing.
+ */
+async function replicaOf(): Promise<{ url: string; close: () => Promise<void> }> {
+  const replica = new OwnerApi({ mfa: new OwnerMfa({ secrets: new InMemorySecretManager(), rpId: 'palugada.local' }) });
+  const { url } = await replica.listen();
+  return { url, close: () => replica.close() };
+}
+
 test('signing out ends the streams that session opened, in another process too', async () => {
   const { fixture, api, token } = await workspace('stream-signed-out');
-  // A second process of the same deployment, behind the same address.
-  const replica = await consoleWithSettings();
+  let replica: { url: string; close: () => Promise<void> } | null = null;
   try {
+    replica = await replicaOf();
     const kept = await api.signIn();
     const budi = await seated(fixture, 'Budi', 'member');
     const sari = await seated(fixture, 'Sari', 'viewer');
@@ -608,7 +640,7 @@ test('signing out ends the streams that session opened, in another process too',
       for (const stream of [there, workThere, keptThere, budiThere, sariThere]) stream.stop();
     }
   } finally {
-    await replica.close();
+    await replica?.close();
     await api.close();
   }
 });
@@ -709,6 +741,40 @@ async function hubConnections(): Promise<number> {
     "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND application_name = 'palugada-hub'"));
   return rows[0]!.n;
 }
+
+/** Waits until this database has `n` hub connections. */
+async function hubsAre(n: number, what: string, ms = 5_000): Promise<void> {
+  const by = Date.now() + ms;
+  let now = await hubConnections();
+  while (now !== n && Date.now() < by) {
+    await pause(50);
+    now = await hubConnections();
+  }
+  assert.equal(now, n, what);
+}
+
+test('a stream goes on hearing the rooms while the hub cannot listen, and the hub listens again', async () => {
+  const { fixture, api, owner, token } = await workspace('stream-relisten');
+  try {
+    const room = await companyRoomOf(owner);
+    const hears = await listening(api, token, fixture.companyId);
+    await hubsAre(1, 'the hub listening');
+    // Postgres restarted, or an operator ended the session: the connection the hub listens on is gone.
+    await appPool().query(
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND application_name = 'palugada-hub'");
+    const meanwhile = await said(owner, room, 'While nobody listened.');
+    await until(() => about(hears, meanwhile).length > 0, 'the change, read by the clock', 7_000);
+    await hubsAre(1, 'the hub listening again', 10_000);
+    const after = await said(owner, room, 'Listened to again.');
+    const sent = Date.now();
+    await until(() => about(hears, after).length > 0, 'the change, told at once', 3_000);
+    assert.ok(Date.now() - sent < 3_000);
+    hears.stop();
+  } finally {
+    await api.close();
+  }
+});
+
 
 test('closing the owner API closes its listener', async () => {
   const { fixture, api, token } = await workspace('stream-close');

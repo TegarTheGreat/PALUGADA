@@ -122,7 +122,6 @@ const UNREACHABLE: Record<string, string> = {
   // F19: the people's workspace, laid as ground before the sets that use it
   // (STATUS sections 2.202 to 2.215, one for each set named here). Each set
   // strikes its own line when it wires the helper up.
-  withDelivery: 'helper: S7 uses it (the live hub; S10 too)',
 };
 
 async function walk(directory: string): Promise<string[]> {

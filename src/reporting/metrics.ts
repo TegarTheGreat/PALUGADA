@@ -25,6 +25,7 @@ import { adminPool, appPool } from '../db/pool.ts';
 import { SILENT_AFTER_SECONDS } from '../engine/checkout.ts';
 import type { WorkerCounts } from '../worker.ts';
 import { RELAY_COUNTS } from '../relay/outbox.ts';
+import { HUB_COUNTS } from '../workspace/hub.ts';
 
 type Labels = Record<string, string>;
 
@@ -55,7 +56,7 @@ export async function metricsText(source: MetricsSource): Promise<string> {
     loopDelay.enable();
   }
   return render([
-    ...processMetrics(), ...poolMetrics(), ...workerMetrics(source.worker), ...relayMetrics(), ...await deploymentMetrics(),
+    ...processMetrics(), ...poolMetrics(), ...workerMetrics(source.worker), ...relayMetrics(), ...roomStreamMetrics(), ...await deploymentMetrics(),
   ]);
 }
 
@@ -146,6 +147,29 @@ function relayMetrics(): Family[] {
       name: 'palugada_relay_refused_total', type: 'counter',
       help: 'Envelopes from relays this process refused since it started, by why.',
       samples: [...RELAY_COUNTS.refused].map(([reason, value]) => ({ labels: { reason }, value })),
+    },
+  ];
+}
+
+/**
+ * The live hub of this process (STATUS section 2.210): the room streams it
+ * holds open, and how often it read the rooms' feed and the journal for them.
+ * The reads are counted per company, not per stream, so the totals grow with
+ * how often the rooms change and how many companies are watched, never with
+ * how many tabs watch one: what an operator checks the hub's cost by.
+ */
+function roomStreamMetrics(): Family[] {
+  return [
+    gauge('palugada_room_streams', 'Room streams this process holds open: about one per console tab.', HUB_COUNTS.streams),
+    {
+      name: 'palugada_room_feed_reads_total', type: 'counter',
+      help: 'Reads of the rooms\' feed this process has made since it started, one per company per change or per five seconds.',
+      samples: [{ value: HUB_COUNTS.feedReads }],
+    },
+    {
+      name: 'palugada_room_work_reads_total', type: 'counter',
+      help: 'Reads of the journal for the room streams\' work frames since this process started, one per watched company per second.',
+      samples: [{ value: HUB_COUNTS.workReads }],
     },
   ];
 }

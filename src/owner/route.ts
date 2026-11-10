@@ -13,17 +13,18 @@
  *
  * `RouteKit` is what such a module may reach of the API: the second factor,
  * the sessions and seats, the deployment's options and settings, the files'
- * roots, and the open streams. It is frozen here; a set that needs more widens
- * it and `#kit()` together, and says so where it is merged.
+ * roots, the open streams and the live hub. It is frozen here; a set that
+ * needs more widens it and `#kit()` together, and says so where it is merged.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { Person } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { OwnerApiOptions } from './api.ts';
 import type { OwnerSession, OwnerSessions } from './session.ts';
-import type { StaffSeats, StaffSession } from './staff.ts';
+import type { StaffKind, StaffSeats, StaffSession } from './staff.ts';
 
 /** What a handler is given: the request, who made it, and what it carried. */
 export interface RouteContext {
@@ -215,12 +216,38 @@ function keysOf(held: Held): string[] {
   ];
 }
 
+/** Who asks for a room stream, from the request's verified session (F19.11). */
+export interface RoomStreamOpening {
+  /** The company the path names. */
+  companyId: string;
+  /** The person, made by `principalOf` from the session, never from the request's words. */
+  person: Person;
+  /** The owner, or the seat's kind as its session was verified: a change of kind ends the stream. */
+  kind: 'owner' | StaffKind;
+  /** The session's bearer token, which the hub verifies again every thirty seconds. Kept in memory only. */
+  token: string;
+  /** The last position the console heard (`Last-Event-ID`), or null. */
+  lastEventId: string | null;
+}
+
+/** What ends streams in every process: a session, by its token's hash; a person; or the owner's device. */
+export type StreamEnd = { tokenHash: string } | { principal: string } | { factor: string };
+
 /**
- * The live hub that serves a person's room stream (F19.11). The set that
- * builds it fills `RouteKit.hub` and widens this to what its routes call;
- * until then the kit holds none.
+ * The live hub that serves a person's room stream (F19.11; STATUS section
+ * 2.210, `src/workspace/hub.ts`): the rooms' changes each person may see and
+ * the company's work, on one stream per tab, read once per company.
  */
 export interface PeopleHub {
+  /** A person's room stream, or `stream.too_many` when they hold five in the company already. */
+  stream(opening: RoomStreamOpening): Promise<EventStream>;
+  /**
+   * Tells every process of the deployment that these streams end; the caller
+   * ends this process's own through `StreamRegistry`, as it always has.
+   */
+  ended(what: StreamEnd): Promise<void>;
+  /** This process listening for changes and ends, which any stream begins. */
+  listening(): Promise<void>;
   /** Ends every subscriber and the hub's own connection: the API is closing. */
   close(): Promise<void>;
 }
@@ -254,7 +281,7 @@ export interface RouteKit {
   readonly peopleFilesRoot: (companyId: string) => string | null;
   /** The streams open in this process, which sign-out and revocation end. */
   readonly streams: StreamRegistry;
-  /** The live hub, once it exists; null before. */
+  /** The live hub (src/workspace/hub.ts), which serves the room stream and tells other processes of ends. */
   hub: PeopleHub | null;
 }
 

@@ -646,6 +646,21 @@ export function eventDetail(payload: Record<string, unknown>): string | null {
   return typeof said === 'string' ? said : null;
 }
 
+/**
+ * Who told the work something, on its timeline (F19.9): an instruction, an
+ * answer or a decision a member of staff gave says whose it was, and the
+ * owner's words composed in their conversation say through whom. The words
+ * themselves are not shown here: a seat reads the timeline too, and they
+ * are the task's to read.
+ */
+export function eventAuthor(payload: Record<string, unknown>): string | null {
+  const staff = payload.staff as { name?: unknown } | undefined;
+  if (staff && typeof staff.name === 'string' && staff.name.trim() !== '') return t('From {name}, a member of staff', { name: staff.name });
+  if (payload.composedBy === 'ceo') return t('From you, through the CEO');
+  if (payload.composedBy === 'assistant') return t('From you, through the assistant');
+  return null;
+}
+
 /** Why a task waits, as the owner would say it (`WaitReason` in src/engine/tasks.ts). */
 const WAIT_REASONS: Record<string, string> = {
   child: N('Waiting for work it handed on'),

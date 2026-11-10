@@ -20,7 +20,7 @@ import { api } from '../api.ts';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { StopTask } from '../components/StopTask.tsx';
 import type {
-  ActivityItem, CostPeriod, InboxItem, Retro, Spend, Structure, WorkGroup, WorkItem,
+  ActivityItem, CostPeriod, InboxItem, Retro, Spend, Structure, TeamEntry, WorkGroup, WorkItem,
 } from '../types.ts';
 import { actorSaid, day, eventSentence, goalKind, money, relative } from '../format.ts';
 import { N, t } from '../i18n.ts';
@@ -48,7 +48,7 @@ export function Overview({ ctx }: PageProps) {
   const view = useLoad(async () => {
     const [work, activity, spend, cost, inbox, retro, structure]: [
       { items: WorkItem[]; counts: Record<WorkGroup, number> }, { items: ActivityItem[] }, Spend,
-      { timeline: CostPeriod[] }, { items: InboxItem[] }, Retro, Structure,
+      { timeline: CostPeriod[] }, { items: InboxItem[]; team?: TeamEntry[] }, Retro, Structure,
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/work?limit=100`),
       api('GET', `/api/companies/${companyId}/activity?limit=12`),
@@ -73,6 +73,9 @@ export function Overview({ ctx }: PageProps) {
   if (!view.data) return <>{header}<Loading rows={5} /></>;
   const { work, activity, spend, cost, inbox, retro, structure } = view.data;
 
+  // The team's cards that reached the owner are one entry a day, counted once
+  // as the inbox's badge counts them (F19.9); those still with an approver wait on them, not on the owner.
+  const needsYou = inbox.items.length + (inbox.team ?? []).filter((entry) => entry.day !== null).length;
   const used = spend.limitCents > 0 ? Math.min(100, (spend.spentCents / spend.limitCents) * 100) : 0;
   const tone = used >= 100 ? 'red' : used >= 80 ? 'orange' : 'brand';
   const chart = cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents / 100 }));
@@ -87,7 +90,7 @@ export function Overview({ ctx }: PageProps) {
       <FirstHourCard ctx={ctx} />
 
       <KpiStrip items={[
-        { label: t('Needs you'), value: inbox.items.length, alert: inbox.items.length > 0, hint: t('Open the inbox'), onClick: () => ctx.open('inbox') },
+        { label: t('Needs you'), value: needsYou, alert: needsYou > 0, hint: t('Open the inbox'), onClick: () => ctx.open('inbox') },
         { label: t('Running'), value: work.counts.active, hint: t('Queued or in progress'), onClick: () => ctx.open('work') },
         { label: t('Done this week'), value: retro.tasksCompleted, hint: t('Week ending {day}', { day: day(retro.weekEnding) }) },
         { label: t('Spent this period'), value: money(spend.spentCents), hint: t('of {limit}', { limit: money(spend.limitCents) }), alert: used >= 100, onClick: () => ctx.open('money') },

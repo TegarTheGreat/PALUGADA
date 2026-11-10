@@ -34,7 +34,7 @@ import type { PalugadaError } from '../errors.ts';
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
-import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
+import { TEAM_SQL, channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
 import { buildDailyDigest } from '../reporting/digest.ts';
 import { renderDailyDigest } from './digest-said.ts';
 import { moneyDisplay } from '../domain/money-display.ts';
@@ -276,9 +276,10 @@ export async function undelivered(
       asker: string | null;
       expires_at: Date | null;
       capability_name: string | null;
+      team: boolean;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
-              i.capability_name, (SELECT console_language FROM platform_control) AS language,
+              i.capability_name, (SELECT console_language FROM platform_control) AS language, ${TEAM_SQL} AS team,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               ${askerOf('i')} AS asker
@@ -290,14 +291,45 @@ export async function undelivered(
           -- Put off by the owner (0060): not sent until then.
           AND (i.snoozed_until IS NULL OR i.snoozed_until <= $3)
           -- A question for a person is theirs until it has gone unanswered a
-          -- day (escalateQuestions): the owner's phone is not for it before.
+          -- day (escalateTeamItems): the owner's phone is not for it before.
           AND (i.addressee_seat IS NULL OR i.escalated_at IS NOT NULL)
+          -- A card from staff work is the team's approvers' until nobody else
+          -- decided it in a day, or nobody else could (escalateTeamItems).
+          AND (NOT ${TEAM_SQL} OR i.escalated_at IS NOT NULL)
           AND n.id IS NULL
         ORDER BY i.created_at`,
       [companyId, channel, now],
     );
 
+    // The team's cards that reached the owner are one notice a day on each
+    // channel, whatever the team asked for (F19.9): carried by the first of
+    // them not yet sent, saying how many wait, with a link and no buttons --
+    // a yes on one card is not an answer to the rest. A day's notice already
+    // sent on this channel leaves the rest of that day's in the inbox only.
+    const team = rows.filter((row) => row.team);
+    let teamNotice: { id: string; count: number } | null = null;
+    if (team.length > 0) {
+      const { rows: [today] } = await tx.query<{ sent: boolean; waiting: number }>(
+        `SELECT EXISTS (SELECT 1 FROM owner_notifications n JOIN inbox_items i ON i.id = n.inbox_item_id
+                         WHERE n.company_id = $1 AND n.channel = $2 AND ${TEAM_SQL}
+                           AND (n.created_at AT TIME ZONE c.timezone)::date = ($3::timestamptz AT TIME ZONE c.timezone)::date) AS sent,
+                (SELECT count(*)::int FROM inbox_items i
+                  WHERE i.status = 'open' AND ${TEAM_SQL} AND i.escalated_at IS NOT NULL) AS waiting
+           FROM (SELECT coalesce((SELECT timezone FROM companies WHERE id = $1), 'UTC') AS timezone) c`,
+        [companyId, channel, now]);
+      if (!today!.sent) teamNotice = { id: team[0]!.id, count: today!.waiting };
+    }
+
     return rows.flatMap((row) => {
+      if (row.team) {
+        if (row.id !== teamNotice?.id) return [];
+        const said = say(row.language, 'Your team\'s work: {count} waiting', { count: String(teamNotice.count) });
+        return [{
+          id: row.id, companyId, kind: row.kind, tier: row.tier, title: said, actionSummary: said,
+          consequenceIfDenied: null, delivery: 'link_only' as const, url: null, language: row.language ?? 'en',
+          question: null, asker: null, options: null, expiresAt: null,
+        }];
+      }
       const delivery = channelDelivery(row);
       // `none` is not a failure and not a deferral: F10.9 says this kind is
       // not something a channel carries, so there is nothing to send and
@@ -950,6 +982,8 @@ export async function retractClosed(
           AND n.retracted_at IS NULL
           AND n.retract_attempts < $3
           AND i.status <> 'open'
+          -- A team's notice spoke for a day's cards, not the one that carried it (F19.9).
+          AND NOT (${TEAM_SQL} AND n.delivery = 'link_only')
           AND (n.retract_attempts = 0
                OR n.last_attempt_at
                   <= $4::timestamptz - make_interval(secs => $5 * power(2, n.retract_attempts - 1)))

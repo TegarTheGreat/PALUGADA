@@ -55,7 +55,7 @@ import { missedGoalIssue, ownerReadingWithin, roleCalledWithin } from '../owner/
 import { buildQuarterFacts, type QuarterFacts } from '../reporting/quarter.ts';
 import { withdrawOffPaceWithin } from './outcomes.ts';
 import { createRootTaskWithin } from './tasks.ts';
-import { fileIssue } from './tickets.ts';
+import { fileIssue, staffOfTickets } from './tickets.ts';
 
 /** The most goals one tick grades. */
 const GRADES_PER_TICK = 20;
@@ -277,6 +277,8 @@ export async function ensureQuarterlyPlanning(companyId: string, now = new Date(
       const facts = await buildQuarterFacts(tx, companyId, { now, day: due.day, quarter: due.quarter });
       const language = languageName((await languagesFor(tx, companyId)).talk);
       const outside = facts.longTermIssues.items.filter((one) => one.outside).map((one) => one.ticket);
+      // And the issues staff work filed, whose words the facts carry too (F19.9).
+      const staff = await staffOfTickets(tx, companyId, facts.longTermIssues.items.map((one) => one.ticket));
       const task = await createRootTaskWithin(tx, {
         companyId, projectId: project[0].id, divisionId: seat[0].division_id, roleId: ceo.id, goalId: mission[0].id,
         createdBy: 'event', idempotencyKey: due.key,
@@ -292,6 +294,7 @@ export async function ensureQuarterlyPlanning(companyId: string, now = new Date(
         // What outside work wrote is in the facts, as data; the planning
         // carries that, as work that read it itself would (F8.9).
         ...(outside.length > 0 ? { carriesOutside: { capability: 'the quarter facts it was handed', tickets: outside, tasks: [] } } : {}),
+        carriesStaff: staff.length > 0 ? { from: 'quarter', staff } : undefined,
       });
       return task.id;
     });

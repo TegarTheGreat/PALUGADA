@@ -46,8 +46,8 @@ import { isSpendPaused } from '../governance/spend-guard.ts';
 import { wallClockAt } from '../scheduler/windows.ts';
 import { notDoneTwiceIssue, offTrackIssue, ownerReadingWithin, roleCalledWithin } from '../owner/platform-cards.ts';
 import { buildMeetingFacts, type MeetingFacts } from '../reporting/meeting.ts';
-import { createRootTaskWithin } from './tasks.ts';
-import { fileIssue } from './tickets.ts';
+import { createRootTaskWithin, staffWordsIn, type StaffWord } from './tasks.ts';
+import { fileIssue, staffOfTickets } from './tickets.ts';
 
 /** The prefix of every meeting's key: closing a goal cancels a meeting not yet started under it (goals.ts). */
 const MEETING_KEY = 'meeting:';
@@ -261,6 +261,7 @@ export async function ensureWeeklyMeeting(companyId: string, now = new Date()): 
       });
       const language = languageName((await languagesFor(tx, companyId)).talk);
       const outside = outsideIn(facts);
+      const staff = await staffIn(tx, companyId, facts);
       const task = await createRootTaskWithin(tx, {
         companyId, projectId: project[0].id, divisionId: seat[0].division_id, roleId: ceo.id, goalId: mission[0].id,
         createdBy: 'event', idempotencyKey: due.key,
@@ -270,6 +271,8 @@ export async function ensureWeeklyMeeting(companyId: string, now = new Date()): 
         ...(outside.tickets.length + outside.tasks.length > 0
           ? { carriesOutside: { capability: 'the meeting facts it was handed', ...outside } }
           : {}),
+        // And whose staff words the facts' tickets and reviews carry (F19.9).
+        carriesStaff: staff.length > 0 ? { from: 'meeting', staff } : undefined,
       });
       return task.id;
     });
@@ -279,6 +282,22 @@ export async function ensureWeeklyMeeting(companyId: string, now = new Date()): 
     if (isPalugadaError(error)) return null;
     throw error;
   }
+}
+
+/**
+ * The members of staff whose words are in what the facts carry (F19.9): the
+ * issues and to-dos staff work filed, and the reviews staff words were in.
+ * Read for every one the facts name, not only those from outside: a seat's
+ * words are in a ticket a clean run filed after the seat steered it.
+ */
+async function staffIn(tx: TenantClient, companyId: string, facts: MeetingFacts): Promise<StaffWord[]> {
+  const staff = await staffOfTickets(tx, companyId, [
+    ...facts.issues.items.map((one) => one.ticket), ...facts.todos.items.map((one) => one.ticket),
+  ]);
+  for (const review of [facts.businessReview, facts.monthlyReview]) {
+    if (review) staff.push(...await staffWordsIn(tx, review.task));
+  }
+  return staff;
 }
 
 /** The tickets and tasks whose words, written by work that had read outside content, the facts carry. */

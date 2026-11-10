@@ -20,7 +20,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { TERMINAL_STATUSES, isTerminal, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { DEFAULT_TASK_RESERVE_TOKENS, assertStaffWorkHeld, getTask, outsideContentIn } from './tasks.ts';
+import { DEFAULT_TASK_RESERVE_TOKENS, assertStaffWorkHeld, getTask, outsideContentIn, staffWordsIn } from './tasks.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
@@ -77,18 +77,64 @@ export function recordedAs(by: Author): { actor: 'owner' | 'staff'; payload: Rec
   return { actor: 'owner', payload: by.composedBy ? { composedBy: by.composedBy } : {} };
 }
 
+/** Both records of an instruction: the owner's, and a seat's own (F19.9). Every reader reads both. */
+const INSTRUCTION_TYPES: readonly string[] = ['owner.instructed', 'staff.instructed'];
+
 /**
- * The record an instruction to a task makes, by who gave it. A seat's is
- * written as an instruction with the actor `staff` and the seat named in it,
- * the form every reader of instructions already takes as the seat's (an
- * answer from a seat has been written so since 0110), so nothing a seat
- * says is lost to a reader that knows only that form.
+ * The record an instruction to a task makes, by who gave it: the owner's is
+ * `owner.instructed`, and a seat's is its own `staff.instructed`, actor
+ * `staff`, with the seat named in it (F19.9). Before it (STATUS 2.202) a seat's was
+ * written as `owner.instructed` with the actor `staff`; every reader takes both records
+ * and reads that one as the seat's too, so no instruction given before is
+ * lost or read as the owner's.
  */
 export function instructionRecord(by: Author, payload: Record<string, unknown>): {
-  type: 'owner.instructed'; actor: 'owner' | 'staff'; payload: Record<string, unknown>;
+  type: 'owner.instructed' | 'staff.instructed'; actor: 'owner' | 'staff'; payload: Record<string, unknown>;
 } {
   const as = recordedAs(by);
-  return { type: 'owner.instructed', actor: as.actor, payload: { ...payload, ...as.payload } };
+  return { type: by.kind === 'seat' ? 'staff.instructed' : 'owner.instructed', actor: as.actor, payload: { ...payload, ...as.payload } };
+}
+
+/** How a member of staff's words entered a task, as `content.staff_said` records it. */
+export type StaffSaidHow = 'began' | 'instructed' | 'answered' | 'quoted' | 'meeting';
+
+/**
+ * The mark that a member of staff's words are in a task (F19.9), written in
+ * the transaction that records the words themselves: what `staffWordsIn`
+ * reads, and what derived work carries on. The words are not in it, only
+ * who said them and how, so every reader of the task's events may read it.
+ */
+export async function recordStaffSaid(
+  tx: TenantClient,
+  at: { companyId: string; projectId?: string | undefined; taskId: string },
+  by: { seatId: string; name: string },
+  how: StaffSaidHow,
+): Promise<void> {
+  await appendEvent(tx, {
+    companyId: at.companyId,
+    ...(at.projectId ? { projectId: at.projectId } : {}),
+    taskId: at.taskId,
+    type: 'content.staff_said',
+    actor: 'staff',
+    payload: { seatId: by.seatId, name: by.name, how },
+  });
+}
+
+/**
+ * Who told a task something, as `instructionsFor` reads its record: the
+ * owner (as the CEO or the assistant composed it, when one did), or a seat.
+ */
+function authorFrom(row: { type: string; actor: string; payload: Record<string, unknown> }): Author {
+  const staff = row.payload.staff as { seatId?: unknown; name?: unknown } | undefined;
+  if (row.type === 'staff.instructed' || row.actor === 'staff') {
+    return {
+      kind: 'seat',
+      seatId: typeof staff?.seatId === 'string' ? staff.seatId : '',
+      name: typeof staff?.name === 'string' && staff.name.trim() ? staff.name : 'a member of staff',
+    };
+  }
+  const composedBy = row.payload.composedBy;
+  return composedBy === 'ceo' || composedBy === 'assistant' ? { kind: 'owner', composedBy } : { kind: 'owner' };
 }
 
 /**
@@ -259,7 +305,12 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
   // event, a brief written after reading an email -- so what the first one
   // carried, it carries: pressing "do it again" on a send the owner refused
   // must not send it unasked.
-  const carried = await withTenant(companyId, (tx) => outsideContentIn(tx, taskId));
+  const { carried, staff } = await withTenant(companyId, async (tx) => ({
+    carried: await outsideContentIn(tx, taskId),
+    // F19.9: the same for a member of staff's words. Running staff work again
+    // is the owner's press, but the work is still the seat's request.
+    staff: await staffWordsIn(tx, taskId),
+  }));
   const carries = carried === null ? undefined
     : { capability: 'the task it reruns', from: carried, rerunOf: taskId };
   const already = await withTenant(companyId, (tx) =>
@@ -283,6 +334,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     createdBy: 'owner',
     idempotencyKey: key,
     carriesOutside: carries,
+    carriesStaff: staff.length > 0 ? { from: 'rerun', staff } : undefined,
     priority: previous.priority,
     detail: `the owner asked for task ${taskId} again`,
   });
@@ -837,8 +889,23 @@ export async function continueAllHalted(companyId: string, accountId: string): P
  * decides: the grants, the tier and the budget are what they were. Work that
  * has ended is done again with a note instead.
  */
-export async function instructTask(companyId: string, taskId: string, instruction: string, by: Author): Promise<void> {
-  await withTenant(companyId, (tx) => instructTaskWithin(tx, companyId, taskId, instruction, by));
+export async function instructTask(
+  companyId: string, taskId: string, instruction: string, by: Author, where?: InstructedWhere,
+): Promise<void> {
+  await withTenant(companyId, (tx) => instructTaskWithin(tx, companyId, taskId, instruction, by, where));
+}
+
+/**
+ * Where a member of staff's instruction was given, as `staff.instructed`
+ * records it: a room's "Tell the work", an answer in the inbox, a meeting.
+ * A room is named by its id only when everyone may see it; a private or
+ * direct one is `room: 'private'`, since every seat reads a task's events.
+ */
+export interface InstructedWhere {
+  via: 'room' | 'inbox' | 'meeting';
+  roomId?: string;
+  messageId?: string;
+  room?: 'private';
 }
 
 /**
@@ -854,6 +921,7 @@ export async function instructTaskWithin(
   taskId: string,
   instruction: string,
   by: Author,
+  where?: InstructedWhere,
 ): Promise<void> {
   const author = authorOf(by);
   const text = String(instruction ?? '').trim();
@@ -876,8 +944,8 @@ export async function instructTaskWithin(
     );
   }
   const { rows } = await tx.query<{ n: number }>(
-    "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'owner.instructed'",
-    [taskId],
+    'SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = ANY($2::text[])',
+    [taskId, INSTRUCTION_TYPES],
   );
   if ((rows[0]?.n ?? 0) >= INSTRUCTIONS_PER_TASK) {
     throw new PalugadaError(
@@ -886,29 +954,52 @@ export async function instructTaskWithin(
       { taskId },
     );
   }
+  const place = author.kind === 'seat' && where ? {
+    via: where.via,
+    ...(where.room === 'private' ? { room: 'private' } : {
+      ...(where.roomId ? { roomId: where.roomId } : {}),
+      ...(where.messageId ? { messageId: where.messageId } : {}),
+    }),
+  } : {};
   await appendEvent(tx, {
     companyId,
     projectId: task.projectId,
     taskId,
-    ...instructionRecord(author, { text }),
+    ...instructionRecord(author, { text, ...place }),
   });
+  if (author.kind === 'seat') {
+    await recordStaffSaid(tx, { companyId, projectId: task.projectId, taskId }, author, 'instructed');
+  }
 }
 
-/** What the owner has told a task, oldest first, for the run that reads it. */
-export async function instructionsFor(
-  tx: TenantClient,
-  taskId: string,
-): Promise<Array<{ text: string; rerunOf: string | null; previous: { status: TaskStatus; haltReason: string | null } | null }>> {
-  const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
-    `SELECT payload FROM events WHERE task_id = $1 AND type = 'owner.instructed'
+/** One thing a task was told, as the run reads it. */
+export interface Instruction {
+  text: string;
+  at: Date;
+  /** Whose words: the owner's (through the CEO or the assistant, when one composed them), or a seat's. */
+  by: Author;
+  rerunOf: string | null;
+  previous: { status: TaskStatus; haltReason: string | null } | null;
+}
+
+/**
+ * What a task was told, oldest first, for the run that reads it: both records
+ * of an instruction, each by its author (F19.9). An instruction written before
+ * `staff.instructed` existed with the actor `staff` is the seat's.
+ */
+export async function instructionsFor(tx: TenantClient, taskId: string): Promise<Instruction[]> {
+  const { rows } = await tx.query<{ type: string; actor: string; occurred_at: Date; payload: Record<string, unknown> }>(
+    `SELECT type, actor, occurred_at, payload FROM events WHERE task_id = $1 AND type = ANY($2::text[])
       ORDER BY occurred_at, id`,
-    [taskId],
+    [taskId, INSTRUCTION_TYPES],
   );
-  return rows.map(({ payload }) => ({
-    text: typeof payload.text === 'string' ? payload.text : '',
-    rerunOf: typeof payload.rerunOf === 'string' ? payload.rerunOf : null,
-    previous: payload.previous && typeof payload.previous === 'object'
-      ? payload.previous as { status: TaskStatus; haltReason: string | null }
+  return rows.map((row) => ({
+    text: typeof row.payload.text === 'string' ? row.payload.text : '',
+    at: row.occurred_at,
+    by: authorFrom(row),
+    rerunOf: typeof row.payload.rerunOf === 'string' ? row.payload.rerunOf : null,
+    previous: row.payload.previous && typeof row.payload.previous === 'object'
+      ? row.payload.previous as { status: TaskStatus; haltReason: string | null }
       : null,
   }));
 }
@@ -928,9 +1019,9 @@ export async function earlierAttempts(tx: TenantClient, taskId: string): Promise
   while (chain.length < LINEAGE_MAX) {
     const { rows } = await tx.query<{ rerun_of: string | null }>(
       `SELECT payload->>'rerunOf' AS rerun_of FROM events
-        WHERE task_id = $1 AND type = 'owner.instructed' AND payload ? 'rerunOf'
+        WHERE task_id = $1 AND type = ANY($2::text[]) AND payload ? 'rerunOf'
         ORDER BY occurred_at, id LIMIT 1`,
-      [current],
+      [current, INSTRUCTION_TYPES],
     );
     const previous = rows[0]?.rerun_of;
     if (!previous || previous === taskId || chain.includes(previous)) break;

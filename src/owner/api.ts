@@ -94,7 +94,7 @@ import { searchEverywhere } from './search.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { TICKET_STATUSES, assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
+import { TICKET_STATUSES, assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, setTicketStatus, staffOfTickets, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
@@ -248,6 +248,7 @@ import {
 import {
   accountsOf,
   activityOf,
+  hideOthersQuestions,
   devicesOf,
   isMemoryKind,
   isWorkGroup,
@@ -476,6 +477,12 @@ export class OwnerApi {
    * places that were each written without a session in hand.
    */
   readonly #acting = new AsyncLocalStorage<OwnerSession | null>();
+  /**
+   * Who composed what the assistant's dispatch sends: the CEO, in a company's
+   * conversation, or PALUGADA's own assistant. The owner's words still, said
+   * to a task as reaching it through them (F19.9).
+   */
+  readonly #composedBy = new AsyncLocalStorage<'ceo' | 'assistant'>();
   readonly #claims: OwnerClaims;
   readonly #staff: StaffSeats;
   readonly #routes: Route[];
@@ -950,13 +957,18 @@ export class OwnerApi {
         // `?snoozed=1` lists the items the owner put off instead (0060).
         // A seat is not shown a question put to someone else; `?mine=1`
         // narrows it to the questions put to the seat itself.
-        handle: async ({ params, query, staff }) => ({
-          items: await inbox.listOpen(params.companyId!, {
-            snoozed: query.get('snoozed') === '1',
-            seat: staff ? { id: staff.seat.id } : null,
-            mine: query.get('mine') === '1',
-          }),
-        }),
+        // The owner's queue folds the team's cards from staff work into one
+        // entry a day (`team`, F19.9); a seat's lists them one by one.
+        handle: async ({ params, query, staff }) => (staff
+          ? {
+            items: await inbox.listOpen(params.companyId!, {
+              snoozed: query.get('snoozed') === '1',
+              seat: { id: staff.seat.id },
+              mine: query.get('mine') === '1',
+            }),
+            team: [],
+          }
+          : await inbox.ownerInbox(params.companyId!, { snoozed: query.get('snoozed') === '1' })),
       },
 
       {
@@ -994,7 +1006,7 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/companies/:companyId/work',
-        handle: async ({ params, query }) => {
+        handle: async ({ params, query, staff }) => {
           const group = query.get('group');
           if (group !== null && group !== '' && !isWorkGroup(group)) {
             throw new PalugadaError(
@@ -1017,6 +1029,8 @@ export class OwnerApi {
             ...id('project'), ...id('role'), ...id('goal'),
             // The `next` of the page before: read, not trusted (inbox.ts readCursor).
             ...(query.get('before') ? { before: query.get('before')! } : {}),
+            // What a task produced from another seat's words is not this seat's, here as on the task (F19.9).
+            seat: staff ? { id: staff.seat.id } : null,
           });
         },
       },
@@ -1120,21 +1134,24 @@ export class OwnerApi {
         // deliverables, across every task.
         method: 'GET',
         pattern: '/api/companies/:companyId/gallery',
-        handle: async ({ params, query }) => galleryOf(params.companyId!, {
+        handle: async ({ params, query, staff }) => galleryOf(params.companyId!, {
           ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
           // The `next` of the page before: read, not trusted (views.ts galleryCursor).
           ...(query.get('before') ? { before: query.get('before')! } : {}),
+          // A draft is what a task produced, kept from a seat as the task's output is (F19.9).
+          seat: staff ? { id: staff.seat.id } : null,
         }),
       },
 
       {
         method: 'GET',
         pattern: '/api/companies/:companyId/activity',
-        handle: async ({ params, query }) => ({
+        handle: async ({ params, query, staff }) => ({
           items: await activityOf(
             params.companyId!,
             query.get('limit') === null ? 30 : wholeNumber(query.get('limit'), 'limit'),
-            { routine: query.get('routine') === 'include' },
+            // A seat reads no question put to another seat, nor its answer (F19.9).
+            { routine: query.get('routine') === 'include', seat: staff ? { id: staff.seat.id } : null },
           ),
         }),
       },
@@ -1336,6 +1353,8 @@ export class OwnerApi {
               // 0083: `decide` checks it, and asks for the factor it needs.
               ...(body.allowForHours === undefined || body.allowForHours === null
                 ? {} : { allowForHours: Number(body.allowForHours) }),
+              // F19.9: that yes covers work members of staff asked for too, with a code given now.
+              ...(body.coversStaff === true ? { coversStaff: true } : {}),
               // 0116: every time the card's schedule does exactly this.
               ...(body.forSchedule === true ? { forSchedule: true } : {}),
               // F18.7: the lines of a plan of new goals a yes approves;
@@ -1418,7 +1437,8 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox/:itemId/trace',
         handle: async ({ params, query, staff }) => {
-          if (staff) await inbox.assertSeatMayRead(params.companyId!, params.itemId!, { id: staff.seat.id });
+          // The trace is the task's: a card is no way round its refusal (F19.9).
+          if (staff) await inbox.assertSeatMayReadItemTrace(params.companyId!, params.itemId!, { id: staff.seat.id });
           const trace = await traceFromInboxItem(params.companyId!, params.itemId!, {
             includePrompts: query.get('prompts') === '1',
           });
@@ -1435,7 +1455,9 @@ export class OwnerApi {
         // from outside came in. Redacted like the task itself.
         method: 'GET',
         pattern: '/api/companies/:companyId/tasks/:taskId/trace',
-        handle: async ({ params, query }) => {
+        handle: async ({ params, query, staff }) => {
+          // A run's record carries what it was told: another seat's question or words are not this seat's to read (F19.9).
+          if (staff) await inbox.assertSeatMayReadTask(params.companyId!, params.taskId!, { id: staff.seat.id });
           const trace = await traceOfTask(params.companyId!, params.taskId!, {
             includePrompts: query.get('prompts') === '1',
           });
@@ -1450,7 +1472,9 @@ export class OwnerApi {
         // for a secret registered since.
         method: 'GET',
         pattern: '/api/companies/:companyId/tasks/:taskId/runs/:runId/briefing',
-        handle: async ({ params }) => {
+        handle: async ({ params, staff }) => {
+          // A briefing says "the owner answered your question" and every colleague's words (F19.9).
+          if (staff) await inbox.assertSeatMayReadTask(params.companyId!, params.taskId!, { id: staff.seat.id });
           const found = await briefingOf(params.companyId!, params.taskId!, params.runId!);
           if (!found) throw new PalugadaError('contract.violation', 'no such run of this task', {});
           return redactor.redactDeep(found);
@@ -2845,7 +2869,7 @@ export class OwnerApi {
         handle: async ({ request, session, body }) => ({
           messages: await converse({
             llm: this.#options.assistant?.llm ?? null,
-            reach: this.#reach(request, session),
+            reach: this.#reach(request, session, 'assistant'),
             language: async () => (await deploymentLanguages()).console ?? 'en',
           }, requireText(body.text, 'text'), 'console'),
         }),
@@ -2963,7 +2987,7 @@ export class OwnerApi {
         handle: async ({ request, session, params, body }) => ({
           messages: await converse({
             llm: this.#options.assistant?.llm ?? null,
-            reach: this.#reach(request, session),
+            reach: this.#reach(request, session, 'ceo'),
             language: async () => (await deploymentLanguages()).console ?? 'en',
             companyId: params.companyId!,
           }, requireText(body.text, 'text'), 'console'),
@@ -3438,11 +3462,12 @@ export class OwnerApi {
         // question an owner asks about work that already finished.
         method: 'GET',
         pattern: '/api/companies/:companyId/tasks/:taskId/events',
-        handle: async ({ params }) => ({
-          events: await withTenant(
-            params.companyId!,
-            (tx) => readTaskEvents(tx, params.taskId!),
-          ),
+        handle: async ({ params, staff }) => ({
+          events: await withTenant(params.companyId!, async (tx) => {
+            const events = await readTaskEvents(tx, params.taskId!);
+            // A question put to another seat, and its answer, are theirs and the owner's (F19.9).
+            return staff ? hideOthersQuestions(tx, events, { id: staff.seat.id }) : events;
+          }),
         }),
       },
 
@@ -3457,12 +3482,19 @@ export class OwnerApi {
         // task, a search result (0074).
         method: 'GET',
         pattern: '/api/companies/:companyId/tasks/:taskId',
-        handle: async ({ params }) => {
+        handle: async ({ params, staff }) => {
           const task = await taskDetailOf(params.companyId!, params.taskId!);
           if (!task) {
             throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
           }
-          const item = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1 })).items[0] ?? null;
+          const seat = staff ? { id: staff.seat.id } : null;
+          const item = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1, seat })).items[0] ?? null;
+          // What the work produced from another seat's question or words is
+          // theirs and the owner's, as its briefing is (F19.9): a seat sees
+          // the task, not its output.
+          if (seat && !await inbox.seatMayReadTask(params.companyId!, params.taskId!, seat)) {
+            Object.assign(task, { output: null, done: null, deliverables: [] });
+          }
           // Whether a replay can run here: only for a role this deployment
           // runs as an in-process handler. The console offered it on every
           // task, and on a deployment started by `npm start` -- which runs
@@ -3478,9 +3510,11 @@ export class OwnerApi {
         // watching an agent think as the owner needs to get.
         method: 'GET',
         pattern: '/api/companies/:companyId/tasks/:taskId/transcript',
-        handle: async ({ params, query }) => ({
-          notes: await transcriptOf(params.companyId!, params.taskId!, Number(query.get('limit') ?? 200) || 200),
-        }),
+        handle: async ({ params, query, staff }) => {
+          // What the runs said answers what they were told (F19.9).
+          if (staff) await inbox.assertSeatMayReadTask(params.companyId!, params.taskId!, { id: staff.seat.id });
+          return { notes: await transcriptOf(params.companyId!, params.taskId!, Number(query.get('limit') ?? 200) || 200) };
+        },
       },
 
       {
@@ -3539,7 +3573,11 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/tasks/:taskId/instruct',
         handle: async ({ params, body }) => {
           // The owner's own words: no seat reaches this route (staff-policy.ts).
-          await instructTask(params.companyId!, params.taskId!, requireText(body.text, 'text'), { kind: 'owner' });
+          // Composed by the CEO or the assistant in the owner's conversation,
+          // they are the owner's still, and the run is told through whom (F19.9).
+          const composedBy = this.#composedBy.getStore();
+          await instructTask(params.companyId!, params.taskId!, requireText(body.text, 'text'),
+            composedBy ? { kind: 'owner', composedBy } : { kind: 'owner' });
           return { ok: true };
         },
       },
@@ -4348,6 +4386,9 @@ export class OwnerApi {
           const role = await withTenant(companyId, (tx) =>
             tx.query<{ division_id: string }>('SELECT division_id FROM roles WHERE id = $1', [roleId]));
           if (!role.rows[0]) throw new PalugadaError('contract.violation', 'no such role in this company', { field: 'roleId' });
+          // F19.9: a ticket filed by work a member of staff's words were in is
+          // still their request when the owner hands it on, as it is in triage.
+          const staff = await withTenant(companyId, (tx) => staffOfTickets(tx, companyId, [ticket.id]));
           const assigned = await assignTask({
             companyId,
             projectId: ticket.projectId,
@@ -4367,6 +4408,7 @@ export class OwnerApi {
             ...(ticket.outside
               ? { carriesOutside: { capability: 'the ticket it was given', ticketId: ticket.id } }
               : {}),
+            carriesStaff: staff.length > 0 ? { from: 'ticket', staff } : undefined,
             detail: `the owner gave it ticket ${ticket.id}`,
           });
           await withTenant(companyId, (tx) => startTicket(tx, companyId, ticket.id, assigned.task.id));
@@ -6492,11 +6534,11 @@ export class OwnerApi {
    * process with the owner's own session, so it can do nothing the page could
    * not and every rule a route keeps holds for it too.
    */
-  #reach(request: IncomingMessage, session: OwnerSession | null): AssistantReach {
+  #reach(request: IncomingMessage, session: OwnerSession | null, composer: 'ceo' | 'assistant'): AssistantReach {
     return {
       routeOf: (method, path) => this.#match(method, new URL(path, 'http://localhost').pathname)?.route.pattern ?? null,
-      get: (path) => this.#dispatch('GET', path, {}, request, session),
-      post: (path, body) => this.#dispatch('POST', path, body, request, session),
+      get: (path) => this.#composedBy.run(composer, () => this.#dispatch('GET', path, {}, request, session)),
+      post: (path, body) => this.#composedBy.run(composer, () => this.#dispatch('POST', path, body, request, session)),
       readable: () => this.#routes.filter((route) => route.method === 'GET' && !route.open).map((route) => route.pattern),
     };
   }
@@ -6511,7 +6553,12 @@ export class OwnerApi {
     proposal: AssistantProposal, added: Record<string, unknown>, request: IncomingMessage, session: OwnerSession | null, channel: AssistantChannel,
   ): Promise<unknown> {
     try {
-      const result = await this.#dispatch('POST', proposal.path, { ...proposal.body, ...added }, request, session);
+      // A card the CEO proposed is the CEO's composing; one PALUGADA's assistant proposed, the assistant's.
+      const scope = await withControlPlane((tx) => tx.query<{ company_id: string | null }>(
+        'SELECT m.company_id FROM assistant_proposals p JOIN assistant_messages m ON m.id = p.message_id WHERE p.id = $1', [proposal.id]));
+      const composer = scope.rows[0]?.company_id ? 'ceo' : 'assistant';
+      const result = await this.#composedBy.run(composer, () =>
+        this.#dispatch('POST', proposal.path, { ...proposal.body, ...added }, request, session));
       await closeProposal(proposal.id, 'applied', outcomeOf(result), channel);
       return result;
     } catch (failure) {
@@ -6541,7 +6588,7 @@ export class OwnerApi {
       talk: async (companyId, text, signal) => {
         const said = (await converse({
           llm: this.#options.assistant?.llm ?? null,
-          reach: this.#reach(request, null),
+          reach: this.#reach(request, null, companyId ? 'ceo' : 'assistant'),
           language,
           ...(companyId ? { companyId } : {}),
           ...(signal ? { signal } : {}),

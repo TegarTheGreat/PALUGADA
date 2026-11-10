@@ -25,7 +25,8 @@ import { prioritiesOnPace, type PacedPriority } from '../reporting/meeting.ts';
 import { visionSectionsOf, type VisionSection } from './vision.ts';
 import { seatChecksOf, type SeatChecks } from '../domain/seats.ts';
 import { coreProcessesOf, type CoreProcess, type CoreProcessesReport } from '../skills/core.ts';
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { say } from './say.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
@@ -34,7 +35,7 @@ import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { escalationPolicyFor, type EscalationPolicy } from '../governance/structure.ts';
-import { readCursor, writeCursor } from '../inbox/inbox.ts';
+import { readCursor, tasksKeptFromSeat, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
 import { journalOf, NOT_A_READ, madeFiles } from '../engine/journal.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
@@ -760,6 +761,8 @@ export async function workOf(
   options: {
     group?: WorkGroup; limit?: number; projectId?: string; roleId?: string; goalId?: string; before?: string;
     taskId?: string;
+    /** A staff seat reading: a task's result is left out where its output is the seat's to not read (F19.9). */
+    seat?: { id: string } | null;
   } = {},
 ): Promise<WorkView> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
@@ -856,6 +859,7 @@ export async function workOf(
     );
     const rows = fetched.slice(0, limit);
     const last = rows[rows.length - 1];
+    const kept = options.seat ? await tasksKeptFromSeat(tx, rows.map((row) => row.id), options.seat) : new Set<string>();
     const { rows: grouped } = await tx.query<{ status: TaskStatus; n: number }>(
       'SELECT status, count(*)::int AS n FROM tasks GROUP BY status',
     );
@@ -888,7 +892,7 @@ export async function workOf(
         haltReason: row.halt_reason,
         ...(tight.has(row.id) ? { budgetStop: tight.get(row.id)! } : {}),
         summary: summarise(row.input),
-        result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
+        result: row.output === null || row.output === undefined || kept.has(row.id) ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
         roleName: row.role_name,
         divisionName: row.division_name,
@@ -1193,7 +1197,7 @@ function excerptOf(text: string): string {
  */
 export async function galleryOf(
   companyId: string,
-  options: { limit?: number; before?: string } = {},
+  options: { limit?: number; before?: string; seat?: { id: string } | null } = {},
 ): Promise<{ items: GalleryItem[]; next: string | null }> {
   const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
   const cursor = options.before ? galleryCursor(options.before) : null;
@@ -1227,11 +1231,15 @@ export async function galleryOf(
     const rows = fetched.slice(0, limit);
     const last = rows[rows.length - 1];
     const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    // A seat is not shown what a task produced from another seat's words
+    // (F19.9). The page marker is still the last row read, so a page with
+    // drafts left out is shorter and the next one starts where it should.
+    const kept = options.seat ? await tasksKeptFromSeat(tx, [...new Set(rows.map((row) => row.task_id))], options.seat) : new Set<string>();
     return {
       next: fetched.length > limit && last
         ? Buffer.from(`${last.micros}|${last.task_id}|${last.step_index}`, 'utf8').toString('base64url')
         : null,
-      items: rows.map((row) => {
+      items: rows.filter((row) => !kept.has(row.task_id)).map((row) => {
         const body = text(row.output.text) ?? text(row.output.body) ?? '';
         const path = text(row.output.path)!;
         return {
@@ -1309,11 +1317,41 @@ export const ROUTINE_EVENTS = [
   'wake.idle', 'wake.coalesced', 'wake.queued', 'cost.estimated', 'tool.cost',
 ] as const;
 
+/**
+ * Events as a seat may read them (F19.9): a question a run put to another
+ * seat, and that seat's answer, are theirs and the owner's, so where an
+ * event names such an item its words are replaced by "A question for
+ * {name}". Every seat reads a task's events and the activity feed; the
+ * question and the answer are still in the inbox for those they are for.
+ */
+export async function hideOthersQuestions<T extends { type: string; payload: Record<string, unknown> }>(
+  tx: TenantClient, events: T[], seat: { id: string },
+): Promise<T[]> {
+  const items = [...new Set(events.map((event) => event.payload.inboxItemId).filter((id): id is string => typeof id === 'string'))];
+  if (items.length === 0) return events;
+  const { rows } = await tx.query<{ id: string; name: string | null; language: string | null }>(
+    `SELECT id::text, payload->'addressee'->>'name' AS name, (SELECT console_language FROM platform_control) AS language
+       FROM inbox_items
+      WHERE id::text = ANY($1::text[]) AND addressee_seat IS NOT NULL AND addressee_seat <> $2::uuid`,
+    [items, seat.id]);
+  if (rows.length === 0) return events;
+  const theirs = new Map(rows.map((row) => [row.id, say(row.language, 'A question for {name}', { name: row.name ?? '' })]));
+  return events.map((event) => {
+    const instead = typeof event.payload.inboxItemId === 'string' ? theirs.get(event.payload.inboxItemId) : undefined;
+    if (!instead) return event;
+    const payload = { ...event.payload };
+    for (const field of ['title', 'note', 'answer', 'text', 'question'] as const) {
+      if (typeof payload[field] === 'string') payload[field] = instead;
+    }
+    return { ...event, payload };
+  });
+}
+
 /** What happened lately, newest first: the company's event log, from the top. */
 export async function activityOf(
   companyId: string,
   limit = 30,
-  options: { routine?: boolean } = {},
+  options: { routine?: boolean; seat?: { id: string } | null } = {},
 ): Promise<ActivityItem[]> {
   const bounded = Math.min(Math.max(limit, 1), 100);
   const hidden = options.routine ? [] : [...ROUTINE_EVENTS];
@@ -1329,7 +1367,7 @@ export async function activityOf(
         LIMIT $1`,
       [bounded, hidden],
     );
-    return rows.map((row) => ({
+    const items = rows.map((row) => ({
       id: row.id,
       type: row.type,
       actor: row.actor,
@@ -1337,6 +1375,7 @@ export async function activityOf(
       taskId: row.task_id,
       payload: row.payload ?? {},
     }));
+    return options.seat ? hideOthersQuestions(tx, items, options.seat) : items;
   });
 }
 

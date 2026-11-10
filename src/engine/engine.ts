@@ -474,6 +474,13 @@ export class Engine {
           payload: { capability: 'the task that made it', from: 'follow_up', parentTaskId: context.carriesOutsideFrom },
         });
       }
+      // And a member of staff's words that work came to carry (F19.9).
+      for (const word of context.carriesStaffFrom?.staff ?? []) {
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
+          payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: 'follow_up' },
+        });
+      }
       const goalAncestry = await ancestryForTask(tx, task.id);
 
       const { rows: toolRows } = await tx.query<{

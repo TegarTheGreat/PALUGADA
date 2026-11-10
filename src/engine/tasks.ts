@@ -149,6 +149,143 @@ export async function outsideContentIn(tx: TenantClient, taskId: string): Promis
   return row?.begun ? 'begun' : row?.read ? 'read' : null;
 }
 
+/**
+ * A member of staff whose words are in a piece of work (F19.9): by the seat
+ * that said them and the name the owner gave it. `seatId` is null where no
+ * seat survives -- a restored company's staff work, whose seats were another
+ * deployment's -- and the name is then "a member of staff".
+ */
+export interface StaffWord {
+  seatId: string | null;
+  name: string;
+}
+
+/** Where derived work took a member of staff's words from (`content.staff_said`'s `from`). */
+export type StaffCarriedFrom = 'rerun' | 'follow_up' | 'ticket' | 'escalation' | 'meeting' | 'quarter' | 'week' | 'month';
+
+/** What a member of staff's words are called when none of their names is known. */
+export const UNNAMED_STAFF = 'a member of staff';
+
+/**
+ * The members of staff whose words are in a task's work (F19.9), first
+ * spoken first: what holds the work at tier 2 and above, names who asked on
+ * the card, and keeps each of them from deciding it.
+ *
+ * The same chain as `outsideContentIn`, for the same reasons: a sub-task is
+ * the work it is part of, and a parent hears back what its sub-tasks were
+ * told. An entry for
+ * - every task on the chain that a member of staff began (`created_by =
+ *   'staff'`), by the seat its own record names, or the seat that pressed,
+ *   or no seat at all, so a restored company's staff work is staff work;
+ * - every record on the chain or below of a seat's words: the mark
+ *   (`content.staff_said`), an instruction (`staff.instructed`), and the
+ *   instructions, answers and decisions in words that STATUS 2.202
+ *   recorded as a seat's before the mark existed;
+ * - every task on the chain made from a ticket (`input.ticketId`) whose
+ *   filing work carried staff words (`tickets.instigators`).
+ */
+export async function staffWordsIn(tx: TenantClient, taskId: string): Promise<StaffWord[]> {
+  const { rows } = await tx.query<{ seat_id: string | null; name: string | null }>(
+    `WITH RECURSIVE chain AS (
+       SELECT id, parent_task_id, created_by, requested_by_seat, input, created_at, 0 AS depth FROM tasks WHERE id = $1
+       UNION ALL
+       SELECT t.id, t.parent_task_id, t.created_by, t.requested_by_seat, t.input, t.created_at, chain.depth + 1
+         FROM tasks t JOIN chain ON t.id = chain.parent_task_id
+        WHERE chain.depth < 64
+     ), below AS (
+       SELECT id, 0 AS depth FROM tasks WHERE parent_task_id = $1
+       UNION ALL
+       SELECT t.id, below.depth + 1
+         FROM tasks t JOIN below ON t.parent_task_id = below.id
+        WHERE below.depth < 64
+     ), said AS (
+       SELECT e.task_id, e.occurred_at, e.id,
+              CASE WHEN e.type = 'content.staff_said' THEN e.payload->>'seatId' ELSE e.payload->'staff'->>'seatId' END AS seat_id,
+              CASE WHEN e.type = 'content.staff_said' THEN e.payload->>'name' ELSE e.payload->'staff'->>'name' END AS name,
+              CASE WHEN e.type = 'content.staff_said' THEN coalesce(e.payload->>'how', '') ELSE '' END AS how
+         FROM events e
+        WHERE e.task_id IN (SELECT id FROM chain UNION SELECT id FROM below)
+          AND (e.type IN ('content.staff_said', 'staff.instructed')
+               OR (e.actor = 'staff' AND e.type IN ('owner.instructed', 'owner.answered'))
+               -- A seat's decision in words: its question back to a run, or its answer to an escalation.
+               OR (e.actor = 'staff' AND e.type = 'owner.decided'
+                   AND (e.payload->>'decision' = 'ask'
+                        OR (e.payload->>'kind' = 'escalation' AND coalesce(e.payload->>'note', '') <> ''))))
+     )
+     SELECT seat_id, name FROM (
+       SELECT seat_id, name, occurred_at AS at, id::text AS tie FROM said
+       UNION ALL
+       SELECT c.requested_by_seat::text, NULL, c.created_at, c.id::text FROM chain c
+        WHERE c.created_by = 'staff'
+          AND NOT EXISTS (SELECT 1 FROM said s WHERE s.task_id = c.id AND s.how = 'began')
+       UNION ALL
+       SELECT unnest(k.instigators)::text, NULL, c.created_at, c.id::text FROM chain c
+         JOIN tickets k ON k.id::text = c.input->>'ticketId'
+        WHERE c.input->>'ticketId' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     ) words
+     ORDER BY at, tie`,
+    [taskId],
+  );
+  const words: StaffWord[] = [];
+  const named = new Map<string, string>();
+  for (const row of rows) {
+    if (row.seat_id && row.name && !named.has(row.seat_id)) named.set(row.seat_id, row.name);
+  }
+  // A seat named nowhere on the chain -- the seat that pressed, a ticket's
+  // instigator -- is called what its own words elsewhere in the company called
+  // it, which is the name the owner gave it when it spoke.
+  const unnamed = [...new Set(rows.map((row) => row.seat_id).filter((id): id is string => !!id && SEAT_ID.test(id) && !named.has(id)))];
+  if (unnamed.length > 0) {
+    const { rows: company } = await tx.query<{ company_id: string }>('SELECT company_id FROM tasks WHERE id = $1', [taskId]);
+    for (const word of await staffOfSeats(tx, company[0]!.company_id, unnamed)) named.set(word.seatId!, word.name);
+  }
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const seatId = row.seat_id && SEAT_ID.test(row.seat_id) ? row.seat_id : null;
+    const name = (seatId ? named.get(seatId) : row.name) ?? row.name ?? UNNAMED_STAFF;
+    const key = seatId ?? `name:${name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    words.push({ seatId, name });
+  }
+  // Nobody unnamed is listed beside a named seat for the same record: an
+  // entry with no seat is kept only where it is all that is known.
+  return words.some((word) => word.seatId !== null)
+    ? words.filter((word) => word.seatId !== null || word.name !== UNNAMED_STAFF)
+    : words;
+}
+
+/**
+ * Seats by id, as members of staff whose words are in some work (F19.9):
+ * each called what its own words in the company were last recorded under,
+ * the name the owner gave it, or "a member of staff" where none was. A
+ * ticket names its instigators by id alone, and a seat's row is the control
+ * plane's (0110), so this is how work made from a ticket names who asked.
+ */
+export async function staffOfSeats(tx: TenantClient, companyId: string, seatIds: readonly string[]): Promise<StaffWord[]> {
+  const ids = [...new Set(seatIds.filter((id) => SEAT_ID.test(id)))];
+  if (ids.length === 0) return [];
+  const { rows } = await tx.query<{ seat_id: string; name: string }>(
+    `SELECT DISTINCT ON (seat_id) seat_id, name FROM (
+       SELECT e.payload->>'seatId' AS seat_id, e.payload->>'name' AS name, e.occurred_at FROM events e
+        WHERE e.company_id = $1 AND e.type = 'content.staff_said' AND e.payload->>'seatId' = ANY($2::text[])
+       UNION ALL
+       SELECT e.payload->'staff'->>'seatId', e.payload->'staff'->>'name', e.occurred_at FROM events e
+        WHERE e.company_id = $1 AND e.type IN ('staff.instructed', 'owner.instructed', 'owner.answered', 'owner.decided')
+          AND e.actor = 'staff' AND e.payload->'staff'->>'seatId' = ANY($2::text[])
+     ) names
+     WHERE coalesce(name, '') <> ''
+     ORDER BY seat_id, occurred_at DESC`,
+    [companyId, ids]);
+  const named = new Map(rows.map((row) => [row.seat_id, row.name]));
+  return ids.map((seatId) => ({ seatId, name: named.get(seatId) ?? UNNAMED_STAFF }));
+}
+
+/** The seats of the staff whose words are in the work, without the entries no seat survives for. */
+export function seatsOf(words: readonly StaffWord[]): string[] {
+  return words.map((word) => word.seatId).filter((id): id is string => id !== null);
+}
+
 export interface CreateTaskInput {
   companyId: string;
   projectId: string;
@@ -184,6 +321,15 @@ export interface CreateTaskInput {
    * worker can claim it clean in between. The payload says where from.
    */
   carriesOutside?: Record<string, unknown> | undefined;
+  /**
+   * F19.9: the task is made from work a member of staff's words were in -- a
+   * rerun, a ticket its run filed, the facts a meeting is handed -- and
+   * carries them from its first step, beside `carriesOutside` and for the
+   * same reason: its tier 2 action asks a person who did not ask for it, and
+   * none of them decides it. One `content.staff_said` is written for each, in
+   * the transaction that makes the task. `from` says where they came from.
+   */
+  carriesStaff?: { from: StaffCarriedFrom; staff: readonly StaffWord[] } | undefined;
   deadlineAt?: Date | undefined;
   hopMax?: number | undefined;
   attemptMax?: number | undefined;
@@ -343,12 +489,7 @@ export async function createRootTaskWithin(tx: TenantClient, input: CreateTaskIn
       { parentTaskId: null, hopDepth: 0, reserveTokens },
     );
     await tx.query('RELEASE SAVEPOINT insert_task');
-    if (input.carriesOutside) {
-      await appendEvent(tx, {
-        companyId: input.companyId, projectId: task.projectId, taskId: task.id,
-        type: 'content.read_outside', actor: 'engine', payload: input.carriesOutside,
-      });
-    }
+    await carryWhatItIsMadeFrom(tx, input.companyId, task, input.carriesOutside, input.carriesStaff);
     return task;
   } catch (error) {
     // Two workers raced for the same occurrence. The unique constraint on
@@ -361,6 +502,36 @@ export async function createRootTaskWithin(tx: TenantClient, input: CreateTaskIn
       if (existing) return existing;
     }
     throw error;
+  }
+}
+
+/**
+ * Writes what a new task is made from, in the transaction that makes it, so
+ * no worker can claim it clean in between: the outside content it carries
+ * (F8.9), and the mark of each member of staff whose words it carries
+ * (F19.9) -- quoted, from where it says, by the platform rather than the
+ * seat, since the seat said nothing to this task itself.
+ */
+async function carryWhatItIsMadeFrom(
+  tx: TenantClient, companyId: string, task: TaskRow,
+  outside: CreateTaskInput['carriesOutside'], staff: CreateTaskInput['carriesStaff'],
+): Promise<void> {
+  if (outside) {
+    await appendEvent(tx, {
+      companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine', payload: outside,
+    });
+  }
+  if (!staff) return;
+  const carried = staff;
+  const seen = new Set<string>();
+  for (const word of carried.staff) {
+    const key = word.seatId ?? `name:${word.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await appendEvent(tx, {
+      companyId, projectId: task.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
+      payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: carried.from },
+    });
   }
 }
 

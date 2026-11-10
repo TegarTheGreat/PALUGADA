@@ -27,15 +27,15 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconAlertTriangle, IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconPaperclip, IconRepeat,
-  IconRoute, IconTarget, IconWorldWww, IconX,
+  IconAlertTriangle, IconArrowLeft, IconCheck, IconChevronDown, IconChevronRight, IconClock, IconClockPause, IconHourglass, IconKey,
+  IconMessageQuestion, IconPaperclip, IconRepeat, IconRoute, IconTarget, IconUsers, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { readForUpload } from '../files.ts';
 import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
+import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, TeamEntry, Trace } from '../types.ts';
 import { capabilitySaid, dateTime, goalKind, hireDraft, megabytes, money, numberSeparators, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -96,16 +96,20 @@ export function Decisions({ ctx, route }: PageProps) {
   // An item asked or withdrawn shows the moment it is.
   const pulse = useLivePulse(companyId);
   const queue = useLoad(async () => {
-    const [{ items }, digest, later, { standing, schedules }]: [
-      { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[]; schedules: ScheduleApproval[] },
+    const [{ items, team }, digest, later, { standing, schedules }]: [
+      { items: InboxItem[]; team?: TeamEntry[] }, Digest, { items: InboxItem[]; team?: TeamEntry[] },
+      { standing: StandingApproval[]; schedules: ScheduleApproval[] },
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/inbox`),
       api('GET', `/api/companies/${companyId}/digest`),
       api('GET', `/api/companies/${companyId}/inbox?snoozed=1`),
       api('GET', `/api/companies/${companyId}/standing-approvals`),
     ]);
-    return { items, digest, later: later.items, standing, schedules };
+    // Put off, the team's cards are listed one by one with the rest put off.
+    return { items, team: team ?? [], digest, later: [...later.items, ...(later.team ?? []).flatMap((entry) => entry.items)], standing, schedules };
   }, [companyId], { every: 15_000, pulse });
+  // The team's entry the owner has open, by its day ('team' for those another approver still has).
+  const [teamOpen, setTeamOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -127,10 +131,15 @@ export function Decisions({ ctx, route }: PageProps) {
     .filter((item) => filter === 'all' || (filter === 'mine' ? item.addressee !== undefined : item.kind === filter))
     .sort((a, b) => urgency(a) - urgency(b) || a.createdAt.localeCompare(b.createdAt)), [queue.data, filter]);
 
+  // The team's cards, each day's one entry (F19.9): one count on the badge,
+  // however many it holds; those another approver still has are not counted.
+  const teamItems = useMemo(() => (queue.data?.team ?? []).flatMap((entry) => entry.items), [queue.data]);
+  const needsYou = (queue.data?.items.length ?? 0) + (queue.data?.team ?? []).filter((entry) => entry.day !== null).length;
+
   useEffect(() => {
     if (!queue.data) return;
-    ctx.setOpenCount(queue.data.items.length);
-    if (selected && !queue.data.items.some((item) => item.id === selected)) {
+    ctx.setOpenCount(needsYou);
+    if (selected && !queue.data.items.some((item) => item.id === selected) && !teamItems.some((item) => item.id === selected)) {
       // An item that has closed since the link went out -- decided on the
       // phone, expired -- is said to be gone rather than silently missing.
       setMissingLink(true);
@@ -166,7 +175,7 @@ export function Decisions({ ctx, route }: PageProps) {
   if (!queue.data) return <>{header}<Loading rows={4} /></>;
 
   const { digest } = queue.data;
-  const current = items.find((item) => item.id === selected) ?? null;
+  const current = items.find((item) => item.id === selected) ?? teamItems.find((item) => item.id === selected) ?? null;
   const showList = !narrow || !current;
   const showDetail = !narrow || current !== null;
 
@@ -186,7 +195,7 @@ export function Decisions({ ctx, route }: PageProps) {
         <KpiStrip items={[
           {
             label: t('Needs you'),
-            value: queue.data.items.length,
+            value: needsYou,
             hint: digest.openIncidents > 0 ? tp('{count} incident', '{count} incidents', digest.openIncidents) : t('No incidents'),
             alert: digest.openIncidents > 0,
           },
@@ -215,7 +224,7 @@ export function Decisions({ ctx, route }: PageProps) {
         <ForSchedules companyId={companyId} schedules={queue.data.schedules} changed={queue.reload} />
       )}
 
-      {queue.data.items.length === 0 ? (
+      {queue.data.items.length === 0 && queue.data.team.length === 0 ? (
         <Paper withBorder radius="lg">
           <EmptyState
             image="/illustrations/inbox-zero.webp"
@@ -269,7 +278,17 @@ export function Decisions({ ctx, route }: PageProps) {
                 )}
                 <ScrollArea.Autosize mah="calc(100vh - 330px)" type="auto">
                   <Stack gap={4}>
-                    {items.length === 0 && <Text c="dimmed" size="sm" p="md" ta="center">{t('Nothing of this kind.')}</Text>}
+                    {filter === 'all' && queue.data.team.map((entry) => (
+                      <TeamRow
+                        key={entry.day ?? 'team'}
+                        entry={entry}
+                        open={teamOpen === (entry.day ?? 'team')}
+                        toggle={() => setTeamOpen(teamOpen === (entry.day ?? 'team') ? null : entry.day ?? 'team')}
+                        selected={selected}
+                        select={select}
+                      />
+                    ))}
+                    {items.length === 0 && queue.data.team.length === 0 && <Text c="dimmed" size="sm" p="md" ta="center">{t('Nothing of this kind.')}</Text>}
                     {items.map((item) => (
                       <button
                         key={item.id}
@@ -329,7 +348,9 @@ export function Decisions({ ctx, route }: PageProps) {
                   key={current.id}
                   item={current}
                   companyId={companyId}
-                  position={t('{index} of {total}', { index: items.indexOf(current) + 1, total: items.length })}
+                  position={items.includes(current)
+                    ? t('{index} of {total}', { index: items.indexOf(current) + 1, total: items.length })
+                    : t('Your team\'s work')}
                   back={narrow ? () => select(null) : undefined}
                   decided={() => decided(current.id)}
                   talk={(draft) => ctx.talk(draft)}
@@ -353,6 +374,57 @@ export function Decisions({ ctx, route }: PageProps) {
         done={() => { setConfirm(null); stopChoosing(); queue.reload(); }}
       />
     </Stack>
+  );
+}
+
+/**
+ * The team's cards, folded (F19.9): work members of staff asked for, whose
+ * actions another approver decides first. A day's that nobody else decided
+ * are one entry for the owner -- however many the team asked for -- opened
+ * as a list, each decided as any card is; those an approver still has are a
+ * quiet entry the owner may open too.
+ */
+function TeamRow({ entry, open, toggle, selected, select }: {
+  entry: TeamEntry; open: boolean; toggle: () => void; selected: string | null; select: (id: string) => void;
+}) {
+  const waiting = entry.day !== null;
+  return (
+    <Box>
+      <button type="button" className="queue-row" onClick={toggle} aria-expanded={open}
+        style={{ ['--kind-color' as string]: waiting ? KIND_COLOR.approval : 'var(--mantine-color-gray-4)' }}>
+        <Group gap="sm" wrap="nowrap" align="flex-start">
+          <IconUsers size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+          <Box style={{ flex: 1, minWidth: 0 }}>
+            <Text fw={waiting ? 600 : 400} size="sm" c={waiting ? undefined : 'dimmed'}>
+              {waiting
+                ? t('Your team\'s work: {count} waiting', { count: entry.items.length })
+                : t('With your team\'s approvers: {count}', { count: entry.items.length })}
+            </Text>
+            <Text size="xs" c="dimmed" mt={4}>
+              {waiting
+                ? t('Nobody else on the team decided these in a day. Open them to decide.')
+                : t('Another approver decides these first. You may decide any of them.')}
+            </Text>
+          </Box>
+          {open ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+        </Group>
+      </button>
+      <Collapse expanded={open}>
+        <Stack gap={4} pl="md" pt={4}>
+          {entry.items.map((item) => (
+            <button key={item.id} type="button" className="queue-row" data-active={item.id === selected || undefined}
+              style={{ ['--kind-color' as string]: KIND_COLOR[item.kind] }} onClick={() => select(item.id)}>
+              <Text fw={600} size="sm" lineClamp={2}>{headline(item)}</Text>
+              <Group gap={6} mt={6}>
+                <TierBadge tier={item.tier} />
+                {item.staff && <Text size="xs" c="dimmed">{t('Asked for by {names}', { names: item.staff.join(', ') })}</Text>}
+                <Text size="xs" c="dimmed">{relative(item.createdAt)}</Text>
+              </Group>
+            </button>
+          ))}
+        </Stack>
+      </Collapse>
+    </Box>
   );
 }
 
@@ -564,6 +636,8 @@ function Detail({
   const send = (decision: string, proof?: Proof, allowForHours?: number, forSchedule?: boolean) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
       decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}), ...(forSchedule ? { forSchedule } : {}),
+      // A yes for a while on staff work's card covers staff work too, which the server asks a code for (F19.9).
+      ...(allowForHours && item.staff ? { coversStaff: true } : {}),
       // The lines of a plan the yes approves; the server refuses the rest.
       ...(decision === 'approve' && item.plan ? { lines: [...chosen].sort((one, other) => one - other) } : {}),
     });
@@ -726,9 +800,16 @@ function Detail({
               {seat ? t('For you') : t('For {name}', { name: item.addressee.name })}
             </Badge>
           )}
-          {item.escalated && (
+          {item.escalated && !item.team && (
             <Tooltip label={t('Not answered within a day: the owner has been told, and can answer it too.')}>
               <Badge color="orange" variant="light" leftSection={<IconClock size={12} />}>{t('Unanswered for a day')}</Badge>
+            </Tooltip>
+          )}
+          {item.staff && (
+            <Tooltip label={t('Members of staff asked for this work or steered it, so someone who did not ask decides it.')}>
+              <Badge color="indigo" variant="light" leftSection={<IconUsers size={12} />}>
+                {t('Asked for by {names}', { names: item.staff.join(', ') })}
+              </Badge>
             </Tooltip>
           )}
           {expires && (
@@ -771,14 +852,18 @@ function Detail({
         )}
         {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
         {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
-        {/* What the owner asked here, and what the agent answered (N6). */}
+        {/* What was asked here, by the owner or by a member of staff (F19.9), and what the agent answered (N6). */}
         {(item.asked ?? []).map((exchange, index) => (
           <Paper key={index} withBorder radius="md" p="sm">
-            <Text size="xs" c="dimmed">{t('You asked')}</Text>
+            <Text size="xs" c="dimmed">
+              {exchange.by === undefined ? t('You asked') : t('{name} asked', { name: exchange.by || t('A staff member') })}
+            </Text>
             <Text size="sm" mb={6} style={{ whiteSpace: 'pre-wrap' }}>{exchange.question}</Text>
             <Text size="xs" c="dimmed">{t('The agent answered')}</Text>
             {exchange.answer === null
-              ? <Text size="sm" c="dimmed" fs="italic">{t('Not yet: the agent is reading your question.')}</Text>
+              ? <Text size="sm" c="dimmed" fs="italic">
+                {exchange.by === undefined ? t('Not yet: the agent is reading your question.') : t('Not yet: the agent is reading the question.')}
+              </Text>
               : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{exchange.answer}</Text>}
           </Paper>
         ))}
@@ -1021,7 +1106,9 @@ function Detail({
                 <Menu.Dropdown>
                   {item.allowFor && (
                     <>
-                      <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
+                      <Menu.Label>{item.staff
+                        ? t('Approve, and allow {capability} to {role} without asking, staff work too, for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })
+                        : t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
                       {ALLOW_FOR.map((choice) => (
                         <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
                       ))}
@@ -1147,6 +1234,7 @@ function Standing({ companyId, standing, changed }: {
               </Text>
               <Text size="xs" c="dimmed">
                 {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}
+                {entry.coversStaff && <>{' · '}{t('staff work too')}</>}
               </Text>
             </Box>
             <Button size="compact-sm" variant="default" loading={busy === entry.id} onClick={() => void revoke(entry)}>

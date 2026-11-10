@@ -1044,3 +1044,15 @@ The first version. What it holds, in the order an owner meets it.
   each other: every room, profile, relay and import route is closed to them
   by its address, and refused inside their conversation whatever its
   address (STATUS 2.203).
+- A member of staff's words are never read as yours. A run is told what a
+  seat said in the seat's name, as a colleague's request that approves
+  nothing; work a seat asked for or steered never goes on a yes you gave for
+  your own work, and every action of it at tier 2 or above is a card that
+  names who asked, which another approver sees first and you a day later
+  (at once if nobody else can decide it), folded into one entry and one
+  notice a day. Nobody decides a card about work their words are in. The
+  mark follows the work into reruns, follow-ups, tickets and to-dos, triage,
+  handed escalations and the weekly, quarterly and monthly reviews. You may
+  allow one action to one role for a while for staff work too, with a code
+  given then, and another seat cannot read a question put to someone else
+  (STATUS 2.204).

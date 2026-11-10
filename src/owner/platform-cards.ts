@@ -904,18 +904,40 @@ export type ApprovalAsked =
   | { by: 'outside'; begun: boolean }
   | { by: 'guardian'; allowedBefore: true }
   | { by: 'guardian'; allowedBefore: false; reason: string }
+  /** A member of staff's words are in the work (F19.9): `staff` below says whose. */
+  | { by: 'staff' }
   | { by: 'tier' };
+
+/**
+ * Who asked for the work, when members of staff did (F19.9), and why that
+ * means a person who did not ask decides it. By the names the owner gave
+ * them; "a member of staff" is a seat no name survives for, as after a restore.
+ */
+function staffAskedSaid(language: string | null, names: readonly string[]): string {
+  const known = names.filter((name) => name !== 'a member of staff');
+  if (known.length === 0) {
+    return say(language, 'A member of staff asked for this work, so an action like this waits for a person who did not ask for it.');
+  }
+  return known.length === 1
+    ? say(language, 'A member of staff, {name}, asked for this work, so an action like this waits for a person who did not ask for it.', { name: known[0]! })
+    : say(language, 'Members of staff, {names}, asked for this work, so an action like this waits for a person who did not ask for it.', { names: known.join(', ') });
+}
 
 /** What an approval card says about why it was asked, and what a no does. */
 export function approvalReasonSaid(reading: OwnerReading, facts: {
   tier: number; asked: ApprovalAsked; interrupted: boolean; chain: ReadonlyArray<Pick<Goal, 'kind' | 'status' | 'statement'>>;
   /** Why the capability's own check did not let it go on its own (STATUS 2.137). */
   checked?: { why: string; detail?: string };
+  /** The members of staff whose words are in the work, by name, when any are (F19.9). */
+  staff?: readonly string[];
 }): { rationale: string; consequence: string } {
   const { language } = reading;
   const tier = number(reading, facts.tier);
   const asked = facts.asked;
-  const why = asked.by === 'policy'
+  const staff = facts.staff && facts.staff.length > 0 ? staffAskedSaid(language, facts.staff) : null;
+  const why = asked.by === 'staff'
+    ? staff ?? staffAskedSaid(language, [])
+    : asked.by === 'policy'
     ? say(language, 'This work asked for it at tier {tier}, and policy {policies} requires your approval.', { tier, policies: asked.policies.join(', ') })
     : asked.by === 'outside'
       ? asked.begun
@@ -932,6 +954,8 @@ export function approvalReasonSaid(reading: OwnerReading, facts: {
         ? [say(language, 'You approved this once already, and the worker carrying it out stopped before it could say whether it happened: it may already have happened. Check before approving it again.')]
         : []),
       why,
+      // At tier 3 the tier is why; who asked is said beside it.
+      ...(staff && asked.by !== 'staff' ? [staff] : []),
       ...(facts.checked ? [say(language, 'Not sent on its own: {reason}', { reason: checkedSaid(language, facts.checked) })] : []),
       ...(facts.chain.length > 0 ? [say(language, 'What this is for — {goals}', { goals: ancestrySaid(language, facts.chain) })] : []),
     ].join('\n\n'),

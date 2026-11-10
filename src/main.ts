@@ -1182,6 +1182,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // The owner's assistant thinks with the deployment's own model; with none
     // chosen yet, it says so and points at where to choose one.
     assistant: { llm: llm && usesTools(llm) ? llm : null, voice: toolBindings.voice },
+    // A meeting called from a room needs a model to be held, as the weekly one does.
+    holdsMeetings: llm !== null && llm !== undefined,
     deploymentSettings: {
       baseEnv,
       env,

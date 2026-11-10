@@ -523,8 +523,9 @@ export async function importCompany(
       ({ rows } = await tx.query<{ id: string }>(
         // A restored company is not a new one: its first hour (0109) is over.
         `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
-                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11) RETURNING id`,
+                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month,
+                                meeting_owner_joins, meeting_join_minutes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12, $13) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -543,6 +544,11 @@ export async function importCompany(
           // Where its fiscal year starts (0144); an archive from before it
           // has none, and gets January, a calendar year.
           wholeIn(source!.fiscal_year_start_month, 1, 12) ?? 1,
+          // Whether the owner attends the weekly meeting, and how long its
+          // questions wait for them (0156); an archive from before it has
+          // neither, and the owner does not attend until they say so.
+          source!.meeting_owner_joins === true,
+          wholeIn(source!.meeting_join_minutes, 5, 120) ?? 20,
         ],
       ));
     } catch (error) {

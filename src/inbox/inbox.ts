@@ -1224,7 +1224,28 @@ export type AgentQuestion =
   /** `bySeat`: the person it was put to answered it, rather than the owner in their place. */
   | { state: 'answered'; inboxItemId: string; answer: string; files: AnswerFile[]; bySeat: boolean }
   | { state: 'waiting'; inboxItemId: string }
-  | { state: 'unanswered'; inboxItemId: string };
+  /** `wentOn`: a meeting's question whose minutes passed, and the meeting went on without the answer (F19.17). */
+  | { state: 'unanswered'; inboxItemId: string; wentOn?: true };
+
+/**
+ * Whether the owner attends a meeting, and how many minutes each of its
+ * questions may wait for them (F19.17): a task keyed as the weekly meeting or
+ * as one called from a room, that the owner joined -- every week by the
+ * company's setting, which the meeting's input carries, or once by pressing
+ * Join, which the journal records and which wins. Null for any other task.
+ */
+export async function ownerAttends(tx: TenantClient, taskId: string): Promise<{ minutes: number } | null> {
+  const { rows } = await tx.query<{ key: string | null; planned: number | null; joined: number | null }>(
+    `SELECT t.idempotency_key AS key, (t.input->'meeting'->'ownerJoins'->>'minutes')::int AS planned,
+            (SELECT (e.payload->>'minutes')::int FROM events e
+              WHERE e.task_id = t.id AND e.type = 'meeting.owner_joined'
+              ORDER BY e.occurred_at DESC, e.id DESC LIMIT 1) AS joined
+       FROM tasks t WHERE t.id = $1`, [taskId]);
+  const task = rows[0];
+  if (!task || !(task.key?.startsWith('meeting:') || task.key?.startsWith('room-meeting:'))) return null;
+  const minutes = task.joined ?? task.planned;
+  return minutes === null ? null : { minutes };
+}
 
 /**
  * A run asking the owner something only the owner can answer, and parking
@@ -1280,6 +1301,13 @@ export async function askOwner(input: {
    * (`escalateQuestions`); the question stays the seat's to answer.
    */
   addressee?: { seatId: string; name: string; escalateAfterHours: number };
+  /**
+   * A meeting's timed question (F19.17), only in a meeting the owner joined
+   * and no longer than the minutes the owner gave it: the owner's alone, told
+   * at once, and when the minutes pass the meeting goes on without the
+   * answer (`expireOverdue`). Silence is never taken as a yes.
+   */
+  waitMinutes?: number;
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
   const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
@@ -1302,12 +1330,28 @@ export async function askOwner(input: {
     if (!task.rows[0]) {
       throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: input.taskId });
     }
+    const wait = input.waitMinutes;
+    if (wait !== undefined) {
+      if (input.addressee) {
+        throw new PalugadaError('contract.violation', 'a timed question is the owner\'s alone: ask it without to', { field: 'to' });
+      }
+      const attending = await ownerAttends(tx, input.taskId);
+      if (!attending) {
+        throw new PalugadaError('contract.violation',
+          'a timed question is only for a meeting the owner joined: ask without waitMinutes, and the task waits for the answer',
+          { field: 'waitMinutes' });
+      }
+      if (wait > attending.minutes) {
+        throw new PalugadaError('contract.violation',
+          `a meeting's question waits no longer than the ${attending.minutes} minutes the owner gave it`, { field: 'waitMinutes' });
+      }
+    }
     const { rows: asked } = await tx.query<{
       id: string; status: string; decision: string | null; owner_note: string | null; question: string; answer_files: AnswerFile[];
-      by_seat: boolean;
+      by_seat: boolean; closed_reason: string | null;
     }>(
       `SELECT id, status, decision, owner_note, payload->>'question' AS question, answer_files,
-              decided_by_seat IS NOT NULL AS by_seat FROM inbox_items
+              decided_by_seat IS NOT NULL AS by_seat, closed_reason FROM inbox_items
         WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
         ORDER BY created_at`,
       [input.taskId],
@@ -1326,6 +1370,9 @@ export async function askOwner(input: {
       }
       if (same.status === 'decided' && same.decision === 'approve') {
         return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '', files: same.answer_files, bySeat: same.by_seat };
+      }
+      if (same.status === 'withdrawn' && same.closed_reason === 'meeting_went_on') {
+        return { state: 'unanswered', inboxItemId: same.id, wentOn: true };
       }
       return { state: 'unanswered', inboxItemId: same.id };
     }
@@ -1354,8 +1401,19 @@ export async function askOwner(input: {
         askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}), ...(input.browser ? { browser: true } : {}),
         ...(input.key ? { key: input.key } : {}),
         ...(input.addressee ? { addressee: { seatId: input.addressee.seatId, name: input.addressee.name } } : {}),
+        // The owner's alone, which no seat answers or decides (`theOwnersAlone`).
+        ...(wait !== undefined ? { ownerOnly: true, waitMinutes: wait } : {}),
       },
     });
+    if (wait !== undefined) {
+      // Told now, whatever the owner's hours say: the meeting will not wait
+      // for the morning. And when its minutes are up it goes on, never as a yes.
+      await tx.query(
+        `UPDATE inbox_items SET notify_after = now(), expires_at = now() + make_interval(mins => $2), on_expiry = 'continue'
+          WHERE id = $1`,
+        [id, wait],
+      );
+    }
     if (input.addressee) {
       // The seat is a column, not only a word in the payload: it is what the seat's inbox and the right to answer are read from.
       await tx.query(
@@ -3470,6 +3528,12 @@ export async function ownerInbox(companyId: string, options: { snoozed?: boolean
  * The task is cancelled rather than executed. An owner who never looked at the
  * item has not consented to it, and treating silence as consent would make the
  * inbox a liability instead of a control.
+ *
+ * One item goes on instead (F19.17): a question a meeting the owner joined
+ * put to them, whose minutes have passed (`on_expiry = 'continue'`, which the
+ * database allows only on a run's question). It is withdrawn, neither answered
+ * nor refused, and the meeting runs on as one without the owner would; the
+ * run is told the owner did not answer (`askOwner`), never that they agreed.
  */
 export async function expireOverdue(companyId: string): Promise<number> {
   // One transaction, for the reason `decide` has one: as two, a crash between
@@ -3486,13 +3550,25 @@ export async function expireOverdue(companyId: string): Promise<number> {
         ORDER BY id
         FOR NO KEY UPDATE`,
     );
-    const { rows } = await tx.query<{ id: string; task_id: string | null }>(
+    const { rows } = await tx.query<{ id: string; task_id: string | null; went_on: boolean; waited: number | null }>(
       `UPDATE inbox_items
-          SET status = 'expired'
+          SET status = CASE WHEN on_expiry = 'continue' THEN 'withdrawn' ELSE 'expired' END,
+              closed_reason = CASE WHEN on_expiry = 'continue' THEN 'meeting_went_on' ELSE closed_reason END
         WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= now()
-        RETURNING id, task_id`,
+        RETURNING id, task_id, on_expiry = 'continue' AS went_on, (payload->>'waitMinutes')::int AS waited`,
     );
     for (const row of rows) {
+      if (row.went_on) {
+        await appendEvent(tx, {
+          companyId,
+          taskId: row.task_id ?? undefined,
+          type: 'meeting.went_on',
+          actor: 'system',
+          payload: { inboxItemId: row.id, waitedMinutes: row.waited },
+        });
+        if (row.task_id) await settleTask(tx, companyId, row.task_id, row.id, 'running');
+        continue;
+      }
       await appendEvent(tx, {
         companyId,
         taskId: row.task_id ?? undefined,

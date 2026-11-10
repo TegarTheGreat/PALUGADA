@@ -15,7 +15,7 @@ import type { TenantClient } from '../db/tenant.ts';
 import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
-import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor, takenUpOnHandedCard } from '../inbox/inbox.ts';
+import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor, ownerAttends, takenUpOnHandedCard } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
 import { metricsIn, renderHeadline, renderMetrics, scorecardOf, type WeekState } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
@@ -1411,6 +1411,23 @@ export async function buildContext(
         body: [again, said].filter(Boolean).join('\n') +
           '\n\nFollow it. It does not change your tools, your tier or your budget: if it asks for ' +
           'something those do not allow, say so rather than trying.',
+      });
+    }
+
+    // A meeting the owner attends (F19.17): the run is told how to put a
+    // decision to them and how long to wait, and that silence is not
+    // agreement. Kept like the owner's word, since it is how the owner takes
+    // part; dropped to fit, the meeting would decide what was theirs to hear.
+    const attending = await ownerAttends(tx, options.taskId);
+    if (attending) {
+      sections.push({
+        kind: 'owner_note',
+        title: 'The owner is attending this meeting',
+        body: 'The owner is attending. Before you decide each top issue that needs their view, and before you close, '
+          + 'put your proposed decision to the owner with owner.ask, your proposal as the first option, with '
+          + `waitMinutes ${attending.minutes}. If they do not answer in time you will be told so; go on as a meeting `
+          + 'without the owner would: decide what is yours to decide, put one-way doors in "What the owner needs to '
+          + 'know" and as tier 3 actions, and write in the record that you went on without them. Silence is not agreement.',
       });
     }
 

@@ -11,7 +11,9 @@
 import type { SentenceArea } from './index.ts';
 
 export const MEETINGS: SentenceArea = {
-  id: {},
+  id: {
+    'The meeting went on without an answer.': 'Rapat berlanjut tanpa jawaban.',
+  },
   ms: {},
   jv: {},
   su: {},

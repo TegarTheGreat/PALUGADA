@@ -135,11 +135,12 @@ test("no code on an agent's path names a room table", async () => {
 const DOOR_EVENTS = ['task.given_in_room', 'content.staff_said', 'staff.instructed', 'meeting.called'];
 /**
  * How many events the doors write themselves now: that work was given in a
- * room, and that a seat's press began it (STATUS 2.206). The instruction's
- * record and a quoted seat's mark are written by the engine's functions the
- * doors call (`instructTaskWithin`, and `carriesStaff` on the task's maker).
+ * room, and that a seat's press began it (STATUS 2.206), and that a meeting
+ * was called about a message (STATUS 2.211). The instruction's record and a
+ * quoted seat's mark are written by the engine's functions the doors call
+ * (`instructTaskWithin`, and `carriesStaff` on the task's maker).
  */
-const DOOR_EVENTS_AT_LEAST = 2;
+const DOOR_EVENTS_AT_LEAST = 3;
 
 test("appendEvent in the workspace is the doors', with four types", async () => {
   const workspace = await sources('src/workspace');

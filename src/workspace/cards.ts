@@ -14,6 +14,11 @@
  * from the journal: an item that should have a card and has none gets one,
  * however its event was missed, and a pass over a company that changed
  * nothing writes nothing.
+ *
+ * The CEO's weekly meeting is one card in the company room (STATUS 2.211),
+ * quiet: it tells nobody and counts as nothing unread. Its questions and
+ * approvals go in its thread, as a piece of work's go in its asking
+ * message's, and so do those of a meeting called about a message.
  */
 import { randomUUID } from 'node:crypto';
 import { withRoomPlatform, type TenantClient } from '../db/tenant.ts';
@@ -67,16 +72,22 @@ async function owe(tx: TenantClient, companyId: string, roomId: string, messageI
   return owed;
 }
 
-/** The message a piece of work was asked from in a room: the one whose press made the root of its chain. */
-async function askingMessageOf(tx: TenantClient, taskId: string): Promise<{ id: string; room_id: string; became_by: string } | null> {
-  const { rows } = await tx.query<{ id: string; room_id: string; became_by: string }>(
+/**
+ * The message a piece of work was asked from in a room: the one whose press
+ * made the root of its chain -- given as work, or a meeting called about it --
+ * or the weekly meeting's own card. `became_by` is who pressed, and null for
+ * the weekly meeting, which nobody did.
+ */
+async function askingMessageOf(tx: TenantClient, taskId: string): Promise<{ id: string; room_id: string; became_by: string | null } | null> {
+  const { rows } = await tx.query<{ id: string; room_id: string; became_by: string | null }>(
     `WITH RECURSIVE up AS (
        SELECT id, parent_task_id, 0 AS depth FROM tasks WHERE id = $1
        UNION ALL
        SELECT t.id, t.parent_task_id, up.depth + 1 FROM tasks t JOIN up ON t.id = up.parent_task_id WHERE up.depth < 64
      )
      SELECT m.id, m.room_id, m.became_by FROM up
-       JOIN room_messages m ON m.task_id = up.id AND m.became = 'work'
+       JOIN room_messages m ON m.task_id = up.id
+        AND (m.became IN ('work', 'meeting') OR (m.kind = 'meeting' AND m.author = 'platform' AND m.thread_of IS NULL))
       ORDER BY up.depth DESC LIMIT 1`,
     [taskId]);
   return rows[0] ?? null;
@@ -100,13 +111,39 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     const now = clock[0]!.now;
     let written = 0;
 
+    // 0. The weekly meeting's card in the company room, made before its
+    //    questions look for it: one per meeting, told to nobody. Every one
+    //    not over, and one that ended within the day, so a meeting that ran
+    //    between two passes still shows its record, while the meetings of
+    //    weeks before this sweep existed are not posted all at once.
+    const { rows: weekly } = await tx.query<{ id: string; status: string }>(
+      `SELECT t.id, t.status FROM tasks t
+        WHERE t.idempotency_key LIKE 'meeting:%' AND t.parent_task_id IS NULL
+          AND t.created_at > $1::timestamptz - make_interval(days => ${STATE_DAYS})
+          AND (t.status NOT IN ('completed', 'failed', 'halted', 'cancelled') OR t.created_at > $1::timestamptz - interval '1 day')
+          AND NOT EXISTS (SELECT 1 FROM room_messages c WHERE c.kind = 'meeting' AND c.task_id = t.id)
+        ORDER BY t.created_at, t.id`,
+      [now]);
+    if (weekly.length > 0) {
+      const { rows: company } = await tx.query<{ id: string }>("SELECT id FROM rooms WHERE kind = 'company'");
+      for (const meeting of weekly) {
+        if (!company[0]) break;
+        await tx.query(
+          `INSERT INTO room_messages (id, company_id, room_id, kind, author, via, task_id, notice_values, position)
+           VALUES ($1, $2, $3, 'meeting', 'platform', 'platform', $4, $5, 0)`,
+          [randomUUID(), companyId, company[0].id, meeting.id, JSON.stringify({ state: meeting.status })]);
+        written += 1;
+      }
+    }
+
     // 1. Every open question a run put and every open approval, from the last
     //    month, without a card yet: posted where it belongs, or nowhere.
     const { rows: items } = await tx.query<{
       id: string; kind: string; tier: number | null; task_id: string; addressee_seat: string | null; instigators: string[];
-      division_id: string;
+      division_id: string; owner_only: boolean;
     }>(
-      `SELECT i.id, i.kind, i.tier, i.task_id, i.addressee_seat, i.instigators::text[] AS instigators, t.division_id
+      `SELECT i.id, i.kind, i.tier, i.task_id, i.addressee_seat, i.instigators::text[] AS instigators, t.division_id,
+              coalesce(i.payload->>'ownerOnly' = 'true', false) AS owner_only
          FROM inbox_items i JOIN tasks t ON t.id = i.task_id
         WHERE i.status = 'open' AND i.created_at > $1::timestamptz - make_interval(days => ${STATE_DAYS})
           AND (i.kind = 'approval' OR (i.kind = 'escalation' AND i.payload->>'askedBy' = 'agent'))
@@ -140,7 +177,10 @@ export async function syncRoomCards(companyId: string): Promise<number> {
         [cardId, companyId, roomId, threadOf, kind, item.task_id, item.id, JSON.stringify({ state: 'open' })]);
       written += 1;
       const owed: string[] = [];
-      if (asking) owed.push(asking.became_by);
+      // A question the owner alone is asked -- a joined meeting's -- is the
+      // owner's attention alone: whoever called the meeting cannot answer it.
+      if (item.owner_only) owed.push('owner');
+      else if (asking?.became_by) owed.push(asking.became_by);
       if (item.addressee_seat) owed.push(`seat:${item.addressee_seat}`);
       if (kind === 'approval' && (item.tier ?? 0) <= 2) {
         owed.push(...deciders.filter((seat) => !item.instigators.includes(seat)).map((seat) => `seat:${seat}`));
@@ -173,9 +213,10 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     //    place, which tells the rooms that show it (0150's update trigger).
     const { rows: cards } = await tx.query<{
       id: string; drawn: string | null; item_kind: string | null; status: string | null; decision: string | null;
-      payload: Record<string, unknown> | null; task_status: string | null;
+      payload: Record<string, unknown> | null; task_status: string | null; closed_reason: string | null;
     }>(
-      `SELECT c.id, c.notice_values->>'state' AS drawn, i.kind AS item_kind, i.status, i.decision, i.payload, t.status AS task_status
+      `SELECT c.id, c.notice_values->>'state' AS drawn, i.kind AS item_kind, i.status, i.decision, i.payload, t.status AS task_status,
+              i.closed_reason
          FROM room_messages c
          LEFT JOIN inbox_items i ON i.id = c.inbox_item_id
          LEFT JOIN tasks t ON t.id = c.task_id
@@ -184,7 +225,7 @@ export async function syncRoomCards(companyId: string): Promise<number> {
       [now]);
     for (const card of cards) {
       const state = card.item_kind !== null
-        ? itemState({ kind: card.item_kind, status: card.status!, decision: card.decision, payload: card.payload ?? {} })
+        ? itemState({ kind: card.item_kind, status: card.status!, decision: card.decision, payload: card.payload ?? {} }, card.closed_reason)
         : card.task_status ?? 'gone';
       if (state === card.drawn) continue;
       await tx.query('UPDATE room_messages SET notice_values = $2 WHERE id = $1', [card.id, JSON.stringify({ state })]);
@@ -192,9 +233,10 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     }
 
     // 4. Work under a person's own message, which the platform does not
-    //    write: when its task moved after the message was last drawn, the
-    //    rooms are told to draw it again; when it ended, whoever pressed is
-    //    told, once. A missed redraw is not lost: a card is read live.
+    //    write -- given as work, or a meeting called about it: when its task
+    //    moved after the message was last drawn, the rooms are told to draw
+    //    it again; when it ended, whoever pressed is told, once. A missed
+    //    redraw is not lost: a card is read live.
     const { rows: moved } = await tx.query<{ id: string; room_id: string; became_by: string; status: string; moved_at: Date }>(
       `SELECT m.id, m.room_id, m.became_by, t.status, max(e.occurred_at) AS moved_at
          FROM room_messages m
@@ -202,7 +244,7 @@ export async function syncRoomCards(companyId: string): Promise<number> {
          JOIN events e ON e.task_id = t.id
           AND e.occurred_at > (SELECT c.cards_through - make_interval(secs => ${CURSOR_OVERLAP_SECONDS})
                                  FROM room_clock c WHERE c.company_id = $1)
-        WHERE m.became = 'work'
+        WHERE m.became IN ('work', 'meeting')
         GROUP BY m.id, m.room_id, m.became_by, t.status`,
       [companyId]);
     for (const message of moved) {
@@ -220,7 +262,7 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     // 5. Work still waiting for its role after a while says so in its thread, once.
     const { rows: waiting } = await tx.query<{ id: string; room_id: string }>(
       `SELECT m.id, m.room_id FROM room_messages m JOIN tasks t ON t.id = m.task_id
-        WHERE m.became = 'work' AND t.status = 'pending'
+        WHERE m.became IN ('work', 'meeting') AND t.status = 'pending'
           AND t.created_at < $1::timestamptz - make_interval(mins => ${QUEUED_AFTER_MINUTES})
           AND NOT EXISTS (SELECT 1 FROM room_messages n WHERE n.thread_of = m.id AND n.kind = 'notice' AND n.notice_code = 'queued')`,
       [now]);

@@ -976,7 +976,9 @@ export async function instructTaskWithin(
     ...instructionRecord(author, { text, ...place }),
   });
   if (author.kind === 'seat') {
-    await recordStaffSaid(tx, { companyId, projectId: task.projectId, taskId }, author, 'instructed');
+    // The topic of a meeting a seat called is marked as the meeting it
+    // began, and so counted once among its asks (STATUS 2.211).
+    await recordStaffSaid(tx, { companyId, projectId: task.projectId, taskId }, author, where?.via === 'meeting' ? 'meeting' : 'instructed');
   }
 }
 

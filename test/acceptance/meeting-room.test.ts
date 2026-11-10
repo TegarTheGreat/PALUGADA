@@ -410,7 +410,7 @@ test('an expiry that is not a meeting question still cancels', async () => {
   const escalation = await inbox.raiseEscalation({ companyId: fixture.companyId, taskId: sending, title: 'The newsletter bounced', detail: 'twice' });
   await assert.rejects(withControlPlane((tx) => tx.query("UPDATE inbox_items SET on_expiry = 'continue' WHERE id = $1", [escalation])),
     /inbox_continue_only_questions/);
-  await assert.rejects(withControlPlane((tx) => tx.query("UPDATE inbox_items SET on_expiry = 'later' WHERE id = $1", [escalation])),
+  await assert.rejects(withControlPlane((tx) => tx.query("UPDATE inbox_items SET on_expiry = 'later' WHERE id = $1", [question])),
     /inbox_on_expiry_known/);
 });
 
@@ -591,7 +591,7 @@ test("a called meeting and its message's mark are made together, or not at all",
   }
 });
 
-test('a called meeting reserves money, and refuses without a model, while paused, or past three a day', async () => {
+test('a called meeting reserves money, and refuses while paused, while its CEO is paused, or past three a day', async () => {
   const { fixture, api, owner } = await workspace('meet-money');
   try {
     await meetsToday(fixture);
@@ -669,7 +669,8 @@ test('a member cannot call a meeting; an approver can, within its daily number',
   try {
     await meetsToday(fixture);
     const viewer = personIn(api, (await seated(fixture, 'Vina', 'viewer')).token, fixture.companyId);
-    const member = personIn(api, (await seated(fixture, 'Budi', 'member')).token, fixture.companyId);
+    const budi = await seated(fixture, 'Budi', 'member');
+    const member = personIn(api, budi.token, fixture.companyId);
     const sariSeat = await seated(fixture, 'Sari', 'approver', { asksPerDay: 1 });
     const sari = personIn(api, sariSeat.token, fixture.companyId);
     const room = await companyRoomOf(owner);
@@ -684,8 +685,10 @@ test('a member cannot call a meeting; an approver can, within its daily number',
 
     const { taskId } = ok(await sari.on(room, first, 'meeting', { topic: 'Do we keep the van or lease one?' }));
     assert.deepEqual((await events(fixture, ['meeting.called'])).map((one) => [one.actor, one.payload.by]), [['staff', sariSeat.principal]]);
+    // The approver's call is marked once, as a meeting, which counts among its asks; the member whose
+    // words it is about is carried, quoted, and asked nothing of.
     assert.deepEqual((await events(fixture, ['content.staff_said'])).filter((one) => one.task_id === taskId)
-      .map((one) => [one.payload.seatId, one.payload.how]), [[sariSeat.id, 'meeting']], 'counted once, as a meeting');
+      .map((one) => `${one.payload.seatId}:${one.payload.how}`).sort(), [`${budi.id}:quoted`, `${sariSeat.id}:meeting`].sort());
     assert.equal((await taskOf(fixture, taskId)).input.meeting.ownerJoins, undefined, 'the owner did not call it, so does not attend');
     const second = await said(sari, room, 'And the shop sign is broken.');
     refusedWith(await sari.on(room, second, 'meeting', { topic: 'The sign' }), 429, 'staff.ask_limit');

@@ -576,12 +576,14 @@ test('the owner sets when the meeting is held, or that it is not, and the archiv
     const set = (body: Record<string, unknown>) => api.call('POST', `/api/companies/${fixture.companyId}/rhythm`, token, body);
     const listed = async () => ((await api.call('GET', '/api/companies', token)).body.companies as Array<{ id: string; rhythm: unknown }>)
       .find((one) => one.id === fixture.companyId)!.rhythm;
-    assert.deepEqual(await listed(), { weekday: 1, hour: 9, enabled: true }, 'Monday at nine, by default');
+    // Whether the owner attends it, and how long its questions wait, are the rhythm's too (F19.17, STATUS 2.211).
+    const joins = { ownerJoins: false, joinMinutes: 20 };
+    assert.deepEqual(await listed(), { weekday: 1, hour: 9, enabled: true, ...joins }, 'Monday at nine, by default');
 
     const changed = await set({ weekday: 4, hour: 14, enabled: false });
     assert.equal(changed.status, 200, JSON.stringify(changed.body));
-    assert.deepEqual(changed.body, { weekday: 4, hour: 14, enabled: false });
-    assert.deepEqual(await listed(), { weekday: 4, hour: 14, enabled: false });
+    assert.deepEqual(changed.body, { weekday: 4, hour: 14, enabled: false, ...joins });
+    assert.deepEqual(await listed(), { weekday: 4, hour: 14, enabled: false, ...joins });
 
     const day = await set({ weekday: 7, hour: 9, enabled: true });
     assert.equal(day.status, 400);
@@ -592,7 +594,7 @@ test('the owner sets when the meeting is held, or that it is not, and the archiv
     const on = await set({ weekday: 1, hour: 9, enabled: 'yes' });
     assert.equal(on.status, 400);
     assert.match(String(on.body.error), /enabled is true or false/);
-    assert.deepEqual(await listed(), { weekday: 4, hour: 14, enabled: false }, 'a refused change changes nothing');
+    assert.deepEqual(await listed(), { weekday: 4, hour: 14, enabled: false, ...joins }, 'a refused change changes nothing');
   } finally {
     await api.close();
   }

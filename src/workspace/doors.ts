@@ -1,7 +1,9 @@
 /**
  * What a message may become, by a press (F19.5, F19.6, F19.7, F19.8, F19.9;
  * STATUS section 2.206): work, through the door the owner's own assignments
- * use; an instruction to that work; and its stop.
+ * use; an instruction to that work; and its stop. And a meeting of the
+ * company's agents about it, called by the owner or an approver (F19.18;
+ * STATUS section 2.211).
  *
  * Words in a room start nothing on their own: not a mention, not a reaction,
  * not what they say. Each door is a person pressing, recorded as that person,
@@ -19,6 +21,7 @@
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withPeople, withTenant, type Person, type TenantClient } from '../db/tenant.ts';
+import { adHocBriefFor, lastWeeklyDayOf, meetingDayOf, meetingSeatOf, ROOM_MEETING_KEY, startMeetingWithin } from '../engine/meeting.ts';
 import { cancelTask, instructTaskWithin, type Author } from '../engine/owner-control.ts';
 import { createRootTaskWithin, UNNAMED_STAFF } from '../engine/tasks.ts';
 import { isPalugadaError, PalugadaError } from '../errors.ts';
@@ -29,7 +32,7 @@ import { postNotice, type NoticeCode } from './cards.ts';
 import { messageIn } from './messages.ts';
 import { seatOf } from './principal.ts';
 import { takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
-import { mayAsk, type Viewer } from './views.ts';
+import { mayAsk, mayDecide, type Viewer } from './views.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -37,6 +40,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const GOAL_MAX = 2_000;
 /** Instructions and meetings a seat's own words begin count as asks; its pressed work counts by its row. */
 const COUNTED_HOWS = ['instructed', 'meeting'];
+
+/** The longest topic a meeting is called about: it is told to the meeting as an instruction is. */
+const TOPIC_MAX = 2_000;
+/** Meetings a company may call from its rooms in a day: each is a paid run of the CEO (F19.18). */
+const MEETINGS_PER_DAY = 3;
 
 /** Fields a press never takes from a body: the division and its money are the target role's (F19.8). */
 const NOT_FROM_A_BODY = ['divisionId', 'budgetAccountId', 'reserveTokens'];
@@ -245,14 +253,147 @@ export async function giveAsWork(viewer: Viewer, roomId: string, messageId: stri
   return { taskId: made.taskId };
 }
 
-/** The work a thread carries, and who pressed for it. */
+/**
+ * "Call a meeting" (F19.18): the company's CEO holds a meeting about one
+ * message, as the integrator holds the weekly one, against the same facts --
+ * one task, keyed apart from the weekly meeting (`room-meeting:<message>`),
+ * which files no weekly issue and which no reader of the weekly meeting sees.
+ * The owner's or an approver's, counted among a seat's asks, and at most
+ * three a company a day, since each is a paid run. Made in one transaction
+ * with the message's mark and the money it holds, or not at all; the topic is
+ * what the caller told it, as theirs: the owner's word, or a seat's inside
+ * its fence. The owner who calls one attends it. Refused for what the work
+ * door refuses -- a paused month, a paused CEO, no money -- the message stays
+ * words, and its thread says why.
+ */
+export async function callMeetingFromRoom(viewer: Viewer, roomId: string, messageId: string, body: Record<string, unknown>): Promise<{ taskId: string }> {
+  if (!mayDecide(viewer)) {
+    throw new PalugadaError('staff.forbidden', 'calling a meeting of the company\'s agents is the owner\'s or an approver\'s', {});
+  }
+  const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+  if (topic.length < 1 || topic.length > TOPIC_MAX) {
+    throw new PalugadaError('contract.violation', `topic says what the meeting is about, in 1 to ${TOPIC_MAX} characters`, { field: 'topic' });
+  }
+  const limit = viewer.seatId !== null ? await asksPerDay(viewer) : 0;
+  const paused = await isSpendPaused(viewer.companyId);
+  const named: { roleId: string | null } = { roleId: null };
+  let made: { taskId: string; fresh: boolean };
+  try {
+    made = await withPeople(viewer.companyId, viewer.person, async (tx) => {
+      const room = await visibleRoom(tx, viewer, roomId);
+      if (viewer.seatId !== null) await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('asks:' || $1 || ':' || $2, 0))", [viewer.companyId, viewer.seatId]);
+      // The company's own count, under a lock of its own: parallel calls at
+      // the day's third make one meeting.
+      await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('room-meetings:' || $1, 0))", [viewer.companyId]);
+      await takeClock(tx);
+      const message = await messageIn(tx, roomId, messageId, { lock: true });
+      if (message.became === 'meeting' && message.task_id) return { taskId: message.task_id, fresh: false };
+      if (message.kind !== 'text' || message.deleted_at || message.became !== null) {
+        throw new PalugadaError('contract.violation', 'only a person\'s words, not yet given as work, are called a meeting about, once', { messageId });
+      }
+      // The meeting's questions and record are replies to the message, and
+      // a thread is one level deep (0150).
+      if (message.thread_of !== null) {
+        throw new PalugadaError('contract.violation',
+          'a reply is not called a meeting about: call it about the message its thread began with, or say it again at the top of the room', { messageId });
+      }
+      if (viewer.seatId !== null) await asksToday(tx, viewer, limit);
+      const { rows: called } = await tx.query<{ n: number; first: Date | null }>(
+        `SELECT count(*)::int AS n, min(created_at) AS first FROM tasks
+          WHERE idempotency_key LIKE '${ROOM_MEETING_KEY}%' AND created_at > now() - interval '24 hours'`);
+      if (called[0]!.n >= MEETINGS_PER_DAY) {
+        const opensAt = new Date((called[0]!.first ?? new Date()).getTime() + 24 * 60 * 60 * 1000);
+        throw new PalugadaError('meeting.too_many',
+          `${MEETINGS_PER_DAY} meetings have been called today; the next can be called at ${opensAt.toISOString()}`,
+          { limit: MEETINGS_PER_DAY, opensAt: opensAt.toISOString() });
+      }
+      if (paused) throw new PalugadaError('spend.paused', 'company has reached its monthly spending ceiling and is not taking new work', {});
+      const seat = await meetingSeatOf(tx, viewer.companyId);
+      if ('missing' in seat) {
+        switch (seat.missing) {
+          case 'frozen': throw new PalugadaError('role.frozen', 'the CEO is paused: resume it to hold a meeting', {});
+          case 'mission': throw new PalugadaError('goal.required', 'the company has no open mission for a meeting to serve', {});
+          case 'project':
+            throw new PalugadaError('contract.violation', 'the company has no open project to put the meeting\'s work in: open one under Projects', { field: 'projectId' });
+          default: throw new PalugadaError('contract.violation', 'the company has no CEO to hold a meeting yet', {});
+        }
+      }
+      named.roleId = seat.roleId;
+
+      const author = message.author;
+      const outside = message.via === 'relay' ? 'a message posted through a relay' : message.via === 'import' ? 'an imported message' : null;
+      const authorSeat = author.startsWith('seat:') ? seatOf(author) : null;
+      const { rows: company } = await tx.query<{ minutes: number }>(
+        'SELECT meeting_join_minutes AS minutes FROM companies WHERE id = $1', [viewer.companyId]);
+      const now = new Date();
+      const taskId = await startMeetingWithin(tx, viewer.companyId, {
+        key: `${ROOM_MEETING_KEY}${messageId}`,
+        ...await meetingDayOf(tx, viewer.companyId, now),
+        now,
+        // Read only: the weekly meeting's own count of to-dos not done is
+        // the weekly meeting's, and a called meeting files none of it.
+        previousDay: await lastWeeklyDayOf(tx, viewer.companyId),
+        filed: { offTrack: [], notDoneTwice: [] },
+        seat,
+        brief: adHocBriefFor,
+        // The owner who calls a meeting attends it (F19.17).
+        ownerJoins: viewer.seatId === null ? { minutes: company[0]!.minutes } : null,
+        // The message the meeting is about is carried as the work door
+        // carries it: outside words from a relay or an import, and a seat's
+        // words someone else pressed, quoted (STATUS 2.206).
+        ...(outside ? { carriesOutside: { capability: outside, source: 'room' as const } } : {}),
+        ...(authorSeat !== null && authorSeat !== viewer.seatId
+          ? { carriesStaff: { from: 'room' as const, staff: [{ seatId: authorSeat, name: message.author_name ?? UNNAMED_STAFF }] } }
+          : {}),
+      });
+      // The topic, as the caller's own words: a seat's is fenced and marked
+      // as the meeting it began, which counts once among its asks.
+      const by: Author = viewer.seatId !== null ? seatAuthor(viewer) : { kind: 'owner' };
+      await instructTaskWithin(tx, viewer.companyId, taskId, topic, by, { via: 'meeting', ...placeOf(room, messageId) });
+      const principal = viewer.person.principal;
+      await appendEvent(tx, {
+        companyId: viewer.companyId, taskId, type: 'meeting.called', actor: viewer.seatId !== null ? 'staff' : 'owner',
+        payload: { ...placeOf(room, messageId), by: principal },
+      });
+      await tx.query(
+        "UPDATE room_messages SET became = 'meeting', became_by = $2, became_at = now(), task_id = $3 WHERE id = $1",
+        [messageId, principal, taskId]);
+      return { taskId, fresh: true };
+    });
+  } catch (error) {
+    const code = noticeFor(error);
+    if (code) await postNotice(viewer.companyId, roomId, messageId, code, { role: await roleCalled(viewer.companyId, named.roleId) });
+    throw error;
+  }
+  const roleId = named.roleId;
+  if (made.fresh && roleId) {
+    // As the work door does: the CEO is woken now, by whoever called it.
+    await withTenant(viewer.companyId, (tx) => tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [roleId]));
+    await enqueueWake({
+      companyId: viewer.companyId, roleId, reason: 'assignment',
+      detail: `${viewer.seatId !== null ? 'staff' : 'owner'} called meeting ${made.taskId} about a room's message`,
+      assignedBy: viewer.seatId !== null ? 'staff' : 'owner',
+    });
+  }
+  return { taskId: made.taskId };
+}
+
+/**
+ * The work a thread carries, and the seat that pressed for it: work given
+ * from its message, a meeting called about it (the seat that called it), or
+ * the weekly meeting's card, which no seat pressed for (STATUS 2.211).
+ */
 async function threadWork(tx: TenantClient, roomId: string, rootId: string): Promise<{ taskId: string; requestedBySeat: string | null; status: string }> {
   const root = await messageIn(tx, roomId, rootId);
-  if (root.became !== 'work' || !root.task_id) throw new PalugadaError('contract.violation', 'this thread is not work: give its message as work first', { messageId: rootId });
+  const meeting = root.kind === 'meeting' || root.became === 'meeting';
+  if (!(root.became === 'work' || meeting) || !root.task_id) {
+    throw new PalugadaError('contract.violation', 'this thread is not work: give its message as work first', { messageId: rootId });
+  }
   const { rows } = await tx.query<{ requested_by_seat: string | null; status: string }>(
     'SELECT requested_by_seat, status FROM tasks WHERE id = $1', [root.task_id]);
   if (!rows[0]) throw new PalugadaError('contract.violation', 'the work this message asked for is no longer kept', { messageId: rootId });
-  return { taskId: root.task_id, requestedBySeat: rows[0].requested_by_seat, status: rows[0].status };
+  const caller = meeting && root.became_by?.startsWith('seat:') ? seatOf(root.became_by) : null;
+  return { taskId: root.task_id, requestedBySeat: meeting ? caller : rows[0].requested_by_seat, status: rows[0].status };
 }
 
 /**

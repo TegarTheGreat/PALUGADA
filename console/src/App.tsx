@@ -35,6 +35,8 @@ import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './imag
 import { ChooseHandle, kindLabel, ProfileDrawer, useProfile, type Profile } from './workspace/Profile.tsx';
 import type { Unread } from './workspace/types.ts';
 import { badgeOf, useUnread } from './workspace/unread.ts';
+import { useTabNotices } from './workspace/notifyInTab.ts';
+import { useRoomPulse, whenRoomStreamReopens } from './workspace/useRoomStream.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { Onboarding } from './pages/Onboarding.tsx';
@@ -105,6 +107,14 @@ export function App() {
   useEffect(() => { setDirection(direction()); }, [lang, setDirection]);
   useEffect(() => { takeLinkedRoute(); }, []);
   useEffect(() => whenSignedOut(() => setDevice(null)), []);
+  // The server ends a member of staff's streams when the owner changes what
+  // they may do; once the stream is back, who they are is read again, and the
+  // console draws the controls of their new kind without a reload (STATUS 2.210).
+  useEffect(() => whenRoomStreamReopens(() => {
+    void api('GET', '/api/me').then((me: { staff: Staff | null }) => {
+      setStaff((now) => (now && me.staff && now.kind === me.staff.kind && now.name === me.staff.name ? now : me.staff));
+    }, () => undefined);
+  }), []);
 
   if (!device) {
     return <SignIn key={lang} onSignedIn={(session) => {
@@ -213,8 +223,6 @@ function Console({ device, staff, recovered, signOut }: {
   const [profiling, setProfiling] = useState(false);
   // A room open on a phone, which has the whole screen (Rooms.tsx).
   const [immersive, setImmersive] = useState(false);
-  // What waits in each company: the Rooms badge, the company menu's, the tab's title, and the owner's inbox count.
-  const unread = useUnread();
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages, money]: [
@@ -277,6 +285,13 @@ function Console({ device, staff, recovered, signOut }: {
   const routed = route.kind === 'company' ? companies.find((one) => one.id === route.companyId) ?? null : null;
   useEffect(() => { if (routed) setLastCompany(routed.id); }, [routed]);
   const company = routed ?? companies.find((one) => one.id === lastCompany) ?? companies[0] ?? null;
+
+  // The company in view's room stream, held by the shell so a tab holds it once on every page (STATUS 2.210): its
+  // changes read the badges again at once, and a hidden tab tells its person of a direct message or a mention.
+  const attention = useRoomPulse(company?.id ?? null, (frame) => 'room' in frame && frame.kind !== 'reaction' && frame.kind !== 'pin');
+  useTabNotices(company?.id ?? null, me.data ? { principal: me.data.principal, notifyInTab: me.data.notifyInTab } : null);
+  // What waits in each company: the Rooms badge, the company menu's, the tab's title, and the owner's inbox count.
+  const unread = useUnread(attention.pulse);
 
   // A company just started or restored is in the address before the list read again has it: until it does, it
   // is not taken for one that no longer exists.

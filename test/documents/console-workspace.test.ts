@@ -109,12 +109,13 @@ test('every workspace route is written out at its call', async () => {
   // Each room route the server offers is pressed from the Rooms page, written
   // as `api('METHOD', '/api/...')` with its path spelled out, so the route
   // tests can read it; a path built in a variable is pressed by nobody they
-  // can see.
+  // can see. The room stream is listened to the same way, `live('GET', ...)`
+  // (STATUS 2.210).
   const files = await workspace();
   const app = await readFile(join(CONSOLE, 'App.tsx'), 'utf8');
   const pressed = new Set<string>();
   for (const source of [...files.values(), app]) {
-    for (const call of source.matchAll(/\bapi\(\s*'([A-Z]+)'\s*,\s*['`](\/api\/[^'`]*)['`]/g)) {
+    for (const call of source.matchAll(/\b(?:api|live)\(\s*'([A-Z]+)'\s*,\s*['`](\/api\/[^'`]*)['`]/g)) {
       pressed.add(`${call[1]} ${call[2]!.replace(/\?.*$/, '').replace(/\$\{[^}]+\}/g, ':x')}`);
     }
   }

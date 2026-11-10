@@ -22,6 +22,7 @@ import { play, recordingSupported, useRecorder } from '../recorder.ts';
 import { rolePicture } from '../images.ts';
 import { Prose } from './Prose.tsx';
 import type { Company, RolePersona } from '../types.ts';
+import { useRoomPulse } from '../workspace/useRoomStream.ts';
 
 /** Whether applying a card takes the owner's device: always, only when its route says so, or never. */
 type Factor = 'always' | 'sometimes' | 'never';
@@ -161,6 +162,13 @@ export function AssistantThread({ company = null, draft = null, leave }: {
   useEffect(() => {
     if (draft) setText(draft);
   }, [draft]);
+
+  // A company's conversation changed elsewhere -- said from Telegram, or in another tab -- is read again when the
+  // room stream tells the owner so (STATUS 2.210); not while an answer is being waited for here.
+  const elsewhere = useRoomPulse(companyId, (frame) => frame.kind === 'ceo');
+  useEffect(() => {
+    if (elsewhere.pulse > 0 && !thinking) void load();
+  }, [elsewhere.pulse]);
 
   useEffect(() => {
     setConversation(null);

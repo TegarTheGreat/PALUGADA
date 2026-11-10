@@ -9,7 +9,16 @@
 import type { Area } from '../types.ts';
 
 export const LIVE: Area = {
-  id: { dictionary: {}, kept: [] },
+  id: {
+    dictionary: {
+      'Allow in this browser': 'Izinkan di peramban ini',
+      'This browser blocks notifications from this console. Allow them in its site settings.':
+        'Peramban ini memblokir notifikasi dari konsol ini. Izinkan di pengaturan situsnya.',
+      'This browser cannot show notifications.': 'Peramban ini tidak dapat menampilkan notifikasi.',
+      '{name} in {room}': '{name} di {room}',
+    },
+    kept: [],
+  },
   ms: { dictionary: {}, kept: [] },
   jv: { dictionary: {}, kept: [] },
   su: { dictionary: {}, kept: [] },

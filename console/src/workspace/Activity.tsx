@@ -15,13 +15,16 @@ import { useLoad } from '../hooks.ts';
 import { t } from '../i18n.ts';
 import { roomName, useScope } from './scope.ts';
 import type { ActivityItem, RoomListItem } from './types.ts';
+import { useRoomPulse } from './useRoomStream.ts';
 
 export function Activity({ rooms, open }: { rooms: RoomListItem[]; open: (item: string) => void }) {
   const scope = useScope();
+  // Read again when the room stream says something named the person, or their own read marks moved (STATUS 2.210).
+  const named = useRoomPulse(scope.companyId, (frame) => ('mentioned' in frame && frame.mentioned === true) || frame.kind === 'card' || frame.kind === 'read');
   const items = useLoad<ActivityItem[]>(async () => {
     const answer: { items: ActivityItem[] } = await api('GET', `/api/companies/${scope.companyId}/me/activity`);
     return answer.items;
-  }, [scope.companyId, scope.tick], { every: 30_000 });
+  }, [scope.companyId, scope.tick], named.live ? { pulse: named.pulse } : { every: 30_000 });
   // A message in a thread opens that thread, where reading it is what marks it seen; one in the room opens the room.
   const placeOf = (item: { roomId: string; threadOf: string | null }) => (item.threadOf ? `${item.roomId}~${item.threadOf}` : item.roomId);
   const where = (roomId: string) => {

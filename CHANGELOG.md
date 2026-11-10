@@ -1079,13 +1079,15 @@ The first version. What it holds, in the order an owner meets it.
   wrong codes; everyone has a profile in the menu (STATUS 2.209).
 - Rooms in the console: the first page of every company, and where a member
   of staff lands. Talk in rooms, threads and direct conversations, mention
-  people with @ (never an agent: "Ask the team" asks for work), react, pin,
-  edit and remove; your conversations with the CEO and PALUGADA sit among
-  the direct messages. "Ask the team" turns a message into work in a drawer
+  people with @ (never an agent: "Ask the team" asks for work), marked where
+  they are named, react, pin, edit and remove; Activity opens the thread a
+  reply or a card is in, and archiving a room is asked about first. Your
+  conversations with the CEO and PALUGADA sit among the direct messages.
+  "Ask the team", or /task, turns a message into work in a drawer
   that says whose budget holds the money, the work's state and result appear
   under the message as it moves, and a work's thread can tell it something.
   Approvals in a room use the inbox's own buttons, and tier 3 sends you to
   the inbox. The Rooms badge counts what is addressed to you, on the tab's
   title too. On a phone, Rooms is a tab, a room fills the screen above the
-  keyboard, a thread is a sheet, and a long press opens what you may do
-  with a message; Money moves into More (STATUS 2.207).
+  keyboard, a thread is a sheet, and a long press or a message's one button
+  opens what you may do with it; Money moves into More (STATUS 2.207).

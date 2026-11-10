@@ -779,3 +779,45 @@ test('a meeting a seat called: its to-dos still ask at tier 2, naming the seat',
     await api.close();
   }
 });
+
+test('a meeting is told and stopped from its thread: by the owner, and by the seat that called it, and by no other', async () => {
+  const { fixture, api, owner } = await workspace('meet-told');
+  try {
+    await meetsToday(fixture);
+    const sariSeat = await seated(fixture, 'Sari', 'approver');
+    const sari = personIn(api, sariSeat.token, fixture.companyId);
+    const rina = personIn(api, (await seated(fixture, 'Rina', 'approver')).token, fixture.companyId);
+    const room = await companyRoomOf(owner);
+    for (const person of [sari, rina]) await companyRoomOf(person);
+
+    // The weekly meeting, told from its card's thread by the owner, and by no seat.
+    const weekly = await ensureWeeklyMeeting(fixture.companyId, new Date());
+    assert.ok(weekly);
+    await syncRoomCards(fixture.companyId);
+    const card = (await page(owner, room)).find((message) => message.kind === 'meeting');
+    assert.equal(card.card.may.tell, true);
+    const told = await said(owner, room, { body: 'Look at the late deliveries first.', threadOf: card.id });
+    ok(await owner.on(room, told, 'tell'));
+    assert.deepEqual((await events(fixture, ['owner.instructed'])).map((one) => [one.task_id, one.payload.text]),
+      [[weekly, 'Look at the late deliveries first.']]);
+    assert.equal((await page(sari, room)).find((message) => message.kind === 'meeting').card.may.tell, false);
+    const hers = await said(sari, room, { body: 'And the van.', threadOf: card.id });
+    refusedWith(await sari.on(room, hers, 'tell'), 403, 'staff.forbidden');
+
+    // A meeting a seat called: that seat tells it and stops it; another approver does neither.
+    const message = await said(sari, room, 'The van keeps breaking down.');
+    const { taskId } = ok(await sari.on(room, message, 'meeting', { topic: 'Keep the van or lease one?' }));
+    const shown = async (person: PersonIn) => (await page(person, room)).find((one) => one.id === message);
+    assert.deepEqual([(await shown(sari)).card.may.tell, (await shown(sari)).may.stop], [true, true]);
+    assert.deepEqual([(await shown(rina)).card.may.tell, (await shown(rina)).may.stop], [false, false]);
+    const reply = await said(sari, room, { body: 'Price a lease too.', threadOf: message });
+    ok(await sari.on(room, reply, 'tell'));
+    assert.deepEqual((await events(fixture, ['staff.instructed'])).filter((one) => one.task_id === taskId)
+      .map((one) => one.payload.text), ['Keep the van or lease one?', 'Price a lease too.']);
+    refusedWith(await rina.on(room, message, 'stop'), 403, 'staff.forbidden');
+    ok(await sari.on(room, message, 'stop'));
+    assert.equal((await taskOf(fixture, taskId)).status, 'cancelled');
+  } finally {
+    await api.close();
+  }
+});

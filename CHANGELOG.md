@@ -1112,3 +1112,13 @@ The first version. What it holds, in the order an owner meets it.
   title too. On a phone, Rooms is a tab, a room fills the screen above the
   keyboard, a thread is a sheet, and a long press or a message's one button
   opens what you may do with it; Money moves into More (STATUS 2.207).
+- Agent meetings in rooms: the CEO's weekly meeting is one quiet card in
+  the company room, with its record when it ends. You may attend it, every
+  week under Settings or once by pressing Join; its questions then come to
+  you at once and wait as many minutes as you said, and when they pass the
+  meeting goes on without your answer, which is never taken as a yes. A
+  one-way door is still a tier 3 decision in your inbox. You or an approver
+  can call a meeting about a message in a room: the CEO holds it against the
+  same scorecard, priorities, to-dos and issues, with money held first, at
+  most three a day, and a member of staff's topic reaches it as theirs
+  (STATUS 2.211).

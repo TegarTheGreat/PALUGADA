@@ -35,7 +35,7 @@ import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { escalationPolicyFor, type EscalationPolicy } from '../governance/structure.ts';
-import { readCursor, writeCursor } from '../inbox/inbox.ts';
+import { readCursor, tasksKeptFromSeat, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
 import { journalOf, NOT_A_READ, madeFiles } from '../engine/journal.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
@@ -761,6 +761,8 @@ export async function workOf(
   options: {
     group?: WorkGroup; limit?: number; projectId?: string; roleId?: string; goalId?: string; before?: string;
     taskId?: string;
+    /** A staff seat reading: a task's result is left out where its output is the seat's to not read (F19.9). */
+    seat?: { id: string } | null;
   } = {},
 ): Promise<WorkView> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
@@ -857,6 +859,7 @@ export async function workOf(
     );
     const rows = fetched.slice(0, limit);
     const last = rows[rows.length - 1];
+    const kept = options.seat ? await tasksKeptFromSeat(tx, rows.map((row) => row.id), options.seat) : new Set<string>();
     const { rows: grouped } = await tx.query<{ status: TaskStatus; n: number }>(
       'SELECT status, count(*)::int AS n FROM tasks GROUP BY status',
     );
@@ -889,7 +892,7 @@ export async function workOf(
         haltReason: row.halt_reason,
         ...(tight.has(row.id) ? { budgetStop: tight.get(row.id)! } : {}),
         summary: summarise(row.input),
-        result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
+        result: row.output === null || row.output === undefined || kept.has(row.id) ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
         roleName: row.role_name,
         divisionName: row.division_name,
@@ -1058,17 +1061,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     );
     const task = rows[0];
     if (!task) return null;
-    const { rows: steps } = await tx.query<{
-      step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
-    }>(
-      `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
-        WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
-          AND jsonb_typeof(s.output -> 'path') = 'string'
-          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
-          AND ${NOT_A_READ}
-        ORDER BY s.step_index`,
-      [taskId],
-    );
+    const deliverables = await deliverablesWithin(tx, taskId);
     const made = await madeFiles(tx, taskId);
     const { rows: pieces } = await tx.query<{
       id: string; role: string; role_name: string | null; status: TaskStatus; output: unknown;
@@ -1127,19 +1120,41 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
       })),
       handedBy: by[0] ? { id: by[0].id, role: by[0].role, roleName: by[0].role_name } : null,
       files: made.slice(-FILES_LISTED).map((file) => ({ capability: file.capability, path: redactor.redact(file.path) })),
-      deliverables: steps.map((step) => ({
-        step: step.step_index,
-        capability: step.name.replace(/^capability:/, ''),
-        title: text(step.output.subject) ?? text(step.output.title) ?? headingOf(text(step.output.text))
-          ?? text(step.output.path)!,
-        path: text(step.output.path)!,
-        text: text(step.output.text) ?? text(step.output.body) ?? '',
-        words: typeof step.output.words === 'number' ? step.output.words : null,
-        to: text(step.output.to),
-        at: step.committed_at,
-      })),
+      deliverables,
     };
   });
+}
+
+/**
+ * The drafts a task committed, as `taskDetailOf` lists them, read on the
+ * caller's transaction: a room's card shows them inside the reader's own
+ * transaction, which must not wait on a second connection from the pool it
+ * already holds one of.
+ */
+export async function deliverablesWithin(tx: TenantClient, taskId: string): Promise<Deliverable[]> {
+  const { rows: steps } = await tx.query<{
+    step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
+  }>(
+    `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
+      WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+        AND jsonb_typeof(s.output -> 'path') = 'string'
+        AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+        AND ${NOT_A_READ}
+      ORDER BY s.step_index`,
+    [taskId],
+  );
+  const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+  return steps.map((step) => ({
+    step: step.step_index,
+    capability: step.name.replace(/^capability:/, ''),
+    title: text(step.output.subject) ?? text(step.output.title) ?? headingOf(text(step.output.text))
+      ?? text(step.output.path)!,
+    path: text(step.output.path)!,
+    text: text(step.output.text) ?? text(step.output.body) ?? '',
+    words: typeof step.output.words === 'number' ? step.output.words : null,
+    to: text(step.output.to),
+    at: step.committed_at,
+  }));
 }
 
 /* ------------------------------------------------------------- gallery --- */
@@ -1194,7 +1209,7 @@ function excerptOf(text: string): string {
  */
 export async function galleryOf(
   companyId: string,
-  options: { limit?: number; before?: string } = {},
+  options: { limit?: number; before?: string; seat?: { id: string } | null } = {},
 ): Promise<{ items: GalleryItem[]; next: string | null }> {
   const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
   const cursor = options.before ? galleryCursor(options.before) : null;
@@ -1228,11 +1243,15 @@ export async function galleryOf(
     const rows = fetched.slice(0, limit);
     const last = rows[rows.length - 1];
     const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    // A seat is not shown what a task produced from another seat's words
+    // (F19.9). The page marker is still the last row read, so a page with
+    // drafts left out is shorter and the next one starts where it should.
+    const kept = options.seat ? await tasksKeptFromSeat(tx, [...new Set(rows.map((row) => row.task_id))], options.seat) : new Set<string>();
     return {
       next: fetched.length > limit && last
         ? Buffer.from(`${last.micros}|${last.task_id}|${last.step_index}`, 'utf8').toString('base64url')
         : null,
-      items: rows.map((row) => {
+      items: rows.filter((row) => !kept.has(row.task_id)).map((row) => {
         const body = text(row.output.text) ?? text(row.output.body) ?? '';
         const path = text(row.output.path)!;
         return {
@@ -1310,7 +1329,6 @@ export const ROUTINE_EVENTS = [
   'wake.idle', 'wake.coalesced', 'wake.queued', 'cost.estimated', 'tool.cost',
 ] as const;
 
-/** What happened lately, newest first: the company's event log, from the top. */
 /**
  * Events as a seat may read them (F19.9): a question a run put to another
  * seat, and that seat's answer, are theirs and the owner's, so where an
@@ -1341,6 +1359,7 @@ export async function hideOthersQuestions<T extends { type: string; payload: Rec
   });
 }
 
+/** What happened lately, newest first: the company's event log, from the top. */
 export async function activityOf(
   companyId: string,
   limit = 30,

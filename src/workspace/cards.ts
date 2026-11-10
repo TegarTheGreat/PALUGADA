@@ -154,13 +154,15 @@ export async function syncRoomCards(companyId: string): Promise<number> {
       written += await owe(tx, companyId, roomId, cardId, owed);
     }
 
-    // 2. Every root task a division was given since its room last changed,
-    //    when the room shows all of its work.
+    // 2. Every root task a division was given since its room was told to
+    //    show all of its work (0152 keeps when), however long ago that was:
+    //    reconciled from the tasks, so work whose transaction committed
+    //    behind the cursor still gets its card.
     const { rows: started } = await tx.query<{ id: string; room_id: string }>(
       `SELECT t.id, r.id AS room_id FROM tasks t
          JOIN rooms r ON r.kind = 'division' AND r.division_id = t.division_id AND r.shows_work = 'all'
         WHERE t.parent_task_id IS NULL AND t.created_at > $1::timestamptz - make_interval(days => ${STATE_DAYS})
-          AND t.created_at > coalesce((SELECT max(f.created_at) FROM room_feed f WHERE f.room_id = r.id AND f.kind = 'room'), r.created_at)
+          AND t.created_at > r.shows_work_since
           AND coalesce(t.idempotency_key, '') NOT LIKE 'room:%'
           AND NOT EXISTS (SELECT 1 FROM room_messages c WHERE c.room_id = r.id AND c.kind = 'work' AND c.task_id = t.id)
         ORDER BY t.created_at, t.id`,

@@ -76,7 +76,9 @@ test('a company has one company room and one room per division, made the first t
     } });
     assert.match(metrics, /palugada_people\{kind="member"\} 1/);
     assert.match(metrics, /palugada_people\{kind="owner"\} 1/);
-    assert.match(metrics, new RegExp(`palugada_room_messages_total\\{company="${fixture.slug}"\\} 1`));
+    // How many messages are kept now, which a purge or an erasure lowers: a gauge, not a counter.
+    assert.match(metrics, /# TYPE palugada_room_messages gauge/);
+    assert.match(metrics, new RegExp(`palugada_room_messages\\{company="${fixture.slug}"\\} 1`));
     assert.doesNotMatch(metrics, /Morning/);
   } finally {
     await api.close();
@@ -564,6 +566,40 @@ test('who removed a member and who archived a room is kept', async () => {
               (SELECT archived_by FROM rooms WHERE id = $3) AS archived_by`, [room, sari.principal, other]));
     assert.deepEqual(rows.rows[0], { left_by: budi.principal, archived_by: budi.principal });
     void owner;
+  } finally {
+    await api.close();
+  }
+});
+
+test("a topic room's name is its own among the open ones, and a name taken by a room one cannot see says only that it cannot be used", async () => {
+  const { fixture, api, owner } = await workspace('rooms-names');
+  try {
+    const alpha = await topic(owner, 'Alpha', false);
+    await topic(owner, 'Beta', false);
+    const made = await owner.makeRoom({ name: 'beta', private: false });
+    refusedWith(made, 400, 'contract.violation', 'a second open room of a name');
+    assert.match(made.body.error, /join it, or choose another name/);
+    const renamed = await owner.post(`/rooms/${alpha}`, { name: 'BETA' });
+    refusedWith(renamed, 400, 'contract.violation', 'renamed onto an open room');
+    assert.match(renamed.body.error, /choose another name/);
+    assert.doesNotMatch(renamed.body.error, /duplicate key|constraint/, "the database's words are not the owner's");
+    assert.equal(ok(await owner.room(alpha)).room.name, 'Alpha');
+
+    // A private room's name is taken for everyone, and someone outside it is told no more than that.
+    await topic(owner, 'Secret plans', true);
+    const budi = personIn(api, (await seated(fixture, 'Budi', 'member')).token, fixture.companyId);
+    const hidden = await budi.makeRoom({ name: 'secret PLANS', private: false });
+    refusedWith(hidden, 400, 'contract.violation', 'a name a room Budi cannot see holds');
+    assert.match(hidden.body.error, /cannot be used/);
+    assert.doesNotMatch(hidden.body.error, /already open|join it/, 'nothing says a room of that name is there');
+    const own = await topic(budi, 'Gamma', false);
+    const onto = await budi.post(`/rooms/${own}`, { name: 'Secret Plans' });
+    refusedWith(onto, 400, 'contract.violation', 'renamed onto a room Budi cannot see');
+    assert.match(onto.body.error, /cannot be used/);
+    assert.doesNotMatch(onto.body.error, /already open|join it|duplicate key/);
+    // Archived, a name is free again.
+    ok(await owner.post(`/rooms/${alpha}/archive`));
+    ok(await budi.post(`/rooms/${own}`, { name: 'Alpha' }));
   } finally {
     await api.close();
   }

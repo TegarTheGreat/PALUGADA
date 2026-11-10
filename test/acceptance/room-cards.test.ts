@@ -13,7 +13,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { redactor } from '../../src/secrets/manager.ts';
@@ -21,7 +21,7 @@ import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { createCompany, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import {
-  companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn,
+  companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn, type Seat,
 } from '../helpers/rooms.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -195,6 +195,86 @@ test('routine work never reaches a room', async () => {
     const second = await divisionWork(fixture, 'Back up the mail');
     await syncRoomCards(fixture.companyId);
     assert.deepEqual((await cards(fixture)).map((card) => [card.kind, card.task_id]), [['work', second]]);
+  } finally {
+    await api.close();
+  }
+});
+
+test('a division room that shows all its work shows what was given since it was told to, however long ago that was', async () => {
+  const { fixture, api, owner } = await workspace('cards-all-since');
+  try {
+    const room = await divisionRoom(owner);
+    // The room was made weeks ago, and the division was given work since.
+    await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, fixture.companyId);
+      await tx.query("UPDATE rooms SET created_at = now() - interval '20 days' WHERE id = $1", [room]);
+    });
+    const earlier = await divisionWork(fixture, 'Back up the books');
+    await withControlPlane((tx) => tx.query("UPDATE tasks SET created_at = now() - interval '3 days' WHERE id = $1", [earlier]));
+    await syncRoomCards(fixture.companyId);
+    ok(await owner.post(`/rooms/${room}`, { showsWork: 'all' }));
+    const since = await divisionWork(fixture, 'Back up the mail');
+    // What the room is about has nothing to do with which work it shows.
+    ok(await owner.post(`/rooms/${room}`, { about: 'Where the books are kept.' }));
+    await syncRoomCards(fixture.companyId);
+    assert.deepEqual((await cards(fixture)).map((card) => [card.kind, card.task_id]), [['work', since]]);
+
+    // The room's feed is bookkeeping, purged after two weeks; when the room
+    // was told to show all of its work is not, and older work stays out.
+    await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, fixture.companyId);
+      await tx.query('DELETE FROM room_feed WHERE company_id = $1 AND room_id = $2', [fixture.companyId, room]);
+    });
+    const later = await divisionWork(fixture, 'Back up the photos');
+    await syncRoomCards(fixture.companyId);
+    await syncRoomCards(fixture.companyId);
+    assert.deepEqual((await cards(fixture)).map((card) => [card.kind, card.task_id]), [['work', since], ['work', later]]);
+
+    // Told to show only what needs people, and then all again, it starts again from then.
+    ok(await owner.post(`/rooms/${room}`, { showsWork: 'needs_people' }));
+    const between = await divisionWork(fixture, 'Back up the invoices');
+    ok(await owner.post(`/rooms/${room}`, { showsWork: 'all' }));
+    await syncRoomCards(fixture.companyId);
+    assert.ok(!(await cards(fixture)).some((card) => card.task_id === between), 'work given while the room showed less stays out');
+  } finally {
+    await api.close();
+  }
+});
+
+test('a page of cards read by more people at once than the database lends connections answers every one of them', async () => {
+  const { fixture, api, owner } = await workspace('cards-many-readers');
+  try {
+    const room = await companyRoomOf(owner);
+    // More readers than the application's pool holds connections (ten).
+    const readers: Array<{ seat: Seat; person: PersonIn }> = [];
+    for (let n = 0; n < 12; n += 1) {
+      const seat = await seated(fixture, `Reader ${n}`, 'member');
+      const person = personIn(api, seat.token, fixture.companyId);
+      await companyRoomOf(person);
+      readers.push({ seat, person });
+    }
+    const asked: string[] = [];
+    for (const goal of ['Count the chairs.', 'Count the tables.', 'Count the lamps.']) asked.push((await askedHere(fixture, owner, goal)).taskId);
+    // The first work holds a question put to the first reader: what its runs
+    // said is that reader's and the owner's to read, and no other seat's.
+    await inbox.askOwner({
+      companyId: fixture.companyId, taskId: asked[0]!, question: 'Which room first?',
+      addressee: { seatId: readers[0]!.seat.id, name: 'Reader 0', escalateAfterHours: 24 },
+    });
+    // Asked, the first waits; it runs on once answered, and then all three are done.
+    await transition(fixture.companyId, asked[0]!, 'running');
+    for (const taskId of asked) await transition(fixture.companyId, taskId, 'completed', { output: { summary: 'Counted.' } });
+
+    const pages = await Promise.all(readers.map((reader) => reader.person.page(room)));
+    assert.deepEqual(pages.map((page) => page.status), readers.map(() => 200),
+      JSON.stringify(pages.find((page) => page.status !== 200)?.body ?? null));
+    for (const [n, page] of pages.entries()) {
+      const shown = (page.body.messages as Array<{ card: { taskId: string; result: string | null } | null }>)
+        .filter((one) => one.card !== null).map((one) => [one.card!.taskId, one.card!.result]);
+      assert.deepEqual(shown, asked.map((taskId, at) => [taskId, at === 0 && n !== 0 ? null : 'Counted.']), `reader ${n}`);
+    }
+    const owners = (ok(await owner.page(room)).messages as Array<{ card: { result: string | null } | null }>).map((one) => one.card?.result);
+    assert.deepEqual(owners, ['Counted.', 'Counted.', 'Counted.'], 'the owner reads every one');
   } finally {
     await api.close();
   }

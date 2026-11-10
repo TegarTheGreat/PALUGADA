@@ -182,8 +182,43 @@ test('marking read never moves back and never passes the clock', async () => {
     refusedWith(await owner.read(room, { position: at + 1_000 }), 400, 'contract.violation', 'never past the clock');
     assert.equal(ok(await owner.page(room)).readPosition, at);
     refusedWith(await owner.read(room, { position: -1 }), 400, 'contract.violation');
+    const notAnId = await owner.read(room, { position: at, threadOf: 'not-a-message' });
+    refusedWith(notAnId, 400, 'contract.violation', 'a thread is named by its message');
+    assert.doesNotMatch(notAnId.body.error, /uuid|syntax/, "the database's words are not the owner's");
     const sideRoom = String(ok(await budi.makeRoom({ name: 'Side', private: false })).room.id);
-    refusedWith(await owner.read(sideRoom, { position: at }), 403, 'room.not_member', 'a place is a member\'s');
+    assert.equal(ok(await owner.read(sideRoom, { position: at })).readPosition, 0, "a place is a member's: a room not joined keeps no mark");
+    assert.equal((ok(await owner.rooms()).rooms as Listed[]).some((one) => one.id === sideRoom), false, 'and reading it joins nothing');
+  } finally {
+    await api.close();
+  }
+});
+
+test('a person mentioned in a room they have not joined marks it seen there, without joining it', async () => {
+  const { fixture, api, owner } = await workspace('reads-not-joined');
+  try {
+    const seat = await seated(fixture, 'Budi', 'member', { handle: 'budi' });
+    const budi = personIn(api, seat.token, fixture.companyId);
+    await companyRoomOf(budi);
+    const division = (ok(await owner.rooms(true)).rooms as Array<{ id: string; kind: string; joined: boolean }>)
+      .find((one) => one.kind === 'division')!;
+    if (!division.joined) ok(await owner.join(division.id));
+    const root = await said(owner, division.id, { body: '@budi the stock count is off', mentions: [seat.principal] });
+    const reply = ok(await owner.say(division.id, { body: '@budi start with the back room', mentions: [seat.principal], threadOf: root })).message;
+    const later = await said(owner, division.id, { body: '@budi and the till', mentions: [seat.principal] });
+    const badge = async () => (ok(await api.call('GET', '/api/rooms/unread', seat.token)).unread as Array<{ mentions: number }>)[0]!.mentions;
+    assert.equal(await badge(), 3, 'every mention is his, though the room is not in his rail');
+    assert.equal((ok(await budi.rooms()).rooms as Listed[]).some((one) => one.id === division.id), false);
+
+    // Read in the thread, then in the room, as the console marks them.
+    assert.equal(ok(await budi.read(division.id, { position: reply.position, threadOf: root })).readPosition, 0);
+    assert.equal(await badge(), 1, "the thread's mentions are seen, the room's later one not");
+    const laterAt = (ok(await budi.page(division.id)).messages as Array<{ id: string; position: number }>).find((one) => one.id === later)!.position;
+    assert.equal(ok(await budi.read(division.id, { position: laterAt })).readPosition, 0, 'no mark is kept in a room he is not in');
+    assert.equal(await badge(), 0, "the room's is seen too");
+    const activity = ok(await budi.activity()).items as Array<{ kind: string; seen?: boolean }>;
+    assert.deepEqual(activity.filter((one) => one.kind === 'mention').map((one) => one.seen), [true, true, true]);
+    assert.equal((ok(await budi.rooms()).rooms as Listed[]).some((one) => one.id === division.id), false, 'and he has not joined it');
+    void fixture;
   } finally {
     await api.close();
   }

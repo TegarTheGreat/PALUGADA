@@ -11,9 +11,9 @@
  */
 import { withControlPlane, type Person, type TenantClient } from '../db/tenant.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
-import { seatMayReadTask } from '../inbox/inbox.ts';
+import { tasksKeptFromSeat } from '../inbox/inbox.ts';
 import type { StaffKind } from '../owner/staff.ts';
-import { summarise, taskDetailOf } from '../owner/views.ts';
+import { deliverablesWithin, summarise } from '../owner/views.ts';
 import { redactor } from '../secrets/manager.ts';
 import type { CardView, FileView, MessageView, PersonRef } from './contract.ts';
 
@@ -180,6 +180,10 @@ export async function messageViews(
   const { rows: taskRows } = taskIds.length === 0 ? { rows: [] } : await tx.query<{ id: string; status: TaskStatus; requested_by_seat: string | null }>(
     'SELECT id, status, requested_by_seat FROM tasks WHERE id = ANY($1::uuid[])', [taskIds]);
   const tasks = new Map(taskRows.map((row) => [row.id, row]));
+  // Which of the page's work a seat may not read the runs of, asked once for
+  // the whole page on this transaction rather than once a card.
+  const reading: SeatReading | undefined = viewer.seatId === null ? undefined
+    : { asked: new Set(taskIds), kept: await tasksKeptFromSeat(tx, taskIds, { id: viewer.seatId }) };
   const steers = (taskId: string | null | undefined): boolean => {
     const task = taskId ? tasks.get(taskId) : undefined;
     if (!task || !LIVE(task.status) || !mayAsk(viewer)) return false;
@@ -192,9 +196,9 @@ export async function messageViews(
     const deleted = row.deleted_at !== null;
     const mine = row.author === me;
     const card = row.kind === 'work' || row.kind === 'question' || row.kind === 'approval' || row.kind === 'meeting'
-      ? await cardView(tx, viewer, directory, { kind: row.kind, taskId: row.task_id, itemId: row.inbox_item_id, askedBy: null })
+      ? await cardView(tx, viewer, directory, { kind: row.kind, taskId: row.task_id, itemId: row.inbox_item_id, askedBy: null }, reading)
       : text && row.became === 'work' && row.task_id
-        ? await cardView(tx, viewer, directory, { kind: 'work', taskId: row.task_id, itemId: null, askedBy: row.became_by })
+        ? await cardView(tx, viewer, directory, { kind: 'work', taskId: row.task_id, itemId: null, askedBy: row.became_by }, reading)
         : null;
     const reply = replied.find((one) => one.thread_of === row.id);
     views.push({
@@ -228,7 +232,7 @@ export async function messageViews(
         edit: text && !deleted && mine && Date.now() - row.created_at.getTime() < EDIT_WINDOW_MS,
         delete: text && !deleted && (mine || viewer.kind === 'owner'),
         pin: !deleted,
-        giveAsWork: text && !deleted && row.became === null && mayAsk(viewer),
+        giveAsWork: text && !deleted && row.became === null && row.thread_of === null && mayAsk(viewer),
         tell: text && !deleted && row.became === null && row.thread_of !== null && mine && row.via === 'console'
           && steers(rootTask.get(row.thread_of)),
         stop: text && row.became === 'work' && steers(row.task_id),
@@ -251,11 +255,28 @@ export interface CardSubject {
 }
 
 /**
+ * What a seat may read of a page's work, asked once for the page: the tasks
+ * asked about, and of those, the ones whose runs' words are kept from it
+ * (`tasksKeptFromSeat`, STATUS 2.204).
+ */
+interface SeatReading {
+  asked: ReadonlySet<string>;
+  kept: ReadonlySet<string>;
+}
+
+/**
  * A card as it is now, for one viewer. Read from the task and the item at
  * every showing, so a card the sweep has not redrawn yet is still right, and
  * nothing the card says is stored in a room.
+ *
+ * Everything is read on the caller's transaction, which already holds one of
+ * the application pool's connections: borrowing a second for each card would
+ * leave a room read by more people at once than the pool holds waiting on
+ * one another until the pool gives up.
  */
-export async function cardView(tx: TenantClient, viewer: Viewer, directory: Directory, subject: CardSubject): Promise<CardView> {
+export async function cardView(
+  tx: TenantClient, viewer: Viewer, directory: Directory, subject: CardSubject, reading?: SeatReading,
+): Promise<CardView> {
   const { rows: items } = subject.itemId === null ? { rows: [] } : await tx.query<{
     kind: string; status: string; decision: string | null; tier: number | null; title: string; action_summary: string;
     consequence_if_denied: string; expires_at: Date | null; addressee_seat: string | null; instigators: string[];
@@ -274,8 +295,11 @@ export async function cardView(tx: TenantClient, viewer: Viewer, directory: Dire
        FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1`, [taskId]);
   const task = found[0];
   // What its runs said and made, which a seat reads only where nobody else
-  // was asked anything in it (seatMayReadTask, STATUS 2.204).
-  const readable = task !== undefined && (viewer.seatId === null || await seatMayReadTask(viewer.companyId, task.id, { id: viewer.seatId }));
+  // was asked anything in it, nor said anything to it (STATUS 2.204).
+  const kept = task === undefined || viewer.seatId === null ? false
+    : reading?.asked.has(task.id) ? reading.kept.has(task.id)
+      : (await tasksKeptFromSeat(tx, [task.id], { id: viewer.seatId })).has(task.id);
+  const readable = task !== undefined && !kept;
   let lastLine: string | null = null;
   let result: string | null = null;
   let deliverables: CardView['deliverables'] = [];
@@ -285,8 +309,7 @@ export async function cardView(tx: TenantClient, viewer: Viewer, directory: Dire
     lastLine = notes[0] ? redactor.redact(notes[0].body) : null;
     if (task.status === 'completed' && task.output !== null && task.output !== undefined) {
       result = redactor.redact(summarise(task.output, 400, RESULT_FIELDS));
-      deliverables = ((await taskDetailOf(viewer.companyId, task.id))?.deliverables ?? [])
-        .map((one) => ({ id: String(one.step), title: redactor.redact(one.title) }));
+      deliverables = (await deliverablesWithin(tx, task.id)).map((one) => ({ id: String(one.step), title: one.title }));
     }
   }
   const goal = task && task.input && typeof task.input === 'object' && typeof (task.input as { goal?: unknown }).goal === 'string'

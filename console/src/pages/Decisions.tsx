@@ -852,14 +852,18 @@ function Detail({
         )}
         {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
         {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
-        {/* What the owner asked here, and what the agent answered (N6). */}
+        {/* What was asked here, by the owner or by a member of staff (F19.9), and what the agent answered (N6). */}
         {(item.asked ?? []).map((exchange, index) => (
           <Paper key={index} withBorder radius="md" p="sm">
-            <Text size="xs" c="dimmed">{t('You asked')}</Text>
+            <Text size="xs" c="dimmed">
+              {exchange.by === undefined ? t('You asked') : t('{name} asked', { name: exchange.by || t('A staff member') })}
+            </Text>
             <Text size="sm" mb={6} style={{ whiteSpace: 'pre-wrap' }}>{exchange.question}</Text>
             <Text size="xs" c="dimmed">{t('The agent answered')}</Text>
             {exchange.answer === null
-              ? <Text size="sm" c="dimmed" fs="italic">{t('Not yet: the agent is reading your question.')}</Text>
+              ? <Text size="sm" c="dimmed" fs="italic">
+                {exchange.by === undefined ? t('Not yet: the agent is reading your question.') : t('Not yet: the agent is reading the question.')}
+              </Text>
               : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{exchange.answer}</Text>}
           </Paper>
         ))}

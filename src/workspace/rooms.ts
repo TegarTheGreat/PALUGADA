@@ -271,6 +271,35 @@ async function addPeople(tx: TenantClient, viewer: Viewer, roomId: string, princ
   }
 }
 
+/** A name an open topic room the person can see already has: said, so they can join it instead. */
+async function assertNameFree(tx: TenantClient, name: string, roomId: string | null): Promise<void> {
+  const { rows } = await tx.query(
+    "SELECT 1 FROM rooms WHERE kind = 'topic' AND archived_at IS NULL AND lower(name) = lower($1) AND id IS DISTINCT FROM $2::uuid",
+    [name, roomId]);
+  if (rows.length > 0) {
+    throw new PalugadaError('contract.violation', `a room called ${name} is already open here: join it, or choose another name`, { field: 'name' });
+  }
+}
+
+/**
+ * A statement that names a topic room. A live topic room's name is one in the
+ * whole company (0150), private rooms' included, so a name the person was
+ * not refused by `assertNameFree` can still be taken by a private room they
+ * cannot see. They are told only that the name cannot be used: which room
+ * holds it is not theirs to learn.
+ */
+async function named(tx: TenantClient, name: string, statement: () => Promise<unknown>): Promise<void> {
+  await tx.query('SAVEPOINT topic_named');
+  try {
+    await statement();
+    await tx.query('RELEASE SAVEPOINT topic_named');
+  } catch (error) {
+    if ((error as { code?: string }).code !== '23505') throw error;
+    await tx.query('ROLLBACK TO SAVEPOINT topic_named');
+    throw new PalugadaError('contract.violation', `the name ${name} cannot be used for a room: choose another name`, { field: 'name' });
+  }
+}
+
 /**
  * A topic room, open or private, made by anyone. Its maker is its first
  * admin; a private room is seen by its members and the owner. The room's id
@@ -289,20 +318,10 @@ export async function makeTopicRoom(viewer: Viewer, body: Record<string, unknown
   const id = randomUUID();
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     await takeClock(tx);
-    const { rows: taken } = await tx.query(
-      "SELECT 1 FROM rooms WHERE kind = 'topic' AND archived_at IS NULL AND lower(name) = lower($1)", [name]);
-    if (taken.length > 0) throw new PalugadaError('contract.violation', `a room called ${name} is already open here: join it, or choose another name`, { field: 'name' });
-    await tx.query('SAVEPOINT topic_named');
-    try {
-      await tx.query(
-        "INSERT INTO rooms (id, company_id, kind, name, about, private, created_by) VALUES ($1, $2, 'topic', $3, $4, $5, $6)",
-        [id, viewer.companyId, name, about, body.private === true, viewer.person.principal]);
-    } catch (error) {
-      // A private room of that name the maker cannot see: still one name.
-      if ((error as { code?: string }).code !== '23505') throw error;
-      await tx.query('ROLLBACK TO SAVEPOINT topic_named');
-      throw new PalugadaError('contract.violation', `a room called ${name} is already open here: choose another name`, { field: 'name' });
-    }
+    await assertNameFree(tx, name, null);
+    await named(tx, name, () => tx.query(
+      "INSERT INTO rooms (id, company_id, kind, name, about, private, created_by) VALUES ($1, $2, 'topic', $3, $4, $5, $6)",
+      [id, viewer.companyId, name, about, body.private === true, viewer.person.principal]));
     await tx.query(
       "INSERT INTO room_members (company_id, room_id, principal, name, role, added_by) VALUES ($1, $2, $3, $4, 'admin', $3)",
       [viewer.companyId, id, viewer.person.principal, viewer.person.name]);
@@ -372,7 +391,9 @@ export async function changeRoom(viewer: Viewer, roomId: string, body: Record<st
       if (!runs) throw new PalugadaError('room.not_creator', "only the room's creator, an admin or the owner can change that", { roomId });
       if (body.name !== undefined) {
         if (room.kind !== 'topic') throw new PalugadaError('contract.violation', "the company's and a division's rooms are named after them", { field: 'name' });
-        await tx.query('UPDATE rooms SET name = $2 WHERE id = $1', [roomId, textOf(body.name, 'name', 80)]);
+        const name = textOf(body.name, 'name', 80)!;
+        await assertNameFree(tx, name, roomId);
+        await named(tx, name, () => tx.query('UPDATE rooms SET name = $2 WHERE id = $1', [roomId, name]));
       }
       if (body.about !== undefined) {
         await tx.query('UPDATE rooms SET about = $2 WHERE id = $1', [roomId, textOf(body.about, 'about', 500, { optional: true })]);

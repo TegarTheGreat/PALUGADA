@@ -13,8 +13,9 @@
  * the seat that pressed is named; a seat whose words someone else pressed is
  * carried with the work as quoted. A message that came through a relay, or
  * from an import, is nobody's own words here and is carried as outside
- * content (F8.9). And the journal every seat reads never names a private or a
- * direct room: the link from the work to its message lives on the message.
+ * content (F8.9); a seat's that came through a relay are carried as the
+ * seat's as well. And the journal every seat reads never names a private or
+ * a direct room: the link from the work to its message lives on the message.
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withPeople, withTenant, type Person, type TenantClient } from '../db/tenant.ts';
@@ -150,6 +151,14 @@ export async function giveAsWork(viewer: Viewer, roomId: string, messageId: stri
       if (message.kind !== 'text' || message.deleted_at || message.became !== null) {
         throw new PalugadaError('contract.violation', 'only a person\'s words become work, once', { messageId });
       }
+      // Work begins a thread of its own: its cards, its notices and what is
+      // told to it are replies to it, and a thread is one level deep (0150).
+      // Asked before anything that could refuse it with a notice, which
+      // would have no thread to go in.
+      if (message.thread_of !== null) {
+        throw new PalugadaError('contract.violation',
+          'a reply is not given as work: give the message its thread began with, or say it again at the top of the room', { messageId });
+      }
       if (viewer.seatId !== null) await asksToday(tx, viewer, limit);
 
       const role = target === 'company' ? await ceoOf(tx, viewer.companyId) : null;
@@ -159,18 +168,28 @@ export async function giveAsWork(viewer: Viewer, roomId: string, messageId: stri
         throw new PalugadaError('contract.violation', target === 'company' ? 'the company has no CEO to ask yet' : 'no such role in this company', { field: 'target' });
       }
       named.roleId = roles[0].id;
+      // Projects belong to the company, not to a division, so a press that
+      // names none takes the company's oldest project still open; a named
+      // one that is archived is refused by the door itself.
       const { rows: projects } = await tx.query<{ id: string }>(
-        projectId ? 'SELECT id FROM projects WHERE id = $1' : 'SELECT id FROM projects ORDER BY created_at, id LIMIT 1',
+        projectId ? 'SELECT id FROM projects WHERE id = $1'
+          : 'SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at, id LIMIT 1',
         projectId ? [projectId] : []);
-      if (!projects[0]) throw new PalugadaError('contract.violation', 'that project is not one of this company\'s', { field: 'projectId' });
+      if (!projects[0]) {
+        throw new PalugadaError('contract.violation', projectId
+          ? 'that project is not one of this company\'s'
+          : 'the company has no open project to put the work in: open one under Projects, or name one', { field: 'projectId' });
+      }
       if (paused) throw new PalugadaError('spend.paused', 'company has reached its monthly spending ceiling and is not taking new work', {});
 
       const author = message.author;
       const outside = message.via === 'relay' ? 'a message posted through a relay' : message.via === 'import' ? 'an imported message' : null;
       const authorSeat = author.startsWith('seat:') ? seatOf(author) : null;
       // The owner's work only when the owner pressed their own words, typed
-      // here; a seat's words are staff work whoever pressed them.
-      const createdBy = viewer.seatId !== null || (authorSeat !== null && outside === null) ? 'staff' : 'owner';
+      // here; a seat's words are staff work whoever pressed them, and
+      // wherever they were typed: through a relay they are outside words
+      // and still the seat's.
+      const createdBy = viewer.seatId !== null || authorSeat !== null ? 'staff' : 'owner';
       const task = await createRootTaskWithin(tx, {
         companyId: viewer.companyId,
         projectId: projects[0].id,
@@ -182,8 +201,9 @@ export async function giveAsWork(viewer: Viewer, roomId: string, messageId: stri
         ...(viewer.seatId !== null ? { requestedBySeat: viewer.seatId } : {}),
         ...(outside ? { carriesOutside: { capability: outside, source: 'room' } } : {}),
         // Pressed by someone else, the words are still the seat's: carried
-        // with the work, by the name they were written under.
-        ...(authorSeat !== null && authorSeat !== viewer.seatId && outside === null
+        // with the work, by the name they were written under, so the seat
+        // decides none of what they begin (four eyes, STATUS 2.204).
+        ...(authorSeat !== null && authorSeat !== viewer.seatId
           ? { carriesStaff: { from: 'room' as const, staff: [{ seatId: authorSeat, name: message.author_name ?? UNNAMED_STAFF }] } }
           : {}),
         ...(priority !== undefined ? { priority } : {}),

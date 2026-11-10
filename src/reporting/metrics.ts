@@ -232,8 +232,9 @@ async function deploymentMetrics(): Promise<Family[]> {
         samples: people.rows.map((row) => ({ labels: { kind: row.kind }, value: Number(row.count) })),
       },
       {
-        name: 'palugada_room_messages_total', type: 'counter',
-        help: 'Messages people have written in rooms, by company (no words, only how many).',
+        // How many are kept now, which a purge or an erasure lowers: a gauge.
+        name: 'palugada_room_messages', type: 'gauge',
+        help: 'Messages people have written in rooms and that are kept, by company (no words, only how many).',
         samples: messages.rows.map((row) => ({ labels: { company: row.slug }, value: Number(row.count) })),
       },
       {

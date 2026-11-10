@@ -223,9 +223,9 @@ Each envelope is one canonical JSON object, `POST`ed alone to the relay's
 | `urgency` | for a person | `interrupt`, `normal` or `quiet` |
 | `lang` | for text | the language `text` is in, as a BCP 47 tag |
 | `text` | for a person | a sentence in that language, for a relay that renders nothing itself |
-| `link` | for a person | where it opens in PALUGADA, or `null`; it carries `?company=&item=` or `&task=` |
+| `link` | for a person | where it opens in PALUGADA, or `null`; it carries `?company=&item=`, `&task=`, or `&room=&thread=` |
 | `data` | per type | what the share level allows, below |
-| `offers` | `inbox_item` | `[{ "token", "act", "label" }]`: what the person may press (section 8) |
+| `offers` | `inbox_item`, `room_activity` | `[{ "token", "act", "label" }]`: what the person may press or send back (sections 8 and 9) |
 
 A relay MUST ignore a field it does not know, and SHOULD ignore an envelope
 type it does not know.
@@ -239,14 +239,21 @@ What a person is told is the lower of the relay's level and their own:
 - `summary`: adds the company's name, the title (with any secret in it
   redacted), and the buttons the person may press.
 - `content`: adds what the item says: the action, the question and its
-  choices, a digest's or a finished task's text.
+  choices, a digest's or a finished task's text, and for a person's notice
+  about a room an excerpt of the words (at most 140 characters, with any
+  secret in it redacted).
+
+A person's notice about a room (`room_activity`) says at `signal` only why
+and how many, with its read mark and mute; at `summary` the company, the
+room's name and who wrote, by name and handle; and the words only at
+`content`.
 
 ### 6.2 Urgency
 
 | Value | When | The relay may |
 |---|---|---|
 | `interrupt` | an incident, or an approval at tier 3 | ring the phone |
-| `normal` | something the person may decide or answer | show a notification |
+| `normal` | something the person may decide or answer, or a notice addressed to them: a direct message, a mention, a reply in a thread they follow, a question put to them, an approval they may decide, work they asked for done | show a notification |
 | `quiet` | everything else | nothing that sounds |
 
 ### 6.3 Types
@@ -307,6 +314,39 @@ The owner's daily digest of a company. `data` is `{ day }`; `text` says it is
 ready at `signal`, names the company at `summary`, and is the digest at
 `content`.
 
+#### `room_activity`
+
+A person's own notice about words in a room: someone wrote to them in a
+direct conversation, mentioned them, or replied in a thread they follow.
+Never about their own words; one per room in ten minutes, its `count` the
+messages it stands for; and only about a room the person may still see.
+`data` is `{ "reasons": ["direct" | "mention" | "reply"], count }` at
+`signal`; adds `room` (its name, or `null` for a direct conversation) and
+`authors` (`[{ name, handle }]`, `name` null for the owner) at `summary`; adds
+`excerpt` at `content`, which `text` also carries on its second line. `link`
+opens the room and thread. `urgency` is `normal`.
+
+`offers` are tokens for that room, thread and moment alone, good for seven
+days: `read` and `mute` (five uses each) at every share, and `reply` (twenty
+uses) above `signal` when the owner allowed replies through the relay. None
+are made for the owner's link without a device key. Section 9 says how each
+is sent back.
+
+A seat is told of agent work through the types the owner's items use:
+`inbox_item` for a run's question put to them (`answer` offers, as above) and
+for an approval of the team's they may decide (`approve` and `deny`, never to
+a seat whose own words are in the work), and `work_done` for work they asked
+for, which `text` says is done or why it stopped. Their `text` names the room
+of an approval only to someone who can see it.
+
+#### `room_activity_retracted`
+
+Words a person was told of were deleted in PALUGADA, or their time was up.
+`data` is `{ "refs": ["<envelope id>", …] }`: every `room_activity` the relay
+was sent, or may have read before it refused it, that carried them. A relay
+MUST drop what it holds of each (section 10). An envelope that had not been
+sent when the words went is not sent at all, and its tokens are void.
+
 ## 7. The outbox and delivery
 
 - **The id is fixed.** An envelope's id is a UUID made from the SHA-256 of
@@ -333,6 +373,9 @@ ready at `signal`, names the company at `summary`, and is the digest at
   company the relay no longer hears about is not sent. A notice of an item
   that closed before it was sent is not sent at all, and nor is its
   `inbox_closed`.
+- **A message deleted is not sent.** A `room_activity` owed for words deleted
+  since is dropped, and a relay that had it, or was tried with it, is sent
+  `room_activity_retracted`.
 - Each send has five seconds. Sending runs in a loop of its own, never in the
   path of a request or of the work, and runs while the owner has stopped
   everything.
@@ -365,8 +408,9 @@ palugada-device/v1\n<canonical JSON of the fields>
 in UTF-8, where `\n` is one line feed and the fields are `deployment`,
 `relay`, `recipient`, `type`, `at` (the act's own `at`), and, where they
 apply, `token`, `sha256` (the lower-case hex SHA-256 of the UTF-8 of the free
-text the act carries: an answer, or a reply's words) and `clientId`. A relay
-holding only its own key therefore cannot make an act.
+text the act carries: an answer, or a reply's words), `clientId` (a reply's)
+and `until` (a mute's, `null` included). A relay holding only its own key
+therefore cannot make an act.
 
 The device signs `at` when the person acts, and the deployment takes the act
 only within 300 seconds of it, as it takes a relay's signature: a relay
@@ -442,7 +486,7 @@ Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
 
 | Status | Body | When |
 |---|---|---|
-| `200` | `{ "ok": true, "result": … }` | taken |
+| `200` | `{ "ok": true, "result": … }` | taken; a press also carries `text`, "Decided through" the relay's name, in the person's language |
 | `401` | `{ "ok": false, "code" }` | unknown or revoked relay, bad signature |
 | `408` | `{ "ok": false, "code": "relay.stale" }` | signed more than 300 seconds from now |
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
@@ -450,6 +494,9 @@ Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
 | `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's own rule (such as `approval.own_instigation`: four eyes) |
 | `400`, `500` | `{ "error", "code" }`, without `ok` | the deployment failed for a reason that is no answer to the envelope: nothing it asked for was done, and the same envelope, sent again under its id, is taken afresh |
 | `429` | `{ "ok": false, "code": "relay.throttled" }` | too many |
+
+A press refused at tier 3 also carries `text`, saying that tier 3 is decided
+in the app, in the person's language.
 
 The `422` codes: `relay.unknown_type`, `relay.press_off`, `relay.press_unknown`,
 `relay.press_spent`, `relay.press_tier3`, `relay.device_sig`,
@@ -478,19 +525,29 @@ others sent with it.
 #### `reply`
 
 `{ token, body, clientId, device_sig? }`: words in reply to a notice about a
-room. Known, and refused (`relay.post_off`) until people's notices offer it;
-when they do it is always a plain message from that person, and never the
-owner's words given as work.
+room, `body` 1 to 4,000 characters and `clientId` 1 to 64, by which a reply
+sent twice is one message. Only while the owner allows replies through the
+relay (`relay.post_off`), and only with a `reply` token sent to this person
+through this relay, unspent and unexpired (`relay.press_unknown`,
+`relay.press_spent`). It lands in the room and thread the token names, and
+no other, whatever else the body says: a plain message from that person,
+marked as come through the relay. It is never work, never an instruction to
+work, and never the owner's words given as work; the person must still be in
+the room. Answered with `{ message }`, the message's id.
 
 #### `read`
 
-`{ token, device_sig? }`: a read mark. Refused (`relay.post_off`) until
-people's notices offer it.
+`{ token, device_sig? }`: a read mark, to the moment the notice named, in
+its room or its thread, as if the person had read it in PALUGADA, where the
+badges on every one of their devices move with it. Answered with
+`{ readPosition }`.
 
 #### `mute`
 
-`{ token, until, device_sig? }`: a room muted until a time, or `null`. Refused
-(`relay.post_off`) until people's notices offer it.
+`{ token, until, device_sig? }`: the notice's room muted until `until`, an
+ISO 8601 time at most thirty days ahead, or heard again with `null`. A muted
+room tells nobody of its words through a relay, except a mention. Answered
+with `{ mutedUntil }`.
 
 #### `link_claim`
 
@@ -511,7 +568,8 @@ Its offers end with it.
 ## 10. Content a relay holds
 
 A relay MUST drop the content of an envelope a retraction names
-(`inbox_closed`), and SHOULD keep content no longer than fourteen days. A
+(`inbox_closed`, `room_activity_retracted`), and SHOULD keep content no
+longer than fourteen days. A
 topic on a public ntfy server is readable by anyone who knows its name: a
 relay that forwards to ntfy SHOULD use a self-hosted or token-protected ntfy
 for any share above `signal`.
@@ -535,8 +593,8 @@ second pairing until its state file is deleted, is pulled from, verifies every
 envelope, takes a new key only as section 2.3 says, prints it, drops retracted content, and forwards `text` and `link`
 to ntfy (`RELAY_NTFY_URL`, `RELAY_NTFY_TOKEN`) at priority 5 for `interrupt`,
 3 for `normal` and 2 for `quiet`. Its commands `link <code>`,
-`press <token> [answer]` and `reply <token> <text>` act as a phone's app
-would, with a device key for each link; the relay takes them only from the
+`press <token> [answer]`, `reply <token> <text>`, `read <token>` and
+`mute <token> [hours]` act as a phone's app would, with a device key for each link; the relay takes them only from the
 machine it runs on, and refuses one a proxy in front of it forwarded.
 
 ## 13. Test vectors
@@ -557,6 +615,11 @@ message give the same signature in any library.
 - `device`: a device's seed, the fields of a press, the bytes it signs, and
   the signature.
 - `pull`: a pull's request line and its signature with `key`.
+- `roomActivity`: a person's `room_activity` at `summary`, its canonical
+  body, its `v1a` signature with `key` at `timestamp`, and the notice and
+  link its id is made from.
+- `reply`: a reply's words, and the fields, bytes and signature of the
+  `device` key's signature on it.
 
 <!-- test vectors -->
 
@@ -693,6 +756,79 @@ message give the same signature in any library.
     "timestamp": "1794139200",
     "request": "GET /v1/inbox?after=7&wait=25",
     "signature": "v1a,Id5MCxe3xgUVSAOrGcRpRe9fMiHX+blrxpKQ7HgIMRsf+czjusYKeUdDrMqX+PRyFcLqHnhQew1XETwKA20vDA=="
+  },
+  "roomActivity": {
+    "value": {
+      "v": 1,
+      "id": "d95716a2-8d50-8b44-8048-04d19062eebc",
+      "type": "room_activity",
+      "at": "2026-11-08T12:05:00.000Z",
+      "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
+      "relay": "9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+      "to": {
+        "recipient": "DUO7HGJ6ZVY3R2L2UMWI6IR3IM"
+      },
+      "company": {
+        "ref": "co_SCS6VUU5FYH6FLKQ",
+        "name": "Toko Kopi"
+      },
+      "share": "summary",
+      "urgency": "normal",
+      "lang": "id",
+      "text": "Budi (@budi) menyebut Anda di Toko Kopi.",
+      "link": "https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
+      "data": {
+        "reasons": [
+          "mention"
+        ],
+        "count": 1,
+        "room": "Toko Kopi",
+        "authors": [
+          {
+            "name": "Budi",
+            "handle": "budi"
+          }
+        ]
+      },
+      "offers": [
+        {
+          "token": "pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+          "act": "reply",
+          "label": "Balas"
+        },
+        {
+          "token": "pt_BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+          "act": "read",
+          "label": "Tandai dibaca"
+        },
+        {
+          "token": "pt_BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+          "act": "mute",
+          "label": "Bisukan"
+        }
+      ]
+    },
+    "canonical": "{\"at\":\"2026-11-08T12:05:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"authors\":[{\"handle\":\"budi\",\"name\":\"Budi\"}],\"count\":1,\"reasons\":[\"mention\"],\"room\":\"Toko Kopi\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"d95716a2-8d50-8b44-8048-04d19062eebc\",\"lang\":\"id\",\"link\":\"https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b\",\"offers\":[{\"act\":\"reply\",\"label\":\"Balas\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\"},{\"act\":\"read\",\"label\":\"Tandai dibaca\",\"token\":\"pt_BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ\"},{\"act\":\"mute\",\"label\":\"Bisukan\",\"token\":\"pt_BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU\"}],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Budi (@budi) menyebut Anda di Toko Kopi.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"room_activity\",\"urgency\":\"normal\",\"v\":1}",
+    "id": "d95716a2-8d50-8b44-8048-04d19062eebc",
+    "timestamp": "1794139500",
+    "signature": "v1a,iKG7CVooymy4BV+k0FoJfHVls4J7tm/tYjrkWvrXNWshYYBXQlO4nvhpN7ACWDH/Oynd7idfmJ9OHgpAz7ZTBg==",
+    "subject": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+    "link": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
+  },
+  "reply": {
+    "body": "Saya ke sana sekarang.",
+    "fields": {
+      "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
+      "relay": "9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+      "recipient": "DUO7HGJ6ZVY3R2L2UMWI6IR3IM",
+      "type": "reply",
+      "token": "pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "at": "2026-11-08T12:06:00.000Z",
+      "sha256": "d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808",
+      "clientId": "phone-7f3a"
+    },
+    "message": "palugada-device/v1\n{\"at\":\"2026-11-08T12:06:00.000Z\",\"clientId\":\"phone-7f3a\",\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"sha256\":\"d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\",\"type\":\"reply\"}",
+    "signature": "7ZSwpy11tNhzYk8f8ao8hCqJ1D8vW8mfXjgGTH74SDhkhQ4Wk1qX9D0sosTsRerPJcTGOFnGrRBmi2-50PalAQ"
   }
 }
 ```

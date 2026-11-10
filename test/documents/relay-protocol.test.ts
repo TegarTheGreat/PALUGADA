@@ -52,6 +52,8 @@ interface Vectors {
   pseudonyms: { salt: string; principal: string; recipient: string; companyId: string; companyRef: string };
   device: { seed: string; publicKey: string; fields: Record<string, unknown>; message: string; signature: string };
   pull: { id: string; timestamp: string; request: string; signature: string };
+  roomActivity: { value: Record<string, unknown>; canonical: string; id: string; timestamp: string; signature: string; subject: string; link: string };
+  reply: { body: string; fields: Record<string, unknown>; message: string; signature: string };
 }
 
 async function vectors(): Promise<Vectors> {
@@ -105,6 +107,21 @@ test("the document's test vectors verify", async () => {
 
   // A pull, signed over the request line.
   assert.equal(signV1a([key.privateKey], v.pull.id, v.pull.timestamp, v.pull.request), v.pull.signature);
+
+  // A person's notice about a room (STATUS section 2.213): canonical, signed,
+  // and its id made from the notice it tells of.
+  const room = v.roomActivity;
+  assert.equal(room.value.type, 'room_activity');
+  assert.equal(jcs(room.value), room.canonical);
+  assert.equal(signV1a([key.privateKey], room.id, room.timestamp, room.canonical), room.signature);
+  assert.equal(envelopeId({
+    deployment: String(room.value.deployment), relay: String(room.value.relay), link: room.link, type: 'room_activity', subject: room.subject,
+  }), room.id);
+  // A reply from the person's device: its words hashed, its client id signed beside them.
+  assert.equal(v.reply.fields.type, 'reply');
+  assert.equal(v.reply.fields.sha256, createHash('sha256').update(v.reply.body, 'utf8').digest('hex'));
+  assert.equal(`palugada-device/v1\n${jcs(v.reply.fields)}`, v.reply.message);
+  assert.equal(sign(null, Buffer.from(v.reply.message, 'utf8'), device.privateKey).toString('base64url'), v.reply.signature);
 
   // A seed is the private key, so a reader can rebuild it with any library: PKCS #8 around the 32 bytes.
   const rebuilt = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
@@ -169,4 +186,11 @@ test('a relay built from the document alone checks every vector, with nothing of
   assert.equal(v.device.message, `palugada-device/v1\n${v.device.message.split('\n')[1]}`);
   assert.deepEqual(JSON.parse(v.device.message.split('\n')[1]!), v.device.fields);
   assert.ok(verify(null, Buffer.from(v.device.message, 'utf8'), published(v.device.publicKey), Buffer.from(v.device.signature, 'base64url')));
+
+  // Section 6.3: a person's notice about a room, signed as every envelope is;
+  // and a reply's device form, its words hashed as section 8 says.
+  assert.deepEqual(JSON.parse(v.roomActivity.canonical), v.roomActivity.value);
+  assert.ok(v1a(v.roomActivity.signature, v.roomActivity.id, v.roomActivity.timestamp, v.roomActivity.canonical, v.key.publicKey));
+  assert.equal(JSON.parse(v.reply.message.split('\n')[1]!).sha256, createHash('sha256').update(v.reply.body, 'utf8').digest('hex'));
+  assert.ok(verify(null, Buffer.from(v.reply.message, 'utf8'), published(v.device.publicKey), Buffer.from(v.reply.signature, 'base64url')));
 });

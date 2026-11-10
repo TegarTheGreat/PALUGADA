@@ -60,8 +60,13 @@ export async function offerLink(linker: Linker, relayId: string, share: unknown,
   }
   const code = Array.from(randomBytes(8), (byte) => CODE_ALPHABET[byte & 31]).join('');
   const expiresAt = new Date(now.getTime() + LINK_CODE_MINUTES * 60_000);
-  await assertLinkable(linker, relayId);
   const linkId = await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its links takes it, and read
+    // as it is now: a relay revoked a moment ago offers no code.
+    const relay = await relayRow(tx, relayId, true);
+    if (!relay || relay.status !== 'paired' || (linker.companyId !== null && !covers(relay, linker.companyId))) {
+      throw new PalugadaError('relay.not_paired', 'that relay is not paired to tell you about your company', { relayId });
+    }
     // A person has one code waiting per relay: asking again replaces it.
     await tx.query(`DELETE FROM relay_links WHERE relay_id = $1 AND principal = $2 AND status = 'offered'`, [relayId, linker.principal]);
     const { rows } = await tx.query<{ id: string }>(
@@ -84,12 +89,17 @@ export async function offerLink(linker: Linker, relayId: string, share: unknown,
  */
 export async function claimLink(
   tx: TenantClient,
-  relay: RelayRow,
+  given: Pick<RelayRow, 'id'>,
   claim: { code: string; label: string | null; deviceKey: Buffer | null; claimId: string },
   now = new Date(),
 ): Promise<{ linkId: string; recipient: string; companies: string[]; companyId: string | null } | null> {
   const code = claim.code.toUpperCase().replace(/[\s-]/g, '');
   if (!/^[A-Z2-7]{8}$/.test(code)) return null;
+  // The relay's row first, as every change of its links takes it, and read as
+  // it is now: a relay revoked while its claim was on the way claims nothing.
+  const held = await relayRow(tx, given.id, true);
+  if (!held || held.status !== 'paired') return null;
+  const relay = held;
   const { rows } = await tx.query<{ id: string; principal: string; company_id: string | null }>(
     `SELECT id, principal, company_id FROM relay_links
       WHERE relay_id = $1 AND code_hash = $2 AND status = 'offered' AND code_expires_at > $3
@@ -135,7 +145,10 @@ async function companiesHeard(tx: TenantClient, relay: RelayRow, companyId: stri
   return rows.map((row) => companyRef(relay.salt, row.id));
 }
 
-/** Ends links, and voids their offers and drops what they were owed and not yet sent. */
+/**
+ * Ends links, and voids their offers and drops what they were owed and not
+ * yet sent. The caller holds the row of every relay the links are through.
+ */
 export async function endLinks(tx: TenantClient, linkIds: readonly string[], now = new Date()): Promise<void> {
   if (linkIds.length === 0) return;
   await tx.query(`UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE id = ANY($1::uuid[]) AND status <> 'ended'`, [linkIds, now]);
@@ -149,6 +162,9 @@ export async function endLinks(tx: TenantClient, linkIds: readonly string[], now
  */
 export async function endLink(linkId: string, by: Linker): Promise<void> {
   await withControlPlane(async (tx) => {
+    const { rows: [through] } = await tx.query<{ relay_id: string }>('SELECT relay_id FROM relay_links WHERE id = $1', [linkId]);
+    // The relay's row before the link, as every change of its links takes it.
+    if (through) await relayRow(tx, through.relay_id, true);
     const { rows } = await tx.query<{ principal: string }>(
       `SELECT principal FROM relay_links WHERE id = $1 AND status <> 'ended' FOR UPDATE`, [linkId]);
     if (!rows[0] || (by.principal !== 'owner' && rows[0].principal !== by.principal)) {
@@ -160,6 +176,11 @@ export async function endLink(linkId: string, by: Linker): Promise<void> {
 
 /** Every link of one person ends, in the caller's transaction: a seat revoked. */
 export async function endLinksOf(tx: TenantClient, principal: string, now = new Date()): Promise<number> {
+  // Each relay's row before its links, in the order of their ids, as every
+  // transaction that touches more than one relay takes them.
+  const { rows: relays } = await tx.query<{ relay_id: string }>(
+    `SELECT DISTINCT relay_id FROM relay_links WHERE principal = $1 AND status <> 'ended' ORDER BY relay_id`, [principal]);
+  for (const one of relays) await relayRow(tx, one.relay_id, true);
   const { rows } = await tx.query<{ id: string }>(
     `SELECT id FROM relay_links WHERE principal = $1 AND status <> 'ended' FOR UPDATE`, [principal]);
   await endLinks(tx, rows.map((row) => row.id), now);

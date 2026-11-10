@@ -144,7 +144,7 @@ export async function receiveFromRelay(relayId: string, envelope: InboundEnvelop
   // 2. Its signature, then its time.
   const body = typeof envelope.body === 'string' ? Buffer.from(envelope.body, 'utf8') : envelope.body;
   const id = String(envelope.id ?? '');
-  if (id.length < 1 || id.length > 128 || body.length > INBOUND_MAX_BYTES
+  if (!/^[\x21-\x7e]{1,128}$/.test(id) || body.length > INBOUND_MAX_BYTES
       || !/^\d{1,12}$/.test(String(envelope.timestamp ?? ''))
       || !verifyV1a(String(envelope.signature ?? ''), [relay.public_key], id, envelope.timestamp, body)) {
     countRefusal('signature');
@@ -177,7 +177,14 @@ export async function receiveFromRelay(relayId: string, envelope: InboundEnvelop
   try {
     answer = await act(relay, body, id, now);
   } catch (error) {
-    if (!(error instanceof Refusal)) throw error;
+    if (!(error instanceof Refusal)) {
+      // Not a refusal: something failed that the relay did not ask for. The
+      // claim goes, so the relay sending the envelope again has it taken
+      // rather than answered "in progress" for the receipt's fortnight.
+      await withControlPlane((tx) => tx.query(
+        `DELETE FROM relay_receipts WHERE relay_id = $1 AND envelope_id = $2 AND result ? 'pending'`, [relay.id, id]));
+      throw error;
+    }
     countRefusal(error.code);
     await recordRefusal(relay, error, now);
     answer = { status: error.status, body: { ok: false, code: error.code, ...error.extra } };
@@ -238,6 +245,10 @@ async function act(relay: RelayRow, raw: Buffer, envelopeId: string, now: Date):
       || !(INBOUND_TYPES as readonly string[]).includes(body.type)) {
     throw new Refusal(422, 'relay.unknown_type');
   }
+  // A character no text column keeps is refused for what it is, before
+  // anything is read or spent for it: written, it would fail the write and
+  // leave whatever came before half done.
+  if (unkept(body)) throw new Refusal(422, 'relay.malformed');
   const type = body.type as InboundType;
   switch (type) {
     case 'press':
@@ -263,6 +274,16 @@ async function act(relay: RelayRow, raw: Buffer, envelopeId: string, now: Date):
   }
 }
 
+/** Whether anything in a body, a name or a value, holds the one character PostgreSQL's text cannot: NUL. */
+function unkept(value: unknown): boolean {
+  if (typeof value === 'string') return value.includes('\u0000');
+  if (Array.isArray(value)) return value.some(unkept);
+  if (value !== null && typeof value === 'object') {
+    return Object.entries(value).some(([key, one]) => key.includes('\u0000') || unkept(one));
+  }
+  return false;
+}
+
 interface LinkRow {
   id: string;
   relay_id: string;
@@ -271,9 +292,16 @@ interface LinkRow {
   recipient_id: string;
   device_key: Buffer | null;
   status: string;
+  claimed_at: Date | null;
 }
 
-/** The device form: what a device signs for an act, so the relay alone cannot make one. */
+/**
+ * The device form: what a device signs for an act, so the relay alone cannot
+ * make one. The act's own `at` is signed, and held to the five minutes a
+ * relay's signature is, so a relay cannot keep a signed act and send it
+ * later; an end must be signed after the link it ends was made, so the end
+ * of an earlier link made with the same key ends nothing now.
+ */
 function deviceSigned(
   link: LinkRow,
   relay: RelayRow,
@@ -281,9 +309,13 @@ function deviceSigned(
   body: Body,
   type: string,
   extra: Record<string, unknown>,
+  now: Date,
 ): boolean {
   if (!link.device_key) return false;
   if (typeof body.device_sig !== 'string' || typeof body.at !== 'string') return false;
+  const at = Date.parse(body.at);
+  if (!Number.isFinite(at) || Math.abs(now.getTime() - at) > SIGNATURE_TOLERANCE_SECONDS * 1000) return false;
+  if (type === 'link_end' && link.claimed_at !== null && at < link.claimed_at.getTime()) return false;
   const fields = { deployment, relay: relay.id, recipient: link.recipient_id, type, at: body.at, ...extra };
   const signature = Buffer.from(body.device_sig, 'base64url');
   if (signature.length !== 64) return false;
@@ -314,11 +346,14 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
   const answerText = typeof body.answer === 'string' ? body.answer : null;
   if (answerText !== null && answerText.length > 2000) throw new Refusal(422, 'relay.press_unknown');
 
+  const hash = tokenHash(body.token as string);
   const redeemed = await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its offers takes it.
+    await relayRow(tx, relay.id, true);
     const { rows: [offer] } = await tx.query<{
       link_id: string; company_id: string; principal: string; act: string; inbox_item_id: string | null;
       option: string | null; uses: number; max_uses: number; expires_at: Date; voided_at: Date | null;
-    }>('SELECT * FROM relay_offers WHERE token_hash = $1 AND relay_id = $2 FOR UPDATE', [tokenHash(body.token as string), relay.id]);
+    }>('SELECT * FROM relay_offers WHERE token_hash = $1 AND relay_id = $2 FOR UPDATE', [hash, relay.id]);
     if (!offer) throw new Refusal(422, 'relay.press_unknown');
     const { rows: [link] } = await tx.query<LinkRow>('SELECT * FROM relay_links WHERE id = $1', [offer.link_id]);
     if (!link || link.relay_id !== relay.id || link.status !== 'active') throw new Refusal(410, 'relay.link_ended', offer.company_id);
@@ -327,19 +362,21 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
     }
     if (link.device_key) {
       const fields = { token: body.token, ...(answerText !== null ? { sha256: createHash('sha256').update(answerText, 'utf8').digest('hex') } : {}) };
-      if (!deviceSigned(link, relay, await deploymentOf(tx), body, 'press', fields)) throw new Refusal(422, 'relay.device_sig', offer.company_id);
+      if (!deviceSigned(link, relay, await deploymentOf(tx), body, 'press', fields, now)) throw new Refusal(422, 'relay.device_sig', offer.company_id);
     } else if (link.principal === 'owner') {
       throw new Refusal(422, 'relay.owner_device', offer.company_id);
     }
     if (!['approve', 'deny', 'answer'].includes(offer.act) || !offer.inbox_item_id) throw new Refusal(422, 'relay.press_unknown', offer.company_id);
     if (offer.voided_at || offer.uses >= offer.max_uses || offer.expires_at <= now) throw new Refusal(422, 'relay.press_spent', offer.company_id);
-    // Spent before the decision is tried: a press that fails for any reason
-    // after this is not a token left to be tried again.
-    await tx.query('UPDATE relay_offers SET uses = uses + 1 WHERE token_hash = $1', [tokenHash(body.token as string)]);
+    // An answer with no words, to a question with no choice on this button, answers nothing.
+    if (offer.act === 'answer' && !(offer.option ?? answerText ?? '').trim()) throw new Refusal(422, 'relay.press_unknown', offer.company_id);
+    // Spent before the decision is tried: a press the inbox refuses after
+    // this is not a token left to be tried again.
+    await tx.query('UPDATE relay_offers SET uses = uses + 1 WHERE token_hash = $1', [hash]);
     // The other buttons for the same item to the same person go with it.
     await tx.query(
       `UPDATE relay_offers SET voided_at = $3 WHERE link_id = $1 AND inbox_item_id = $2 AND voided_at IS NULL AND token_hash <> $4`,
-      [link.id, offer.inbox_item_id, now, tokenHash(body.token as string)]);
+      [link.id, offer.inbox_item_id, now, hash]);
     let seat: inbox.SeatActor | null = null;
     if (link.principal !== 'owner') {
       // The seat as it is now, not as it was when the offer was made: an
@@ -360,14 +397,12 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
   const { offer, seat, language } = redeemed;
   const companyId = offer.company_id;
   const itemId = offer.inbox_item_id!;
-  const { rows: [item] } = await withTenant(companyId, (tx) => tx.query<{ tier: number | null; kind: string }>(
-    'SELECT tier, kind FROM inbox_items WHERE id = $1', [itemId]));
-  if (item && (item.tier ?? 0) >= 3) throw new Refusal(422, 'relay.press_tier3', companyId);
   try {
+    const { rows: [item] } = await withTenant(companyId, (tx) => tx.query<{ tier: number | null; kind: string }>(
+      'SELECT tier, kind FROM inbox_items WHERE id = $1', [itemId]));
+    if (item && (item.tier ?? 0) >= 3) throw new Refusal(422, 'relay.press_tier3', companyId);
     if (offer.act === 'answer') {
-      const words = offer.option ?? answerText;
-      if (!words || !words.trim()) throw new Refusal(422, 'relay.press_unknown', companyId);
-      await inbox.answerEscalation(companyId, itemId, words, { channel: 'chat', seat, via: 'relay' });
+      await inbox.answerEscalation(companyId, itemId, (offer.option ?? answerText)!, { channel: 'chat', seat, via: 'relay' });
     } else {
       await inbox.decide(companyId, itemId, offer.act as 'approve' | 'deny', '', { channel: 'chat', seat, via: 'relay' });
     }
@@ -381,9 +416,23 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
       if (error.code === 'approval.channel_forbidden') throw new Refusal(422, 'relay.press_tier3', companyId);
       throw new Refusal(422, error.code, companyId);
     }
+    // Nothing decided, for a reason that is no answer to the press: the
+    // token, and the buttons it voided, are the person's again.
+    await giveBack(relay.id, offer.link_id, itemId, hash, now);
     throw error;
   }
   return { status: 200, body: { ok: true, result: { act: offer.act } } };
+}
+
+/** A press undone: its token unspent, and the item's other buttons it voided live again. */
+async function giveBack(relayId: string, linkId: string, itemId: string, hash: string, pressedAt: Date): Promise<void> {
+  await withControlPlane(async (tx) => {
+    await relayRow(tx, relayId, true);
+    await tx.query('UPDATE relay_offers SET uses = greatest(uses - 1, 0) WHERE token_hash = $1', [hash]);
+    await tx.query(
+      'UPDATE relay_offers SET voided_at = NULL WHERE link_id = $1 AND inbox_item_id = $2 AND voided_at = $3 AND token_hash <> $4',
+      [linkId, itemId, pressedAt, hash]);
+  });
 }
 
 /**
@@ -409,10 +458,12 @@ async function linkClaim(relay: RelayRow, body: Body, envelopeId: string, now: D
 async function linkEnd(relay: RelayRow, body: Body, now: Date): Promise<InboundAnswer> {
   if (typeof body.recipient !== 'string') throw new Refusal(410, 'relay.link_ended');
   return withControlPlane(async (tx) => {
+    // The relay's row before the link, as every change of its links takes it.
+    await relayRow(tx, relay.id, true);
     const { rows: [link] } = await tx.query<LinkRow>(
       `SELECT * FROM relay_links WHERE relay_id = $1 AND recipient_id = $2 AND status = 'active' FOR UPDATE`, [relay.id, body.recipient]);
     if (!link) throw new Refusal(410, 'relay.link_ended');
-    if (link.device_key && !deviceSigned(link, relay, await deploymentOf(tx), body, 'link_end', {})) {
+    if (link.device_key && !deviceSigned(link, relay, await deploymentOf(tx), body, 'link_end', {}, now)) {
       throw new Refusal(422, 'relay.device_sig', link.company_id);
     }
     await endLinks(tx, [link.id], now);

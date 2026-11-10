@@ -73,10 +73,19 @@ relays cannot join what each knows.
 
 The owner may give the deployment a new key. For seven days after, every
 envelope carries two signatures, the new key's and the old one's, and every
-paired relay is sent a `keys_rotated` envelope that both sign. A relay that
-pinned the old key verifies it with that key and pins the new one from it. A
-relay MUST keep accepting the old key until the `until` the envelope names,
-and SHOULD stop after.
+paired relay is sent a `keys_rotated` envelope that both sign. A relay MUST
+take the new key only from a `keys_rotated` that
+
+- verifies with the key it pinned now -- not a key rotated out and still in
+  its week, which whoever rotated it away from may hold;
+- verifies with the key it names, so the deployment is shown to hold it; and
+- names, as `previous.key`, the key the relay pinned now.
+
+It then pins the new key and keeps accepting the one it replaces until the
+`until` the envelope names, never more than seven days on, and SHOULD stop
+after. A rotation signed by the old key alone is refused: otherwise whoever
+kept the old key could, in its week, announce a key of their own and be
+pinned for good.
 
 ### 2.4 The deployment's identity
 
@@ -129,7 +138,7 @@ the request line, section 9). They travel as headers:
 
 | Header | Value |
 |---|---|
-| `webhook-id` | the message id |
+| `webhook-id` | the message id: 1 to 128 visible ASCII characters (`!` to `~`) |
 | `webhook-timestamp` | the time of signing, in seconds |
 | `webhook-signature` | `v1a,` and the 64-byte signature in standard base64 with padding (RFC 4648 section 4); while a key is rotated, a second one after a single space |
 | `palugada-key` | the `kid` of the deployment's current key (deployment to relay only) |
@@ -260,7 +269,8 @@ A link stands (section 8). `to` names the person; `data` is
 #### `keys_rotated`
 
 The deployment's key changed (section 2.3). `{ key, kid, fingerprint, previous: { key, kid, until } }`,
-signed with both keys.
+signed with both keys. A relay takes it only when the key it pinned now and
+`key` both verify it, and `previous.key` is the key it pinned now.
 
 #### `inbox_item`
 
@@ -315,7 +325,14 @@ ready at `signal`, names the company at `summary`, and is the digest at
 - **A send cut off** -- the deployment stopped before it learned the answer --
   is sent again after ten minutes, under the same id.
 - **Order** is kept for each person: a later envelope for one link waits
-  behind an earlier one still owed.
+  behind an earlier one still owed, and behind one being sent, by this
+  process or another.
+- **What is owed follows the owner's settings.** An envelope not yet sent
+  when the owner narrows what a relay is told is made again at the new
+  share, without the offers no longer allowed, under the same id; one for a
+  company the relay no longer hears about is not sent. A notice of an item
+  that closed before it was sent is not sent at all, and nor is its
+  `inbox_closed`.
 - Each send has five seconds. Sending runs in a loop of its own, never in the
   path of a request or of the work, and runs while the owner has stopped
   everything.
@@ -351,6 +368,14 @@ apply, `token`, `sha256` (the lower-case hex SHA-256 of the UTF-8 of the free
 text the act carries: an answer, or a reply's words) and `clientId`. A relay
 holding only its own key therefore cannot make an act.
 
+The device signs `at` when the person acts, and the deployment takes the act
+only within 300 seconds of it, as it takes a relay's signature: a relay
+cannot keep a signed act and send it later. A `link_end` must also be signed
+no earlier than the link it ends was made, so the end of an earlier link
+made with the same device key ends nothing now. A relay MUST therefore send
+an act as soon as the person makes it, and a device SHOULD keep its clock
+right.
+
 **The owner's link needs a device key to act.** Without one the owner is still
 told, but no offer to press is made, and nothing sent for that link counts
 except `link_end` (`relay.owner_device`). A stolen relay key can therefore
@@ -380,7 +405,10 @@ answers, as soon as it has something or after `wait` seconds,
 ```
 
 `after` is omitted on the first pull. A relay MUST answer at most 100
-envelopes to one pull; the deployment takes none of an answer with more. Each
+envelopes to one pull, and at most 8 MiB (8,388,608 bytes) in all; the
+deployment takes none of an answer with more, and stops reading one at its
+8 MiB. A relay with more waiting answers fewer, and the rest at the next pull.
+The deployment waits for an answer for `wait` seconds and ten more. Each
 envelope is taken exactly as if it were pushed, the relay's sixty a minute
 included, and the next pull names the new cursor.
 
@@ -420,13 +448,15 @@ Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
 | `410` | `{ "ok": false, "code": "relay.link_ended" }` | the link has ended |
 | `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's own rule (such as `approval.own_instigation`: four eyes) |
+| `400`, `500` | `{ "error", "code" }`, without `ok` | the deployment failed for a reason that is no answer to the envelope: nothing it asked for was done, and the same envelope, sent again under its id, is taken afresh |
 | `429` | `{ "ok": false, "code": "relay.throttled" }` | too many |
 
 The `422` codes: `relay.unknown_type`, `relay.press_off`, `relay.press_unknown`,
 `relay.press_spent`, `relay.press_tier3`, `relay.device_sig`,
 `relay.owner_device`, `relay.not_member`, `relay.seat_changed`,
-`relay.post_off`, `relay.link_unknown`. An answer never repeats what an item
-says.
+`relay.post_off`, `relay.link_unknown`, and `relay.malformed` for a body
+holding text PALUGADA cannot keep (the NUL character, `\u0000`, anywhere in a
+name or a value). An answer never repeats what an item says.
 
 ### 9.3 Types
 
@@ -502,7 +532,7 @@ for any share above `signal`.
 in one file of Node with no dependencies. It pins the deployment by the
 fingerprint it is given (`--deployment-fingerprint`, required), takes no
 second pairing until its state file is deleted, is pulled from, verifies every
-envelope, prints it, drops retracted content, and forwards `text` and `link`
+envelope, takes a new key only as section 2.3 says, prints it, drops retracted content, and forwards `text` and `link`
 to ntfy (`RELAY_NTFY_URL`, `RELAY_NTFY_TOKEN`) at priority 5 for `interrupt`,
 3 for `normal` and 2 for `quiet`. Its commands `link <code>`,
 `press <token> [answer]` and `reply <token> <text>` act as a phone's app

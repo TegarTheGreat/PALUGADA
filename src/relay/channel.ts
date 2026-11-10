@@ -133,16 +133,25 @@ export class RelayChannel implements OwnerChannel {
   /**
    * An item closed: the relay is told, by the envelope that told it of the
    * item, and every offer for it is void, so a press that arrives later finds
-   * nothing to redeem and is told why.
+   * nothing to redeem and is told why. A notice of it the relay never had --
+   * the relay was down, or behind -- is not sent at all, and nor is its
+   * closing: after an outage the relay is not handed the words of an item
+   * already closed, nor asked to ring for an incident already resolved.
    */
   async retract(closed: ClosedItem, ref: string | null): Promise<RetractOutcome> {
     const now = new Date();
     return withControlPlane(async (tx) => {
+      // The relay's row before its offers, as every change of them takes it.
+      const state = await prepared(tx, this.relayId, true);
       await tx.query(
         'UPDATE relay_offers SET voided_at = $3 WHERE relay_id = $1 AND inbox_item_id = $2 AND voided_at IS NULL',
         [this.relayId, closed.id, now]);
-      const state = await prepared(tx, this.relayId, true);
-      if (!state?.link || ref === null) return 'gone';
+      const { rows: unsent } = await tx.query(
+        `DELETE FROM relay_outbox
+          WHERE relay_id = $1 AND type = 'inbox_item' AND status IN ('pending', 'dead') AND subjects @> ARRAY[$2]::text[]
+          RETURNING id`,
+        [this.relayId, `item:${closed.id}`]);
+      if (!state?.link || ref === null || unsent.length > 0) return 'gone';
       const { relay, link } = state;
       const share = lowerShare(relay.share, link.share);
       const deployment = await deploymentOf(tx);

@@ -12,6 +12,7 @@
  * and a company the same way, so two relays cannot join what each knows.
  */
 import { createHash, createHmac, type KeyObject } from 'node:crypto';
+import { closedSaid, digestSaid, doneSaid, itemSaid } from '../owner/relay-said.ts';
 import { jcs } from './canonical.ts';
 import { base32, signV1a } from './signature.ts';
 
@@ -98,4 +99,64 @@ export function envelopeHeaders(keys: readonly KeyObject[], kid: string, id: str
 /** An envelope's body as it is kept and signed: canonical JSON of the whole object. */
 export function envelopeBody(envelope: Record<string, unknown>): string {
   return jcs(envelope);
+}
+
+/**
+ * An envelope not yet sent, as it would have been made at a lower share, and
+ * without the offers `keep` refuses: what the owner narrowed a relay to is
+ * what it is sent from then on, including what it was owed and has not had.
+ * Each type drops what the lower share does not carry and says what that
+ * share says, as `channel.ts` would have made it. A type added to the
+ * protocol says here what it keeps at each share, or the type check fails.
+ */
+export function narrowedEnvelope(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  envelope: Record<string, any>,
+  share: Share,
+  keep: (offer: { token: string; act: string }) => boolean,
+): { envelope: Record<string, unknown>; dropped: string[] } {
+  const given: Share | undefined = (SHARE_LEVELS as readonly string[]).includes(envelope.share) ? envelope.share : undefined;
+  const lower = given !== undefined && SHARE_LEVELS.indexOf(share) < SHARE_LEVELS.indexOf(given);
+  const offers: Array<{ token: string; act: string }> = Array.isArray(envelope.offers) ? envelope.offers : [];
+  const kept = offers.filter((offer) => (!lower || share !== 'signal') && keep(offer));
+  const dropped = offers.filter((offer) => !kept.includes(offer)).map((offer) => offer.token);
+  if (!lower) return { envelope: offers.length > 0 ? { ...envelope, offers: kept } : envelope, dropped };
+
+  const language: string | null = typeof envelope.lang === 'string' ? envelope.lang : null;
+  const company = envelope.company as { ref: string; name?: string } | undefined;
+  const next: Record<string, unknown> = {
+    ...envelope, share, ...(company ? { company: share === 'signal' ? { ref: company.ref } : company } : {}),
+  };
+  const type = envelope.type as OutboundType;
+  switch (type) {
+    case 'inbox_item': {
+      const data = (envelope.data ?? {}) as { kind?: string; tier?: number | null; title?: string };
+      const title = String(data.title ?? '');
+      next.data = share === 'signal' ? { kind: data.kind, tier: data.tier } : { kind: data.kind, tier: data.tier, title };
+      next.text = itemSaid(language, share, { kind: String(data.kind ?? ''), title, urgent: envelope.urgency === 'interrupt' });
+      next.offers = kept;
+      break;
+    }
+    case 'inbox_closed':
+      // Why it closed is told above `signal`, and the same at both.
+      if (share === 'signal') next.text = closedSaid(language);
+      break;
+    case 'digest':
+      next.text = digestSaid(language, share === 'signal' ? null : company?.name ?? null);
+      break;
+    case 'work_done':
+      next.text = share === 'signal' ? doneSaid(language) : String(envelope.text ?? '').split('\n')[0]!;
+      break;
+    case 'pair_request':
+    case 'ping':
+    case 'link_confirmed':
+    case 'keys_rotated':
+      // Nothing of a company or a person: no share to lower.
+      return { envelope, dropped };
+    default: {
+      const never: never = type;
+      throw new Error(`an envelope of type ${String(never)} has no lower share to be made at`);
+    }
+  }
+  return { envelope: next, dropped };
 }

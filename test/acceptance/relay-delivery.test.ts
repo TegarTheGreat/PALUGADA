@@ -536,6 +536,8 @@ test("work done, a digest and a closed item reach the owner's phone at the share
     await channel.deliverDigest!({ companyId: fixture.companyId, day: '2026-11-08', text: 'Three tasks finished; Rp 40.000 spent.' });
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
+    // The relay has the item before it closes; one it never had is not told of it closing.
+    await sendOutbox(api.master);
     await inbox.decide(fixture.companyId, itemId, 'approve', '', { channel: 'app', assurance: 'session' });
     const { retractClosed } = await import('../../src/owner/notify.ts');
     await retractClosed(fixture.companyId, channel);

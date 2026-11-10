@@ -1069,7 +1069,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const { channels, notes: channelNotes } = await channelsFrom(env, (reference) => secrets.resolve(reference));
   notes.push(...channelNotes);
   // One channel for each relay the owner paired (STATUS section 2.208). A
-  // relay paired later is taken up by the soft start pairing asks for.
+  // relay paired later is taken up by the soft start pairing asks for, and on
+  // every other replica by the settings version pairing moves.
   try {
     channels.push(...await relayChannels());
   } catch (failure) {

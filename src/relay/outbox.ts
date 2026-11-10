@@ -14,7 +14,6 @@
  */
 import type { KeyObject } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
-import { redactor } from '../secrets/manager.ts';
 import { envelopeHeaders } from './envelope.ts';
 
 /** Rows claimed for one relay in one pass. */
@@ -75,9 +74,14 @@ export async function enqueue(tx: TenantClient, entry: OutboxEntry, now = new Da
 /** Rows a process took more than ten minutes ago and never settled: owed again, under the same id. */
 export async function takeBackStale(now = new Date()): Promise<number> {
   return withControlPlane(async (tx) => {
+    // Rows another transaction holds are left to the next pass: this one
+    // takes rows of every relay at once, and must never wait on one of them
+    // while that transaction waits on another.
     const { rowCount } = await tx.query(
       `UPDATE relay_outbox SET status = 'pending', claimed_at = NULL
-        WHERE status = 'sending' AND claimed_at < $1::timestamptz - make_interval(mins => $2)`,
+        WHERE id IN (SELECT id FROM relay_outbox
+                      WHERE status = 'sending' AND claimed_at < $1::timestamptz - make_interval(mins => $2)
+                        FOR UPDATE SKIP LOCKED)`,
       [now, STALE_SENDING_MINUTES]);
     return rowCount ?? 0;
   });
@@ -106,9 +110,10 @@ export interface SendReport {
 
 /**
  * Sends what is due to one relay, signed now with the keys given. A row
- * whose link has an earlier row still owed and not yet due waits behind it,
- * and one link's rows go one at a time, so a relay sees one person's
- * envelopes in the order they were made; up to four links are sent at once.
+ * whose link has an earlier row still owed and not yet due, or one being sent
+ * by this process or another, waits behind it, and one link's rows go one at
+ * a time, so a relay sees one person's envelopes in the order they were
+ * made; up to four links are sent at once.
  */
 export async function sendDue(
   relay: Destination,
@@ -126,7 +131,8 @@ export async function sendDue(
            AND NOT EXISTS (
              SELECT 1 FROM relay_outbox e
               WHERE e.relay_id = o.relay_id AND e.link_id IS NOT DISTINCT FROM o.link_id
-                AND e.status IN ('pending', 'sending') AND e.created_at < o.created_at AND e.next_at > $2)
+                AND e.created_at < o.created_at
+                AND (e.status = 'sending' OR (e.status = 'pending' AND e.next_at > $2)))
          ORDER BY o.created_at, o.id
          LIMIT $3
            FOR UPDATE SKIP LOCKED)
@@ -149,20 +155,20 @@ export async function sendDue(
         const row = queue[index]!;
         if (report.gone || Date.now() > deadline) {
           // Out of time, or the relay forgot us: back to pending, untried.
-          await release(queue.slice(index));
+          await release(relay.id, queue.slice(index));
           break;
         }
         const outcome = await sendOne(relay, row, signing, now, send);
         if (outcome === 'delivered') report.delivered += 1;
         else if (outcome === 'gone') {
           report.gone = true;
-          await release(queue.slice(index));
+          await release(relay.id, queue.slice(index));
           break;
         } else {
           if (outcome === 'dead') report.dead += 1;
           else report.failed += 1;
           // The rest of this link waits behind the one that failed.
-          await release(queue.slice(index + 1));
+          await release(relay.id, queue.slice(index + 1));
           break;
         }
       }
@@ -172,11 +178,29 @@ export async function sendDue(
   return report;
 }
 
-async function release(rows: readonly Claimed[]): Promise<void> {
+async function release(relayId: string, rows: readonly Claimed[]): Promise<void> {
   if (rows.length === 0) return;
-  await withControlPlane((tx) => tx.query(
-    `UPDATE relay_outbox SET status = 'pending', claimed_at = NULL WHERE id = ANY($1::uuid[]) AND status = 'sending'`,
-    [rows.map((row) => row.id)]));
+  await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of more than one of its rows
+    // takes it: a revocation deleting these rows meanwhile is waited for,
+    // not waited on.
+    await tx.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relayId]);
+    await tx.query(
+      `UPDATE relay_outbox SET status = 'pending', claimed_at = NULL WHERE id = ANY($1::uuid[]) AND status = 'sending'`,
+      [rows.map((row) => row.id)]);
+  });
+}
+
+/**
+ * Why a send failed, as it is kept: a status the relay answered, or that it
+ * did not answer in time, or could not be reached. A code rather than the
+ * transport's words, which are English and may quote what they should not;
+ * the console says each in the owner's language.
+ */
+function failureOf(status: number, error: unknown): string {
+  if (error === null) return `status:${status}`;
+  const name = (error as Error).name;
+  return name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'unreachable';
 }
 
 async function sendOne(
@@ -205,9 +229,9 @@ async function sendOne(
     } catch {
       // A body already gone is no failure of the send.
     }
-    if (!(response.ok || status === 409)) failure = `the relay answered ${status}`;
+    if (!(response.ok || status === 409)) failure = failureOf(status, null);
   } catch (error) {
-    failure = redactor.redact(String((error as Error).message ?? error)).slice(0, 300);
+    failure = failureOf(0, error);
   }
   if (status === 410) {
     // Not this row's failure: the relay no longer knows the deployment. The
@@ -219,12 +243,14 @@ async function sendOne(
     countDelivery('gone');
     return 'gone';
   }
+  // The relay's row before the envelope's, in each case, as every change of
+  // a relay's rows takes it.
   if (failure === null) {
     await withControlPlane(async (tx) => {
+      await tx.query('UPDATE relays SET last_ok_at = $2, failures = 0, last_error = NULL WHERE id = $1', [relay.id, now]);
       await tx.query(
         `UPDATE relay_outbox SET status = 'delivered', delivered_at = $2, attempts = attempts + 1, last_error = NULL WHERE id = $1`,
         [row.id, now]);
-      await tx.query('UPDATE relays SET last_ok_at = $2, failures = 0, last_error = NULL WHERE id = $1', [relay.id, now]);
     });
     countDelivery('delivered');
     return 'delivered';
@@ -232,13 +258,13 @@ async function sendOne(
   const attempts = row.attempts + 1;
   const dead = attempts >= MAX_ATTEMPTS;
   await withControlPlane(async (tx) => {
+    await tx.query('UPDATE relays SET failures = failures + 1, last_error = $2 WHERE id = $1', [relay.id, failure]);
     await tx.query(
       `UPDATE relay_outbox
           SET status = $3, attempts = $2::int, claimed_at = NULL, last_error = $4,
               next_at = $5::timestamptz + make_interval(secs => $6::int * power(2, $2::int - 1))
         WHERE id = $1`,
       [row.id, attempts, dead ? 'dead' : 'pending', failure, now, RETRY_BASE_SECONDS]);
-    await tx.query('UPDATE relays SET failures = failures + 1, last_error = $2 WHERE id = $1', [relay.id, failure]);
   });
   countDelivery(dead ? 'dead' : 'failed');
   return dead ? 'dead' : 'failed';

@@ -250,13 +250,26 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
     if (seen.has(id)) return reply(res, 200, { ok: true, duplicate: true });
     seen.add(id);
     switch (envelope.type) {
-      case 'keys_rotated':
-        // Signed by the key already pinned, which stands for the week the deployment gives it.
-        state.paired.keys = [{ key: String(envelope.key), until: null },
-          ...(envelope.previous ? [{ key: String(envelope.previous.key), until: String(envelope.previous.until) }] : [])];
+      case 'keys_rotated': {
+        // Signed by the key pinned now -- not one rotated out, whoever may
+        // still hold it -- and by the new key, which proves the deployment
+        // holds it; and naming the pinned key as the one it replaces.
+        const pinnedNow = state.paired.keys.find((one) => one.until === null)?.key ?? '';
+        const next = String(envelope.key ?? '');
+        if (envelope.previous?.key !== pinnedNow || !verified(signature, [pinnedNow], id, timestamp, body)
+            || !verified(signature, [next], id, timestamp, body) || Buffer.from(next, 'base64url').length !== 32) {
+          seen.delete(id);
+          return refuse(res, 401, 'a new key is taken only from the key pinned now and the new key, both');
+        }
+        // The old key stands for the week the deployment gives it, and never longer.
+        const week = new Date(Date.now() + 7 * 86_400_000);
+        const until = new Date(String(envelope.previous.until));
+        state.paired.keys = [{ key: next, until: null },
+          { key: pinnedNow, until: (Number.isFinite(until.getTime()) && until < week ? until : week).toISOString() }];
         save();
         say(`the deployment's key is now ${envelope.kid}`);
         break;
+      }
       case 'link_confirmed': {
         const device = state.claims[envelope.data?.claim];
         if (device) {
@@ -298,7 +311,14 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
     const wait = Math.min(Number(url.searchParams.get('wait') ?? '0') || 0, 25);
     const until = Date.now() + wait * 1000;
     while (inbox.length <= after && Date.now() < until && !req.destroyed) await new Promise((resolve) => setTimeout(resolve, 200));
-    const answer = inbox.slice(after, after + 100);
+    // At most a hundred envelopes, and eight MiB in all: the rest wait for the next pull.
+    const answer: typeof inbox = [];
+    let size = 0;
+    for (const one of inbox.slice(after, after + 100)) {
+      size += Buffer.byteLength(JSON.stringify(one), 'utf8') + 1;
+      if (size > 8 * 1024 * 1024 - 1024 && answer.length > 0) break;
+      answer.push(one);
+    }
     reply(res, 200, { envelopes: answer, cursor: String(after + answer.length) });
   };
 

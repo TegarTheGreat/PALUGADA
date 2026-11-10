@@ -23,13 +23,16 @@ import { PalugadaError } from '../errors.ts';
 import { pingSaid } from '../owner/relay-said.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type { MasterKey } from '../settings/store.ts';
-import { envelopeBody, envelopeHeaders, envelopeId, SHARE_LEVELS, type Share } from './envelope.ts';
+import { envelopeBody, envelopeHeaders, envelopeId, narrowedEnvelope, SHARE_LEVELS, type Share } from './envelope.ts';
 import { signingKeys, type DeploymentIdentity } from './identity.ts';
+import { tokenHash } from './offers.ts';
 import { enqueue } from './outbox.ts';
 import { fingerprint, freshTimestamp, verifyV1a } from './signature.ts';
 
 /** How long PALUGADA waits for a relay to answer the owner: its document, or its accept. */
 const RELAY_ANSWER_MS = 5_000;
+/** The most of a relay's document, or of its accept, that is read: either is a few hundred bytes. */
+const RELAY_ANSWER_BYTES = 64 * 1024;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -59,7 +62,16 @@ export interface RelayRow {
   paired_at: Date | null;
 }
 
-/** One relay's row, or null; locked for the transaction when asked. */
+/**
+ * One relay's row, or null; locked for the transaction when asked.
+ *
+ * The lock is the relay's order: every transaction that changes its offers,
+ * its links or its outbox takes the relay's row first, before any of those
+ * rows. A press, a retraction, a link claimed or ended, a change of settings
+ * and a revocation therefore wait for each other at one row rather than
+ * each holding what the other needs next, which PostgreSQL ends by aborting
+ * one of them.
+ */
 export async function relayRow(tx: TenantClient, relayId: string, lock = false): Promise<RelayRow | null> {
   if (!UUID.test(relayId)) return null;
   const { rows } = await tx.query<RelayRow>(`SELECT * FROM relays WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [relayId]);
@@ -88,10 +100,63 @@ export function relayView(row: RelayRow) {
     pull: row.inbox_url !== null,
     pausedUntil: row.paused_until === null ? null : row.paused_until instanceof Date ? row.paused_until.toISOString() : 'infinity',
     lastOkAt: row.last_ok_at?.toISOString() ?? null,
-    lastError: row.last_error,
+    lastError: failureView(row.last_error),
     createdAt: row.created_at.toISOString(),
     pairedAt: row.paired_at?.toISOString() ?? null,
   };
+}
+
+/**
+ * Why a send to a relay last failed, as the console says it in the owner's
+ * language: a reason, and the status a relay answered. The transport's own
+ * words are never shown; they are English, and the owner reads a sentence.
+ */
+export type FailureView = { reason: 'gone' | 'timeout' | 'unreachable' } | { reason: 'status'; status: number };
+
+function failureView(kept: string | null): FailureView | null {
+  if (kept === null) return null;
+  const status = /^status:(\d{3})$/.exec(kept);
+  if (status) return { reason: 'status', status: Number(status[1]) };
+  if (kept === 'gone' || kept === 'timeout') return { reason: kept };
+  return { reason: 'unreachable' };
+}
+
+/**
+ * A relay's answer, read as text no larger than `most` bytes. A relay is a
+ * stranger's machine, and one that streams without end would otherwise have
+ * the deployment hold all of it before anything is checked.
+ */
+export async function boundedText(response: Response, most: number): Promise<string> {
+  const larger = new Error(`its answer is larger than ${most} bytes`);
+  const declared = Number(response.headers.get('content-length') ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > most) {
+    await settled(response.body?.cancel());
+    throw larger;
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > most) {
+      await settled(reader.cancel());
+      throw larger;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/** Waits for what may fail without it mattering: an answer's body cancelled that was already gone. */
+export async function settled(work: Promise<unknown> | undefined): Promise<void> {
+  try {
+    await work;
+  } catch {
+    // Nothing is owed on it either way.
+  }
 }
 
 /** A relay's address as the owner gave it, refused unless it is https, or this machine over http. */
@@ -140,7 +205,7 @@ export async function addRelay(given: unknown, options: { fetch?: typeof fetch }
       signal: AbortSignal.timeout(RELAY_ANSWER_MS), redirect: 'error', headers: { accept: 'application/json' },
     });
     if (!response.ok) throw new Error(`it answered ${response.status}`);
-    document = await response.json() as Record<string, unknown>;
+    document = JSON.parse(await boundedText(response, RELAY_ANSWER_BYTES)) as Record<string, unknown>;
   } catch (error) {
     throw new PalugadaError('relay.unreachable', `the relay at ${url} did not answer with its document: ${(error as Error).message}`, { url });
   }
@@ -252,7 +317,7 @@ export async function pairRelay(
       method: 'POST', headers: envelopeHeaders(keys, identity.kid, requestId, body, now), body,
       signal: AbortSignal.timeout(RELAY_ANSWER_MS), redirect: 'error',
     });
-    answer = { status: response.status, headers: response.headers, text: await response.text() };
+    answer = { status: response.status, headers: response.headers, text: await boundedText(response, RELAY_ANSWER_BYTES) };
   } catch (error) {
     throw new PalugadaError('relay.unreachable', `the relay did not answer the pairing request: ${(error as Error).message}`, { relayId });
   }
@@ -344,8 +409,11 @@ export async function planRelaySettings(relayId: string, body: Record<string, un
  * Sets a relay's settings, and voids what they no longer allow: offers to
  * press once presses are off or the share falls to `signal`, offers to reply
  * once replies are off, and in a company the relay no longer hears about,
- * every offer and every envelope not yet sent. An envelope not yet sent at a
- * share above the new one is dropped rather than sent at the old.
+ * every offer and every envelope not yet sent. An envelope not yet sent is
+ * made again at the new share, without the offers now void, rather than sent
+ * at the old one or dropped: the owner was told through this relay as far as
+ * the ledger knows, and a notice owed while the relay was down or behind is
+ * still owed at the share the owner chose now.
  */
 export async function applyRelaySettings(relayId: string, changes: RelayChanges): Promise<ReturnType<typeof relayView>> {
   return withControlPlane(async (tx) => {
@@ -374,14 +442,43 @@ export async function applyRelaySettings(relayId: string, changes: RelayChanges)
            AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))`,
         [relayId, after.companies]);
     }
-    const above = SHARE_LEVELS.slice(SHARE_LEVELS.indexOf(after.share) + 1);
-    if (above.length > 0) {
-      await tx.query(
-        `DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'dead') AND (body::jsonb->>'share') = ANY($2::text[])`,
-        [relayId, above]);
-    }
+    await narrowOwed(tx, relayId, after.share);
     return relayView(after);
   });
+}
+
+/**
+ * Makes again, at `share`, every envelope a relay is owed and has not had
+ * that tells more than `share` or carries an offer now void. A choice of a
+ * run's question is a button only at `content`, where its words are told.
+ */
+async function narrowOwed(tx: TenantClient, relayId: string, share: Share): Promise<void> {
+  const above = SHARE_LEVELS.slice(SHARE_LEVELS.indexOf(share) + 1);
+  const { rows: owed } = await tx.query<{ id: string; body: string }>(
+    `SELECT id, body FROM relay_outbox
+      WHERE relay_id = $1 AND status IN ('pending', 'dead')
+        AND ((body::jsonb->>'share') = ANY($2::text[]) OR jsonb_array_length(coalesce(body::jsonb->'offers', '[]'::jsonb)) > 0)
+      ORDER BY created_at, id`,
+    [relayId, above]);
+  for (const row of owed) {
+    const envelope = JSON.parse(row.body) as Record<string, unknown>;
+    const offers = Array.isArray(envelope.offers) ? envelope.offers as Array<{ token: string }> : [];
+    const { rows: standing } = await tx.query<{ token_hash: string; choice: boolean }>(
+      `SELECT token_hash, option IS NOT NULL AS choice FROM relay_offers
+        WHERE token_hash = ANY($1::text[]) AND voided_at IS NULL AND uses < max_uses`,
+      [offers.map((offer) => tokenHash(String(offer.token)))]);
+    const live = new Map(standing.map((one) => [one.token_hash, one.choice]));
+    const narrowed = narrowedEnvelope(envelope, share, (offer) => {
+      const choice = live.get(tokenHash(offer.token));
+      return choice !== undefined && (!choice || share === 'content');
+    });
+    if (narrowed.dropped.length > 0) {
+      await tx.query('UPDATE relay_offers SET voided_at = now() WHERE token_hash = ANY($1::text[]) AND voided_at IS NULL',
+        [narrowed.dropped.map((token) => tokenHash(token))]);
+    }
+    const body = envelopeBody(narrowed.envelope);
+    if (body !== row.body) await tx.query('UPDATE relay_outbox SET body = $2 WHERE id = $1', [row.id, body]);
+  }
 }
 
 /**
@@ -421,7 +518,7 @@ export async function pingRelay(relayId: string, now = new Date()): Promise<{ id
 /** Puts a relay's dead letters back to be sent, from the first attempt. */
 export async function retryDead(relayId: string): Promise<{ retried: number }> {
   return withControlPlane(async (tx) => {
-    const relay = await relayRow(tx, relayId);
+    const relay = await relayRow(tx, relayId, true);
     if (!relay || relay.status !== 'paired') throw new PalugadaError('relay.not_paired', 'only a paired relay is sent anything', { relayId });
     const { rowCount } = await tx.query(
       `UPDATE relay_outbox SET status = 'pending', attempts = 0, next_at = now(), last_error = NULL WHERE relay_id = $1 AND status = 'dead'`,
@@ -434,7 +531,7 @@ export async function retryDead(relayId: string): Promise<{ retried: number }> {
 export async function relaysPage(): Promise<Array<ReturnType<typeof relayView> & {
   links: number;
   outbox: Record<'pending' | 'sending' | 'delivered' | 'dead', number>;
-  dead: Array<{ id: string; type: string; attempts: number; lastError: string | null; createdAt: string }>;
+  dead: Array<{ id: string; type: string; attempts: number; lastError: FailureView | null; createdAt: string }>;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows: relays } = await tx.query<RelayRow>(`SELECT * FROM relays WHERE status <> 'revoked' ORDER BY created_at`);
@@ -453,7 +550,7 @@ export async function relaysPage(): Promise<Array<ReturnType<typeof relayView> &
         ...relayView(relay),
         links: links!.n,
         outbox,
-        dead: dead.map((row) => ({ id: row.id, type: row.type, attempts: row.attempts, lastError: row.last_error, createdAt: row.created_at.toISOString() })),
+        dead: dead.map((row) => ({ id: row.id, type: row.type, attempts: row.attempts, lastError: failureView(row.last_error), createdAt: row.created_at.toISOString() })),
       });
     }
     return page;
@@ -473,7 +570,9 @@ export async function pairedRelayIds(): Promise<string[]> {
  */
 export async function announceRotation(identity: DeploymentIdentity, now = new Date()): Promise<number> {
   return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ id: string }>(`SELECT id FROM relays WHERE status = 'paired'`);
+    // In the order of their ids, as every transaction that touches more than
+    // one relay takes them, so two of them never wait on each other.
+    const { rows } = await tx.query<{ id: string }>(`SELECT id FROM relays WHERE status = 'paired' ORDER BY id`);
     for (const relay of rows) {
       const id = envelopeId({ deployment: identity.deployment, relay: relay.id, link: null, type: 'keys_rotated', subject: identity.kid });
       await enqueue(tx, {

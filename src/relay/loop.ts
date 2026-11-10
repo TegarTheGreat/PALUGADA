@@ -22,7 +22,7 @@ import { envelopeHeaders } from './envelope.ts';
 import { forgetPreviousKey, signingKeys } from './identity.ts';
 import { receiveFromRelay, relayHasRoom } from './inbound.ts';
 import { sendDue, takeBackStale } from './outbox.ts';
-import type { RelayRow } from './relays.ts';
+import { boundedText, settled, type RelayRow } from './relays.ts';
 
 /** How long one pass may spend sending. */
 export const PASS_BUDGET_MS = 20_000;
@@ -34,6 +34,14 @@ export const PULL_WAIT_SECONDS = 25;
 const PULL_LEASE_SECONDS = 40;
 /** The most envelopes a relay may answer one pull with (docs/relay-protocol.md, section 9). */
 const PULL_MOST = 100;
+/**
+ * The most bytes of one pull's answer that are read: a hundred envelopes of
+ * the few hundred bytes an act is, with room to spare, and well short of what
+ * a relay streaming without end could make the deployment hold.
+ */
+const PULL_MOST_BYTES = 8 * 1024 * 1024;
+/** How long an offer spent, void or past its time is kept, so a late press is told why rather than that it is unknown. */
+const SPENT_OFFER_DAYS = 4;
 /** How long a receipt, a refusal, a dead letter or a delivered envelope is kept. */
 export const KEPT_DAYS = 14;
 /** How often a pass runs when the last one found nothing to do. */
@@ -172,8 +180,17 @@ async function pullOnce(
   const response = await (options.fetch ?? globalThis.fetch)(url, {
     headers, signal: AbortSignal.timeout((wait + 10) * 1000), redirect: 'error',
   });
-  if (!response.ok) throw new Error(`the relay's inbox answered ${response.status}`);
-  const answer = await response.json() as { envelopes?: unknown; cursor?: unknown };
+  if (!response.ok) {
+    await settled(response.body?.cancel());
+    throw new Error(`the relay's inbox answered ${response.status}`);
+  }
+  let text: string;
+  try {
+    text = await boundedText(response, PULL_MOST_BYTES);
+  } catch (error) {
+    throw new Error(`the relay's inbox answered with more than any relay may send at once (${(error as Error).message}); none of it was taken`);
+  }
+  const answer = JSON.parse(text) as { envelopes?: unknown; cursor?: unknown };
   const envelopes = Array.isArray(answer.envelopes) ? answer.envelopes : [];
   // More than a relay may answer: taking some and moving the cursor past all
   // of them would lose the rest, and the cursor cannot name the middle.
@@ -199,22 +216,32 @@ async function pullOnce(
 /**
  * The deployment's relay bookkeeping, once a day: receipts, refusals,
  * delivered envelopes and dead letters older than fourteen days; offers spent,
- * void or expired a day ago; codes nobody claimed; and the key rotated out,
- * once its week is over.
+ * void or expired four days ago; codes nobody claimed; and the key rotated
+ * out, once its week is over. It reaches every relay at once, so it skips a
+ * row another transaction holds rather than wait for it: what it skips is
+ * purged the next day.
  */
 export async function relayBookkeeping(now = new Date()): Promise<{ receipts: number; refusals: number; outbox: number; offers: number; codes: number }> {
   const purged = await withControlPlane(async (tx) => {
     const since = `$1::timestamptz - make_interval(days => ${KEPT_DAYS})`;
-    const receipts = (await tx.query(`DELETE FROM relay_receipts WHERE received_at < ${since}`, [now])).rowCount ?? 0;
+    const receipts = (await tx.query(
+      `DELETE FROM relay_receipts WHERE (relay_id, envelope_id) IN (
+         SELECT relay_id, envelope_id FROM relay_receipts WHERE received_at < ${since} FOR UPDATE SKIP LOCKED)`, [now])).rowCount ?? 0;
     const refusals = (await tx.query(`DELETE FROM relay_refusals WHERE at < ${since}`, [now])).rowCount ?? 0;
     const outbox = (await tx.query(
-      `DELETE FROM relay_outbox WHERE status IN ('delivered', 'dead') AND created_at < ${since}`, [now])).rowCount ?? 0;
+      `DELETE FROM relay_outbox WHERE id IN (
+         SELECT id FROM relay_outbox WHERE status IN ('delivered', 'dead') AND created_at < ${since} FOR UPDATE SKIP LOCKED)`,
+      [now])).rowCount ?? 0;
     const offers = (await tx.query(
-      `DELETE FROM relay_offers
-        WHERE coalesce(voided_at, CASE WHEN uses >= max_uses OR expires_at <= $1 THEN least(expires_at, $1) END)
-              < $1::timestamptz - interval '1 day'`, [now])).rowCount ?? 0;
+      `DELETE FROM relay_offers WHERE token_hash IN (
+         SELECT token_hash FROM relay_offers
+          WHERE coalesce(voided_at, CASE WHEN uses >= max_uses OR expires_at <= $1 THEN least(expires_at, $1) END)
+                < $1::timestamptz - make_interval(days => $2)
+            FOR UPDATE SKIP LOCKED)`, [now, SPENT_OFFER_DAYS])).rowCount ?? 0;
     const codes = (await tx.query(
-      `DELETE FROM relay_links WHERE status = 'offered' AND code_expires_at < $1::timestamptz - interval '1 day'`, [now])).rowCount ?? 0;
+      `DELETE FROM relay_links WHERE id IN (
+         SELECT id FROM relay_links WHERE status = 'offered' AND code_expires_at < $1::timestamptz - interval '1 day'
+            FOR UPDATE SKIP LOCKED)`, [now])).rowCount ?? 0;
     return { receipts, refusals, outbox, offers, codes };
   });
   await forgetPreviousKey(now);

@@ -679,7 +679,7 @@ test('text the database cannot keep is refused as such, and an envelope that fai
       device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token: offers.approve, at }),
     });
     const failed = await refusingDecisions(itemId, () => relay.push(api.url, relayId, signed));
-    assert.equal(failed.status, 500, JSON.stringify(failed.body));
+    assert.ok(failed.status >= 400 && failed.body.ok === undefined, `not an answer to the press, but a failure: ${failed.status} ${JSON.stringify(failed.body)}`);
     assert.equal((await offerRow(offers.approve!)).uses, 0, 'the token is given back');
     assert.equal((await offerRow(offers.deny!)).voided_at, null, 'and so is the other button');
     assert.equal((await itemState(fixture.companyId, itemId)).status, 'open');

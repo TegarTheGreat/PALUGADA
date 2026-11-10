@@ -369,8 +369,12 @@ export async function settingsVersion(): Promise<string> {
       // What the platform learned or made by itself is written at the epoch
       // (`quiet`) and is no change: nothing in it is something a replica
       // restarts for.
+      // A relay the owner paired is among the owner's channels only in a
+      // process that started after it was paired (STATUS section 2.208), so
+      // pairing one is a change every replica starts again for.
       `SELECT greatest((SELECT max(updated_at) FROM deployment_settings WHERE updated_at > 'epoch'),
-                       (SELECT max(updated_at) FROM deployment_secrets WHERE updated_at > 'epoch')) AS at`);
+                       (SELECT max(updated_at) FROM deployment_secrets WHERE updated_at > 'epoch'),
+                       (SELECT max(paired_at) FROM relays)) AS at`);
     return rows[0]?.at?.toISOString() ?? 'never';
   });
 }

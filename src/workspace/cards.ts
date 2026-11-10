@@ -149,7 +149,7 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     }
 
     // 2. Every root task a division was given since its room was told to
-    //    show all of its work (0152 keeps when), however long ago that was:
+    //    show all of its work (0154 keeps when), however long ago that was:
     //    reconciled from the tasks, so work whose transaction committed
     //    behind the cursor still gets its card.
     const { rows: started } = await tx.query<{ id: string; room_id: string }>(

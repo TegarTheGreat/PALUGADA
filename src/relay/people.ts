@@ -151,10 +151,13 @@ async function roomOffers(tx: TenantClient, input: {
 
 /**
  * Messages deleted or purged: what a relay was owed of them and has not had
- * is dropped, every token sent with them is void, and each relay that had one
- * is told, link by link, to drop what it holds (`room_activity_retracted`,
- * which the protocol says a relay MUST honour). Answers how many envelopes
- * were dropped and how many retractions were owed.
+ * is dropped, every token sent with them is void, and each relay that had
+ * one, or was tried with one and may have read it before it refused, is told,
+ * link by link, to drop what it holds (`room_activity_retracted`, which the
+ * protocol says a relay MUST honour). Answers how many envelopes were
+ * dropped and how many retractions were owed. Called once a delete has
+ * committed, and the one a purge of old messages calls for the same
+ * (STATUS section 2.212).
  */
 export async function retractMessages(companyId: string, messageIds: readonly string[], now = new Date()): Promise<{ dropped: number; retracted: number }> {
   if (messageIds.length === 0) return { dropped: 0, retracted: 0 };

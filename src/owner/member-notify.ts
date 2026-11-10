@@ -231,15 +231,27 @@ export async function planNotices(
 
   return withDelivery(companyId, async (tx) => {
     let planned = 0;
-    // The company's clock, held from here to commit: two workers plan one
-    // company one at a time, and every position up to the clock is committed.
-    const { rows: [cursor] } = await tx.query<{ through: string }>('SELECT app.take_notice_cursor($1) AS through', [companyId]);
-    const { rows: feed } = await tx.query<{ position: string; room_id: string; ref: string; author: string; kind: string; created_at: Date }>(
-      `SELECT f.position, f.room_id, f.ref, f.author, r.kind, f.created_at
-         FROM room_feed f JOIN rooms r ON r.company_id = f.company_id AND r.id = f.room_id
-        WHERE f.kind = 'message' AND f.position > $1
-        ORDER BY f.position LIMIT ${FEED_BATCH}`,
-      [cursor!.through]);
+    // A look without the lock first: a company whose rooms are quiet since
+    // the last pass takes no lock at all, and every room write goes on.
+    const { rows: [peek] } = await tx.query<{ position: string; through: string }>(
+      'SELECT position, notices_through AS through FROM room_clock WHERE company_id = $1', [companyId]);
+    let feed: Array<{ position: string; room_id: string; ref: string; author: string; kind: string; created_at: Date }> = [];
+    let through: number | null = null;
+    if (peek && Number(peek.position) > Number(peek.through)) {
+      // The company's clock, held from here to commit: two workers plan one
+      // company one at a time, and every position up to the clock is committed.
+      const { rows: [cursor] } = await tx.query<{ through: string }>('SELECT app.take_notice_cursor($1) AS through', [companyId]);
+      const { rows: [clock] } = await tx.query<{ position: string }>('SELECT position FROM room_clock WHERE company_id = $1', [companyId]);
+      ({ rows: feed } = await tx.query(
+        `SELECT f.position, f.room_id, f.ref, f.author, r.kind, f.created_at
+           FROM room_feed f JOIN rooms r ON r.company_id = f.company_id AND r.id = f.room_id
+          WHERE f.kind = 'message' AND f.position > $1
+          ORDER BY f.position LIMIT ${FEED_BATCH}`,
+        [cursor!.through]));
+      // Read to the end, the cursor is the clock, past what changed that was
+      // no message; a full batch leaves the rest to the next pass.
+      through = feed.length < FEED_BATCH ? Number(clock!.position) : Number(feed.at(-1)!.position);
+    }
 
     if (audience.people.size > 0 && feed.length > 0) {
       // Only people's words tell anyone: a card is the platform's, and its
@@ -303,7 +315,6 @@ export async function planNotices(
     const seats = [...audience.people.keys()].filter((principal) => principal !== 'owner');
     if (seats.length > 0) planned += await planWork(tx, companyId, audience, seats, timing, now);
 
-    const through = feed.length > 0 ? Number(feed.at(-1)!.position) : null;
     if (through !== null) await tx.query('SELECT app.advance_notice_cursor($1, $2)', [companyId, through]);
     if (purge) await tx.query(`DELETE FROM people_notices WHERE created_at < $1::timestamptz - make_interval(days => ${NOTICE_DAYS})`, [now]);
     return { planned };
@@ -389,6 +400,13 @@ async function planWork(
         AND t.finished_at > $1::timestamptz - make_interval(days => ${LOOKBACK_DAYS})`, [now]);
   for (const row of done) subjects.push({ principal: `seat:${row.seat}`, reason: 'work_done', subject: `task:${row.id}`, at: row.finished_at });
 
+  if (subjects.length === 0) return 0;
+  // What is told already is left alone without a write, which would take
+  // the company's clock for nothing on every pass.
+  const { rows: told } = await tx.query<{ principal: string; channel: string; window_key: string }>(
+    'SELECT principal, channel, window_key FROM people_notices WHERE window_key = ANY($1::text[])',
+    [[...new Set(subjects.map((one) => one.subject))]]);
+  const known = new Set(told.map((row) => `${row.principal}|${row.channel}|${row.window_key}`));
   let planned = 0;
   for (const one of subjects) {
     const person = audience.people.get(one.principal);
@@ -396,6 +414,7 @@ async function planWork(
     const { after, day } = timing(one.principal, person.prefs);
     for (const { channel, since } of person.channels) {
       if (since !== null && one.at < since) continue;
+      if (known.has(`${one.principal}|${channel}|${one.subject}`)) continue;
       const { rowCount } = await tx.query(
         `INSERT INTO people_notices (company_id, principal, reason, subject, window_key, day, channel, notify_after, created_at)
          VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8)

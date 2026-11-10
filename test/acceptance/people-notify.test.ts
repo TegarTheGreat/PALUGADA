@@ -334,6 +334,8 @@ test('agent work tells a person only of a question for them, an approval they ma
     await transition(companyId, ownWork.id, 'completed', { output: { summary: 'tidied' } });
     await syncRoomCards(companyId);
     await tell(companyId, w.api.master);
+    // The worker comes round again: each is told once.
+    assert.equal((await tell(companyId, w.api.master)).planned, 0);
 
     const kinds = (who: Person) => toldTo(w.relay, who.phone!).map((one) => `${one.type}:${one.data.kind ?? ''}`);
     assert.deepEqual(kinds(budi), ['inbox_item:escalation'], 'Budi: the question put to him');
@@ -545,4 +547,15 @@ test("what was sent to whom is delivery's bookkeeping: no person reads it, and n
   } finally {
     await w.close();
   }
+});
+
+test("a notice's link opens its room and thread at the deployment's own address, and there is none without one", async () => {
+  const { noticeLinks } = await import('../../src/owner/member-notify.ts');
+  assert.equal(noticeLinks(undefined), undefined, 'no public address, no link');
+  const make = noticeLinks((task) => `https://palugada.example/app/?company=${task.companyId}&task=${task.taskId}`)!;
+  const room = new URL(make({ companyId: 'c1', roomId: 'r1', threadOf: 'm1' })!);
+  assert.equal(room.pathname, '/app/');
+  assert.deepEqual([...room.searchParams.entries()], [['company', 'c1'], ['room', 'r1'], ['thread', 'm1']]);
+  assert.deepEqual([...new URL(make({ companyId: 'c1', itemId: 'i1' })!).searchParams.entries()], [['company', 'c1'], ['item', 'i1']]);
+  assert.equal(noticeLinks(() => null)!({ companyId: 'c1', taskId: 't1' }), null);
 });

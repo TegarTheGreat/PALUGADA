@@ -557,3 +557,33 @@ test('a notice held back by a failed relay is sent once, under the same id', asy
     await w.close();
   }
 });
+
+test('a notice still owed when the owner narrows the relay is sent at the new share, its reply withdrawn', async () => {
+  let down = true;
+  const w = await workspace('relay-people-narrow', {
+    share: 'content', mayPost: true, relay: { answer: (one) => (down && one.envelope?.type === 'room_activity' ? { status: 503 } : undefined) },
+  });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    await said(budi.in, await direct(budi.in, sari.seat), 'The till code is 5150.');
+    await tell(w.fixture.companyId, w.api.master);
+    const [tried] = toldTo(w.relay, sari.phone!);
+    assert.match(tried.data.excerpt, /5150/);
+    // Narrowed to signal while the notice is still owed.
+    ok(await w.api.call('POST', `/api/control/relays/${w.relayId}/settings`, w.ownerToken, { share: 'signal' }));
+    down = false;
+    await sendOutbox(w.api.master, new Date(Date.now() + 5 * 60_000));
+    const sent = toldTo(w.relay, sari.phone!).at(-1);
+    assert.equal(sent.id, tried.id, 'the same envelope, made again');
+    assert.equal(sent.share, 'signal');
+    assert.equal(sent.text, 'Something new in PALUGADA.');
+    assert.deepEqual(Object.keys(sent.data).sort(), ['count', 'reasons']);
+    assert.deepEqual(sent.offers.map((offer: { act: string }) => offer.act).sort(), ['mute', 'read'], 'a read mark and a mute stand; the reply goes');
+    const reply = offers(tried).reply!;
+    const refused = await act(w, sari.phone!, 'reply', reply, { body: 'Late reply.', clientId: 'late-1' });
+    assert.equal(refused.status, 422);
+  } finally {
+    await w.close();
+  }
+});

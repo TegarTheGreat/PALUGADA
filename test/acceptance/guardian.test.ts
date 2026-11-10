@@ -29,6 +29,10 @@ import { importCompany } from '../../src/audit/import.ts';
 import { RecordingLlmClient, type LlmClient } from '../../src/llm/client.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
+import { createAccount } from '../../src/engine/budget.ts';
+import { carryFor } from '../../src/engine/pricing.ts';
+
+const near = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -115,6 +119,31 @@ test('off, as every company starts, no call is judged (row 7)', async () => {
   await broker.invoke(context(fixture, task.id, 'fetch'), 'page.fetch', { url: 'https://collect.example/?list=all' });
   assert.deepEqual(fetched, ['https://collect.example/?list=all']);
   assert.equal(llm.callCount, 0);
+});
+
+test('what a look costs below a cent is carried for the account it is charged to, not the company', async () => {
+  // Found reviewing the carry fix of 20 October: the engine carried a run's
+  // fractions for its own account, but the guardian still carried for the
+  // company, so one division's fraction became another's whole cent.
+  const allow = '{"ask": false, "reason": "It is the order page the task named."}';
+  const llm: LlmClient = { async complete() { return { content: allow, inputTokens: 100, outputTokens: 10, costCents: 0.6 }; } };
+  const { fixture, broker, newTask } = await company('guardian-carry', llm);
+  const leaf = (label: string) => withTenant(fixture.companyId, (tx) => createAccount(tx, {
+    companyId: fixture.companyId, label, tokensMax: 1_000_000, moneyMaxCents: 10_000,
+    scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+  }));
+  const looked: number[] = [];
+  for (const account of [await leaf('Sales'), await leaf('Operations')]) {
+    const task = await newTask();
+    await withControlPlane((tx) => tx.query('UPDATE tasks SET budget_account_id = $2 WHERE id = $1', [task.id, account]));
+    await broker.invoke(context(fixture, task.id, `read-${account}`), 'mailbox.read', { folder: 'inbox' });
+    await broker.invoke(context(fixture, task.id, `fetch-${account}`), 'page.fetch', { url: 'https://shop.example/orders/7' });
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { costCents: number } }>(
+      "SELECT payload FROM events WHERE task_id = $1 AND type = 'guardian.judged'", [task.id]));
+    looked.push(...rows.map((row) => row.payload.costCents));
+    near(carryFor(account).pending, 0.6);
+  }
+  assert.deepEqual(looked, [0, 0], 'each look is six tenths of a cent: neither account has spent a whole one');
 });
 
 test('on, a low-tier call after outside content is judged, and a doubt goes to the owner (row 7)', async () => {

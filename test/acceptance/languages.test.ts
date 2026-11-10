@@ -36,7 +36,7 @@ import { addProject, changeProject } from '../../src/governance/structure.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import type { ArchiveLine } from '../../src/audit/export.ts';
 import {
-  detectLanguage, driftFrom, languageCode, languageRule, languagesFor, languagesForTask, setCompanyLanguages,
+  deploymentLanguages, detectLanguage, driftFrom, languageCode, languageRule, languagesFor, languagesForTask, setCompanyLanguages,
   setDeploymentLanguages,
 } from '../../src/domain/language.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
@@ -85,6 +85,34 @@ async function ruleFor(fixture: Fixture, taskId: string): Promise<string> {
 }
 
 /* ------------------------------------------------------------- detection --- */
+
+/**
+ * N5, from the code audit of 2 October: the detector took out e-mail
+ * addresses with /\S+@\S+\.\S+/, which backtracks in cubic time on text
+ * with many @ and no dot. Four thousand characters of "a@" took 6.5 seconds
+ * and ten thousand took 99, with the worker's heartbeat stalled the whole
+ * time. Ticket bodies, briefs and drafts all pass through it.
+ */
+test('text built to make the detector backtrack is judged in no time, and addresses are still left out (N5)', () => {
+  const timed = (text: string) => {
+    const started = performance.now();
+    detectLanguage(text);
+    return performance.now() - started;
+  };
+  for (const [what, text] of [
+    ['a@a@a… four thousand characters', 'a@'.repeat(2_000)],
+    ['six hundred handles, commas, no spaces', Array.from({ length: 600 }, (_, n) => `@toko_kopi_${n}`).join(',')],
+    ['one long word with an @ and no dot', `a@${'b'.repeat(50_000)}`],
+  ] as const) {
+    const ms = timed(text);
+    assert.ok(ms < 1_000, `${what}: ${Math.round(ms)} ms`);
+  }
+  // An address is still not taken for the writer's own words: an
+  // Indonesian sentence around an English-looking address reads Indonesian.
+  assert.equal(detectLanguage(
+    'Tolong kirim penawaran harga ke sales@roastery.example dan pastikan mereka tahu bahwa kami butuh barang ini minggu depan untuk toko kami.',
+  )?.code, 'id');
+});
 
 test('a language is told apart from another only when the text says so clearly', () => {
   assert.equal(detectLanguage(ENGLISH)?.code, 'en');
@@ -614,6 +642,48 @@ test('the defaults apply until a company chooses, and a choice travels with its 
   // The database refuses what could never be a language tag, whatever the
   // route in front of it lets through.
   await assert.rejects(setCompanyLanguages(fixture.companyId, { work: 'Bahasa!', talk: null }), /companies_work_language_tag/);
+});
+
+/**
+ * The owner's complaint of 6 October: "the language was chosen as Indonesian,
+ * and the agents still greet in English". Choosing the panel's language set
+ * the panel's alone; the agents' default stayed the English it was born with,
+ * so every company that had not been given a language of its own -- and every
+ * message the platform wrote for the owner before they had chosen one --
+ * came in English, under a console drawn in Indonesian.
+ */
+test("the agents' default follows the panel's language until the owner chooses one of its own", async () => {
+  const fixture = await createCompany('lang-follow');
+  const spoken = () => withTenant(fixture.companyId, (tx) => languagesFor(tx, fixture.companyId));
+
+  assert.deepEqual(await deploymentLanguages(), { console: null, agents: 'en', agentsChosen: false }, 'nothing said: English, as it always was');
+
+  // The owner reads PALUGADA in Indonesian, and says nothing about the agents.
+  await setDeploymentLanguages({ console: 'id' });
+  assert.deepEqual(await deploymentLanguages(), { console: 'id', agents: 'id', agentsChosen: false });
+  assert.deepEqual(await spoken(), { work: 'id', talk: 'id', workIsDefault: true, talkIsDefault: true }, 'so the agents speak it');
+
+  // A choice of their own wins, English included: an Indonesian owner may well want an English-speaking team.
+  await setDeploymentLanguages({ agents: 'en' });
+  assert.deepEqual(await deploymentLanguages(), { console: 'id', agents: 'en', agentsChosen: true });
+  assert.deepEqual(await spoken(), { work: 'en', talk: 'en', workIsDefault: true, talkIsDefault: true });
+
+  // And going back to following the panel is an answer too.
+  await setDeploymentLanguages({ agents: null });
+  assert.deepEqual(await deploymentLanguages(), { console: 'id', agents: 'id', agentsChosen: false });
+
+  // A company that chose is not moved by any of it.
+  await setCompanyLanguages(fixture.companyId, { work: 'ja', talk: 'ms' });
+  assert.deepEqual(await spoken(), { work: 'ja', talk: 'ms', workIsDefault: false, talkIsDefault: false });
+});
+
+test("a run is told the owner's language in the rule it reads first, when the owner only chose the panel's", async () => {
+  const fixture = await createCompany('lang-follow-run');
+  await setDeploymentLanguages({ console: 'id' });
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }));
+  const rule = context.sections.find((section) => section.kind === 'language')!.body;
+  assert.match(rule, /Write everything in Indonesian \(Bahasa Indonesia\)/);
 });
 
 /* ------------------------------------------------- a project's own work --- */

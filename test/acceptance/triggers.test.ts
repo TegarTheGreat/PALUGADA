@@ -188,7 +188,7 @@ test('work that began outside takes no tier 2 action without the owner (F8.9)', 
   await assert.rejects(call(taskId, 'k1'), refused('approval.required'));
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
     "SELECT rationale FROM inbox_items WHERE task_id = $1 AND kind = 'approval'", [taskId]));
-  assert.match(rows[0]!.rationale, /began with content from outside the company \(F8\.9\)/);
+  assert.match(rows[0]!.rationale, /began with content from outside the company\.$/m, "said to the owner, without the requirement's number");
 
   // And work it delegated carries where it came from.
   const child = await createSubTask(taskId, {

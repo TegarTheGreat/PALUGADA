@@ -19,7 +19,7 @@ import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { noteTalkDrift } from '../domain/language.ts';
 import { settleTicketsOf } from './tickets.ts';
-import { learn, remember } from '../memory/store.ts';
+import { LEARNED_CONFIDENCE, learn, remember } from '../memory/store.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -217,6 +217,13 @@ export interface CreateTaskInput {
   laneKey?: string | undefined;
   /** The schedule that made this task, when one did (0049). */
   scheduleId?: string | undefined;
+  /**
+   * Not claimable before this: a task made now to be done later (`task.follow_up`).
+   * The claim already holds a pending task until its `wait_until`; nothing set
+   * it at creation, which is why the company could not look again at an
+   * outcome (the audit of 3 October, section 3.3).
+   */
+  waitUntil?: Date | undefined;
 }
 
 /**
@@ -401,6 +408,26 @@ async function assertRoleIsNotFrozen(tx: TenantClient, roleId: string): Promise<
 }
 
 /**
+ * The same refusal for work one task hands another role, said to the task
+ * that asked and marked as being about that other role (`delegated`).
+ *
+ * The run that asked is not stopped: its own role works. Read as its own
+ * role's freeze, it parked the task to wait for a role nobody had paused, and
+ * nothing called it back (the review of 20 October). Shown to the run, it can
+ * hand the work to another role, or say it waits.
+ */
+async function assertDelegateIsNotFrozen(tx: TenantClient, roleId: string): Promise<void> {
+  if (!(await isRoleFrozen(tx, roleId))) return;
+  const { rows } = await tx.query<{ slug: string; frozen_reason: string | null }>(
+    'SELECT slug, frozen_reason FROM roles WHERE id = $1', [roleId]);
+  const role = rows[0]?.slug ?? roleId;
+  throw new PalugadaError('role.frozen',
+    `role ${role} is paused${rows[0]?.frozen_reason ? ` (${rows[0].frozen_reason})` : ''} and takes no work now: `
+      + 'hand the work to another role, or say it waits for this one',
+    { roleId, delegated: true });
+}
+
+/**
  * Refuses to defer work that can change something (F9.5).
  *
  * F9.5 restricts batching to tier 0, and the tier is read from the registry
@@ -463,7 +490,7 @@ export async function createSubTask(
 
     // A frozen role takes no delegated work either, or a parent could route
     // around the freeze simply by handing the task down.
-    await assertRoleIsNotFrozen(tx, input.roleId);
+    await assertDelegateIsNotFrozen(tx, input.roleId);
     await assertRoleIsComplete(tx, input.roleId);
     if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 
@@ -533,6 +560,10 @@ export async function createSubTask(
           budgetAccountId: parent.budgetAccountId,
           createdBy: input.createdBy ?? 'agent_run',
           goalId: inherited,
+          // As urgent as what it is part of, unless told otherwise: P0 work was
+          // P2 by its first hop, and the urgent place could never be reached
+          // (the audit of 6 October, S5).
+          priority: input.priority ?? parent.priority,
         },
         { parentTaskId, hopDepth, reserveTokens },
       );
@@ -621,8 +652,8 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id, lane_key, priority, schedule_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       batchable, goal_id, lane_key, priority, schedule_id, wait_until)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
@@ -638,6 +669,7 @@ async function insertTask(
       input.laneKey ?? null,
       input.priority ?? DEFAULT_PRIORITY,
       input.scheduleId ?? null,
+      input.waitUntil ?? null,
     ],
   );
   const task = toTask(rows[0]!);
@@ -670,7 +702,31 @@ export interface TransitionOptions {
   writtenByModel?: boolean;
   /** When a task parked on a closed window may be picked up again (F9.2). */
   waitUntil?: Date | null;
+  /** Why it parks, when it moves to `waiting_window`; kept on the event that says so. */
+  waitReason?: WaitReason;
 }
+
+/**
+ * Why a task waits in `waiting_window` (N9). One status is nine different
+ * waits, and the console called them all "Scheduled": on the live run of
+ * 2 October a CEO whose sub-task was waiting on the owner two levels down
+ * read as scheduled, and nothing said what it was waiting for.
+ *
+ * - `child`: work it handed on, which `task.await` looks at again
+ * - `window`: the hours its work may be done in (F9.2)
+ * - `cheap_hours`: the cheaper hours batchable work waits for
+ * - `vendor`: a service that said "not now"
+ * - `slot`: its turn at a capability others are calling (F5.7)
+ * - `model`: a model that did not answer (F13.6)
+ * - `model_key`: a model whose key was refused; the owner has been told, and
+ *   it carries on once a key that works is in use
+ * - `service`: a capability's vendor having a moment, before it starts (H2)
+ * - `retry`: the next attempt after one failed
+ * - `follow_up`: a task made to look again at an outcome, at its time (`task.follow_up`)
+ * - `role_paused`: its role is stopped -- paused, frozen or held by the breaker -- and it
+ *   goes on when the role does
+ */
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up' | 'role_paused';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(
@@ -718,8 +774,18 @@ const LESSON_MAX = 500;
 async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, output: unknown): Promise<void> {
   const said = output && typeof output === 'object' ? (output as { learned?: unknown }).learned : undefined;
   if (!Array.isArray(said)) return;
+  // One piece of work saying the same thing five ways is one lesson: counted
+  // as five, it was "corroborated" by itself to the most a lesson can reach.
+  const seen = new Set<string>();
   const lessons = said.filter((one): one is string => typeof one === 'string' && one.trim() !== '')
-    .map((one) => one.trim().slice(0, LESSON_MAX)).slice(0, LESSONS_PER_RUN);
+    .map((one) => one.trim().slice(0, LESSON_MAX))
+    .filter((one) => {
+      const same = one.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      if (seen.has(same)) return false;
+      seen.add(same);
+      return true;
+    })
+    .slice(0, LESSONS_PER_RUN);
   if (lessons.length === 0) return;
   const outside = (await outsideContentIn(tx, task.id)) !== null;
   for (const lesson of lessons) {
@@ -771,6 +837,9 @@ async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, o
     scopeId: task.projectId,
     body: goal && result ? `${goal} — ${result}` : goal || result,
     source: 'agent',
+    // What a run reported of its own work, not something the company knows:
+    // below the line a search draws between known and unverified, as a lesson is.
+    confidence: LEARNED_CONFIDENCE.first,
     outside: (await outsideContentIn(tx, task.id)) !== null,
     sourceTaskId: task.id,
   });
@@ -813,11 +882,36 @@ export async function transitionWithin(
     if (!task) throw new Error(`task ${taskId} not found`);
     assertTransition(task.status, to);
 
+    // A deadline is for the work, not for whoever decides. A task parked for
+    // the owner's yes or for a reviewer and let go again is given back what
+    // it spent parked: otherwise an approved action was halted `deadline_passed`
+    // for the hour the approval took (the audit of 3 October, P0-1).
+    let waitedMs = 0;
+    if (to === 'running' && task.deadlineAt && (task.status === 'waiting_approval' || task.status === 'waiting_review')) {
+      const { rows } = await tx.query<{ waited: string }>(
+        `SELECT (extract(epoch FROM (now() - occurred_at)) * 1000)::bigint AS waited
+           FROM events WHERE task_id = $1 AND type = $2 ORDER BY occurred_at DESC LIMIT 1`,
+        [taskId, `task.${task.status}`],
+      );
+      waitedMs = Math.max(0, Number(rows[0]?.waited ?? 0));
+    }
+    // Nor is it for the hours, the vendor or the model that are not ready: a
+    // task parked until a closed window reopens, a limit lifts or a key is
+    // replaced is given the wait when it parks, since it is known then. A
+    // delegated child has an hour; a weekend of office hours is sixty-five,
+    // and the sweep halted it long before (the audit of 6 October, S1). A
+    // parent waiting on a child is the one wait not given back here: it is
+    // covered by the child's own deadline, where it asks (`task.await`).
+    if (to === 'waiting_window' && task.deadlineAt && options.waitUntil && options.waitReason && options.waitReason !== 'child') {
+      waitedMs = Math.max(waitedMs, options.waitUntil.getTime() - Date.now());
+    }
+
     await tx.query(
       `UPDATE tasks
           SET status = $2,
               halt_reason = COALESCE($3, halt_reason),
               output = COALESCE($4::jsonb, output),
+              deadline_at = deadline_at + ($6::bigint * interval '1 millisecond'),
               wait_until = CASE WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
                                 WHEN $2 = 'running' THEN NULL
                                 ELSE wait_until END,
@@ -840,6 +934,7 @@ export async function transitionWithin(
         options.haltReason ?? null,
         options.output ? JSON.stringify(options.output) : null,
         options.waitUntil ?? null,
+        waitedMs,
       ],
     );
 
@@ -866,8 +961,15 @@ export async function transitionWithin(
       actor: 'system',
       payload: options.haltReason
         ? { haltReason: options.haltReason, ...(options.detail ? { detail: options.detail.slice(0, 2_000) } : {}) }
-        : completed ?? {},
+        : to === 'waiting_window' && options.waitReason
+          ? { reason: options.waitReason }
+          : completed ?? {},
     });
+    // Why work was not done is the run writing to the owner (N9), held to the
+    // talk language where it is kept, as a summary is.
+    if (to === 'failed' && options.haltReason === 'not_done' && options.writtenByModel && options.detail) {
+      await noteTalkDrift(tx, { companyId, taskId, where: 'not_done', text: options.detail });
+    }
     if (to === 'completed') {
       // The summary is what the done notice and the Work page show the owner
       // of finished work: the run's own report to them. Checked once, here,

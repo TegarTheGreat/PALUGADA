@@ -83,9 +83,47 @@ export async function postModel(post: ModelPost): Promise<unknown> {
       throw new ProviderFailure(post.model, `the model API answered ${response.status} ${attempt + 1} times: ${detail}`);
     }
     if (response.status === 401 || response.status === 403) {
+      // Said as facts, not as a sentence about a variable: the key may have
+      // been typed in the console, where no variable was ever set. What the
+      // owner reads is composed from these (src/owner/platform-cards.ts);
+      // the setting's name stays here for an operator reading the record.
+      const host = new URL(post.url).host;
+      const providerSaid = whatTheProviderSaid(detail);
       throw new PalugadaError('model.unavailable',
-        `the model API refused the key (${response.status}); check ${post.keySetting}: ${detail}`, { model: post.model });
+        `the model API at ${host} refused the key (${response.status})${providerSaid ? `: ${providerSaid}` : ''}`,
+        { model: post.model, keyRefused: true, status: response.status, host, providerSaid, keySetting: post.keySetting });
     }
-    throw new Error(`the model API refused the request (${response.status}): ${detail}`);
+    // A conversation longer than the model reads. Every retry replays the same
+    // journal and asks the same turn, so it fails the same way until the
+    // attempts run out; said as what it is, it fails once with its reason.
+    // Anthropic says "prompt is too long", OpenAI and DeepSeek "maximum context
+    // length" and `context_length_exceeded`, a local server one of the rest.
+    if ((response.status === 400 || response.status === 413) && TOO_LONG.test(detail)) {
+      const providerSaid = whatTheProviderSaid(detail);
+      throw new PalugadaError('model.context_too_long',
+        `the conversation is longer than ${post.model} reads (${providerSaid}); a retry would send the same one`,
+        { model: post.model, status: response.status, providerSaid });
+    }
+    throw new Error(`the model API refused the request (${response.status}): ${whatTheProviderSaid(detail)}`);
   }
+}
+
+/** What providers say of a request whose conversation is too long. Not "exceeds the limit": that is said of other things. */
+const TOO_LONG = /prompt is too long|maximum context length|context[ _]length|context window|input is too long|too many tokens|reduce the length/i;
+
+/**
+ * The words of a provider's error, out of the JSON they usually come in:
+ * `{"error":{"message":"User not found.","code":401}}` is OpenRouter's, and
+ * OpenAI's and Anthropic's carry `error.message` too. A body that is not that
+ * shape is kept short, as it came.
+ */
+function whatTheProviderSaid(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: unknown } | string; message?: unknown };
+    const said = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message ?? parsed.message;
+    if (typeof said === 'string' && said.trim() !== '') return said.trim().slice(0, 300);
+  } catch {
+    // Not JSON: a proxy's page, or plain text.
+  }
+  return body.replace(/\s+/g, ' ').trim().slice(0, 200);
 }

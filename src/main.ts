@@ -27,7 +27,9 @@
 import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
-import { DEFAULT_PRICE_TABLE, loadPriceTable, withConsolePrices } from './engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, loadPriceTable, withConsolePrices, type PriceTable } from './engine/pricing.ts';
+import { PriceBook } from './engine/price-book.ts';
+import { keptInSettings, modelsInUse, syncIfStale } from './engine/price-sync.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
 import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
@@ -59,6 +61,7 @@ import { useMeaning } from './knowledge/meaning.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { toolBindingsFrom } from './capabilities/tools.ts';
+import { computeFrom } from './capabilities/compute.ts';
 import { bindVendorSettings, registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
@@ -106,13 +109,17 @@ function metricsToken(raw: string | undefined): string | null {
   return raw.trim();
 }
 import { existsSync, realpathSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
 import { metricsText } from './reporting/metrics.ts';
+import { guardProcess } from './process-guard.ts';
+import { Browsers } from './browser/browsers.ts';
+import { findChromium } from './browser/chromium.ts';
+import { sealedCookies } from './browser/cookies.ts';
 
 export interface DeploymentOptions {
   /**
@@ -687,13 +694,23 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
   const filePrices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
   // And what the owner said a model costs in the console (L12), over the file.
-  const prices = withConsolePrices(filePrices, env.PALUGADA_MODEL_PRICE_SETTINGS);
+  const basePrices = withConsolePrices(filePrices, env.PALUGADA_MODEL_PRICE_SETTINGS);
+  // The prices a call is charged by are a book, not a table read once: the
+  // owner's, the operator's, and what the platform itself reads from the
+  // catalogue every day, under them (price-book.ts). Read now, before
+  // anything prices a call, and again whenever one of them changes.
+  const priceBook = new PriceBook(filePrices, {
+    owner: async () => withSettings(baseEnv, options.ignoreSettings ? {} : await readSettings()).PALUGADA_MODEL_PRICE_SETTINGS,
+    catalogue: keptInSettings.read,
+  });
+  await priceBook.refresh().catch(() => undefined);
+  const prices: PriceTable = priceBook;
   if (env.PALUGADA_MODEL_PRICE_SETTINGS) {
     notes.push(`model prices set in the console: ${Object.keys((JSON.parse(env.PALUGADA_MODEL_PRICE_SETTINGS) as { models: object }).models).join(', ')}`);
   }
   notes.push(
     pricesFile
-      ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
+      ? `model prices from ${pricesFile}: ${basePrices.rates.length} model pattern(s), `
         + `fallback ${prices.fallback.inputCentsPerMTok}/${prices.fallback.outputCentsPerMTok} cents per MTok`
       : 'no model price list: unpriced usage is estimated at the conservative fallback -- '
         + 'set PALUGADA_MODEL_PRICES (F13.7)',
@@ -731,20 +748,58 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // to stop happening twice.
   registerPlatformTools(registry);
 
-  const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
+  let filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
+  // A root that is set and not there yet is made: it was an error on the first
+  // draft, from a capability that said it was bound. One that cannot be made is
+  // said now, and the tools that need it are unbound rather than broken (the
+  // audit of 6 October, W1).
+  if (filesRoot) {
+    try {
+      await mkdir(filesRoot, { recursive: true });
+    } catch (failure) {
+      notes.push(`PALUGADA_FILES_ROOT (${filesRoot}) could not be made: ${(failure as Error).message}`);
+      filesRoot = null;
+    }
+  }
   // Searching and reading pages, through the providers the owner chose.
-  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot);
+  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot, prices);
+  // Figures worked out in Python, in a container that reaches no network:
+  // the operator's, since it needs a docker this process can reach.
+  const compute = computeFrom(env, filesRoot);
+  if (compute.note) notes.push(compute.note);
 
   // The five capabilities the platform implements itself. The other twenty
   // the standard template grants need somebody's account, and a control plane
   // does not get to choose which mail provider every company that ever uses it
   // will have.
+  // A mail server with a private certificate, which a company's mailbox may be on.
+  const mailCa = env.PALUGADA_MAIL_CA ? await readFile(env.PALUGADA_MAIL_CA, 'utf8') : undefined;
+  const reachable = env.PALUGADA_ALLOW_PRIVATE_HOSTS
+    ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
+    : {};
+  // The companies' browsers (§9 P2 item 20), with the Chromium this machine
+  // has or PALUGADA_CHROMIUM names; PALUGADA_BROWSER=off leaves them unbound.
+  // Started only when a role first opens a page.
+  const chromium = env.PALUGADA_BROWSER === 'off' ? null : findChromium(env);
+  const browsers = chromium
+    ? new Browsers({
+      executable: chromium,
+      sandbox: env.PALUGADA_BROWSER_SANDBOX !== 'off',
+      reachable,
+      // pdf.js, which the console's build copies beside it, for a company's PDFs.
+      reader: fileURLToPath(new URL('../console/dist/reader', import.meta.url)),
+      cookies: sealedCookies({ master: () => master(true), previous: () => previousKeys }),
+    })
+    : null;
+  if (!browsers) {
+    notes.push(env.PALUGADA_BROWSER === 'off'
+      ? 'browser.read and browser.act are unbound: PALUGADA_BROWSER is off'
+      : 'browser.read and browser.act are unbound: no Chromium was found; install it, or set PALUGADA_CHROMIUM to one (F8)');
+  } else if (env.PALUGADA_BROWSER_SANDBOX === 'off') {
+    notes.push(`the browser at ${chromium} runs without its sandbox (PALUGADA_BROWSER_SANDBOX=off): a page that breaks out of Chromium's renderer reaches this process's user`);
+  }
   const bound = await registerPlatformCapabilities(registry, {
-    web: {
-      ...(env.PALUGADA_ALLOW_PRIVATE_HOSTS
-        ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
-        : {}),
-    },
+    web: reachable,
     // Parenthesised: `??` binds tighter than `?:` here only by accident of
     // reading, and a root that silently did not reach the capability would
     // leave `files.list` unbound while the note said otherwise.
@@ -755,8 +810,29 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.image ? { image: toolBindings.image } : {}),
     ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
+    ...(toolBindings.vision ? { vision: toolBindings.vision } : {}),
+    // Each customer channel's keys are sealed in the deployment's store, and
+    // the Bot API and the Graph API are wherever the owner's own channels
+    // find them.
+    chat: {
+      secrets,
+      ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}),
+      ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
+      ...(mailCa ? { mail: { ca: mailCa } } : {}),
+      // A channel the owner lets answer on its own has each such reply
+      // checked by a model (STATUS 2.137); with none, nothing goes on its own.
+      ...(llm ? { answers: { llm } } : {}),
+    },
+    ...(browsers ? { browser: browsers } : {}),
+    ...(mailCa ? { mail: { ca: mailCa } } : {}),
+    ...(compute.options ? { compute: compute.options } : {}),
   });
-  notes.push(...toolBindings.notes);
+  // With no page reader bound, the browser reads pages: say so where the
+  // note would have said they cannot be read.
+  const unread = 'web.extract is unbound: ';
+  notes.push(...toolBindings.notes.map((note) => (browsers && note.startsWith(unread)
+    ? `web.extract reads pages in this deployment's browser, as no provider is bound: ${note.slice(unread.length)}`
+    : note)));
   // A search for a role's documents reaches the provider through this: the
   // binding is the deployment's, and the search runs inside a capability.
   useMeaning(toolBindings.embed ?? null);
@@ -776,7 +852,16 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // with nowhere to write is not the capability the catalogue calibrated.
     notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
   }
-  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound].join(', ')}`);
+  // The lab's analyst is given `code.execute`, and nothing binds it: the local
+  // sandbox exists and no capability wraps it. Said, so that a role holding it
+  // is not a surprise at the first call (the audit of 6 October, O2).
+  if (!registry.get('code.execute')) {
+    notes.push('code.execute is unbound: no capability wraps the sandbox, so the lab\'s analyst cannot run code; code.compute, where its image is built, is the way to compute');
+  }
+  // What the platform bound, to compare with what is bound once the services
+  // are: a name it binds only until a service does (`fallback`) may be
+  // taken from it below.
+  const platformBound = new Map(bound.map((name) => [name, registry.get(name)]));
 
   // The twenty, from the operator's file.
   //
@@ -797,6 +882,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // file keeps a name both bind; one that no longer passes is a note.
   const consoleVendors = bindVendorSettings(registry, env.PALUGADA_VENDOR_SETTINGS, notes);
   if (consoleVendors.length > 0) notes.push(`services connected in the console: ${consoleVendors.join(', ')}`);
+  // A name the platform keeps only until a service takes it, and a service did:
+  // said, with what it costs. The shipped Midtrans example names `invoice.issue`
+  // for a QRIS charge, and connecting it stopped the company's invoices being
+  // written to its books with nothing to say so (the audit of 6 October, O2).
+  for (const [name, own] of platformBound) {
+    const now = registry.get(name);
+    if (!own || !now || now === own) continue;
+    const books = name === 'ledger.read' || name === 'ledger.record' || name === 'invoice.issue';
+    notes.push(
+      `${name} is bound to a service (${now.adapter}), no longer to the platform's own${books ? " (the company's books)" : ''}`
+      + (name === 'invoice.issue' ? ': an invoice it issues is not written to the books' : '')
+      + (name === 'ledger.record' ? ': what it records is not in the books the platform keeps' : ''),
+    );
+  }
 
   // Tools from MCP servers, only those the file names, each at the tier it
   // states (`src/capabilities/mcp.ts`). Refused at boot like the vendor file
@@ -830,6 +929,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     }
   }
   if (fromConsole.length > 0) notes.push(`bound from the console: ${fromConsole.join(', ')}`);
+  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound.filter((name) => registry.get(name) === platformBound.get(name))].join(', ')}`);
 
   // Once, after everything is registered.
   //
@@ -858,14 +958,14 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   }
 
   // What a fresh database needs before the owner can start a company: the
-  // standard template and the built-in bundles. `src/seed.ts` said it ran on
+  // founding template and the built-in bundles. `src/seed.ts` said it ran on
   // every deploy and only the smoke script called it, so on a fresh install
   // the console's "Start a company" answered "no company template named
   // standard-company". Idempotent, and it leaves a bundle an operator already
   // published -- perhaps signed -- as it is.
   const seeded = await seed({ keepPublished: true });
   notes.push(
-    `seeded the standard company template and ${seeded.bundles.length} built-in bundles`
+    `seeded the founding company template and ${seeded.bundles.length} built-in bundles`
     + (seeded.bundles.length === 0 ? ' (all were already published)' : ''),
   );
   // Said once, on the boot that did it: the operator should know the
@@ -981,6 +1081,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // work; without it the worker never distils and never screens, which the
     // note below says out loud.
     ...(llm ? { learning: { llm, model: draftModel } } : {}),
+    // A goal nobody works on is put to the CEO only where a model can take
+    // the task: without one it would halt each week, and be reported each week.
+    reviewsGoals: llm !== null && llm !== undefined,
     // The documents' meaning, from the provider chosen under Tools.
     ...(toolBindings.embed ? { meaning: toolBindings.embed } : {}),
     // What failed, in lines a log collector reads. A worker whose stage
@@ -990,6 +1093,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // What a company keeps outside its rows, so an erasure removes that
     // too (0096): its directory in the files root, its charter's folder.
     erasure: { filesRoot, charters: charterRepository },
+    // Customers' mailboxes, read in the tick by whichever worker takes each.
+    mail: { secrets, ...(mailCa ? { ca: mailCa } : {}), ...(filesRoot ? { filesRoot } : {}) },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
@@ -1032,6 +1137,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const api = new OwnerApi({
     mfa,
     charters: charterRepository,
+    ...(browsers ? { browsers } : {}),
+    // The folder the owner hands files into and takes them out of.
+    ...(filesRoot ? { files: { root: filesRoot } } : {}),
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that
@@ -1041,6 +1149,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
     // The file's prices, which the console's are laid over as the owner saves them.
     prices: filePrices,
+    // And the book the model client and the engine price calls by, so that a price saved or read in the
+    // console is the next call's.
+    priceBook,
     // The same store, for the signing secrets of triggers the sender signs.
     secrets,
     // The same handlers the in-process runtime executes, so F11.4 replays the
@@ -1104,6 +1215,46 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const keepingCharters = setInterval(() => void charterRepository.sync().catch(() => undefined), CHARTER_SYNC_MS);
   keepingCharters.unref();
 
+  // Prices that stay current (price-sync.ts). What the catalogue says is read
+  // daily for the models this deployment runs on, and the book is read again
+  // every few minutes, so a price another replica learned, or the owner saved
+  // there, is this one's too. The first reading is a minute after the start,
+  // so that a start is not held up by a catalogue that is slow, and a test
+  // that starts a deployment and stops it never reaches the internet. An
+  // operator without it says so (`PALUGADA_PRICE_SYNC=off`).
+  const priceSyncOn = !options.ignoreSettings && env.PALUGADA_PRICE_SYNC !== 'off';
+  const keepingPrices = setInterval(() => {
+    void (async () => {
+      if (priceSyncOn) {
+        const live = withSettings(baseEnv, await readSettings());
+        const models = modelsInUse(live);
+        if (models.length > 0) {
+          const where = modelSettingsFrom(live);
+          await syncIfStale({
+            models, where: { url: where?.url ?? null, provider: where?.provider ?? null },
+            ...(baseEnv.PALUGADA_MODELS_DEV_URL ? { source: baseEnv.PALUGADA_MODELS_DEV_URL } : {}), ...keptInSettings,
+          });
+        }
+      }
+      await priceBook.refresh();
+    })().catch(() => undefined);
+  }, PRICE_SYNC_POLL_MS);
+  keepingPrices.unref();
+  const firstPrices = priceSyncOn ? setTimeout(() => {
+    void (async () => {
+      const live = withSettings(baseEnv, await readSettings());
+      const models = modelsInUse(live);
+      if (models.length === 0) return;
+      const where = modelSettingsFrom(live);
+      await syncIfStale({
+        models, where: { url: where?.url ?? null, provider: where?.provider ?? null },
+        ...(baseEnv.PALUGADA_MODELS_DEV_URL ? { source: baseEnv.PALUGADA_MODELS_DEV_URL } : {}), ...keptInSettings,
+      });
+      await priceBook.refresh();
+    })().catch(() => undefined);
+  }, PRICE_SYNC_FIRST_MS) : null;
+  firstPrices?.unref();
+
   return {
     worker,
     api,
@@ -1116,6 +1267,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     async stop() {
       if (watching) clearInterval(watching);
       clearInterval(keepingCharters);
+      clearInterval(keepingPrices);
+      if (firstPrices) clearTimeout(firstPrices);
       const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
       // Readiness first. The listener closed at once, and a load balancer
       // that asked every few seconds went on sending requests into a port
@@ -1153,8 +1306,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         clearTimeout(answered);
       }
       // Last, once no run can open another: a server holding a session for
-      // a task -- a browser, say -- is told it is over.
+      // a task -- a browser, say -- is told it is over, and the companies'
+      // own browsers seal their cookies and close.
       await closeMcpSessions();
+      await browsers?.close();
     },
   };
 }
@@ -1164,6 +1319,10 @@ const SETTINGS_POLL_MS = 30_000;
 
 /** How often the charter repository is brought level with the database (F3.11). */
 const CHARTER_SYNC_MS = 60_000;
+/** How often the price book is read again, and whether the catalogue is due; the catalogue itself is read once a day. */
+const PRICE_SYNC_POLL_MS = 5 * 60_000;
+/** How long after a start the first reading waits. */
+const PRICE_SYNC_FIRST_MS = 60_000;
 
 /** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
 const STOP_GRACE_MS = 20_000;
@@ -1264,6 +1423,18 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
     return configuration ? EXIT_CONFIG : 1;
   }
   announce(deployment);
+  // A failure nothing handled (L2): a stray rejection is said and the process
+  // goes on; an exception nothing caught stops the deployment as a signal
+  // does, then ends the process for the supervisor to start a clean one.
+  guardProcess({
+    write: (line) => { process.stderr.write(line); },
+    stop: async () => {
+      stopping = true;
+      await restarting;
+      await deployment.stop();
+    },
+    exit: (code) => { void closePools().catch(() => undefined).finally(() => process.exit(code)); },
+  });
 
   return new Promise<number>((resolveExit) => {
     const stop = (signal: NodeJS.Signals) => {

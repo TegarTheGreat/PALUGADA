@@ -14,7 +14,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -27,11 +27,13 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi } from '../../src/owner/api.ts';
 import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import {
-  DeploymentSecretManager, masterKeyFrom, putSecret, readSettings, writeSetting, type MasterKey,
+  DeploymentSecretManager, masterKeyFrom, putSecret, readSettings, settingsVersion, writeSetting, type MasterKey,
 } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
-import { DEFAULT_PRICE_TABLE, estimateCents, withConsolePrices } from '../../src/engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, costOf, withConsolePrices } from '../../src/engine/pricing.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { consoleWithSettings as consoleServing } from '../helpers/owner-console.ts';
+import { chromium, openPage } from '../helpers/browser.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -101,7 +103,7 @@ test('the master key is the one named, or a file made once beside the deployment
     (error: unknown) => isPalugadaError(error, 'config.invalid'));
 });
 
-test('the owner chooses a model in the console: checked before it is saved, saved with their device, taken up at the next start', async () => {
+test('the owner chooses a model in the console: checked before it is saved, saved, taken up at the next start', async () => {
   const api = await consoleWithSettings();
   const model = await modelServer();
   try {
@@ -132,10 +134,6 @@ test('the owner chooses a model in the console: checked before it is saved, save
       { provider: 'openai', url: model.url, key: 'k-0123456789', proof: { totp: api.code() } });
     assert.equal(half.status, 400);
     assert.match(String(half.body.error), /say which one each tier means/);
-
-    const unproved = await api.call('POST', '/api/control/settings/model', token,
-      { provider: 'openai', url: model.url, model: 'local-model', key: 'sk-typed-0123456789' });
-    assert.equal(unproved.status, 403, 'the model every role runs on is changed with the owner\'s device');
 
     const unknown = await api.call('POST', '/api/control/settings/model', token,
       { preset: 'nobody', provider: 'openai', url: model.url, model: 'local-model', proof: { totp: api.code() } });
@@ -201,7 +199,7 @@ test('the owner chooses a model in the console: checked before it is saved, save
  * console -- offered to say what a model costs. The owner now says it where
  * they chose the model, with their device, and each call is priced by it.
  */
-test('the owner says what each model costs, with their device, and calls are priced by it (L12, F13.7)', async () => {
+test('the owner says what each model costs, and calls are priced by it (L12, F13.7)', async () => {
   const api = await consoleWithSettings({
     PALUGADA_MODEL_PROVIDER: 'openai', PALUGADA_MODEL_URL: 'https://api.deepseek.com/v1', PALUGADA_MODEL: 'deepseek-chat',
   });
@@ -212,8 +210,6 @@ test('the owner says what each model costs, with their device, and calls are pri
       { model: 'deepseek-chat', input: 1500, output: 7500, source: 'fallback' },
     ], 'the model the tiers name, priced at the fallback, and said to be');
 
-    const refused = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: 28, output: 42 } } });
-    assert.notEqual(refused.status, 200, 'a lower price loosens every budget, so it takes the device');
     const wrong = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: -1, output: 42 } }, proof: { totp: api.code() } });
     assert.equal(wrong.status, 400);
     assert.match(String(wrong.body.error), /non-negative number of cents per million tokens/);
@@ -223,11 +219,11 @@ test('the owner says what each model costs, with their device, and calls are pri
     const after = await api.call('GET', '/api/control/settings', token);
     assert.deepEqual(after.body.prices, [{ model: 'deepseek-chat', input: 28, output: 42, source: 'console' }]);
 
-    // The next start prices a call by it: a million tokens in and out, 70 cents rather than 90 dollars.
+    // A call is priced by it: a million tokens in and out, 70 cents rather than 90 dollars.
     const env = withSettings({}, await readSettings());
     const table = withConsolePrices(DEFAULT_PRICE_TABLE, env.PALUGADA_MODEL_PRICE_SETTINGS);
-    assert.deepEqual(estimateCents(table, 'deepseek-chat', 1_000_000, 1_000_000), { cents: 70, basis: 'deepseek-chat' });
-    assert.equal(estimateCents(table, 'some-other-model', 1_000_000, 0).basis, 'fallback', 'a model not priced still is not free');
+    assert.deepEqual(costOf(table, 'deepseek-chat', { input: 1_000_000, output: 1_000_000 }), { cents: 70, basis: 'deepseek-chat' });
+    assert.equal(costOf(table, 'some-other-model', { input: 1_000_000, output: 0 }).basis, 'fallback', 'a model not priced still is not free');
 
     // Taken back, the model is on the fallback again.
     const cleared = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': null }, proof: { totp: api.code() } });
@@ -239,12 +235,14 @@ test('the owner says what each model costs, with their device, and calls are pri
 });
 
 /**
- * And the owner need not type them: models.dev keeps what each provider's
- * models cost, and the console offers its prices to save. Its provider is
- * the one this deployment's model is reached at when two list the same
- * model at different prices; nothing is saved until the owner saves it.
+ * And the owner need not type them, or save them, or come back to keep them
+ * so: the platform reads models.dev itself, for the models it runs on, and
+ * prices by it under what the owner and the operator say (price-book.ts). Its
+ * provider is the one this deployment's model is reached at when two list the
+ * same model at different prices. "Check the prices now" is that reading done
+ * when the owner asks; it saves no price of theirs.
  */
-test('the console fills a model\'s price from models.dev, for the owner to save (L12)', async () => {
+test('the platform reads models.dev for the models it runs on, and prices by it under the owner\'s own (L12)', async () => {
   const catalogue = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({
@@ -265,15 +263,91 @@ test('the console fills a model\'s price from models.dev, for the owner to save 
   });
   try {
     const token = await api.signIn();
-    const found = await api.call('POST', '/api/control/settings/model/prices/lookup', token, {});
+    const before = await api.call('GET', '/api/control/settings', token);
+    assert.deepEqual(before.body.prices.map((row: { source: string }) => row.source), ['fallback', 'fallback'], 'nothing read yet: both at the highest rate');
+    assert.equal(before.body.priceSync, null);
+
+    const version = await settingsVersion();
+    const found = await api.call('POST', '/api/control/settings/model/prices/sync', token, {});
     assert.equal(found.status, 200, JSON.stringify(found.body));
-    assert.deepEqual(found.body, {
-      prices: { 'deepseek-chat': { input: 28, output: 42, provider: 'DeepSeek' } },
-      missing: ['deepseek-reasoner-9'],
-      problem: null,
-    });
-    assert.equal((await readSettings()).model_prices, undefined, 'a look saves nothing');
+    assert.equal(found.body.ok, true);
+    assert.equal(found.body.problem, null);
+    assert.deepEqual(found.body.prices, [
+      { model: 'deepseek-chat', input: 28, output: 42, source: 'catalogue', provider: 'DeepSeek' },
+      { model: 'deepseek-reasoner-9', input: 1500, output: 7500, source: 'fallback' },
+    ]);
+    assert.deepEqual(found.body.priceSync.unpriced, ['deepseek-reasoner-9'], 'what it could not price, said');
+    assert.ok(found.body.priceSync.syncedAt);
+    // What the platform read is its own, not something the owner saved.
+    assert.equal((await readSettings()).model_prices, undefined);
+    assert.ok((await readSettings()).model_price_catalogue, 'kept, for every process to read');
+    assert.equal(await settingsVersion(), version, 'and not a change of settings: no replica restarts to take up what every replica reads');
+    const after = await api.call('GET', '/api/control/settings', token);
+    assert.equal(after.body.pending, false, 'so nothing is waiting for a start');
+    assert.deepEqual(after.body.prices[0], { model: 'deepseek-chat', input: 28, output: 42, source: 'catalogue', provider: 'DeepSeek' });
+
+    // The owner's own word wins over it.
+    const typed = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: 30, output: 50 } }, proof: { totp: api.code() } });
+    assert.equal(typed.status, 200, JSON.stringify(typed.body));
+    assert.deepEqual((await api.call('GET', '/api/control/settings', token)).body.prices[0], { model: 'deepseek-chat', input: 30, output: 50, source: 'console' });
   } finally {
+    await api.close();
+  }
+});
+
+/**
+ * The page filled each price box once, with the price as it was when it was
+ * drawn, catalogue prices too. "Check the prices now" redrew the prices under
+ * the boxes and left the old figures in them, so Save lit up with nothing
+ * typed, and pressing it -- or saving any other model -- pinned the old
+ * catalogue price as the owner's own, for good.
+ */
+test('checking the prices again leaves nothing to save that the owner did not type', { skip: chromium() ? false : 'no Chromium to draw the console in' }, async () => {
+  const built = fileURLToPath(new URL('../../console/dist', import.meta.url));
+  assert.ok(existsSync(join(built, 'index.html')), 'the console is built first (npm run console:build)');
+  let cost = { input: 3, output: 15 };
+  const catalogue = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      deepseek: { id: 'deepseek', name: 'DeepSeek', api: 'https://api.deepseek.com', models: { 'deepseek-chat': { id: 'deepseek-chat', cost } } },
+    }));
+  });
+  servers.push(catalogue);
+  await new Promise<void>((resolve) => catalogue.listen(0, '127.0.0.1', resolve));
+  const api = await consoleServing({
+    staticRoot: built,
+    baseEnv: {
+      PALUGADA_MODEL_PROVIDER: 'openai', PALUGADA_MODEL_URL: 'https://api.deepseek.com/v1',
+      PALUGADA_MODEL_ALIASES: JSON.stringify({ fast: 'deepseek-chat', standard: 'deepseek-chat', deep: 'deepseek-chat' }),
+      PALUGADA_MODELS_DEV_URL: `http://127.0.0.1:${(catalogue.address() as AddressInfo).port}/api.json`,
+    },
+  });
+  const page = await openPage(chromium()!, { width: 1280, height: 900 }).catch(async (error: unknown) => {
+    await api.close();
+    throw error;
+  });
+  try {
+    const token = await api.signIn();
+    assert.equal((await api.call('POST', '/api/control/settings/model/prices/sync', token, {})).body.ok, true);
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]')`, 'the console');
+    await page.evaluate(`location.hash = '#/deployment/model'`);
+    const box = `[...document.querySelectorAll('label')].find((one) => one.innerText.startsWith('Input, $ per million'))`;
+    await page.waitFor(`${box} && document.getElementById(${box}.htmlFor).placeholder === '3'`, 'the price as the catalogue gave it');
+    const save = `[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Save prices')`;
+    assert.equal(await page.evaluate(`${save}.disabled`), true, 'nothing typed, nothing to save');
+
+    cost = { input: 2.5, output: 12 };
+    await page.evaluate(`[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Check the prices now').click()`);
+    await page.waitFor(`document.getElementById(${box}.htmlFor).placeholder === '2.5'`, 'the catalogue read again', 15_000);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(await page.evaluate(`${save}.disabled`), true, 'still nothing typed, so still nothing to save');
+    assert.notEqual(await page.evaluate(`document.getElementById(${box}.htmlFor).value`), '3', 'and the old price is not left in the box');
+  } finally {
+    await page.close();
     await api.close();
   }
 });
@@ -427,9 +501,7 @@ test('the owner installs an agent CLI and signs it in from the console; roles ru
     assert.equal(early.status, 400);
     assert.match(String(early.body.error), /not installed where PALUGADA runs: install it first/);
 
-    const unproved = await api.call('POST', '/api/control/agents/codex/install', token, {});
-    assert.equal(unproved.status, 403, 'installing runs code on this machine, so it takes the owner\'s device');
-    const started = await api.call('POST', '/api/control/agents/codex/install', token, { proof: { totp: api.code() } });
+    const started = await api.call('POST', '/api/control/agents/codex/install', token, {});
     assert.equal(started.status, 200, JSON.stringify(started.body));
     let job = started.body.job;
     for (let waited = 0; job.state === 'running' && waited < 20_000; waited += 100) {
@@ -497,8 +569,9 @@ test('the owner installs an agent CLI and signs it in from the console; roles ru
     assert.equal(await api.secrets.resolve('db://agent-codex'), 'sk-proj-typed-0123456789');
 
     // The CLI replaced by a version nobody checked, as an update outside the
-    // console would: its roles get no work until the owner accepts it with
-    // their device, and the next start holds it to that one version.
+    // console would: its roles get no work until the owner accepts it (in a
+    // session opened with their device), and the next start holds it to that
+    // one version.
     const installedAt = join(state, 'tools', 'codex', 'node_modules', '.bin', 'codex');
     writeFileSync(installedAt, '#!/bin/sh\necho "codex-cli 0.170.0"\n', { mode: 0o755 });
     const drifted = assembleRuntimes({ env: withSettings({}, await readSettings()), secrets: api.secrets });
@@ -506,9 +579,7 @@ test('the owner installs an agent CLI and signs it in from the console; roles ru
     assert.equal(refused.ok, false);
     assert.match(refused.detail ?? '', /codex 0\.170\.0 is not 0\.157\.1, the version whose containment PALUGADA checked/);
     assert.equal((await codexOf()).accepted, null);
-    assert.equal((await api.call('POST', '/api/control/agents/codex/accept', token, {})).status, 403,
-      'running a version nobody checked is the owner\'s call, with their device');
-    const accepted = await api.call('POST', '/api/control/agents/codex/accept', token, { proof: { totp: api.code() } });
+    const accepted = await api.call('POST', '/api/control/agents/codex/accept', token, {});
     assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
     assert.deepEqual(accepted.body, { accepted: '0.170.0' });
     assert.equal((await codexOf()).accepted, '0.170.0');
@@ -563,10 +634,9 @@ test('the owner signs Claude Code in with their Claude plan from the console: a 
       .find((one: { id: string }) => one.id === 'subscription').login, 'claude-setup-token');
     assert.equal((await api.call('POST', '/api/control/agents/codex/login', token, { proof: { totp: api.code() } })).status, 400,
       'a CLI with no sign-in the console can drive is signed in with a key');
-    assert.equal((await api.call('POST', '/api/control/agents/claude-code/login', token, {})).status, 403);
 
     // A code that is not the one the page showed is refused, and says so.
-    await api.call('POST', '/api/control/agents/claude-code/login', token, { proof: { totp: api.code() } });
+    await api.call('POST', '/api/control/agents/claude-code/login', token, {});
     await until(token, (job) => job.waitingForCode);
     await api.call('POST', '/api/control/agents/claude-code/login/code', token, { code: 'wrong#xyz' });
     const refused = await until(token, (job) => job.state !== 'running');

@@ -242,6 +242,101 @@ export async function batchWindow(
   };
 }
 
+export interface OfficeHours extends Window {
+  /** Capabilities the owner keeps open round the clock, by name. */
+  except: string[];
+}
+
+/**
+ * The hours the company keeps for what reaches the outside world, if it has
+ * said any (STATUS 2.150).
+ *
+ * Absent is the normal state and means round the clock (F9.6), not "closed".
+ * Read by the broker on every call above tier 1, so it is one indexed row.
+ */
+export async function officeHours(tx: TenantClient, companyId: string): Promise<OfficeHours | null> {
+  const { rows } = await tx.query<{
+    timezone: string; start_hour: number; end_hour: number; days_of_week: number[]; except_capabilities: string[];
+  }>(
+    `SELECT timezone, start_hour, end_hour, days_of_week, except_capabilities
+       FROM office_hours WHERE company_id = $1`,
+    [companyId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    timezone: row.timezone, startHour: row.start_hour, endHour: row.end_hour,
+    daysOfWeek: row.days_of_week, except: row.except_capabilities,
+  };
+}
+
+/**
+ * The window that holds one capability's action for a company: the capability's
+ * own (F9.2) if it has one, otherwise the company's office hours -- for what
+ * reaches the outside world, tier 2 and above, and not for what the owner
+ * excepted. Reading and writing inside the company is never held (F9.6).
+ */
+export async function windowFor(
+  tx: TenantClient,
+  input: { companyId: string; divisionId: string; capability: string; tier: number },
+): Promise<Window | null> {
+  const own = await capabilityWindow(tx, input.divisionId, input.capability);
+  if (own || input.tier < 2) return own;
+  const hours = await officeHours(tx, input.companyId);
+  if (!hours || hours.except.includes(input.capability)) return null;
+  return hours;
+}
+
+/**
+ * Refuses what could never open, or would silently mean something else, and
+ * names the field and what is accepted: the owner reads these.
+ */
+export function assertOfficeHours(input: { timezone: string; startHour: number; endHour: number; daysOfWeek: number[] }): void {
+  assertTimeZone(input.timezone);
+  if (!Number.isInteger(input.startHour) || input.startHour < 0 || input.startHour > 23) {
+    throw new PalugadaError('contract.violation', 'startHour must be an hour, 0 to 23', { field: 'startHour' });
+  }
+  if (!Number.isInteger(input.endHour) || input.endHour < 0 || input.endHour > 24) {
+    throw new PalugadaError('contract.violation', 'endHour must be an hour, 0 to 24 (24 is the end of the day)', { field: 'endHour' });
+  }
+  if (input.startHour === input.endHour) {
+    throw new PalugadaError('contract.violation',
+      'startHour and endHour must differ; for a company that runs round the clock, clear its office hours', { field: 'endHour' });
+  }
+  const days = input.daysOfWeek;
+  if (days.length < 1 || days.length > 7 || days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+    throw new PalugadaError('contract.violation',
+      'daysOfWeek is a list of days, 0 to 6 with Sunday 0, naming at least one', { field: 'daysOfWeek' });
+  }
+}
+
+export async function setOfficeHours(input: {
+  companyId: string;
+  timezone: string;
+  startHour: number;
+  endHour: number;
+  daysOfWeek?: number[];
+  except?: string[];
+}): Promise<void> {
+  const daysOfWeek = [...new Set(input.daysOfWeek ?? [1, 2, 3, 4, 5])].sort();
+  assertOfficeHours({ ...input, daysOfWeek });
+  await withControlPlane(async (tx) => {
+    await tx.query(
+      `INSERT INTO office_hours (company_id, timezone, start_hour, end_hour, days_of_week, except_capabilities)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (company_id) DO UPDATE
+         SET timezone = EXCLUDED.timezone, start_hour = EXCLUDED.start_hour, end_hour = EXCLUDED.end_hour,
+             days_of_week = EXCLUDED.days_of_week, except_capabilities = EXCLUDED.except_capabilities,
+             updated_at = now()`,
+      [input.companyId, input.timezone, input.startHour, input.endHour, daysOfWeek, [...new Set(input.except ?? [])].sort()],
+    );
+  });
+}
+
+export async function clearOfficeHours(companyId: string): Promise<void> {
+  await withControlPlane((tx) => tx.query('DELETE FROM office_hours WHERE company_id = $1', [companyId]));
+}
+
 /**
  * Refuses a name that is not an IANA time zone.
  *

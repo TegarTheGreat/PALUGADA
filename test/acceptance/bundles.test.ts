@@ -431,6 +431,39 @@ test('the operating kit brings a strategist, its frameworks for review, and a we
 
 });
 
+/**
+ * A bundle's roles arrive as people, the way the template's do (the analysis
+ * of 3 October, §2.3 item 10). The kit's strategist and critic were
+ * installed with no name and no title, so every picker the owner chose a
+ * role from listed "strategist" and "critic" beside "Arka · CEO".
+ */
+test("a bundle's roles arrive with a name and a title, and a name the owner gave stays (§2.3 item 10)", async () => {
+  for (const bundle of BUILT_IN_BUNDLES) {
+    for (const role of bundle.body.roles) {
+      assert.ok(role.displayName?.trim() && role.title?.trim(), `${bundle.slug}: ${role.slug} has no name or no title`);
+    }
+  }
+
+  const fixture = await createCompany('bundle-role-names');
+  await registerStandardCatalogue();
+  await publishBundle(COMPANY_OS);
+  const install = () => installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
+  await install();
+  const named = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string; display_name: string | null; title: string | null }>(
+    "SELECT slug, display_name, title FROM roles WHERE slug IN ('strategist', 'critic') ORDER BY slug"))).rows;
+  const shipped = (slug: string) => COMPANY_OS.body.roles.find((role) => role.slug === slug)!;
+  assert.deepEqual(await named(), ['critic', 'strategist'].map((slug) => ({
+    slug, display_name: shipped(slug).displayName, title: shipped(slug).title,
+  })));
+
+  // The owner names one their own way; the kit installed again leaves it.
+  await withControlPlane((tx) => tx.query(
+    "UPDATE roles SET display_name = 'Budi', title = 'Head of Strategy' WHERE company_id = $1 AND slug = 'strategist'", [fixture.companyId]));
+  await install();
+  assert.deepEqual((await named()).find((role) => role.slug === 'strategist'),
+    { slug: 'strategist', display_name: 'Budi', title: 'Head of Strategy' });
+});
+
 test("the platform's own kit installs as shipped, and a copy somebody changed does not", async () => {
   // The built-in bundles ship with the code and were published unsigned, so
   // every one installed quarantined: "Let it run itself" gave the strategist

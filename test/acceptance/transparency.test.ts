@@ -17,6 +17,7 @@ import { Engine } from '../../src/engine/engine.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { STEP_INPUT_LIMIT } from '../../src/engine/journal.ts';
+import { wellFormed } from '../../src/text.ts';
 import { createCompany, grantCapability } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -101,6 +102,38 @@ test('a task\'s trace shows each step with what it was asked, what it returned, 
   } finally {
     await api.close();
   }
+});
+
+test('a large input cut in the middle of an emoji is kept whole, not refused by the journal', async () => {
+  // The cut is at a number of UTF-16 units; one that falls between the two halves of a character leaves half of it,
+  // which a jsonb column refuses -- and the step, and with it the task, failed for the way its input was spelled.
+  const fixture = await createCompany('trace-emoji-cut');
+  const registry = new CapabilityRegistry();
+  registry.register(notes as unknown as Capability<never, never>);
+  await registry.sync();
+  await grantCapability(fixture, 'notes.keep');
+  const emoji = '\u{1F600}';
+  const call = (pad: number) => JSON.stringify({ name: 'notes.keep', input: { text: 'x'.repeat(pad) + emoji.repeat(10) } });
+  let pad = STEP_INPUT_LIMIT - 60;
+  while (!/[\ud800-\udbff]/.test(call(pad)[STEP_INPUT_LIMIT - 1]!)) pad += 1;
+  const engine = new Engine({
+    broker: new CapabilityBroker(registry),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      await ctx.callCapability('notes.keep', { text: 'x'.repeat(pad) + emoji.repeat(10) });
+      return { summary: 'kept a note' };
+    }]]),
+  });
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'keep a note' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const kept = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { cut?: boolean; start?: string } }>(
+    "SELECT input FROM task_steps WHERE task_id = $1 AND name = 'capability:notes.keep'", [task.id]));
+  assert.equal(kept.rows[0]!.input.cut, true);
+  assert.equal(wellFormed(kept.rows[0]!.input.start!), kept.rows[0]!.input.start);
 });
 
 test('what a run was told is kept for every runtime, redacted, and goes with the prompts when their time is up', async () => {

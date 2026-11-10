@@ -11,23 +11,29 @@
 import { useEffect, useState } from 'react';
 import {
   Alert, Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
-  Select, Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip,
+  Select, Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
+  IconCopy, IconCornerDownRight, IconDownload, IconFile, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
   IconCircleCheck, IconCircleX, IconListCheck, IconRefresh, IconThumbDown, IconThumbUp, IconTicket,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
-import { useLoad, useNow } from '../hooks.ts';
+import { useLivePulse, useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
-import { dateTime, eventSentence, haltReason, humanize, money, relative, time } from '../format.ts';
+import {
+  actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
+} from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
 import { rolePicture } from '../images.ts';
+import { ActionButton } from '../components/ActionForm.tsx';
+import { saveCompanyFile } from '../files.ts';
 import { Tickets } from '../components/Tickets.tsx';
+import { Gallery } from '../components/Gallery.tsx';
+import { Prose } from '../components/Prose.tsx';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = WorkGroup | 'all';
@@ -37,7 +43,7 @@ const LIVE = ['pending', 'checked_out', 'running'];
 export function Work({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const [filter, setFilter] = useState<Filter>('all');
-  const [view, setView] = useState<'tasks' | 'tickets'>('tasks');
+  const [view, setView] = useState<'tasks' | 'tickets' | 'results'>('tasks');
   // Narrowing to one project, role or goal (0074), and the older pages
   // fetched on request, kept until the filters change.
   const [project, setProject] = useState<string | null>(null);
@@ -54,11 +60,13 @@ export function Work({ ctx, route }: PageProps) {
     if (before) params.set('before', before);
     return params.toString();
   };
+  // Every event of the company can move a task on the list: it is read again when one is written.
+  const pulse = useLivePulse(companyId);
   const work = useLoad(async () => {
     const answer: { items: WorkItem[]; counts: Record<WorkGroup, number>; next: string | null } =
       await api('GET', `/api/companies/${companyId}/work?${query()}`);
     return answer;
-  }, [companyId, filter, project, role, goal], { every: 10_000 });
+  }, [companyId, filter, project, role, goal], { every: 10_000, pulse });
   const structure = useLoad(async (): Promise<Structure> => api('GET', `/api/companies/${companyId}/structure`), [companyId]);
   // The first page reloads itself every ten seconds; what was paged in after
   // it is dropped when the filters change, and its marker taken from the
@@ -79,6 +87,13 @@ export function Work({ ctx, route }: PageProps) {
 
   const counts = work.data?.counts;
   const label = (group: WorkGroup, text: string) => (counts ? `${text} · ${counts[group]}` : text);
+  const filters = [
+    { value: 'all', label: t('All') },
+    { value: 'active', label: label('active', t('Running')) },
+    { value: 'waiting', label: label('waiting', t('Waiting')) },
+    { value: 'done', label: label('done', t('Done')) },
+    { value: 'stopped', label: label('stopped', t('Stopped')) },
+  ];
   // A task named in the address that is not on the pages loaded -- a
   // ticket's work, a decision's task -- is fetched by itself.
   const listed = items.find((item) => item.id === route.item) ?? null;
@@ -98,33 +113,36 @@ export function Work({ ctx, route }: PageProps) {
         actions={<Button leftSection={<IconPlus size={16} />} onClick={ctx.giveWork}>{t('Give work')}</Button>}
       />
 
-      <Tabs value={view} onChange={(value) => setView(value === 'tickets' ? 'tickets' : 'tasks')}>
+      <Tabs value={view} onChange={(value) => setView(value === 'tickets' || value === 'results' ? value : 'tasks')}>
         <Tabs.List>
           <Tabs.Tab value="tasks" leftSection={<IconListCheck size={16} />}>{t('Tasks')}</Tabs.Tab>
           <Tabs.Tab value="tickets" leftSection={<IconTicket size={16} />}>{t('Tickets')}</Tabs.Tab>
+          {/* Everything the company produced, across its tasks (§9 P1 item 12). */}
+          <Tabs.Tab value="results" leftSection={<IconFileText size={16} />}>{t('Results')}</Tabs.Tab>
         </Tabs.List>
       </Tabs>
 
-      {view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} /> : (<>
+      {view === 'results' && <Gallery companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} />}
+
+      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} talk={(draft) => ctx.talk(draft)} /> : (<>
+      {/* The same choice as a list on a phone, where five segments ran off
+          the screen and "Stopped" was the one out of sight (§2.3 item 8). */}
       <SegmentedControl
         value={filter}
         onChange={(value) => setFilter(value as Filter)}
-        data={[
-          { value: 'all', label: t('All') },
-          { value: 'active', label: label('active', t('Running')) },
-          { value: 'waiting', label: label('waiting', t('Waiting')) },
-          { value: 'done', label: label('done', t('Done')) },
-          { value: 'stopped', label: label('stopped', t('Stopped')) },
-        ]}
+        data={filters}
         style={{ alignSelf: 'flex-start', maxWidth: '100%', overflowX: 'auto' }}
+        visibleFrom="sm"
       />
+      <Select value={filter} onChange={(value) => value && setFilter(value as Filter)} data={filters}
+        allowDeselect={false} hiddenFrom="sm" aria-label={t('Tasks')} />
       {structure.data && (
         <Group gap="sm" wrap="wrap">
           <Select size="xs" w={200} placeholder={t('Every project')} clearable value={project} onChange={setProject}
             data={structure.data.projects.map((one) => ({ value: one.id, label: one.name }))} />
           <Select size="xs" w={200} placeholder={t('Every role')} clearable searchable value={role} onChange={setRole}
             data={structure.data.roles.map((one) => ({
-              value: one.id, label: one.displayName ? `${one.displayName} (${one.slug})` : one.slug,
+              value: one.id, label: roleLabel(one),
             }))} />
           <Select size="xs" w={240} placeholder={t('Every goal')} clearable searchable value={goal} onChange={setGoal}
             data={structure.data.goals.map((one) => ({ value: one.id, label: one.statement }))} />
@@ -139,8 +157,37 @@ export function Work({ ctx, route }: PageProps) {
               description={t('No task is in this state right now.')}
               action={<Button variant="light" onClick={ctx.giveWork}>{t('Give a role something to do')}</Button>}
             />
-          ) : (
-            <Table.ScrollContainer minWidth={820}>
+          ) : (<>
+            {/* On a phone, one task to a row, everything about it under its
+                name: as a table, what it serves, its progress and its cost
+                were off to the right in a box nobody scrolls sideways (§2.3
+                item 8). */}
+            <Stack gap={0} hiddenFrom="sm">
+              {items.map((item) => (
+                <UnstyledButton key={item.id} className="clickable-row work-row" onClick={() => openTask(item.id)} p="sm">
+                  <Group gap="sm" wrap="nowrap" align="flex-start">
+                    <Avatar size={34} radius="xl" src={rolePicture(item.roleSlug)} alt="" mt={2} />
+                    <Stack gap={4} style={{ minWidth: 0, flex: 1 }}>
+                      <Text size="sm" fw={600} lineClamp={2}>{item.summary}</Text>
+                      {item.result && (
+                        <Group gap={4} wrap="nowrap">
+                          <IconCornerDownRight size={12} color="var(--mantine-color-teal-7)" style={{ flexShrink: 0 }} />
+                          <Text size="xs" c="teal.8" lineClamp={2}>{item.result}</Text>
+                        </Group>
+                      )}
+                      <Group gap={6} wrap="wrap">
+                        <StatusBadge status={item.status} />
+                        {item.haltReason && <Text size="xs" c="red">{item.budgetStop ? budgetStopSaid(item.budgetStop) : haltReason(item.haltReason)}</Text>}
+                        <Text size="xs" c="dimmed" className="tabular">{money(item.costCents)}</Text>
+                      </Group>
+                      <TaskProgress item={item} />
+                      <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {item.divisionName} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                    </Stack>
+                  </Group>
+                </UnstyledButton>
+              ))}
+            </Stack>
+            <Table.ScrollContainer minWidth={820} visibleFrom="sm">
               <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
@@ -166,7 +213,7 @@ export function Work({ ctx, route }: PageProps) {
                           </Group>
                         )}
                         <Group gap={6}>
-                          <Text size="xs" c="dimmed">{item.roleSlug} · {item.divisionName} · {item.projectName} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                          <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {item.divisionName} · {item.projectName} · {relative(item.startedAt ?? item.createdAt)}</Text>
                           {item.schedule && <Badge size="xs" variant="outline" color="gray">{item.schedule}</Badge>}
                           {item.parentTaskId && <Badge size="xs" variant="outline" color="gray">{t('sub-task')}</Badge>}
                         </Group>
@@ -175,7 +222,7 @@ export function Work({ ctx, route }: PageProps) {
                       </Table.Td>
                       <Table.Td miw={130}>
                         <StatusBadge status={item.status} />
-                        {item.haltReason && <Text size="xs" c="red" mt={4}>{haltReason(item.haltReason)}</Text>}
+                        {item.haltReason && <Text size="xs" c="red" mt={4}>{item.budgetStop ? budgetStopSaid(item.budgetStop) : haltReason(item.haltReason)}</Text>}
                       </Table.Td>
                       <Table.Td><TaskProgress item={item} /></Table.Td>
                       <Table.Td maw={240}><Text size="sm" c="dimmed" lineClamp={1}>{item.goal ?? '—'}</Text></Table.Td>
@@ -185,7 +232,7 @@ export function Work({ ctx, route }: PageProps) {
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>
-          )}
+          </>)}
           {next && (
             <Group justify="center" p="sm">
               <Button variant="subtle" onClick={() => void loadOlder()}>{t('Show older')}</Button>
@@ -202,6 +249,7 @@ export function Work({ ctx, route }: PageProps) {
         close={() => openTask(null)}
         changed={work.reload}
         openTask={(id) => { work.reload(); openTask(id); }}
+        owner={ctx.staff === null}
       />
     </Stack>
   );
@@ -211,6 +259,11 @@ export function Work({ ctx, route }: PageProps) {
  * How far one task has got, in a line: a bar when its plan named its steps,
  * the step it is on, and a heartbeat that goes amber when the worker has been
  * quiet for longer than a worker should be.
+ *
+ * The bar is the plan's actions taken over the plan's actions. It was every
+ * step the journal committed over them, and a halted task that had thought
+ * five times showed its five-step plan as "5/5" (N9). Finished, the bar is
+ * full and the count still says how much of the plan it took.
  */
 export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: boolean }) {
   const now = useNow(5_000);
@@ -218,9 +271,11 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
   const live = LIVE.includes(item.status);
   const finished = item.status === 'completed';
   const planned = progress.planSteps && progress.planSteps > 0 ? progress.planSteps : null;
-  const percent = finished ? 100 : planned ? Math.min(100, (progress.stepsDone / planned) * 100) : null;
+  const taken = planned ? Math.min(progress.planDone ?? 0, planned) : 0;
+  const percent = finished ? 100 : planned ? (taken / planned) * 100 : null;
   const quiet = progress.heartbeatAt ? (now - new Date(progress.heartbeatAt).getTime()) / 1000 : null;
   const stale = live && quiet !== null && quiet > 120;
+  const waiting = waitingFor(item.waiting);
 
   return (
     <Stack gap={4}>
@@ -234,18 +289,27 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
             animated={live && !stale}
             style={{ flex: 1 }}
           />
-          <Text size="xs" c="dimmed" className="tabular" style={{ whiteSpace: 'nowrap' }}>
-            {planned ? `${Math.min(progress.stepsDone, planned)}/${planned}` : '✓'}
-          </Text>
+          {planned ? (
+            <Tooltip label={t('Of the actions its plan named, how many it has taken')}>
+              <Text size="xs" c="dimmed" className="tabular" style={{ whiteSpace: 'nowrap' }}>{`${taken}/${planned}`}</Text>
+            </Tooltip>
+          ) : (
+            <Text size="xs" c="dimmed" className="tabular" style={{ whiteSpace: 'nowrap' }}>✓</Text>
+          )}
         </Group>
       ) : (
         <Text size="xs" c="dimmed">
           {progress.stepsDone > 0 ? t('{count} steps done', { count: progress.stepsDone }) : live ? t('Starting') : '—'}
         </Text>
       )}
+      {waiting && (
+        <Text size="xs" c={waiting.onYou ? 'orange' : 'dimmed'} fw={waiting.onYou ? 600 : undefined} lineClamp={2}>
+          {waiting.text}
+        </Text>
+      )}
       {live && progress.currentStep && (
         <Text size="xs" lineClamp={1}>
-          {progress.currentStepStatus === 'committed' ? t('Last: {step}', { step: humanize(progress.currentStep) }) : t('Now: {step}', { step: humanize(progress.currentStep) })}
+          {progress.currentStepStatus === 'committed' ? t('Last: {step}', { step: stepSaid(progress.currentStep) }) : t('Now: {step}', { step: stepSaid(progress.currentStep) })}
         </Text>
       )}
       {live && progress.heartbeatAt && (
@@ -263,17 +327,26 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
 }
 
 /** One task: where it is, and every event it left, with a dry replay (F11.2, F5.9). */
-export function TaskDrawer({ companyId, task, close, changed, openTask }: {
+export function TaskDrawer({ companyId, task, close, changed, openTask, owner }: {
   companyId: string; task: WorkItem | null; close: () => void; changed: () => void; openTask: (id: string) => void;
+  /** The owner, not a staff seat: only the owner may take a file out. */
+  owner: boolean;
 }) {
+  // This task's own events, as they are written.
+  const pulse = useLivePulse(companyId, (event) => event.taskId === task?.id);
   const events = useLoad(async () => {
     if (!task) return [];
     const answer: { events: Array<{ type: string; actor: string; payload: Record<string, unknown>; occurredAt: string }> } =
       await api('GET', `/api/companies/${companyId}/tasks/${task.id}/events`);
     return answer.events;
-  }, [companyId, task?.id], { every: task && LIVE.includes(task.status) ? 10_000 : undefined });
+  }, [companyId, task?.id], { every: task && LIVE.includes(task.status) ? 10_000 : undefined, pulse });
   const [replay, setReplay] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const replayable = useLoad(async () => {
+    if (!task) return false;
+    const answer: { replayable?: boolean } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
+    return answer.replayable === true;
+  }, [companyId, task?.id]);
 
   // Nothing is repeated: the replay has no broker, no model client and no
   // adapter wired in at all, so a task that bought a domain cannot buy it again.
@@ -290,8 +363,18 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
     }
   };
 
-  const halted = task?.status === 'halted' ? events.data?.findLast((event) => event.type === 'task.halted') : undefined;
-  const haltDetail = typeof halted?.payload.detail === 'string' ? halted.payload.detail : null;
+  // Why it stopped, or -- for work its run said it did not do (N9) -- the
+  // run's own reason, which is what the owner needs to decide what next.
+  // What it means comes first, in the owner's language; the platform's record
+  // of it is kept below, closed, for whoever needs the specifics (§2.3 item 7).
+  const notDone = task?.status === 'failed' && task.haltReason === 'not_done';
+  const ending = task?.status === 'halted' ? 'task.halted'
+    : task?.status === 'cancelled' && task.haltReason ? 'task.cancelled'
+      : notDone ? 'task.failed' : null;
+  const halted = ending ? events.data?.findLast((event) => event.type === ending) : undefined;
+  const why = ending ? whyStopped(task!.haltReason ?? null, halted?.payload.detail) : null;
+  // Out of budget has its own card below, which says what to do and does it.
+  const outOfBudget = task?.status === 'halted' && task.haltReason === 'budget_exhausted';
 
   return (
     <Drawer opened={task !== null} onClose={() => { setReplay(null); close(); }} position="right" size="lg" title={<Text fw={700}>{t('Task')}</Text>}>
@@ -299,11 +382,21 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
         <Stack gap="lg">
           <div>
             <Group gap="xs" mb={6}><StatusBadge status={task.status} />{task.haltReason && <Badge color="red" variant="light">{haltReason(task.haltReason)}</Badge>}</Group>
-            {haltDetail && <Alert color="red" variant="light" mb="sm" title={t('Why it stopped')}>{haltDetail}</Alert>}
+            {why?.said && !outOfBudget && (
+              <Alert color={notDone ? 'orange' : 'red'} variant="light" mb="sm" title={notDone ? t('Why it was not done') : t('Why it stopped')}>
+                {why.said}
+                {why.record && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary><Text span size="xs" c="dimmed">{t('What the platform recorded')}</Text></summary>
+                    <Text size="xs" c="dimmed" mt={4} style={{ whiteSpace: 'pre-wrap' }}>{why.record}</Text>
+                  </details>
+                )}
+              </Alert>
+            )}
             <Text fw={700} size="lg">{task.summary}</Text>
             <Group gap="xs" mt={4} wrap="nowrap">
               <Avatar size={28} radius="xl" src={rolePicture(task.roleSlug)} alt="" />
-              <Text size="sm" c="dimmed">{task.roleSlug} · {task.divisionName}</Text>
+              <Text size="sm" c="dimmed">{task.roleName ?? task.roleSlug} · {task.divisionName}</Text>
             </Group>
           </div>
           <Paper withBorder radius="md" p="md">
@@ -321,7 +414,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
-          <TaskOutput companyId={companyId} task={task} />
+          <TaskOutput companyId={companyId} task={task} openTask={openTask} owner={owner} />
           {['completed', 'failed', 'halted'].includes(task.status) && <TaskFeedback companyId={companyId} task={task} />}
           <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <Transcript companyId={companyId} task={task} />
@@ -340,23 +433,27 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
                       {typeof event.payload.approvedBy === 'string' && <Badge size="sm" variant="light" color="teal" tt="none">{t('approved by {who}', { who: event.payload.approvedBy })}</Badge>}
                     </Group>}
                     color={/refused|denied|failed|halt/.test(event.type) ? 'red' : 'blue'}>
-                    <Text size="xs" c="dimmed">{event.actor} · {dateTime(event.occurredAt)}</Text>
-                    {/* Why it halted or failed, as whatever refused put it: the next thing to change. */}
-                    {typeof (event.payload.detail ?? event.payload.error) === 'string' && (
-                      <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{String(event.payload.detail ?? event.payload.error)}</Text>
+                    <Text size="xs" c="dimmed">{actorSaid(event.actor)} · {dateTime(event.occurredAt)}</Text>
+                    {/* Why it halted, by its reason; what a service or a check refused with, as it put it. */}
+                    {eventDetail(event.payload) && (
+                      <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{eventDetail(event.payload)}</Text>
                     )}
                   </Timeline.Item>
                 ))}
               </Timeline>
             )}
           </div>
-          <div>
-            <Button variant="light" leftSection={<IconPlayerPlay size={16} />} loading={replaying} onClick={() => void runReplay()}>
-              {t('Replay against the journal')}
-            </Button>
-            <Text size="xs" c="dimmed" mt={6}>{t('Runs the handler again with every side effect answered from the record. Nothing leaves.')}</Text>
-            {replay && <Code block mt="sm" style={{ maxHeight: 280, overflow: 'auto' }}>{replay}</Code>}
-          </div>
+          {/* Offered only where it can run: a role this deployment runs as a
+              handler in its own process (F11.4). */}
+          {replayable.data === true && (
+            <div>
+              <Button variant="light" leftSection={<IconPlayerPlay size={16} />} loading={replaying} onClick={() => void runReplay()}>
+                {t('Replay against the journal')}
+              </Button>
+              <Text size="xs" c="dimmed" mt={6}>{t('Runs the handler again with every side effect answered from the record. Nothing leaves.')}</Text>
+              {replay && <Code block mt="sm" style={{ maxHeight: 280, overflow: 'auto' }}>{replay}</Code>}
+            </div>
+          )}
           <Text size="xs" c="dimmed">{t('Task {id}', { id: task.id })}</Text>
         </Stack>
       )}
@@ -375,6 +472,9 @@ function TaskControls({ companyId, task, changed, openTask }: {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const ended = ['completed', 'failed', 'halted', 'cancelled'].includes(task.status);
+  // Stopped by its budget: the one halt that goes on from where it stopped,
+  // once the owner has raised the ceiling (section 6.3).
+  const outOfBudget = task.status === 'halted' && task.haltReason === 'budget_exhausted';
 
   const act = async (what: string, run: () => Promise<void>) => {
     setBusy(what);
@@ -386,6 +486,11 @@ function TaskControls({ companyId, task, changed, openTask }: {
       setBusy(null);
     }
   };
+  const goOn = () => act('continue', async () => {
+    await api('POST', `/api/companies/${companyId}/tasks/${task.id}/continue`, {});
+    notifications.show({ color: 'teal', message: t('Continued. It carries on from where it stopped.') });
+    changed();
+  });
   const again = () => act('again', async () => {
     const answer: { taskId: string } = await api('POST', `/api/companies/${companyId}/tasks/${task.id}/rerun`, { note });
     notifications.show({ color: 'teal', message: t('Started again as a new task.') });
@@ -413,6 +518,16 @@ function TaskControls({ companyId, task, changed, openTask }: {
 
   return (
     <Paper withBorder radius="md" p="md">
+      {outOfBudget && (
+        <Alert color="orange" variant="light" mb="sm">
+          <Text size="sm">
+            {t('Its budget ran out. Raise the ceiling under Money, then continue: it carries on from where it stopped, and nothing it already did is done again.')}
+          </Text>
+          <Button size="xs" mt="xs" leftSection={<IconPlayerPlay size={14} />} loading={busy === 'continue'} onClick={() => void goOn()}>
+            {t('Continue')}
+          </Button>
+        </Alert>
+      )}
       <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">{ended ? t('Do it again') : t('Steer it')}</Text>
       <Textarea
         autosize
@@ -503,15 +618,16 @@ function outsideLabel(name: string): string {
 }
 
 function capabilityOf(event: { payload: Record<string, unknown> }): string | null {
-  return typeof event.payload.capability === 'string' ? event.payload.capability : null;
+  return typeof event.payload.capability === 'string' ? capabilitySaid(event.payload.capability) : null;
 }
 
 function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) {
+  const pulse = useLivePulse(companyId, (event) => event.taskId === task.id);
   const notes = useLoad(async () => {
     const answer: { notes: Array<{ seq: number; body: string; saidAt: string; attempt: number }> } =
       await api('GET', `/api/companies/${companyId}/tasks/${task.id}/transcript?limit=200`);
     return answer.notes;
-  }, [companyId, task.id], { every: LIVE.includes(task.status) ? 5_000 : undefined });
+  }, [companyId, task.id], { every: LIVE.includes(task.status) ? 5_000 : undefined, pulse });
 
   if (notes.error) return <Text c="red" size="sm">{notes.error}</Text>;
   if (!notes.data || notes.data.length === 0) return null;
@@ -523,7 +639,7 @@ function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) 
           {notes.data.map((note, index) => (
             <Group key={`${note.attempt}-${note.seq}-${index}`} gap="xs" wrap="nowrap" align="flex-start">
               <Text size="xs" c="dimmed" className="tabular" style={{ flexShrink: 0 }}>{time(note.saidAt)}</Text>
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note.body}</Text>
+              <div style={{ minWidth: 0 }}><Prose text={note.body} /></div>
             </Group>
           ))}
         </Stack>
@@ -643,20 +759,29 @@ function TaskFeedback({ companyId, task }: { companyId: string; task: WorkItem }
  * every draft it wrote, each readable in full. The thing the work was for,
  * which used to be nowhere the owner could see it.
  */
-function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) {
+function TaskOutput({ companyId, task, openTask, owner }: { companyId: string; task: WorkItem; openTask: (id: string) => void; owner: boolean }) {
+  const pulse = useLivePulse(companyId, (event) => event.taskId === task.id);
   const detail = useLoad(async () => {
     const answer: { task: TaskDetail } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
     return answer.task;
-  }, [companyId, task.id, task.status], { every: LIVE.includes(task.status) ? 15_000 : undefined });
+  }, [companyId, task.id, task.status], { every: LIVE.includes(task.status) ? 15_000 : undefined, pulse });
   const [reading, setReading] = useState<Deliverable | null>(null);
 
   if (detail.error) return <Text c="red" size="sm">{detail.error}</Text>;
   if (!detail.data) return <Loading rows={2} />;
-  const { output, deliverables, done: report } = detail.data;
+  const { output, deliverables, files, done: report, handedOn, handedBy } = detail.data;
   const answer = resultText(output);
-  if (output === null && deliverables.length === 0) {
+  // Who handed this on, so a piece of work leads back to the task it is for.
+  const from = handedBy && (
+    <Group gap={6} mb="sm" wrap="nowrap">
+      <Text size="sm" c="dimmed">{t('Handed on by {who}', { who: handedBy.roleName ?? handedBy.role })}</Text>
+      <Button size="compact-xs" variant="subtle" onClick={() => openTask(handedBy.id)}>{t('Open the task')}</Button>
+    </Group>
+  );
+  if (output === null && deliverables.length === 0 && files.length === 0 && handedOn.length === 0) {
     return (
       <div>
+        {from}
         <Text fw={700} mb={4}>{t('What it produced')}</Text>
         <Text size="sm" c="dimmed">{t('Nothing yet. What the task produces appears here when it has something.')}</Text>
       </div>
@@ -664,11 +789,12 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
   }
   return (
     <div>
+      {from}
       <Text fw={700} mb="sm">{t('What it produced')}</Text>
       <Stack gap="sm">
         {answer && (
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-teal-light)">
-            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{answer}</Text>
+            <Prose text={answer} />
           </Paper>
         )}
         {report && (
@@ -712,6 +838,45 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
             </Group>
           </Paper>
         ))}
+        {files.length > 0 && (
+          <Paper withBorder radius="md" p="sm">
+            <Text size="sm" fw={600} mb={6}>{t('Files it made')}</Text>
+            <Stack gap={8}>
+              {files.map((file, at) => (
+                <Group key={`${at}-${file.path}`} justify="space-between" wrap="wrap" gap="xs" align="center">
+                  <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                    <IconFile size={16} style={{ flexShrink: 0 }} />
+                    <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{file.path}</Text>
+                  </Group>
+                  {owner && (
+                    <ActionButton size="xs" variant="light" label={t('Download')} leftSection={<IconDownload size={14} />}
+                      run={() => saveCompanyFile(companyId, file.path)} />
+                  )}
+                </Group>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+        {handedOn.length > 0 && (
+          <Paper withBorder radius="md" p="sm">
+            <Text size="sm" fw={600} mb={6}>{t('Work it handed on')}</Text>
+            <Stack gap={8}>
+              {handedOn.map((piece) => (
+                <Group key={piece.id} gap="sm" wrap="nowrap" align="flex-start">
+                  <Avatar size={28} radius="xl" src={rolePicture(piece.role)} alt="" />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <Group gap={6} wrap="wrap">
+                      <Text size="sm" fw={600}>{piece.roleName ?? piece.role}</Text>
+                      <StatusBadge status={piece.status} />
+                    </Group>
+                    {piece.result && <Text size="xs" c="dimmed" lineClamp={2}>{piece.result}</Text>}
+                  </div>
+                  <Button size="compact-sm" variant="light" onClick={() => openTask(piece.id)}>{t('Open the task')}</Button>
+                </Group>
+              ))}
+            </Stack>
+          </Paper>
+        )}
         {output !== null && (
           <Spoiler maxHeight={0} showLabel={t('Everything it returned')} hideLabel={t('Hide')}>
             <Code block style={{ maxHeight: 280, overflow: 'auto' }}>{JSON.stringify(output, null, 2)}</Code>
@@ -723,7 +888,7 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
           <Stack>
             {reading.to && <Text size="sm" c="dimmed">{t('To: {to}', { to: reading.to })}</Text>}
             <ScrollArea.Autosize mah="60vh">
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{reading.text}</Text>
+              <Prose text={reading.text} />
             </ScrollArea.Autosize>
             <Group justify="flex-end">
               <CopyButton value={reading.text}>

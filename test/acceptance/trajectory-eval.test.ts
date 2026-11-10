@@ -327,7 +327,7 @@ test('a role change asks the owner and carries its score (F17.3, F2.9)', async (
   assert.ok(item);
   assert.equal(item.kind, 'approval');
   assert.equal(item.tier, 3, 'F2.9: a structural change is tier 3');
-  assert.match(item.rationale, /5 failed of 5 reference trajectories/);
+  assert.match(item.rationale, /Scored against 5 references: 0 passed, 5 failed\./);
   assert.match(item.rationale, /removes dns\.read/);
 
   // F17.3 again: the score is kept, so "what did it score when I approved it"

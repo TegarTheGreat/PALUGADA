@@ -21,8 +21,11 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { goalChangeCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
+import { transitionWithin } from '../engine/tasks.ts';
+import { metricsIn } from './metrics.ts';
 
 export type GoalKind = 'mission' | 'objective' | 'key_result';
 export const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
@@ -229,6 +232,24 @@ export async function proposeGoalChange(input: {
         `that is what the ${current.kind} "${current.slug}" already says`, { goal: current.slug });
     }
 
+    // Not met on an agent's say-so. A measure read back from its source, or
+    // typed by the owner, that is short of its target stops the proposal here:
+    // the owner's card for "met" carried only the agent's prose, and nothing
+    // compared it to the goal's own number (the audit of 3 October, P0-6).
+    const measures = to.status === 'met' || to.status === 'abandoned'
+      ? (await metricsIn(tx)).filter((metric) => metric.goalId === current.id && !metric.retiredAt)
+      : [];
+    if (to.status === 'met') {
+      const short = measures.find((metric) => metric.latest?.verified === true
+        && (metric.direction === 'up' ? metric.latest.value < metric.target : metric.latest.value > metric.target));
+      if (short) {
+        throw new PalugadaError('contract.violation',
+          `the ${current.kind} "${current.slug}" cannot be proposed as met: its measure "${short.name}" reads ${short.latest!.value}, `
+          + `checked at its source, short of its target ${short.target}. Record the value from its source if it has moved, `
+          + 'or propose a different target with the reason', { goal: current.slug, metric: short.slug });
+      }
+    }
+
     // One proposal about a goal at a time: two open ones would let the owner
     // approve both, and the second would change a goal the first had changed.
     const { rows: open } = await tx.query<{ id: string }>(
@@ -255,18 +276,20 @@ export async function proposeGoalChange(input: {
     // what changes the goal (inbox.decide), so it takes the owner's device,
     // as their own edit of the ladder does.
     const change: GoalChange = { goalId: current.id, from: { statement: current.statement, status: current.status }, to };
+    const card = goalChangeCard(await ownerReadingWithin(tx), {
+      kind: current.kind, statement: current.statement, status: current.status, to, reason: rationale,
+      measures: measures.map((metric) => ({
+        name: metric.name, target: metric.target,
+        now: metric.latest ? { value: metric.latest.value, checked: metric.latest.verified } : null,
+      })),
+    });
     const inboxItemId = await inbox.raiseEscalationWithin(tx, {
       companyId: input.companyId,
       tier: 3,
-      title: `Proposed change to the ${current.kind} "${current.slug}"`,
-      detail:
-        `Currently: ${current.statement}${current.status === 'active' ? '' : ` (${current.status})`}\n` +
-        (to.statement ? `Proposed: ${to.statement}\n` : '') +
-        (to.status ? `Proposed status: ${to.status}\n` : '') +
-        `Reason given: ${rationale}\n\n` +
-        'Approving it changes the goal; until then the work carries on under the goal as it is.',
+      title: card.title,
+      detail: card.detail,
       payload: { goalChange: change, ...(input.taskId ? { proposedByTask: input.taskId } : {}) },
-      consequenceIfDenied: 'The goal stays as it is.',
+      consequenceIfDenied: card.consequence,
     });
     // The reason and the new words are the run's, to the owner. The slip is
     // the proposing task's, so its role is reminded, though the item is not
@@ -336,6 +359,21 @@ export async function applyGoalChangeWithin(
       [input.goalId, input.companyId]);
     paused.schedules = schedules.rows.length;
     paused.triggers = triggers.rows.length;
+    // Nobody is woken about a goal that is done: the follow-ups waiting under
+    // it (`task.follow_up`) and the outcome and review looks the platform made
+    // for the CEO (src/engine/outcomes.ts, goal-review.ts) are cancelled, which
+    // releases what they held. Only what has not started: running work is
+    // left to finish.
+    const waiting = await tx.query<{ id: string }>(
+      `${under} SELECT id FROM tasks
+                 WHERE company_id = $2 AND status = 'pending'
+                   AND (idempotency_key LIKE 'followup:%' OR idempotency_key LIKE 'outcome:%' OR idempotency_key LIKE 'review:%')
+                   AND goal_id IN (SELECT id FROM under)
+                 ORDER BY id`,
+      [input.goalId, input.companyId]);
+    for (const task of waiting.rows) {
+      await transitionWithin(tx, input.companyId, task.id, 'cancelled', { haltReason: 'owner_cancel' });
+    }
     if (paused.schedules + paused.triggers > 0) {
       await appendEvent(tx, {
         companyId: input.companyId,

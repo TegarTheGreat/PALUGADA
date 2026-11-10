@@ -124,9 +124,77 @@ test('a task whose capability fails preflight does not start (F8.12)', async () 
   const open = await inbox.listOpen(fixture.companyId);
   const incidents = open.filter((item) => item.kind === 'incident');
   assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /dns\.read failed preflight/);
+  assert.match(incidents[0]!.title, /Read a domain's records failed preflight/);
   assert.match(incidents[0]!.rationale, /API token was rejected/);
-  assert.match(incidents[0]!.rationale, /No task that needs it will start/);
+  assert.match(incidents[0]!.rationale, /Work that needs it is stopped rather than started/);
+});
+
+/**
+ * H2 (the audit of 30 September, open on 2 October). Any 429, 5xx or dropped
+ * connection made a capability unhealthy for fifteen minutes, and every task
+ * that needed it in that window was halted -- terminal, each one to be run
+ * again by hand -- while the incident told the owner that no task would
+ * start "until it passes", as if they were waiting. A vendor's bad moment is
+ * not a revoked key: the task waits for it, looking again, and halts only
+ * when it stays down.
+ */
+test('a vendor down for a moment parks the task and it looks again; one that stays down halts it, with one incident (H2)', async () => {
+  const fixture = await createCompany('preflight-blip');
+  const state = { down: true, probes: 0 };
+  const capability: Capability<{ zone: string }, { records: string[] }> = {
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0,
+    async preflight() {
+      state.probes += 1;
+      return state.down ? { ok: false, detail: 'the provider answered 503', transient: true } : { ok: true };
+    },
+    async execute() { return { records: [] }; },
+  };
+  const registry = await registryWith(fixture, capability as Capability<never, never>);
+  await giveRoleTools(fixture, ['dns.read']);
+  const ran: string[] = [];
+  const engine = engineFor(registry, ran);
+  const { workOf } = await import('../../src/owner/views.ts');
+  const { CAPABILITY_OUTAGE_WAITS_MS } = await import('../../src/engine/engine.ts');
+  // What a worker does once the wait is over: the task is due again, and the
+  // reading is old enough to be taken again.
+  const later = async (taskId: string) => withTenant(fixture.companyId, async (tx) => {
+    await tx.query('UPDATE tasks SET wait_until = now() WHERE id = $1', [taskId]);
+    await tx.query("UPDATE capability_health SET checked_at = checked_at - interval '2 minutes'");
+  });
+
+  const task = await newTask(fixture);
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_window', first.reason);
+  assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'service');
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident'), [],
+    'a moment is not an incident');
+  // Its reading stands for a minute, not fifteen: the next look asks again.
+  assert.equal((await healthFor(fixture.companyId, fixture.divisionId))[0]!.status, 'unhealthy');
+
+  // Back: the next look finds it well, and the work runs.
+  state.down = false;
+  await later(task.id);
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  assert.deepEqual(ran, [task.id]);
+
+  // Down for good, once the well reading has had its fifteen minutes: it
+  // waits each time, longer, and halts when the waits are spent.
+  state.down = true;
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE capability_health SET checked_at = checked_at - interval '16 minutes'"));
+  const stuck = await newTask(fixture);
+  const outcomes: string[] = [];
+  for (let look = 0; look <= CAPABILITY_OUTAGE_WAITS_MS.length; look += 1) {
+    outcomes.push((await engine.runTask(fixture.companyId, stuck.id, 'worker')).status);
+    await later(stuck.id);
+  }
+  assert.deepEqual(outcomes, [...CAPABILITY_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ halt_reason: string }>(
+    'SELECT halt_reason FROM tasks WHERE id = $1', [stuck.id]));
+  assert.equal(rows[0]!.halt_reason, 'capability_unhealthy');
+  const incidents = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
+  assert.equal(incidents.length, 1);
+  assert.match(incidents[0]!.title, /Read a domain's records/, 'the capability by what it does, not its code');
+  assert.match(incidents[0]!.rationale, /answered 503/);
 });
 
 test('a healthy capability lets the task run', async () => {

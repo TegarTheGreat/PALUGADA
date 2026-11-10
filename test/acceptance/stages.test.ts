@@ -231,7 +231,7 @@ test('a run proposes a move; the owner decides it, with their device when it loo
   });
 
   const [item] = (await inbox.listOpen(fixture.companyId)).filter((open) => open.id === go.inboxItemId);
-  assert.equal(item!.title, 'Move the company from validate to build?');
+  assert.equal(item!.title, 'Move the company from Validate to Build?');
   assert.equal(item!.tier, 3, 'forward loosens, so it takes the device');
   assert.match(item!.rationale, /Twelve pre-orders/);
   assert.equal(item!.taskId, null, 'a no to the proposal is not a stop to the work that made it');
@@ -391,7 +391,7 @@ test('a stage move reaches the owner only after the critic, and carries what the
   assert.equal((await engine.runTask(kit.fixture.companyId, strategist.id, 'strategist')).status, 'completed');
   const [proposal, ...more] = await stageProposals(kit.fixture.companyId);
   assert.equal(more.length, 0);
-  assert.equal(proposal!.title, 'Move the company from validate to build?');
+  assert.equal(proposal!.title, 'Move the company from Validate to Build?');
   assert.match(proposal!.rationale, /Twelve pre-orders at \$29/, 'the evidence, as before');
   assert.ok(proposal!.rationale.includes(verdict.reason), 'and the critic\'s verdict, on the card the owner answers');
   assert.deepEqual(proposal!.payload.review, {
@@ -416,9 +416,10 @@ test('a move the critic opposes never reaches the owner as a proposal, and its r
   // The owner is told what was proposed and why it was stopped.
   const told = (await inbox.listOpen(companyId)).filter((item) => item.rationale.includes(verdict.reason));
   assert.equal(told.length, 1, 'the critic\'s reasons are on an item in the owner\'s inbox');
-  assert.equal(told[0]!.title, 'critic stopped a proposal to move the company from validate to build');
+  // By the name the kit gives the critic, not its code (§2.3 item 10).
+  assert.equal(told[0]!.title, 'Citra stopped a proposal to move the company from Validate to Build');
   assert.match(told[0]!.rationale, /Twelve pre-orders at \$29/, 'with the evidence it was stopped on');
-  assert.match(told[0]!.consequenceIfDenied, /stays in the validate stage/);
+  assert.match(told[0]!.consequenceIfDenied, /stays in the Validate stage/);
 
   // A no to a stage move is not a stop to the work that proposed it, from
   // the critic as from the owner: the strategist is told why and finishes.

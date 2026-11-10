@@ -19,7 +19,7 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconBrain, IconCheck, IconFileText, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBrain, IconCheck, IconFileText, IconFolder, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { MemoryItem, MemoryKind, Structure } from '../types.ts';
@@ -28,6 +28,7 @@ import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader } from '../components/ui.tsx';
 import { Documents } from '../components/Documents.tsx';
+import { Files } from '../components/Files.tsx';
 
 const KINDS: Array<{ kind: MemoryKind; label: string; hint: string }> = [
   { kind: 'semantic', label: N('Facts'), hint: N('What the company believes to be true. Agents are given the most relevant ones in every run.') },
@@ -65,7 +66,7 @@ export function Memory({ ctx }: PageProps) {
   const [editing, setEditing] = useState<MemoryItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [division, setDivision] = useState<string | null>(null);
-  const [view, setView] = useState<'memory' | 'documents'>('memory');
+  const [view, setView] = useState<'memory' | 'documents' | 'files'>('memory');
   // Older pages, fetched on request and kept until the filters change.
   const [older, setOlder] = useState<MemoryItem[]>([]);
   // The page marker the server gave with the last page; null when that was all.
@@ -130,14 +131,16 @@ export function Memory({ ctx }: PageProps) {
         actions={view === 'memory' ? <Button leftSection={<IconPlus size={16} />} onClick={() => setAdding(true)}>{t('Tell the company something')}</Button> : undefined}
       />
 
-      <Tabs value={view} onChange={(value) => setView(value === 'documents' ? 'documents' : 'memory')}>
+      <Tabs value={view} onChange={(value) => setView(value === 'documents' ? 'documents' : value === 'files' ? 'files' : 'memory')}>
         <Tabs.List>
           <Tabs.Tab value="memory" leftSection={<IconBrain size={16} />}>{t('Facts and ways to work')}</Tabs.Tab>
           <Tabs.Tab value="documents" leftSection={<IconFileText size={16} />}>{t('Documents')}</Tabs.Tab>
+          {ctx.staff === null && <Tabs.Tab value="files" leftSection={<IconFolder size={16} />}>{t('Files')}</Tabs.Tab>}
         </Tabs.List>
       </Tabs>
 
-      {view === 'documents' ? <Documents companyId={companyId} structure={structure.data ?? null} /> : (<>
+      {view === 'files' && ctx.staff === null ? <Files companyId={companyId} owner />
+      : view === 'documents' ? <Documents companyId={companyId} structure={structure.data ?? null} /> : (<>
       <SegmentedControl
         value={kind}
         onChange={(value) => setKind(value as MemoryKind)}

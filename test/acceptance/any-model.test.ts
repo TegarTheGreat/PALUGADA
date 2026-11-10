@@ -20,11 +20,17 @@ import { ProviderFailure } from '../../src/runtime/wire.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
+import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../helpers/standard-team.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { answering } from '../helpers/done.ts';
 
-before(ensureSchema);
+// The standard company is the tests' own (test/helpers/standard-team.ts), and
+// a fresh database has none until a file stores it: stored here, so this file
+// does not depend on which ran before it.
+before(async () => {
+  await ensureSchema();
+  await installStandardTemplate();
+});
 beforeEach(resetData);
 after(async () => {
   await closePools();
@@ -104,8 +110,8 @@ test('the client speaks Chat Completions: tools as functions, their answers as t
       { type: 'tool_use', id: 'call_2', name: 'dns__read', input: { unparsedArguments: '{not json' } },
     ], 'arguments that do not parse reach the broker as they came, and are refused there with a reason');
     assert.equal(turn.model, 'served-model-1');
-    // 1,200 x 100 + 80 x 400 per million = 0.152 cents, rounded up.
-    assert.equal(turn.costCents, 1);
+    // 1,200 x 100 + 80 x 400 per million: 0.152 of a cent, not a cent.
+    assert.ok(Math.abs(turn.costCents - 0.152) < 1e-9, String(turn.costCents));
   } finally {
     await api.close();
   }
@@ -163,7 +169,8 @@ test('a model on the company\'s own machine needs no key, and a refused key is s
   try {
     const client = new OpenAiCompatibleClient({ apiKey: 'wrong-key-0123', baseUrl: refused.url, aliases: {} });
     await assert.rejects(client.complete({ model: 'm', system: 's', messages: [{ role: 'user', content: 'u' }] }),
-      (error: unknown) => isPalugadaError(error, 'model.unavailable') && /PALUGADA_MODEL_KEY_REF/.test((error as Error).message));
+      (error: unknown) => isPalugadaError(error, 'model.unavailable') && error.details.keyRefused === true
+        && error.details.keySetting === 'PALUGADA_MODEL_KEY_REF' && /refused the key \(401\): bad key/.test(error.message));
   } finally {
     await refused.close();
   }

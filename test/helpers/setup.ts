@@ -146,10 +146,13 @@ export async function resetData(): Promise<void> {
               -- the agents' default to Indonesian would otherwise hand it to
               -- every file after it.
               console_language = NULL,
-              agent_language = 'en',
+              agent_language = NULL,
               -- And the owner's tour (0064), so each file meets a console that
               -- has not been toured.
-              tour_finished_at = NULL`,
+              tour_finished_at = NULL,
+              -- And the currency the owner reads money in (0106).
+              display_currency = NULL,
+              display_rate = NULL`,
     );
   });
 }

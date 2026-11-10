@@ -16,7 +16,7 @@ import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus, IconUpload 
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { go, type CompanyPage } from '../router.ts';
-import type { Company, Digest, InboxItem, Spend, WorkGroup, WorkItem } from '../types.ts';
+import type { Company, Digest, InboxItem, SetupReport, Spend, WorkGroup, WorkItem } from '../types.ts';
 import { money, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import { EmptyState, KindBadge, LiveIndicator, Loading, LoadFailed, Section, StatusBadge, TierBadge } from '../components/ui.tsx';
@@ -42,14 +42,57 @@ function greeting(): string {
   return t('Good night');
 }
 
+/**
+ * What a new deployment needs, in the order it matters. A missing model stops
+ * every role, so it is said first and alone, with the button that fixes it; the
+ * rest of what the deployment reported is mostly optional channels, so it is a
+ * count and a way to the list -- not the same button for every one of them.
+ */
+function SetupNotice({ setup, checklist }: { setup: SetupReport; checklist: () => void }) {
+  if (setup.modelMissing) {
+    return (
+      <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-red-light)">
+        <Group gap="sm" wrap="wrap">
+          <IconAlertTriangle size={20} color="var(--mantine-color-red-8)" style={{ flexShrink: 0 }} />
+          <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
+            {t('No model is set, so no role can do any work yet. Choose one before you start a company.')}
+          </Text>
+          <Button size="compact-sm" color="red" ms="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
+            {t('Set the model')}
+          </Button>
+        </Group>
+      </Paper>
+    );
+  }
+  if (setup.todo.length === 0) return null;
+  return (
+    <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-yellow-light)">
+      {/* Wraps rather than squeezes: in Russian or Hindi the sentence is long
+          enough on a phone to push the button's own label out. */}
+      <Group gap="sm" wrap="wrap">
+        <IconChecklist size={20} color="var(--mantine-color-yellow-8)" style={{ flexShrink: 0 }} />
+        <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
+          {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
+        </Text>
+        <Button size="compact-sm" variant="light" color="yellow" ms="auto" style={{ flexShrink: 0 }} onClick={checklist}>
+          {t('Review the checklist')}
+        </Button>
+      </Group>
+    </Paper>
+  );
+}
+
 export function Home({
-  companies, openCompany, startCompany, restoreCompany, setup,
+  companies, openCompany, startCompany, restoreCompany, setup, checklist,
 }: {
   companies: Company[];
   openCompany: (id: string, page: CompanyPage, item?: string | null) => void;
-  startCompany: () => void;
-  restoreCompany: () => void;
-  setup: { notes: string[]; todo: string[] };
+  /** Null for a staff seat, which neither starts nor restores a company (0110). */
+  startCompany: (() => void) | null;
+  restoreCompany: (() => void) | null;
+  setup: SetupReport;
+  /** Opens the list of what the deployment reported when it started. */
+  checklist: () => void;
 }) {
   const view = useLoad(async () => Promise.all(companies.map(async (company): Promise<CompanyState> => {
     const [{ items }, digest, work, done, spend]: [
@@ -72,19 +115,22 @@ export function Home({
 
   if (companies.length === 0) {
     return (
-      <Paper withBorder radius="lg" mt="xl">
+      <Stack gap="md" mt="xl">
+      <SetupNotice setup={setup} checklist={checklist} />
+      <Paper withBorder radius="lg">
         <EmptyState
           image="/illustrations/owner-and-agents.webp"
           title={t('Start your first company')}
-          description={t('A company is a set of divisions and roles that work towards goals you set, within a budget you set. It starts from a template and you shape it from there.')}
-          action={(
+          description={t('A company starts with a CEO and what you say it is for. The CEO builds the team as the work needs it, within a budget you set.')}
+          action={startCompany && restoreCompany ? (
             <Group justify="center">
               <Button leftSection={<IconPlus size={16} />} onClick={startCompany}>{t('Start a company')}</Button>
               <Button variant="default" leftSection={<IconUpload size={16} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
             </Group>
-          )}
+          ) : undefined}
         />
       </Paper>
+      </Stack>
     );
   }
 
@@ -125,22 +171,7 @@ export function Home({
 
       {view.error && !view.data ? <LoadFailed message={view.error} retry={view.reload} /> : !view.data ? <Loading rows={4} /> : (
         <>
-          {setup.todo.length > 0 && (
-            <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-yellow-light)">
-              {/* Wraps rather than squeezes: in Russian or Hindi the sentence is
-                  long enough on a phone to push the button's own label out. */}
-              <Group gap="sm" wrap="wrap">
-                <IconChecklist size={20} color="var(--mantine-color-yellow-8)" style={{ flexShrink: 0 }} />
-                <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
-                  {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
-                </Text>
-                <Text size="sm" c="dimmed" visibleFrom="sm">{t('The checklist is at the foot of the sidebar.')}</Text>
-                <Button size="compact-sm" variant="light" color="yellow" ms="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
-                  {t('Set the model')}
-                </Button>
-              </Group>
-            </Paper>
-          )}
+          <SetupNotice setup={setup} checklist={checklist} />
 
           <Grid gap="lg">
             <Grid.Col span={{ base: 12, lg: 7 }}>
@@ -186,7 +217,7 @@ export function Home({
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             <Group gap={6} mt={2} mb={6}>
                               <StatusBadge status={item.status} />
-                              <Text size="xs" c="dimmed">{company.name} · {item.roleSlug}</Text>
+                              <Text size="xs" c="dimmed">{company.name} · {item.roleName ?? item.roleSlug}</Text>
                             </Group>
                             <TaskProgress item={item} />
                           </div>
@@ -207,7 +238,7 @@ export function Home({
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             {item.result && <Text size="xs" c="teal.8" lineClamp={2} mt={2}>{item.result}</Text>}
-                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
+                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleName ?? item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
                           </div>
                         </Group>
                       </UnstyledButton>
@@ -222,10 +253,12 @@ export function Home({
           <div>
             <Group justify="space-between" mb="sm">
               <Text fw={700}>{t('Your companies')}</Text>
-              <Group gap="xs">
-                <Button variant="subtle" size="xs" color="gray" leftSection={<IconUpload size={14} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
-                <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={startCompany}>{t('Start a company')}</Button>
-              </Group>
+              {startCompany && restoreCompany && (
+                <Group gap="xs">
+                  <Button variant="subtle" size="xs" color="gray" leftSection={<IconUpload size={14} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
+                  <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={startCompany}>{t('Start a company')}</Button>
+                </Group>
+              )}
             </Group>
             <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="lg">
               {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page) => openCompany(state.company.id, page)} />)}

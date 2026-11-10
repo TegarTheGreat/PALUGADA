@@ -41,7 +41,7 @@ import {
 } from '../../src/skills/skills.ts';
 import { setSpendLimit } from '../../src/governance/spend-guard.ts';
 import { setRetention } from '../../src/retention/retention.ts';
-import { setBatchWindow, capabilityWindow } from '../../src/scheduler/windows.ts';
+import { setBatchWindow, setOfficeHours, capabilityWindow } from '../../src/scheduler/windows.ts';
 import { evaluate } from '../../src/policy/engine.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -295,6 +295,9 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
     startHour: 1,
     endHour: 5,
   });
+  await setOfficeHours({
+    companyId: fixture.companyId, timezone: 'Asia/Jakarta', startHour: 9, endHour: 17, daysOfWeek: [1, 2, 3, 4, 5], except: ['chat.send'],
+  });
   await withTenant(fixture.companyId, async (tx) => {
     await tx.query(
       `INSERT INTO capability_windows (company_id, division_id, capability_name, timezone,
@@ -354,12 +357,17 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
       'SELECT timezone, start_hour FROM batch_windows WHERE company_id = $1',
       [restored.companyId],
     );
+    const office = await tx.query(
+      'SELECT timezone, start_hour, end_hour, days_of_week, except_capabilities FROM office_hours WHERE company_id = $1',
+      [restored.companyId],
+    );
     const { rows: divisions } = await tx.query<{ id: string }>('SELECT id FROM divisions LIMIT 1');
     const window = await capabilityWindow(tx, divisions[0]!.id, 'deploy.staging');
     return {
       limit: limit.rows[0]?.money_max_cents,
       eventDays: retention.rows[0]?.event_days,
       batch: batch.rows[0],
+      office: office.rows[0],
       window,
     };
   });
@@ -367,6 +375,9 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
   assert.equal(config.limit, '44400', 'the monthly ceiling the owner set');
   assert.equal(config.eventDays, 420);
   assert.deepEqual(config.batch, { timezone: 'Asia/Jakarta', start_hour: 1 });
+  assert.deepEqual(config.office, {
+    timezone: 'Asia/Jakarta', start_hour: 9, end_hour: 17, days_of_week: [1, 2, 3, 4, 5], except_capabilities: ['chat.send'],
+  }, 'and the office hours it kept');
   assert.equal(config.window?.startHour, 9, 'and the hours a deploy may happen in');
 
   // What deliberately does not travel: whether the source instance had this
@@ -725,6 +736,13 @@ test('every column of every exported table travels, or is named as deliberately 
     // The destination company is created by the import, with the caller's
     // slug and a fresh id; the archive's own row is read for its name.
     'companies.frozen_at': 'a freeze is a fact about the instance it was pressed on',
+    'companies.first_hour_closed_at': 'a restored company is not a new one: the import closes its first hour',
+    'roles.person_seat': 'a staff seat is this deployment\'s, and not restored; a role that is a person comes back with its name and no seat, and refuses work until one is seated',
+    'inbox_items.decided_by_seat': 'a staff seat is this deployment\'s, and not restored; the decision\'s record names the person',
+    'inbox_items.addressee_seat': 'a staff seat is this deployment\'s, and not restored; a question that was for one comes back for the owner, with the name in its payload',
+    'inbox_items.escalate_at': 'when an open question goes to the owner is a clock of this deployment, not restored',
+    'inbox_items.escalated_at': 'the same clock',
+    'inbox_items.answer_files': 'the archive carries no file, so a restored item lists none it does not have',
     'companies.closing_at': 'a closing is the owner\'s decision about this copy; a restored one is not closing there',
     'companies.erase_after': 'the same closing',
     'companies.erase_attempts': 'how often erasing it failed here, which belongs to that closing',
@@ -743,6 +761,14 @@ test('every column of every exported table travels, or is named as deliberately 
     'schedules.skipped_task_id': 'the same occurrence, and a task imported after the schedule',
     'triggers.public_id': "a trigger's address is this instance's; a restored one gets a new one",
     'triggers.token_hash': 'the key to that address; a restored trigger waits closed for the owner to make one',
+    'chat_channels.public_id': "a channel's address is this instance's; a restored one gets a new one",
+    'chat_channels.token_ref': 'where the bot\'s token is sealed, in this deployment\'s store; a restored channel waits closed for the owner to connect the bot again',
+    'chat_channels.webhook_hash': 'the secret Telegram sends to that address, which the restored channel is given anew when it is connected',
+    'chat_channels.secret_ref': 'where a WhatsApp number\'s app secret is sealed, in this deployment\'s store; given anew when the number is connected again',
+    'chat_channels.poll_state': 'where this instance had read a mailbox to; connected again, a mailbox is read from then on',
+    'chat_channels.polled_at': 'when a worker here last read the mailbox',
+    'chat_channels.poll_failure': 'why that reading failed, here',
+    'chat_channels.answers_alone': 'answering on its own is turned on with the owner\'s device; a restored channel arrives closed and waits for them',
     'document_passages.words': 'generated by the database from the heading and the text, here and on the way in',
     'document_passages.embedding': 'made again from the passage by the provider the receiving deployment chose; another deployment\'s model means nothing there',
     'document_passages.embedding_model': 'the model of that vector, which is not carried',

@@ -417,7 +417,8 @@ export class OAuthCredentials implements SecretManager {
         expiresAt: tokens.expiresIn ? new Date(this.#now() + tokens.expiresIn * 1000).toISOString() : null,
         ...(tokens.scope ? { scope: tokens.scope } : {}),
       };
-      await putSecret(name, JSON.stringify(renewed), master);
+      // Not a change of settings: nothing restarts for it (N4).
+      await putSecret(name, JSON.stringify(renewed), master, { renewal: true });
       return renewed.accessToken;
     });
   }

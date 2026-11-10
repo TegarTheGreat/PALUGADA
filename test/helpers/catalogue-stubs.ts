@@ -26,6 +26,7 @@ export function stubCapability(declaration: CapabilityDeclaration): Capability<u
     adapter: `stub:${declaration.adapter}`,
     defaultTier: declaration.tier,
     executesUntrustedCode: declaration.executesUntrustedCode ?? false,
+    networkIsolated: declaration.networkIsolated ?? false,
     async execute() {
       return { ok: true };
     },

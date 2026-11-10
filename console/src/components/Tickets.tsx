@@ -13,7 +13,7 @@ import { notifications } from '@mantine/notifications';
 import { IconArrowRight, IconPlus, IconRotateClockwise, IconX } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { relative } from '../format.ts';
+import { hireDraft, relative, roleLabel } from '../format.ts';
 import { t } from '../i18n.ts';
 import { openGoals } from '../goals.ts';
 import type { Structure, Ticket } from '../types.ts';
@@ -21,7 +21,12 @@ import { EmptyState, LoadFailed, Loading } from './ui.tsx';
 
 const PRIORITY_COLOR = ['red', 'orange', 'blue', 'gray'];
 
-export function Tickets({ companyId, openTask }: { companyId: string; openTask: (id: string) => void }) {
+export function Tickets({ companyId, openTask, talk }: {
+  companyId: string;
+  openTask: (id: string) => void;
+  /** Opens the conversation with the CEO, with words waiting in the box: how a proposed hire is hired. */
+  talk: (draft: string) => void;
+}) {
   const [finished, setFinished] = useState(false);
   const [filing, setFiling] = useState(false);
   const [giving, setGiving] = useState<Ticket | null>(null);
@@ -89,7 +94,9 @@ export function Tickets({ companyId, openTask }: { companyId: string; openTask: 
                 <Paper key={ticket.id} withBorder radius="md" p="sm">
                   <Group justify="space-between" wrap="nowrap" align="flex-start" gap="xs">
                     <Text size="sm" fw={600} lineClamp={2}>{ticket.title}</Text>
-                    <Badge size="sm" variant="light" color={PRIORITY_COLOR[ticket.priority] ?? 'gray'} style={{ flexShrink: 0 }}>P{ticket.priority}</Badge>
+                    {ticket.kind === 'hire'
+                      ? <Badge size="sm" variant="light" color="grape" style={{ flexShrink: 0 }}>{t('A hire')}</Badge>
+                      : <Badge size="sm" variant="light" color={PRIORITY_COLOR[ticket.priority] ?? 'gray'} style={{ flexShrink: 0 }}>P{ticket.priority}</Badge>}
                   </Group>
                   {ticket.body && <Text size="xs" c="dimmed" mt={4} lineClamp={3} style={{ whiteSpace: 'pre-wrap' }}>{ticket.body}</Text>}
                   <Text size="xs" c="dimmed" mt={6}>
@@ -102,7 +109,9 @@ export function Tickets({ companyId, openTask }: { companyId: string; openTask: 
                   <Group gap={6} mt="xs">
                     {ticket.status === 'open' && (
                       <>
-                        <Button size="compact-xs" leftSection={<IconArrowRight size={12} />} onClick={() => setGiving(ticket)}>{t('Give to a role')}</Button>
+                        {ticket.kind === 'hire'
+                          ? <Button size="compact-xs" leftSection={<IconArrowRight size={12} />} onClick={() => talk(hireDraft(ticket.title, ticket.body))}>{t('Hire it with the CEO')}</Button>
+                          : <Button size="compact-xs" leftSection={<IconArrowRight size={12} />} onClick={() => setGiving(ticket)}>{t('Give to a role')}</Button>}
                         <Button size="compact-xs" variant="subtle" color="gray" leftSection={<IconX size={12} />} onClick={() => setClosing(ticket)}>{t('Close')}</Button>
                       </>
                     )}
@@ -217,7 +226,7 @@ function GiveTicket({ companyId, structure, ticket, close, done }: {
           <Text size="sm" fw={600}>{ticket.title}</Text>
           <Select label={t('Role')} value={chosenRole} onChange={setRoleId} allowDeselect={false} searchable
             description={chosenRole === ceo?.id ? t('The CEO hands it to whoever should do it') : undefined}
-            data={structure.roles.map((role) => ({ value: role.id, label: [role.displayName ?? role.slug, role.title].filter(Boolean).join(' · ') }))} />
+            data={structure.roles.map((role) => ({ value: role.id, label: roleLabel(role) }))} />
           <Select label={t('Serves')} value={chosenGoal} onChange={setGoalId} allowDeselect={false}
             data={goals.map((goal) => ({ value: goal.id, label: goal.statement }))} />
           {error && <Alert color="red" variant="light">{error}</Alert>}

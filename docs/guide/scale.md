@@ -7,12 +7,17 @@ audits of the platform found and what is still open.
 
 ## What is the same at every size
 
-- **One human owner, by design.** There are no user accounts, no single
-  sign-on, no staff accounts and no roles or permissions for people. Whoever
-  holds the enrolled authenticator is the owner, with the whole of the
-  owner's power, and the history cannot tell two people using it apart. If
-  several people are each accountable for their own companies, give each of
-  them a deployment of their own rather than sharing one authenticator.
+- **One human owner, by design, and staff seats beside them.** There are
+  no user accounts and no single sign-on. Whoever holds the owner's enrolled
+  authenticator is the owner, with the whole of the owner's power. The
+  owner can seat other people for one company each, under **Settings**,
+  **People**: a viewer follows the company's work, and an approver also
+  approves or denies what waits at tier 2 and below. A seat has its own
+  authenticator, kept apart from the owner's, so its code never counts as
+  the owner's; tier 3, settings, keys, devices and every loosening stay the
+  owner's, and the record names the person who decided. If several people
+  are each accountable for their own companies, give each of them a
+  deployment of their own rather than sharing the owner's authenticator.
 - **Companies are isolated in the database.** Row-level security is forced
   on every tenant table, references between tenant tables carry the
   company, and the role agents run as cannot bypass either. Many companies
@@ -146,9 +151,10 @@ expects are not there. Be clear about both before you commit.
 - Retention as the only thing that deletes, recording what it removed.
 
 **What it does not have yet.**
-- Single sign-on, staff accounts, roles for people, delegated approval, or a
-  second human approver. The second pair of eyes on an action is a reviewer
-  role, which is an agent.
+- Single sign-on, or roles for people beyond the two staff seats. Tier 3
+  has one human approver, the owner; the second pair of eyes on an action
+  is a reviewer role, which is an agent. A staff seat cannot use the
+  Telegram or WhatsApp chats yet: they are the owner's.
 - A metrics endpoint or tracing. There are JSON log lines and a health
   check.
 - A connector catalogue or an OAuth flow for connecting accounts.

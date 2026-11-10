@@ -1,0 +1,12 @@
+# HTTPS for the console, for docker-compose.yml's `https` profile.
+#
+# The name comes from PALUGADA_DOMAIN in .env. Caddy makes and renews its
+# certificate itself, so the name must point at this machine and ports 80
+# and 443 must be open. The Host header is passed on as it came (Caddy's
+# default), because the console answers only to the names it was given, and
+# the caller's address goes in X-Forwarded-For, which PALUGADA_BEHIND_PROXY
+# makes the console's sign-in limit count by.
+{$PALUGADA_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8787
+}

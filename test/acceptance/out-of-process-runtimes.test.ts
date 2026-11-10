@@ -7,6 +7,7 @@
  * cannot do -- reach a credential, act outside their grant, replay an action,
  * or quietly get their work done by a model nobody chose.
  */
+import { carryFor } from '../../src/engine/pricing.ts';
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
@@ -34,7 +35,7 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
-import { Engine, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
+import { Engine, MODEL_KEY_WAITS_MS, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { takePlace } from '../../src/broker/in-flight.ts';
@@ -515,8 +516,12 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
   const task = await newTask(fixture, {});
   const engine = engineWith(broker, adapter);
   const outcomes: string[] = [];
+  const { workOf } = await import('../../src/owner/views.ts');
   for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
     outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+    if (run === 0) {
+      assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'model', 'it says it waits for the model (N9)');
+    }
   }
 
   assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
@@ -539,6 +544,103 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
   const detail = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
     "SELECT rationale FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
   assert.match(detail.rows[0]!.rationale, /tried 6 times over about 16 minutes\. This role can take actions that cannot be undone/);
+});
+
+/**
+ * The OpenRouter key refused (401, "User not found.") of 6 October: every
+ * task that met it halted, said "No runtime could take it", and raised
+ * nothing for the owner, who learned of it from a chat answer that was raw
+ * JSON. Now the owner is told once, in words, with where to put a key that
+ * works; the tasks wait, spend nothing, and carry on by themselves.
+ */
+test('a refused model key tells the owner once, parks the work, and the work carries on when the key works', async () => {
+  const fixture = await createCompany('model-key-refused');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  let keyWorks = false;
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run() {
+      if (!keyWorks) {
+        throw new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (401): User not found.', {
+          model: 'test-model', keyRefused: true, status: 401, host: 'openrouter.ai', providerSaid: 'User not found.', keySetting: 'PALUGADA_MODEL_KEY_REF',
+        });
+      }
+      return { output: { done: DONE } };
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const first = await newTask(fixture, {});
+  const second = await newTask(fixture, {});
+  const { workOf } = await import('../../src/owner/views.ts');
+
+  const before = Date.now();
+  const parked = await engine.runTask(fixture.companyId, first.id, 'worker');
+  assert.equal(parked.status, 'waiting_window', parked.reason);
+  assert.ok(Math.abs(parked.waitUntil!.getTime() - before - MODEL_KEY_WAITS_MS[0]!) < 2_000);
+  assert.equal((await engine.runTask(fixture.companyId, second.id, 'worker')).status, 'waiting_window');
+  const waiting = (await workOf(fixture.companyId, { taskId: first.id })).items[0]!.waiting;
+  assert.equal(waiting?.reason, 'model_key', 'it says what it waits for');
+
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ title: string; rationale: string; status: string }>(
+    "SELECT title, rationale, status FROM inbox_items WHERE kind = 'incident'"));
+  assert.equal(cards.rows.length, 1, 'one card for the company, however many tasks met the refusal');
+  assert.equal(cards.rows[0]!.title, 'openrouter.ai refused the model key, and work is waiting');
+  assert.match(cards.rows[0]!.rationale, /Open Settings, This deployment, Model, paste a key that works/);
+  assert.match(cards.rows[0]!.rationale, /User not found\./, 'what the provider said is kept, as it said it');
+  assert.doesNotMatch(cards.rows[0]!.rationale, /PALUGADA_MODEL_KEY_REF|"error"/, 'no variable, no raw JSON');
+
+  // Looking again while the key is still refused waits longer and raises nothing more.
+  const again = await engine.runTask(fixture.companyId, first.id, 'worker');
+  assert.equal(again.status, 'waiting_window');
+  assert.ok(again.waitUntil!.getTime() - Date.now() > MODEL_KEY_WAITS_MS[0]!, 'longer the second time');
+  assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident'"))).rows.length, 1);
+
+  // The key that works is in use: the work finishes, and it was never failed.
+  keyWorks = true;
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'completed');
+  assert.equal((await engine.runTask(fixture.companyId, second.id, 'worker')).status, 'completed');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, first.id)))!.attempt, 0, 'a refused key is not the task failing');
+});
+
+test('a key that stays refused halts the task when the waits are spent, and does not tell the owner twice', async () => {
+  const fixture = await createCompany('model-key-halts');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { PalugadaError } = await import('../../src/errors.ts');
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run() {
+      throw new PalugadaError('model.unavailable', 'the model API at openrouter.ai refused the key (403)', {
+        model: 'test-model', keyRefused: true, status: 403, host: 'openrouter.ai', providerSaid: '', keySetting: 'PALUGADA_MODEL_KEY_REF',
+      });
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const task = await newTask(fixture, {});
+  const outcomes: string[] = [];
+  for (let run = 0; run <= MODEL_KEY_WAITS_MS.length; run += 1) {
+    outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+  }
+  assert.deepEqual(outcomes, [...MODEL_KEY_WAITS_MS.map(() => 'waiting_window'), 'halted']);
+  const cards = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>("SELECT rationale FROM inbox_items WHERE kind = 'incident'"));
+  assert.equal(cards.rows.length, 1);
+  assert.match(cards.rows[0]!.rationale, /refused the model key \(403\)/);
+
+  // Answered by the owner, and refused again: a new card, not a silence.
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE inbox_items SET status = 'decided', decision = 'approve', decided_at = now() WHERE kind = 'incident'"));
+  const next = await newTask(fixture, {});
+  await engine.runTask(fixture.companyId, next.id, 'worker');
+  assert.equal((await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'incident' AND status = 'open'"))).rows.length, 1);
 });
 
 /* ------------------------------------------------------------------ http --- */
@@ -1269,6 +1371,8 @@ test('an out-of-process run whose call finds every place taken parks, spending n
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
     'SELECT attempt FROM tasks WHERE id = $1', [task.id]));
   assert.equal(rows[0]!.attempt, 0, 'waiting is not failing');
+  const { workOf } = await import('../../src/owner/views.ts');
+  assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'slot', 'and says it waits its turn (N9)');
 });
 
 test('an out-of-process run whose call the budget cannot pay for halts, as an in-process one does', async () => {
@@ -2627,16 +2731,18 @@ test('a CLI\'s own total replaces the estimates it was charged (F13.7)', async (
   );
   assert.equal(outcome.status, 'completed', outcome.reason);
 
-  // 120 in and 34 out at the fallback rounds up to one cent, then the bill
-  // of 42 replaces it: 42, not 43.
+  // 120 in and 34 out at the fallback are 0.435 of a cent, which is owed and
+  // not yet charged; then the bill of 42 replaces it -- and the owed part with
+  // it, so it is not charged again with the next call: 42, not 43.
   assert.equal(await spentBy(fixture), 42);
+  assert.equal(carryFor(fixture.budgetAccountId).pending, 0);
   const settled = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
       "SELECT payload FROM events WHERE type = 'cost.settled'",
     );
     return rows.map((row) => row.payload);
   });
-  assert.deepEqual(settled, [{ model: 'test-model', chargedCents: 1, actualCents: 42, deltaCents: 41 }]);
+  assert.deepEqual(settled, [{ model: 'test-model', chargedCents: 0, actualCents: 42, deltaCents: 42 }]);
 
   // And every figure that reads the trace record sees the bill, not the
   // estimate: the monthly pause, and the cost report the owner reads. They
@@ -2667,8 +2773,8 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
     ['provider-reported', { cost_status: 'actual', actual_cost_usd: 0.42, estimated_cost_usd: 0.4 }, 42],
     ['Hermes estimated', { cost_status: 'estimated', actual_cost_usd: null, estimated_cost_usd: 0.31 }, 31],
     ['in a subscription', { cost_status: 'included', actual_cost_usd: null, estimated_cost_usd: 0 }, 0],
-    // 120 in and 34 out at the fallback rate rounds up to one cent.
-    ['not known', { cost_status: 'unknown', actual_cost_usd: null, estimated_cost_usd: null }, 1],
+    // 120 in and 34 out at the fallback rate are 0.435 of a cent: owed, and not yet charged.
+    ['not known', { cost_status: 'unknown', actual_cost_usd: null, estimated_cost_usd: null }, 0],
   ];
   for (const [what, row, cents] of cases) {
     const fixture = await createCompany(`hermes-cost-${cents}`);
@@ -2685,6 +2791,8 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
     const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(fixture.companyId, task.id, 'worker');
     assert.equal(outcome.status, 'completed', `${what}: ${outcome.reason}`);
     assert.equal(await spentBy(fixture), cents, what);
+    // A price Hermes does not know is estimated, not free: what the estimate comes to is owed.
+    if (what === 'not known') assert.ok(Math.abs(carryFor(fixture.budgetAccountId).pending - 0.435) < 1e-9, String(carryFor(fixture.budgetAccountId).pending));
   }
   assert.deepEqual(knownCli('hermes').costArgs, ['sessions', 'export', '-', '--session-id', '{sessionId}']);
   assert.throws(() => runtimeSpecsFrom([{ name: 'hermes', command: 'h', args: ['{mcpConfig}'], costArgs: 'sessions' }]),
@@ -2694,9 +2802,11 @@ test('a Hermes run is charged what Hermes recorded for its session; a price it d
 /**
  * A runtime may price a call at a fraction of a cent, and everything that
  * records money counts whole cents: the fraction reached `budget_spend` as
- * "0.4" and the run died on a bigint cast.
+ * "0.4" and the run died on a bigint cast. Rounded up, each such call was
+ * charged a cent it did not cost; now the fraction is owed, and charged when
+ * what is owed comes to a whole one.
  */
-test('a call priced at a fraction of a cent is charged a whole one (F13.7)', async () => {
+test('a call priced at a fraction of a cent is owed, and charged when it comes to a whole one (F13.7)', async () => {
   const fixture = await createCompany('fractional-cost');
   const broker = await brokerFor(fixture, []);
   await configureRole(fixture, { runtime: 'script' });
@@ -2713,13 +2823,18 @@ test('a call priced at a fraction of a cent is charged a whole one (F13.7)', asy
       await services.reportUsage({
         model: request.modelRouting.primary, inputTokens: 5, outputTokens: 5, costCents: 0.4,
       });
+      await services.reportUsage({
+        model: request.modelRouting.primary, inputTokens: 5, outputTokens: 5, costCents: 0.7,
+      });
       return { output: { done: DONE } };
     },
   };
   const task = await newTask(fixture, {});
   const outcome = await engineWith(broker, adapter as never).runTask(fixture.companyId, task.id, 'worker');
   assert.equal(outcome.status, 'completed', outcome.reason);
+  // 0.4 and 0.7 are 1.1 cents in all: one charged, the tenth owed.
   assert.equal(await spentBy(fixture), 1);
+  assert.ok(Math.abs(carryFor(fixture.budgetAccountId).pending - 0.1) < 1e-9);
 });
 
 /** The wire's own half of it, for every runtime that is not this process. */
@@ -2851,6 +2966,65 @@ test('a runtime asks the owner, waits, and carries on with the answer (owner.ask
   assert.equal(asked.rowCount, 1, 'the same question is not asked twice');
 });
 
+/**
+ * N14, the analysis of 3 October (H4 of 30 September): a runtime in another
+ * process was replayed by the position of its steps. An agent CLI resumed
+ * after the owner's answer, or after a restart, starts again from its
+ * context, and goes on in its own order and its own words -- and the first
+ * call that did not match the step recorded at its place halted the task
+ * with `journal_divergence`. Its calls are now matched to the journal by what
+ * they are: one it already made is answered from the record, wherever it
+ * comes, and one it never made runs.
+ */
+test('an agent resumed in its own order and words carries on, and does not do again what it did (N14)', async () => {
+  const fixture = await createCompany('script-resume');
+  let written = 0;
+  let read = 0;
+  const registry = new CapabilityRegistry();
+  registry.register<{ zone: string }, { ok: boolean }>({
+    name: 'dns.write', adapter: 'test:dns', defaultTier: 2,
+    async execute() { written += 1; return { ok: true }; },
+    async verify() { return true; },
+  });
+  registry.register<{ zone: string }, { records: string[] }>({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0,
+    async execute() { read += 1; return { records: ['192.0.2.10'] }; },
+  });
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['dns.write', 'dns.read', 'plan.record', 'owner.ask']) await grantCapability(fixture, name);
+  await configureRole(fixture, { runtime: 'script', tools: ['plan.record', 'dns.write', 'dns.read', 'owner.ask'] });
+  const task = await newTask(fixture, { script: 'resume_reworded' });
+  const engine = engineWith(new CapabilityBroker(registry), scriptAdapter());
+
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_approval', first.reason);
+  assert.equal(written, 1);
+  const { rows: items } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM inbox_items WHERE task_id = $1 AND kind = 'escalation'", [task.id]));
+  await inbox.decide(fixture.companyId, items[0]!.id, 'approve', 'The new host, 192.0.2.10.', { channel: 'app' });
+
+  // Resumed, it asks again first, writes again, and reads a zone it names
+  // differently: none of it at the place the first run's step holds.
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  const output = second.output as { answer: { output?: { answer: string } }; write: { output?: unknown } };
+  assert.equal(output.answer.output?.answer, 'The new host, 192.0.2.10.', JSON.stringify(second.output));
+  assert.deepEqual(output.write.output, { ok: true }, 'the write is answered from the record');
+  assert.equal(written, 1, 'and not made again');
+  assert.equal(read, 1, 'a call it never made runs');
+
+  const { rows: steps } = await withTenant(fixture.companyId, (tx) => tx.query<{ step_index: number; name: string; status: string }>(
+    'SELECT step_index, name, status FROM task_steps WHERE task_id = $1 ORDER BY step_index', [task.id]));
+  assert.deepEqual(steps.map((step) => [step.step_index, step.name, step.status]), [
+    [0, 'capability:plan.record', 'committed'],
+    [1, 'capability:dns.write', 'committed'],
+    [2, 'capability:owner.ask', 'committed'],
+    [3, 'capability:dns.read', 'committed'],
+  ], 'each call once, where it was first made');
+  assert.ok(!(await eventTypes(fixture.companyId, task.id)).includes('task.halted'));
+});
+
 test('a task asks the owner three things at most, and an unanswered question is said to be one', async () => {
   const fixture = await createCompany('ask-bounds');
   const task = await newTask(fixture, { script: 'done' });
@@ -2899,6 +3073,10 @@ test('a runtime hands work to another role and carries on with its result', asyn
     'SELECT id, status, deadline_at FROM tasks WHERE parent_task_id = $1', [parent.id]));
   assert.equal(children.length, 1);
   assert.ok(children[0]!.deadline_at, 'a delegated task has a deadline (F6.4)');
+  // And the owner reads what it waits for, not "Scheduled" (N9).
+  const { workOf } = await import('../../src/owner/views.ts');
+  const waiting = (await workOf(fixture.companyId, { taskId: parent.id })).items[0]!.waiting;
+  assert.deepEqual([waiting?.reason, waiting?.on?.taskId], ['child', children[0]!.id]);
 
   // The child runs as any task does, and the parent resumes to read it --
   // at once, not when its two-minute look comes round: a company whose
@@ -2933,9 +3111,56 @@ test('a task waits only on work it delegated, and delegates only to a role that 
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
     roleId: fixture.roleId, taskId, idempotencyKey: key,
   });
-  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role nobody/);
+  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role "nobody" in this company/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd2'), 'task.await', { childId: other.id }), /not one this task delegated/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd3'), 'task.delegate', { role: 'x', brief: '  ' }), /needs a brief/);
+});
+
+test('a finished deliverable longer than a sub-agent may hand back reaches its parent cut short, saying where the whole is (N2, F6.7)', async () => {
+  // The live run of 2 October: the marketer finished the seven-day plan the
+  // owner had asked the CEO for, and task.await refused it -- "returned about
+  // 2597 tokens, over the 2000 a sub-agent may hand back" -- so the CEO could
+  // not report it, its rerun could not read it either, and the owner never
+  // got what they asked for.
+  const fixture = await createCompany('delegate-long-plan');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['task.delegate', 'task.await']) await grantCapability(fixture, name);
+  const broker = new CapabilityBroker(registry);
+  const slug = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  const parent = await newTask(fixture, { script: 'done' });
+  await transition(fixture.companyId, parent.id, 'running');
+  const ctx = (key: string) => ({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: parent.id, idempotencyKey: key,
+  });
+  const { output: delegated } = await broker.invoke<unknown, { childId: string }>(ctx('plan'), 'task.delegate',
+    { role: slug, brief: 'Write the seven-day Instagram plan for the new menu.' });
+
+  const plan = Array.from({ length: 7 }, (_, day) =>
+    `Day ${day + 1}: ${'Post a photo of the iced palm-sugar coffee at the window seat, with the price. '.repeat(22)}`).join('\n');
+  await transition(fixture.companyId, delegated.childId, 'running');
+  await transition(fixture.companyId, delegated.childId, 'completed', {
+    output: { summary: 'The seven-day plan is ready.', plan },
+  });
+
+  const { output: answer } = await broker.invoke<unknown, {
+    status: string; output: Record<string, unknown>; summary: string; abbreviated: { taskId: string; characters: number } | null;
+  }>(ctx('read'), 'task.await', { childId: delegated.childId });
+  assert.equal(answer.status, 'completed', 'the work is handed back, not refused');
+  assert.ok(JSON.stringify(answer.output).length <= 8_000, 'within what a sub-agent may hand back (F6.7)');
+  assert.equal(answer.output.summary, 'The seven-day plan is ready.');
+  assert.match(String(answer.output.plan), /^Day 1: Post a photo/);
+  assert.ok(String(answer.output.plan).endsWith(
+    `of ${plan.length} characters. The whole is kept on task ${delegated.childId}, where the owner reads it.]`));
+  assert.deepEqual(answer.abbreviated, { taskId: delegated.childId, characters: JSON.stringify({ summary: 'The seven-day plan is ready.', plan }).length });
+  assert.match(answer.summary, /cut short here; the whole is kept on task/);
+
+  // The whole plan is still the child's, where the owner reads it.
+  const child = (await withTenant(fixture.companyId, (tx) => getTask(tx, delegated.childId)))!;
+  assert.equal((child.output as { plan: string }).plan, plan);
 });
 
 /**

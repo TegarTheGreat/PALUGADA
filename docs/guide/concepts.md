@@ -7,10 +7,19 @@ lists everything that is built.
 
 ## The owner
 
-There is one human in PALUGADA, and it is you. There are no user accounts, no
-passwords and no staff roles: you sign in with a code from your authenticator
-app, and holding that authenticator is what makes you the owner. One
-deployment can run many companies, and you own all of them.
+There is one owner in PALUGADA, and it is you. There are no user accounts
+and no passwords: you sign in with a code from your authenticator app, and
+holding that authenticator is what makes you the owner. One deployment can
+run many companies, and you own all of them.
+
+You can seat other people beside you, each for one company, under
+**Settings**, **People**. A **viewer** follows the company's work; an
+**approver** also approves or denies what waits at tier 2 and below. You
+make an invite with your device and send them the link; opening it, they
+add PALUGADA to their own authenticator app and sign in with its codes.
+Their code is never yours: tier 3, settings, keys, devices and anything
+that loosens a control stay yours, and **End the seat** signs them out at
+once.
 
 Two rules run through the whole console. Anything that tightens a control (a
 stop, a freeze, a lower ceiling, a kill switch) takes only your session,
@@ -87,8 +96,9 @@ defines it:
   nothing in the deployment is bound to yet -- a CRM, a mail provider -- is
   not offered to a run, and the run is told so.
 - **Its output schema:** the shape its answer must have. Every role in the
-  standard template returns a `summary`, and may return `artefacts`. An
-  answer that does not fit is refused and the task tries again, up to its
+  standard template returns a `summary`; the files a task made are listed by
+  the platform itself, from what its calls committed, and not by the role's
+  word. An answer that does not fit is refused and the task tries again, up to its
   number of attempts; an input that does not fit the role's input schema
   stops the task at once.
 - **Its tools:** the capabilities it may call, at most twelve, and only those
@@ -135,19 +145,44 @@ effect.
 | `running` | A worker is running it | **Running** |
 | `waiting_approval` | Waiting for your decision | **Waiting** |
 | `waiting_review` | Waiting for another role's review | **Waiting** |
-| `waiting_window` | Allowed, but not at this hour; resumes when the window opens | **Waiting** |
+| `waiting_window` | Waiting for something other than your decision: work it handed on, its work hours, cheaper hours, a service that said not now, its turn at a busy tool, the model, or its next attempt. The line under its progress says which | **Waiting** |
 | `completed` | Done, and its output fitted the contract | **Done** |
-| `failed` | Ran out of attempts | **Stopped** |
+| `failed` | Ran out of attempts, or its run said it did not do what was asked (**Not done**) | **Stopped** |
 | `halted` | Stopped itself for a reason that another attempt would not fix | **Stopped** |
 | `cancelled` | You, an expired approval, or a freeze ended it | **Stopped** |
+
+Under a task, the bar counts the actions its plan named that it has taken:
+a plan of five actions with two done reads 2/5, wherever it stopped. A task
+waiting on work it handed on names the role it is waiting for, and when
+something below it, at any depth, is waiting for your answer, it says so in
+orange: "Waiting until you answer Nadia".
+
+A run that did not do what it was asked -- it could not, or it needed a
+decision it could not get -- says so, and the task ends as **Not done** with
+the run's reason, shown on the task and sent to your chat for work you gave.
+It is not tried again, since another attempt on the same facts would reach
+the same answer. Answer what it needed, then use **Do it again**.
 
 A halted task is never retried silently. Its reason is one of: a contract
 violation, a policy denial, the budget, the hop limit, the deadline, a failed
 read-back, an unhealthy capability, no runtime to run it, a cycle between
 roles, splitting into more sub-tasks than it may have, one run writing more
-tokens than its role allows a run, a journal that no longer matches, or a
+tokens than its role allows a run, a journal that no longer matches (a role
+run as code in this process that took other steps when it ran again), or a
 crash loop (it lost its worker three times). To try again, use **Do it
-again**, which starts a new task.
+again**, which starts a new task. What the stopped task already wrote or
+sent is not done a second time: the new task is told it, and a write it
+repeats word for word is answered from the old task's record.
+
+A task its budget stopped is the exception. It puts an item in your inbox
+naming the work and the account that has no tokens left, and it reaches your
+chat as news with a link (never a push, which is kept for incidents and tier 3
+approvals). One card stands for an account however many tasks it stopped; its
+**Raise it and continue** raises the account's token ceiling and goes on with
+every task it stopped, or raise the ceiling on **Money** and open a task and
+press **Continue**. A task goes on from where it stopped, as the same task: what
+it already did is answered from its journal and not done again. It is never
+continued by itself.
 
 A task past its deadline is halted even if no worker ever picked it up. A
 write whose read-back fails ends the run there: the run cannot write again,
@@ -205,9 +240,11 @@ and fixes each one's tier, with the reason it is not the tier above or below.
   owner applies, so it can do nothing the owner could not do from the page,
   and nothing at all without them.
 - The platform implements the ones that need nobody's account: `web.fetch`,
-  `uptime.check`, `files.list`, `doc.draft`, `email.draft`, `memory.search`
-  and `skill.read`; `web.search` and `web.extract` through the search
-  provider you choose; `image.generate` and `speech.synthesize` through the
+  `uptime.check`, `files.list`, `files.read`, `doc.draft`, `email.draft`, `memory.search`
+  and `skill.read`; `mailbox.read` and `email.send` with a division's own
+  mailbox; `image.describe` through the vision provider you choose; `web.search` and `web.extract` through the search
+  provider you choose, and `web.extract` in the deployment's own browser
+  until you choose one; `image.generate` and `speech.synthesize` through the
   picture and voice providers you choose, kept as files; `speech.transcribe`,
 which writes down a recording in the company's files; and the tools a run uses to work inside the company:
   `plan.record`, `task.delegate`, `task.await`, `owner.ask`,
@@ -283,14 +320,35 @@ Tokens and money are reserved before a task starts and charged on every call.
 Budgets are a tree of accounts: the company's at the root, and accounts for
 projects, divisions and roles under it. A task draws on the narrowest account
 that covers it, and a spend counts against every account above it, so raising
-a division's ceiling cannot raise the company's.
+a division's ceiling cannot raise the company's. An account's tokens and money
+are counted per calendar month in UTC: on the first of each month the count
+starts again, and raising a ceiling is how an account that ran out gets more
+before then.
+
+Money is in US dollars everywhere: providers price their models in dollars,
+and every amount the console shows, and every ceiling you type, is in
+dollars, written the way your language writes them ("US$1.234,50" in
+Indonesian). If you think in another currency, choose it under **Settings**,
+**Languages**, **How you read money**, with the rate to read amounts at:
+every amount is then shown and typed in it, and the daily digest in your
+chat gives both. PALUGADA still counts in dollars, and never fetches a rate:
+it is yours to keep up to date.
 
 On top of the accounts, each company has a monthly ceiling, USD 200 unless
-you change it, counted per calendar month in UTC.
+you change it, counted per calendar month in UTC. It counts every model call
+the company makes, not only its tasks': your conversations with its CEO and
+the nightly distilling of its memory are its spending too. Those two draw on
+no account, since they are not work an account was reserved for, and your
+conversation is never refused for money; a company paused at its ceiling
+stops distilling until it is resumed. PALUGADA's own assistant belongs to no
+company, and what it costs is shown on its own line under **Every company**
+on **Money**.
 
 - At 80% you are told once: "Monthly budget is 80% spent".
 - At 100% the company pauses: no new task starts and no external action runs
-  until you raise the ceiling or override the pause until a time you choose.
+  until you raise the ceiling or override the pause until a time you choose,
+  or the month ends. The pause is the month's: the first check of the next
+  month lifts it, and its card is withdrawn.
 - A role that spends more than three times its seven-day hourly average in
   one hour is paused while there is still money left, and you get an
   incident.
@@ -316,6 +374,7 @@ cost, and opens the step-by-step trace behind it.
 | incident | Something went wrong: a failed read-back, a crash loop, a broken capability, a role spending too fast | Deal with the cause; deciding the item closes it, with your note |
 | procedure, skill | Something the company learned, waiting for your yes before any agent uses it | Approve or deny |
 | budget | 80% or 100% of the month's ceiling | Raise the ceiling or override the pause on **Money**, or leave it paused |
+| budget | Tasks stopped because an account has no tokens left; one card for the account | **Raise it and continue** on the card, or raise the ceiling on **Money** and press **Continue** on a task |
 
 Items can be put off with **Later** (never past their expiry), and several
 drafts can be decided at once with **Choose several**; tier 3 actions,
@@ -340,6 +399,19 @@ verified only when the same task read it from that source; otherwise it is
 shown as the agent's claim. Until a goal has a measure, progress is counted
 in tasks: the ones finished against the ones meant to be done, so a
 cancelled task, or one you asked for again, is not left owing.
+
+Nobody has to remember to look at a measure. When one reaches its target, passes
+its due date short of it, or has a source nobody has read for a week, the CEO is
+given a task for it: to ask you once where it stands, in your language, and to
+have the source read again by a role that holds it. A target and a due date are
+each looked at once for the value you set -- a figure that hovers round its
+target is not a new look each time, and changing the target or the date is what
+asks again. A source nobody has read is read again about every week while those
+reads succeed, until the measure reaches its target, passes its date, or you
+retire it. Only a checked figure counts: yours, or one a run read from the
+source; an agent's typed number cannot reach a target or hide a missed date. The
+CEO cannot close a goal: that stays yours, on the **Goals** page. To stop it,
+retire the measure, take its source or date off, or close the goal.
 
 Closing a goal -- **Met** or **Abandoned** -- stops the work under it. Its
 schedules and triggers, and those of every goal beneath it, are paused in
@@ -446,6 +518,9 @@ the company's time zone. That review is handed the week from the company's
 records, not from a model: every active goal with its numbers -- the latest,
 whether it was verified, and the change over the week -- the work finished,
 the spend against the monthly limit, and any stage move waiting for you.
+A week with nothing in it -- no work started or finished other than the
+review's own, no measure recorded -- is not reviewed: the clock passes it
+over and the company's history says so. **Run now** runs it anyway.
 
 A bundle signed by a publisher you trust installs as written, and so does a built-in
 one that is exactly what this version ships. Any other unsigned bundle,
@@ -502,6 +577,25 @@ Schedules, handoffs and triggers are tabs on **Team**; a role's heartbeat is
 shown in its drawer there. Cheap hours (under **Settings**, **Company**) hold
 non-urgent work that only reads until a window you choose.
 
+### Round the clock, or office hours
+
+Agents have no working hours of their own: they read, write and plan at any
+hour, and a company runs round the clock until you say otherwise. What you can
+say is **Office hours** (under **Settings**, **Company**): the days and hours in
+which what reaches the outside world may go out -- an email sent, a post
+published, a customer answered, a deploy. Outside them such an action is put
+off, not refused: the task shows **Waiting for its work hours**, with when it
+will go, and carries on at the next opening. Reading, drafting, planning and
+everything else inside the company go on at any hour, so the work is ready
+when the office opens.
+
+**Replies to customers** is the one choice most owners make deliberately: leave
+it as **Go out at any hour** and a customer who writes at night is answered
+then, or choose **Wait for office hours too**. Hours only ever delay; they
+cannot allow what a policy or an approval does not, so they take your session
+and not a code. A window set for one capability on its own, which only the
+database can do, beats the company's hours. **Run round the clock** removes them.
+
 ## Languages
 
 Each company has two languages. The work language is what it produces for
@@ -534,11 +628,16 @@ console into.
 - **History** keeps every decision with your note, and every item that
   closed without one.
 - A task's **What it did** and **What it said** show its events and its
-  transcript, and **Replay against the journal** runs it again with every
+  transcript, and **Replay against the journal** -- for a role this
+  deployment runs as code in its own process -- runs it again with every
   side effect answered from the record, so nothing leaves.
 - Retention is the only thing that deletes, and it records what it removed.
   Events are kept at least a year and prompts at least ninety days
-  (**Settings**, **Company**, **Retention**).
+  (**Settings**, **Company**, **Retention**). Finished work goes once both
+  the event and the trace windows have passed it, with its steps, runs and
+  cards; work that is still talked about, has a card still open in your
+  inbox, or that later work was done again in place of or handed on from,
+  stays.
 - **Download as JSON** under **Settings**, **Company**, **Export** writes
   the whole company to one file that can be restored on another deployment,
   with every reference remapped. Credentials travel as references only.

@@ -440,6 +440,40 @@ test('an escalation reaches the chat with buttons on it (F10.9)', async () => {
 });
 
 /**
+ * The analysis of 3 October, section 2.3 item 7: a run's question reached the
+ * owner as "bookkeeper asks: ..." -- the role's short name, and English in
+ * every language -- and the chat said the question twice, as the title and
+ * again as the summary. It is headed by who asks, by the name the owner gave
+ * the role, in the owner's language, and the question is said once.
+ */
+test('a run\'s question is headed by who asks, by name and in the owner\'s language, and says the question once (§2.3)', async () => {
+  const fixture = await createCompany('chat-asker');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET display_name = 'Sari' WHERE id = $1", [fixture.roleId]));
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'chase the unpaid invoices' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Which invoices may I chase today?' });
+
+  const [open] = await inbox.listOpen(fixture.companyId);
+  assert.equal(open!.roleName, 'Sari', 'the console names the role as the owner named it');
+  assert.equal(open!.title, 'Sari asks: Which invoices may I chase today?', 'and so does the record');
+
+  const [item] = await undelivered(fixture.companyId, 'chat:telegram', tomorrow());
+  assert.equal(item!.asker, 'Sari');
+  const english = telegram().render(item!).text;
+  assert.match(english, /^\*Sari asks:\*\n\nWhich invoices may I chase today\?/);
+  assert.equal(english.split('Which invoices may I chase today?').length, 2, 'the question is said once');
+  const indonesian = telegram().render({ ...item!, language: 'id' }).text;
+  assert.match(indonesian, /^\*Sari bertanya:\*\n\nWhich invoices may I chase today\?/);
+  assert.doesNotMatch(indonesian, /asks/);
+});
+
+/**
  * What a phone shows at a glance: which button says yes and which says no,
  * and how long the item waits before silence refuses it.
  *
@@ -851,18 +885,34 @@ test('one item can reach two surfaces without either suppressing the other', asy
  */
 test('an item no channel carries is not queued for one (F10.9)', async () => {
   const fixture = await createCompany('chat-uncarried');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO inbox_items (company_id, kind, title, action_summary, rationale, consequence_if_denied, notify_after)
+     VALUES ($1, 'fact_candidate', 'Our roaster delivers on Tuesdays', 'Remember it', 'Seen in three orders.', '', now())`,
+    [fixture.companyId]));
+
+  // A `fact_candidate` is real, open, and past its window -- and F10.9 does
+  // not name it, so `channelDelivery` answers `none` and no chat carries it.
+  // It must not sit in the undelivered list looking like a backlog for ever.
+  const waiting = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  assert.equal(waiting.some((item) => item.kind === 'fact_candidate'), false);
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'it is still in the inbox');
+});
+
+test('a budget alert is carried to the chat as news with a link, saying what to do (section 6.3)', async () => {
+  // It was a kind no channel carried, so work its budget stopped, and a
+  // month's ceiling reached, reached nobody who was not looking at the app.
+  const fixture = await createCompany('chat-budget');
   await inbox.raiseBudgetAlert({
     companyId: fixture.companyId,
     title: 'Ops has spent 80% of its month',
     detail: 'At the current rate it runs out on the 24th.',
   });
-
-  // `budget_alert` is real, open, and past its window -- and F10.9 does not
-  // name it, so `channelDelivery` answers `none` and no chat carries it. It
-  // must not sit in the undelivered list looking like a backlog for ever.
-  const waiting = await undelivered(fixture.companyId, 'chat:telegram');
-  assert.equal(waiting.some((item) => item.kind === 'budget_alert'), false);
-  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'it is still in the inbox');
+  // It waits for the owner's window like an escalation (F10.5), so looked for a day on.
+  const waiting = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  const alert = waiting.find((item) => item.kind === 'budget_alert');
+  assert.ok(alert, 'queued for the chat');
+  assert.equal(alert.delivery, 'link_only', 'with nothing to press: a ceiling is raised in the app');
+  assert.equal(alert.actionSummary, 'At the current rate it runs out on the 24th.', 'and the body says what the title does not');
 });
 
 /** `n` retry-base intervals from now, for testing the backoff without waiting. */
@@ -1399,11 +1449,20 @@ test('every sentence the platform says to the owner has its translation (src/own
     const source = await readFile(new URL(name, directory), 'utf8');
     // One line at a time: a ternary's question mark is on the call's own line,
     // and one further down the file belongs to something else.
-    for (const match of source.matchAll(/\bsay\([^,\n]+,\s*(?:[^?\n]+\?\s*)?'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
-      said.add(match[1]!);
-      if (match[2]) said.add(match[2]);
+    // A literal as JavaScript reads it: "a domain\'s records" is the key.
+    // The ternary is tried only when a literal is not next, or a sentence
+    // ending in a question mark would read as the ternary's condition.
+    const literal = (text: string) => text.replace(/\\(.)/g, '$1');
+    for (const match of source.matchAll(/\bsay\([^,\n]+,\s*(?:[^?\n]+\?\s*)??'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
+      said.add(literal(match[1]!));
+      if (match[2]) said.add(literal(match[2]));
     }
   }
+  // The standard template's own statements, which a company's goals say in the
+  // language it talks in (`words` of createCompanyFromTemplate): said by
+  // variable, so the scan above cannot see them.
+  const { STANDARD_COMPANY_TEMPLATE } = await import('../helpers/standard-team.ts');
+  for (const goal of STANDARD_COMPANY_TEMPLATE.goals ?? []) said.add(goal.statement);
   assert.ok(said.size >= 15, `only ${said.size} sentences were found; the scan is broken`);
   // The language that picks these is the panel's, so every language the
   // console is drawn in has them: an owner who reads the panel in Russian
@@ -1427,6 +1486,41 @@ test('every sentence the platform says to the owner has its translation (src/own
       assert.notEqual(translated.trim(), '', `${language}: "${english}" is translated as nothing`);
       if (script[language]) assert.match(translated, script[language]!, `${language}: "${english}" is not written in its script`);
     }
+  }
+});
+
+/**
+ * An action the broker asks about is named for what it does, on the phone as
+ * in the console (the analysis of 3 October, §2.3 item 7): a chat card said
+ * "record.delete: recordId cust-042", the capability's code, in English
+ * whatever the owner reads. Its arguments are the agent's and stay as they are.
+ */
+test("an approval in a chat names its action for what it does, in the owner's language", async () => {
+  const fixture = await createCompany('owner-language-action');
+  const { setDeploymentLanguages } = await import('../../src/domain/language.ts');
+  await setDeploymentLanguages({ console: 'id' });
+  try {
+    await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'record.delete', tier: 3,
+      title: 'record.delete: recordId cust-042', actionSummary: 'record.delete: recordId cust-042; reason duplicate',
+      rationale: 'A duplicate of cust-041.', consequenceIfDenied: 'The duplicate stays.',
+    });
+    const [item] = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+    assert.equal(item!.title, 'Hapus data: recordId cust-042');
+    assert.equal(item!.actionSummary, 'Hapus data: recordId cust-042; reason duplicate');
+    assert.doesNotMatch(telegram({ url: 'http://127.0.0.1:1' }).render(item!).text, /record\.delete/);
+    assert.equal(new WebhookPush({ url: 'http://127.0.0.1:1' }).message(item!).title, 'Perlu persetujuan: Hapus data: recordId cust-042');
+
+    // An action the platform has no name for keeps its code: nothing is guessed.
+    await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'payment.send', tier: 2,
+      title: 'payment.send: amount 120', actionSummary: 'payment.send: amount 120', rationale: 'Invoice 7.',
+      consequenceIfDenied: 'The supplier waits.',
+    });
+    const all = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+    assert.ok(all.some((one) => one.title === 'payment.send: amount 120'));
+  } finally {
+    await setDeploymentLanguages({ console: null });
   }
 });
 
@@ -1477,7 +1571,7 @@ test("a run's question is answered from the chat, in the owner's words (owner.as
     assert.deepEqual(rows[0], { decision: 'approve', owner_note: 'Arabica, from Gayo.', status: 'decided' });
     assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running');
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, task.id)),
-      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.' }]);
+      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.', files: [], by: null }]);
   } finally {
     await vendor.close();
   }
@@ -1591,10 +1685,49 @@ test('the owner hears in the chat that work they gave has finished, once, in the
     const texts = vendor.calls.map((call) => String(call.body.text));
     assert.equal(texts.length, 2, 'not for the routine check, nor for work an agent started');
     assert.ok(texts.some((text) => /Selesai: Write the October newsletter/.test(text) && /Drafted, 140 words/.test(text)));
-    assert.ok(texts.some((text) => /Berhenti sebelum selesai: Renew the domain/.test(text) && /budget exhausted/.test(text)));
+    // Why, in the owner's language: it was the halt's code read aloud, "budget exhausted" (§2.3 item 7).
+    assert.ok(texts.some((text) => /Berhenti sebelum selesai: Renew the domain/.test(text) && /Kehabisan anggaran/.test(text)));
+    assert.ok(texts.every((text) => !/budget.exhausted/.test(text)));
     assert.ok(vendor.calls.every((call) => JSON.stringify(call.body).includes('https://app.palugada.test/t/')));
     assert.ok(vendor.calls.every((call) => call.body.reply_markup === undefined
       || !JSON.stringify(call.body.reply_markup).includes('callback_data')), 'nothing to press');
+  } finally {
+    await vendor.close();
+  }
+});
+
+/*
+ * N9: work its run said it did not do is not "stopped" with a code read
+ * aloud. The owner reads that it was not done, and the run's own reason.
+ */
+test('work the owner gave that was not done is said to be not done, with the run\'s reason', async () => {
+  const fixture = await createCompany('not-done-notice');
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const { dispatchDoneNotices } = await import('../../src/owner/notify.ts');
+  const { setOwnerWindow } = await import('../../src/scheduler/windows.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const hour = new Date().getUTCHours();
+  await setOwnerWindow({ timezone: 'UTC', startHour: hour, endHour: (hour + 2) % 24 });
+  await withControlPlane((tx) => tx.query("UPDATE platform_control SET console_language = 'id'"));
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Hapus data pelanggan cust-042' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  const why = 'Menghapus data pelanggan perlu persetujuan Anda, dan saya belum mendapatkannya.';
+  await transition(fixture.companyId, task.id, 'failed', {
+    haltReason: 'not_done', detail: why, output: { summary: 'Data cust-042 tidak dihapus.', notDone: why },
+  });
+
+  const vendor = await fakeVendor(() => ({ status: 200, body: { ok: true, result: { message_id: 11 } } }));
+  try {
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [telegram({ url: vendor.url })]), { delivered: 1 });
+    // As read, without Telegram's escapes.
+    const text = String(vendor.calls[0]!.body.text).replace(/\\/g, '');
+    assert.match(text, /Tidak dikerjakan: Hapus data pelanggan cust-042/);
+    assert.ok(text.includes(why), text);
+    assert.doesNotMatch(text, /not done|Sebabnya/, 'not a code read aloud');
   } finally {
     await vendor.close();
   }

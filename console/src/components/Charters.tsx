@@ -60,7 +60,7 @@ export function Charters({ companyId }: { companyId: string }) {
     <Stack gap="lg">
       <CharterEditor
         title={t('Company charter')}
-        description={t('What this company is for and how it works. Every run of it is told this first, under the platform charter. Changing it asks for your authenticator, and every version is kept.')}
+        description={t('What this company is for and how it works. Every run of it is told this first, under the platform charter. Every version is kept.')}
         current={view.data.company}
         empty={t('This company has no charter yet, so its runs are told only the platform charter. Write what it is for and how it works.')}
         actions={view.data.company && (

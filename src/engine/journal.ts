@@ -20,6 +20,7 @@
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { wellFormed } from '../text.ts';
 import { callKey, hashInput, idempotencyKey } from './hash.ts';
 
 export type StepKind = 'llm' | 'tool' | 'internal';
@@ -27,6 +28,13 @@ export type StepKind = 'llm' | 'tool' | 'internal';
 export interface StepContext {
   companyId: string;
   taskId: string;
+  /**
+   * The task a tool call's key is made from, when it is not this one: the
+   * first of the unfinished attempts this one does again (N12), so a write
+   * whose answer never came reaches the vendor under the key it was first
+   * sent with.
+   */
+  keyTaskId?: string | undefined;
 }
 
 export interface StepRecord {
@@ -79,7 +87,8 @@ function keptInput(kind: StepKind, input: unknown): unknown {
   if (kind === 'llm') return null;
   const text = JSON.stringify(input ?? null) ?? 'null';
   if (text.length <= STEP_INPUT_LIMIT) return input ?? null;
-  return { cut: true, characters: text.length, start: text.slice(0, STEP_INPUT_LIMIT) };
+  // `wellFormed`: a cut between the halves of one character leaves half of it, which jsonb refuses.
+  return { cut: true, characters: text.length, start: wellFormed(text.slice(0, STEP_INPUT_LIMIT)) };
 }
 
 /**
@@ -110,7 +119,9 @@ export async function runStep<T>(
   const kept = keptInput(options.kind, options.input);
   // A tool call is keyed by what it does, so a write tried again is the
   // same write to the vendor; every other step by its place in the run.
-  const key = options.kind === 'tool' ? callKey(ctx.taskId, inputHash) : idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
+  const key = options.kind === 'tool'
+    ? callKey(ctx.keyTaskId ?? ctx.taskId, inputHash)
+    : idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
 
   const claim = await withTenant(ctx.companyId, async (tx) => {
     const step = await findStep(tx, ctx.taskId, options.stepIndex);
@@ -200,6 +211,57 @@ export async function runStep<T>(
   return { value, replayed: false };
 }
 
+/**
+ * The committed writes of earlier attempts at the same work (N12): their tool
+ * steps whose call the broker made at tier 1 or above, oldest first. A read
+ * is not among them; it changed nothing, and what it read may have changed
+ * since.
+ */
+const EARLIER_WRITES = `
+  SELECT s.task_id, s.step_index, s.name, s.input, s.output
+    FROM task_steps s
+   WHERE s.task_id = ANY($1::uuid[]) AND s.kind = 'tool' AND s.status = 'committed'
+     AND EXISTS (SELECT 1 FROM events e
+                  WHERE e.task_id = s.task_id AND e.type = 'tool.called'
+                    AND e.payload->>'idempotencyKey' = s.idempotency_key
+                    AND (e.payload->>'tier')::int >= 1)`;
+
+export interface EarlierWrite {
+  taskId: string;
+  stepIndex: number;
+  name: string;
+  input: unknown;
+  output: unknown;
+}
+
+/** The writes the earlier attempts committed, oldest first. */
+export async function earlierWrites(tx: TenantClient, attempts: readonly string[]): Promise<EarlierWrite[]> {
+  if (attempts.length === 0) return [];
+  const { rows } = await tx.query<{ task_id: string; step_index: number; name: string; input: unknown; output: unknown }>(
+    `${EARLIER_WRITES} ORDER BY s.committed_at, s.step_index`, [attempts]);
+  return rows.map((row) => ({
+    taskId: row.task_id, stepIndex: row.step_index, name: row.name, input: row.input, output: row.output,
+  }));
+}
+
+/**
+ * The write an earlier attempt already made with this very call -- the same
+ * step name and the same input -- if one did (N12).
+ */
+export async function writtenBefore(
+  tx: TenantClient,
+  attempts: readonly string[],
+  name: string,
+  input: unknown,
+): Promise<EarlierWrite | null> {
+  if (attempts.length === 0) return null;
+  const { rows } = await tx.query<{ task_id: string; step_index: number; name: string; input: unknown; output: unknown }>(
+    `${EARLIER_WRITES} AND s.name = $2 AND s.input_hash = $3 ORDER BY s.committed_at, s.step_index LIMIT 1`,
+    [attempts, name, hashInput(input)]);
+  const row = rows[0];
+  return row ? { taskId: row.task_id, stepIndex: row.step_index, name: row.name, input: row.input, output: row.output } : null;
+}
+
 /** Records this claim of a step as failed, and nobody else's. */
 async function markFailed(
   ctx: StepContext,
@@ -240,6 +302,29 @@ export async function reopenFinalTurns(companyId: string, taskId: string, reason
   });
 }
 
+/**
+ * The turns that asked for an action the owner has a question about,
+ * reopened (N6), inside the transaction that records the question.
+ *
+ * The owner asked on an approval card and no model read it: the run went
+ * back to work, replayed from the journal the turn that had asked for the
+ * action -- a model's turn is journalled by its number alone -- made the same
+ * call, met the same open card and waited again. The model's turns after the
+ * last thing the run did in the world are asked again, with the question in
+ * their context; the tool steps before them stay committed, so nothing done
+ * is done twice, and the call waiting on the card was never committed.
+ */
+export async function reopenForQuestionWithin(tx: TenantClient, taskId: string, question: string): Promise<number> {
+  const { rowCount } = await tx.query(
+    `UPDATE task_steps SET status = 'failed', error = $2
+      WHERE task_id = $1 AND kind = 'llm' AND status = 'committed'
+        AND step_index > coalesce((SELECT max(step_index) FROM task_steps
+                                    WHERE task_id = $1 AND kind <> 'llm' AND status = 'committed'), -1)`,
+    [taskId, `the owner asked: ${question}`.slice(0, 2_000)],
+  );
+  return rowCount ?? 0;
+}
+
 /** One step of a task's journal, as far as evidence that cites it needs (engine/done.ts). */
 export interface JournalEntry {
   index: number;
@@ -274,4 +359,61 @@ export async function countCommittedSteps(companyId: string, taskId: string): Pr
     );
     return Number(rows[0]!.count);
   });
+}
+
+/**
+ * A condition on a journal step (alias `s`): it is not a call to a capability
+ * the catalogue holds at tier 0, which only reads. A read echoes the path it
+ * opened -- `files.read`, `image.describe` and `speech.transcribe` all answer
+ * with the file's path and its text -- and a path a task only read is not a
+ * file it made. A capability the catalogue does not know (unbound since, or a
+ * test's) counts as one that made: the direction that shows too much, not too
+ * little.
+ */
+export const NOT_A_READ = `NOT EXISTS (
+  SELECT 1 FROM capabilities c
+   WHERE c.name = substr(s.name, length('capability:') + 1) AND c.default_tier = 0)`;
+
+/** A file a task's own call made: where, by which call, and which step of the journal. */
+export interface MadeFile {
+  step: number;
+  capability: string;
+  path: string;
+}
+
+/** The most that is said of one path: it is data from a capability, shown to a model. */
+const PATH_SHOWN = 200;
+
+/**
+ * The files a task made, in the order it made them: the paths its committed
+ * writes answered with -- `output.path` of a draft, a picture, a recording of
+ * speech, and each of `output.files` of computed work.
+ *
+ * Read from the journal, which holds what the capability said and not what a
+ * role said it did. Tool steps keep their output for as long as the task is
+ * kept: retention scrubs a model's replies and nothing else.
+ */
+export async function madeFiles(tx: TenantClient, taskId: string): Promise<MadeFile[]> {
+  const { rows } = await tx.query<{ step_index: number; name: string; path: unknown; files: unknown }>(
+    `SELECT s.step_index, s.name, s.output -> 'path' AS path, s.output -> 'files' AS files
+       FROM task_steps s
+      WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+        AND (jsonb_typeof(s.output -> 'path') = 'string' OR jsonb_typeof(s.output -> 'files') = 'array')
+        AND ${NOT_A_READ}
+      ORDER BY s.step_index`,
+    [taskId],
+  );
+  const clean = (path: string) => wellFormed(path.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, PATH_SHOWN));
+  const found: MadeFile[] = [];
+  for (const row of rows) {
+    const capability = row.name.replace(/^capability:/, '');
+    if (typeof row.path === 'string') found.push({ step: row.step_index, capability, path: clean(row.path) });
+    if (Array.isArray(row.files)) {
+      for (const file of row.files as unknown[]) {
+        const path = file && typeof file === 'object' ? (file as { path?: unknown }).path : undefined;
+        if (typeof path === 'string') found.push({ step: row.step_index, capability, path: clean(path) });
+      }
+    }
+  }
+  return found;
 }

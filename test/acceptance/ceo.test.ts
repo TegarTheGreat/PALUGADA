@@ -151,7 +151,7 @@ test('a company with no roles gets its CEO from its first hire, or from the bund
   }
 });
 
-test('the owner appoints a CEO with their device; a title never makes or unmakes one; a restored version leaves it', async () => {
+test('the owner appoints a CEO; a title never makes or unmakes one; a restored version leaves it', async () => {
   const fixture = await createCompany('ceo-api');
   const api = await consoleWithSettings();
   try {
@@ -178,9 +178,7 @@ test('the owner appoints a CEO with their device; a title never makes or unmakes
       { title: 'CEO', proof: { totp: api.code() } });
     assert.equal(promoted.status, 400, 'nor is anyone made CEO by a title');
 
-    const unproved = await api.call('POST', `/api/companies/${fixture.companyId}/ceo`, token, { roleId: chiefId });
-    assert.equal(unproved.status, 403, 'appointing takes the owner\'s device');
-    const appointed = await api.call('POST', `/api/companies/${fixture.companyId}/ceo`, token, { roleId: chiefId, proof: { totp: api.code() } });
+    const appointed = await api.call('POST', `/api/companies/${fixture.companyId}/ceo`, token, { roleId: chiefId });
     assert.equal(appointed.status, 200, JSON.stringify(appointed.body));
     assert.deepEqual(appointed.body, { roleId: chiefId, previous: fixture.roleId });
     assert.deepEqual(await titles(fixture.companyId), { chief: 'CEO', worker: null });
@@ -292,25 +290,22 @@ test('the owner talks to a company through its CEO: in its name and persona, abo
     assert.equal(deployment!.isError, true, 'nor the deployment');
     const [tool, work] = results(model, 2);
     assert.equal(tool!.isError, true, 'nor to propose for');
-    assert.match(work!.content, /^Proposed/);
+    assert.match(work!.content, /^Done: Give me the launch plan to hand to the team\./, 'giving the team work is done as it is proposed');
 
     const [, answered] = said.body.messages;
     assert.equal(answered.proposals.length, 1);
     assert.equal(answered.proposals[0].path, `/api/companies/${fixture.companyId}/assign`);
+    assert.equal(answered.proposals[0].status, 'applied', 'no card left for the owner to press');
 
     // PALUGADA's own conversation is another one, and another company's is empty.
     assert.deepEqual((await api.call('GET', '/api/assistant', token)).body.messages, []);
     assert.deepEqual((await api.call('GET', `/api/companies/${other.companyId}/conversation`, token)).body.messages, []);
 
-    // The owner presses the card: the work goes to the CEO's own role, and what happened is in this conversation.
-    const applied = await api.call('POST', `/api/assistant/proposals/${answered.proposals[0].id}/apply`, token, {});
-    assert.equal(applied.status, 200, JSON.stringify(applied.body));
+    // The work went to the CEO's own role, as the owner's.
+    const taskId = JSON.parse(answered.proposals[0].outcome).taskId as string;
     const task = await withTenant(fixture.companyId, (tx) => tx.query<{ role_id: string; created_by: string }>(
-      'SELECT role_id, created_by FROM tasks WHERE id = $1', [applied.body.result.taskId]));
+      'SELECT role_id, created_by FROM tasks WHERE id = $1', [taskId]));
     assert.deepEqual(task.rows[0], { role_id: fixture.roleId, created_by: 'owner' });
-    const after = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
-    assert.match(after.at(-1).body, /^The owner applied: Give me the launch plan/);
-    assert.deepEqual((await api.call('GET', '/api/assistant', token)).body.messages, [], 'and not in PALUGADA\'s');
 
     // Starting again forgets this company's conversation and no other.
     await api.call('POST', '/api/assistant/messages', token, { text: 'Halo' });

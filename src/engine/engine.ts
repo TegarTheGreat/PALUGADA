@@ -16,19 +16,22 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
-import { checkDone, checkFailedWrites, roomForDone } from './done.ts';
+import { checkDone, checkFailedWrites, roomForDone, saidNotDone } from './done.ts';
 import { narrator } from './transcript.ts';
 import { processLedger } from './process-ledger.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
-import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
+import { DEFAULT_PRICE_TABLE, carryFor, costOf, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
-import { journalOf, reopenFinalTurns, runStep, type StepKind } from './journal.ts';
+import { journalOf, reopenFinalTurns, runStep, writtenBefore, type StepKind } from './journal.ts';
+import { hashInput } from './hash.ts';
+import { unfinishedAttempts } from './owner-control.ts';
 import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
+import { isRoleFrozen } from '../governance/role-freeze.ts';
 import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import {
@@ -40,6 +43,7 @@ import {
   type RunServices,
 } from '../runtime/protocol.ts';
 import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
+import { DutyRuntime, dutyOf } from '../duties/duties.ts';
 import { ProviderFailure } from '../runtime/wire.ts';
 import { proposeNegativeCase } from '../eval/role-eval.ts';
 import { buildContext, type ContextSection } from '../context/builder.ts';
@@ -50,6 +54,7 @@ import {
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { modelFailedCard, modelKeyRefusedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard } from '../owner/platform-cards.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
 import type { LlmClient } from '../llm/client.ts';
 
@@ -150,6 +155,32 @@ export const MAX_RATE_LIMIT_PARKS = 5;
  */
 export const RETRY_WAITS_MS: readonly number[] = [10_000, 40_000, 160_000];
 export const MODEL_OUTAGE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000, 240_000, 480_000];
+/**
+ * How long a task waits for a model whose key was refused, before it halts:
+ * a minute, and then longer, to ten hours in all. Not a provider's moment --
+ * only a person changes a key -- but the person is not at the screen, and a
+ * task halted the first time would have to be resumed by hand, one by one,
+ * once they have. A refused call costs nothing, so the task looks again, and
+ * carries on when the key that works is in use; the owner is told at the
+ * first refusal (`#waitForKey`), once for the whole company.
+ */
+export const MODEL_KEY_WAITS_MS: readonly number[] = [60_000, 120_000, 300_000, 900_000, 3_600_000, 10_800_000, 21_600_000];
+/**
+ * How long a task waits for a capability whose vendor is having a moment
+ * (H2): a minute, doubling, five times -- about half an hour -- before the
+ * failure is one the owner hears about. Each look asks the vendor again,
+ * since a passing reading stands for a minute (`TRANSIENT_TTL_MS`).
+ */
+export const CAPABILITY_OUTAGE_WAITS_MS: readonly number[] = [60_000, 120_000, 240_000, 480_000, 960_000];
+/**
+ * How long work waits for a role that is stopped, between looks: a minute,
+ * then longer, to an hour, which is as long as it stays. The wait is only a
+ * safety net -- the role going back to work calls its tasks back at once
+ * (`liftFreeze`) -- and a look costs no model call, since it is made before
+ * the run starts. The work is not failed and not halted: it is where the role
+ * left it, and nobody has to start it again.
+ */
+export const ROLE_PAUSED_WAITS_MS: readonly number[] = [60_000, 300_000, 900_000, 3_600_000];
 
 export interface RunOutcome {
   status:
@@ -185,7 +216,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'stage', 'project', 'documents', 'contract', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
+  'language', 'today', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
 ]);
 
 // A place or a vendor's "not now" parks the task like the rest: handed to an
@@ -361,6 +392,8 @@ export class Engine {
       maxRunSeconds: number | null;
     };
     agentRunId: string;
+    /** The runtime replays the task's journal as its own conversation, so the pack does not list the steps again. */
+    stepsReplayed: boolean;
   }): Promise<RunRequest> {
     const { companyId, task, runtime } = input;
     // The role's tools nothing in this process is bound to: a catalogued
@@ -376,6 +409,7 @@ export class Engine {
         companyId,
         divisionId: task.divisionId,
         taskId: task.id,
+        stepsReplayed: input.stepsReplayed,
       });
       // F8.9: a lesson learned from outside content is data, and a run told
       // it carries that data from its first step, as if it had read the
@@ -385,6 +419,15 @@ export class Engine {
         await appendEvent(tx, {
           companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
           payload: { capability: 'memory', from: 'briefing', memories: outsideMemories },
+        });
+      }
+      // The same for a follow-up and the work it follows up, which may have
+      // read outside content after the follow-up was made.
+      if (context.carriesOutsideFrom) {
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
+          // Named as the Work page lists it: "through the task that made it".
+          payload: { capability: 'the task that made it', from: 'follow_up', parentTaskId: context.carriesOutsideFrom },
         });
       }
       const goalAncestry = await ancestryForTask(tx, task.id);
@@ -419,7 +462,7 @@ export class Engine {
           // runtime was handed the two as the same kind of line.
           skills: context.sections.filter((s) => s.kind === 'sop').map((s) => `${s.title}\n${s.body}`),
           memories: context.sections
-            .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning')
+            .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning' || s.kind === 'memory_note')
             .map((s) => `${s.title}\n${s.body}`),
           goalAncestry,
           notes: context.sections
@@ -566,9 +609,18 @@ export class Engine {
             payload: { opensAt: opensAt.toISOString() },
           });
         });
-        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt });
+        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt, waitReason: 'cheap_hours' });
         return { status: 'waiting_window', reason: 'waiting for cheap hours', waitUntil: opensAt };
       }
+    }
+
+    // A role that is stopped -- paused by the owner, frozen for its denials,
+    // held by the breaker for spending too fast -- does no work, so its tasks
+    // wait for it and are not started to find that out. A run begun anyway
+    // would assemble its context and call its model before its first tool was
+    // refused, and be paid for.
+    if (await withTenant(companyId, (tx) => isRoleFrozen(tx, task.roleId))) {
+      return this.#waitForRole(companyId, taskId, task.roleId);
     }
 
     // F8.12: everything the role declares has to be usable before the task
@@ -592,6 +644,14 @@ export class Engine {
     );
     if (!readiness.ready) {
       const named = readiness.failures.map((failure) => failure.capability).join(', ');
+      // A vendor's moment -- busy, failing on its side, not answering -- is
+      // waited for, not halted on (H2): it halted every task that needed the
+      // capability for a quarter of an hour, each to be run again by hand.
+      // A failure no retry fixes, a refused credential, halts as before.
+      if (readiness.failures.every((failure) => failure.transient)) {
+        const waited = await this.#waitForCapability(companyId, taskId, readiness.failures);
+        if (waited) return waited;
+      }
       await transition(companyId, taskId, 'halted', { haltReason: 'capability_unhealthy' });
       return {
         status: 'halted',
@@ -602,9 +662,16 @@ export class Engine {
       };
     }
 
-    // F13.1: which runtime executes this role, on what, with which models.
-    const runtime = await this.#loadRuntimeConfig(companyId, task.roleId);
-    const adapter = this.#adapters.get(runtime.runtime);
+    // F13.1: which runtime executes this role, on what, with which models. A
+    // duty first, whatever runtime the role names (src/duties): it is the
+    // platform's procedure, run in this process with no model, and handed to
+    // the role's runtime an agent decided for itself what to write to
+    // customers. As this process's own code it is journalled by place and
+    // calls what its procedure calls, as an in-process handler does.
+    const duty = await dutyOf(companyId, task);
+    const configured = await this.#loadRuntimeConfig(companyId, task.roleId);
+    const runtime = duty ? { ...configured, runtime: 'in-process' } : configured;
+    const adapter = duty ? new DutyRuntime(duty) : this.#adapters.get(runtime.runtime);
     if (!adapter) {
       // Loud rather than falling back to whatever is registered: running a
       // role on a runtime nobody chose for it is how a role calibrated for one
@@ -671,6 +738,10 @@ export class Engine {
     // deterministic replay and is why branching on wall-clock time or
     // randomness inside a handler is a defect.
     let stepIndex = 0;
+
+    // N12: the attempts at this work that did not finish, when this run does
+    // it again. What they wrote stands, and is not written again.
+    const lineage = await withTenant(companyId, (tx) => unfinishedAttempts(tx, taskId));
 
     // F5.12: the lease is kept while the run is in flight, not only when a
     // step commits. One step can be long -- a child task awaited, an agent CLI
@@ -744,6 +815,40 @@ export class Engine {
     let parked: PalugadaError | null = null;
     let ended: PalugadaError | null = null;
 
+    // N14: where a step goes in the journal. A handler in this process, and
+    // the model loop, which journals its own turns, make the same steps in
+    // the same order when they run again, so a step is its place. A runtime
+    // in another process does not: an agent CLI resumed after the owner's
+    // answer, or after a restart, starts again from what it was told, and
+    // goes on in its own order and its own words. Replayed by place, its
+    // first call that did not match the step recorded there was refused as
+    // a divergence -- and one that did not match an unfinished step was
+    // written over it. Its steps are found by what they are instead: a call
+    // it made before, with the same input, is given that step (one each,
+    // a finished one first), and anything else goes after the last.
+    const byContent = runtime.runtime !== 'in-process';
+    let recorded: Promise<Array<{ index: number; name: string; inputHash: string; committed: boolean }>> | null = null;
+    let taken = new Set<number>();
+    let nextIndex = 0;
+    const place = async (name: string, input: unknown): Promise<number> => {
+      if (!byContent) return stepIndex++;
+      recorded ??= withTenant(companyId, async (tx) => {
+        const { rows } = await tx.query<{ step_index: number; name: string; input_hash: string; status: string }>(
+          'SELECT step_index, name, input_hash, status FROM task_steps WHERE task_id = $1 ORDER BY step_index',
+          [taskId]);
+        nextIndex = rows.length === 0 ? 0 : rows[rows.length - 1]!.step_index + 1;
+        return rows.map((row) => ({
+          index: row.step_index, name: row.name, inputHash: row.input_hash, committed: row.status === 'committed',
+        }));
+      });
+      const steps = await recorded;
+      const hash = hashInput(input);
+      const free = steps.filter((one) => !taken.has(one.index) && one.name === name && one.inputHash === hash);
+      const index = (free.find((one) => one.committed) ?? free[0])?.index ?? nextIndex++;
+      taken.add(index);
+      return index;
+    };
+
     // `placed` is told the index the step is journalled at, as soon as it has
     // one: a tool call's caller hands it on to the run, which cites it.
     const step = async <T,>(
@@ -758,10 +863,10 @@ export class Engine {
         // Before the side effect, not only after it: a worker that has lost
         // the task must not send the email and then find out.
         await lease.confirm();
-        const index = stepIndex++;
+        const index = await place(name, input);
         placed?.(index);
         const { value } = await runStep(
-          { companyId, taskId },
+          { companyId, taskId, keyTaskId: lineage.at(-1) },
           {
             stepIndex: index,
             name,
@@ -837,6 +942,20 @@ export class Engine {
       }
       try {
         return await step(`capability:${name}`, 'tool', { name, input }, async (key) => {
+            // N12: a write an unfinished attempt before this one already
+            // made with this very call is answered from its record. The
+            // rerun was a task of its own, and made it again.
+            const before = lineage.length === 0 ? null : await withTenant(companyId, async (tx) => {
+              const found = await writtenBefore(tx, lineage, `capability:${name}`, { name, input });
+              if (found) {
+                await appendEvent(tx, {
+                  companyId, projectId: task.projectId, taskId, type: 'tool.not_repeated', actor: 'engine',
+                  payload: { capability: name, fromTaskId: found.taskId, stepIndex: found.stepIndex },
+                });
+              }
+              return found;
+            });
+            if (before) return before.output as O;
             const result = await this.#options.broker.invoke<I, O>(
               {
                 companyId, projectId: task.projectId, divisionId: task.divisionId,
@@ -946,6 +1065,7 @@ export class Engine {
                 status: outcome.status,
                 steps,
                 costCents,
+                taskId: child.id,
               });
             } catch (error) {
               // Only the deadline this parent enforces halts the child, and
@@ -967,8 +1087,11 @@ export class Engine {
     };
 
     // What this run has put on the company's account so far, estimates and
-    // measurements alike, so a runtime's final total can replace it.
+    // measurements alike, so a runtime's final total can replace it; and what
+    // those calls cost exactly, so that what the carry still owes on them goes
+    // with them when the bill replaces them.
     let chargedCents = 0;
+    let exactRunCents = 0;
     // What this run's model calls have written, against the role's own
     // ceiling (F2.3's max_tokens_per_run). Not reset for a fallback model:
     // the ceiling is on the run, whichever model spent it.
@@ -1014,7 +1137,9 @@ export class Engine {
             payload: { model: usage.model, chargedCents, actualCents: actual, deltaCents: delta },
           });
         });
+        carryFor(task.budgetAccountId).forgive(exactRunCents - chargedCents);
         chargedCents = actual;
+        exactRunCents = actual;
         return;
       }
 
@@ -1022,19 +1147,27 @@ export class Engine {
       // and the estimate is marked as one. Reporting a guess as a measurement
       // is how a cost dashboard stops being worth reading.
       const estimate = usage.costCents === null
-        ? estimateCents(
+        ? costOf(
             this.#options.prices ?? DEFAULT_PRICE_TABLE,
-            usage.model, usage.inputTokens, usage.outputTokens,
+            usage.model, { input: usage.inputTokens, output: usage.outputTokens },
           )
         : null;
       const estimated = estimate !== null;
-      // Whole cents, rounded up. A runtime may price a call at a fraction of
-      // one, and the ledger, the budget functions and the trace all count in
-      // cents: a fraction reached `budget_spend` as "0.4" and the run failed
-      // on a bigint cast. Up rather than to nearest, because the error is a
-      // cent at most per call and a ceiling should be the side that is
-      // reached early, not late.
-      const costCents = usage.costCents === null ? estimate!.cents : wholeCents(usage.costCents);
+      // Whole cents, carried. A runtime prices a call at a fraction of a cent
+      // and the ledger, the budget functions and the trace all count in whole
+      // ones (a fraction reached `budget_spend` as "0.4" and the run failed on
+      // a bigint cast). Each call used to be rounded up, and never below one,
+      // so a task of forty small calls was charged forty cents for two. What
+      // a company owes below a cent is carried to its next call instead and
+      // charged when it adds up to one: the total is right, and the ceiling is
+      // reached under a cent late, never early (pricing.ts, `CostCarry`).
+      // Carried for the account the run draws on: what is charged is charged
+      // to that account's chain, and one carry for the company turned one
+      // division's fractions into another's whole cent (the review of 20
+      // October).
+      const exactCents = usage.costCents === null ? estimate!.cents : usage.costCents;
+      const costCents = carryFor(task.budgetAccountId).charge(exactCents);
+      exactRunCents += exactCents;
 
       // Drawn from this task's own reservation, by what is left of it, in the
       // same transaction as the charge. Every call used to hand in the whole
@@ -1066,6 +1199,13 @@ export class Engine {
             taskId,
             drawn,
           ]);
+        }
+        // Refused, the call still happened and the provider billed it: the
+        // bill reaches every account the charge would have, above its
+        // ceiling (`budget_settle`, 0037), so the Money page and the next
+        // check see it. The refusal stops the next call, not this record.
+        if (!ok && costCents > 0) {
+          await tx.query('SELECT app.budget_settle($1, $2)', [task.budgetAccountId, costCents]);
         }
         // The run's own count, which the orphan sweep and the export read:
         // nothing wrote it, so every run said it had used none.
@@ -1103,6 +1243,7 @@ export class Engine {
               model: usage.model,
               tokens,
               cents: costCents,
+              exactCents,
               // Which row of the price table priced it, or `fallback`: an owner
               // reading an estimate needs to know whether it came from their
               // own price list or from the deliberately high default.
@@ -1141,11 +1282,32 @@ export class Engine {
     // Undefined where there is no /proc to name a process by, and then a
     // group is only as safe as the exit hook in process-tree.ts.
     const processes = processLedger(companyId, agentRunId, this.#workerId);
+    // The task's own reservation, which its calls draw on first, and the
+    // least any account above it has free: what `budget_spend` would allow.
+    //
+    // Money too: an account whose money is spent leaves no room, however many
+    // tokens it has, or every running task would ask the model once more and
+    // be billed for it. Spent means at a ceiling above nothing, or past one:
+    // an account allowed nothing still lets a call that costs nothing go.
+    const tokensLeft = async (): Promise<number> => withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ left: string | null; spent: boolean }>(
+        `SELECT (SELECT tokens_reserved FROM tasks WHERE id = $2)
+              + (SELECT min(tokens_max - tokens_spent - tokens_reserved) FROM budget_accounts
+                  WHERE id = ANY(app.budget_chain($1))) AS left,
+                EXISTS (SELECT 1 FROM budget_accounts WHERE id = ANY(app.budget_chain($1))
+                         AND (money_spent_cents > money_max_cents
+                              OR (money_max_cents > 0 AND money_spent_cents >= money_max_cents))) AS spent`,
+        [task.budgetAccountId, taskId],
+      );
+      if (rows[0]?.spent) return 0;
+      return Math.max(0, Number(rows[0]?.left ?? 0));
+    });
     const services: RunServices = {
       step,
       callTool,
       awaitChild,
       reportUsage,
+      tokensLeft,
       narrate: narrator(companyId, taskId, agentRunId),
       ...(processes ? { processes } : {}),
       signal: controller.signal,
@@ -1156,10 +1318,16 @@ export class Engine {
       const { output, writtenBy } = await Promise.race([abandoned, this.#runWithFallback(
         adapter,
         {
-          companyId, task, roleSlug, runtime, agentRunId,
+          companyId, task, roleSlug, runtime, agentRunId, stepsReplayed: !byContent,
           startAttempt: () => {
             stepIndex = 0;
+            recorded = null;
+            taken = new Set();
+            // A fallback model's bill replaces its own calls' estimates, not
+            // what the model before it spent: those stay charged, and what
+            // they left below a cent stays owed.
             chargedCents = 0;
+            exactRunCents = 0;
           },
         },
         services,
@@ -1168,20 +1336,24 @@ export class Engine {
       // task's output: the action it was waiting for has not happened.
       if (parked) throw parked;
       if (ended) throw ended;
+      // N9: what the run says it did not do. Said, its report is not held to
+      // the criteria below: it is not claiming them.
+      let notDone: string | null = null;
       try {
         // F6.2, F6.3: validated before the task is marked complete, because a
         // downstream task triggered by `task.completed` has no other guarantee
         // about what it is about to read.
         validateContract('output', task.roleId, roleSlug, contract.output, output);
+        notDone = saidNotDone(output);
         // F2.8: a model's run says how it met each of its role's criteria,
         // and a step its evidence cites is held to this task's journal. What
         // it verified is not kept here: the owner's view weighs the same
         // report against the same journal when it is read (owner/views.ts).
-        if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
+        if (notDone === null && writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
           checkDone(contract.done, output, await withTenant(companyId, (tx) => journalOf(tx, taskId)));
         }
         // And to the writes that failed in this run and were never put right.
-        if (writtenBy !== 'code' && roomForDone(contract.output)) {
+        if (notDone === null && writtenBy !== 'code' && roomForDone(contract.output)) {
           checkFailedWrites(await withTenant(companyId, (tx) => unrecoveredWrites(tx, taskId, agentRunId)), output);
         }
       } catch (rejected) {
@@ -1189,6 +1361,25 @@ export class Engine {
         // answer would otherwise write it again from the journal.
         await reopenFinalTurns(companyId, taskId, (rejected as Error).message);
         throw rejected;
+      }
+
+      // Not done, by its own word (N9): the task ends with its reason, as work
+      // that did not happen rather than work finished. Not tried again: another
+      // attempt on the same facts reaches the same answer at the same price,
+      // and the owner, a parent waiting on it, or "Run again" decides what
+      // next. Not past the post_run hook either, which judges an output about
+      // to count as done.
+      if (notDone !== null) {
+        await this.#finishAgentRun(companyId, agentRunId, 'failed');
+        const settled = await withTenant(companyId, (tx) => getTask(tx, taskId));
+        if (settled && isTerminal(settled.status)) {
+          return { status: settled.status as RunOutcome['status'], reason: settled.haltReason ?? 'already settled' };
+        }
+        await transition(companyId, taskId, 'failed', {
+          output, haltReason: 'not_done', detail: notDone, writtenByModel: writtenBy !== 'code',
+        });
+        await this.#onHalt(companyId, task, 'not_done', new Error(notDone || 'not done'), agentRunId);
+        return { status: 'failed', reason: 'not_done' };
       }
 
       // F14: the post_run point. After the schema, because a hook asked to
@@ -1378,8 +1569,48 @@ export class Engine {
         },
       });
     });
-    await transition(companyId, taskId, 'waiting_window', { waitUntil });
+    await transition(companyId, taskId, 'waiting_window', {
+      waitUntil, waitReason: how.event === 'task.waiting_slot' ? 'slot' : 'vendor',
+    });
     return { status: 'waiting_window', reason: error.code, waitUntil };
+  }
+
+  /**
+   * H2, when a capability's vendor is having a moment: the task parks and
+   * looks again, waiting longer each time. When the waits in the last hour
+   * are spent it halts, and the owner is told once, with what the vendor
+   * said; null then, for the caller's halt.
+   */
+  async #waitForCapability(
+    companyId: string,
+    taskId: string,
+    failures: ReadonlyArray<{ capability: string; detail: string }>,
+  ): Promise<RunOutcome | null> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.capability_waited' AND occurred_at > now() - interval '1 hour'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    if (waits < CAPABILITY_OUTAGE_WAITS_MS.length) {
+      const waitUntil = new Date(Date.now() + CAPABILITY_OUTAGE_WAITS_MS[waits]!);
+      await withTenant(companyId, (tx) => appendEvent(tx, {
+        companyId, taskId, type: 'task.capability_waited', actor: 'engine',
+        payload: {
+          capabilities: failures.map((failure) => failure.capability),
+          detail: failures.map((failure) => `${failure.capability}: ${failure.detail}`).join('; ').slice(0, 1_000),
+          waitUntil: waitUntil.toISOString(), wait: waits + 1,
+        },
+      }));
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'service' });
+      return { status: 'waiting_window', reason: 'capability.unhealthy', waitUntil };
+    }
+    const minutes = Math.round(CAPABILITY_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
+    const card = serviceUnreachableCard(await withTenant(companyId, ownerReadingWithin), { failures, minutes });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
+    return null;
   }
 
   /**
@@ -1395,7 +1626,8 @@ export class Engine {
     const waits = await withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM events
-          WHERE task_id = $1 AND type = 'task.model_waited' AND occurred_at > now() - interval '1 hour'`,
+          WHERE task_id = $1 AND type = 'task.model_waited' AND occurred_at > now() - interval '1 hour'
+            AND payload->>'keyRefused' IS NULL`,
         [taskId],
       );
       return Number(rows[0]!.count);
@@ -1412,20 +1644,78 @@ export class Engine {
           payload: { model, error: error.message, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
         });
       });
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'model' });
       return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
     }
     const minutes = Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
-    await inbox.raiseIncident({
-      companyId,
-      taskId,
-      title: `Model ${model} failed and the run was not moved`,
-      detail: `${error.message} It was tried ${waits + 1} times over about ${minutes} minutes. ` + (
-        error.details.reason === 'tier_2_or_above'
-          ? 'This role can take actions that cannot be undone, so the run was not silently moved to a different model.'
-          : 'No fallback model is left for this role.'),
+    const card = modelFailedCard(await withTenant(companyId, ownerReadingWithin), {
+      model, tries: waits + 1, minutes, irreversible: error.details.reason === 'tier_2_or_above', record: error.message,
     });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
     return null;
+  }
+
+  /**
+   * A task whose role is stopped waits for it: parked, with a look at the
+   * times `ROLE_PAUSED_WAITS_MS` gives, and called back at once when the role
+   * goes back to work. Not an attempt spent and not a halt -- a role the owner
+   * paused is exactly work that is supposed to wait.
+   */
+  async #waitForRole(companyId: string, taskId: string, roleId: string): Promise<RunOutcome> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.role_waited' AND occurred_at > now() - interval '6 hours'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    const waitUntil = new Date(Date.now() + ROLE_PAUSED_WAITS_MS[Math.min(waits, ROLE_PAUSED_WAITS_MS.length - 1)]!);
+    await withTenant(companyId, (tx) => appendEvent(tx, {
+      companyId, taskId, type: 'task.role_waited', actor: 'engine',
+      payload: { roleId, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
+    }));
+    await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'role_paused' });
+    return { status: 'waiting_window', reason: 'role.frozen', waitUntil };
+  }
+
+  /**
+   * A model whose key was refused (401, 403). Every task that needs the model
+   * meets the same refusal, and only the owner can change a key, so the owner
+   * is told once -- one card for the company, saying where to put a key that
+   * works -- and each task waits for it (`MODEL_KEY_WAITS_MS`) instead of
+   * halting. When the waits are spent it halts as before: the card is
+   * already in the inbox.
+   */
+  async #waitForKey(companyId: string, taskId: string, error: PalugadaError): Promise<RunOutcome | null> {
+    const providerSaid = error.details.providerSaid;
+    const card = modelKeyRefusedCard(await withTenant(companyId, ownerReadingWithin), {
+      host: String(error.details.host ?? ''), status: Number(error.details.status ?? 401),
+      providerSaid: typeof providerSaid === 'string' && providerSaid !== '' ? providerSaid : null,
+    });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail, once: 'model_key_refused' });
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.model_waited' AND payload->>'keyRefused' = 'true'
+            AND occurred_at > now() - interval '1 day'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    if (waits >= MODEL_KEY_WAITS_MS.length) return null;
+    const waitUntil = new Date(Date.now() + MODEL_KEY_WAITS_MS[waits]!);
+    await withTenant(companyId, async (tx) => {
+      await appendEvent(tx, {
+        companyId,
+        taskId,
+        type: 'task.model_waited',
+        actor: 'engine',
+        payload: { model: String(error.details.model ?? 'the model'), error: error.message, waitUntil: waitUntil.toISOString(), wait: waits + 1, keyRefused: true },
+      });
+    });
+    await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'model_key' });
+    return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
   }
 
   /**
@@ -1473,7 +1763,7 @@ export class Engine {
     if (code === 'window.closed') {
       const reopensAt = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof reopensAt === 'string' ? new Date(reopensAt) : null;
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'window' });
       return { status: 'waiting_window', reason: code, waitUntil };
     }
 
@@ -1484,7 +1774,7 @@ export class Engine {
     if (code === 'task.waiting_child') {
       const at = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof at === 'string' ? new Date(at) : new Date(Date.now() + 60_000);
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'child' });
       return { status: 'waiting_window', reason: code, waitUntil };
     }
 
@@ -1512,6 +1802,14 @@ export class Engine {
       const parked = await this.#parkForRateLimit(companyId, taskId, error as PalugadaError,
         { event: 'task.waiting_slot', counted: false });
       if (parked) return parked;
+    }
+
+    // A role stopped while its task ran: the task waits for the role, as it
+    // would have had the role been stopped a moment sooner. Not when the
+    // paused role is one it handed work to: its own role works, and waiting
+    // for it would wait for nothing (an ordinary failure, said to the owner).
+    if (code === 'role.frozen' && (error as PalugadaError).details.delegated !== true) {
+      return this.#waitForRole(companyId, taskId, settled.roleId);
     }
 
     if (code === 'platform.stopped' || code === 'company.frozen') {
@@ -1555,6 +1853,11 @@ export class Engine {
       'journal.divergence': 'journal_divergence',
     };
 
+    // A model that refused its key: the owner told once, the task waits.
+    if (code === 'model.unavailable' && (error as PalugadaError).details.keyRefused === true) {
+      const parked = await this.#waitForKey(companyId, taskId, error as PalugadaError);
+      if (parked) return parked;
+    }
     // A model that did not answer: waited for, a few times, before it halts.
     if (code === 'model.unavailable' && (error as PalugadaError).details.providerDown === true) {
       const waited = await this.#waitForModel(companyId, taskId, error as PalugadaError);
@@ -1568,17 +1871,25 @@ export class Engine {
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an
         // incident, not a retry.
-        await inbox.raiseIncident({
-          companyId, taskId,
-          title: 'External write failed verification',
-          detail: (error as Error).message,
-        });
+        const card = writeUnverifiedCard(await withTenant(companyId, ownerReadingWithin), { record: (error as Error).message });
+        await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
+      }
+      // Section 6.3: a task its budget stopped goes to the owner. A month's
+      // money running out halts the same way and has its own item, raised by
+      // the spend guard for the whole company, so it is not raised again here.
+      if (haltReason === 'budget_exhausted' && code !== 'spend.paused') {
+        await inbox.raiseBudgetHalt(companyId, taskId);
       }
       return { status: 'halted', reason: haltReason };
     }
 
     const task = await withTenant(companyId, (tx) => getTask(tx, taskId));
-    const exhausted = !task || task.attempt + 1 >= task.attemptMax;
+    // A conversation too long for its model fails the same way every time:
+    // each retry replays the same journal and asks the same turn. Not asked
+    // again; the owner's "run again" starts a conversation of its own. The
+    // same for a run that went round in circles and was asked to finish.
+    const exhausted = code === 'model.context_too_long' || code === 'run.stuck'
+      || !task || task.attempt + 1 >= task.attemptMax;
     await withTenant(companyId, async (tx) => {
       await tx.query('UPDATE tasks SET attempt = attempt + 1 WHERE id = $1', [taskId]);
       await appendEvent(tx, {
@@ -1605,7 +1916,7 @@ export class Engine {
     // every attempt before it passed (`RETRY_WAITS_MS`). Parked as every
     // other wait is, with the time it wakes at, which the queue keeps to.
     const wait = RETRY_WAITS_MS[Math.min(task?.attempt ?? 0, RETRY_WAITS_MS.length - 1)]!;
-    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait) });
+    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait), waitReason: 'retry' });
     await clearLease(companyId, taskId, this.#workerId);
     return { status: 'failed', reason: 'retryable' };
   }
@@ -1647,6 +1958,7 @@ export class Engine {
         maxRunSeconds: number | null;
       };
       agentRunId: string;
+      stepsReplayed: boolean;
       /**
        * Starts the next model's run from zero, in both of the things counted
        * per run.

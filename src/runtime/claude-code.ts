@@ -15,11 +15,11 @@
  * and the usage block is `usage`. Tool calls do not appear in the stream at
  * all -- they go over MCP, which is the point.
  *
- * What is not verified here: this adapter has never been run against the real
- * binary in this repository, because the binary is not installed and the
- * provider is not reachable from the test environment. What the tests cover is
- * the argv, the translation, and the bridge. docs/STATUS.md says so plainly
- * rather than letting a green suite imply more than it checked.
+ * What the suite covers is the argv, the translation, and the bridge; the
+ * binary itself is not installed in the test environment. It has been run
+ * against the real one, at the version `checked-versions.ts` names, and a
+ * version that has not been is said at start (docs/STATUS.md says which is which,
+ * rather than letting a green suite imply more than it checked).
  */
 import { CHECKED_VERSIONS, uncheckedVersion, versionIn } from './checked-versions.ts';
 import { spawn } from 'node:child_process';

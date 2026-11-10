@@ -17,13 +17,16 @@ import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { withTenant } from '../db/tenant.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
+import { PalugadaError } from '../errors.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
-import { journalOf } from '../engine/journal.ts';
+import { journalOf, NOT_A_READ, madeFiles } from '../engine/journal.ts';
+import { ACCOUNT_NAME } from '../engine/budget.ts';
+import type { WaitReason } from '../engine/tasks.ts';
 import type { OverlapPolicy } from '../scheduler/scheduler.ts';
 
 /* -------------------------------------------------------------- structure --- */
@@ -135,14 +138,14 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     const roles = await tx.query<{
       id: string; division_id: string; slug: string; model: string; runtime: string | null;
       tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
-      frozen_at: Date | null; frozen_reason: string | null;
+      frozen_at: Date | null; frozen_reason: string | null; frozen_by: string | null;
       open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
       display_name: string | null; title: string | null; persona: { preset?: string; notes?: string } | null;
       max_run_seconds: number | null;
     }>(
       `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
               r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
-              r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria, r.max_run_seconds,
+              r.frozen_at, r.frozen_reason, r.frozen_by, r.system_prompt, r.done_criteria, r.max_run_seconds,
               r.display_name, r.title, r.persona,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
@@ -235,6 +238,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         dormantUntil: role.dormant_until,
         frozenAt: role.frozen_at,
         frozenReason: role.frozen_reason,
+        // Who stopped it, since only some stops are over by themselves.
+        frozenBy: role.frozen_by,
         openTasks: role.open_tasks,
         doneLastWeek: role.done_last_week,
         charter: role.system_prompt,
@@ -272,6 +277,12 @@ export interface WorkItem {
   id: string;
   status: TaskStatus;
   haltReason: string | null;
+  /**
+   * For a task its budget stopped: the account with the least room in its
+   * chain, and what it has used of its tokens this month. A cost of US$0.00
+   * beside "out of budget" read as a mistake; it is the tokens that ran out.
+   */
+  budgetStop?: { account: string | null; tokensSpent: number; tokensMax: number };
   /** What the task is for, in words: the first of its input's describing fields. */
   summary: string;
   /**
@@ -280,6 +291,8 @@ export interface WorkItem {
    */
   result: string | null;
   roleSlug: string;
+  /** The name the owner gave the role, or null when it has none: shown in place of its code. */
+  roleName: string | null;
   divisionName: string;
   projectId: string;
   projectName: string;
@@ -295,19 +308,54 @@ export interface WorkItem {
   parentTaskId: string | null;
   /**
    * How far it has got, from its own journal: steps committed, the step it
-   * is on or last took, how many actions its plan named, which worker holds
-   * it and when that worker last said it was alive. What an owner asks of a
-   * task that has been "running" for an hour is exactly these.
+   * is on or last took, how many actions its plan named and how many of
+   * those it has taken, which worker holds it and when that worker last said
+   * it was alive. What an owner asks of a task that has been "running" for
+   * an hour is exactly these.
    */
   progress: {
+    /** Every step the journal committed: model turns and tool calls alike. */
     stepsDone: number;
     currentStep: string | null;
     currentStepStatus: string | null;
     planSteps: number | null;
+    /**
+     * The actions of its plan it has taken: a tool call that succeeded for
+     * each step the plan named, a capability named twice needing two. Null
+     * with no plan. The bar is this over `planSteps`; it was `stepsDone`
+     * over it, and a halted run that had thought five times showed a
+     * five-step plan as done (N9).
+     */
+    planDone: number | null;
     worker: string | null;
     heartbeatAt: Date | null;
     deadlineAt: Date | null;
   };
+  /**
+   * What a task in `waiting_window` waits for (N9); null in any other
+   * status. "Scheduled" said nothing: a CEO waiting on a sub-task that was
+   * waiting on the owner two levels down read as scheduled on the live run
+   * of 2 October.
+   */
+  waiting: {
+    /** `WaitReason` (engine/tasks.ts), or null for a task that parked before the reason was kept. */
+    reason: WaitReason | null;
+    until: Date | null;
+    /** The oldest work it handed on that is still open. */
+    on: WaitingRole | null;
+    /**
+     * Work below it, at any depth, that is waiting on the owner -- a question
+     * or an approval: what the whole chain is really waiting for.
+     */
+    needsYou: WaitingRole | null;
+  } | null;
+}
+
+/** A piece of work a waiting task is held up by, and whose it is. */
+export interface WaitingRole {
+  taskId: string;
+  role: string;
+  roleName: string | null;
 }
 
 export interface WorkView {
@@ -337,15 +385,17 @@ export async function workOf(
   return withTenant(companyId, async (tx) => {
     const { rows: fetched } = await tx.query<{
       id: string; status: TaskStatus; halt_reason: string | null; input: unknown;
-      role_slug: string; division_name: string; goal: string | null; schedule: string | null;
+      role_slug: string; role_name: string | null; division_name: string; goal: string | null; schedule: string | null;
       priority: number; attempt: number; attempt_max: number; created_at: Date;
       started_at: Date | null; finished_at: Date | null; cost_cents: string;
       parent_task_id: string | null; output: unknown; steps_done: number; current_step: string | null;
-      current_step_status: string | null; plan_steps: number | null; lease_holder: string | null;
+      current_step_status: string | null; plan_steps: number | null; plan_done: number | null;
+      lease_holder: string | null;
       heartbeat_at: Date | null; deadline_at: Date | null; project_id: string; project_name: string;
-      created_micros: string;
+      created_micros: string; wait_until: Date | null; wait_reason: WaitReason | null;
+      waiting_on: WaitingRole | null; needs_you: WaitingRole | null;
     }>(
-      `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug,
+      `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug, r.display_name AS role_name,
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
               t.priority, t.attempt, t.attempt_max, t.created_at, t.started_at,
               t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at, t.output,
@@ -357,7 +407,21 @@ export async function workOf(
               last.name AS current_step, last.status AS current_step_status,
               CASE WHEN jsonb_typeof(t.plan -> 'steps') = 'array'
                    THEN jsonb_array_length(t.plan -> 'steps') END AS plan_steps,
-              (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at
+              -- Each capability the plan names, as often as it names it,
+              -- against the calls of it that succeeded.
+              CASE WHEN jsonb_typeof(t.plan -> 'steps') = 'array' THEN (
+                SELECT coalesce(sum(LEAST(planned.times, (
+                         SELECT count(*) FROM task_steps j
+                          WHERE j.task_id = t.id AND j.kind = 'tool' AND j.status = 'committed'
+                            AND j.name = 'capability:' || planned.capability))), 0)::int
+                  FROM (SELECT step ->> 'capability' AS capability, count(*) AS times
+                          FROM jsonb_array_elements(t.plan -> 'steps') step
+                         GROUP BY 1) planned
+              ) END AS plan_done,
+              (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at,
+              t.wait_until,
+              CASE WHEN t.status = 'pending' AND t.wait_until > now() THEN 'follow_up' ELSE waited.reason END AS wait_reason,
+              below.waiting_on, below.needs_you
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
          JOIN divisions d ON d.id = t.division_id
@@ -368,6 +432,33 @@ export async function workOf(
            SELECT j.name, j.status FROM task_steps j
             WHERE j.task_id = t.id ORDER BY j.step_index DESC LIMIT 1
          ) last ON true
+         -- Why a waiting task waits: the event that parked it says.
+         LEFT JOIN LATERAL (
+           SELECT e.payload ->> 'reason' AS reason FROM events e
+            WHERE t.status = 'waiting_window' AND e.task_id = t.id AND e.type = 'task.waiting_window'
+            ORDER BY e.occurred_at DESC LIMIT 1
+         ) waited ON true
+         -- And what is open below it: the oldest work it handed on, and the
+         -- nearest work at any depth that waits on the owner.
+         LEFT JOIN LATERAL (
+           WITH RECURSIVE open_below AS (
+             SELECT c.id, c.status, c.role_id, c.created_at, 1 AS depth
+               FROM tasks c
+              WHERE t.status = 'waiting_window' AND c.parent_task_id = t.id
+                AND c.status NOT IN ('completed', 'failed', 'halted', 'cancelled')
+             UNION ALL
+             SELECT c.id, c.status, c.role_id, c.created_at, b.depth + 1
+               FROM tasks c JOIN open_below b ON c.parent_task_id = b.id
+              WHERE c.status NOT IN ('completed', 'failed', 'halted', 'cancelled') AND b.depth < 8
+           )
+           SELECT
+             (SELECT jsonb_build_object('taskId', b.id, 'role', r.slug, 'roleName', r.display_name)
+                FROM open_below b JOIN roles r ON r.id = b.role_id
+               WHERE b.depth = 1 ORDER BY b.created_at, b.id LIMIT 1) AS waiting_on,
+             (SELECT jsonb_build_object('taskId', b.id, 'role', r.slug, 'roleName', r.display_name)
+                FROM open_below b JOIN roles r ON r.id = b.role_id
+               WHERE b.status = 'waiting_approval' ORDER BY b.depth, b.created_at, b.id LIMIT 1) AS needs_you
+         ) below ON true
         WHERE ($1::text[] IS NULL OR t.status = ANY ($1))
           AND ($3::uuid IS NULL OR t.project_id = $3)
           AND ($4::uuid IS NULL OR t.role_id = $4)
@@ -393,6 +484,18 @@ export async function workOf(
       }
     }
 
+    const stoppedByBudget = rows.filter((row) => row.status === 'halted' && row.halt_reason === 'budget_exhausted').map((row) => row.id);
+    const tight = new Map<string, { account: string | null; tokensSpent: number; tokensMax: number }>();
+    if (stoppedByBudget.length > 0) {
+      const { rows: accounts } = await tx.query<{ task_id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
+        `SELECT t.id AS task_id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max
+           FROM tasks t
+           JOIN LATERAL (SELECT a.* FROM budget_accounts a WHERE a.id = ANY(app.budget_chain(t.budget_account_id))
+                          ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id LIMIT 1) a ON true
+          WHERE t.id = ANY($1::uuid[])`, [stoppedByBudget]);
+      for (const one of accounts) tight.set(one.task_id, { account: one.name, tokensSpent: Number(one.tokens_spent), tokensMax: Number(one.tokens_max) });
+    }
+
     return {
       counts,
       next: fetched.length > limit && last ? writeCursor(last.created_micros, last.id) : null,
@@ -400,9 +503,11 @@ export async function workOf(
         id: row.id,
         status: row.status,
         haltReason: row.halt_reason,
+        ...(tight.has(row.id) ? { budgetStop: tight.get(row.id)! } : {}),
         summary: summarise(row.input),
         result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
+        roleName: row.role_name,
         divisionName: row.division_name,
         projectId: row.project_id,
         projectName: row.project_name,
@@ -421,10 +526,16 @@ export async function workOf(
           currentStep: row.current_step,
           currentStepStatus: row.current_step_status,
           planSteps: row.plan_steps,
+          planDone: row.plan_done,
           worker: row.lease_holder,
           heartbeatAt: row.heartbeat_at,
           deadlineAt: row.deadline_at,
         },
+        // A task made to be done later is queued and not yet due: said as
+        // what it is, with when, rather than as work waiting for a worker.
+        waiting: row.status === 'waiting_window' || (row.status === 'pending' && row.wait_reason === 'follow_up')
+          ? { reason: row.wait_reason, until: row.wait_until, on: row.waiting_on, needsYou: row.needs_you }
+          : null,
       })),
     };
   });
@@ -502,9 +613,39 @@ export interface TaskDetail {
   /** The run's report on its done criteria, weighed against the journal; null when it made none. */
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
+  /**
+   * The files it made, whatever they hold -- a picture, a computed
+   * spreadsheet, a draft -- read from its journal, in the order they were
+   * made, for the owner to take out (`/files/download`). Paths are text from
+   * a capability: shown, never opened from here.
+   */
+  files: Array<{ capability: string; path: string }>;
+  /**
+   * The work this task handed to other roles, oldest first, with what each
+   * piece came to: a plan a sub-task wrote is reached from the task the
+   * owner asked for, not only by finding the sub-task in the list.
+   */
+  handedOn: HandedPiece[];
+  /** The task that handed this one on, or null when the owner, a schedule or a trigger gave it. */
+  handedBy: { id: string; role: string; roleName: string | null } | null;
   /** The owner's last word on it (`giveFeedback`), or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: Date } | null;
 }
+
+/** One piece of work a task handed on, as its parent shows it. */
+export interface HandedPiece {
+  id: string;
+  role: string;
+  roleName: string | null;
+  status: TaskStatus;
+  /** What it came to, in a line, once it has an output. */
+  result: string | null;
+}
+
+/** More pieces than this are not listed on the parent; the work list has them all. */
+const HANDED_ON_LIMIT = 50;
+/** More files than this are not listed on a task's page: the newest. The Files tab has every one. */
+const FILES_LISTED = 50;
 
 /** A document's first heading, which is what a person would call it. */
 function headingOf(text: string | null): string | null {
@@ -536,11 +677,29 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     const { rows: steps } = await tx.query<{
       step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
     }>(
-      `SELECT step_index, name, committed_at, output FROM task_steps
-        WHERE task_id = $1 AND status = 'committed' AND name LIKE 'capability:%'
-          AND jsonb_typeof(output -> 'path') = 'string'
-          AND (jsonb_typeof(output -> 'text') = 'string' OR jsonb_typeof(output -> 'body') = 'string')
-        ORDER BY step_index`,
+      `SELECT s.step_index, s.name, s.committed_at, s.output FROM task_steps s
+        WHERE s.task_id = $1 AND s.status = 'committed' AND s.name LIKE 'capability:%'
+          AND jsonb_typeof(s.output -> 'path') = 'string'
+          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          AND ${NOT_A_READ}
+        ORDER BY s.step_index`,
+      [taskId],
+    );
+    const made = await madeFiles(tx, taskId);
+    const { rows: pieces } = await tx.query<{
+      id: string; role: string; role_name: string | null; status: TaskStatus; output: unknown;
+    }>(
+      `SELECT t.id, r.slug AS role, r.display_name AS role_name, t.status, t.output
+         FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.parent_task_id = $1
+        ORDER BY t.created_at, t.id
+        LIMIT ${HANDED_ON_LIMIT}`,
+      [taskId],
+    );
+    const { rows: by } = await tx.query<{ id: string; role: string; role_name: string | null }>(
+      `SELECT p.id, r.slug AS role, r.display_name AS role_name
+         FROM tasks t JOIN tasks p ON p.id = t.parent_task_id JOIN roles r ON r.id = p.role_id
+        WHERE t.id = $1`,
       [taskId],
     );
     // The owner's last word on it, if they gave one.
@@ -574,6 +733,16 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
       input: redactor.redactDeep(task.input),
       output: redactor.redactDeep(task.output),
       done: done.length > 0 ? done : null,
+      handedOn: pieces.map((piece) => ({
+        id: piece.id,
+        role: piece.role,
+        roleName: piece.role_name,
+        status: piece.status,
+        result: piece.output === null || piece.output === undefined
+          ? null : redactor.redact(summarise(piece.output, 200, RESULT_FIELDS)),
+      })),
+      handedBy: by[0] ? { id: by[0].id, role: by[0].role, roleName: by[0].role_name } : null,
+      files: made.slice(-FILES_LISTED).map((file) => ({ capability: file.capability, path: redactor.redact(file.path) })),
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),
@@ -587,6 +756,152 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
       })),
     };
   });
+}
+
+/* ------------------------------------------------------------- gallery --- */
+
+/** One thing the company produced for a person to read: a document, an email. */
+export interface GalleryItem {
+  taskId: string;
+  step: number;
+  /** The capability that wrote it, without the journal's `capability:` prefix. */
+  capability: string;
+  /** The email's subject, the document's title or first heading, or its file's name. */
+  title: string;
+  path: string;
+  /** The start of what it says, without its heading, for a card. The whole is on its task. */
+  excerpt: string;
+  words: number | null;
+  to: string | null;
+  at: Date;
+  roleSlug: string;
+  /** The name the owner gave the role, shown in place of its code. */
+  roleName: string | null;
+  /** What the task that made it was asked to do. */
+  task: string;
+}
+
+/** How long an excerpt is: two or three lines of a card. */
+const EXCERPT = 280;
+
+function galleryCursor(raw: string): { micros: string; taskId: string; step: number } {
+  const [micros, taskId, step] = Buffer.from(raw, 'base64url').toString('utf8').split('|');
+  if (!micros || !/^\d{1,18}$/.test(micros) || !taskId || !/^[0-9a-f-]{36}$/.test(taskId) || !step || !/^\d{1,9}$/.test(step)) {
+    throw new PalugadaError('contract.violation', 'that page marker is not one this list issued', {});
+  }
+  return { micros, taskId, step: Number(step) };
+}
+
+/** A text's opening words, without a leading heading, cut at a word. */
+function excerptOf(text: string): string {
+  const lines = text.split('\n');
+  const body = (/^#{1,3}\s+\S/.test(lines[0] ?? '') ? lines.slice(1) : lines).join(' ').replace(/\s+/g, ' ').trim();
+  if (body.length <= EXCERPT) return body;
+  const space = body.lastIndexOf(' ', EXCERPT);
+  return `${body.slice(0, space > EXCERPT * 0.7 ? space : EXCERPT).trimEnd()}\u2026`;
+}
+
+/**
+ * Everything the company's tasks produced for a person to read, newest first
+ * (the analysis of 3 October, §9 P1 item 12): what `taskDetailOf` calls a
+ * task's deliverables, across every task, a page at a time. Read from the
+ * journal as a task's are, by the index made for it (0107), and redacted on
+ * the way out.
+ */
+export async function galleryOf(
+  companyId: string,
+  options: { limit?: number; before?: string } = {},
+): Promise<{ items: GalleryItem[]; next: string | null }> {
+  const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
+  const cursor = options.before ? galleryCursor(options.before) : null;
+  return withTenant(companyId, async (tx) => {
+    const { rows: fetched } = await tx.query<{
+      task_id: string; step_index: number; name: string; committed_at: Date; output: Record<string, unknown>;
+      micros: string; role_slug: string; role_name: string | null; input: unknown;
+    }>(
+      `SELECT s.task_id, s.step_index, s.name, s.committed_at, s.output,
+              (extract(epoch FROM s.committed_at) * 1000000)::bigint::text AS micros,
+              r.slug AS role_slug, r.display_name AS role_name, t.input
+         FROM task_steps s
+         JOIN tasks t ON t.id = s.task_id
+         JOIN roles r ON r.id = t.role_id
+        WHERE s.company_id = $1
+          -- The index's own condition (0107), and the one a task's
+          -- deliverables are read by.
+          AND s.status = 'committed' AND s.name LIKE 'capability:%'
+          AND jsonb_typeof(s.output -> 'path') = 'string'
+          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          -- A file the task only read is not something it produced.
+          AND ${NOT_A_READ}
+          -- The next page: after the last one shown, in the order shown.
+          AND ($3::bigint IS NULL
+               OR (s.committed_at, s.task_id, s.step_index)
+                  < (timestamptz 'epoch' + $3::bigint * interval '1 microsecond', $4::uuid, $5::int))
+        ORDER BY s.committed_at DESC, s.task_id DESC, s.step_index DESC
+        LIMIT $2 + 1`,
+      [companyId, limit, cursor?.micros ?? null, cursor?.taskId ?? null, cursor?.step ?? null],
+    );
+    const rows = fetched.slice(0, limit);
+    const last = rows[rows.length - 1];
+    const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    return {
+      next: fetched.length > limit && last
+        ? Buffer.from(`${last.micros}|${last.task_id}|${last.step_index}`, 'utf8').toString('base64url')
+        : null,
+      items: rows.map((row) => {
+        const body = text(row.output.text) ?? text(row.output.body) ?? '';
+        const path = text(row.output.path)!;
+        return {
+          taskId: row.task_id,
+          step: row.step_index,
+          capability: row.name.replace(/^capability:/, ''),
+          title: text(row.output.subject) ?? text(row.output.title) ?? headingOf(body) ?? path.split('/').pop()!,
+          path,
+          excerpt: excerptOf(body),
+          words: typeof row.output.words === 'number' ? row.output.words : null,
+          to: text(row.output.to),
+          at: row.committed_at,
+          roleSlug: row.role_slug,
+          roleName: row.role_name,
+          task: redactor.redact(summarise(row.input)),
+        };
+      }),
+    };
+  });
+}
+
+/* ---------------------------------------------------------------- live --- */
+
+/**
+ * One event as the live stream sends it: what happened and to which task,
+ * never what it carried -- that is read the ordinary way, redacted, by the
+ * view the event touches (the analysis of 3 October, §9 P1 item 11).
+ */
+export interface LiveEvent {
+  id: string;
+  type: string;
+  taskId: string | null;
+  actor: string;
+  at: Date;
+}
+
+/** The company's events after `after`, oldest first. */
+export async function eventsAfter(companyId: string, after: Date, limit = 500): Promise<LiveEvent[]> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; type: string; task_id: string | null; actor: string; occurred_at: Date }>(
+      `SELECT id, type, task_id, actor, occurred_at FROM events
+        WHERE company_id = $1 AND occurred_at > $2
+        ORDER BY occurred_at, id
+        LIMIT $3`,
+      [companyId, after, limit],
+    );
+    return rows.map((row) => ({ id: row.id, type: row.type, taskId: row.task_id, actor: row.actor, at: row.occurred_at }));
+  });
+}
+
+/** The database's clock, which stamps every event, rather than this process's. */
+export async function databaseNow(companyId: string): Promise<Date> {
+  return withTenant(companyId, async (tx) => (await tx.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now);
 }
 
 /* --------------------------------------------------------------- activity --- */
@@ -647,6 +962,8 @@ export async function activityOf(
 export interface AccountView {
   id: string;
   label: string;
+  /** What the owner calls it (`ACCOUNT_NAME`): null for the whole company. */
+  name: string | null;
   scopeType: string;
   scopeId: string | null;
   /** The division, project or role the account is scoped to, by name. */
@@ -659,15 +976,16 @@ export interface AccountView {
   moneySpentCents: number;
 }
 
+
 export async function accountsOf(companyId: string): Promise<AccountView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; label: string; scope_type: string; scope_id: string | null;
+      id: string; label: string; name: string | null; scope_type: string; scope_id: string | null;
       scope_name: string | null; parent_account_id: string | null;
       tokens_max: string; tokens_spent: string; tokens_reserved: string;
       money_max_cents: string; money_spent_cents: string;
     }>(
-      `SELECT a.id, a.label, a.scope_type, a.scope_id, a.parent_account_id,
+      `SELECT a.id, a.label, ${ACCOUNT_NAME} AS name, a.scope_type, a.scope_id, a.parent_account_id,
               a.tokens_max, a.tokens_spent, a.tokens_reserved,
               a.money_max_cents, a.money_spent_cents,
               coalesce(d.name, p.name, r.slug) AS scope_name
@@ -680,6 +998,7 @@ export async function accountsOf(companyId: string): Promise<AccountView[]> {
     return rows.map((row) => ({
       id: row.id,
       label: row.label,
+      name: row.name,
       scopeType: row.scope_type,
       scopeId: row.scope_id,
       scopeName: row.scope_name,
@@ -702,10 +1021,17 @@ export interface ScheduleView {
   timezone: string;
   enabled: boolean;
   roleSlug: string;
+  roleName: string | null;
   divisionName: string;
   priority: number;
   /** What each run reserves from its budget account, so running one now can say so first. */
   reserveTokens: number;
+  /**
+   * The most one run may spend: its role's ceiling for a run (N10). The
+   * reservation is what a run sets aside to start, and an owner read "reserves
+   * 1,000 tokens" as the cost of a run that spent 770 thousand.
+   */
+  runCeilingTokens: number;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   /** Why the last occurrence could not fire, while it still cannot. */
@@ -734,14 +1060,15 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; cron_expression: string; timezone: string; enabled: boolean;
-      role_slug: string; division_name: string; priority: number; reserve_tokens: string;
+      role_slug: string; role_name: string | null; division_name: string; priority: number; reserve_tokens: string; run_ceiling: string;
       next_run_at: Date | null; last_run_at: Date | null; fire_failure: string | null;
       overlap: OverlapPolicy; catch_up_minutes: number | null; held_by_task_id: string | null;
       skipped_for: Date | null; skipped_because: 'overlap' | 'late' | null;
       skipped_count: number | null; skipped_task_id: string | null;
     }>(
-      `SELECT s.id, s.slug, s.cron_expression, s.timezone, s.enabled, r.slug AS role_slug,
-              d.name AS division_name, s.priority, s.reserve_tokens, s.next_run_at, s.last_run_at, s.fire_failure,
+      `SELECT s.id, s.slug, s.cron_expression, s.timezone, s.enabled, r.slug AS role_slug, r.display_name AS role_name,
+              d.name AS division_name, s.priority, s.reserve_tokens, r.max_tokens_per_run AS run_ceiling,
+              s.next_run_at, s.last_run_at, s.fire_failure,
               s.overlap, s.catch_up_minutes, s.held_by_task_id,
               s.skipped_for, s.skipped_because, s.skipped_count, s.skipped_task_id
          FROM schedules s
@@ -756,9 +1083,11 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
       timezone: row.timezone,
       enabled: row.enabled,
       roleSlug: row.role_slug,
+      roleName: row.role_name,
       divisionName: row.division_name,
       priority: row.priority,
       reserveTokens: Number(row.reserve_tokens),
+      runCeilingTokens: Number(row.run_ceiling),
       nextRunAt: row.next_run_at,
       lastRunAt: row.last_run_at,
       failure: row.fire_failure,
@@ -903,7 +1232,13 @@ export async function memoriesOf(
     const last = rows[rows.length - 1];
     const { rows: grouped } = await tx.query<{ memory_type: MemoryKind; n: number; candidates: number }>(
       `SELECT memory_type, count(*)::int AS n,
-              count(*) FILTER (WHERE approval_state = 'candidate')::int AS candidates
+              -- Only a candidate somebody is being asked about: one whose card
+              -- expired (a fortnight, 2.146) is not procedure and is not waiting
+              -- on the owner, and counting it said "waiting for your yes" over an
+              -- empty inbox (the audit of 6 October, M9).
+              count(*) FILTER (WHERE approval_state = 'candidate' AND EXISTS (
+                SELECT 1 FROM inbox_items i
+                 WHERE i.kind = 'sop_candidate' AND i.status = 'open' AND i.payload->>'memoryId' = memories.id::text))::int AS candidates
          FROM memories WHERE superseded_by IS NULL GROUP BY memory_type`,
     );
     const counts = { working: 0, episodic: 0, semantic: 0, procedural: 0 } as Record<MemoryKind, number>;

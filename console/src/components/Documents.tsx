@@ -14,7 +14,7 @@ import {
   Badge, Button, Code, Drawer, FileButton, Group, Modal, Paper, ScrollArea, Select, Stack, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArchive, IconArchiveOff, IconFileText, IconPlus, IconUpload } from '@tabler/icons-react';
+import { IconArchive, IconArchiveOff, IconFileText, IconLock, IconPlus, IconUpload, IconUsers } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { Structure } from '../types.ts';
@@ -33,6 +33,8 @@ interface DocumentSummary {
   passages: number;
   createdAt: string;
   archivedAt: string | null;
+  /** Whether customers may be told it: a channel that answers on its own answers from these alone (0117). */
+  forCustomers: boolean;
 }
 
 export function Documents({ companyId, structure }: { companyId: string; structure: Structure | null }) {
@@ -72,6 +74,7 @@ export function Documents({ companyId, structure }: { companyId: string; structu
             </Group>
             <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
               <Badge variant="outline" color="gray">{document.divisionName ?? t('This company')}</Badge>
+              {document.forCustomers && <Badge variant="light" color="teal">{t('For customers')}</Badge>}
               {document.archivedAt && <Badge variant="light" color="gray">{t('Archived')}</Badge>}
             </Group>
           </Group>
@@ -187,6 +190,7 @@ function DocumentDrawer({ companyId, documentId, close, changed }: {
           <Group gap="xs">
             <Badge variant="outline" color="gray">{data.divisionName ?? t('This company')}</Badge>
             <Badge variant="light" color="gray">{t('Passages: {count}', { count: data.passages })}</Badge>
+            {data.forCustomers && <Badge variant="light" color="teal">{t('For customers')}</Badge>}
             {data.archivedAt && <Badge variant="light" color="gray">{t('Archived')}</Badge>}
           </Group>
           <Group gap="xs">
@@ -199,6 +203,18 @@ function DocumentDrawer({ companyId, documentId, close, changed }: {
             )}
           </Group>
           <Text size="xs" c="dimmed">{t('Archived documents leave every search. Their text is kept.')}</Text>
+          <Group gap="xs">
+            {data.forCustomers ? (
+              <ActionButton size="xs" variant="light" color="gray" label={t('Keep it from customers')} leftSection={<IconLock size={14} />}
+                run={() => api('POST', `/api/companies/${companyId}/documents/${documentId}/for-customers`, { on: false })} done={reload} />
+            ) : (
+              <ActionButton size="xs" variant="light" color="teal" label={t('Customers may be told this')} leftSection={<IconUsers size={14} />}
+                run={() => api('POST', `/api/companies/${companyId}/documents/${documentId}/for-customers`, { on: true })} done={reload} />
+            )}
+          </Group>
+          <Text size="xs" c="dimmed">
+            {t('A customer channel that answers on its own answers only from documents marked for customers: a menu, prices, opening hours. Leave margins, suppliers and anything internal unmarked.')}
+          </Text>
           <ScrollArea.Autosize mah="70vh">
             <Code block style={{ whiteSpace: 'pre-wrap' }}>{data.body}</Code>
           </ScrollArea.Autosize>

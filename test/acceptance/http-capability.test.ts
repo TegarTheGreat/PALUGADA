@@ -16,7 +16,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { closePools } from '../../src/db/pool.ts';
-import { isPalugadaError } from '../../src/errors.ts';
+import { PalugadaError, isPalugadaError } from '../../src/errors.ts';
 import {
   httpCapability, fill, rateLimit, DEFAULT_RATE_LIMIT_WAIT_MS,
 } from '../../src/capabilities/http.ts';
@@ -445,6 +445,45 @@ test('preflight says whether the credential still works (F8.12)', async () => {
   } finally {
     await server.close();
   }
+});
+
+/**
+ * H2: a refused credential is a failure no retry fixes; a vendor that is
+ * busy, failing on its side, or not answering will pass, and the task waits
+ * for it rather than halting (src/broker/preflight.ts).
+ */
+test('preflight says which failures pass on their own: 429, a 5xx, no answer -- not a refused credential (H2)', async () => {
+  let status = 503;
+  const server = await vendor(() => ({ status, body: {} }));
+  const capability = httpCapability({
+    name: 'mail.ping', adapter: 'fakemail', tier: 0, method: 'GET',
+    url: `${server.url}/v1/messages`,
+    headers: { authorization: 'Bearer {credential}' },
+    credentialAlias: 'mail',
+    preflightUrl: `${server.url}/v1/me`,
+    reach: { allowPrivateHosts: ['127.0.0.1'] },
+  });
+  const where = { companyId: ctx().companyId, divisionId: ctx().divisionId, credential: async (alias: string) => ctx().credential(alias) };
+  try {
+    for (const passing of [503, 502, 429]) {
+      status = passing;
+      assert.deepEqual(await capability.preflight!(where), { ok: false, detail: `fakemail answered ${passing}`, transient: true });
+    }
+    for (const lasting of [401, 403, 404]) {
+      status = lasting;
+      const failed = await capability.preflight!(where);
+      assert.equal(failed.ok, false);
+      assert.notEqual(failed.transient, true, `${lasting} is not a moment`);
+    }
+  } finally {
+    await server.close();
+  }
+  // Gone altogether: nothing answers on that port now.
+  const unanswered = await capability.preflight!(where);
+  assert.deepEqual([unanswered.ok, unanswered.transient], [false, true], unanswered.detail);
+  // A credential that cannot be had is not a vendor's moment.
+  const keyless = await capability.preflight!({ ...where, credential: async () => { throw new PalugadaError('credential.unavailable', 'no mail key', {}); } });
+  assert.deepEqual([keyless.ok, keyless.transient === true], [false, false]);
 });
 
 /* ------------------------------------------------------------ substitution --- */

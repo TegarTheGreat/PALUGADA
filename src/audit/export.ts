@@ -88,8 +88,8 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
-                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at,
-                 display_name, title, persona, max_run_seconds
+                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, frozen_by, created_at,
+                 display_name, title, persona, max_run_seconds, person_name
             FROM roles ORDER BY slug`,
   },
   {
@@ -122,7 +122,7 @@ const SECTIONS: Section[] = [
     name: 'budget_accounts',
     sql: `SELECT id, label, tokens_max, tokens_spent, tokens_reserved,
                  money_max_cents, money_spent_cents, scope_type, scope_id,
-                 parent_account_id, created_at
+                 parent_account_id, period_start, created_at
             FROM budget_accounts ORDER BY created_at`,
   },
   {
@@ -163,9 +163,10 @@ const SECTIONS: Section[] = [
             FROM metric_observations ORDER BY observed_at`,
   },
   {
-    // The company's documents (0075), whole and in passages.
+    // The company's documents (0075), whole and in passages, with the
+    // owner's mark of which customers may be told (0117).
     name: 'documents',
-    sql: `SELECT id, division_id, title, body, file_name, source, created_at, archived_at
+    sql: `SELECT id, division_id, title, body, file_name, source, created_at, archived_at, for_customers
             FROM documents ORDER BY created_at`,
   },
   {
@@ -177,9 +178,112 @@ const SECTIONS: Section[] = [
   {
     // The backlog (0070): what was owed, who filed it, and what worked it.
     name: 'tickets',
-    sql: `SELECT id, project_id, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
                  working_task_id, closed_reason, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at`,
+  },
+  {
+    // 0111. A customer channel without its keys: the address and the
+    // secret's hash are this instance's, and where the token is sealed is
+    // the deployment's. A restored channel waits closed for the owner to
+    // connect the bot again. Its conversations travel whole.
+    name: 'chat_channels',
+    sql: `SELECT id, kind, account, account_id, mail, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
+                 enabled, created_at
+            FROM chat_channels ORDER BY created_at`,
+  },
+  {
+    // The books (0119): the accounts, and the entries with their lines, the
+    // reversed before what reverses them.
+    name: 'ledger_accounts',
+    sql: `SELECT id, code, name, kind, system_key, created_at, archived_at FROM ledger_accounts ORDER BY code`,
+  },
+  {
+    name: 'journal_entries',
+    sql: `SELECT id, entry_date, memo, currency, written_by, task_id, outside, reverses, created_at
+            FROM journal_entries ORDER BY created_at, id`,
+  },
+  {
+    name: 'journal_lines',
+    sql: `SELECT id, entry_id, account_id, debit_cents, credit_cents FROM journal_lines ORDER BY entry_id, id`,
+  },
+  {
+    // The company's customer records (0118): the people, what was noted
+    // about them, and the deals with them.
+    name: 'contacts',
+    sql: `SELECT id, name, organisation, email, phone, created_by, created_at, updated_at, archived_at
+            FROM contacts ORDER BY created_at`,
+  },
+  {
+    name: 'contact_notes',
+    sql: `SELECT id, contact_id, body, written_by, task_id, created_at FROM contact_notes ORDER BY created_at`,
+  },
+  {
+    name: 'deals',
+    sql: `SELECT id, contact_id, title, stage, value_cents, currency, expected_on, created_by, created_at, updated_at, closed_at
+            FROM deals ORDER BY created_at`,
+  },
+  {
+    // The company's invoices (0122): the counter, so numbering goes on from
+    // where it was, the invoices with their lines, and what was paid on them.
+    name: 'invoice_numbers',
+    sql: `SELECT last_number FROM invoice_numbers`,
+  },
+  {
+    name: 'invoices',
+    sql: `SELECT id, number, contact_id, customer_name, customer_email, issue_date, due_date, currency, subtotal_cents, tax_rate_bps,
+                 tax_cents, total_cents, note, entry_id, written_by, task_id, outside, created_at
+            FROM invoices ORDER BY created_at, id`,
+  },
+  {
+    name: 'invoice_lines',
+    sql: `SELECT id, invoice_id, position, description, quantity_milli, unit_cents, amount_cents FROM invoice_lines ORDER BY invoice_id, position`,
+  },
+  {
+    name: 'invoice_payments',
+    sql: `SELECT id, invoice_id, paid_on, amount_cents, entry_id, written_by, task_id, outside, created_at FROM invoice_payments ORDER BY created_at, id`,
+  },
+  {
+    // Reminding customers (0130, STATUS 2.178): the policy, each letter that
+    // went, and the invoices left alone. A restore without the letters would
+    // write to customers from the first one again.
+    name: 'collections_policy',
+    sql: `SELECT enabled, steps_days, payment_note, updated_at FROM collections_policy`,
+  },
+  {
+    name: 'invoice_reminders',
+    sql: `SELECT id, invoice_id, step, sent_on, sent_at, to_address, message_id, outstanding_cents, days_overdue, task_id
+            FROM invoice_reminders ORDER BY invoice_id, step`,
+  },
+  {
+    // A letter handed to the mail server that it never said it took (0131):
+    // it counts as sent, and a restore without it would send it again.
+    name: 'invoice_reminder_attempts',
+    sql: `SELECT id, invoice_id, step, to_address, outstanding_cents, days_overdue, started_at, task_id
+            FROM invoice_reminder_attempts ORDER BY invoice_id, step`,
+  },
+  {
+    name: 'invoice_collections',
+    sql: `SELECT invoice_id, held_at, escalated_at FROM invoice_collections ORDER BY invoice_id`,
+  },
+  // \`call_answers\` (0131) does not travel: an answer is kept under a key made
+  // from the task that made the call, and a restored task has a new identity,
+  // so no call in the restored company could ever be answered from one.
+  {
+    name: 'chats',
+    sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id
+            FROM chats ORDER BY created_at`,
+  },
+  {
+    name: 'chat_messages',
+    // With what a reply that went on its own answered from (0117).
+    // The files a message carried are listed without their paths: the archive carries no file, so a restored
+    // company must not list what it does not have (0125).
+    sql: `SELECT id, chat_id, direction, external_id, body, attachment, subject, outcome, task_id, idempotency_key, created_at,
+                 grounds,
+                 (SELECT coalesce(jsonb_agg(one || '{"path": null, "note": "not in the archive"}'::jsonb), '[]'::jsonb)
+                    FROM jsonb_array_elements(files) one) AS files
+            FROM chat_messages ORDER BY created_at`,
   },
   {
     name: 'task_steps',
@@ -269,7 +373,7 @@ const SECTIONS: Section[] = [
     name: 'skill_versions',
     sql: `SELECT id, skill_id, version, body, author, changelog, state,
                  review_request_id, reviewed_at, approved_at, activated_at,
-                 rejected_reason, created_at, review_task_id, review_note
+                 rejected_reason, created_at, review_task_id, review_note, batch, batch_name
             FROM skill_versions ORDER BY skill_id, version`,
   },
   {
@@ -331,7 +435,7 @@ const SECTIONS: Section[] = [
     // company is currently paused for spending is a fact about the instance it
     // was paused on, and a restore that arrived already paused would be
     // reporting a ceiling it has not reached here.
-    sql: `SELECT id, money_max_cents, override_until, created_at
+    sql: `SELECT id, money_max_cents, override_until, created_at, set_at
             FROM spend_limits WHERE company_id IS NOT NULL`,
   },
   {
@@ -389,6 +493,11 @@ const SECTIONS: Section[] = [
             FROM batch_windows WHERE company_id IS NOT NULL`,
   },
   {
+    name: 'office_hours',
+    sql: `SELECT id, timezone, start_hour, end_hour, days_of_week, except_capabilities, updated_at
+            FROM office_hours WHERE company_id IS NOT NULL`,
+  },
+  {
     name: 'capability_windows',
     sql: `SELECT id, division_id, capability_name, timezone, start_hour,
                  end_hour, days_of_week, created_at
@@ -427,6 +536,8 @@ export const EXPORT_SECTION_NAMES: readonly string[] = [
 
 /** Rows are fetched in pages so a long history does not arrive all at once. */
 const PAGE_SIZE = 500;
+/** PostgreSQL's `date` (pg_type.oid 1082). */
+const DATE_TYPE = 1082;
 
 async function streamSection(
   tx: TenantClient,
@@ -439,11 +550,21 @@ async function streamSection(
   let total = 0;
 
   for (;;) {
-    const { rows } = await tx.query<Record<string, unknown>>(
+    const { rows, fields } = await tx.query<Record<string, unknown>>(
       `${sql} LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
       params,
     );
+    // A date column is a day, and is written as one. The driver reads it as midnight where this process runs,
+    // which as an instant is the day before east of UTC: an archive written in Jakarta restored every letter,
+    // invoice and entry a day early. Its local day is the day the database holds.
+    const days = fields.filter((field) => field.dataTypeID === DATE_TYPE).map((field) => field.name);
     for (const row of rows) {
+      for (const name of days) {
+        const value = row[name];
+        if (value instanceof Date) {
+          row[name] = `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+        }
+      }
       await write({ section, row });
       total += 1;
     }

@@ -11,22 +11,24 @@
 // The charts' styles come with the page that draws them, not with every page.
 import '@mantine/charts/styles.css';
 import {
-  Anchor, Avatar, Badge, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
+  Anchor, Avatar, Badge, Box, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
   Timeline, UnstyledButton,
 } from '@mantine/core';
 import { AreaChart } from '@mantine/charts';
 import { IconArrowRight, IconTarget } from '@tabler/icons-react';
 import { api } from '../api.ts';
-import { useLoad } from '../hooks.ts';
+import { useLivePulse, useLoad } from '../hooks.ts';
+import { StopTask } from '../components/StopTask.tsx';
 import type {
   ActivityItem, CostPeriod, InboxItem, Retro, Spend, Structure, WorkGroup, WorkItem,
 } from '../types.ts';
-import { day, eventSentence, goalKind, money, relative } from '../format.ts';
+import { actorSaid, day, eventSentence, goalKind, money, relative } from '../format.ts';
 import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../components/ui.tsx';
 import { MetricLine } from '../components/Metrics.tsx';
 import { StageCard } from '../components/Stage.tsx';
+import { FirstHourCard } from '../components/FirstHour.tsx';
 import { TaskProgress } from './Work.tsx';
 import { rolePicture } from '../images.ts';
 
@@ -35,11 +37,13 @@ const STAGES: Array<{ id: string; label: string; statuses: string[]; color: stri
   { id: 'running', label: N('Running'), statuses: ['checked_out', 'running'], color: 'var(--mantine-color-brand-6)', page: 'work' },
   { id: 'you', label: N('Needs you'), statuses: ['waiting_approval'], color: 'var(--mantine-color-orange-6)', page: 'inbox' },
   { id: 'review', label: N('In review'), statuses: ['waiting_review'], color: 'var(--mantine-color-grape-6)', page: 'work' },
-  { id: 'window', label: N('Scheduled'), statuses: ['waiting_window'], color: 'var(--mantine-color-cyan-6)', page: 'work' },
+  { id: 'window', label: N('Waiting'), statuses: ['waiting_window'], color: 'var(--mantine-color-cyan-6)', page: 'work' },
 ];
 
 export function Overview({ ctx }: PageProps) {
   const { companyId } = ctx;
+  // Every event moves something on this page: it is drawn again when one is written.
+  const pulse = useLivePulse(companyId);
   const view = useLoad(async () => {
     const [work, activity, spend, cost, inbox, retro, structure]: [
       { items: WorkItem[]; counts: Record<WorkGroup, number> }, { items: ActivityItem[] }, Spend,
@@ -54,7 +58,7 @@ export function Overview({ ctx }: PageProps) {
       api('GET', `/api/companies/${companyId}/structure`),
     ]);
     return { work, activity, spend, cost, inbox, retro, structure };
-  }, [companyId], { every: 15_000 });
+  }, [companyId], { every: 15_000, pulse });
 
   const header = (
     <PageHeader
@@ -78,6 +82,8 @@ export function Overview({ ctx }: PageProps) {
   return (
     <Stack gap="lg">
       {header}
+
+      <FirstHourCard ctx={ctx} />
 
       <KpiStrip items={[
         { label: t('Needs you'), value: inbox.items.length, alert: inbox.items.length > 0, hint: t('Open the inbox'), onClick: () => ctx.open('inbox') },
@@ -123,16 +129,20 @@ export function Overview({ ctx }: PageProps) {
                       <Table.Td>
                         <Group gap="sm" wrap="nowrap">
                           <Avatar size={34} radius="xl" src={rolePicture(item.roleSlug)} alt="" />
-                          <div style={{ minWidth: 0 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             <Group gap={6}>
                               <StatusBadge status={item.status} />
-                              <Text size="xs" c="dimmed">{item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                              <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
                             </Group>
+                            {/* Under it on a phone, where a column beside it
+                                left the status cut to "BERJA..." (§2.3 item 8). */}
+                            <Box hiddenFrom="sm" mt={6}><TaskProgress item={item} /></Box>
                           </div>
                         </Group>
                       </Table.Td>
-                      <Table.Td w={200}><TaskProgress item={item} /></Table.Td>
+                      <Table.Td w={200} visibleFrom="sm"><TaskProgress item={item} /></Table.Td>
+                      <Table.Td w={44} ta="right"><StopTask companyId={companyId} taskId={item.id} stopped={view.reload} /></Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>
@@ -260,7 +270,7 @@ export function Overview({ ctx }: PageProps) {
                     color={/refused|denied|failed|incident|halt/.test(event.type) ? 'red' : event.actor === 'owner' ? 'teal' : 'brand'}
                     title={<Text size="sm" fw={600}>{eventSentence(event.type)}</Text>}
                   >
-                    <Text size="xs" c="dimmed">{event.actor} · {relative(event.occurredAt)}</Text>
+                    <Text size="xs" c="dimmed">{actorSaid(event.actor)} · {relative(event.occurredAt)}</Text>
                   </Timeline.Item>
                 ))}
               </Timeline>

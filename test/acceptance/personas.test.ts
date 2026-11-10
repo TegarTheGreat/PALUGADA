@@ -15,7 +15,7 @@ import { buildContext } from '../../src/context/builder.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { rollBack } from '../../src/governance/rollback.ts';
 import { PERSONAS, TITLES, personaById, renderPersona } from '../../src/domain/personas.ts';
-import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../helpers/standard-team.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -117,11 +117,9 @@ test('the owner hires a CEO with a name and a persona; every run of it is told w
     assert.match(first.body, /Jeff Bezos[\s\S]*You are not Jeff Bezos[\s\S]*Run the company and hand work to the right role\./,
       'who it is comes before what it does, and the charter still follows');
 
-    // Another persona: the change takes the owner's device, and is a version.
-    const unproved = await api.call('POST', `/api/companies/${fixture.companyId}/roles/${roleId}`, token, { persona: { preset: 'ceo-focus' } });
-    assert.equal(unproved.status, 403);
+    // Another persona: the change is a version.
     const changed = await api.call('POST', `/api/companies/${fixture.companyId}/roles/${roleId}`, token,
-      { persona: { preset: 'ceo-focus' }, displayName: 'Arka Wijaya', summary: 'A product-first CEO', proof: { totp: api.code() } });
+      { persona: { preset: 'ceo-focus' }, displayName: 'Arka Wijaya', summary: 'A product-first CEO' });
     assert.equal(changed.status, 200, JSON.stringify(changed.body));
     const second = await told();
     assert.match(second.body, /^You are Arka Wijaya, the CEO/);

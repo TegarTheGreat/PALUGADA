@@ -194,9 +194,9 @@ test('the plan says three and the call carries twenty-three (F8.13)', async () =
   const open = await inbox.listOpen(fixture.companyId);
   const incidents = open.filter((item) => item.kind === 'incident');
   assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /Batch guard stopped email\.send/);
+  assert.match(incidents[0]!.title, /Batch guard stopped Send an email/);
   assert.match(incidents[0]!.rationale, /covers 3 items and this call covers 23/);
-  assert.match(incidents[0]!.rationale, /no adapter was called/);
+  assert.match(incidents[0]!.rationale, /no service was called/);
 });
 
 test('a batch that matches the plan goes through', async () => {

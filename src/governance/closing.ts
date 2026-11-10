@@ -34,6 +34,7 @@ import { PalugadaError } from '../errors.ts';
 import { CREDENTIAL_SECRETS } from '../secrets/manager.ts';
 import { removeCompanyFiles } from '../capabilities/files.ts';
 import type { CharterRepository } from './charter-repository.ts';
+import { browserSecretName } from '../browser/cookies.ts';
 
 /** How long a closing company waits, in days: at least a week to notice a mistake, at most a quarter. */
 export const CLOSING_GRACE_DAYS = { least: 7, most: 90 } as const;
@@ -218,11 +219,20 @@ async function eraseCompany(companyId: string): Promise<Erasure | null> {
     }
     // The keys its divisions held are sealed in the deployment's store, under
     // names only a division's credential uses; the company's rows name them.
+    // So are its customer channels' tokens and app secrets, under names of
+    // their own (0111, 0112).
     const { rows: held } = await tx.query<{ secret_ref: string }>(
-      'SELECT secret_ref FROM credentials WHERE company_id = $1', [companyId]);
+      `SELECT secret_ref FROM credentials WHERE company_id = $1
+       UNION ALL
+       SELECT token_ref FROM chat_channels WHERE company_id = $1 AND token_ref IS NOT NULL
+       UNION ALL
+       SELECT secret_ref FROM chat_channels WHERE company_id = $1 AND secret_ref IS NOT NULL`, [companyId]);
     const sealed = held.map((row) => row.secret_ref)
-      .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`))
+      .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`) || reference.startsWith('db://chat-'))
       .map((reference) => reference.slice('db://'.length));
+    // And its browser's cookies, sealed under a name made from its id: a
+    // sign-in to every site its work used (src/browser/cookies.ts).
+    sealed.push(browserSecretName(companyId));
 
     const { rows: line } = await tx.query<{ erased_at: Date }>(
       `INSERT INTO company_erasures (company_id, slug, name, closed_at, counts)

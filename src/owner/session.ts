@@ -1,24 +1,31 @@
 /**
  * How the owner proves they are the owner (PRD v2 F12.5, F10.10).
  *
- * PALUGADA has exactly one human (§5 principle 1), so this is not an identity
+ * PALUGADA has exactly one owner (§5 principle 1), so this is not an identity
  * system: there are no accounts, no roles and nothing to look up. The only
- * question is whether the person at the far end holds an enrolled device, and
- * `OwnerMfa` already answers that -- against RFC 6238 arithmetic or a P-256
- * signature, not against a caller's word.
+ * question is whether the person at the far end holds one of the owner's
+ * enrolled devices, and `OwnerMfa` already answers that -- against RFC 6238
+ * arithmetic or a P-256 signature, not against a caller's word. The staff
+ * seats beside the owner (0110) are not sessions of this kind: they have
+ * devices and sessions of their own (staff.ts), and nothing here reads them.
  *
  * So a session is exactly that answer, made durable for a while. Signing in is
  * presenting a second factor; the token that comes back says which factor it
  * was and when, and every request carries it.
  *
- * **The distinction that does the work.** A session is *not* a second factor.
- * F10.10 asks a tier 3 approval to be given "through the app **with MFA**", and
- * a token minted eight hours ago is possession of a browser tab, not of the
- * owner's phone. So `decide` still takes a fresh proof for tier 3, and the
- * session only establishes that the request came from the app at all. That is
- * why `assurance` on a session is `session` and never `mfa`: the two answer
- * different questions and collapsing them is exactly the shortcut F10.10
- * exists to forbid.
+ * **What a session is worth.** F10.10 asked a tier 3 approval to be given
+ * "through the app **with MFA**", and a session was only the fact that the
+ * request came from the app: a token minted eight hours ago is possession of a
+ * browser tab, not of the owner's phone. So every change asked for a code of
+ * its own, and the owner building a company reached for their phone for each
+ * division. On the owner's report of 7 October ("the authenticator is for
+ * signing in") a session opened with a device *is* the second factor for what
+ * the owner does in it, tier 3 approvals included -- which relaxes F10.10 and
+ * F12.5, and is written down as such (STATUS 2.175, THREAT-MODEL). Two things
+ * keep their code: what changes who the owner is (an authenticator revoked,
+ * recovery codes made, a passkey added, a device vouched for), and a session
+ * opened with a recovery code, which proves less than a device. A chat has no
+ * session, and so cannot approve tier 3 as it never could.
  *
  * **Held in the database, as a hash.** They were held in each process's
  * memory, on the argument that a session should not outlive the process that
@@ -42,6 +49,14 @@ export interface OwnerSession {
   factor: VerifiedFactor;
   issuedAt: Date;
   expiresAt: Date;
+  /**
+   * When the owner last showed a code or a passkey: at sign-in for a session
+   * opened with a device, so that such a session is the second factor for what
+   * the console does (`#requireFactor` in api.ts, `decide` in the inbox).
+   * Null for a session signed in with a recovery code, which proves less than
+   * a device, until a device's code is shown in it.
+   */
+  provedAt: Date | null;
 }
 
 export interface SessionOptions {
@@ -95,6 +110,7 @@ export class OwnerSessions {
       factor,
       issuedAt,
       expiresAt: new Date(issuedAt.getTime() + this.#ttlMs),
+      provedAt: 'recovery' in proof ? null : issuedAt,
     };
     await withControlPlane(async (tx) => {
       // Sessions over and done with for a day are litter, and swept by the
@@ -106,9 +122,9 @@ export class OwnerSessions {
         [issuedAt],
       );
       await tx.query(
-        `INSERT INTO owner_sessions (token_hash, authenticator_id, issued_at, expires_at)
-         VALUES ($1, $2, $3, $4)`,
-        [hashToken(session.token), factor.authenticatorId, session.issuedAt, session.expiresAt],
+        `INSERT INTO owner_sessions (token_hash, authenticator_id, issued_at, expires_at, proved_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [hashToken(session.token), factor.authenticatorId, session.issuedAt, session.expiresAt, session.provedAt],
       );
     });
     return session;
@@ -125,9 +141,9 @@ export class OwnerSessions {
     if (!token) return null;
     return withControlPlane(async (tx) => {
       const { rows } = await tx.query<{
-        issued_at: Date; expires_at: Date; authenticator_id: string; kind: FactorKind; label: string;
+        issued_at: Date; expires_at: Date; proved_at: Date | null; authenticator_id: string; kind: FactorKind; label: string;
       }>(
-        `SELECT s.issued_at, s.expires_at, a.id AS authenticator_id, a.kind, a.label
+        `SELECT s.issued_at, s.expires_at, s.proved_at, a.id AS authenticator_id, a.kind, a.label
            FROM owner_sessions s
            JOIN owner_authenticators a ON a.id = s.authenticator_id
           WHERE s.token_hash = $1
@@ -143,8 +159,19 @@ export class OwnerSessions {
         factor: { authenticatorId: row.authenticator_id, kind: row.kind, label: row.label },
         issuedAt: row.issued_at,
         expiresAt: row.expires_at,
+        provedAt: row.proved_at,
       };
     });
+  }
+
+  /**
+   * The owner has just shown a device's code or passkey in this session, which
+   * makes a session signed in with a recovery code one opened with a device.
+   * Not for a recovery code, which proves less.
+   */
+  async prove(token: string): Promise<void> {
+    await withControlPlane((tx) => tx.query(
+      'UPDATE owner_sessions SET proved_at = $2 WHERE token_hash = $1 AND ended_at IS NULL', [hashToken(token), this.#now()]));
   }
 
   async signOut(token: string): Promise<void> {

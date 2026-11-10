@@ -26,7 +26,18 @@ ENV NODE_ENV=production
 # SIGTERM on so the worker still hands its work back. git keeps the history
 # of the charters (F3.11, charter-repository.ts); without it they are kept as
 # files with no history.
-RUN apt-get update && apt-get install -y --no-install-recommends tini git && rm -rf /var/lib/apt/lists/*
+#
+# Chromium, for the companies' browsers (src/browser/), with a font whose
+# letters are as wide as the ones pages ask for; Debian's, so its security
+# updates are Debian's. About 270 MB: `--build-arg PALUGADA_BROWSER=0`
+# leaves it out, and the browser is then unbound and the boot says so. It
+# runs with its sandbox, which needs the seccomp profile docker-compose.yml
+# gives the container (deploy/docker/seccomp-chromium.json).
+ARG PALUGADA_BROWSER=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tini git \
+      $(if [ "$PALUGADA_BROWSER" = 1 ]; then echo chromium fonts-liberation; fi) \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force

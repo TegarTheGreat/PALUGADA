@@ -40,7 +40,7 @@
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
 import {
-  HEARTBEAT_EVERY_MS, beat, claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
+  HEARTBEAT_EVERY_MS, beat, claimTask, giveBack, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
   liveHolders, silentHolders, stopBeating,
 } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
@@ -48,11 +48,18 @@ import { sweepLeftoverProcesses } from './engine/process-ledger.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
+import { reportEndedBadly } from './engine/ended.ts';
+import { ensureTriage } from './engine/triage.ts';
+import { ensureCollections } from './duties/collections.ts';
+import { ensureOutcomes } from './engine/outcomes.ts';
+import { ensureGoalReview } from './engine/goal-review.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
-import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
+import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused, thawCooledRoles } from './governance/spend-guard.ts';
+import { startNewPeriods } from './engine/budget.ts';
+import { resumeBudgetStopped } from './engine/self-heal.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { embedBacklog } from './knowledge/meaning.ts';
@@ -70,7 +77,10 @@ import {
   type OwnerChannel,
   type NotifiableItem,
 } from './owner/notify.ts';
-import { buildDailyDigest, renderDailyDigest } from './reporting/digest.ts';
+import { buildDailyDigest } from './reporting/digest.ts';
+import { renderDailyDigest } from './owner/digest-said.ts';
+import { deploymentLanguages } from './domain/language.ts';
+import { moneyDisplay } from './domain/money-display.ts';
 import {
   distillEpisodicToSemantic,
   distillSemanticToProcedural,
@@ -80,6 +90,8 @@ import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
 import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
 import type { OtlpExporter } from './reporting/otlp.ts';
+import { pollMailboxes, type MailOptions } from './chats/mail.ts';
+import type { SecretManager } from './secrets/manager.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -166,6 +178,13 @@ export interface WorkerOptions {
     /** Defaults to once an hour. Distillation reads a window of events. */
     intervalMs?: number;
   };
+  /**
+   * Whether a goal nobody has worked on is put to the CEO (goal-review.ts).
+   * Only where a model can think about it: a deployment with none would make
+   * a task each week that no runtime takes, and the owner would be told each
+   * week that it halted.
+   */
+  reviewsGoals?: boolean;
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
   /** The same for a task, for the news that work the owner gave has finished (0059). */
@@ -186,6 +205,12 @@ export interface WorkerOptions {
    * writer of JSON lines, which is what a log collector reads.
    */
   log?: (entry: Record<string, unknown>) => void;
+  /**
+   * Customers' mailboxes (0113): where their passwords are sealed, and a
+   * certificate authority to trust besides the system's. Omitted, no
+   * mailbox is read.
+   */
+  mail?: MailOptions & { secrets: SecretManager };
 }
 
 export interface TickReport {
@@ -213,8 +238,22 @@ export interface TickReport {
   screened: number;
   /** Tasks halted because their deadline passed while nobody was running them (F5.6). */
   pastDeadline: number;
+  /** Work its budget stopped that went on by itself, its owner's ceiling having room again (src/engine/self-heal.ts). */
+  resumed: number;
+  /** Roles the breaker had stopped for a burst that has passed, and that went back to work by themselves. */
+  thawed: number;
   /** Live tasks found with nothing left to move them, and put to the owner. */
   stranded: number;
+  /** Root tasks that ended badly with nobody told, put to the coordinator and then the owner. */
+  ended: number;
+  /** Triage tasks made for the CEO, for tickets the company owes (src/engine/triage.ts). */
+  triaged: number;
+  /** Customers' overdue invoices looked at: reminders made into a task, or a card put to the owner (src/duties/collections.ts). */
+  collections: number;
+  /** Outcome tasks made for the CEO, for a measure that reached its target, passed its date or went unread (src/engine/outcomes.ts). */
+  outcomes: number;
+  /** Review tasks made for the CEO, for a goal nobody had worked on (src/engine/goal-review.ts). */
+  reviews: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
   /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
@@ -225,6 +264,8 @@ export interface TickReport {
   erased: number;
   /** Spans sent to the OpenTelemetry collector this tick (0090). */
   traced: number;
+  /** Customers' mail that reached the company's work this tick (0113). */
+  mail: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -285,12 +326,20 @@ function emptyReport(): TickReport {
     distilled: 0,
     screened: 0,
     pastDeadline: 0,
+    resumed: 0,
+    thawed: 0,
     stranded: 0,
+    ended: 0,
+    triaged: 0,
+    collections: 0,
+    outcomes: 0,
+    reviews: 0,
     escalated: 0,
     leftovers: 0,
     embedded: 0,
     erased: 0,
     traced: 0,
+    mail: 0,
     stopped: false, errors: [],
   };
 }
@@ -316,7 +365,7 @@ export interface WorkerCounts {
 
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
-  return ran || report.reclaimed > 0 || report.scheduled > 0;
+  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0 || report.resumed > 0 || report.thawed > 0 || report.collections > 0;
 }
 
 export class Worker {
@@ -507,12 +556,62 @@ export class Worker {
       report.scheduled += (await runDueSchedules(now)).length;
     });
 
+    // Customers' mail (0113): each open mailbox that is due, read about once
+    // a minute by whichever worker takes it first. Before the runs, so what a
+    // customer wrote is work this tick can start. A mailbox that fails says
+    // why on its channel, for the owner; here, for the operator's log.
+    const mail = this.#options.mail;
+    if (mail) {
+      await this.#stage(report, 'mailboxes', async () => {
+        const read = await pollMailboxes({
+          ...mail, now, ...(this.#options.companyId ? { companyId: this.#options.companyId } : {}),
+        });
+        report.mail += read.received;
+        if (read.failed > 0) this.#options.log?.({ level: 'warn', event: 'mailboxes.failed', failed: read.failed });
+      });
+    }
+
     for (const company of companies) {
       // One runtime failing its health check tells every later stage in this
       // tick the same thing, so the wake stage and the claim stage share the
       // answer rather than each discovering it. Without this a wake and a
       // claim both ran the same task and both got the same refusal.
       let runtimeDown = false;
+
+      // The tickets the company owes, handed to the CEO to hand on. Before the
+      // claim, so the task it makes can be taken up on this tick. Two queries
+      // when nothing is owed: no task, no model call, no tokens. Not behind
+      // `runs`: it makes a task and runs none, and a worker with places above
+      // one ticks its housekeeping with `runs` false, where it never ran.
+      await this.#stage(report, 'triage', async () => {
+        if (await ensureTriage(company, now)) report.triaged += 1;
+      });
+
+      // What customers owe, looked at against the books: the reminders that
+      // are due made into one task for the role that sends them, and the
+      // invoices a letter will not mend put to the owner. A look is cheap and
+      // is made at most every half hour for a company; nothing owed, nothing
+      // made.
+      await this.#stage(report, 'collections', async () => {
+        const look = await ensureCollections(company, now);
+        if (look.task !== null || look.escalated > 0 || look.nobody) report.collections += 1;
+      });
+
+      // The measures the owner set, looked at against their numbers: one task
+      // for the CEO when one reached its target, passed its date or went
+      // unread. Not behind `runs`: it makes a task and runs none, and a worker
+      // with places above one (the default is four, main.ts) ticks its
+      // housekeeping with `runs` false.
+      await this.#stage(report, 'outcomes', async () => {
+        if (await ensureOutcomes(company, now)) report.outcomes += 1;
+      });
+
+      // The goals the owner set, looked at against the work under them: one
+      // task for the CEO when a goal at the end of the ladder has had none for
+      // days, once a week at most for each. Not behind `runs`, as above.
+      if (this.#options.reviewsGoals) await this.#stage(report, 'reviews', async () => {
+        if (await ensureGoalReview(company, now)) report.reviews += 1;
+      });
 
       if (runs) await this.#stage(report, 'wakes', async () => {
         const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
@@ -530,7 +629,7 @@ export class Worker {
         while (next < claimed.length && !runtimeDown) {
           const status = await this.#runClaimed(report, company, claimed[next]!);
           next += 1;
-          if (status === 'runtime_unavailable') runtimeDown = true;
+          if (status === 'runtime_unavailable' || status === 'not_started') runtimeDown = true;
         }
         // Claims this tick will not run -- the runtime went down under them --
         // go straight back rather than holding their lanes and budget until
@@ -553,7 +652,7 @@ export class Worker {
           // budget failing one health check. Stopping is also right for the
           // others: a runtime that is down is down for every task that names
           // it, and the next tick is when to find out it came back.
-          if (status === 'runtime_unavailable') {
+          if (status === 'runtime_unavailable' || status === 'not_started') {
             runtimeDown = true;
             break;
           }
@@ -574,6 +673,13 @@ export class Worker {
         // anything still waiting with nothing left to move it is stranded,
         // and the owner is asked once what to do with it.
         report.stranded += await reportStranded(company, now);
+        // And what ended badly with nobody told: the coordinator asked first,
+        // the owner after its grace (src/engine/ended.ts).
+        report.ended += await reportEndedBadly(company, now);
+
+        // A question for a person who has not answered in a day is brought to
+        // the owner; before the notify stage, which then carries it.
+        await inbox.escalateQuestions(company, now);
 
         // F6.3: a completed task's output is what starts its successor, and
         // the engine is what starts it -- not the finishing agent naming who
@@ -587,7 +693,15 @@ export class Worker {
       });
 
       await this.#stage(report, 'watch', async () => {
+        // A passed month's counts start again before anything reads them (0101).
+        await startNewPeriods(company);
         await evaluateSpendLimit(company, now);
+        // After the pause is read: a month that began, or a ceiling raised, is
+        // what the work it stopped was waiting for, and goes on in the same look.
+        report.resumed += (await resumeBudgetStopped(company, now)).continued;
+        // Before the breaker looks: a role whose burst has passed goes back to
+        // work, and a role still above the line is stopped again if it must be.
+        report.thawed += (await thawCooledRoles(company, now)).length;
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;
       });
@@ -736,7 +850,7 @@ export class Worker {
             this.#say(report);
             // A runtime that is down puts its task back; trying again at once
             // would spend this place on the same refusal.
-            ran = status !== null && status !== 'runtime_unavailable';
+            ran = status !== null && status !== 'runtime_unavailable' && status !== 'not_started';
             break;
           }
         }
@@ -791,12 +905,17 @@ export class Worker {
    * a claim that carried a stale slug would run the task as something it is
    * not.
    */
-  /** Returns the outcome so the claim loop can decide whether to keep going. */
+  /**
+   * Returns the outcome so the claim loop can decide whether to keep going:
+   * `not_started` when the engine could not start the task, which stops this
+   * tick's claims as a runtime that is down does -- claiming again at once
+   * would take the same task back into the same failure.
+   */
   async #runClaimed(
     report: TickReport,
     companyId: string,
     taskId: string,
-  ): Promise<RunOutcome['status'] | null> {
+  ): Promise<RunOutcome['status'] | 'not_started' | null> {
     const roleSlug = await withTenant(companyId, async (tx) => {
       const task = await getTask(tx, taskId);
       if (!task) return null;
@@ -811,6 +930,19 @@ export class Worker {
     let outcome: RunOutcome;
     try {
       outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    } catch (error) {
+      // What the engine threw before its run's own handling began -- the
+      // database refusing a write as the contract was read or the task moved
+      // (M1). Left, the task stayed checked out to this worker, which was not
+      // running it, unrenewed for a whole lease with no reason anywhere. Given
+      // back now, with why, and counted as a loss: a task that can never start
+      // halts as a crash loop with an incident rather than taking every
+      // worker's place in turn. If the database is still away, the lease is
+      // the backstop it always was.
+      const message = (error as Error).message;
+      this.#failed(report, 'run', `task ${taskId}: ${message}`);
+      await giveBack(companyId, taskId, this.id, `the worker could not start it: ${message}`).catch(() => undefined);
+      return 'not_started';
     } finally {
       this.#busy -= 1;
     }
@@ -909,6 +1041,11 @@ export class Worker {
         this.#learnedAt.set(company, now.getTime());
         return;
       }
+      // Learning is spending, now that it is counted (N8): a company paused
+      // at its month's ceiling does not go on paying a model to distil. Not
+      // marked as learned, so it reads its history once resumed; the
+      // watermark has kept its place.
+      if (await isSpendPaused(company, now)) return;
 
       const scopes = await withTenant(company, async (tx) => {
         // Every division, and the company's oldest project to attribute the
@@ -928,29 +1065,36 @@ export class Worker {
       });
 
       for (const scope of scopes) {
-        const distilled = await distillEpisodicToSemantic({
-          companyId: company,
-          projectId: scope.project_id,
-          divisionId: scope.division_id,
-          llm: learning.llm,
-          model: learning.model,
-          until: now,
-        });
-        report.distilled += distilled.factsCreated;
-
-        // Only when there is something new to generalise from. A procedural
-        // pass over facts that did not change would raise the same SOP
-        // candidate again, and the owner would decline it again.
-        if (distilled.factsCreated > 0) {
-          const candidates = await distillSemanticToProcedural({
+        // One division at a time and each on its own: one whose model answered
+        // nonsense, or whose rows the store refused, ended the stage, so the
+        // divisions after it in slug order were never reached on any tick (the
+        // audit of 6 October, M7). Its failure is still said, and it is read
+        // again at the next pass, for nothing of it was consumed.
+        await this.#stage(report, 'learn', async () => {
+          const distilled = await distillEpisodicToSemantic({
             companyId: company,
             projectId: scope.project_id,
             divisionId: scope.division_id,
             llm: learning.llm,
             model: learning.model,
+            until: now,
           });
-          report.distilled += candidates.length;
-        }
+          report.distilled += distilled.factsCreated;
+
+          // Only when there is something new to generalise from. A procedural
+          // pass over facts that did not change would raise the same SOP
+          // candidate again, and the owner would decline it again.
+          if (distilled.factsCreated > 0) {
+            const candidates = await distillSemanticToProcedural({
+              companyId: company,
+              projectId: scope.project_id,
+              divisionId: scope.division_id,
+              llm: learning.llm,
+              model: learning.model,
+            });
+            report.distilled += candidates.length;
+          }
+        });
       }
 
       // Recorded after the work rather than before it, for the same reason as
@@ -1010,7 +1154,7 @@ export class Worker {
           const digest = await buildDailyDigest(company, yesterday);
           const sent = await dispatchDigest(company, owed, {
             day: digest.day,
-            text: renderDailyDigest(digest),
+            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay()),
           });
           report.digests += sent.delivered;
         }

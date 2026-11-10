@@ -106,19 +106,78 @@ function assertSecretName(name: string): void {
 }
 
 /** Seals a value and keeps it under a name, replacing what was there. */
-export async function putSecret(name: string, value: string, master: MasterKey): Promise<void> {
+export async function putSecret(
+  name: string,
+  value: string,
+  master: MasterKey,
+  options: { renewal?: boolean } = {},
+): Promise<void> {
   assertSecretName(name);
   if (value === '') throw new PalugadaError('contract.violation', 'a secret is not empty', { name });
   const { nonce, ciphertext, tag } = seal(name, value, master);
-  await withControlPlane((tx) => tx.query(
-    `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (name) DO UPDATE
-       SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag,
-           key_id = EXCLUDED.key_id, updated_at = now()`,
-    [name, nonce, ciphertext, tag, master.id],
-  ));
+  await withControlPlane(async (tx) => {
+    // A renewal -- a token refreshed because the last one ran out -- replaces
+    // the value and leaves `updated_at` as the owner last set it. Every
+    // replica restarts when `settingsVersion` moves, and a refresh moving it
+    // restarted the whole deployment about once an hour for each signed-in
+    // division (N4). Readers resolve a secret at each use, so a renewed one
+    // is in force without a start. A renewal of a secret that is not there
+    // is a new secret, and is written as one.
+    if (options.renewal) {
+      const { rowCount } = await tx.query(
+        'UPDATE deployment_secrets SET nonce = $2, ciphertext = $3, tag = $4, key_id = $5 WHERE name = $1',
+        [name, nonce, ciphertext, tag, master.id],
+      );
+      if (rowCount === 1) return;
+    }
+    await tx.query(
+      `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name) DO UPDATE
+         SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag,
+             key_id = EXCLUDED.key_id, updated_at = now()`,
+      [name, nonce, ciphertext, tag, master.id],
+    );
+  });
   redactor.register(value);
+}
+
+/**
+ * Seals what a company's own machinery keeps between uses -- its browser's
+ * cookies (`src/browser/cookies.ts`) -- under the same key as every secret,
+ * with two differences. It is written only while the company is there and
+ * not closing, looked at in the same transaction, so a browser closing
+ * after the company was erased does not seal its cookies again under a name
+ * nothing would delete. And it is not handed to the redactor: it changes on
+ * almost every page, and every value registered there is held, and looked
+ * for in every line logged, for the life of the process. It goes from the
+ * browser to the seal and back, through nothing that is logged.
+ *
+ * Answers whether it was kept.
+ */
+export async function sealForCompany(name: string, value: string, master: MasterKey, companyId: string): Promise<boolean> {
+  assertSecretName(name);
+  const { nonce, ciphertext, tag } = seal(name, value, master);
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query('SELECT 1 FROM companies WHERE id = $1 AND closing_at IS NULL FOR SHARE', [companyId]);
+    if (rows.length === 0) return false;
+    await tx.query(
+      `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name) DO UPDATE
+         SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag, key_id = EXCLUDED.key_id`,
+      [name, nonce, ciphertext, tag, master.id],
+    );
+    return true;
+  });
+}
+
+/** What `sealForCompany` kept, or null when nothing is; not handed to the redactor either. */
+export async function openForCompany(name: string, master: MasterKey | null, previous: readonly MasterKey[] = []): Promise<string | null> {
+  assertSecretName(name);
+  const { rows } = await withControlPlane((tx) => tx.query('SELECT 1 FROM deployment_secrets WHERE name = $1', [name]));
+  if (rows.length === 0) return null;
+  return openSecret(name, master, previous);
 }
 
 export async function deleteSecret(name: string): Promise<void> {
@@ -254,15 +313,36 @@ export async function readSettings(): Promise<Settings> {
   });
 }
 
-/** Replaces one area's settings; null takes the area back to the environment. */
-export async function writeSetting(key: string, value: object | null): Promise<void> {
-  await withControlPlane((tx) => (value === null
-    ? tx.query('DELETE FROM deployment_settings WHERE key = $1', [key])
-    : tx.query(
-      `INSERT INTO deployment_settings (key, value) VALUES ($1, $2)
+/**
+ * Replaces one area's settings; null takes the area back to the environment.
+ *
+ * `quiet` is for what the platform learns on its own and keeps here -- the
+ * prices it read from the catalogue -- which is not the owner changing a
+ * setting: it leaves `updated_at` as it was (and a first write puts it at the
+ * epoch), so that no replica restarts to take up what every replica reads
+ * for itself.
+ */
+export async function writeSetting(key: string, value: object | null, options: { renewal?: boolean; quiet?: boolean } = {}): Promise<void> {
+  await withControlPlane(async (tx) => {
+    if (value === null) {
+      await tx.query('DELETE FROM deployment_settings WHERE key = $1', [key]);
+      return;
+    }
+    // A renewal leaves `updated_at`, as `putSecret` does: what a token
+    // refresh records about itself (when it was refreshed, when the new one
+    // runs out) is not the owner changing a setting.
+    if (options.renewal || options.quiet) {
+      const { rowCount } = await tx.query(
+        'UPDATE deployment_settings SET value = $2 WHERE key = $1', [key, JSON.stringify(value)]);
+      if (rowCount === 1) return;
+    }
+    await tx.query(
+      `INSERT INTO deployment_settings (key, value, updated_at)
+       VALUES ($1, $2, CASE WHEN $3::boolean THEN 'epoch'::timestamptz ELSE now() END)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [key, JSON.stringify(value)],
-    )));
+      [key, JSON.stringify(value), options.quiet === true],
+    );
+  });
 }
 
 /**
@@ -272,7 +352,9 @@ export async function writeSetting(key: string, value: object | null): Promise<v
 export async function settingsVersion(): Promise<string> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ at: Date | null }>(
-      `SELECT greatest((SELECT max(updated_at) FROM deployment_settings),
+      // What the platform learned by itself is written at the epoch (`quiet`)
+      // and is no change: nothing in it is something a replica restarts for.
+      `SELECT greatest((SELECT max(updated_at) FROM deployment_settings WHERE updated_at > 'epoch'),
                        (SELECT max(updated_at) FROM deployment_secrets)) AS at`);
     return rows[0]?.at?.toISOString() ?? 'never';
   });

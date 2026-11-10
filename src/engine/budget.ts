@@ -19,7 +19,7 @@
  * overlapping chains cannot deadlock against each other.
  */
 import { PalugadaError } from '../errors.ts';
-import { withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 
 export interface BudgetSnapshot {
   tokensMax: number;
@@ -92,6 +92,12 @@ export async function createAccount(
  * company's. A task charged to the company account when its division has one
  * would make the division's ceiling unenforceable, which is the failure this
  * lookup exists to prevent.
+ *
+ * Two accounts on one scope -- the owner opened "Ramadan promotion" on a
+ * division that has its own -- are told apart by the tree: the deeper is the
+ * narrower, and between two as deep, the older. Ordered by scope alone, the
+ * one charged was whichever row the database read first, and every charge
+ * rewrites a row and moves it.
  */
 export async function accountFor(
   tx: TenantClient,
@@ -107,7 +113,9 @@ export async function accountFor(
           OR  scope_type = 'company')
       ORDER BY CASE scope_type
                  WHEN 'role' THEN 0 WHEN 'division' THEN 1
-                 WHEN 'project' THEN 2 ELSE 3 END
+                 WHEN 'project' THEN 2 ELSE 3 END,
+               cardinality(app.budget_chain(id)) DESC,
+               created_at, id
       LIMIT 1`,
     [scope.companyId, scope.roleId ?? null, scope.divisionId ?? null, scope.projectId ?? null],
   );
@@ -123,9 +131,9 @@ export async function accountFor(
  * be the company's own -- an id from another company is refused, not
  * changed. Answers what the ceilings were, so the caller can tell a raise,
  * which loosens a control and takes a factor, from a cut, which does not.
- * The ceiling is lifetime: spent tokens stay spent, and raising is how an
- * account is given more (defect L11 of the live run of 2026-09-28, where
- * nothing but SQL could).
+ * Spent tokens stay spent for the rest of the month (0101): raising is how
+ * an account is given more before the next one starts (defect L11 of the
+ * live run of 2026-09-28, where nothing but SQL could).
  */
 export async function setCeilings(
   companyId: string,
@@ -153,6 +161,43 @@ export async function setCeilings(
 }
 
 /** The account and every ancestor it also spends against, nearest first. */
+/**
+ * Starts a new month in every account of the company whose counts are of a
+ * passed one (F1.9, 0101), and says how many.
+ *
+ * A reservation or a charge does this for its own chain before it checks
+ * it, so admission is right without this. It is for the owner: on the first
+ * of the month, before anything has run, the Money page would otherwise show
+ * last month's total as this one's. The accounts are locked in id order, the
+ * order every budget function takes them in, and only when one has a passed
+ * month -- most ticks of a month find none and lock nothing.
+ */
+export async function startNewPeriods(companyId: string): Promise<number> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      'SELECT id FROM budget_accounts WHERE period_start < app.budget_month() ORDER BY id');
+    if (rows.length === 0) return 0;
+    const ids = rows.map((row) => row.id);
+    await tx.query('SELECT app.budget_lock_chain($1::uuid[])', [ids]);
+    const { rows: started } = await tx.query<{ n: number }>('SELECT app.budget_new_period($1::uuid[]) AS n', [ids]);
+    return started[0]!.n;
+  });
+}
+
+/**
+ * What an account is called, for the owner (§2.3 item 7). An account a
+ * template made is labelled with the platform's codes -- "company", a
+ * division's short name -- and is named for what it covers instead: its
+ * division's name, or null for the whole company, which the reader says in
+ * their own language. One the owner labelled keeps its label. `a` is the
+ * account; the division it covers is looked up by its id.
+ */
+export const ACCOUNT_NAME = `CASE
+  WHEN a.scope_type = 'company' AND a.label = 'company' THEN NULL
+  WHEN a.scope_type = 'division' THEN coalesce(
+    (SELECT CASE WHEN dv.slug = a.label THEN dv.name END FROM divisions dv WHERE dv.id = a.scope_id), a.label)
+  ELSE a.label END`;
+
 export async function chainFor(tx: TenantClient, accountId: string): Promise<string[]> {
   const { rows } = await tx.query<{ chain: string[] | null }>(
     'SELECT app.budget_chain($1) AS chain',

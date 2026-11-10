@@ -169,6 +169,52 @@ test('a run that says a criterion is not met is not done, nor one that claims it
   assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'failed');
 });
 
+/**
+ * N9, the live run of 2 October: the owner asked for a customer's data to be
+ * deleted. The run did not delete it -- it judged it had no authority -- and
+ * said so in its summary, and the task showed "Done" in green. Its criteria
+ * were met, as written: the customer had a ticket. Whether what was asked
+ * happened was nobody's question.
+ *
+ * A run that did not do what it was asked says so under `notDone`, and the
+ * task ends then: not done, with its reason, and not tried again -- the same
+ * facts would give the same answer, at the same price.
+ */
+test('a run that did not do what it was asked says so, and the task ends not done: never shown as done, never tried again on the same facts (N9)', async () => {
+  const fixture = await createCompany('done-not');
+  await criteria(fixture);
+  const why = 'Deleting a customer needs the owner\'s yes, and I did not get it: nothing was deleted.';
+  const model = new ScriptedModel([
+    answers({ summary: 'cust-042 was not deleted', notDone: why, done: met }),
+  ]);
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'done-worker', llm: model, handlers: new Map() });
+  const task = await newTask(fixture);
+
+  const pack = await withTenant(fixture.companyId, (tx) => buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id }));
+  assert.match(pack.sections.find((section) => section.kind === 'contract')!.body, /"notDone"/, 'the run is told it may say so');
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.deepEqual([outcome.status, outcome.reason], ['failed', 'not_done']);
+  const ended = (await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!;
+  assert.deepEqual([ended.status, ended.haltReason], ['failed', 'not_done']);
+  assert.equal((ended.output as { notDone: string }).notDone, why, 'what it said is kept with the task, for the owner');
+  assert.equal(model.requests.length, 1);
+  assert.deepEqual(await failures(fixture, task.id), [], 'no attempt was spent: it was not tried again');
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ detail: string }>(
+    "SELECT payload->>'detail' AS detail FROM events WHERE task_id = $1 AND type = 'task.failed'", [task.id]));
+  assert.deepEqual(said.map((row) => row.detail), [why]);
+
+  // What the owner reads of it.
+  const { workOf } = await import('../../src/owner/views.ts');
+  const item = (await workOf(fixture.companyId, { taskId: task.id })).items[0]!;
+  assert.deepEqual([item.status, item.haltReason], ['failed', 'not_done']);
+
+  // Blank, it says nothing: the run is held to its report as before.
+  const blank = new ScriptedModel([answers({ summary: 'example.test is at 192.0.2.7', notDone: '  ', done: met })]);
+  const checked = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'done-worker', llm: blank, handlers: new Map() });
+  assert.equal((await checked.runTask(fixture.companyId, (await newTask(fixture)).id, 'worker')).status, 'completed');
+});
+
 test('an answer that does not match the schema is asked for again too, rather than replayed until the attempts run out', async () => {
   const fixture = await createCompany('done-schema');
   await criteria(fixture);

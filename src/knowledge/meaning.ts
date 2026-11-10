@@ -15,7 +15,8 @@
  * across them answers with confident nonsense rather than an error.
  */
 import { withTenant } from '../db/tenant.ts';
-import { EMBED_BATCH, embed, embedModel, type EmbedBinding } from '../capabilities/embed.ts';
+import { EMBED_BATCH, embedAndCount, embeddingCents, embedModel, type EmbedBinding } from '../capabilities/embed.ts';
+import { recordCallOutsideTask } from '../reporting/cost.ts';
 
 let meaning: EmbedBinding | null = null;
 
@@ -41,8 +42,11 @@ export async function embedBacklog(companyId: string, binding: EmbedBinding, sig
   if (due.rows.length === 0) return 0;
   // Outside the transaction: a provider call is a network hop, and a
   // transaction held open across one holds its connection with it.
-  const vectors = await embed(binding, due.rows.map((row) => (row.heading ? `${row.heading}\n\n${row.body}` : row.body)), signal);
+  const { vectors, tokens } = await embedAndCount(binding, due.rows.map((row) => (row.heading ? `${row.heading}\n\n${row.body}` : row.body)), signal);
   await withTenant(companyId, async (tx) => {
+    // Paid for like any model call the company makes outside a task: traced,
+    // so the month's ceiling, the alerts and the Money page count it.
+    await recordCallOutsideTask(tx, companyId, { model, inputTokens: tokens, outputTokens: 0, costCents: embeddingCents(binding, tokens) });
     for (const [index, row] of due.rows.entries()) {
       await tx.query(
         'UPDATE document_passages SET embedding = $3::vector, embedding_model = $4 WHERE document_id = $1 AND seq = $2',
@@ -52,12 +56,21 @@ export async function embedBacklog(companyId: string, binding: EmbedBinding, sig
   return due.rows.length;
 }
 
-/** A query's vector, and the model it was made with, when the deployment has a provider. */
-export async function queryMeaning(query: string, signal?: AbortSignal): Promise<{ vector: string; model: string } | null> {
+/**
+ * A query's vector, and the model it was made with, when the deployment has a
+ * provider; charged to `companyId`, the company whose role asked it, when one
+ * is named.
+ */
+export async function queryMeaning(query: string, signal?: AbortSignal, companyId?: string): Promise<{ vector: string; model: string } | null> {
   const binding = meaning;
   if (!binding || !query.trim()) return null;
   try {
-    const [vector] = await embed(binding, [query.slice(0, 2_000)], signal);
+    const { vectors: [vector], tokens } = await embedAndCount(binding, [query.slice(0, 2_000)], signal);
+    if (companyId) {
+      await withTenant(companyId, (tx) => recordCallOutsideTask(tx, companyId, {
+        model: embedModel(binding), inputTokens: tokens, outputTokens: 0, costCents: embeddingCents(binding, tokens),
+      }));
+    }
     return { vector: vectorLiteral(vector!), model: embedModel(binding) };
   } catch {
     // A provider that is down leaves the search to words, which is what it

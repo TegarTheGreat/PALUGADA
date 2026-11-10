@@ -253,7 +253,8 @@ export class ContainerAdapter implements Adapter {
 
 
 /**
- * The docker client's own settings, passed through when they are set.
+ * The docker client's own settings, passed through when they are set; the
+ * same for `code.compute`'s containers (src/capabilities/compute.ts).
  *
  * Not the runtime's environment — that goes into the container through
  * `--env`, bounded by what the adapter was configured with. This is the handful
@@ -261,7 +262,7 @@ export class ContainerAdapter implements Adapter {
  * a fixed list rather than a prefix match so that a variable named
  * `DOCKER_SOMETHING_SECRET` cannot join it by accident.
  */
-function dockerClientEnv(): Record<string, string> {
+export function dockerClientEnv(): Record<string, string> {
   const passthrough = [
     'DOCKER_HOST',
     'DOCKER_TLS_VERIFY',

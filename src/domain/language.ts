@@ -10,13 +10,16 @@
  *   approval requests, questions, plans, reports, handoffs. The owner's.
  *
  * Either may be left unset, and then the deployment's default applies
- * (`platform_control.agent_language`). A project may set its own work
+ * (`platform_control.agent_language`) -- which, until the owner chooses one,
+ * is the language they read the panel in (`console_language`), and English
+ * only where they have named neither: an owner who chose Indonesian for the
+ * console was greeted by agents in English. A project may set its own work
  * language (0100), which overrides the company's for the work done in it: a
  * company that sells in Malaysia and in Brazil writes each market's copy in
  * its language, and its agents still talk to the one owner in one. Talk has
  * no per-project setting for that reason. The console's own language is a third
  * setting and a different thing: it is what the *panel* is drawn in, and it
- * never reaches an agent.
+ * reaches an agent only as the default above, never as a thing it reads.
  *
  * **Why this is more than a preference.** A model writes in the language of
  * whatever it read last. An agent that reads an English web page, an email in
@@ -131,7 +134,8 @@ export async function languagesForTask(tx: TenantClient, companyId: string, task
 
 async function languagesIn(tx: TenantClient, companyId: string, taskId: string | null): Promise<RunLanguages> {
   const { rows } = await tx.query<{ project: string | null; work: string | null; talk: string | null; fallback: string }>(
-    `SELECT pr.work_language AS project, c.work_language AS work, c.talk_language AS talk, p.agent_language AS fallback
+    `SELECT pr.work_language AS project, c.work_language AS work, c.talk_language AS talk,
+            COALESCE(p.agent_language, p.console_language, 'en') AS fallback
        FROM companies c CROSS JOIN platform_control p
        LEFT JOIN tasks t ON t.company_id = c.id AND t.id = $2::uuid
        LEFT JOIN projects pr ON pr.company_id = t.company_id AND pr.id = t.project_id
@@ -251,16 +255,29 @@ export function detectable(code: string): boolean {
 }
 
 /**
+ * How much of a text the detector reads. A language shows itself in the first
+ * few thousand characters, and every pattern below is cheaper the shorter the
+ * text: a ticket body, a brief or a draft of any length is judged in the
+ * same short time.
+ */
+const LANGUAGE_SAMPLE = 6_000;
+
+/**
  * The text an agent wrote itself, with what it merely quoted taken out: code,
  * links, addresses, and anything in quotation marks or quoted with `>`.
  * Quoting a customer's English email in an Indonesian report is not drift.
+ *
+ * An address is a run without `@` or space, an `@`, and a run with a dot in
+ * it. It was `\S+@\S+\.\S+`, which backtracks in cubic time on text with
+ * many `@` and no dot: four thousand characters of "a@a@" took 6.5 seconds,
+ * ten thousand 99, with the worker's heartbeat stalled while it ran (N5).
  */
 function ownWords(text: string): string {
-  return text
+  return text.slice(0, LANGUAGE_SAMPLE)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`\n]*`/g, ' ')
     .replace(/https?:\/\/\S+/g, ' ')
-    .replace(/\S+@\S+\.\S+/g, ' ')
+    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, ' ')
     .replace(/"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|„[^“\n]*“/g, ' ')
     .split('\n')
     .filter((line) => !line.trimStart().startsWith('>'))
@@ -353,7 +370,9 @@ const TALK = {
   ticket: 'a ticket',
   goal_proposal: 'a proposal to change a goal',
   stage_proposal: 'a proposal to move the company to another stage',
+  schedule_proposal: 'a proposal to run work on a schedule',
   review: "a review of another role's proposal",
+  not_done: 'why work was not done',
 } as const;
 
 /**
@@ -390,23 +409,36 @@ export function slipReminder(slips: { found: string; times: number; where: reado
 /* ------------------------------------------------------------- settings --- */
 
 export interface DeploymentLanguages {
-  /** The owner's panel; null follows the browser. */
+  /** The owner's panel; null until the console has told the deployment which. */
   console: string | null;
-  /** What agents write in where a company has not chosen. */
+  /**
+   * What agents write in where a company has not chosen: the owner's choice
+   * for them, or the panel's language, or English.
+   */
   agents: string;
+  /** Whether the owner chose `agents`, or it is following the panel. */
+  agentsChosen: boolean;
 }
 
 export async function deploymentLanguages(): Promise<DeploymentLanguages> {
   return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ console_language: string | null; agent_language: string }>(
+    const { rows } = await tx.query<{ console_language: string | null; agent_language: string | null }>(
       'SELECT console_language, agent_language FROM platform_control',
     );
-    return { console: rows[0]?.console_language ?? null, agents: rows[0]?.agent_language ?? 'en' };
+    const row = rows[0];
+    return {
+      console: row?.console_language ?? null,
+      agents: row?.agent_language ?? row?.console_language ?? 'en',
+      agentsChosen: row?.agent_language != null,
+    };
   });
 }
 
-/** Partial: a field left out keeps its value; `console: null` goes back to the browser's. */
-export async function setDeploymentLanguages(change: Partial<DeploymentLanguages>): Promise<DeploymentLanguages> {
+/**
+ * Partial: a field left out keeps its value. `console: null` goes back to
+ * none, and `agents: null` back to following the panel.
+ */
+export async function setDeploymentLanguages(change: { console?: string | null; agents?: string | null }): Promise<DeploymentLanguages> {
   await withControlPlane(async (tx) => {
     if (change.console !== undefined) {
       await tx.query('UPDATE platform_control SET console_language = $1, updated_at = now()', [change.console]);

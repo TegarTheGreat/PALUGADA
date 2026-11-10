@@ -125,7 +125,7 @@ export async function resolveCurrent(
   if (!credential) {
     throw new PalugadaError(
       'capability.not_granted',
-      `division ${divisionId} has no credential aliased ${alias}`,
+      `this division holds no ${alias} key: ask the owner for it with owner.ask, naming key "${alias}"`,
       { divisionId, alias },
     );
   }

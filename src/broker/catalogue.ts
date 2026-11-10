@@ -54,6 +54,17 @@ export interface CapabilityDeclaration {
    */
   executesUntrustedCode?: boolean;
   /**
+   * Whether the code it runs can reach no network at all (0115).
+   *
+   * Only with `executesUntrustedCode`: what F8.10 guards against is code
+   * posting a credential or reaching a tier 2 effect somewhere, and code in a
+   * container with `--network none`, handed no credential, can post nothing
+   * anywhere. So the database lets such a capability share a division with
+   * both. Checked against the binding like the flag it qualifies, so only an
+   * implementation that keeps the promise can claim it.
+   */
+  networkIsolated?: boolean;
+  /**
    * Whether what it returns was written outside the company (F8.9): a web
    * page, an email, a customer's record, an invitation, somebody else's pull
    * request. Work that has read it carries that provenance, and the broker
@@ -116,11 +127,24 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'company changes; what the sub-task then does is judged at its own tier.',
   },
   {
+    // 3 October audit, P0-7: look again at the real outcome, later.
+    name: 'task.follow_up',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks for a task of its own, later, to look at what the work actually did.',
+    calibration:
+      'Creates a sub-task inside the company that cannot start before its time, ' +
+      'under the hop limit, the fan-out cap and the parent\'s budget, carrying ' +
+      'what the parent read from outside; an hour at least, ninety days at most, ' +
+      'a few open per goal, cancelled when the goal closes. Nothing outside the ' +
+      'company changes; what it does when it wakes is judged at its own tier.',
+  },
+  {
     // The result of a sub-task this task delegated; waiting parks the task.
     name: 'task.await',
     adapter: 'platform',
     tier: TIER.READ_ONLY,
-    summary: 'Reads the result of work this task delegated, waiting if it is not done.',
+    summary: 'Reads the result of work this task delegated, and the paths of the files it made, waiting if it is not done.',
     calibration:
       'Reads one row of the company\'s own tasks. Waiting parks the task until ' +
       'it looks again, and holds no worker in between.',
@@ -146,6 +170,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'Opens one item in the owner\'s inbox and changes nothing: agents read ' +
       'goals and never write them, and the goal changes only when the owner ' +
       'approves, with their device.',
+  },
+  {
+    // The tools research, gap #12. A run proposing that work recur.
+    name: 'schedule.propose',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Proposes to the owner that some work run on a schedule: what, by which role, when, and why.',
+    calibration:
+      'Opens one item in the owner\'s inbox and changes nothing: the schedule ' +
+      'exists only when the owner approves it, as one the owner made would, ' +
+      'and a run may not propose one more often than hourly.',
   },
   {
     // A run asking the owner what only the owner can answer; the task waits.
@@ -196,6 +231,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     calibration: 'A named tier 0 example in the PRD section 8.8 table.',
   },
   {
+    name: 'files.read',
+    adapter: 'storage',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads a file in the company\'s files as text.',
+    readsOutside: true,
+    calibration:
+      'Reading changes nothing, as listing does not. What a file says may have ' +
+      'come from anywhere -- the owner\'s own notes, a customer\'s attachment, a ' +
+      'draft written after reading a stranger\'s page -- and nothing records ' +
+      'which, so all of it reaches the model as content from outside (F8.9).',
+  },
+  {
     name: 'web.fetch',
     adapter: 'http',
     tier: TIER.READ_ONLY,
@@ -205,6 +252,28 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'Reading changes nothing outside. What it returns is external text, so ' +
       'it reaches the model inside the untrusted envelope F8.9 requires -- ' +
       'the risk it carries is injection, not irreversibility.',
+  },
+  {
+    name: 'browser.read',
+    adapter: 'browser',
+    tier: TIER.READ_ONLY,
+    summary: 'Opens and reads a page in the company\'s browser, signed in where the company is.',
+    readsOutside: true,
+    calibration:
+      'Opening a page and following its links changes nothing a person ' +
+      'reading it would not -- a link is a request to read. What it returns ' +
+      'is a stranger\'s page, so outside content (F8.9), and it is read through ' +
+      'the platform\'s proxy under the same rules as web.fetch (F12.9).',
+  },
+  {
+    name: 'browser.handover',
+    adapter: 'browser',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks the owner to take the company\'s browser over: to sign in, to type a code, to answer a puzzle.',
+    calibration:
+      'Asking changes nothing: it is a question, as `owner.ask` is, answered at ' +
+      'the browser rather than in words. What the owner then does there is ' +
+      'theirs, with their device.',
   },
   {
     name: 'web.search',
@@ -276,6 +345,27 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'ledger.record',
+    adapter: 'accounting',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Records an entry in the books: accounts debited and credited, balancing.',
+    calibration:
+      'Internal: nobody outside the company sees an entry, and a wrong one is ' +
+      'undone by a reversing entry that stays beside it. It moves no money; ' +
+      'recording that money moved is not moving it, which is `invoice.pay`.',
+  },
+  {
+    name: 'chat.read',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads a conversation a customer started on one of the company\'s channels.',
+    readsOutside: true,
+    calibration:
+      'Reading changes nothing, and what it returns is a customer\'s own words, ' +
+      'so outside content (F8.9): the work that reads it asks the owner before ' +
+      'anything at tier 2.',
+  },
+  {
     name: 'crm.read',
     adapter: 'crm',
     tier: TIER.READ_ONLY,
@@ -340,6 +430,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'A read: it changes nothing, and the recording stays where it was. What ' +
       'it says came from whoever spoke, so it is content from outside the ' +
       'company, like a page read from the web.',
+  },
+  {
+    name: 'image.describe',
+    adapter: 'vision',
+    tier: TIER.READ_ONLY,
+    readsOutside: true,
+    summary: 'Says what a picture in the company\'s files shows, and copies its words.',
+    calibration:
+      'A read: it changes nothing, and the picture stays where it was. What ' +
+      'it shows -- a receipt, a screenshot, a customer\'s photo -- was made ' +
+      'outside the company, so its words are content from outside, like a ' +
+      'recording\'s.',
   },
   {
     name: 'dns.update',
@@ -412,6 +514,37 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'crm.record',
+    adapter: 'crm',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Records a customer\'s details, or someone new, and opens or moves a deal with them.',
+    calibration:
+      'Internal: nobody outside the company sees a record change, and each ' +
+      'change keeps what the fields were on the owner\'s timeline, so it is ' +
+      'undone by hand. A deal marked won moves no money; an invoice does.',
+  },
+  {
+    name: 'code.compute',
+    adapter: 'container',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary:
+      'Runs Python supplied at call time on the company files it names, in a ' +
+      'container with no network, and keeps what the code wrote in the ' +
+      'company\'s files.',
+    calibration:
+      'Tier 1 because all it can reach is the company\'s own files: it reads ' +
+      'the ones it is handed, and writes new ones in a folder of its own, which ' +
+      'deleting the folder undoes. The container has no network and no ' +
+      'credential, so code that was talked into anything can post nothing ' +
+      'anywhere -- which is what F8.10 guards against, and why this may sit ' +
+      'beside a credential and a tier 2 grant where `code.execute` may not. ' +
+      'What it read came from the company\'s files, and nothing records where ' +
+      'their words came from, so what it returns is outside content.',
+    executesUntrustedCode: true,
+    networkIsolated: true,
+    readsOutside: true,
+  },
+  {
     name: 'email.draft',
     adapter: 'mail',
     tier: TIER.REVERSIBLE_WRITE,
@@ -433,6 +566,29 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'A named tier 2 example in the PRD section 8.8 table. Nothing unsends ' +
       'a message that has been read.',
     needsCredential: true,
+  },
+  {
+    name: 'chat.send',
+    adapter: 'platform',
+    tier: TIER.COSTLY,
+    summary: 'Replies to a customer in a conversation they started.',
+    calibration:
+      'The same as `email.send`: nothing unsends a message a customer has read. ' +
+      'It answers only a conversation a customer began, and the work it answers ' +
+      'began with a stranger\'s words, so the owner says yes to each reply.',
+  },
+  {
+    name: 'browser.act',
+    adapter: 'browser',
+    tier: TIER.COSTLY,
+    summary: 'Fills in and submits a page in the company\'s browser: types, chooses, ticks, clicks.',
+    readsOutside: true,
+    calibration:
+      'The same as `email.send`: a form submitted is not taken back -- an order ' +
+      'accepted, a listing changed, a return filed. Below tier 3 because what ' +
+      'it does is what the company\'s own sign-in may do on that site and the ' +
+      'site keeps its own record; the work that acts has read the page, so the ' +
+      'owner says yes to each act, every step on the card.',
   },
   {
     name: 'deploy.production',
@@ -475,6 +631,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'Voiding an invoice is possible but visible: the customer, and often a ' +
       'tax authority, has already seen the number. That is "slow to undo" ' +
       'rather than "cheap to undo".',
+    needsCredential: true,
+  },
+  {
+    name: 'invoice.remind',
+    adapter: 'accounting',
+    tier: TIER.COSTLY,
+    summary: 'Reminds a customer, by a letter the books write, that an invoice is overdue.',
+    calibration:
+      'A letter cannot be called back, which is what makes it tier 2 like any ' +
+      'other. But nothing in it is the caller\'s: the customer, the figures, ' +
+      'the days and the words are the books\' and the platform\'s, so a caller ' +
+      'persuaded by content from outside cannot make it say anything.',
     needsCredential: true,
   },
   {
@@ -607,6 +775,7 @@ export function assertCalibrated(capability: {
   name: string;
   defaultTier: Tier;
   executesUntrustedCode?: boolean;
+  networkIsolated?: boolean;
 }): void {
   const declared = BY_NAME.get(capability.name);
   if (!declared) return;
@@ -628,6 +797,17 @@ export function assertCalibrated(capability: {
       'capability.miscalibrated',
       `capability ${capability.name} must declare executesUntrustedCode = ` +
         `${declared.executesUntrustedCode ?? false} to match the catalogue`,
+      { name: capability.name },
+    );
+  }
+  // The same both ways: a binding that claimed isolation it does not keep
+  // would let the database put its code beside a credential, and one that
+  // dropped the claim would refuse the divisions the catalogue allows.
+  if ((capability.networkIsolated ?? false) !== (declared.networkIsolated ?? false)) {
+    throw new PalugadaError(
+      'capability.miscalibrated',
+      `capability ${capability.name} must declare networkIsolated = ` +
+        `${declared.networkIsolated ?? false} to match the catalogue`,
       { name: capability.name },
     );
   }

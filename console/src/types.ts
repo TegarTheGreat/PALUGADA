@@ -45,11 +45,25 @@ export interface InboxItem {
   createdAt: string;
   capabilityName: string | null;
   roleSlug: string | null;
+  /** The name the owner gave that role. */
+  roleName: string | null;
   divisionName: string | null;
   /** A question an agent asked with `owner.ask`: answered, not approved. */
   question: string | null;
   /** The answers it offered to choose from, when it offered some. */
   options: string[] | null;
+  /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
+  browser?: boolean;
+  /** The person a question was put to; only they and the owner see it. Absent when it was put to no one in particular. */
+  addressee?: { seatId: string; name: string };
+  /** A question put to a person who has not answered in a day: the owner has been told. */
+  escalated?: boolean;
+  /** A role the CEO proposes hiring (a ticket of kind `hire`): the owner hires it with the CEO, or closes the ticket. */
+  hire?: { ticketId: string; role: string; why: string };
+  /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
+  key?: { alias: string; divisionId: string; capabilities: string[] };
+  /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
+  budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -57,6 +71,15 @@ export interface InboxItem {
   input?: unknown;
   /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
   allowFor?: boolean;
+  /** The schedule whose work asked, when it may be approved every time that schedule does exactly this (0116). */
+  forSchedule?: { slug: string } | null;
+  /** How many skills a skill card asks about: one, or all a bundle brought (B9). */
+  skillCount?: number | null;
+  /**
+   * What the owner asked on this card and what the agent answered, oldest
+   * first; a question still waiting for its answer is last, with none (N6).
+   */
+  asked?: Array<{ question: string; answer: string | null }>;
 }
 
 /** A yes the owner gave for a while (0083). */
@@ -64,7 +87,24 @@ export interface StandingApproval {
   id: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   capabilityName: string;
+  grantedByItem: string;
+  createdAt: string;
+  expiresAt: string;
+  uses: number;
+  lastUsedAt: string | null;
+}
+
+/** A yes the owner gave a schedule for one exact action (0116). */
+export interface ScheduleApproval {
+  id: string;
+  scheduleId: string;
+  scheduleSlug: string;
+  capabilityName: string;
+  /** The action, as the card that was approved said it. */
+  actionSummary: string;
   grantedByItem: string;
   createdAt: string;
   expiresAt: string;
@@ -165,6 +205,8 @@ export interface Role {
   dormantUntil: string | null;
   frozenAt: string | null;
   frozenReason: string | null;
+  /** `spend` is the platform's to lift when the burst has passed; the others wait for the owner. */
+  frozenBy: 'owner' | 'denials' | 'spend' | 'spend_held' | null;
   openTasks: number;
   doneLastWeek: number;
   /** Who the role is and how it works: first in every run's context. */
@@ -213,10 +255,14 @@ export interface WorkItem {
   id: string;
   status: string;
   haltReason: string | null;
+  /** For a task its budget stopped: the account with the least room, and its tokens this month. */
+  budgetStop?: { account: string | null; tokensSpent: number; tokensMax: number };
   summary: string;
   /** What it produced, in one line, once it has; null before. */
   result: string | null;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   divisionName: string;
   projectId: string;
   projectName: string;
@@ -235,10 +281,19 @@ export interface WorkItem {
     currentStep: string | null;
     currentStepStatus: string | null;
     planSteps: number | null;
+    /** The actions of its plan it has taken; null with no plan. */
+    planDone: number | null;
     worker: string | null;
     heartbeatAt: string | null;
     deadlineAt: string | null;
   };
+  /** What a task in `waiting_window` waits for; null in any other status (N9). */
+  waiting: {
+    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'model_key' | 'service' | 'retry' | 'follow_up' | null;
+    until: string | null;
+    on: WaitingRole | null;
+    needsYou: WaitingRole | null;
+  } | null;
 }
 
 export interface ActivityItem {
@@ -253,6 +308,8 @@ export interface ActivityItem {
 export interface Account {
   id: string;
   label: string;
+  /** What the owner calls it: its division's name, the owner's own label, or null for the whole company. */
+  name: string | null;
   scopeType: string;
   scopeId: string | null;
   scopeName: string | null;
@@ -271,10 +328,14 @@ export interface Schedule {
   timezone: string;
   enabled: boolean;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   divisionName: string;
   priority: number;
   /** What each run reserves from its budget account. */
   reserveTokens: number;
+  /** The most one run may spend: its role's ceiling for a run (N10). */
+  runCeilingTokens: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   failure: string | null;
@@ -327,6 +388,8 @@ export interface TraceRun {
   agentRunId: string;
   taskId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   status: string;
   attempt: number;
   startedAt: string;
@@ -353,7 +416,7 @@ export interface RunBriefing {
       memories: string[];
       goalAncestry: Array<{ kind: string; statement: string }>;
       notes: Array<{ title: string; body: string }>;
-      workingMemory: Array<{ name: string; output: unknown }>;
+      workingMemory: Array<{ name: string; input?: unknown; output: unknown }>;
     };
     allowedTools?: Array<{ name: string; tier: number }>;
     modelRouting?: { primary: string; fallback: string[] };
@@ -446,6 +509,23 @@ export interface MemoryItem {
 }
 
 /** Something a task wrote down for a person to read: a document, an email. */
+/** One thing the company produced for a person to read, across every task (the gallery). */
+export interface GalleryItem {
+  taskId: string;
+  step: number;
+  capability: string;
+  title: string;
+  path: string;
+  excerpt: string;
+  words: number | null;
+  to: string | null;
+  at: string;
+  roleSlug: string;
+  roleName: string | null;
+  /** What the task that made it was asked to do. */
+  task: string;
+}
+
 export interface Deliverable {
   step: number;
   capability: string;
@@ -479,8 +559,23 @@ export interface TaskDetail {
   /** The run's report on its done criteria, weighed against its journal; null when it made none. */
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
+  /** The files it made, whatever they hold, in the order it made them: to take out. */
+  files: Array<{ capability: string; path: string }>;
+  /** The work it handed to other roles, oldest first, with what each piece came to. */
+  handedOn: HandedPiece[];
+  /** The task that handed this one on, or null when the owner, a schedule or a trigger gave it. */
+  handedBy: { id: string; role: string; roleName: string | null } | null;
   /** The owner's last word on it, or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: string } | null;
+}
+
+/** One piece of work a task handed on. */
+export interface HandedPiece {
+  id: string;
+  role: string;
+  roleName: string | null;
+  status: string;
+  result: string | null;
 }
 
 /** One thing the search found, in any company (`GET /api/search`). */
@@ -502,6 +597,9 @@ export interface HandoffRule {
   fromRoleSlug: string;
   toRoleId: string;
   toRoleSlug: string;
+  /** The names the owner gave the two roles; shown in place of their codes. */
+  fromRoleName: string | null;
+  toRoleName: string | null;
   brief: string;
   enabled: boolean;
   createdAt: string;
@@ -510,6 +608,134 @@ export interface HandoffRule {
 /** How a trigger's caller proves itself (0056). */
 export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | 'standard';
 
+/** A customer channel (0111): a bot of the company's own, answered by one role. */
+export interface ChatChannel {
+  id: string;
+  kind: 'telegram' | 'whatsapp' | 'email';
+  /** The bot's username, the number or the address, as customers find it. */
+  account: string;
+  roleId: string;
+  roleName: string;
+  goalId: string;
+  instruction: string;
+  maxPerHour: number;
+  enabled: boolean;
+  chats: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+  /** A mailbox: when it was last read, and why the last reading failed. */
+  checkedAt: string | null;
+  failure: string | null;
+  /** Whether a reply grounded in documents for customers goes without the owner (0117). */
+  answersAlone: boolean;
+}
+
+/** One customer's conversation on a channel. */
+export interface Chat {
+  id: string;
+  channelId: string;
+  kind: 'telegram' | 'whatsapp' | 'email';
+  account: string;
+  /** Whether a reply can still be sent on it. */
+  open: boolean;
+  customerName: string | null;
+  customerHandle: string | null;
+  lastMessageAt: string;
+  lastMessage: { direction: 'in' | 'out'; body: string; attachment: string | null } | null;
+  /** The customer spoke last. */
+  unanswered: boolean;
+  /** Their record (0118), and the name on it. */
+  contactId: string | null;
+  contactName: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  direction: 'in' | 'out';
+  body: string;
+  /** What arrived that is not text, by Telegram's word for it: photo, voice, document… */
+  attachment: string | null;
+  /** A mail's subject. */
+  subject: string | null;
+  outcome: 'started' | 'joined' | 'limited' | null;
+  /** In: the files it carried, kept or not (0125). The name is the sender's: theirs, so shown as text and nothing more. */
+  files: Array<{ kind: string; name: string | null; path: string | null; bytes: number; note: string | null; why: 'too_big' | 'kind' | 'room' | 'no_files' | 'failed' | 'removed' | null }>;
+  taskId: string | null;
+  /** A reply the transport took; false for one whose send failed. */
+  sent: boolean;
+  at: string;
+  /** A reply that went without the owner (0117): the documents it answered from, by title. */
+  answeredAlone?: { from: string[] };
+}
+
+/** Someone the company deals with (0118). */
+export interface Contact {
+  id: string;
+  name: string;
+  organisation: string | null;
+  email: string | null;
+  phone: string | null;
+  createdBy: 'owner' | 'agent' | 'chat';
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  openDeals: number;
+  chats: number;
+}
+
+export type DealStage = 'lead' | 'qualified' | 'proposal' | 'won' | 'lost';
+
+export interface Deal {
+  id: string;
+  title: string;
+  stage: DealStage;
+  /** In the smallest unit of its own currency. */
+  value: { amountCents: number; currency: string } | null;
+  expectedOn: string | null;
+  createdBy: 'owner' | 'agent';
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface ContactDetail {
+  contact: Contact;
+  notes: Array<{ id: string; body: string; by: 'owner' | 'agent'; taskId: string | null; at: string }>;
+  deals: Deal[];
+  chats: Array<{ id: string; kind: Chat['kind']; account: string; lastMessageAt: string }>;
+}
+
+/** An account in the company's books (0119), with what it holds on its natural side, per currency. */
+export interface BookAccount {
+  id: string;
+  code: string;
+  name: string;
+  kind: 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+  systemKey: string | null;
+  archivedAt: string | null;
+  balances: Array<{ currency: string; cents: number }>;
+}
+
+export interface JournalEntry {
+  id: string;
+  date: string;
+  memo: string;
+  currency: string;
+  writtenBy: 'owner' | 'agent';
+  taskId: string | null;
+  outside: boolean;
+  reverses: string | null;
+  reversedBy: string | null;
+  createdAt: string;
+  lines: Array<{ account: string; name: string; debitCents: number; creditCents: number }>;
+}
+
+export interface Books {
+  accounts: BookAccount[];
+  entries: JournalEntry[];
+  month: { from: string; to: string; profit: Array<{ currency: string; incomeCents: number; expenseCents: number; profitCents: number }> };
+}
+
 /** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {
   id: string;
@@ -517,6 +743,8 @@ export interface Trigger {
   publicId: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   goalId: string;
   instruction: string;
   maxPerHour: number;
@@ -572,6 +800,8 @@ export interface PolicyRow {
 export interface Ticket {
   id: string;
   projectId: string;
+  /** `hire`: a role the company lacks, which the owner decides (0132). */
+  kind: 'work' | 'hire';
   divisionId: string | null;
   title: string;
   body: string;
@@ -584,4 +814,117 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+}
+
+/** A piece of work a waiting task is held up by, and whose it is. */
+export interface WaitingRole {
+  taskId: string;
+  role: string;
+  roleName: string | null;
+}
+
+/** A staff seat signed in beside the owner (0110): who, what it may do, and its one company. */
+export interface Staff {
+  name: string;
+  kind: 'viewer' | 'approver';
+  companyId: string;
+}
+
+/** A tab of the company's browser, as the owner sees it. */
+export interface BrowserTab {
+  id: string;
+  /** The work it is, or null for the owner's own. */
+  taskId: string | null;
+  /** What that work is, in a line. */
+  work: string | null;
+  url: string;
+  title: string;
+}
+
+export interface BrowserView {
+  /** Whether this deployment has a browser at all. */
+  available: boolean;
+  held: { since: string; touchedAt: string } | null;
+  tabs: BrowserTab[];
+}
+
+export interface BrowserScreen {
+  image: string;
+  url: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** What the deployment reported when it started (`/api/control/setup`). */
+export interface SetupReport {
+  notes: string[];
+  todo: string[];
+  version?: string;
+  /** No model is set: no role on the in-process runtime can work until one is. */
+  modelMissing?: boolean;
+}
+
+/** An invoice the company keeps in its books (0122). */
+export interface InvoiceRow {
+  id: string;
+  number: string;
+  contactId: string | null;
+  customerName: string;
+  customerEmail: string | null;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  subtotalCents: number;
+  taxRateBps: number;
+  taxCents: number;
+  totalCents: number;
+  paidCents: number;
+  outstandingCents: number;
+  status: 'open' | 'partial' | 'paid' | 'void';
+  overdue: boolean;
+  note: string | null;
+  writtenBy: 'owner' | 'agent';
+  outside: boolean;
+}
+
+export interface InvoiceDetail extends InvoiceRow {
+  lines: Array<{ description: string; quantity: number; unitCents: number; amountCents: number }>;
+  payments: Array<{ id: string; paidOn: string; amountCents: number; entryId: string; reversed: boolean; writtenBy: 'owner' | 'agent' }>;
+  /** The reminders sent, in order, and whether the owner asked that it be left alone. */
+  /** `confirmed` false: handed to the mail server, which never said it took it; it counts as sent and is not sent again. */
+  reminders: Array<{ step: number; sentOn: string; to: string; confirmed: boolean }>;
+  held: boolean;
+}
+
+/** What has been done about reminding a customer of one invoice. */
+export interface InvoiceReminding {
+  sent: number;
+  lastOn: string | null;
+  held: boolean;
+  told: boolean;
+}
+
+/** Reminders for overdue invoices: the company's policy, and who writes them. */
+export interface Collections {
+  enabled: boolean;
+  stepsDays: number[];
+  paymentNote: string | null;
+  senders: { names: string[]; waiting: string[] };
+}
+
+export interface Invoices {
+  invoices: InvoiceRow[];
+  outstanding: Array<{ currency: string; outstandingCents: number; overdueCents: number }>;
+  reminding: Record<string, InvoiceReminding>;
+  collections: Collections;
+}
+
+/** The languages of the deployment: the panel's, the agents', and the ones it can be set to. */
+export interface Languages {
+  console: string | null;
+  agents: string;
+  /** Whether the owner chose the agents' language, or it follows the panel's. */
+  agentsChosen: boolean;
+  supported: Array<{ code: string; name: string; native: string }>;
 }

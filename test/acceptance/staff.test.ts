@@ -54,7 +54,7 @@ async function seat(api: Console, owner: string, fixture: Fixture, name: string,
   return { seatId: String(made.body.seatId), invite, token: String(joined.body.token), code, staff: joined.body.staff };
 }
 
-test('a viewer joins with their own authenticator, reads their company, and changes nothing', async () => {
+test('a viewer joins with their own authenticator, reads their company, and changes no work', async () => {
   const fixture = await createCompany('staff-viewer');
   const other = await createCompany('staff-other');
   const api = await consoleWithSettings();
@@ -72,8 +72,11 @@ test('a viewer joins with their own authenticator, reads their company, and chan
     assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/inbox`, rina.token)).status, 200);
     assert.equal((await api.call('GET', `/api/companies/${other.companyId}/work`, rina.token)).status, 403, 'nor another company');
 
+    // A viewer talks and keeps its own profile (F19.8), and changes no work: it
+    // neither gives work nor tells a task anything.
     const forbidden: Array<[string, string]> = [
       ['POST', `/api/companies/${fixture.companyId}/assign`],
+      ['POST', `/api/companies/${fixture.companyId}/tasks/${randomUUID()}/instruct`],
       ['GET', `/api/companies/${fixture.companyId}/export`],
       ['GET', `/api/companies/${fixture.companyId}/conversation`],
       ['GET', '/api/control/settings'],

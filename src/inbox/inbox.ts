@@ -1405,8 +1405,10 @@ export function answerFilesSaid(files: readonly AnswerFile[]): string {
 }
 
 /**
- * The seats of a company that can answer a question: joined, not revoked, and
- * approvers -- a viewer reads and answers nothing. Read on the control plane,
+ * The seats of a company that a question can be put to: joined, not revoked,
+ * and members or approvers -- a viewer reads and answers nothing, and a
+ * member answers what is put to it (F19.8), so a contractor holding a role
+ * that is a person need not be an approver too. Read on the control plane,
  * where seats are kept (0110), and by name only: nothing of a seat's factor
  * leaves it.
  */
@@ -1414,7 +1416,7 @@ export async function askableSeats(companyId: string): Promise<Array<{ seatId: s
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ id: string; name: string }>(
       `SELECT id, name FROM staff_seats
-        WHERE company_id = $1 AND kind = 'approver' AND joined_at IS NOT NULL AND revoked_at IS NULL
+        WHERE company_id = $1 AND kind IN ('member', 'approver') AND joined_at IS NOT NULL AND revoked_at IS NULL
         ORDER BY name, id`,
       [companyId],
     );
@@ -1422,10 +1424,19 @@ export async function askableSeats(companyId: string): Promise<Array<{ seatId: s
   });
 }
 
+/** Whether a seat is still seated and joined, and as what: null when it is not. */
+export async function seatedKind(companyId: string, seatId: string): Promise<'viewer' | 'member' | 'approver' | null> {
+  const { rows } = await withControlPlane((tx) => tx.query<{ kind: 'viewer' | 'member' | 'approver' }>(
+    'SELECT kind FROM staff_seats WHERE id = $1 AND company_id = $2 AND joined_at IS NOT NULL AND revoked_at IS NULL',
+    [seatId, companyId]));
+  return rows[0]?.kind ?? null;
+}
+
 /**
- * The seat a run means by a name: the approver called that, in any case. A
- * name no one has, a name two have, a viewer's and a revoked seat's are each
- * refused saying who there is, so the run asks again of a person who can answer.
+ * The seat a run means by a name: the member or approver called that, in any
+ * case. A name no one has, a name two have, a viewer's and a revoked seat's
+ * are each refused saying who there is, so the run asks again of a person
+ * who can answer.
  */
 export async function approverNamed(companyId: string, name: string): Promise<{ seatId: string; name: string }> {
   const wanted = name.trim().toLowerCase();

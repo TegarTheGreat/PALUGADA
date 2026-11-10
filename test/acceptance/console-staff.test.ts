@@ -51,12 +51,20 @@ test('an approver joins from the invite, sees one company without the owner\'s c
 
     await page.goto(`${api.url}/#/join/${made.body.invite}`);
     await page.waitFor(`document.body.innerText.includes('Welcome, Budi')`, 'the join page');
+    // How he will appear, chosen first (F19.22): the owner gave the name, he chooses the handle.
+    await page.waitFor(`document.querySelector('input[name="handle"]') !== null`, 'the handle field');
+    await page.evaluate(`document.querySelector('input[name="handle"]').focus()`);
+    await page.type('budi');
+    await page.evaluate(`[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Continue').click()`);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]') !== null`, 'the code step');
     // The key the page shows, for an app that cannot scan; read as the person would type it.
     const secret = String(await page.evaluate(`[...document.querySelectorAll('code')].map((one) => one.innerText).find((text) => /^[A-Z2-7 ]{20,}$/.test(text)) ?? ''`)).replace(/\s/g, '');
     assert.match(secret, /^[A-Z2-7]{32}$/);
     await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
     await page.type(totpCode(decodeBase32(secret), stepFor(new Date())));
     await page.waitFor(`document.body.innerText.includes('Toko Kopi Senja') && document.body.innerText.includes('Approver')`, 'the console, as Budi');
+    const { rows: [chosen] } = await withControlPlane((tx) => tx.query<{ handle: string | null }>('SELECT handle FROM staff_seats WHERE id = $1', [made.body.seatId]));
+    assert.equal(chosen?.handle, 'budi', 'the handle he chose is his');
 
     // Wherever the seat lands, and on Home, which lists every company it may see.
     const owners = ['Stop everything', 'Ask PALUGADA', 'This deployment', 'Start a company', 'Restore from an export'];

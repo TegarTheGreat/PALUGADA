@@ -27,7 +27,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: 
   { id: 'skills', label: N('Skills'), hint: N('Procedures the agents can read, and who vouched for them.'), icon: IconCertificate },
   { id: 'bundles', label: N('Bundles'), hint: N('Packages of roles and skills, and the publishers you trust.'), icon: IconPackage },
   { id: 'devices', label: N('Devices'), hint: N('Machines that run agents for this company.'), icon: IconDevices },
-  { id: 'people', label: N('People'), hint: N('Staff who can follow this company, and approve what is small.'), icon: IconUsers },
+  { id: 'people', label: N('People'), hint: N('The people you seat: who reads and talks, who also asks for work, and who approves what is small.'), icon: IconUsers },
   { id: 'security', label: N('Security'), hint: N('Your authenticators and sessions.'), icon: IconLock },
 ];
 

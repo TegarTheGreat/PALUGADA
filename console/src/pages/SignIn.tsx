@@ -7,6 +7,10 @@
  * one; which device holds it is the device's business, since there is no
  * account to name -- the owner's device offers the passkey it made here.
  *
+ * A member of staff the owner seated signs in with the code their own app
+ * shows and their handle, which names the one seat to check it against
+ * (F19.22): "I'm a member of staff" shows the field for it.
+ *
  * The language can be switched here, before signing in, for this visit only:
  * nothing is saved until the owner is in and chooses in the console, where
  * the choice goes to the deployment rather than to the browser.
@@ -56,6 +60,9 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
   // The phone is gone: one of the codes written down on the day.
   const [recovering, setRecovering] = useState(false);
   const [recovery, setRecovery] = useState('');
+  // A member of staff, who names their handle with their code.
+  const [staffing, setStaffing] = useState(false);
+  const [handle, setHandle] = useState('');
 
   const withRecovery = async () => {
     if (!recovery.trim() || busy) return;
@@ -76,7 +83,8 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
     setBusy('code');
     setError(null);
     try {
-      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { totp: value });
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in',
+        staffing && handle ? { handle, totp: value } : { totp: value });
       onSignedIn(session);
     } catch (failure) {
       setError({ message: explain(failure), from: 'code' });
@@ -148,13 +156,20 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
               <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={56} height={56} />
               <div style={{ textAlign: 'center' }}>
                 <Title order={2}>{t('Welcome back')}</Title>
-                <Text c="dimmed" size="sm" mt={6}>{t('Enter the six-digit code from your authenticator app.')}</Text>
+                <Text c="dimmed" size="sm" mt={6}>
+                  {staffing ? t('Enter your handle, then the six-digit code from your authenticator app.') : t('Enter the six-digit code from your authenticator app.')}
+                </Text>
               </div>
+              {staffing && (
+                <TextInput name="handle" w="100%" label={t('Your handle')} leftSection="@" value={handle} autoFocus autoComplete="username"
+                  maxLength={33} disabled={busy !== null}
+                  onChange={(event) => setHandle(event.currentTarget.value.trim().replace(/^@/, '').toLowerCase())} />
+              )}
               <PinInput
                 length={6}
                 type="number"
                 oneTimeCode
-                autoFocus
+                autoFocus={!staffing}
                 size={narrow ? 'md' : 'lg'}
                 value={code}
                 onChange={setCode}
@@ -172,7 +187,7 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
               <Button fullWidth size="md" loading={busy === 'code'} disabled={code.length !== 6 || busy === 'passkey'} onClick={() => void submit(code)}>
                 {t('Sign in')}
               </Button>
-              {passkeysSupported() && (
+              {!staffing && passkeysSupported() && (
                 <>
                   <Divider label={t('or')} w="100%" />
                   <Button
@@ -188,7 +203,10 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
                   </Button>
                 </>
               )}
-              {recovering ? (
+              <Anchor component="button" type="button" size="sm" onClick={() => { setStaffing(!staffing); setError(null); }}>
+                {staffing ? t("I'm the owner") : t("I'm a member of staff")}
+              </Anchor>
+              {staffing ? null : recovering ? (
                 <Stack gap="xs" w="100%">
                   <TextInput label={t('Recovery code')} placeholder="abcd-efgh-ijkl-mnop" value={recovery} autoComplete="off"
                     onChange={(event) => setRecovery(event.currentTarget.value)} error={error?.from === 'recovery'} disabled={busy !== null}

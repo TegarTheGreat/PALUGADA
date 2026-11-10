@@ -1115,7 +1115,7 @@ export interface WaitingRole {
 /** A staff seat signed in beside the owner (0110): who, what it may do, and its one company. */
 export interface Staff {
   name: string;
-  kind: 'viewer' | 'approver';
+  kind: 'viewer' | 'member' | 'approver';
   companyId: string;
 }
 

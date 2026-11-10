@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COMPANY_EMBLEMS, companyEmblem, OWNER_PICTURE, rolePicture, ROLE_PICTURES } from '../../console/src/images.ts';
+import { COMPANY_EMBLEMS, companyEmblem, OWNER_PICTURE, PEOPLE_PICTURES, personPicture, rolePicture, ROLE_PICTURES } from '../../console/src/images.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONSOLE = join(ROOT, 'console');
@@ -113,6 +113,37 @@ test('a role is drawn doing its job when its name says what that is, and as an a
   for (const picture of plain) assert.match(picture, /^agent(-\w+)?$/);
   assert.deepEqual(['worker', 'kopi-a', 'lumen', 'x'].map(drawn), plain);
   assert.ok(await shipped(OWNER_PICTURE.slice(1)), 'the owner has a picture');
+});
+
+/**
+ * A person is drawn as the picture they chose, or one given from their seat's
+ * id until they choose (F19.2): never from the letters of their name, which a
+ * colleague could share, and the same one wherever they are drawn.
+ */
+test('a person is drawn as the picture they chose, or one from their seat, never from their name', async () => {
+  assert.equal(PEOPLE_PICTURES.length, 12);
+  for (const picture of PEOPLE_PICTURES) {
+    assert.match(picture, /^person-(0[1-9]|1[0-2])$/);
+    assert.ok(await shipped(`avatars/people/${picture}.webp`), `${picture} is not shipped`);
+    const bytes = await readFile(join(PUBLIC, 'avatars', 'people', `${picture}.webp`));
+    assert.equal(bytes.subarray(8, 12).toString('latin1'), 'WEBP', `${picture} is not a WebP`);
+  }
+  assert.equal(personPicture('owner'), OWNER_PICTURE, 'the owner is drawn as the owner, whatever is asked');
+  assert.equal(personPicture('owner', 'person-03'), OWNER_PICTURE);
+  const seat = (n: number) => `seat:00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
+  assert.equal(personPicture(seat(1), 'person-07'), '/avatars/people/person-07.webp', 'the one they chose');
+  assert.equal(personPicture(seat(1), '../owner'), personPicture(seat(1)), 'and nothing else is a picture');
+  const counts = new Map<string, number>();
+  for (let n = 0; n < 1200; n += 1) {
+    const picture = personPicture(seat(n));
+    assert.match(picture, /^\/avatars\/people\/person-(0[1-9]|1[0-2])\.webp$/);
+    assert.equal(personPicture(seat(n), null), picture, 'the same one each time it is drawn');
+    counts.set(picture, (counts.get(picture) ?? 0) + 1);
+  }
+  assert.equal(counts.size, PEOPLE_PICTURES.length, 'every picture is given');
+  for (const [picture, count] of counts) {
+    assert.ok(count > 50 && count < 150, `${picture} was given to ${count} of 1200 people; the spread is uneven`);
+  }
 });
 
 test('every image path the console names is a file it ships', async () => {

@@ -1064,3 +1064,11 @@ The first version. What it holds, in the order an owner meets it.
   the hour, and only the newest part of a long conversation is sent each
   turn. PALUGADA's own assistant stops at a monthly allowance, USD 20 until
   you change it under This deployment, Model (STATUS 2.205).
+- People: you name everyone you seat, and a name that looks like a
+  colleague's, yours, PALUGADA's, the CEO's or a role's is refused, in
+  look-alike letters too. Seat a member, who asks for work and answers what
+  is put to them, or up to thirty people at once with one code, and change
+  what each may do (letting someone do more takes your code). Staff choose
+  a handle, a picture, their language and quiet hours as they join, sign in
+  with their handle and code, and are locked out of a handle after five
+  wrong codes; everyone has a profile in the menu (STATUS 2.209).

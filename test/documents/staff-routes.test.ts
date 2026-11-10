@@ -128,3 +128,20 @@ test("a seat's kind is a ladder: a viewer talks, a member also asks, an approver
   assert.equal(staffMay(seat('approver'), 'DELETE', decide, params), false);
   assert.equal(staffMay(seat('somebody'), 'POST', answer, params), false, 'a kind the ladder does not know asks for nothing');
 });
+
+/**
+ * Who is seated, as what, and under which name is the owner's alone (F19.8,
+ * F19.21): a person keeps their own profile, and nothing more of people.
+ */
+test('seating, naming and changing people is the owner\'s, and a person keeps only their own profile', async () => {
+  const real = await posts();
+  const owners = ['/api/companies/:companyId/staff-batch', '/api/companies/:companyId/staff/:seatId/change'];
+  for (const pattern of owners) {
+    assert.ok(real.has(pattern), `${pattern} is a route`);
+    for (const kind of ['viewer', 'member', 'approver']) {
+      assert.equal(staffMay(seat(kind), 'POST', pattern, { companyId: '00000000-0000-4000-8000-000000000001' }), false, `${kind}: ${pattern}`);
+    }
+  }
+  assert.ok(STAFF_READS.includes('/api/me/profile'), 'a person reads their own profile');
+  assert.ok(STAFF_TALKS.includes('/api/me/profile'), 'and sets it, whatever their kind');
+});

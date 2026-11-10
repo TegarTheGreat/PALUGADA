@@ -17,10 +17,12 @@ import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { transition } from '../../src/engine/tasks.ts';
+import * as inbox from '../../src/inbox/inbox.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { chromium, openPage, type Page } from '../helpers/browser.ts';
 import { companyRoomOf, ok, personIn, said, seated, type Console } from '../helpers/rooms.ts';
 
@@ -204,10 +206,11 @@ test('on a phone a long press opens what may be done with a message, and only wh
   try {
     await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
     await page.waitFor(`${ROW('Tolong cek kas pagi ini.')} && ${ROW('Kasir kedua sudah datang.')}`, 'both messages');
-    // On a phone a message has no buttons of its own beside it: they would crowd a narrow line.
-    const shown = await page.evaluate<boolean>(`(() => { const actions = ${ROW('Tolong cek kas pagi ini.')}.querySelector('.message-actions');
-      return Boolean(actions) && getComputedStyle(actions).display !== 'none'; })()`);
-    assert.equal(shown, false, 'a message\'s buttons are drawn beside it on a phone');
+    // On a phone a message has one button beside it, for what the long press also opens: a row of them would crowd a
+    // narrow line, and none would leave a screen reader, or a window with no touch, no way in.
+    const buttons = await page.evaluate<string[]>(`[...${ROW('Tolong cek kas pagi ini.')}.querySelectorAll('.message-actions button')]
+      .filter((one) => one.getBoundingClientRect().width > 0).map((one) => one.getAttribute('aria-label'))`);
+    assert.deepEqual(buttons, ['More actions'], 'a message on a phone has its buttons beside it');
 
     // A tap is not a press: nothing opens.
     await page.evaluate(HOLD('Tolong cek kas pagi ini.', 80));
@@ -218,6 +221,9 @@ test('on a phone a long press opens what may be done with a message, and only wh
     await page.evaluate(HOLD('Tolong cek kas pagi ini.', 700));
     await page.waitFor(`document.querySelectorAll('.mantine-Drawer-content [data-action]').length > 0`, 'the sheet of the owner\'s own message');
     const mine = await sheet();
+    // The sheet is as tall as what it offers, and leaves the message it acts on in sight above it.
+    const drawer = await box(page, '.mantine-Drawer-content');
+    assert.ok(drawer && drawer.top >= PHONE.height / 4, `the sheet starts ${drawer?.top} px from the top of a ${PHONE.height} px screen`);
     for (const action of ['reply', 'copy', 'edit', 'pin', 'work', 'issue', 'delete']) {
       assert.ok(mine.includes(action), `the owner's own message offers no ${action}: ${mine.join(', ')}`);
     }
@@ -291,12 +297,29 @@ test('typing @ offers people, never roles', { skip }, async () => {
     assert.doesNotMatch(words, /Sari|worker|CEO/, 'a role is offered as someone to mention');
     const hint = await page.evaluate<string>(`document.querySelector('[data-mention-hint]')?.innerText ?? ''`);
     assert.match(hint, /To ask an agent, use Ask the team\./);
+    // A screen reader is told that a list opened, and which person the arrows are on: the composer is the list's combobox.
+    const TOLD = `(() => {
+      const box = document.querySelector('[data-composer]');
+      const list = document.getElementById(box.getAttribute('aria-controls') || '-');
+      const option = document.getElementById(box.getAttribute('aria-activedescendant') || '-');
+      return { role: box.getAttribute('role'), expanded: box.getAttribute('aria-expanded'), list: list?.getAttribute('role') ?? null,
+               option: option?.getAttribute('role') ?? null, selected: option?.getAttribute('aria-selected') ?? null, id: option?.id ?? null };
+    })()`;
+    const first = await page.evaluate<Record<string, string | null>>(TOLD);
+    assert.deepEqual({ ...first, id: null }, { role: 'combobox', expanded: 'true', list: 'listbox', option: 'option', selected: 'true', id: null },
+      'the list of people is not told to a screen reader');
+    await page.press('ArrowDown');
+    const next = await page.evaluate<Record<string, string | null>>(TOLD);
+    assert.notEqual(next.id, first.id, 'the arrow moved, and the screen reader was not told where to');
+    assert.equal(next.selected, 'true');
 
     // Typing narrows by the handle and by each word of the name; Enter chooses.
     await page.type('ri');
     await page.waitFor(`document.querySelectorAll('[data-mention]').length === 1 && document.querySelector('[data-mention]').getAttribute('data-mention') === ${JSON.stringify(rina.principal)}`, 'Rina alone');
     await page.press('Enter');
     await page.waitFor(`document.querySelector('[data-composer]').value === '@rina '`, 'the handle written in');
+    assert.equal(await page.evaluate<string | null>(`document.querySelector('[data-composer]').getAttribute('aria-expanded')`), 'false',
+      'the list is closed, and a screen reader is told so');
     await page.type('cek stok ya');
     await page.press('Enter');
     await page.waitFor(`${ROW('cek stok ya')}`, 'the message in the room');
@@ -521,6 +544,263 @@ test('giving work in a direct room says the words become company work', { skip }
     await page.waitFor(`document.querySelector('[data-askwork] textarea')`, 'the drawer that asks the team, with its fields');
     const said_ = await page.evaluate<string>(`document.querySelector('[data-askwork]').innerText`);
     assert.match(said_, /This becomes company work: its words are visible to everyone in Toko Kopi Senja and to its agents\./);
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a reply pressed in Activity opens the thread it is in, where it is seen, and the badge falls', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const rina = await seated(fixture, 'Rina', 'member', { handle: 'rina' });
+  const her = personIn(api, rina.token, fixture.companyId);
+  await companyRoomOf(her);
+  // The owner began the thread, and so follows it: Rina's reply is the owner's news, counted on the badge.
+  const rootId = await said(me, roomId, 'Siapa yang buka toko besok?');
+  const replyId = await said(her, roomId, { body: 'Saya, jam tujuh.', threadOf: rootId });
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=activity`);
+    await page.waitFor(`document.querySelector('[data-badge="rooms"]')?.innerText.trim() === '1'`, 'the reply counted on the badge');
+    await page.waitFor(`document.querySelector('.activity-row[data-unseen]')`, 'the reply in Activity, not yet seen');
+    await page.evaluate(`document.querySelector('.activity-row[data-unseen]').click()`);
+    await page.waitFor(`document.querySelector('[data-pane="thread"]')?.innerText.includes('Saya, jam tujuh.')`, 'the thread the reply is in');
+    assert.equal(await page.evaluate<string>('location.hash'), `#/c/${fixture.companyId}/rooms?item=${roomId}~${rootId}`);
+    await page.waitFor(`!document.querySelector('[data-badge="rooms"]')`, 'the badge gone once the thread is read', 20_000);
+    const items = ok(await me.activity()).items as Array<{ messageId?: string; seen?: boolean }>;
+    assert.equal(items.find((item) => item.messageId === replyId)?.seen, true, 'the reply is seen');
+    await page.evaluate(`location.hash = '#/c/${fixture.companyId}/rooms?item=activity'`);
+    await page.waitFor(`document.querySelector('.activity-row') && !document.querySelector('.activity-row[data-unseen]')`, 'Activity with nothing unseen');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+/** What is cut short with an ellipsis inside the cards of a pane, by what it says. */
+const CLIPPED = (pane: string) => `[...document.querySelectorAll('[data-pane="${pane}"] .mantine-Paper-root *')]
+  .filter((one) => getComputedStyle(one).textOverflow === 'ellipsis' && one.scrollWidth > one.clientWidth + 1)
+  .map((one) => one.textContent.trim())`;
+
+test('a card says which agent does it, and where it is, uncut beside an open thread and on a phone', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const goal = 'Tulis newsletter Oktober untuk pelanggan';
+  const messageId = await said(me, roomId, goal);
+  const taskId = String(ok(await me.on(roomId, messageId, 'work', { target: fixture.roleId, goal, goalId: fixture.goalId }), 'giving work').taskId);
+  await transition(fixture.companyId, taskId, 'running');
+  await inbox.askOwner({ companyId: fixture.companyId, taskId, question: 'Diskon 20% terlalu besar?', options: ['Ya', 'Tidak'] });
+  await syncRoomCards(fixture.companyId);
+  const page = await drawn(api, DESKTOP);
+  try {
+    // A desktop's own size, with the console's sidebar, the rail and the thread beside the room: the room is narrow.
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}~${messageId}`);
+    await page.waitFor(`document.querySelector('[data-pane="room"] .work-card')
+      && document.querySelector('[data-pane="thread"]')?.innerText.includes('Diskon 20% terlalu besar?')`, 'the work under its message, and its question in the thread');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const card = await page.evaluate<string>(`document.querySelector('[data-pane="room"] .work-card').innerText`);
+    assert.match(card, /Sari/);
+    assert.match(card, /agent/i);
+    assert.deepEqual(await page.evaluate<string[]>(CLIPPED('room')), [], 'what a card in the room says is cut short');
+    assert.deepEqual(await page.evaluate<string[]>(CLIPPED('thread')), [], 'what a card in the thread says is cut short');
+
+    await page.viewport(PHONE);
+    await page.waitFor(`(() => { const box = document.querySelector('[data-pane="thread"]')?.getBoundingClientRect();
+      return box && box.left <= 1 && box.width >= ${PHONE.width - 1}; })()`, 'the thread across the phone');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(await page.evaluate<string[]>(CLIPPED('thread')), [], 'what a card in the thread says is cut short on a phone');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a viewer\'s /task asks for nothing and sends nothing, and says who may ask', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const vina = await joined(api, owner, fixture, 'Vina', 'viewer', 'vina');
+  const roomId = await companyRoomOf(personIn(api, owner, fixture.companyId));
+  const page = await drawn(api, DESKTOP);
+  try {
+    await staffSignsIn(page, api, vina.handle, vina.code);
+    await page.waitFor(`location.hash.startsWith('#/c/${fixture.companyId}/rooms') && document.querySelector('[data-composer]')`, 'the rooms, as Vina');
+    assert.equal(await page.evaluate<number>(`document.querySelectorAll('[aria-label="Ask the team"]').length`), 0, 'a viewer is offered Ask the team');
+    await page.evaluate(`document.querySelector('[data-composer]').focus()`);
+    await page.type('/task Cek stok susu');
+    await page.press('Enter');
+    await page.waitFor(`document.body.innerText.includes('Asking the team for work is for members and approvers.')`, 'the reason nothing was asked');
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(await page.evaluate<number>(`document.querySelectorAll('[data-askwork]').length`), 0, 'the drawer that asks for work opened');
+    assert.deepEqual((await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text'), [], 'the command was sent as words');
+    assert.equal(await page.evaluate<string>(`document.querySelector('[data-composer]').value`), '/task Cek stok susu', 'what was typed is gone');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('/task with no words opens Ask the team, which posts what is asked and gives it as work', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const roomId = await companyRoomOf(personIn(api, owner, fixture.companyId));
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
+    await page.evaluate(`document.querySelector('[data-composer]').focus()`);
+    await page.type('/tugas');
+    await page.press('Enter');
+    await page.waitFor(`document.querySelector('[data-askwork] textarea')`, 'the drawer that asks the team, with its fields');
+    assert.equal(await page.evaluate<string>(`document.querySelector('[data-askwork] textarea').value`), '', 'it starts with nothing asked');
+    assert.equal(await page.evaluate<string>(`document.querySelector('[data-composer]').value`), '', 'the command is left in the composer');
+    assert.deepEqual((await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text'), [], 'the command was sent');
+
+    await page.evaluate(`document.querySelector('[data-askwork] textarea').focus()`);
+    await page.type('Hitung stok susu');
+    await page.waitFor(`!document.querySelector('[data-ask]').disabled`, 'Ask, once something is asked');
+    await page.evaluate(`document.querySelector('[data-ask]').click()`);
+    await page.waitFor(`${ROW('Hitung stok susu')}?.querySelector('[data-work-state]')`, 'the words in the room, with the work under them');
+    const sent = (await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text');
+    assert.deepEqual(sent.map((one) => one.body), ['Hitung stok susu'], 'what was asked is posted once, as the owner\'s words');
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ created_by: string }>(
+      'SELECT created_by FROM tasks WHERE idempotency_key = $1', [`room:${sent[0]!.id}`]));
+    assert.deepEqual(rows, [{ created_by: 'owner' }], 'the work is the owner\'s, asked by those words');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('in a window too narrow for a message\'s buttons, with no touch, one button opens what may be done with it', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  await said(me, roomId, 'Tolong cek kas pagi ini.');
+  // A desktop at 200% zoom: 640 CSS pixels, a mouse and a keyboard, and no finger to hold on a message.
+  const page = await drawn(api, { width: 640, height: 800 });
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`${ROW('Tolong cek kas pagi ini.')}`, 'the message');
+    const more = await page.evaluate<{ width: number; focusable: boolean } | null>(`(() => {
+      const button = ${ROW('Tolong cek kas pagi ini.')}.querySelector('[data-actions]');
+      if (!button) return null;
+      button.focus();
+      return { width: button.getBoundingClientRect().width, focusable: document.activeElement === button };
+    })()`);
+    assert.ok(more && more.width > 0 && more.focusable, `the message's one button is ${JSON.stringify(more)}`);
+    await page.press('Enter');
+    await page.waitFor(`[...document.querySelectorAll('[data-action="edit"]')].some((one) => one.getBoundingClientRect().width > 0)`, 'what may be done, from the keyboard');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('in a right-to-left console a person\'s words keep their own direction, and a handle reads as it is typed', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  await withControlPlane((tx) => tx.query("UPDATE platform_control SET console_language = 'ar'"));
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const rina = await seated(fixture, 'Rina', 'member', { handle: 'rina' });
+  await said(personIn(api, rina.token, fixture.companyId), roomId, { body: '@owner rapat jam berapa?', mentions: ['owner'] });
+  await said(me, roomId, 'مرحبا بالجميع');
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`${ROW('rapat jam berapa?')} && ${ROW('مرحبا بالجميع')}`, 'both messages');
+    assert.equal(await page.evaluate<string>('document.documentElement.dir'), 'rtl', 'the console is not drawn right to left');
+    const drawnAs = await page.evaluate<{ latin: string; arabic: string; handle: string; bar: string }>(`(() => {
+      const latin = ${ROW('rapat jam berapa?')};
+      return {
+        latin: getComputedStyle(latin.querySelector('.message-body')).direction,
+        arabic: getComputedStyle(${ROW('مرحبا بالجميع')}.querySelector('.message-body')).direction,
+        handle: getComputedStyle(latin.querySelector('[data-handle]')).direction,
+        // The line beside words for the reader is at the start of the line, which in Arabic is the right.
+        bar: getComputedStyle(latin).borderRightStyle === 'solid' && getComputedStyle(latin).borderRightColor !== 'rgba(0, 0, 0, 0)' ? 'right' : 'left',
+      };
+    })()`);
+    assert.deepEqual(drawnAs, { latin: 'ltr', arabic: 'rtl', handle: 'ltr', bar: 'right' },
+      'words in Latin letters turned round, a handle drawn backwards, or the line that marks words for the reader on the wrong side');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('archiving a room is asked about first, since nobody can write in it again', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = String(ok(await me.makeRoom({ name: 'promo', private: false })).room.id);
+  const archived = async () => (await withControlPlane((tx) => tx.query<{ archived: boolean }>(
+    'SELECT archived_at IS NOT NULL AS archived FROM rooms WHERE id = $1', [roomId]))).rows[0]!.archived;
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[aria-label="About this room"]')`, 'the room');
+    await page.evaluate(`document.querySelector('[aria-label="About this room"]').click()`);
+    const PRESS = (label: string) => `[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === ${JSON.stringify(label)})`;
+    await page.waitFor(PRESS('Archive this room'), 'the room\'s details');
+    await page.evaluate(`${PRESS('Archive this room')}.click()`);
+    await page.waitFor(`document.querySelector('.mantine-Modal-content')?.innerText.includes('Nobody can write in it again')`, 'the question');
+    assert.equal(await archived(), false, 'the room was archived at the first press');
+    await page.evaluate(`${PRESS('Keep it')}.click()`);
+    await page.waitFor(`!document.querySelector('.mantine-Modal-content')`, 'the question gone');
+    assert.equal(await archived(), false, 'the room was archived though the owner kept it');
+    await page.evaluate(`${PRESS('Archive this room')}.click()`);
+    await page.waitFor(PRESS('Archive it'), 'the question again');
+    await page.evaluate(`${PRESS('Archive it')}.click()`);
+    await page.waitFor(`document.body.innerText.includes('This room is archived')`, 'the room archived');
+    assert.equal(await archived(), true);
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('leaving a private room is asked about first, since only its people can add you back', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const rina = await joined(api, owner, fixture, 'Rina', 'member', 'rina');
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = String(ok(await me.makeRoom({ name: 'rahasia', private: true, members: [rina.principal] })).room.id);
+  const inRoom = async () => (await withControlPlane((tx) => tx.query(
+    'SELECT 1 FROM room_members WHERE room_id = $1 AND principal = $2 AND left_at IS NULL', [roomId, rina.principal]))).rowCount;
+  const page = await drawn(api, DESKTOP);
+  try {
+    await staffSignsIn(page, api, rina.handle, rina.code);
+    await page.evaluate(`location.hash = '#/c/${fixture.companyId}/rooms?item=${roomId}'`);
+    await page.waitFor(`document.querySelector('[aria-label="About this room"]') && document.querySelector('[data-composer]')`, 'the private room');
+    await page.evaluate(`document.querySelector('[aria-label="About this room"]').click()`);
+    const PRESS = (label: string) => `[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === ${JSON.stringify(label)})`;
+    await page.waitFor(PRESS('Leave this room'), 'the room\'s details');
+    await page.evaluate(`${PRESS('Leave this room')}.click()`);
+    await page.waitFor(`document.querySelector('.mantine-Modal-content')?.innerText.includes('add you again')`, 'the question');
+    assert.equal(await inRoom(), 1, 'Rina left at the first press');
+    await page.evaluate(`${PRESS('Leave it')}.click()`);
+    await page.waitFor(`!location.hash.includes(${JSON.stringify(roomId)})`, 'out of the room');
+    assert.equal(await inRoom(), 0);
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('Alt+↓ goes to the next room from the composer, where the cursor usually is', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const next = String(ok(await me.makeRoom({ name: 'promo', private: false })).room.id);
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-room="${next}"]') && document.querySelector('[data-composer]')`, 'the rail and the composer');
+    // The next room is the one below it in the rail, as the person sees them.
+    const below = await page.evaluate<string>(`(() => { const rows = [...document.querySelectorAll('[data-room]')].map((one) => one.getAttribute('data-room'));
+      return rows[rows.indexOf(${JSON.stringify(roomId)}) + 1]; })()`);
+    assert.ok(below, 'no room is below the company room in the rail');
+    await page.evaluate(`document.querySelector('[data-composer]').focus()`);
+    await page.press('ArrowDown', { alt: true });
+    await page.waitFor(`location.hash.endsWith(${JSON.stringify('item=')} + ${JSON.stringify(below)})`, 'the next room');
   } finally {
     await page.close();
     await api.close();

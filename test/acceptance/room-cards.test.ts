@@ -132,6 +132,8 @@ test("a question a sub-task of the work asks shows in the work's thread", async 
     const owed = await withControlPlane((tx) => tx.query<{ principal: string }>(
       'SELECT principal FROM room_mentions WHERE message_id = $1', [card!.id]));
     assert.deepEqual(owed.rows, [{ principal: seat.principal }], 'the person who asked for the work is told, once');
+    const told = (ok(await budi.activity()).items as Array<Record<string, unknown>>).find((item) => item.messageId === card!.id);
+    assert.deepEqual([told?.roomId, told?.threadOf], [room, message], "Activity names the work's thread, where the card is");
   } finally {
     await api.close();
   }

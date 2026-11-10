@@ -272,6 +272,9 @@ test('Activity lists mentions, followed replies, questions for you, approvals yo
     const kinds = items.map((item) => item.kind);
     assert.ok(items.some((item) => item.kind === 'mention' && item.messageId === mention && item.roomId === room && item.seen === false));
     assert.ok(items.some((item) => item.kind === 'reply' && item.messageId === reply));
+    // Each names the thread its message is in, so pressing it opens that thread, where it is read and seen.
+    assert.equal(items.find((item) => item.messageId === mention)?.threadOf, null, 'a mention in the room names no thread');
+    assert.equal(items.find((item) => item.messageId === reply)?.threadOf, root, 'a reply names the thread it is in');
     assert.ok(items.some((item) => item.kind === 'question' && item.itemId === question.inboxItemId && item.taskId === asked.id));
     assert.ok(items.some((item) => item.kind === 'team_item' && item.itemId === team.itemId));
     assert.ok(!items.some((item) => item.itemId === own.itemId), 'not a card Budi\'s own words are in');

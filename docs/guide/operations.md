@@ -152,6 +152,24 @@ to the address and port your proxy connects to. The compose file sets
 otherwise, so under Compose put your public name in `PALUGADA_ALLOWED_HOSTS`
 explicitly: `PALUGADA_APP_URL_PUBLIC` alone does not add it there.
 
+**Live updates, and HTTP/2 at the proxy.** Each tab of the console keeps
+one stream open for the company in view: the room stream, which says when
+a room, a thread, a badge or the company's work changed, and never what was
+said. A browser speaking HTTP/1.1 opens at most six connections to one site,
+so with several tabs of the console open, each holding its stream, few are
+left for the pages; a sixth tab of one company is refused its stream and
+falls back to reading every few seconds. Serve the console over HTTP/2 at
+the proxy, where every tab shares one connection and the limit does not
+apply: the Caddy of the `https` profile does already; in nginx it is
+`http2 on;` in the `server` block that listens on 443. The streams are
+`text/event-stream`: the proxy must not buffer them (the console sends
+`X-Accel-Buffering: no`, which nginx honours) and must keep an idle one open
+longer than the 15 seconds between the comments it sends (`proxy_read_timeout`
+in nginx, 60 seconds by default, is enough). Every replica listens on the
+database for the rooms' changes and for a sign-out made on another replica;
+behind a pooler that does not keep `LISTEN`, set
+[`PALUGADA_LISTEN_DATABASE_URL`](../configuration.md) to a direct connection.
+
 Some paths must be reachable from the internet, not only from your browser:
 `/api/hooks/<id>` for [triggers](how-to.md#let-other-services-start-work-triggers)
 and `/api/channels/telegram` for Telegram's button presses. Both check their
@@ -581,6 +599,8 @@ series with `sum`.
 | `palugada_worker_stage_failures_total{stage}` | counter | Stages of a pass that failed, by stage; the `stage.failed` log lines say why |
 | `palugada_worker_loop_failures_total{loop}` | counter | Passes of the housekeeping loop (`tick`) and of a place (`place`) that failed outright |
 | `palugada_database_connections{pool,state}` | gauge | Connections the process holds, `idle` or `busy`, and callers `waiting` for one |
+| `palugada_room_streams` | gauge | Room streams this process holds open, about one per console tab |
+| `palugada_room_feed_reads_total`, `palugada_room_work_reads_total` | counter | Reads of the rooms' feed and of the journal for those streams: one per watched company per change (or every five seconds) and per second, however many tabs watch it |
 | `process_resident_memory_bytes`, `nodejs_heap_used_bytes`, `nodejs_eventloop_delay_p99_seconds` and the like | gauge | The process itself |
 
 The counters start again at zero when the process does, which `rate()` and

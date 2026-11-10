@@ -1112,3 +1112,13 @@ The first version. What it holds, in the order an owner meets it.
   title too. On a phone, Rooms is a tab, a room fills the screen above the
   keyboard, a thread is a sheet, and a long press or a message's one button
   opens what you may do with it; Money moves into More (STATUS 2.207).
+- Rooms are live: a colleague's words, a card moving and the badges change
+  on screen as they happen, on one connection per tab that also carries
+  the company's work, and a tab that comes back hears what it missed. A
+  hidden tab can tell you of a direct message or a mention, once you allow
+  it under Your profile, Notify me in this browser. Signing out or ending a
+  seat ends its views on every replica, and within thirty seconds at most;
+  a member of staff's console shows what they may do as soon as you change
+  it. Serve the console over HTTP/2 if you keep many tabs open, and set
+  `PALUGADA_LISTEN_DATABASE_URL` if your database URL goes through
+  PgBouncer (STATUS 2.210).

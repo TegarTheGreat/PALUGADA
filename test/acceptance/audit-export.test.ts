@@ -996,3 +996,40 @@ test("a restored company's staff work is still marked as staff work", async () =
   assert.deepEqual(found.items, [{ instigators: [seat] }], 'whose words are in the work the card asks about');
   assert.deepEqual(found.tickets, [{ instigators: [seat] }], 'and in the work a ticket its run filed becomes');
 });
+
+test("the owner's meeting settings and a question's expiry travel", async () => {
+  // Whether the owner joins the weekly meeting, and for how long its
+  // questions wait (F19.17, 0156), are the company's own settings; and a
+  // meeting's question that goes on without an answer must not come back as
+  // one that cancels its task, nor an ordinary one as one that goes on.
+  const fixture = await createCompany('export-meeting-joins');
+  const { askOwner } = await import('../../src/inbox/inbox.ts');
+  const { transition } = await import('../../src/engine/tasks.ts');
+  await withControlPlane((tx) => tx.query(
+    'UPDATE companies SET meeting_owner_joins = true, meeting_join_minutes = 45 WHERE id = $1', [fixture.companyId]));
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'hold the meeting' },
+    createdBy: 'event', idempotencyKey: 'meeting:2026-W45', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  const timed = await askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Shall we raise prices?' });
+  await withControlPlane((tx) => tx.query("UPDATE inbox_items SET on_expiry = 'continue' WHERE id = $1", [timed.inboxItemId]));
+  await transition(fixture.companyId, task.id, 'running');
+  await askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Shall we open on Sundays?' });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  const found = await withControlPlane(async (tx) => ({
+    company: (await tx.query('SELECT meeting_owner_joins, meeting_join_minutes FROM companies WHERE id = $1', [restored.companyId])).rows,
+    items: (await tx.query<{ question: string; on_expiry: string }>(
+      `SELECT payload->>'question' AS question, on_expiry FROM inbox_items WHERE company_id = $1 AND kind = 'escalation'
+        ORDER BY payload->>'question'`, [restored.companyId])).rows,
+  }));
+  assert.deepEqual(found.company, [{ meeting_owner_joins: true, meeting_join_minutes: 45 }]);
+  assert.deepEqual(found.items, [
+    { question: 'Shall we open on Sundays?', on_expiry: 'cancel' },
+    { question: 'Shall we raise prices?', on_expiry: 'continue' },
+  ]);
+});

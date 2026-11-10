@@ -492,7 +492,9 @@ test("a run's question is answered from a phone with the person's words or one o
   }
 });
 
-test('replies, read marks and mutes are refused until people\'s notices turn them on', async () => {
+test("a reply needs the owner's consent, and a read mark or a mute a token a notice carried", async () => {
+  // People's notices (STATUS section 2.213) offer these; a relay that makes
+  // one up, or replies where the owner has not allowed replies, is refused.
   const { relay, api, relayId, linked, close } = await ready('relay-in-post');
   try {
     for (const type of ['reply', 'read', 'mute'] as const) {
@@ -502,7 +504,7 @@ test('replies, read marks and mutes are refused until people\'s notices turn the
         v: 1, type, at, token: `pt_${randomBytes(32).toString('base64url')}`, body: 'On my way', clientId: 'c1', until: null,
         device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type, at }),
       }));
-      assert.deepEqual([act.status, act.body.code], [422, 'relay.post_off'], type);
+      assert.deepEqual([act.status, act.body.code], [422, type === 'reply' ? 'relay.post_off' : 'relay.press_unknown'], type);
     }
   } finally {
     await close();

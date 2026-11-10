@@ -513,6 +513,7 @@ test("a person's link ended while the relay is revoked: each waits for the relay
   const relay = await fakeRelay();
   const api = await consoleWithSettings();
   const admin = await adminPool().connect();
+  let committed = false;
   try {
     const owner = await api.signIn();
     const relayId = await pairThrough(api, owner, relay, { companies: [fixture.companyId], share: 'summary', mayPress: true });
@@ -533,12 +534,15 @@ test("a person's link ended while the relay is revoked: each waits for the relay
     // The revocation goes on to the links, and finishes.
     await admin.query(`UPDATE relay_links SET status = 'ended', ended_at = now() WHERE relay_id = $1 AND status <> 'ended'`, [relayId]);
     await admin.query('COMMIT');
+    committed = true;
     const ended = await ending;
     assert.notEqual(ended.status, 500, JSON.stringify(ended.body));
     const { rows } = await withControlPlane((tx) => tx.query<{ status: string }>('SELECT status FROM relay_links WHERE id = $1', [linked.linkId]));
     assert.deepEqual(rows.map((row) => row.status), ['ended']);
   } finally {
-    await admin.query('ROLLBACK').catch(() => undefined);
+    // A transaction the test committed has nothing to roll back, and
+    // PostgreSQL warns of a ROLLBACK with no transaction.
+    if (!committed) await admin.query('ROLLBACK').catch(() => undefined);
     admin.release();
     await api.close();
     await relay.close();

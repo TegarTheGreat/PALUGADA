@@ -21,6 +21,8 @@ import type { CardView } from './types.ts';
 const ENDED: Record<string, string> = {
   open: N('Waiting for an answer'), answered: N('Answered'), approved: N('Approved'), denied: N('Denied'),
   asked: N('Asked back'), expired: N('Expired'), closed: N('Closed'), gone: N('No longer kept'),
+  // A meeting's question whose minutes passed: neither an answer nor a refusal (section 2.211).
+  went_on: N('The meeting went on without an answer'),
 };
 
 export function itemStateSaid(state: string): string {

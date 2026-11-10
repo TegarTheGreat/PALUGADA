@@ -22,7 +22,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconDots, IconFileDescription, IconHistory, IconMessageReply, IconMoodSmile, IconPencil, IconPin, IconPinnedOff,
-  IconPlayerStop, IconSparkles, IconTrash,
+  IconPlayerStop, IconSparkles, IconTrash, IconUsersGroup,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { Prose, type Mention } from '../components/Prose.tsx';
@@ -31,6 +31,7 @@ import { t, tp } from '../i18n.ts';
 import { ApprovalCard } from './ApprovalCard.tsx';
 import { EmojiPicker } from './EmojiPicker.tsx';
 import { QUICK_REACTIONS } from './emoji.ts';
+import { CallMeeting, MeetingCard } from './MeetingCard.tsx';
 import { NoticeRow } from './NoticeRow.tsx';
 import { QuestionCard } from './QuestionCard.tsx';
 import { personPicture } from '../images.ts';
@@ -66,6 +67,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
   const [reacting, setReacting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [history, setHistory] = useState<Array<{ body: string; replacedAt: string }> | null>(null);
+  const [calling, setCalling] = useState(false);
   const [words, setWords] = useState(message.body ?? '');
   const pressing = useRef<number | undefined>(undefined);
   const author = message.author;
@@ -154,7 +156,9 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
     ...(message.may.stop && scope.kind !== 'owner' ? [{ id: 'stop', label: t('Stop the work'), icon: <IconPlayerStop size={16} />, run: () => void stop(), color: 'red' }] : []),
     ...(message.may.fileAsIssue ? [{ id: 'issue', label: t('File as an issue'), icon: <IconFileDescription size={16} />, run: () => void fileAsIssue() }] : []),
     ...(message.may.history ? [{ id: 'history', label: t('What it said before'), icon: <IconHistory size={16} />, run: () => void showHistory() }] : []),
-    // A meeting called about this message (section 2.211) and a people's meeting set from it (section 2.215) are added here.
+    // A meeting of the company's agents called about this message (section 2.211); a people's meeting set from it
+    // (section 2.215) is added here.
+    ...(message.may.callMeeting ? [{ id: 'meeting', label: t('Call a meeting about this'), icon: <IconUsersGroup size={16} />, run: () => setCalling(true) }] : []),
     ...(message.may.delete ? [{ id: 'delete', label: t('Delete'), icon: <IconTrash size={16} />, run: () => setDeleting(true), color: 'red' }] : []),
   ];
 
@@ -239,7 +243,8 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             ? <WorkState card={message.card} message={message} />
             : message.card.kind === 'question' ? <QuestionCard card={message.card} />
               : message.card.kind === 'approval' ? <ApprovalCard card={message.card} />
-                : null)}
+                : message.card.kind === 'meeting' ? <MeetingCard card={message.card} message={message} />
+                  : null)}
           {message.reactions.length > 0 && (
             <Group gap={4} mt={4}>
               {message.reactions.map((one) => (
@@ -315,6 +320,8 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
           ))}
         </Stack>
       </Drawer>
+
+      <CallMeeting calling={calling ? { message } : null} close={() => setCalling(false)} />
 
       <Modal opened={deleting} onClose={() => setDeleting(false)} title={t('Delete this message?')} centered>
         <Text size="sm">{t('Its words are gone for everyone, now. The room keeps a line saying a message was removed.')}</Text>

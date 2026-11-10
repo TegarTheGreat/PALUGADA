@@ -45,6 +45,7 @@ const WITHDRAWN: Record<string, string> = {
   capability_healthy: N('withdrawn · the service passed its check again'),
   nothing_waits: N('withdrawn · no work waits on it any more'),
   handled_by_coordinator: N('withdrawn · dealt with by the role it was handed to'),
+  meeting_went_on: N('withdrawn · the meeting went on without an answer'),
 };
 
 function outcome(item: ClosedDecision): { label: string; color: string } {

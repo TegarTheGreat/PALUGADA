@@ -18,11 +18,12 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowUp, IconMoodSmile, IconSparkles } from '@tabler/icons-react';
+import { IconArrowUp, IconMoodSmile, IconSparkles, IconUsersGroup } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { count } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { EmojiPicker } from './EmojiPicker.tsx';
+import { CallMeeting } from './MeetingCard.tsx';
 import { mentionAt, mentionChoices, MentionPicker, optionId, type MentionChoice } from './MentionPicker.tsx';
 import { mayAsk, useScope } from './scope.ts';
 
@@ -68,6 +69,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
   const [emoji, setEmoji] = useState(false);
   const [mode, setMode] = useState<'message' | 'tell'>('message');
   const [alsoInRoom, setAlsoInRoom] = useState(false);
+  const [calling, setCalling] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   // Where the caret goes once a chosen name or emoji is written in. Placed as the words are drawn, before the
@@ -240,7 +242,20 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
             <IconMoodSmile size={18} />
           </ActionIcon>
         } />
-        {/* Setting a people's meeting (section 2.215) and telling an agent meeting (section 2.211) go here. */}
+        {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
+            the top of a room, pressed and never sent by a key. Setting a people's meeting (section 2.215) goes here too. */}
+        {threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver') && (
+          <Tooltip label={t('Call a meeting about this')}>
+            <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {
+              const body = value.trim();
+              if (!body) return;
+              setValue('');
+              setCalling(body);
+            }}>
+              <IconUsersGroup size={18} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         {ask && mayAsk(scope.kind) && threadOf === null && (
           <Tooltip label={t('Ask the team')}>
             <ActionIcon size="lg" variant="subtle" aria-label={t('Ask the team')} disabled={disabled || !value.trim()} onClick={() => {
@@ -265,6 +280,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
           <Button size="xs" variant="light" disabled={!value.trim()} onClick={submit}>{t('Tell the work')}</Button>
         </Group>
       )}
+      <CallMeeting calling={calling === null ? null : { words: calling, roomId }} close={() => setCalling(null)} />
     </Box>
   );
 }

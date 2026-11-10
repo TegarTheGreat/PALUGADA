@@ -840,7 +840,8 @@ export class Worker {
       const last = this.#retainedAt.get(company);
       if (last === undefined || now.getTime() - last >= interval) {
         await this.#stage(report, 'retention', async () => {
-          await runRetention(company, now);
+          // The roots an erasure removes from are where room files are swept too (STATUS 2.212).
+          await runRetention(company, now, this.#options.erasure ?? {});
           // Recorded after the sweep rather than before it: a sweep that threw
           // has not happened, and marking it done would mean waiting the whole
           // interval before trying again.

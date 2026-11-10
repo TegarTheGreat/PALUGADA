@@ -1087,7 +1087,7 @@ test("a restored company's rooms and messages come back in order, their authors 
         WHERE m.company_id = $1 ORDER BY m.position`, [companyId])).then((result) => result.rows);
     const before = await said(fixture.companyId);
     const after_ = await said(restored.companyId);
-    assert.ok(before.length >= 9);
+    assert.equal(before.length, 8);
     assert.deepEqual(after_, before, 'in their order, each by whom it was said, under the name it was said under, in its room and thread');
 
     const { ok, personIn } = await import('../helpers/rooms.ts');

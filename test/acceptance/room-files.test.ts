@@ -24,6 +24,8 @@ import { isPalugadaError } from '../../src/errors.ts';
 import { closeCompany, eraseDueCompanies } from '../../src/governance/closing.ts';
 import { peopleFilesFolder } from '../../src/owner/route.ts';
 import { runRetention } from '../../src/retention/retention.ts';
+import { postMessage } from '../../src/workspace/messages.ts';
+import { listRooms } from '../../src/workspace/rooms.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import {
@@ -129,13 +131,25 @@ test('no agent capability lists, reads, describes, computes on or mails a room f
       '..',
     ];
     const ctx = { companyId: fixture.companyId, signal: AbortSignal.timeout(5_000) } as never;
-    const refused = (error: unknown) => isPalugadaError(error, 'capability.unreachable') || isPalugadaError(error, 'contract.violation');
+    const refused = (error: unknown) => isPalugadaError(error, 'capability.unreachable') || isPalugadaError(error, 'contract.violation')
+      || isPalugadaError(error, 'capability.unknown');
+    // Refused, or answered with nothing of the room: an absolute path is read inside the company's own folder.
+    const reachesNothing = async (attempt: Promise<unknown>, what: string) => {
+      let answer: string;
+      try {
+        answer = JSON.stringify(await attempt);
+      } catch (error) {
+        assert.ok(refused(error), `${what}: ${(error as Error).message}`);
+        return;
+      }
+      for (const file of message.files) assert.ok(!answer.includes(file.id), `${what} names a room file`);
+      assert.ok(!answer.includes('rahasia ruangan') && !answer.includes(PNG.toString('base64')), `${what} read a room file`);
+    };
 
     // files.list sees the company's own folder, which holds nothing of the room.
-    const listed = await filesList({ root }).execute({ path: '.' }, ctx);
-    assert.ok(!JSON.stringify(listed).includes(message.files[0]!.id), 'files.list names no room file');
+    await reachesNothing(filesList({ root }).execute({ path: '.' }, ctx), 'files.list .');
     for (const path of reaching) {
-      await assert.rejects(filesList({ root }).execute({ path }, ctx), refused, `files.list ${path}`);
+      await reachesNothing(filesList({ root }).execute({ path }, ctx), `files.list ${path}`);
       await assert.rejects(filesRead({ root }).execute({ path }, ctx), refused, `files.read ${path}`);
       // What code.compute and a letter's attachments are read through (compute.ts, mailbox.ts).
       await assert.rejects(readCompanyFile(root, fixture.companyId, path, 1_000_000, 'test'), refused, `read for a run or a letter: ${path}`);
@@ -149,7 +163,7 @@ test('no agent capability lists, reads, describes, computes on or mails a room f
     assert.equal(looked, 0, 'no room picture reached a model');
     // code.compute refuses before any container starts: a docker that would run would fail the test.
     const compute = codeCompute({ root, image: 'palugada/compute:test', docker: '/nonexistent/docker-never-started' });
-    for (const path of reaching.slice(0, 2)) {
+    for (const path of reaching) {
       await assert.rejects(compute.execute({ code: 'print(1)', files: [path] }, ctx), refused, `code.compute ${path}`);
     }
   } finally {
@@ -270,20 +284,17 @@ test('closing a company erases its room files, wherever they are kept', async ()
     const root = await mkdtemp(join(tmpdir(), 'palugada-room-files-erase-'));
     const peopleRoot = separate ? await mkdtemp(join(tmpdir(), 'palugada-people-erase-')) : undefined;
     const files = { root, ...(peopleRoot ? { peopleRoot } : {}) };
-    const api = await consoleWithSettings({ files });
-    try {
-      const owner = personIn(api, await api.signIn(), fixture.companyId);
-      await carrying(owner, await companyRoomOf(owner), [sent('denah.png', PNG)]);
-      const folder = peopleFilesFolder(files, fixture.companyId)!;
-      assert.equal((await filesUnder(folder)).length, 1);
-      await closeCompany(fixture.companyId, 7);
-      await withControlPlane((tx) => tx.query("UPDATE companies SET erase_after = now() - interval '1 minute' WHERE id = $1", [fixture.companyId]));
-      const pass = await eraseDueCompanies({ filesRoot: root, ...(peopleRoot ? { peopleRoot } : {}) });
-      assert.equal(pass.erased.length, 1);
-      assert.deepEqual(pass.leftBehind, []);
-      await assert.rejects(stat(folder), (error: NodeJS.ErrnoException) => error.code === 'ENOENT', `${folder} is gone`);
-    } finally {
-      await api.close();
-    }
+    const folder = peopleFilesFolder(files, fixture.companyId)!;
+    // Posted as the post route posts, with this deployment's folder for the company.
+    const viewer = { companyId: fixture.companyId, person: { principal: 'owner', name: null }, kind: 'owner' as const, seatId: null };
+    const room = (await listRooms(viewer)).find((one) => one.kind === 'company')!.id;
+    await postMessage(viewer, room, { body: 'Denah kantor.', clientId: 'erase-1', files: [sent('denah.png', PNG)] }, { peopleFolder: folder });
+    assert.equal((await filesUnder(folder)).length, 1);
+    await closeCompany(fixture.companyId, 7);
+    await withControlPlane((tx) => tx.query(
+      "UPDATE companies SET closing_at = now() - interval '8 days', erase_after = now() - interval '1 day' WHERE id = $1", [fixture.companyId]));
+    const pass = await eraseDueCompanies({ filesRoot: root, ...(peopleRoot ? { peopleRoot } : {}) });
+    assert.deepEqual([pass.erased.length, pass.failed, pass.leftBehind], [1, [], []]);
+    await assert.rejects(stat(folder), (error: NodeJS.ErrnoException) => error.code === 'ENOENT', `${folder} is gone`);
   }
 });

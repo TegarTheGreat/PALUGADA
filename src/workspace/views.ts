@@ -130,13 +130,15 @@ export interface MessageRow {
   reply_count: number;
   edited_at: Date | null;
   deleted_at: Date | null;
+  /** Who removed it; null on a message whose time was up (STATUS 2.212). */
+  deleted_by: string | null;
   created_at: Date;
 }
 
 /** Every column `MessageRow` names, for a SELECT over `room_messages m`. */
 export const MESSAGE_COLUMNS = `m.id, m.room_id, m.position, m.thread_of, m.also_in_room, m.kind, m.author, m.author_name, m.body,
   m.notice_code, m.notice_values, m.task_id, m.inbox_item_id, m.mentions, m.mentions_room, m.became, m.became_by, m.via,
-  m.reply_count, m.edited_at, m.deleted_at, m.created_at`;
+  m.reply_count, m.edited_at, m.deleted_at, m.deleted_by, m.created_at`;
 
 /** How long after it was written a message may be edited (0150's guard holds the same). */
 export const EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -149,6 +151,15 @@ const RESULT_FIELDS = ['summary', 'result', 'answer', 'outcome', 'conclusion', '
 /** A picture the console draws inline: small, and a kind of image no browser runs. */
 const INLINE = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const INLINE_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Whether the console may draw a room file (STATUS 2.212): a picture of a
+ * kind no browser runs, two megabytes at most, whose bytes are still kept.
+ * Every other file, an SVG among them, is only ever saved.
+ */
+export function drawnInline(mime: string, bytes: number, kept = true): boolean {
+  return kept && INLINE.has(mime) && bytes <= INLINE_MAX_BYTES;
+}
 
 /**
  * Messages as the console draws them, in the order given: their authors and
@@ -195,7 +206,9 @@ export async function messageViews(
     const text = row.kind === 'text';
     const deleted = row.deleted_at !== null;
     const mine = row.author === me;
-    const card = row.kind === 'work' || row.kind === 'question' || row.kind === 'approval' || row.kind === 'meeting'
+    // A card retention left without words, because its thread outlived it, is drawn as a removed message.
+    const card = deleted && row.kind !== 'text' ? null
+      : row.kind === 'work' || row.kind === 'question' || row.kind === 'approval' || row.kind === 'meeting'
       ? await cardView(tx, viewer, directory, { kind: row.kind, taskId: row.task_id, itemId: row.inbox_item_id, askedBy: null }, reading)
       : text && row.became === 'work' && row.task_id
         ? await cardView(tx, viewer, directory, { kind: 'work', taskId: row.task_id, itemId: null, askedBy: row.became_by }, reading)
@@ -222,11 +235,13 @@ export async function messageViews(
       replies: row.reply_count > 0 ? { count: row.reply_count, lastAt: reply ? reply.at.toISOString() : null } : null,
       files: files.filter((one) => one.message_id === row.id).map((one): FileView => ({
         id: one.id, name: one.name, mime: one.mime, bytes: Number(one.bytes),
-        inline: one.kept && INLINE.has(one.mime) && Number(one.bytes) <= INLINE_MAX_BYTES,
+        inline: drawnInline(one.mime, Number(one.bytes), one.kept),
       })),
       peopleMeeting: null,
       edited: row.edited_at !== null,
       deleted,
+      // Removed by nobody: its time was up under the owner's window (STATUS 2.212).
+      expired: deleted && row.deleted_by === null,
       createdAt: row.created_at.toISOString(),
       may: {
         edit: text && !deleted && mine && Date.now() - row.created_at.getTime() < EDIT_WINDOW_MS,

@@ -79,7 +79,7 @@ import {
   setSpendLimit,
 } from '../governance/spend-guard.ts';
 import { readGovernanceLog } from '../governance/store.ts';
-import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
+import { MESSAGE_DAYS, readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
 import {
   assertOfficeHours, clearOfficeHours, officeHours, ownerWindow, setBatchWindow, setOfficeHours, setOwnerWindow,
 } from '../scheduler/windows.ts';
@@ -1865,9 +1865,19 @@ export class OwnerApi {
           // Partial on purpose: an owner changing how long prompts are kept
           // should not have to restate the other two, and restating them is
           // how one gets changed by accident.
-          const policy: Record<string, number> = {};
+          const policy: { eventDays?: number; traceDays?: number; promptDays?: number; messageDays?: number | null } = {};
           for (const field of ['eventDays', 'traceDays', 'promptDays'] as const) {
             if (body[field] !== undefined) policy[field] = wholeNumber(body[field], field);
+          }
+          // How long people's messages are kept (F19.15): null keeps them, or a
+          // month to ten years, said here before the database refuses it.
+          if (body.messageDays !== undefined) {
+            const days = body.messageDays === null ? null : wholeNumber(body.messageDays, 'messageDays');
+            if (days !== null && (days < MESSAGE_DAYS.least || days > MESSAGE_DAYS.most)) {
+              throw new PalugadaError('contract.violation',
+                `messages are kept ${MESSAGE_DAYS.least} to ${MESSAGE_DAYS.most} days, or for good`, { field: 'messageDays' });
+            }
+            policy.messageDays = days;
           }
           if (Object.keys(policy).length === 0) {
             throw new PalugadaError('contract.violation', 'no retention field was given', {});

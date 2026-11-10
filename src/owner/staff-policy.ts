@@ -219,9 +219,19 @@ const MEETING_STAFF: AreaPolicy = {
 };
 
 // --- find and keep (STATUS 2.212) ---
+// A seat searches its own company's rooms, reads a room's files and pins,
+// each through its own transaction, which shows it only the rooms it may see
+// (0150). Searching every company is the owner's. Attaching a file is the
+// post route's, and how long messages are kept is the owner's retention.
 const FIND_STAFF: AreaPolicy = {
-  reads: [],
-  hidden: {},
+  reads: [
+    '/api/companies/:companyId/room-search',
+    '/api/companies/:companyId/rooms/:roomId/files/:fileId',
+    '/api/companies/:companyId/rooms/:roomId/pins',
+  ],
+  hidden: {
+    '/api/room-search': "it searches every company's rooms",
+  },
   talks: [],
   asks: [],
   decides: [],

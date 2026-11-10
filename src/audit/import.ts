@@ -36,7 +36,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { isStage } from '../domain/stage.ts';
-import { withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
@@ -87,6 +87,12 @@ interface ImportSection {
    * a row not there yet.
    */
   idsFirst?: boolean;
+  /**
+   * A room table (0150): written after `roomsOnControlPlane` says a restore
+   * is under way, so its triggers keep the archive's dates and owe nobody a
+   * mention, a follow, a count or a change for any row (STATUS 2.212).
+   */
+  room?: true;
 }
 
 /**
@@ -315,6 +321,30 @@ const SECTIONS: ImportSection[] = [
     remapJoined: ['source_key'],
     idsFirst: true,
   },
+
+  // The rooms (STATUS 2.212), after the work and the cards their cards name:
+  // the rooms, then the messages in the order they were said, which takes
+  // their positions from this company's clock in that order, with what hangs
+  // from them; the members last, so each person's place is made at the end
+  // of every room and nothing restored is new to anyone. A seat named in
+  // them is the other deployment's and stays as it was, under the name it
+  // had, as a former seat is drawn. A thread's count is counted again once
+  // every message is in (`roomsCounted`), and a message's own count and last
+  // reply are not taken from the archive.
+  { name: 'rooms', table: 'rooms', references: ['division_id'], room: true },
+  {
+    name: 'room_messages',
+    table: 'room_messages',
+    references: ['room_id', 'thread_of', 'task_id', 'inbox_item_id'],
+    drop: ['reply_count', 'last_reply_position'],
+    remapJson: ['notice_values'],
+    room: true,
+  },
+  { name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], room: true },
+  { name: 'room_reactions', table: 'room_reactions', references: ['message_id'], room: true },
+  { name: 'room_pins', table: 'room_pins', references: ['room_id', 'message_id'], room: true },
+  { name: 'room_files', table: 'room_files', references: ['message_id'], room: true },
+  { name: 'room_members', table: 'room_members', references: ['room_id'], room: true },
 
   // F1.5's configuration, restored last because it references divisions and
   // needs nothing itself. `config_versions` above carries what a policy *was*;
@@ -563,11 +593,17 @@ export async function importCompany(
       }
     }
 
+    let rooms = false;
     for (const section of SECTIONS) {
       const sectionRows = bySection.get(section.name) ?? [];
       if (sectionRows.length === 0) continue;
+      if (section.room && !rooms) {
+        await roomsOnControlPlane(tx, companyId, { importing: true });
+        rooms = true;
+      }
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
+    if (rooms) await roomsCounted(tx, companyId);
 
     // The headline the owner chose (0142), once its measure is here: the
     // company row was written before any measure, and the key needs one. An
@@ -594,6 +630,27 @@ export async function importCompany(
 
     return { companyId, slug: options.slug, sections: counts, skipped };
   });
+}
+
+/**
+ * The rooms of a restore, finished once every message is in: each thread
+ * counts its replies from what came back, in one statement, since the
+ * triggers counted none while importing; then the import is over, and every
+ * room is touched once, which writes one change per room for a stream that
+ * has the company open and nothing per message. Nothing restored raises an
+ * unread, a mention or Activity: the triggers wrote none, and each member's
+ * place was made at the end of the room.
+ */
+async function roomsCounted(tx: TenantClient, companyId: string): Promise<void> {
+  await tx.query(
+    `UPDATE room_messages m
+        SET reply_count = counted.n, last_reply_position = counted.last
+       FROM (SELECT thread_of, count(*)::int AS n, max(position) AS last
+               FROM room_messages WHERE company_id = $1 AND thread_of IS NOT NULL GROUP BY thread_of) counted
+      WHERE m.company_id = $1 AND m.id = counted.thread_of`,
+    [companyId]);
+  await roomsOnControlPlane(tx, companyId);
+  await tx.query('UPDATE rooms SET name = name WHERE company_id = $1', [companyId]);
 }
 
 /**

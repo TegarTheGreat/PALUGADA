@@ -76,7 +76,7 @@ export type MessageView = {
   reactions: Array<{ emoji: string; count: number; mine: boolean }>;
   replies: { count: number; lastAt: string | null } | null; files: FileView[];
   peopleMeeting: PeopleMeetingView | null;
-  edited: boolean; deleted: boolean; createdAt: string;
+  edited: boolean; deleted: boolean; expired: boolean; createdAt: string;
   may: { edit: boolean; delete: boolean; pin: boolean; giveAsWork: boolean; tell: boolean; stop: boolean;
          callMeeting: boolean; fileAsIssue: boolean; history: boolean };
 };
@@ -97,7 +97,10 @@ export type ActivityItem =
   | { kind: 'work_done'; taskId: string; state: string; at: string };
 
 /** A message found by a search. */
-export type SearchHit = { roomId: string; messageId: string; position: number; excerpt: string; author: PersonRef; at: string; file: FileView | null };
+export type SearchHit = {
+  roomId: string; messageId: string; threadOf: string | null; position: number; excerpt: string; author: PersonRef; at: string;
+  file: FileView | null;
+};
 
 /**
  * A frame of a person's room stream. It carries ids and positions, never

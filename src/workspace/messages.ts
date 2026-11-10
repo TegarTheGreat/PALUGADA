@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MessagePage, MessageView, ThreadView } from './contract.ts';
+import { attachFiles, filesToAttach, keptPaths, removeRoomFiles } from './files.ts';
 import { isPerson } from './principal.ts';
 import { assertMember, ensureCompanyMember, takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
 import {
@@ -101,11 +102,23 @@ export interface Posted {
  * others are said back, so a mention that reached nobody is never silent.
  * `@room` is the owner's and an approver's. A retry with the same client id
  * is the message already posted.
+ *
+ * Up to five files may come with it (STATUS 2.212), from the console, which
+ * says where this company's room files are kept (`peopleFolder`): they are
+ * looked at before anything is written, and kept in the same transaction as
+ * the words, so a message is kept with all its files or not at all. A
+ * message of files alone may say nothing.
  */
-export async function postMessage(viewer: Viewer, roomId: string, input: Record<string, unknown>): Promise<Posted> {
+export async function postMessage(
+  viewer: Viewer, roomId: string, input: Record<string, unknown>, options: { peopleFolder?: string | null } = {},
+): Promise<Posted> {
   const body = typeof input.body === 'string' ? input.body : '';
-  if (body.trim().length < 1 || body.length > BODY_MAX) {
+  const files = filesToAttach(input.files);
+  if ((body.trim().length < 1 && files.length === 0) || body.length > BODY_MAX) {
     throw new PalugadaError('contract.violation', `a message says something, in at most ${BODY_MAX} characters`, { field: 'body' });
+  }
+  if (files.length > 0 && options.peopleFolder === undefined) {
+    throw new PalugadaError('contract.violation', 'files are attached in the console', { field: 'files' });
   }
   const clientId = typeof input.clientId === 'string' ? input.clientId : '';
   if (clientId.length < 1 || clientId.length > 64) {
@@ -161,6 +174,7 @@ export async function postMessage(viewer: Viewer, roomId: string, input: Record<
        VALUES ($1, $2, $3, $4, $5, 'text', $6, $7, $8, $9, $10, $11, $12, 0)`,
       [id, viewer.companyId, room.id, threadOf, alsoInRoom, viewer.person.principal, body, kept, everyone,
         relay ? 'relay' : 'console', relay?.relayId ?? null, clientId]);
+    await attachFiles(tx, viewer.companyId, room.id, id, files, options.peopleFolder ?? null);
     const { rows } = await tx.query<MessageRow>(`SELECT ${MESSAGE_COLUMNS} FROM room_messages m WHERE m.id = $1`, [id]);
     return { message: (await messageViews(tx, viewer, directory, rows))[0]!, mentionsDropped: dropped };
   }, relay);
@@ -195,19 +209,29 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
   });
 }
 
-/** A message taken back by its author, or removed by the owner: a tombstone with none of its words (0150). */
-export async function deleteMessage(viewer: Viewer, roomId: string, messageId: string): Promise<MessageView> {
+/**
+ * A message taken back by its author, or removed by the owner: a tombstone
+ * with none of its words (0150). Its files' rows let their bytes go as it
+ * commits, and the bytes are removed after; a process that stops between the
+ * two leaves bytes no row names, which the next sweep removes (STATUS 2.212).
+ */
+export async function deleteMessage(
+  viewer: Viewer, roomId: string, messageId: string, options: { peopleFolder?: string | null } = {},
+): Promise<MessageView> {
   const directory = await directoryOf(viewer.companyId);
-  return withPeople(viewer.companyId, viewer.person, async (tx) => {
+  const { view, paths } = await withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
     await takeClock(tx);
     const message = await messageIn(tx, roomId, messageId, { lock: true });
     if (message.kind !== 'text' || (message.author !== viewer.person.principal && viewer.kind !== 'owner')) {
       throw new PalugadaError('message.not_yours', 'only its author, or the owner, can remove that message', { messageId });
     }
+    const paths = message.deleted_at ? [] : await keptPaths(tx, [messageId]);
     if (!message.deleted_at) await tx.query('UPDATE room_messages SET deleted_at = now() WHERE id = $1', [messageId]);
-    return shown(tx, viewer, directory, messageId);
+    return { view: await shown(tx, viewer, directory, messageId), paths };
   });
+  await removeRoomFiles(options.peopleFolder ?? null, paths);
+  return view;
 }
 
 /** A reaction given or taken back: a person's, on a person's words, and never a decision (0150 refuses one on a card). */

@@ -21,12 +21,18 @@
  *     make the log lie by omission, so "there are no events from March" and
  *     "March was quiet" have to stay distinguishable.
  */
-import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { keptPaths, peopleFolderOf, removeRoomFiles, sweepRoomFiles, type PeopleRoots } from '../workspace/files.ts';
 
 export interface RetentionPolicy {
   eventDays: number;
   traceDays: number;
   promptDays: number;
+  /**
+   * How long people's messages are kept, in days (F19.15): null keeps them,
+   * which is the default. Thirty days at least, which the database holds too.
+   */
+  messageDays: number | null;
 }
 
 /**
@@ -40,7 +46,14 @@ export const DEFAULT_RETENTION: RetentionPolicy = {
   eventDays: 400,
   traceDays: 400,
   promptDays: 90,
+  messageDays: null,
 };
+
+/** The fewest days a company may keep its messages for, and the most it may say. */
+export const MESSAGE_DAYS = { least: 30, most: 3650 } as const;
+
+/** How long the rooms' feed of changes is kept: it is how an open room catches up, not anyone's record (STATUS 2.212). */
+const ROOM_FEED_DAYS = 14;
 
 export interface RetentionOutcome {
   promptsScrubbed: number;
@@ -49,6 +62,10 @@ export interface RetentionOutcome {
   eventsPurged: number;
   bookkeepingPurged: number;
   workPurged: number;
+  /** Messages removed or left without words, and cards whose work went (F19.15). */
+  messagesPurged: number;
+  /** Room files on disk that no message named any more. */
+  roomFilesSwept: number;
 }
 
 export async function retentionFor(companyId: string): Promise<RetentionPolicy> {
@@ -57,8 +74,9 @@ export async function retentionFor(companyId: string): Promise<RetentionPolicy> 
       event_days: number;
       trace_days: number;
       prompt_days: number;
+      message_days: number | null;
     }>(
-      `SELECT event_days, trace_days, prompt_days
+      `SELECT event_days, trace_days, prompt_days, message_days
          FROM retention_policies
         WHERE company_id = $1 OR company_id IS NULL
         ORDER BY company_id NULLS LAST
@@ -71,23 +89,30 @@ export async function retentionFor(companyId: string): Promise<RetentionPolicy> 
       eventDays: row.event_days,
       traceDays: row.trace_days,
       promptDays: row.prompt_days,
+      messageDays: row.message_days,
     };
   });
 }
 
+/**
+ * Changes what a policy says, and only what is given. `messageDays` given as
+ * null keeps messages again; left out, it is left as it was.
+ */
 export async function setRetention(
   companyId: string | null,
   policy: Partial<RetentionPolicy>,
 ): Promise<void> {
   await withControlPlane(async (tx) => {
     await tx.query(
-      `INSERT INTO retention_policies (company_id, event_days, trace_days, prompt_days)
-       VALUES ($1, coalesce($2, 400), coalesce($3, 400), coalesce($4, 90))
+      `INSERT INTO retention_policies (company_id, event_days, trace_days, prompt_days, message_days)
+       VALUES ($1, coalesce($2, 400), coalesce($3, 400), coalesce($4, 90), $6)
        ON CONFLICT (company_id) DO UPDATE
          SET event_days = coalesce($2, retention_policies.event_days),
              trace_days = coalesce($3, retention_policies.trace_days),
-             prompt_days = coalesce($4, retention_policies.prompt_days)`,
-      [companyId, policy.eventDays ?? null, policy.traceDays ?? null, policy.promptDays ?? null],
+             prompt_days = coalesce($4, retention_policies.prompt_days),
+             message_days = CASE WHEN $5 THEN $6 ELSE retention_policies.message_days END`,
+      [companyId, policy.eventDays ?? null, policy.traceDays ?? null, policy.promptDays ?? null,
+        policy.messageDays !== undefined, policy.messageDays ?? null],
     );
   });
 }
@@ -95,7 +120,7 @@ export async function setRetention(
 /** What a retention pass did, as `retention_action_known` names it (0046, 0105). */
 type RetentionAction =
   | 'events_purged' | 'traces_purged' | 'prompts_scrubbed'
-  | 'journal_scrubbed' | 'bookkeeping_purged' | 'work_purged';
+  | 'journal_scrubbed' | 'bookkeeping_purged' | 'work_purged' | 'messages_purged';
 
 async function recordRetention(
   tx: TenantClient,
@@ -261,6 +286,11 @@ export async function purgeExpiredBookkeeping(companyId: string, now = new Date(
     await purge('DELETE FROM gateway_challenges WHERE company_id = $1 AND expires_at < $2');
     await purge('DELETE FROM gateway_dedupe WHERE company_id = $1 AND created_at < $2');
     await purge('DELETE FROM role_eval_runs WHERE company_id = $1 AND ran_at < $2');
+    // What changed in the rooms, which an open room catches up from: two
+    // weeks, whatever the event window, since it is nobody's record (0150).
+    const { rowCount: feed } = await tx.query('DELETE FROM room_feed WHERE company_id = $1 AND created_at < $2',
+      [companyId, new Date(now.getTime() - ROOM_FEED_DAYS * 86_400_000)]);
+    removed += feed ?? 0;
     await recordRetention(tx, companyId, 'bookkeeping_purged', removed, cutoff);
     return removed;
   });
@@ -349,15 +379,88 @@ export async function purgeExpiredWork(companyId: string, now = new Date()): Pro
   });
 }
 
+/** What one pass of message retention took, by message: so whatever else must forget them is told of each. */
+export interface PurgedMessages {
+  /** Removed outright, with their reactions, revisions, mentions, pins and files. */
+  deleted: string[];
+  /** Left in their thread without words or files: a root whose replies are still alive. */
+  tombstoned: string[];
+  /** Where the bytes of their files were, removed once the transaction has committed. */
+  paths: string[];
+}
+
+/** The kinds of a card: the platform's drawing of work, a question, an approval or a meeting, which holds no words. */
+const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
+
+/**
+ * Every message one pass of retention takes, in one place, on the control
+ * plane after `roomsOnControlPlane`: replies past the window, and cards whose
+ * work or item retention took, go outright; then a message that began a
+ * thread and is past the window, or is such a card, goes when no reply is
+ * left under it, and otherwise keeps no words (deleted by nobody: its time
+ * was up). Each message goes by its own age, so a busy thread keeps none of
+ * its old words, and nothing here waits for a thread to fall quiet.
+ *
+ * Whatever else must forget a message when retention takes it -- a relay's
+ * copy of its excerpt (section 2.213) -- is told here, from `deleted` and
+ * `tombstoned`, in the same transaction.
+ */
+async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date | null): Promise<PurgedMessages> {
+  const spent = `(m.created_at < $2 OR (m.kind = ANY($3::text[]) AND m.task_id IS NULL AND m.inbox_item_id IS NULL))`;
+  const { rows: replies } = await tx.query<{ id: string }>(
+    `SELECT m.id FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NOT NULL AND ${spent}`,
+    [companyId, cutoff, CARD_KINDS]);
+  const deleted = replies.map((row) => row.id);
+  const { rows: roots } = await tx.query<{ id: string; replied: boolean; removed: boolean }>(
+    `SELECT m.id, m.deleted_at IS NOT NULL AS removed,
+            EXISTS (SELECT 1 FROM room_messages r
+                     WHERE r.company_id = m.company_id AND r.thread_of = m.id AND NOT r.id = ANY($4::uuid[])) AS replied
+       FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NULL AND ${spent}`,
+    [companyId, cutoff, CARD_KINDS, deleted]);
+  deleted.push(...roots.filter((row) => !row.replied).map((row) => row.id));
+  const tombstoned = roots.filter((row) => row.replied && !row.removed).map((row) => row.id);
+  const paths = await keptPaths(tx, [...deleted, ...tombstoned]);
+  if (deleted.length > 0) {
+    await tx.query('DELETE FROM room_messages WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, deleted]);
+  }
+  if (tombstoned.length > 0) {
+    // The control plane's tombstone (0150): the words, revisions and files' paths go, and nobody is named as removing it.
+    await tx.query('UPDATE room_messages SET deleted_at = now() WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, tombstoned]);
+  }
+  return { deleted, tombstoned, paths };
+}
+
+/**
+ * Takes the messages the company's window has passed, and the cards whose
+ * work is gone, whatever the window (F19.15). Rooms stay. The bytes of their
+ * files are removed after the rows have let them go; a stop between the two
+ * leaves bytes for the sweep. Answers what went, by message.
+ */
+export async function purgeExpiredMessages(companyId: string, now = new Date(), roots: PeopleRoots = {}): Promise<PurgedMessages> {
+  const policy = await retentionFor(companyId);
+  const cutoff = policy.messageDays === null ? null : new Date(now.getTime() - policy.messageDays * 86_400_000);
+  const purged = await withControlPlane(async (tx) => {
+    await roomsOnControlPlane(tx, companyId);
+    const taken = await purgeMessages(tx, companyId, cutoff);
+    await recordRetention(tx, companyId, 'messages_purged', taken.deleted.length + taken.tombstoned.length, cutoff ?? now);
+    return taken;
+  });
+  await removeRoomFiles(peopleFolderOf(roots, companyId), purged.paths);
+  return purged;
+}
+
 /**
  * Applies the whole policy, oldest-risk first.
  *
  * Prompts are scrubbed before traces are purged so that a trace passing both
- * windows is not read for its text on the way out.
+ * windows is not read for its text on the way out. Messages go after the
+ * work, so a card whose work went in this pass goes in it too; and the room
+ * files no message names are swept last.
  */
 export async function runRetention(
   companyId: string,
   now = new Date(),
+  roots: PeopleRoots = {},
 ): Promise<RetentionOutcome> {
   const promptsScrubbed = await scrubExpiredPrompts(companyId, now);
   const journalScrubbed = await scrubExpiredJournal(companyId, now);
@@ -365,7 +468,12 @@ export async function runRetention(
   const eventsPurged = await purgeExpiredEvents(companyId, now);
   const bookkeepingPurged = await purgeExpiredBookkeeping(companyId, now);
   const workPurged = await purgeExpiredWork(companyId, now);
-  return { promptsScrubbed, journalScrubbed, tracesPurged, eventsPurged, bookkeepingPurged, workPurged };
+  const messages = await purgeExpiredMessages(companyId, now, roots);
+  const roomFilesSwept = await sweepRoomFiles(companyId, peopleFolderOf(roots, companyId), now);
+  return {
+    promptsScrubbed, journalScrubbed, tracesPurged, eventsPurged, bookkeepingPurged, workPurged,
+    messagesPurged: messages.deleted.length + messages.tombstoned.length, roomFilesSwept,
+  };
 }
 
 export interface RetentionRecord {

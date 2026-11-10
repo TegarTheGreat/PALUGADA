@@ -806,3 +806,27 @@ test('Alt+↓ goes to the next room from the composer, where the cursor usually 
     await api.close();
   }
 });
+
+test('a mention pressed in Activity, in a room the person has not joined, is seen there without joining it', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const rina = await joined(api, owner, fixture, 'Rina', 'member', 'rina');
+  const me = personIn(api, owner, fixture.companyId);
+  const division = (ok(await me.rooms(true)).rooms as Array<{ id: string; kind: string; joined: boolean }>).find((one) => one.kind === 'division')!;
+  if (!division.joined) ok(await me.join(division.id));
+  await said(me, division.id, { body: '@rina the stock count is off', mentions: [rina.principal] });
+  const page = await drawn(api, DESKTOP);
+  try {
+    await staffSignsIn(page, api, rina.handle, rina.code);
+    await page.evaluate(`location.hash = '#/c/${fixture.companyId}/rooms?item=activity'`);
+    await page.waitFor(`document.querySelector('.activity-row[data-unseen]')`, 'the mention in Activity');
+    await page.evaluate(`document.querySelector('.activity-row[data-unseen]').click()`);
+    await page.waitFor(`${ROW('the stock count is off')}`, 'the room the mention is in');
+    await page.waitFor(`!document.querySelector('[data-badge="rooms"]')`, 'the badge gone once the mention is read', 20_000);
+    const her = personIn(api, rina.token, fixture.companyId);
+    assert.deepEqual((ok(await her.activity()).items as Array<{ kind: string; seen?: boolean }>).map((one) => one.seen), [true]);
+    assert.equal((ok(await her.rooms()).rooms as Array<{ id: string }>).some((one) => one.id === division.id), false, 'reading it joined it');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});

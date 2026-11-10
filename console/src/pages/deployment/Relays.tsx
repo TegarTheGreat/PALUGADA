@@ -42,12 +42,29 @@ interface RelayView {
   pull: boolean;
   pausedUntil: string | null;
   lastOkAt: string | null;
-  lastError: string | null;
+  lastError: Failure | null;
   createdAt: string;
   pairedAt: string | null;
   links: number;
   outbox: { pending: number; sending: number; delivered: number; dead: number };
-  dead: Array<{ id: string; type: string; attempts: number; lastError: string | null; createdAt: string }>;
+  dead: Array<{ id: string; type: string; attempts: number; lastError: Failure | null; createdAt: string }>;
+}
+
+/** Why a send to a relay failed, as the server keeps it: a reason, never the transport's own words. */
+type Failure = { reason: 'gone' | 'timeout' | 'unreachable' } | { reason: 'status'; status: number };
+
+/** A failure, said in the owner's language. */
+function failureSaid(failure: Failure): string {
+  switch (failure.reason) {
+    case 'gone':
+      return t('The relay forgot this deployment: pair it again.');
+    case 'status':
+      return t('The relay answered {status}.', { status: failure.status });
+    case 'timeout':
+      return t('The relay did not answer in time.');
+    case 'unreachable':
+      return t('The relay could not be reached.');
+  }
 }
 
 interface RelaysPage {
@@ -299,7 +316,7 @@ function Outbox({ relay, reload }: { relay: RelayView; reload: () => void }) {
           )}
         </Group>
       </Group>
-      {relay.lastError && <Text size="xs" c="red">{relay.lastError}</Text>}
+      {relay.lastError && <Text size="xs" c="red">{failureSaid(relay.lastError)}</Text>}
       {relay.dead.length > 0 && (
         <Table.ScrollContainer minWidth={420}>
           <Table verticalSpacing={4} fz="xs">
@@ -315,7 +332,7 @@ function Outbox({ relay, reload }: { relay: RelayView; reload: () => void }) {
                 <Table.Tr key={one.id}>
                   <Table.Td>{relative(one.createdAt)}</Table.Td>
                   <Table.Td><Code>{one.type}</Code></Table.Td>
-                  <Table.Td>{one.lastError ?? ''}</Table.Td>
+                  <Table.Td>{one.lastError ? failureSaid(one.lastError) : ''}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

@@ -1,7 +1,7 @@
 /**
  * Finding what was said (F19.4, F19.14; STATUS section 2.212): a company's
- * room search, the owner's search across companies, a room's files and its
- * pinned messages.
+ * room search, the owner's search across companies, a room's files, one
+ * file's bytes, and a room's pinned messages.
  *
  * A route module of the people's workspace (`../route.ts`): find-and-keep
  * writes its routes here. `#buildRoutes` in `../api.ts` serves them beside the
@@ -16,7 +16,7 @@
 import { PalugadaError } from '../../errors.ts';
 import { readRoomFile } from '../../workspace/files.ts';
 import { roomIdOf } from '../../workspace/rooms.ts';
-import { pinnedIn, searchEveryCompany, searchRooms } from '../../workspace/search.ts';
+import { filesIn, pinnedIn, searchEveryCompany, searchRooms } from '../../workspace/search.ts';
 import type { Route, RouteKit } from '../route.ts';
 import { viewerOf } from './rooms.ts';
 
@@ -59,6 +59,12 @@ export function findRoutes(kit: RouteKit): Route[] {
         const fileId = fileIdOf(context.params.fileId);
         return readRoomFile(viewer, roomId, fileId, kit.peopleFilesRoot(viewer.companyId));
       },
+    },
+    {
+      // The files a room keeps, newest first, for its details.
+      method: 'GET',
+      pattern: '/api/companies/:companyId/rooms/:roomId/files',
+      handle: async (context) => ({ files: await filesIn(viewerOf(context), roomIdOf(context.params.roomId)) }),
     },
     {
       // What a room keeps at hand, with what each says: the room's details list them.

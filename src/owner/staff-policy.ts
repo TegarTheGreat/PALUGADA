@@ -226,6 +226,7 @@ const MEETING_STAFF: AreaPolicy = {
 const FIND_STAFF: AreaPolicy = {
   reads: [
     '/api/companies/:companyId/room-search',
+    '/api/companies/:companyId/rooms/:roomId/files',
     '/api/companies/:companyId/rooms/:roomId/files/:fileId',
     '/api/companies/:companyId/rooms/:roomId/pins',
   ],

@@ -40,7 +40,7 @@ const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
 
 /** A company called Toko Kopi Senja, read in English, and the console that serves it. */
-async function started(): Promise<{ fixture: Fixture; api: Console; owner: string }> {
+async function started(options: { files?: { root: string } } = {}): Promise<{ fixture: Fixture; api: Console; owner: string }> {
   assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
   const fixture = await createCompany('rooms-console');
   await withControlPlane(async (tx) => {
@@ -48,7 +48,7 @@ async function started(): Promise<{ fixture: Fixture; api: Console; owner: strin
     await tx.query("UPDATE roles SET display_name = 'Sari' WHERE id = $1", [fixture.roleId]);
     await tx.query("UPDATE platform_control SET console_language = 'en', tour_finished_at = now()");
   });
-  const api = await consoleWithSettings({ staticRoot: BUILT });
+  const api = await consoleWithSettings({ staticRoot: BUILT, ...options });
   return { fixture, api, owner: await api.signIn() };
 }
 
@@ -831,6 +831,41 @@ test('a mention pressed in Activity, in a room the person has not joined, is see
     const her = personIn(api, rina.token, fixture.companyId);
     assert.deepEqual((ok(await her.activity()).items as Array<{ kind: string; seen?: boolean }>).map((one) => one.seen), [true]);
     assert.equal((ok(await her.rooms()).rooms as Array<{ id: string }>).some((one) => one.id === division.id), false, 'reading it joined it');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+/** A picture one pixel square, which a browser draws. */
+const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+test("a small picture said in a room is drawn, any other file is saved, and the rail's search opens a message in its thread", { skip }, async () => {
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fixture, api, owner } = await started({ files: { root: await mkdtemp(join(tmpdir(), 'palugada-console-files-')) } });
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  ok(await me.say(roomId, {
+    body: 'Denah gudang baru, dan kontraknya.',
+    files: [{ name: 'denah.png', data: PIXEL }, { name: 'kontrak.pdf', data: Buffer.from('%PDF-1.4 kontrak').toString('base64') }],
+  }), 'posting with files');
+  await said(me, roomId, 'Kopi Gayo datang Senin.');
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-files] img[src^="data:image/png;base64,"]')`, 'the picture, drawn from a data address');
+    await page.waitFor(`[...document.querySelectorAll('[data-file]')].some((one) => one.innerText.includes('kontrak.pdf'))`, 'the PDF, offered to save');
+    assert.equal(await page.evaluate<number>(`document.querySelectorAll('[data-files] img').length`), 1, 'only the picture is drawn');
+
+    await page.evaluate(`document.querySelector('[data-pane="rail"] input[name="q"]').focus()`);
+    await page.type('Gayo');
+    await page.press('Enter');
+    await page.waitFor(`document.querySelector('[data-hit]')?.innerText.includes('Kopi Gayo datang Senin.')`, 'what was found');
+    assert.match(await page.evaluate<string>('location.hash'), /item=search$/, 'the search is in the address');
+    await page.evaluate(`document.querySelector('[data-hit]').click()`);
+    await page.waitFor(`document.querySelector('[data-pane="thread"]')?.innerText.includes('Kopi Gayo datang Senin.')`, 'the message, opened in its thread');
   } finally {
     await page.close();
     await api.close();

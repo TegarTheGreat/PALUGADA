@@ -112,6 +112,12 @@ test('a message carries up to five files, read only by those who may see the roo
     const alone = await carrying(owner, room, [sent('denah-2.png', PNG)], '');
     assert.equal(alone.files.length, 1);
     refusedWith(await owner.say(room, { body: '' }), 400, 'contract.violation');
+
+    // The room's details list what it keeps, newest first, to those who may see it.
+    const listed = ok(await sariIn.get(`/rooms/${room}/files`)).files as Array<{ name: string; messageId: string; author: { principal: string } }>;
+    assert.deepEqual(listed.map((one) => [one.name, one.messageId, one.author.principal]),
+      [['denah-2.png', alone.id, 'owner'], ['kontrak.pdf', message.id, 'owner'], ['denah.png', message.id, 'owner']]);
+    refusedWith(await budiIn.get(`/rooms/${room}/files`), 404, 'room.not_visible');
   } finally {
     await api.close();
   }
@@ -201,19 +207,26 @@ test('a file is stored under its id with the type its bytes show, never the name
       sent('foto.png', PDF),
       sent('../../../etc/passwd', Buffer.from('root:x:0:0\n')),
       sent('gambar.svg.png', SVG),
+      sent('setup.exe', Buffer.from([0x00, 0x01, 0x02, 0xfe, 0xff, 0x00])),
     ]);
+    // What a stranger's file would be refused for, a colleague's is kept as: named for its kind, and only saved.
+    const zipped = await carrying(owner, room, [sent('arsip.txt', Buffer.from('PK\u0003\u0004 isi arsip', 'latin1'))]);
     assert.deepEqual(message.files.map((file) => [file.name, file.mime]), [
       ['faktur.pdf', 'image/png'],
       ['foto.png', 'application/pdf'],
       ['passwd', 'text/plain'],
       ['gambar.svg.png', 'image/svg+xml'],
+      ['setup.exe', 'application/octet-stream'],
     ], 'the name is what was sent, made plain; the kind is what the bytes are');
+    assert.deepEqual(zipped.files.map((file) => [file.name, file.mime]), [['arsip.txt', 'application/zip']]);
     const kept = await filesUnder(folder);
     assert.deepEqual(kept, [
       `rooms/${room}/${message.files[0]!.id}.png`,
       `rooms/${room}/${message.files[1]!.id}.pdf`,
       `rooms/${room}/${message.files[2]!.id}.txt`,
       `rooms/${room}/${message.files[3]!.id}.svg`,
+      `rooms/${room}/${message.files[4]!.id}.bin`,
+      `rooms/${room}/${zipped.files[0]!.id}.zip`,
     ].sort(), 'each under its own id, in its room');
     assert.ok((await readFile(join(folder, `rooms/${room}/${message.files[1]!.id}.pdf`))).equals(PDF));
     const paths = await withControlPlane((tx) => tx.query<{ path: string; sha256: string }>(

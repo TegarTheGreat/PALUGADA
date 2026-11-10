@@ -1,5 +1,6 @@
 /**
- * A room's details (F19.1, F19.10): who is in it, what is pinned, how
+ * A room's details (F19.1, F19.4, F19.10): who is in it, what is pinned and
+ * the files it keeps (STATUS 2.212), how
  * loudly it tells the reader things and until when it is quiet, which work
  * a division's room shows, its name, and archiving or leaving it. Each
  * control is offered only where the server says the reader may use it
@@ -13,15 +14,20 @@
 import { useEffect, useState } from 'react';
 import {
   ActionIcon, Alert, Avatar, Badge, Button, Divider, Drawer, Group, Modal, MultiSelect, Select, Stack, Text, TextInput, Textarea,
+  UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconUserMinus } from '@tabler/icons-react';
+import { IconPin, IconUserMinus } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { N, t, tp } from '../i18n.ts';
 import { disclosureOf } from './disclosure.ts';
 import { personPicture } from '../images.ts';
+import { Saved } from './RoomFiles.tsx';
 import { nameOf, useScope } from './scope.ts';
-import type { Room } from './types.ts';
+import type { FileView, MessageView, PersonRef, Room } from './types.ts';
+
+/** A file a room keeps, as its details list it. */
+type Kept = FileView & { messageId: string; threadOf: string | null; author: PersonRef; at: string };
 
 const NOTIFY: Record<Room['notify'], string> = {
   all: N('Every message'), mentions: N('Mentions and direct messages'), none: N('Nothing'),
@@ -44,12 +50,29 @@ export function RoomInfo({ opened, close, addPeople }: {
   const [about, setAbout] = useState(room?.about ?? '');
   const [adding, setAdding] = useState<string[]>([]);
   const [confirming, setConfirming] = useState<'archive' | 'leave' | null>(null);
+  const [pinned, setPinned] = useState<MessageView[]>([]);
+  const [kept, setKept] = useState<Kept[]>([]);
   useEffect(() => {
     setName(room?.name ?? '');
     setAbout(room?.about ?? '');
     setAdding([]);
   }, [room?.id, opened]);
+  // What the room keeps at hand, read each time the details open: its pinned messages with their words, and its files.
+  useEffect(() => {
+    if (!opened || !room) return;
+    let live = true;
+    api('GET', `/api/companies/${scope.companyId}/rooms/${room.id}/pins`)
+      .then((answer: { messages: MessageView[] }) => { if (live) setPinned(answer.messages); }, () => { if (live) setPinned([]); });
+    api('GET', `/api/companies/${scope.companyId}/rooms/${room.id}/files`)
+      .then((answer: { files: Kept[] }) => { if (live) setKept(answer.files); }, () => { if (live) setKept([]); });
+    return () => { live = false; };
+  }, [room?.id, opened, room?.pins.length]);
   if (!room) return null;
+  // A pinned message, or a file's, opened in its thread, where it is read with what was said under it.
+  const openAt = (messageId: string, threadOf: string | null) => {
+    close();
+    scope.openThread(threadOf ?? messageId);
+  };
 
   const done = (failure?: unknown) => {
     if (failure !== undefined) notifications.show({ color: 'red', message: explain(failure) });
@@ -158,8 +181,34 @@ export function RoomInfo({ opened, close, addPeople }: {
           </Stack>
         )}
 
-        {room.pins.length > 0 && <Text size="sm" c="dimmed">{tp('{count} message is pinned here.', '{count} messages are pinned here.', room.pins.length)}</Text>}
-        {/* A room's files (section 2.212) are listed here. */}
+        {room.pins.length > 0 && (
+          <>
+            <Divider label={tp('{count} message is pinned here.', '{count} messages are pinned here.', room.pins.length)} labelPosition="left" />
+            <Stack gap={6} data-pinned>
+              {pinned.map((message) => (
+                <UnstyledButton key={message.id} className="pinned-message" onClick={() => openAt(message.id, message.threadOf)}>
+                  <Group gap={6} wrap="nowrap" align="flex-start">
+                    <IconPin size={14} style={{ flexShrink: 0, marginTop: 3 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="xs" fw={600}>{'name' in message.author ? nameOf(message.author) : 'PALUGADA'}</Text>
+                      <Text size="sm" lineClamp={2} dir="auto">
+                        {message.deleted ? t('This message was removed.') : message.body || message.files.map((file) => file.name).join(', ')}
+                      </Text>
+                    </div>
+                  </Group>
+                </UnstyledButton>
+              ))}
+            </Stack>
+          </>
+        )}
+        {kept.length > 0 && (
+          <>
+            <Divider label={t('Files')} labelPosition="left" />
+            <Stack gap={6} data-room-files>
+              {kept.map((file) => <Saved key={file.id} roomId={room.id} file={file} />)}
+            </Stack>
+          </>
+        )}
 
         {(room.may.archive || (room.joined && room.kind !== 'company' && room.kind !== 'direct')) && <Divider />}
         {room.joined && room.kind !== 'company' && room.kind !== 'direct' && (

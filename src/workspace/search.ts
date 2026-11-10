@@ -15,7 +15,7 @@
 import { withControlPlane, withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { likePattern } from '../owner/search.ts';
-import type { MessageView, SearchHit } from './contract.ts';
+import type { FileView, MessageView, PersonRef, SearchHit } from './contract.ts';
 import { isPerson } from './principal.ts';
 import { roomIdOf, visibleRoom } from './rooms.ts';
 import { directoryOf, drawnInline, MESSAGE_COLUMNS, messageViews, type Directory, type MessageRow, type Viewer } from './views.ts';
@@ -26,6 +26,8 @@ export const HITS_PER_PAGE = 20;
 export const HITS_PER_COMPANY = 8;
 /** How much of a message a hit shows. */
 const EXCERPT = 200;
+/** How many of a room's files its details list, newest first. */
+export const ROOM_FILES_LISTED = 50;
 
 /** What a search is for: the words, taken literally, and what narrows them. */
 interface Asked {
@@ -179,5 +181,32 @@ export async function pinnedIn(viewer: Viewer, roomId: string): Promise<MessageV
       `SELECT ${MESSAGE_COLUMNS} FROM room_pins p JOIN room_messages m ON m.company_id = p.company_id AND m.id = p.message_id
         WHERE p.room_id = $1 ORDER BY p.pinned_at, p.message_id`, [roomId]);
     return messageViews(tx, viewer, directory, rows);
+  });
+}
+
+/** A file a room keeps, as its details list it: the file, and the message that carried it. */
+export type RoomFileItem = FileView & { messageId: string; threadOf: string | null; author: PersonRef; at: string };
+
+/**
+ * The files a room keeps, newest first: those of messages still said, whose
+ * bytes are still kept, as the reader may see the room.
+ */
+export async function filesIn(viewer: Viewer, roomId: string): Promise<RoomFileItem[]> {
+  const directory = await directoryOf(viewer.companyId);
+  return withPeople(viewer.companyId, viewer.person, async (tx) => {
+    await visibleRoom(tx, viewer, roomId);
+    const { rows } = await tx.query<{
+      id: string; name: string; mime: string; bytes: string; message_id: string; thread_of: string | null;
+      author: string; author_name: string | null; created_at: Date;
+    }>(
+      `SELECT f.id, f.name, f.mime, f.bytes, m.id AS message_id, m.thread_of, m.author, m.author_name, f.created_at
+         FROM room_files f JOIN room_messages m ON m.company_id = f.company_id AND m.id = f.message_id
+        WHERE m.room_id = $1 AND m.deleted_at IS NULL AND f.path IS NOT NULL
+        ORDER BY f.created_at DESC, f.id LIMIT ${ROOM_FILES_LISTED}`, [roomId]);
+    return rows.map((row) => ({
+      id: row.id, name: row.name, mime: row.mime, bytes: Number(row.bytes), inline: drawnInline(row.mime, Number(row.bytes)),
+      messageId: row.message_id, threadOf: row.thread_of, author: directory.refOf(row.author, row.author_name),
+      at: row.created_at.toISOString(),
+    }));
   });
 }

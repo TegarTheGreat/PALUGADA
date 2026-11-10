@@ -108,6 +108,11 @@ test('the reference relay pairs, receives, verifies and presses, end to end', as
     // The owner presses Approve on the phone; the relay signs it with the device's key; the deployment pulls it.
     const approval = told.find((envelope) => envelope.data.kind === 'approval')!;
     const approve = approval.offers.find((offer: { act: string }) => offer.act === 'approve');
+    // Acts come from the machine the relay runs on, never through a proxy in front of it.
+    for (const via of [{ 'x-forwarded-for': '203.0.113.9' }, { forwarded: 'for=203.0.113.9' }]) {
+      const proxied = await fetch(`${relay.url}/local/press`, { method: 'POST', headers: via, body: JSON.stringify({ token: approve.token }) });
+      assert.equal(proxied.status, 403, JSON.stringify(via));
+    }
     await relay.press(approve.token);
     await sendOutbox(api.master);
     const { rows: [item] } = await withTenant(fixture.companyId, (tx) => tx.query<{ decision: string; decided_via: string }>(

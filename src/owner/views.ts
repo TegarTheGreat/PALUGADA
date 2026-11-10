@@ -22,6 +22,7 @@ import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
+import { escalationPolicyFor, type EscalationPolicy } from '../governance/structure.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
 import { journalOf, NOT_A_READ, madeFiles } from '../engine/journal.ts';
@@ -65,8 +66,10 @@ export interface StructureView {
     name: string;
     depth: number;
     maxConcurrency: number;
+    /** F2.1, in force: who hears first (the CEO where nobody was named), null for straight to the owner. */
     escalationRole: string | null;
-    escalateAfterMinutes: number | null;
+    /** How long that role has before the owner is told. */
+    escalateAfterMinutes: number;
     /** Tasks that are not finished, in this division. */
     openTasks: number;
     grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
@@ -118,17 +121,20 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     );
     const divisions = await tx.query<{
       id: string; parent_division_id: string | null; slug: string; name: string;
-      depth: number; max_concurrency: number; escalation_role_slug: string | null;
-      escalate_after_minutes: number | null; open_tasks: number;
+      depth: number; max_concurrency: number; open_tasks: number;
     }>(
       `SELECT d.id, d.parent_division_id, d.slug, d.name, d.depth, d.max_concurrency,
-              d.escalation_role_slug, d.escalate_after_minutes,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.division_id = d.id AND NOT (t.status = ANY ($1))) AS open_tasks
          FROM divisions d
         ORDER BY d.depth, d.created_at`,
       [TERMINAL_STATUSES],
     );
+    // The policy in force, as an escalation raised now would read it: the
+    // stored columns say nothing where the owner never set one, and the page
+    // said "straight to you" while the CEO was the one asked (F2.1).
+    const policies = new Map<string, EscalationPolicy>();
+    for (const division of divisions.rows) policies.set(division.id, await escalationPolicyFor(tx, division.id));
     const grants = await tx.query<{
       division_id: string; capability_name: string; tier_override: number | null; max_in_flight: number | null;
     }>(
@@ -222,8 +228,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         name: division.name,
         depth: division.depth,
         maxConcurrency: division.max_concurrency,
-        escalationRole: division.escalation_role_slug,
-        escalateAfterMinutes: division.escalate_after_minutes,
+        escalationRole: policies.get(division.id)!.roleSlug,
+        escalateAfterMinutes: policies.get(division.id)!.afterMinutes,
         openTasks: division.open_tasks,
         grants: grantsBy.get(division.id) ?? [],
       })),

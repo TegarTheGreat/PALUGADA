@@ -332,7 +332,7 @@ export function Decisions({ ctx, route }: PageProps) {
                   back={narrow ? () => select(null) : undefined}
                   decided={() => decided(current.id)}
                   talk={(draft) => ctx.talk(draft)}
-                  openTask={() => ctx.open('work', { item: current.taskId })}
+                  openTask={(taskId) => ctx.open('work', { item: taskId ?? current.taskId })}
                   openSkills={() => ctx.open('settings', { section: 'skills' })}
                   seat={ctx.staff}
                 />
@@ -519,7 +519,8 @@ function Detail({
   position: string;
   back: (() => void) | undefined;
   decided: () => void;
-  openTask: () => void;
+  /** Opens the item's task on Work, or the one named. */
+  openTask: (taskId?: string) => void;
   /** A skill candidate is read on the Skills page: its text, versions and checks. */
   openSkills: () => void;
 }) {
@@ -804,7 +805,7 @@ function Detail({
           <Anchor component="button" size="sm" onClick={() => void showTrace()}>
             <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
-          {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
+          {item.taskId && <Anchor component="button" size="sm" onClick={() => openTask()}>{t('Open the task')}</Anchor>}
           {item.kind === 'skill_candidate' && !seat && (
             <Anchor component="button" size="sm" onClick={openSkills}>
               {(item.skillCount ?? 1) > 1 ? t('Read the skills') : t('Read the skill')}
@@ -814,6 +815,23 @@ function Detail({
         <Collapse expanded={traceOpen}>
           <Box>{trace ? <TraceView trace={trace} companyId={companyId} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
         </Collapse>
+
+        {/* Work told on this card rather than on one of its own: a card
+            about a cause -- a model or a service that stayed down for a
+            day -- has no task to open, and this is the way to what stopped. */}
+        {item.stopped && item.stopped.length > 0 && (
+          <div>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('Work that stopped')}</Text>
+            <Stack gap={4}>
+              {item.stopped.map((one) => (
+                <Group key={one.taskId} gap="xs" wrap="nowrap" justify="space-between">
+                  <Text size="sm" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{one.roleName ?? one.role}</Text>
+                  <Anchor component="button" size="sm" onClick={() => openTask(one.taskId)}>{t('Open the task')}</Anchor>
+                </Group>
+              ))}
+            </Stack>
+          </div>
+        )}
 
         {item.budgetHalt && seat === null && <BudgetResume companyId={companyId} halt={item.budgetHalt} done={decided} />}
 

@@ -606,13 +606,15 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
 /** Which capability an event is about, when it is about one. */
 /**
  * How the work came to carry outside content, where it is not a capability's
- * name: handed down, rerun, given a run's ticket, or told a lesson learned
- * from outside. In the owner's language, like the sentence around it.
+ * name: handed down, rerun, given a run's ticket or an escalation about
+ * tainted work, or told a lesson learned from outside. In the owner's
+ * language, like the sentence around it.
  */
 function outsideLabel(name: string): string {
   if (name === 'the task that made it') return t('the task that made it');
   if (name === 'the task it reruns') return t('the task it reruns');
   if (name === 'the ticket it was given') return t('the ticket it was given');
+  if (name === 'the escalation it was given') return t('the escalation it was given');
   if (name === 'memory') return t('a lesson learned from outside');
   return name;
 }

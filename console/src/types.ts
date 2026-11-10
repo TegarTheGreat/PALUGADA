@@ -64,6 +64,8 @@ export interface InboxItem {
   key?: { alias: string; divisionId: string; capabilities: string[] };
   /** What a budget card is about: the account with no room, its month so far, and how many tasks it stopped, live. */
   budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
+  /** Work that stopped and is told on this card, not one of its own (a cause's card has no task), with whose it was. */
+  stopped?: WaitingRole[];
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -188,8 +190,10 @@ export interface Division {
   name: string;
   depth: number;
   maxConcurrency: number;
+  /** Who hears first about the division's trouble, in force: the CEO where the owner named nobody, null for straight to the owner. */
   escalationRole: string | null;
-  escalateAfterMinutes: number | null;
+  /** How long that role has before the owner is told. */
+  escalateAfterMinutes: number;
   openTasks: number;
   grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
 }

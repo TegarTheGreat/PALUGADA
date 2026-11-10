@@ -73,10 +73,11 @@ const SECTIONS: Section[] = [
   {
     name: 'divisions',
     // With its escalation policy (F2.1): who hears about a problem first and
-    // how long they have. A division restored without it sends every
-    // escalation straight to the owner.
+    // how long they have, and whether the owner said so (0133). A division
+    // restored without it sends every escalation to the CEO, the owner's
+    // "straight to me" among them.
     sql: `SELECT id, parent_division_id, depth, slug, name, max_concurrency,
-                 escalation_role_slug, escalate_after_minutes, created_at
+                 escalation_role_slug, escalate_after_minutes, escalation_set, created_at
             FROM divisions ORDER BY depth, slug`,
   },
   {
@@ -176,9 +177,11 @@ const SECTIONS: Section[] = [
     sql: `SELECT document_id, seq, heading, body FROM document_passages ORDER BY document_id, seq`,
   },
   {
-    // The backlog (0070): what was owed, who filed it, and what worked it.
+    // The backlog (0070): what was owed, who filed it, whether its words may
+    // be a stranger's (0134), and what worked it. An archive from before
+    // 0134 has no `outside`, and its tickets are restored as from outside.
     name: 'tickets',
-    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+    sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
                  working_task_id, closed_reason, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at`,
   },

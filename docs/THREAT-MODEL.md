@@ -133,7 +133,9 @@ refer to `docs/PRD.md`.
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
 `calendar.read`, `crm.read`, `speech.transcribe`, `image.describe`, `chat.read`,
 `browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
-`ticket.list`), and any task a hook starts.
+`ticket.list` when what it returns holds a ticket filed by work that had read
+outside content, or of unknown provenance -- and always when a vendor file
+binds it to an outside tracker), and any task a hook starts.
 
 **Defences, in order.**
 
@@ -166,9 +168,34 @@ refer to `docs/PRD.md`.
    cannot pay for stops the call.
 5b. Taint follows the work to new tasks, in the transaction that makes
    them: a rerun carries what the task it reruns carried, a sub-task its
-   parent's, including what the parent's other sub-tasks read, and a task
-   the owner makes from a ticket a run filed carries the ticket's words. A
-   yes for a while never covers a call in tainted work, at any tier.
+   parent's, including what the parent's other sub-tasks read, a task
+   made from a ticket filed by tainted work -- the owner's from the board,
+   or the CEO's triage of the backlog -- carries the ticket's words, and
+   the task a coordinator (the CEO, by default) is handed about work that
+   ended badly carries what that work carried -- any of the tasks on the
+   card, since its brief quotes each one's goal and the record its halt left
+   (`handOver`, `src/inbox/inbox.ts`). A ticket carries what its filer's
+   work had read when it was filed (`ticket.create` asks `outsideContentIn`
+   in the transaction that files it, 0134), recorded on the row because the
+   events that say so expire with retention. It never becomes clean: the
+   application role may not update a ticket's provenance, title or body, a
+   ticket filed again under the same title is returned as it was, a ticket
+   from before 0134 counts as outside unless the owner filed it, and every
+   ticket restored from an archive written before 0134 counts as outside.
+   The owner's own tickets are clean, as a task the owner gives is: typed on
+   the board, a card the owner applied, or one the assistant filed itself in
+   an answer that read nothing anyone else wrote (`auto`,
+   `assistant-actions.ts`). A triage's brief names its tickets' ids and
+   `ticket.list` given them returns only those, so an unrelated ticket from
+   outside on the board does not taint the pass; a listing that returns any
+   ticket from outside taints the whole pass. A ticket is as clean as the
+   work that filed it, and one kind of the CEO's work holds words it is not
+   tainted by: the review of a skill, the CEO's when the company has no
+   reviewer, holds the skill's text, an imported one's included, fenced as
+   data (`sendForReview`, `src/skills/skills.ts`). A ticket the CEO files
+   from it is clean -- no wider than the `task.delegate` the same run could
+   already make from the same words. A yes for a while never covers a call
+   in tainted work, at any tier.
 5c. A yes for a schedule (0116) does cover tainted work, and only because it
    is narrower than the taint: one schedule as it was defined when the yes
    was given (a digest of its role, division, project, goal, account,
@@ -274,15 +301,34 @@ refer to `docs/PRD.md`.
    tell a stranger the page was opened); a link goes out only if it is http,
    https or mail, in a tab told nothing of this one; and the reader is bounded
    in length, lines, nesting and reach. The owner's assistant proposes
-   cards the owner applies (`src/owner/assistant.ts`), with one exception: the
-   everyday work marked `auto` in `assistant-actions.ts` -- giving work, tickets,
-   telling, stopping or rerunning a task; no device, no key -- is done as it is
-   proposed, **only in an answer that has read nothing an agent or a stranger
-   wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's structure, money and
-   settings). After a read of a task, an inbox item, a ticket, a message, a
-   memory or a document, the same action is a card, so text from outside cannot
-   have the assistant start work as the owner. A test names the actions, so
-   adding one is a decision.
+   cards the owner applies (`src/owner/assistant.ts`), with one exception:
+   what is marked `auto` in `assistant-actions.ts` is done as it is proposed.
+   Anywhere, the owner's chats included, that is everyday work: giving work;
+   filing a ticket, closing or opening one again, and handing one to a role;
+   telling, stopping or running a task again; going on with a task its budget
+   stopped, which spends what its raised ceiling allows; leaving an invoice
+   out of the automatic reminders or putting it back; remembering what the
+   owner says to remember; and recording a figure they give. In the console
+   only, it is also building the team: opening a division, starting a
+   project, adding a goal, rewording one or closing it as met or abandoned
+   (which pauses the schedules and triggers under it), hiring a role or
+   changing one (its charter, done criteria, tools, model, runtime, run length
+   and who it is, and with `grantTools` letting its division use the tools it
+   names, except those that cannot be undone), and letting a division use a
+   capability at a tier or taking it away. None of it takes a key, loosens
+   money or decides an inbox item. Opening a division, rewording or closing a
+   goal, hiring or changing a role and granting a capability are done at once
+   only because the console session was signed in with the owner's device; in
+   a session signed in with a recovery code each is a card that asks for a
+   code. All of it is done **only in an answer that has read nothing an agent
+   or a stranger wrote** (`READS_OF_NO_ONE_ELSES_WORDS`: the company's
+   structure, money and settings). After a read of a task, an inbox item, a
+   ticket, a message, a memory or a document, the same action is a card, so
+   text from outside cannot have the assistant start work, or change the
+   team, as the owner in the answer that read it (what a later answer carries
+   of it is under Residual risk). A test in `test/acceptance/assistant.test.ts`
+   ("only everyday work, and building the team in the app, is done at once")
+   names the actions, so adding one is a decision.
 
 **Residual risk.**
 
@@ -294,6 +340,40 @@ refer to `docs/PRD.md`.
   was not.
 - A document the owner uploaded is the company's own: wrapped as data where
   it is shown, it does not taint the task that reads it.
+- The assistant's guard looks at the answer it is giving, not the whole
+  conversation. An earlier answer may have summed up what an agent wrote, and
+  "remember that" or "that is the number" then turns the summary into the
+  owner's word: a memory written as the owner's (source `owner`, which no
+  lesson outranks and nothing expires, never marked as outside content) or a
+  figure recorded as theirs, which counts as verified. Giving work and telling
+  a task carry the same risk, less durably. The action is told to keep only
+  what the owner asked for, in their words, and the owner is shown what was
+  written: in the console the closed card and what it sent, and in Telegram
+  or WhatsApp a line under the answer with the words kept, or the number and
+  its measure, as they were written rather than as the model summed them up
+  (`keptAsTheirs` in `src/owner/api.ts`). Nothing stops it being written
+  first: a memory is taken back with **Take back** or **Correct** on the
+  Memory page, and a figure is replaced by the next one, though it stays in
+  its history. The same words said again in the same place are the memory
+  already kept, not a second one (`ownerSaidAlready`).
+  The same holds for what the conversation carries between answers: the
+  conversation the assistant is sent holds its earlier answers (`converse`,
+  `src/owner/assistant.ts`), so an answer that read a task's output says what
+  it found, and the next answer, which reads only the company's structure,
+  can give work or file a ticket at once with those words in it, and the
+  task or ticket is the owner's and clean. What the conversation keeps of the
+  assistant's answers is its own account of what it read, never the text
+  itself, and each answer answers a line the owner wrote. The briefing the CEO
+  gives when the owner comes back answers nothing: the platform writes it
+  (`src/owner/ceo-briefing.ts`), so it quotes a goal only where the owner wrote
+  it -- work they gave, a ticket they filed, or either run again -- and counts
+  the rest. A ticket an agent filed, read from a customer's email or not, is
+  the owner's press when they give it out, not their words, and a run again of
+  a webhook's work or of an agent's brief has that work's goal. Run now on a
+  schedule is the owner's press too, whoever made the schedule: the owner's
+  yes to a run's `schedule.propose` makes one whose goal is the run's
+  instruction word for word, and nothing on the schedule keeps that it was
+  proposed.
 - Taint through a descendant counts a read the parent may not have taken back
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the

@@ -37,6 +37,7 @@ import {
   encodeAction,
   escapeMarkdown,
 } from '../../src/owner/telegram.ts';
+import { evaluateAlerts, setThresholds } from '../../src/reporting/alerts.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -1184,6 +1185,44 @@ test('a chat message loses its buttons once the item is decided elsewhere (F10.9
 });
 
 /**
+ * A day's figure is still that day's figure once its card has closed. The
+ * message was rewritten to its title and "withdrawn", so an owner scrolling
+ * back through the chat found that something had been over a threshold and
+ * not what, or by how much -- the one thing the message was for.
+ */
+test("a day's card that closed keeps its figure in the chat, under why it closed (F10.9, F11.4)", async () => {
+  const fixture = await createCompany('chat-retract-day');
+  const vendor = await fakeTelegram();
+  try {
+    await setThresholds(fixture.companyId, { dailyCostCents: 150 });
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO llm_traces (id, company_id, model, prompt, response, input_tokens, output_tokens, cost_cents)
+       VALUES ('trace-chat-day', $1, 'test-model', '{}'::jsonb, '{}'::jsonb, 100, 50, 300)`,
+      [fixture.companyId]));
+    const [raised] = await evaluateAlerts(fixture.companyId);
+    const channel = telegram({ url: vendor.url });
+    await dispatch(fixture.companyId, channel, { now: tomorrow() });
+    const sent = String(vendor.calls.find((call) => call.path.endsWith('/sendMessage'))!.body.text);
+    assert.match(sent, /Model spend today is/);
+
+    await evaluateAlerts(fixture.companyId, new Date(Date.now() + 3 * 86_400_000));
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ closed_reason: string }>(
+      'SELECT closed_reason FROM inbox_items WHERE id = $1', [raised!.inboxItemId]));
+    assert.equal(rows[0]!.closed_reason, 'day_ended');
+    assert.deepEqual(await retractClosed(fixture.companyId, channel), { retracted: 1, failed: 0 });
+
+    const edit = vendor.calls.find((call) => call.path.endsWith('/editMessageText'))!;
+    assert.equal(edit.body.reply_markup, undefined);
+    const text = String(edit.body.text);
+    assert.match(text, /^\*Daily model spend over threshold\*/);
+    assert.ok(text.includes(sent.split('\n\n')[1]!), 'the figure the message carried is still there');
+    assert.match(text, /Withdrawn: the day it was about has ended\\\.$/);
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
  * Two of Telegram's refusals mean there is nothing to fix -- the owner deleted
  * the message -- and one is an ordinary failure that deserves a retry, after a
  * wait. Spending the retry budget on a deleted message, or retrying a failure
@@ -1390,6 +1429,64 @@ test("notifications speak the owner's language, and an agent's words are left as
 });
 
 /**
+ * Every reason the platform withdraws an item for, and what the chat says in
+ * its place. Those the owner-load changes added -- the outage cards, the
+ * month's cards, a card the CEO dealt with -- had no sentence, and each was
+ * rewritten as a bare "Withdrawn. Nothing left to press here.": the owner told
+ * the model was down never read that it came back.
+ */
+const WITHDRAWN_SAID: ReadonlyArray<readonly [string, string]> = [
+  ['task_completed', 'Withdrawn: the task it was asking about has finished.'],
+  ['task_failed', 'Withdrawn: the task it was asking about has failed.'],
+  ['task_halted', 'Withdrawn: the task it was asking about was stopped.'],
+  ['task_cancelled', 'Withdrawn: the task it was asking about was cancelled.'],
+  ['task_continued', 'Withdrawn: you continued the task it was about.'],
+  ['budget_room', 'Withdrawn: the budget had room again, and the work went on by itself.'],
+  ['superseded', 'Withdrawn: the agent changed what it proposes and asked again about the new one.'],
+  ['stage_changed', 'Withdrawn: the company is no longer at the stage this proposal would move it from.'],
+  ['decided_elsewhere', 'Withdrawn: it was already decided in the app.'],
+  ['ticket_closed', 'Withdrawn: the ticket it was about was closed.'],
+  ['task_rerun', 'Withdrawn: the task it was about was run again.'],
+  ['day_ended', 'Withdrawn: the day it was about has ended.'],
+  ['spend_paused', 'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.'],
+  ['period_started', 'Withdrawn: the month it was about has ended.'],
+  ['spend_resumed', 'Withdrawn: the pause was lifted, and work goes on.'],
+  ['model_answered', 'Withdrawn: the model is answering again, and any work waiting for it was called back.'],
+  ['key_works', 'Withdrawn: the model key works again, and any work waiting for it was called back.'],
+  ['capability_healthy', 'Withdrawn: the service passed its check again, and any work waiting for it was called back.'],
+  ['nothing_waits', 'Withdrawn: no work is waiting on it any more.'],
+  ['handled_by_coordinator', 'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.'],
+];
+
+/**
+ * A reason written with no sentence for the chat and no label for History is
+ * found here rather than by the owner: every one the platform's code writes as
+ * a literal is in the table above, and History names each in the table.
+ */
+test('every reason an item is withdrawn for has its sentence in the chat and its label in History', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const root = new URL('../../src/', import.meta.url).pathname;
+  const written = new Set<string>();
+  for (const name of await readdir(root, { recursive: true })) {
+    if (!name.endsWith('.ts') || name.startsWith('owner/sentences/')) continue;
+    const text = await readFile(join(root, name), 'utf8');
+    for (const match of text.matchAll(/closed_reason\s*=\s*'([a-z_]+)'|closedReason:\s*'([a-z_]+)'/g)) {
+      written.add(match[1] ?? match[2]!);
+    }
+  }
+  const said = new Set(WITHDRAWN_SAID.map(([reason]) => reason));
+  assert.ok(written.size >= 9, `the scan found what is written: ${[...written].join(', ')}`);
+  assert.deepEqual([...written].filter((reason) => !said.has(reason)), [], 'a reason written with no sentence for the owner');
+
+  const history = await readFile(new URL('../../console/src/pages/History.tsx', import.meta.url), 'utf8');
+  const start = history.indexOf('const WITHDRAWN');
+  const labelled = new Set([...history.slice(start, history.indexOf('};', start)).matchAll(/^\s+([a-z_]+): N\('/gm)]
+    .map((match) => match[1]!));
+  assert.deepEqual([...said].filter((reason) => !labelled.has(reason)), [], 'a reason History shows as a bare "withdrawn"');
+});
+
+/**
  * A decision and a task's end reached the owner as the codes the platform
  * keeps them by -- "Recorded: deny.", "the task it was asking about is
  * cancelled" -- which a translation can only leave in English inside its
@@ -1419,6 +1516,7 @@ test('what the owner decided, and why an item closed, are said in their language
     ['superseded', 'Withdrawn: the agent changed what it proposes and asked again about the new one.'],
     ['stage_changed', 'Withdrawn: the company is no longer at the stage this proposal would move it from.'],
     ['decided_elsewhere', 'Withdrawn: it was already decided in the app.'],
+    ...WITHDRAWN_SAID,
     ['something_new', 'Withdrawn. Nothing left to press here.'],
     ['task_waiting', 'Withdrawn. Nothing left to press here.'],
   ] as const) {

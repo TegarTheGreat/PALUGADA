@@ -1053,6 +1053,11 @@ function DivisionDrawer({
 }: { companyId: string; division: Division | null; structure: Structure; close: () => void; changed: () => void }) {
   const [health, setHealth] = useState<Array<{ capabilityName: string; status: string; detail: string; checkedAt: string }> | null>(null);
   const roles = structure.roles.filter((role) => role.divisionId === division?.id);
+  // Who hears first may be the CEO from another division -- it is, wherever
+  // the owner has not said who -- so it is shown by name and can be kept or chosen.
+  const ceo = structure.roles.find((role) => role.title === 'CEO');
+  const escalationRoles = ceo && !roles.includes(ceo) ? [...roles, ceo] : roles;
+  const escalationRole = structure.roles.find((role) => role.slug === division?.escalationRole);
   const readHealth = async () => {
     if (!division) return;
     const answer: { health: Array<{ capabilityName: string; status: string; detail: string; checkedAt: string }> } =
@@ -1117,13 +1122,15 @@ function DivisionDrawer({
               <Accordion.Panel>
                 <Text size="sm" c="dimmed" mb="sm">
                   {division.escalationRole
-                    ? t('Now: {role}, for {minutes} minutes, then you.', { role: division.escalationRole, minutes: division.escalateAfterMinutes ?? 240 })
+                    ? t('Now: {role}, for {minutes} minutes, then you.', {
+                      role: escalationRole ? roleLabel(escalationRole) : division.escalationRole, minutes: division.escalateAfterMinutes,
+                    })
                     : t('Now: straight to you.')}
                 </Text>
                 <ActionForm
                   fields={[
                     { name: 'roleSlug', label: t('Escalate to'), type: 'select', description: t('Blank sends it straight to you'),
-                      options: roles.map((role) => ({ value: role.slug, label: roleLabel(role) })), initial: division.escalationRole },
+                      options: escalationRoles.map((role) => ({ value: role.slug, label: roleLabel(role) })), initial: division.escalationRole },
                     { name: 'afterMinutes', label: t('Then you, after (minutes)'), type: 'number', initial: division.escalateAfterMinutes },
                   ]}
                   submit={(values) => api('POST', `/api/companies/${companyId}/divisions/${division.id}/escalation`, {

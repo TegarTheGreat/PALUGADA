@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 
-export const COMPANY_PAGES = ['inbox', 'overview', 'plan', 'work', 'customers', 'books', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
+export const COMPANY_PAGES = ['inbox', 'rooms', 'overview', 'plan', 'work', 'customers', 'books', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
 export type CompanyPage = (typeof COMPANY_PAGES)[number];
 
 /** The item that opens Work on the issues list rather than on a task: the Plan page links there. */
@@ -93,7 +93,9 @@ export function takeLinkedTalk(): boolean {
 /**
  * A notification's link: `/?company=<id>&item=<id>`. Turned into a route
  * once, on the first draw, and the query dropped, so a reload does not keep
- * jumping back to an item that has since been decided.
+ * jumping back to an item that has since been decided. A notice about a room
+ * names it, and the thread when there is one (`&room=<id>&thread=<id>`,
+ * F19.16), and opens the Rooms page there.
  */
 export function takeLinkedRoute(): void {
   const query = new URLSearchParams(window.location.search);
@@ -106,7 +108,11 @@ export function takeLinkedRoute(): void {
   const item = query.get('item');
   // A notice that work finished links to the task, in the company's work (0059).
   const task = query.get('task');
-  window.history.replaceState(null, '', `${window.location.pathname}${href(task
-    ? { kind: 'company', companyId, page: 'work', section: 'company', item: task }
-    : { kind: 'company', companyId, page: 'inbox', section: 'company', item })}`);
+  const room = query.get('room');
+  const thread = query.get('thread');
+  window.history.replaceState(null, '', `${window.location.pathname}${href(room
+    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: thread ? `${room}~${thread}` : room }
+    : task
+      ? { kind: 'company', companyId, page: 'work', section: 'company', item: task }
+      : { kind: 'company', companyId, page: 'inbox', section: 'company', item })}`);
 }

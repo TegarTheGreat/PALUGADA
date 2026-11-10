@@ -10,7 +10,7 @@
  * The shell is keyed by the language, so choosing another redraws everything
  * in it (console/src/i18n.ts). The session lives above the key and survives.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
   NavLink, Paper, ScrollArea, SimpleGrid, Stack, Text, TextInput, Tooltip, UnstyledButton,
@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconBook2, IconCoin, IconCompass, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
+  IconBook2, IconCoin, IconCompass, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessageCircle, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
   IconUserCircle,
 } from '@tabler/icons-react';
@@ -32,7 +32,9 @@ import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLangu
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
-import { ChooseHandle, kindLabel, ProfileDrawer, useProfile } from './workspace/Profile.tsx';
+import { ChooseHandle, kindLabel, ProfileDrawer, useProfile, type Profile } from './workspace/Profile.tsx';
+import type { Unread } from './workspace/types.ts';
+import { badgeOf, useUnread } from './workspace/unread.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { Onboarding } from './pages/Onboarding.tsx';
@@ -42,6 +44,7 @@ import { Onboarding } from './pages/Onboarding.tsx';
 // gzipped that the sign-in page fetched and never used.
 const DeploymentSettings = lazy(() => import('./pages/Deployment.tsx').then((module) => ({ default: module.DeploymentSettings })));
 const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({ default: module.Decisions })));
+const Rooms = lazy(() => import('./pages/Rooms.tsx').then((module) => ({ default: module.Rooms })));
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Plan = lazy(() => import('./pages/Plan.tsx').then((module) => ({ default: module.Plan })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
@@ -65,6 +68,7 @@ import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
 /** `about` is said under each page's name, so nobody has to open one to learn what it is for. */
 const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
   { id: 'inbox', label: N('Inbox'), about: N('What waits for your decision'), icon: IconInbox, group: 'decide' },
+  { id: 'rooms', label: N('Rooms'), about: N('Talk with your team, and ask for work where you talk'), icon: IconMessageCircle, group: 'company' },
   { id: 'overview', label: N('Overview'), about: N('How the company is doing'), icon: IconLayoutDashboard, group: 'company' },
   { id: 'plan', label: N('Plan'), about: N('The vision, and the plan that serves it'), icon: IconCompass, group: 'company' },
   { id: 'work', label: N('Work'), about: N('What the team is doing now'), icon: IconActivity, group: 'company' },
@@ -77,6 +81,14 @@ const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof
   { id: 'history', label: N('History'), about: N('Everything that happened'), icon: IconHistory, group: 'company' },
   { id: 'settings', label: N('Settings'), about: N('Hours, languages and security'), icon: IconSettings, group: 'setup' },
 ];
+
+/**
+ * The pages drawn edge to edge and the whole height of the screen, rather
+ * than in the padded column every other page sits in: the rooms, whose
+ * composer is pinned to the foot (STATUS 2.207). Kept apart from `PAGES`,
+ * whose one-line form the page test reads.
+ */
+const FULL_PAGES: ReadonlySet<CompanyPage> = new Set(['rooms']);
 
 export function App() {
   const [device, setDevice] = useState<string | null>(null);
@@ -134,6 +146,15 @@ export interface ConsoleContext {
   talk: (draft?: string) => void;
   /** A staff seat signed in (0110), or null for the owner: a page leaves out what is the owner's. */
   staff: Staff | null;
+  /** The person signed in, as their profile says (F19.2): a seat's principal, handle and picture. */
+  me: Profile | null;
+  openProfile: () => void;
+  /** What waits in each company, as `/api/rooms/unread` last said (F19.10). */
+  unread: Unread[];
+  /** Read the waiting counts again now: a room was read, or a message sent. */
+  refreshUnread: () => void;
+  /** On a phone, an open room has the whole screen: no shell header, no tab bar (F19.16). */
+  setImmersive: (on: boolean) => void;
 }
 
 export interface PageProps {
@@ -190,6 +211,10 @@ function Console({ device, staff, recovered, signOut }: {
   // language, handle and picture, and the profile drawer everyone keeps.
   const me = useProfile();
   const [profiling, setProfiling] = useState(false);
+  // A room open on a phone, which has the whole screen (Rooms.tsx).
+  const [immersive, setImmersive] = useState(false);
+  // What waits in each company: the Rooms badge, the company menu's, the tab's title, and the owner's inbox count.
+  const unread = useUnread();
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages, money]: [
@@ -287,6 +312,14 @@ function Console({ device, staff, recovered, signOut }: {
     setMore(false);
     go({ kind: 'company', companyId: target, page, section: options.section ?? 'company', item: options.item ?? null });
   }, [company]);
+  // A member of staff lands on the rooms, where their work with the company is; the owner keeps their own page.
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !staff || !base.data) return;
+    landed.current = true;
+    if (route.kind === 'home') go({ kind: 'company', companyId: staff.companyId, page: 'rooms', section: 'company', item: null }, { replace: true });
+  }, [base.data]);
+
   // To a company just started or restored: its overview, once the list is read again.
   const arrive = (id: string) => {
     setArriving(id);
@@ -308,7 +341,31 @@ function Console({ device, staff, recovered, signOut }: {
       setTalking(company);
     },
     staff,
-  } : null), [company, companies, open, refreshCompanies, staff]);
+    me: me.data,
+    openProfile: () => setProfiling(true),
+    unread: unread.data ?? [],
+    refreshUnread: unread.reload,
+    setImmersive,
+  } : null), [company, companies, open, refreshCompanies, staff, me.data, unread.data, unread.reload]);
+
+  // The owner's inbox count is the server's, read with the rooms' (F19.10): it no longer waits for the inbox to
+  // be opened. The inbox still says it at once when it is.
+  useEffect(() => {
+    if (!owner || !unread.data) return;
+    setOpenCount((current) => {
+      const next = { ...current };
+      for (const one of unread.data!) if (one.openCount !== null) next[one.companyId] = one.openCount;
+      return next;
+    });
+  }, [unread.data]);
+  // What is addressed to the person, everywhere they are: in the tab's title, and on an installed app's icon.
+  const waiting = (unread.data ?? []).reduce((total, one) => total + badgeOf(one), 0);
+  useEffect(() => {
+    document.title = waiting > 0 ? `(${waiting}) PALUGADA` : 'PALUGADA';
+    const app = navigator as Navigator & { setAppBadge?: (count?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (waiting > 0) void app.setAppBadge?.(waiting).catch(() => undefined);
+    else void app.clearAppBadge?.().catch(() => undefined);
+  }, [waiting]);
 
   // F10.7. Two controls, because they are two decisions: "stop" raises a flag
   // the engine reads at every step, so work stops cleanly and resumes when the
@@ -420,6 +477,7 @@ function Console({ device, staff, recovered, signOut }: {
 
   const setup: SetupReport = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
+  const roomsCount = company ? badgeOf((unread.data ?? []).find((one) => one.companyId === company.id)) : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
   /**
@@ -435,7 +493,8 @@ function Console({ device, staff, recovered, signOut }: {
         label={t(page.label)}
         {...(inline ? { description: t(page.about) } : { py: 7 })}
         leftSection={<page.icon size={18} stroke={1.7} />}
-        rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
+        rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge>
+          : page.id === 'rooms' && roomsCount > 0 ? <Badge data-badge="rooms" size="sm" color="red" circle>{roomsCount}</Badge> : null}
         active={active === page.id}
         onClick={() => open(page.id)}
         className={`nav-link${spotted(page.id as TourSpot)}`}
@@ -512,7 +571,10 @@ function Console({ device, staff, recovered, signOut }: {
       navbar={{ width: 264, breakpoint: 'sm', collapsed: { mobile: true } }}
       // The phone's own header and tab bar exist only on a phone: collapsed
       // rather than absent, they still sat just past the bottom of the screen.
-      {...(mobile ? { header: { height: 56 }, footer: { height: 64 } } : {})}
+      // A room open on a phone has neither: it is the whole screen, with its
+      // own way back (Rooms.tsx).
+      {...(mobile && !immersive ? { header: { height: 56 }, footer: { height: 64 } } : {})}
+      data-immersive={(mobile && immersive) || undefined}
       padding={0}
     >
       <Spotlight
@@ -529,11 +591,11 @@ function Console({ device, staff, recovered, signOut }: {
         shortcut={['mod + K', '/']}
       />
 
-      {mobile && <AppShell.Header px="md">
+      {mobile && !immersive && <AppShell.Header px="md">
         <Group h="100%" justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
             <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={30} height={30} />
-            <CompanyMenu companies={companies} company={company} openCount={openCount} compact
+            <CompanyMenu companies={companies} company={company} openCount={openCount} unread={unread.data ?? []} compact
               pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           </Group>
           <Group gap={6} wrap="nowrap">
@@ -569,7 +631,7 @@ function Console({ device, staff, recovered, signOut }: {
               <ActionIcon variant="subtle" color="gray" onClick={() => spotlight.open()} aria-label={t('Search')}><IconSearch size={18} /></ActionIcon>
             </Tooltip>
           </Group>
-          <CompanyMenu companies={companies} company={company} openCount={openCount}
+          <CompanyMenu companies={companies} company={company} openCount={openCount} unread={unread.data ?? []}
             pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           {owner && <Menu position="bottom-start" width="target" shadow="md">
             <Menu.Target>
@@ -702,7 +764,12 @@ function Console({ device, staff, recovered, signOut }: {
             </Group>
           </Box>
         )}
-        <Box className="app-content" px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
+        <Box
+          className="app-content"
+          {...(route.kind === 'company' && context && FULL_PAGES.has(route.page)
+            ? { 'data-layout': 'full', px: 0, py: 0 }
+            : { px: { base: 'md', sm: 'xl' }, py: { base: 'md', sm: 'xl' } })}
+        >
           <Suspense fallback={<Center py="xl"><Loader size="sm" /></Center>}>
           {!base.data ? null : route.kind === 'deployment' ? (
             <DeploymentSettings section={route.section} />
@@ -722,13 +789,14 @@ function Console({ device, staff, recovered, signOut }: {
         </Box>
       </AppShell.Main>
 
-      {mobile && <AppShell.Footer>
+      {mobile && !immersive && <AppShell.Footer>
         <Group h="100%" gap={0} wrap="nowrap">
+          {/* The owner's day starts at Home; a member of staff's in the rooms. Money is in More (F19.16). */}
           {[
-            { id: 'home', label: t('Home'), icon: IconHome, press: () => go({ kind: 'home' }) },
+            ...(owner ? [{ id: 'home', label: t('Home'), icon: IconHome, press: () => go({ kind: 'home' }), badge: 0 }] : []),
+            { id: 'rooms', label: t('Rooms'), icon: IconMessageCircle, press: () => open('rooms'), badge: roomsCount },
             { id: 'inbox', label: t('Inbox'), icon: IconInbox, press: () => open('inbox'), badge: inboxCount },
-            { id: 'work', label: t('Work'), icon: IconActivity, press: () => open('work') },
-            { id: 'money', label: t('Money'), icon: IconCoin, press: () => open('money') },
+            { id: 'work', label: t('Work'), icon: IconActivity, press: () => open('work'), badge: 0 },
           ].map((tab) => (
             <UnstyledButton key={tab.id} className="bottom-tab" data-active={active === tab.id || undefined} onClick={tab.press}>
               <Box pos="relative">
@@ -738,7 +806,7 @@ function Console({ device, staff, recovered, signOut }: {
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'plan', 'customers', 'books', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'plan', 'customers', 'books', 'browser', 'money', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -747,7 +815,7 @@ function Console({ device, staff, recovered, signOut }: {
 
       <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
         <Stack gap={4} pb="md">
-          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
+          {PAGES.filter((page) => !['inbox', 'rooms', 'work'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
           {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
             onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />}
           <Divider my="xs" />
@@ -818,6 +886,7 @@ function Console({ device, staff, recovered, signOut }: {
 function CompanyPageView({ ctx, route }: PageProps) {
   switch (route.page) {
     case 'inbox': return <Decisions ctx={ctx} route={route} />;
+    case 'rooms': return <Rooms ctx={ctx} route={route} />;
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'plan': return <Plan ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
@@ -833,11 +902,13 @@ function CompanyPageView({ ctx, route }: PageProps) {
 }
 
 function CompanyMenu({
-  companies, company, openCount, pick, start, compact = false,
+  companies, company, openCount, unread, pick, start, compact = false,
 }: {
   companies: Company[];
   company: Company | null;
   openCount: Record<string, number>;
+  /** What waits for the person in each company's rooms: its badge beside the inbox's. */
+  unread: Unread[];
   pick: (id: string) => void;
   /** Null for a staff seat, which starts no company. */
   start: (() => void) | null;
@@ -867,7 +938,14 @@ function CompanyMenu({
           <Menu.Item
             key={one.id}
             leftSection={<Avatar size={22} radius="sm" src={companyEmblem(one)} alt="" />}
-            rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
+            rightSection={(
+              <Group gap={4} wrap="nowrap">
+                {badgeOf(unread.find((waiting) => waiting.companyId === one.id)) > 0 && (
+                  <Badge size="xs" color="blue" circle aria-label={t('Messages for you')}>{badgeOf(unread.find((waiting) => waiting.companyId === one.id))}</Badge>
+                )}
+                {openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
+              </Group>
+            )}
             onClick={() => pick(one.id)}
           >
             {one.name}

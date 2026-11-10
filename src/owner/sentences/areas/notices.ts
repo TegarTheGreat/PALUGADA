@@ -11,7 +11,25 @@
 import type { SentenceArea } from './index.ts';
 
 export const NOTICES: SentenceArea = {
-  id: {},
+  id: {
+    'The owner': 'Pemilik',
+    '{name} wrote to you.': '{name} menulis kepada Anda.',
+    '{name} mentioned you in {room}.': '{name} menyebut Anda di {room}.',
+    '{name} replied in a thread you follow in {room}.': '{name} membalas di utas yang Anda ikuti di {room}.',
+    'New in {room}: {count}.': 'Baru di {room}: {count}.',
+    'A question for you from {role}.': 'Pertanyaan untuk Anda dari {role}.',
+    'An approval waits for you in {room}.': 'Sebuah persetujuan menunggu Anda di {room}.',
+    'An approval waits for you.': 'Sebuah persetujuan menunggu Anda.',
+    'The work you asked for is done: {title}.': 'Kerja yang Anda minta sudah selesai: {title}.',
+    'The work you asked for stopped: {why}.': 'Kerja yang Anda minta berhenti: {why}.',
+    'Something new in PALUGADA.': 'Ada yang baru di PALUGADA.',
+    'And more yesterday: {count}.': 'Masih ada lagi kemarin: {count}.',
+    'Decided through {relay}.': 'Diputuskan lewat {relay}.',
+    'Tier 3 is decided in the app, not through {relay}.': 'Tier 3 diputuskan di aplikasi, bukan lewat {relay}.',
+    'Reply': 'Balas',
+    'Mark read': 'Tandai dibaca',
+    'Mute': 'Bisukan',
+  },
   ms: {},
   jv: {},
   su: {},

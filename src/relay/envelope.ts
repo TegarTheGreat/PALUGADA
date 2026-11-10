@@ -12,6 +12,7 @@
  * and a company the same way, so two relays cannot join what each knows.
  */
 import { createHash, createHmac, type KeyObject } from 'node:crypto';
+import { somethingNewSaid } from '../owner/people-said.ts';
 import { closedSaid, digestSaid, doneSaid, itemSaid } from '../owner/relay-said.ts';
 import { jcs } from './canonical.ts';
 import { base32, signV1a } from './signature.ts';
@@ -30,6 +31,10 @@ export const OUTBOUND_TYPES = [
   'inbox_closed',
   'work_done',
   'digest',
+  // A person's own notices (STATUS section 2.213): words in a room addressed
+  // to them, and the words withdrawn again when they were deleted.
+  'room_activity',
+  'room_activity_retracted',
 ] as const;
 export type OutboundType = (typeof OUTBOUND_TYPES)[number];
 
@@ -118,7 +123,10 @@ export function narrowedEnvelope(
   const given: Share | undefined = (SHARE_LEVELS as readonly string[]).includes(envelope.share) ? envelope.share : undefined;
   const lower = given !== undefined && SHARE_LEVELS.indexOf(share) < SHARE_LEVELS.indexOf(given);
   const offers: Array<{ token: string; act: string }> = Array.isArray(envelope.offers) ? envelope.offers : [];
-  const kept = offers.filter((offer) => (!lower || share !== 'signal') && keep(offer));
+  // A read mark and a mute say nothing of what was said, and stand at every
+  // share; every other offer is a button only above `signal`.
+  const quiet = (offer: { act: string }) => envelope.type === 'room_activity' && (offer.act === 'read' || offer.act === 'mute');
+  const kept = offers.filter((offer) => (!lower || share !== 'signal' || quiet(offer)) && keep(offer));
   const dropped = offers.filter((offer) => !kept.includes(offer)).map((offer) => offer.token);
   if (!lower) return { envelope: offers.length > 0 ? { ...envelope, offers: kept } : envelope, dropped };
 
@@ -147,6 +155,20 @@ export function narrowedEnvelope(
     case 'work_done':
       next.text = share === 'signal' ? doneSaid(language) : String(envelope.text ?? '').split('\n')[0]!;
       break;
+    case 'room_activity': {
+      // Who and where above `signal`, the words only at `content`, and at
+      // `signal` that something happened and how often.
+      const data = (envelope.data ?? {}) as { reasons?: unknown; count?: unknown; room?: unknown; authors?: unknown };
+      next.data = share === 'signal'
+        ? { reasons: data.reasons, count: data.count }
+        : { reasons: data.reasons, count: data.count, room: data.room, authors: data.authors };
+      next.text = share === 'signal' ? somethingNewSaid(language) : String(envelope.text ?? '').split('\n')[0]!;
+      next.offers = kept;
+      break;
+    }
+    case 'room_activity_retracted':
+      // Names envelopes, never what they said.
+      return { envelope, dropped };
     case 'pair_request':
     case 'ping':
     case 'link_confirmed':

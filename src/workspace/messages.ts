@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MessagePage, MessageView, ThreadView } from './contract.ts';
+import { retractMessages } from '../relay/people.ts';
 import { isPerson } from './principal.ts';
 import { assertMember, ensureCompanyMember, takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
 import {
@@ -195,10 +196,16 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
   });
 }
 
-/** A message taken back by its author, or removed by the owner: a tombstone with none of its words (0150). */
+/**
+ * A message taken back by its author, or removed by the owner: a tombstone
+ * with none of its words (0150). Its words are then withdrawn from every
+ * relay a notice of it went to, and never sent where one had not gone yet
+ * (STATUS section 2.213): after the delete commits, and again on a delete
+ * pressed again, so a retraction a failure cut short is made by the retry.
+ */
 export async function deleteMessage(viewer: Viewer, roomId: string, messageId: string): Promise<MessageView> {
   const directory = await directoryOf(viewer.companyId);
-  return withPeople(viewer.companyId, viewer.person, async (tx) => {
+  const removed = await withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
     await takeClock(tx);
     const message = await messageIn(tx, roomId, messageId, { lock: true });
@@ -208,6 +215,8 @@ export async function deleteMessage(viewer: Viewer, roomId: string, messageId: s
     if (!message.deleted_at) await tx.query('UPDATE room_messages SET deleted_at = now() WHERE id = $1', [messageId]);
     return shown(tx, viewer, directory, messageId);
   });
+  await retractMessages(viewer.companyId, [messageId]);
+  return removed;
 }
 
 /** A reaction given or taken back: a person's, on a person's words, and never a decision (0150 refuses one on a card). */

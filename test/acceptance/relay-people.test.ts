@@ -380,19 +380,31 @@ test("a deleted message's excerpt is retracted at the relay, and an unsent one n
     const late = await act(w, sari.phone!, 'reply', offers(notice).reply!, { body: 'Too late?', clientId: 'late' });
     assert.deepEqual([late.status, late.body.code], [422, 'relay.press_spent']);
 
-    // The relay is down when the next goes out; it is deleted before it is sent.
-    down = true;
+    // Owed and not yet sent when it is deleted: it never goes, and nothing is retracted.
     await withControlPlane((tx) => tx.query(
       "UPDATE people_notices SET created_at = created_at - interval '11 minutes' WHERE company_id = $1", [w.fixture.companyId]));
     const second = await said(budi.in, dm, 'The new code is 9090.');
-    await tell(w.fixture.companyId, w.api.master);
+    await tell(w.fixture.companyId, w.api.master, { send: false });
     ok(await budi.in.on(dm, second, 'delete'));
+    await sendOutbox(w.api.master);
+    assert.doesNotMatch(JSON.stringify(w.relay.received), /9090/, 'never sent');
+    const owed = await withControlPlane((tx) => tx.query('SELECT 1 FROM relay_outbox WHERE subjects @> ARRAY[$1]::text[]', [`message:${second}`]));
+    assert.equal(owed.rows.length, 0);
+
+    // Tried while the relay was failing, then deleted: the relay may have
+    // read it before it failed, so it is told to drop it, and it is not tried again.
+    down = true;
+    await withControlPlane((tx) => tx.query(
+      "UPDATE people_notices SET created_at = created_at - interval '11 minutes' WHERE company_id = $1", [w.fixture.companyId]));
+    const tried = await said(budi.in, dm, 'The other code is 7171.');
+    await tell(w.fixture.companyId, w.api.master);
+    const attempt = w.relay.received.find((one) => one.envelope?.type === 'room_activity' && /7171/.test(one.body))!;
+    ok(await budi.in.on(dm, tried, 'delete'));
     down = false;
     await sendOutbox(w.api.master, new Date(Date.now() + 5 * 60_000));
-    assert.doesNotMatch(JSON.stringify(w.relay.received.filter((one) => one.envelope?.type === 'room_activity')), /9090/);
-    const delivered = await withControlPlane((tx) => tx.query(
-      "SELECT 1 FROM relay_outbox WHERE subjects @> ARRAY[$1]::text[]", [`message:${second}`]));
-    assert.equal(delivered.rows.length, 0, 'never sent, so nothing to retract');
+    const after = toldTo(w.relay, sari.phone!);
+    assert.deepEqual(after.filter((one) => one.type === 'room_activity_retracted').at(-1).data.refs, [attempt.id]);
+    assert.equal(w.relay.received.filter((one) => one.id === attempt.id).length, 1, 'tried once, never again');
 
     // Planned and not yet sent when it is deleted: settled, and nothing goes.
     await withControlPlane((tx) => tx.query(

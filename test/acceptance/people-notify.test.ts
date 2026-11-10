@@ -329,7 +329,9 @@ test('agent work tells a person only of a question for them, an approval they ma
     // And everything else an agent does: an incident, the owner's own work
     // finished, cards drawn in the rooms.
     await inbox.raiseIncident({ companyId, title: 'The till is down', detail: 'since noon' });
-    await transition(companyId, owners.id, 'completed', { output: { summary: 'chose one' } });
+    const ownWork = await createRootTask({ ...work('Tidy the shelves'), createdBy: 'owner' });
+    await transition(companyId, ownWork.id, 'running');
+    await transition(companyId, ownWork.id, 'completed', { output: { summary: 'tidied' } });
     await syncRoomCards(companyId);
     await tell(companyId, w.api.master);
 
@@ -477,7 +479,8 @@ test("the owner's day stays at or under ten items with five busy seats and peopl
     await worker.tick(noon, { runs: false });
     await sendOutbox(w.api.master, noon);
 
-    const told = toldTo(w.relay, ownerPhone);
+    // The owner's own channel carries the owner's items and digest beside these, as ever.
+    const told = toldTo(w.relay, ownerPhone).filter((one) => one.type === 'room_activity');
     assert.ok(told.length > 0 && told.length <= 10, `the owner was told ${told.length} times`);
     const rows = await noticesOf(w.fixture.companyId, 'owner');
     assert.ok(rows.filter((row) => row.settled_as === 'sent').length <= 10);
@@ -485,6 +488,36 @@ test("the owner's day stays at or under ten items with five busy seats and peopl
     const seen = await inbox.ownerInbox(w.fixture.companyId);
     assert.ok(seen.items.length + seen.team.filter((entry) => entry.day !== null).length <= 10);
     assert.equal(seen.items.length, 0, 'and none of it is an inbox item');
+  } finally {
+    await w.close();
+  }
+});
+
+test("the owner's digest counts the team's cards as the badge does: one entry a day", async () => {
+  // How the owner is told of the team's cards (STATUS section 2.204): the
+  // digest's open items are what the inbox's badge counts, not every card.
+  const w = await workspace('notify-digest');
+  try {
+    const mira = await person(w, 'Mira', 'member', { phone: false });
+    const { companyId } = w.fixture;
+    for (const summary of ['Email the list', 'Post the photo', 'Pay the printer']) {
+      const taskId = await withTenant(companyId, async (tx) => (await createRootTaskWithin(tx, {
+        companyId, projectId: w.fixture.projectId, divisionId: w.fixture.divisionId, roleId: w.fixture.roleId,
+        goalId: w.fixture.goalId, input: { goal: summary }, createdBy: 'staff', requestedBySeat: mira.seat.id, reserveTokens: 100,
+      })).id);
+      await transition(companyId, taskId, 'running');
+      await inbox.requestApproval({
+        companyId, taskId, capabilityName: 'email.send', tier: 2, actionSummary: summary, rationale: 'ready',
+        consequenceIfDenied: 'not done', instigators: [mira.seat.id],
+      });
+    }
+    await inbox.requestApproval({ companyId, capabilityName: 'email.send', tier: 2, actionSummary: "The owner's own", rationale: 'ready', consequenceIfDenied: 'not sent' });
+    const { buildDailyDigest } = await import('../../src/reporting/digest.ts');
+    const digest = await buildDailyDigest(companyId, new Date());
+    const badge = (ok(await w.api.call('GET', '/api/rooms/unread', w.ownerToken)).unread as Array<{ companyId: string; openCount: number }>)
+      .find((one) => one.companyId === companyId)!.openCount;
+    assert.equal(badge, 2, "the owner's own card, and the team's day");
+    assert.equal(digest.openInboxItems, badge);
   } finally {
     await w.close();
   }

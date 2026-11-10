@@ -20,10 +20,12 @@
  * 6. one closed switch on the type. A press redeems an offer made to that
  *    person for that item, once, and is checked again in full: tier 3 is
  *    refused, a seat's kind is read now, four eyes hold. It is recorded as a
- *    decision from a chat. Replies, read marks and mutes are known types and
- *    refused until people's notices turn them on (STATUS section 2.213).
- *    Nothing else -- an assignment, an instruction, a meeting, a setting, a
- *    seat, a pairing -- is a type at all.
+ *    decision from a chat. A reply, a read mark and a mute each redeem a
+ *    token a notice about a room carried to that person (STATUS section
+ *    2.213), and act in that room alone, as that person: a reply is a plain
+ *    message from them through the relay, only where the owner allowed
+ *    replies, and never work. Nothing else -- an assignment, an
+ *    instruction, a meeting, a setting, a seat, a pairing -- is a type at all.
  *
  * An answer never echoes an item's contents.
  */
@@ -34,6 +36,11 @@ import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { StaffKind } from '../owner/staff.ts';
 import { notOpenText } from '../owner/notify.ts';
+import { decidedThroughSaid, tierThreeSaid } from '../owner/people-said.ts';
+import { markRead } from '../workspace/reads.ts';
+import { postMessage } from '../workspace/messages.ts';
+import { placeSettings } from '../workspace/rooms.ts';
+import type { Viewer } from '../workspace/views.ts';
 import { jcs } from './canonical.ts';
 import { endLinks, claimLink } from './links.ts';
 import { tokenHash } from './offers.ts';
@@ -225,6 +232,9 @@ interface Body {
   type?: unknown;
   token?: unknown;
   answer?: unknown;
+  body?: unknown;
+  clientId?: unknown;
+  until?: unknown;
   code?: unknown;
   label?: unknown;
   device_key?: unknown;
@@ -254,13 +264,11 @@ async function act(relay: RelayRow, raw: Buffer, envelopeId: string, now: Date):
     case 'press':
       return press(relay, body, now);
     case 'reply':
+      return reply(relay, body, now);
     case 'read':
+      return readMark(relay, body, now);
     case 'mute':
-      // Known, described, and off: they write in a room as the person, which
-      // only people's notices offer (STATUS section 2.213). The owner's link
-      // without a device key would be refused for its own reason first.
-      await refuseOwnerWithoutDevice(relay, body);
-      throw new Refusal(422, 'relay.post_off');
+      return mute(relay, body, now);
     case 'link_claim':
       return linkClaim(relay, body, envelopeId, now);
     case 'link_end':
@@ -327,15 +335,6 @@ async function deploymentOf(tx: TenantClient): Promise<string> {
   return control!.deployment;
 }
 
-/** An act from the owner's link that has no device key counts for nothing; ending the link is not an act. */
-async function refuseOwnerWithoutDevice(relay: RelayRow, body: Body): Promise<void> {
-  if (typeof body.token !== 'string') return;
-  const link = await withControlPlane(async (tx) => (await tx.query<LinkRow>(
-    `SELECT l.* FROM relay_offers o JOIN relay_links l ON l.id = o.link_id WHERE o.token_hash = $1 AND o.relay_id = $2`,
-    [tokenHash(body.token as string), relay.id])).rows[0] ?? null);
-  if (link?.principal === 'owner' && !link.device_key) throw new Refusal(422, 'relay.owner_device');
-}
-
 /**
  * A press: one of the person's offers, redeemed once, and the decision made
  * through the inbox as a chat makes it, by the person the offer was made to.
@@ -390,7 +389,10 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
       if (!may) throw new Refusal(422, 'relay.seat_changed', offer.company_id);
       seat = { id: row.id, name: row.name, kind: row.kind };
     }
-    const { rows: [control] } = await tx.query<{ language: string | null }>('SELECT console_language AS language FROM platform_control');
+    // The person's own language, where they chose one, for what the relay is answered.
+    const { rows: [control] } = await tx.query<{ language: string | null }>(
+      `SELECT coalesce((SELECT language FROM principal_prefs WHERE principal = $1), console_language) AS language FROM platform_control`,
+      [link.principal]);
     return { offer, seat, language: control!.language };
   });
 
@@ -400,7 +402,7 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
   try {
     const { rows: [item] } = await withTenant(companyId, (tx) => tx.query<{ tier: number | null; kind: string }>(
       'SELECT tier, kind FROM inbox_items WHERE id = $1', [itemId]));
-    if (item && (item.tier ?? 0) >= 3) throw new Refusal(422, 'relay.press_tier3', companyId);
+    if (item && (item.tier ?? 0) >= 3) throw new Refusal(422, 'relay.press_tier3', companyId, { text: tierThreeSaid(language, relay.name) });
     if (offer.act === 'answer') {
       await inbox.answerEscalation(companyId, itemId, (offer.option ?? answerText)!, { channel: 'chat', seat, via: 'relay' });
     } else {
@@ -413,7 +415,7 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
         // Said in the person's language, and nothing of the item but how it closed.
         return { status: 409, body: { ok: false, code: 'inbox.not_open', text: notOpenText(language, error) } };
       }
-      if (error.code === 'approval.channel_forbidden') throw new Refusal(422, 'relay.press_tier3', companyId);
+      if (error.code === 'approval.channel_forbidden') throw new Refusal(422, 'relay.press_tier3', companyId, { text: tierThreeSaid(language, relay.name) });
       throw new Refusal(422, error.code, companyId);
     }
     // Nothing decided, for a reason that is no answer to the press: the
@@ -421,7 +423,7 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
     await giveBack(relay.id, offer.link_id, itemId, hash, now);
     throw error;
   }
-  return { status: 200, body: { ok: true, result: { act: offer.act } } };
+  return { status: 200, body: { ok: true, result: { act: offer.act }, text: decidedThroughSaid(language, relay.name) } };
 }
 
 /** A press undone: its token unspent, and the item's other buttons it voided live again. */
@@ -433,6 +435,132 @@ async function giveBack(relayId: string, linkId: string, itemId: string, hash: s
       'UPDATE relay_offers SET voided_at = NULL WHERE link_id = $1 AND inbox_item_id = $2 AND voided_at = $3 AND token_hash <> $4',
       [linkId, itemId, pressedAt, hash]);
   });
+}
+
+interface RoomOfferRow {
+  link_id: string;
+  company_id: string;
+  principal: string;
+  act: string;
+  room_id: string;
+  thread_of: string | null;
+  position: string;
+  uses: number;
+  max_uses: number;
+  expires_at: Date;
+  voided_at: Date | null;
+}
+
+/** The longest reply a phone may send. */
+export const REPLY_MAX = 4_000;
+/** The furthest ahead a mute from a phone may reach. */
+const MUTE_MAX_DAYS = 30;
+
+/**
+ * A token a notice about a room carried, redeemed once more: this relay's,
+ * for this act, its link active, signed by the person's device when the
+ * link has one (and the owner's link counts for nothing without one), not
+ * spent, void or past its days; and the person read again as they are now.
+ * Answers the token and the person to act as, with the relay named as where
+ * their words came from.
+ */
+async function redeemRoomOffer(
+  relay: RelayRow, body: Body, act: 'reply' | 'read' | 'mute', signed: Record<string, unknown>, now: Date,
+): Promise<{ offer: RoomOfferRow; viewer: Viewer }> {
+  if (typeof body.token !== 'string' || body.token.length > 200) throw new Refusal(422, 'relay.press_unknown');
+  const token = body.token;
+  const hash = tokenHash(token);
+  return withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its offers takes it.
+    await relayRow(tx, relay.id, true);
+    const { rows: [offer] } = await tx.query<RoomOfferRow>(
+      `SELECT link_id, company_id, principal, act, room_id, thread_of, position, uses, max_uses, expires_at, voided_at
+         FROM relay_offers WHERE token_hash = $1 AND relay_id = $2 FOR UPDATE`, [hash, relay.id]);
+    // A token for another act is no token for this one: a read mark's never writes.
+    if (!offer || offer.act !== act || offer.room_id === null) throw new Refusal(422, 'relay.press_unknown', offer?.company_id ?? null);
+    const { rows: [link] } = await tx.query<LinkRow>('SELECT * FROM relay_links WHERE id = $1', [offer.link_id]);
+    if (!link || link.relay_id !== relay.id || link.status !== 'active') throw new Refusal(410, 'relay.link_ended', offer.company_id);
+    if (!covers(relay, offer.company_id) || (link.company_id !== null && link.company_id !== offer.company_id)) {
+      throw new Refusal(422, 'relay.not_member', offer.company_id);
+    }
+    if (link.device_key) {
+      if (!deviceSigned(link, relay, await deploymentOf(tx), body, act, { token, ...signed }, now)) {
+        throw new Refusal(422, 'relay.device_sig', offer.company_id);
+      }
+    } else if (link.principal === 'owner') {
+      throw new Refusal(422, 'relay.owner_device', offer.company_id);
+    }
+    if (offer.voided_at || offer.uses >= offer.max_uses || offer.expires_at <= now) throw new Refusal(422, 'relay.press_spent', offer.company_id);
+    await tx.query('UPDATE relay_offers SET uses = uses + 1 WHERE token_hash = $1', [hash]);
+    // The person as they are now: a seat ended since the notice acts as nobody.
+    let person: Viewer['person'] = { principal: 'owner', name: null };
+    let kind: Viewer['kind'] = 'owner';
+    let seatId: string | null = null;
+    if (link.principal !== 'owner') {
+      const { rows: [row] } = await tx.query<{ id: string; name: string; kind: StaffKind }>(
+        `SELECT id, name, kind FROM staff_seats
+          WHERE id = $1 AND company_id = $2 AND joined_at IS NOT NULL AND revoked_at IS NULL`,
+        [link.principal.slice('seat:'.length), offer.company_id]);
+      if (!row) throw new Refusal(422, 'relay.not_member', offer.company_id);
+      person = { principal: link.principal, name: row.name };
+      kind = row.kind;
+      seatId = row.id;
+    }
+    return { offer, viewer: { companyId: offer.company_id, person, kind, seatId, relayId: relay.id } };
+  });
+}
+
+/** What the rooms refuse, said back as the relay's refusal, in the company that refused it. */
+async function asThePerson<T>(companyId: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof PalugadaError) throw new Refusal(422, error.code, companyId);
+    throw error;
+  }
+}
+
+/**
+ * A reply from a phone: a plain message by that person, in the room and
+ * thread the notice named and no other, recorded as come through this relay.
+ * Only where the owner allowed replies through it. It is never work: words
+ * from a relay are outside words to every door (STATUS section 2.206), and a
+ * reply in a thread is not given as work at all.
+ */
+async function reply(relay: RelayRow, body: Body, now: Date): Promise<InboundAnswer> {
+  if (!relay.may_post) throw new Refusal(422, 'relay.post_off');
+  const text = body.body;
+  const clientId = body.clientId;
+  if (typeof text !== 'string' || text.trim().length < 1 || text.length > REPLY_MAX
+      || typeof clientId !== 'string' || clientId.length < 1 || clientId.length > 64) {
+    throw new Refusal(422, 'relay.malformed');
+  }
+  const sha256 = createHash('sha256').update(text, 'utf8').digest('hex');
+  const { offer, viewer } = await redeemRoomOffer(relay, body, 'reply', { sha256, clientId }, now);
+  const posted = await asThePerson(offer.company_id, () => postMessage(viewer, offer.room_id, { body: text, clientId, threadOf: offer.thread_of }));
+  return { status: 200, body: { ok: true, result: { message: posted.message.id } } };
+}
+
+/**
+ * A read mark from a phone, to where the notice was: what the person's other
+ * devices read their badge from moves with it, as if they had read it here.
+ */
+async function readMark(relay: RelayRow, body: Body, now: Date): Promise<InboundAnswer> {
+  const { offer, viewer } = await redeemRoomOffer(relay, body, 'read', {}, now);
+  const marked = await asThePerson(offer.company_id, () => markRead(viewer, offer.room_id, { position: Number(offer.position), threadOf: offer.thread_of }));
+  return { status: 200, body: { ok: true, result: { readPosition: marked.readPosition } } };
+}
+
+/** A room muted from a phone until a time within thirty days, or heard again with `null`. */
+async function mute(relay: RelayRow, body: Body, now: Date): Promise<InboundAnswer> {
+  const until = body.until;
+  if (until !== null && (typeof until !== 'string' || !Number.isFinite(Date.parse(until))
+      || Date.parse(until) > now.getTime() + MUTE_MAX_DAYS * 86_400_000)) {
+    throw new Refusal(422, 'relay.malformed');
+  }
+  const { offer, viewer } = await redeemRoomOffer(relay, body, 'mute', { until }, now);
+  const place = await asThePerson(offer.company_id, () => placeSettings(viewer, offer.room_id, { mutedUntil: until }));
+  return { status: 200, body: { ok: true, result: { mutedUntil: place.mutedUntil } } };
 }
 
 /**

@@ -230,6 +230,23 @@ export interface OwnerChannel {
    * 2.208) -- and `carries` must not ask the database item by item.
    */
   prepare?(): Promise<void>;
+  /**
+   * A colleague wrote to the owner or mentioned them, for an owner who chose
+   * to hear people outside the inbox (F10.5; STATUS section 2.213): who and
+   * where, with a link, and nothing to press. Optional, and only a chat takes
+   * it: a push rings for an incident and a tier 3 approval alone, and a relay
+   * is told people's notices through each person's own link, the owner's
+   * included, rather than as the owner's channel.
+   */
+  deliverPeopleNotice?(notice: PeopleNoticeText): Promise<DeliveryResult>;
+}
+
+/** A person's notice as a chat sends it: one sentence in the person's language, and where it opens. */
+export interface PeopleNoticeText {
+  companyId: string;
+  text: string;
+  url: string | null;
+  language: string;
 }
 
 /** Work the owner gave, finished (0059), as a channel sends it. */

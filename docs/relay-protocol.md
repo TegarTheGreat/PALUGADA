@@ -354,8 +354,19 @@ answers, as soon as it has something or after `wait` seconds,
 { "envelopes": [ { "id": "…", "timestamp": "…", "signature": "v1a,…", "body": "<canonical JSON>" } ], "cursor": "<opaque>" }
 ```
 
-`after` is omitted on the first pull. Each envelope is taken exactly as if it
-were pushed, and the next pull names the cursor.
+`after` is omitted on the first pull. A relay MUST answer at most 100
+envelopes to one pull; the deployment takes none of an answer with more. Each
+envelope is taken exactly as if it were pushed, the relay's sixty a minute
+included, and the next pull names the new cursor.
+
+The cursor belongs to the relay and says nothing about one envelope, so the
+deployment moves it only once it is done with the whole answer. When the
+relay's minute fills part way through, the deployment stops, keeps the cursor
+it named, and does not pull that relay again until the minute has room; it
+then names the same cursor, and what it took the first time is answered as a
+repeat (section 9.1, step 3) without counting against the minute. A relay MUST
+therefore answer a cursor it has given before with the same envelopes, and
+keep an envelope until a later cursor is named.
 
 ### 9.1 The checks, in order
 
@@ -363,7 +374,8 @@ were pushed, and the next pull names the cursor.
 2. The signature verifies with the relay's pinned key (`401`), within 300
    seconds (`408`). Nothing is written for an unknown relay or a bad
    signature; it is only counted.
-3. The envelope id is new. A repeat is answered as the first one was.
+3. The envelope id is new. A repeat is answered as the first one was; a new
+   one counts against the relay's sixty a minute (`429`).
 4. The person: the link a token or a recipient names is this relay's and
    active (`410` when it ended), and its company is one the relay hears
    about.

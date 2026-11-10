@@ -20,7 +20,7 @@ import { withControlPlane } from '../db/tenant.ts';
 import type { MasterKey } from '../settings/store.ts';
 import { envelopeHeaders } from './envelope.ts';
 import { forgetPreviousKey, signingKeys } from './identity.ts';
-import { receiveFromRelay } from './inbound.ts';
+import { receiveFromRelay, relayHasRoom } from './inbound.ts';
 import { sendDue, takeBackStale } from './outbox.ts';
 import type { RelayRow } from './relays.ts';
 
@@ -32,6 +32,8 @@ export const RELAYS_IN_FLIGHT = 4;
 export const PULL_WAIT_SECONDS = 25;
 /** How long a lease to pull one relay lasts: the long poll and a margin. */
 const PULL_LEASE_SECONDS = 40;
+/** The most envelopes a relay may answer one pull with (docs/relay-protocol.md, section 9). */
+const PULL_MOST = 100;
 /** How long a receipt, a refusal, a dead letter or a delivered envelope is kept. */
 export const KEPT_DAYS = 14;
 /** How often a pass runs when the last one found nothing to do. */
@@ -113,7 +115,9 @@ function startPull(
   now: Date,
   options: RelayPassOptions,
 ): Promise<number> | null {
-  if (pulling.has(relay.id)) return null;
+  // A relay whose minute is full is not asked again until it has room: what
+  // it answered would only be refused, and stays at the relay meanwhile.
+  if (pulling.has(relay.id) || !relayHasRoom(relay.id, now)) return null;
   const pull = (async () => {
     try {
       // The lease, so replicas never poll one relay twice; taken on the row,
@@ -144,7 +148,12 @@ function startPull(
 /**
  * One long poll: `GET <inbox>?after=<cursor>&wait=<seconds>`, signed by the
  * deployment over the request line, answered with the envelopes since the
- * cursor. Each is taken exactly as a push is, and the cursor moves past them.
+ * cursor. Each is taken exactly as a push is, the relay's sixty a minute
+ * included. The cursor is the relay's and says nothing of a single envelope,
+ * so it moves only when the deployment is done with the whole answer: when the
+ * minute fills, the rest stay at the relay, and the next pull names the same
+ * cursor and is answered what was taken again, as repeats. Answers how many
+ * envelopes the deployment is done with, taken or refused for good.
  */
 async function pullOnce(
   relay: RelayRow,
@@ -165,18 +174,26 @@ async function pullOnce(
   });
   if (!response.ok) throw new Error(`the relay's inbox answered ${response.status}`);
   const answer = await response.json() as { envelopes?: unknown; cursor?: unknown };
-  const envelopes = Array.isArray(answer.envelopes) ? answer.envelopes.slice(0, 100) : [];
+  const envelopes = Array.isArray(answer.envelopes) ? answer.envelopes : [];
+  // More than a relay may answer: taking some and moving the cursor past all
+  // of them would lose the rest, and the cursor cannot name the middle.
+  if (envelopes.length > PULL_MOST) {
+    throw new Error(`the relay's inbox answered ${envelopes.length} envelopes, more than ${PULL_MOST} at once; none was taken`);
+  }
+  let done = 0;
   for (const one of envelopes) {
     const envelope = one as { id?: unknown; timestamp?: unknown; signature?: unknown; body?: unknown };
-    await receiveFromRelay(relay.id, {
+    const taken = await receiveFromRelay(relay.id, {
       id: String(envelope.id ?? ''), timestamp: String(envelope.timestamp ?? ''),
       signature: String(envelope.signature ?? ''), body: String(envelope.body ?? ''),
-    });
+    }, options.now ?? new Date());
+    if (taken.status === 429) return done;
+    done += 1;
   }
   if (typeof answer.cursor === 'string' && answer.cursor.length <= 200) {
     await withControlPlane((tx) => tx.query('UPDATE relays SET inbound_cursor = $2 WHERE id = $1', [relay.id, answer.cursor]));
   }
-  return envelopes.length;
+  return done;
 }
 
 /**

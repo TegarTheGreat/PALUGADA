@@ -83,6 +83,11 @@ export class MinuteThrottle {
     this.#limit = limit;
   }
 
+  /** Whether one more request for `key` would fit in the minute now, without counting it. */
+  room(key: string, now = Date.now()): boolean {
+    return (this.#seen.get(key) ?? []).filter((at) => at > now - 60_000).length < this.#limit;
+  }
+
   /** Whether one more request for `key` fits in the minute; counted when it does. */
   admit(key: string, now = Date.now()): boolean {
     const recent = (this.#seen.get(key) ?? []).filter((at) => at > now - 60_000);
@@ -100,6 +105,15 @@ export class MinuteThrottle {
 
 /** One relay may send sixty envelopes a minute once its signature verifies, whichever way they come. */
 const PER_RELAY = new MinuteThrottle(60);
+
+/**
+ * Whether a relay's minute has room for one more envelope: the relay loop
+ * asks before it pulls, so a relay that filled its minute is not asked again
+ * for what would only be refused.
+ */
+export function relayHasRoom(relayId: string, now = new Date()): boolean {
+  return PER_RELAY.room(relayId, now.getTime());
+}
 
 /** Why a signed envelope was refused, and what it named, for whoever records it. */
 class Refusal {
@@ -140,25 +154,24 @@ export async function receiveFromRelay(relayId: string, envelope: InboundEnvelop
     countRefusal('stale');
     return { status: 408, body: { ok: false, code: 'relay.stale', tolerance: SIGNATURE_TOLERANCE_SECONDS } };
   }
+  // 3. Once. A repeat is answered as the first was, before the relay's minute
+  // counts it: a pull that stopped at the minute names its cursor again, and
+  // what it took then must not take the room of what it did not.
+  const earlier = await withControlPlane((tx) => receipt(tx, relay.id, id));
+  if (earlier) return earlier;
   if (!PER_RELAY.admit(relay.id, now.getTime())) {
     countRefusal('throttled');
     return { status: 429, body: { ok: false, code: 'relay.throttled' } };
   }
-
-  // 3. Once. Claimed before anything is done, so two deliveries of one
-  // envelope at once do it once; the second is told what the first was.
+  // Claimed before anything is done, so two deliveries of one envelope at
+  // once do it once; the second is told what the first was.
   const claimed = await withControlPlane(async (tx) => {
     const { rowCount } = await tx.query(
       `INSERT INTO relay_receipts (relay_id, envelope_id, received_at, result) VALUES ($1, $2, $3, '{"pending":true}')
        ON CONFLICT DO NOTHING`, [relay.id, id, now]);
-    if (rowCount === 1) return null;
-    const { rows } = await tx.query<{ result: InboundAnswer | { pending: true } }>(
-      'SELECT result FROM relay_receipts WHERE relay_id = $1 AND envelope_id = $2', [relay.id, id]);
-    return rows[0]!.result;
+    return rowCount === 1 ? null : receipt(tx, relay.id, id);
   });
-  if (claimed) {
-    return 'status' in claimed ? claimed : { status: 409, body: { ok: false, code: 'relay.in_progress' } };
-  }
+  if (claimed) return claimed;
 
   let answer: InboundAnswer;
   try {
@@ -172,6 +185,14 @@ export async function receiveFromRelay(relayId: string, envelope: InboundEnvelop
   await withControlPlane((tx) => tx.query(
     'UPDATE relay_receipts SET result = $3 WHERE relay_id = $1 AND envelope_id = $2', [relay.id, id, JSON.stringify(answer)]));
   return answer;
+}
+
+/** What an envelope taken before was answered, or that it is still being taken; null when it is new. */
+async function receipt(tx: TenantClient, relayId: string, envelopeId: string): Promise<InboundAnswer | null> {
+  const { rows: [row] } = await tx.query<{ result: InboundAnswer | { pending: true } }>(
+    'SELECT result FROM relay_receipts WHERE relay_id = $1 AND envelope_id = $2', [relayId, envelopeId]);
+  if (!row) return null;
+  return 'status' in row.result ? row.result : { status: 409, body: { ok: false, code: 'relay.in_progress' } };
 }
 
 /**

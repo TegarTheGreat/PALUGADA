@@ -522,3 +522,27 @@ test("the owner's digest counts the team's cards as the badge does: one entry a 
     await w.close();
   }
 });
+
+test("what was sent to whom is delivery's bookkeeping: no person reads it, and no agent", async () => {
+  const w = await workspace('notify-bookkeeping');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    await said(budi.in, await direct(budi.in, sari.seat), 'Hi.');
+    await tell(w.fixture.companyId, w.api.master);
+    assert.equal((await noticesOf(w.fixture.companyId, sari.seat.principal)).length, 1);
+    const { withPeople } = await import('../../src/db/tenant.ts');
+    for (const who of [{ principal: sari.seat.principal, name: 'Sari' }, { principal: 'owner', name: null }]) {
+      const { rows } = await withPeople(w.fixture.companyId, who, (tx) => tx.query('SELECT 1 FROM people_notices'));
+      assert.equal(rows.length, 0, `${who.principal} reads no notice, their own included`);
+    }
+    const { rows } = await withTenant(w.fixture.companyId, (tx) => tx.query('SELECT 1 FROM people_notices'));
+    assert.equal(rows.length, 0, "an agent's transaction reads none");
+    await assert.rejects(withTenant(w.fixture.companyId, (tx) => tx.query(
+      `INSERT INTO people_notices (company_id, principal, reason, subject, window_key, day, channel)
+       VALUES ($1, 'owner', 'question', 'item:00000000-0000-4000-8000-000000000000', 'x', current_date, 'chat:telegram')`,
+      [w.fixture.companyId])), /row-level security/);
+  } finally {
+    await w.close();
+  }
+});

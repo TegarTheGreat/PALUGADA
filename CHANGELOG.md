@@ -1112,3 +1112,16 @@ The first version. What it holds, in the order an owner meets it.
   title too. On a phone, Rooms is a tab, a room fills the screen above the
   keyboard, a thread is a sheet, and a long press or a message's one button
   opens what you may do with it; Money moves into More (STATUS 2.207).
+- Your staff are told on their phones what is theirs: a direct message, a
+  mention, a reply in a thread they follow, a question put to them, an
+  approval they may decide, and work they asked for that ended -- once a room
+  every ten minutes, no more than their notices a day, never in their quiet
+  hours, and only about rooms they can still see. A notice says who and
+  where, and the words only when you let the relay carry them. Each person
+  links a phone in their profile, and `docs/phones.md` says how to set up
+  the reference relay with a private ntfy. From a notice a phone can reply
+  into that room as that person, when you allow replies, mark it read or
+  mute the room; a reply never becomes work, and a deleted message is
+  withdrawn from the phone. You hear people only once you turn it on, inside
+  your window, never as an inbox item, and the daily digest counts the
+  team's cards as your badge does (STATUS 2.213).

@@ -73,10 +73,11 @@ test('what an agent wrote is drawn with Prose', async () => {
   ] as const) {
     assert.match(all, drawn, `${field} is not drawn with Prose anywhere in the Rooms page`);
   }
+  // Raw, they would be an expression between tags: anywhere but Prose's `text=`.
   for (const [path, source] of files) {
-    assert.doesNotMatch(source, /\{\s*card\.(result|lastLine|goal)\s*\}/, `${path} draws an agent's words as raw text`);
-    assert.doesNotMatch(source, /\{\s*(?:card\.)?question\.text\s*\}/, `${path} draws a run's question as raw text`);
-    assert.doesNotMatch(source, /\{\s*(?:thread\.)?progress\s*\}/, `${path} draws a work's progress as raw text`);
+    assert.doesNotMatch(source, /(?<!text=)\{\s*card\.(result|lastLine|goal)\s*\}/, `${path} draws an agent's words as raw text`);
+    assert.doesNotMatch(source, /(?<!text=)\{\s*(?:card\.)?question\.text\s*\}/, `${path} draws a run's question as raw text`);
+    assert.doesNotMatch(source, /(?<!text=)\{\s*(?:thread\.)?progress\s*\}/, `${path} draws a work's progress as raw text`);
   }
 });
 
@@ -125,6 +126,6 @@ test('every workspace route is written out at its call', async () => {
     assert.ok(pressed.has(normal), `${route.method} ${route.pattern} is not pressed from the Rooms page`);
   }
   for (const [path, source] of files) {
-    assert.doesNotMatch(source, /\bapi(?:<[^>]*>)?\(\s*'[A-Z]+'\s*,\s*(?!['`])/, `${path} calls a route by a path built elsewhere`);
+    assert.doesNotMatch(source, /\bapi(?:<[^>]*>)?\(\s*'[A-Z]+'\s*,\s*(?![\s'`])/, `${path} calls a route by a path built elsewhere`);
   }
 });

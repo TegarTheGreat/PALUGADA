@@ -180,6 +180,68 @@ test('on a phone a room opens full screen above the keyboard, without the tab ba
   }
 });
 
+/** A finger held on the row of the message that says `text`, for `ms`, then lifted. */
+const HOLD = (text: string, ms: number) => `(async () => {
+  const row = ${ROW(text)};
+  const box = row.getBoundingClientRect();
+  const touch = (type) => {
+    const point = new Touch({ identifier: 1, target: row, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 });
+    row.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : [point], changedTouches: [point] }));
+  };
+  touch('touchstart');
+  await new Promise((resolve) => setTimeout(resolve, ${ms}));
+  touch('touchend');
+})()`;
+
+test('on a phone a long press opens what may be done with a message, and only what the reader may do', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const rina = await seated(fixture, 'Rina', 'member', { handle: 'rina' });
+  await said(personIn(api, rina.token, fixture.companyId), roomId, 'Kasir kedua sudah datang.');
+  await said(me, roomId, 'Tolong cek kas pagi ini.');
+  const page = await drawn(api, PHONE);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`${ROW('Tolong cek kas pagi ini.')} && ${ROW('Kasir kedua sudah datang.')}`, 'both messages');
+    // On a phone a message has no buttons of its own beside it: they would crowd a narrow line.
+    const shown = await page.evaluate<boolean>(`(() => { const actions = ${ROW('Tolong cek kas pagi ini.')}.querySelector('.message-actions');
+      return Boolean(actions) && getComputedStyle(actions).display !== 'none'; })()`);
+    assert.equal(shown, false, 'a message\'s buttons are drawn beside it on a phone');
+
+    // A tap is not a press: nothing opens.
+    await page.evaluate(HOLD('Tolong cek kas pagi ini.', 80));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.equal(await page.evaluate<number>(`document.querySelectorAll('.mantine-Drawer-content [data-action]').length`), 0, 'a tap opened the actions');
+
+    const sheet = () => page.evaluate<string[]>(`[...document.querySelectorAll('.mantine-Drawer-content [data-action]')].map((one) => one.getAttribute('data-action'))`);
+    await page.evaluate(HOLD('Tolong cek kas pagi ini.', 700));
+    await page.waitFor(`document.querySelectorAll('.mantine-Drawer-content [data-action]').length > 0`, 'the sheet of the owner\'s own message');
+    const mine = await sheet();
+    for (const action of ['reply', 'copy', 'edit', 'pin', 'work', 'issue', 'delete']) {
+      assert.ok(mine.includes(action), `the owner's own message offers no ${action}: ${mine.join(', ')}`);
+    }
+    await page.press('Escape');
+    await page.waitFor(`document.querySelectorAll('.mantine-Drawer-content [data-action]').length === 0`, 'the sheet closed');
+
+    // A seat's words: the owner may reply, give them as work, pin or remove them, but neither edit them nor
+    // file them as the owner's own issue.
+    await page.evaluate(HOLD('Kasir kedua sudah datang.', 700));
+    await page.waitFor(`document.querySelectorAll('.mantine-Drawer-content [data-action]').length > 0`, 'the sheet of a seat\'s message');
+    const hers = await sheet();
+    assert.ok(hers.includes('reply') && hers.includes('work') && hers.includes('delete'), `a seat's message offers ${hers.join(', ')}`);
+    assert.ok(!hers.includes('edit') && !hers.includes('issue'), `a seat's message offers the owner ${hers.join(', ')}`);
+
+    // Reply in thread, pressed from the sheet: the thread, as a sheet over the room.
+    await page.evaluate(`document.querySelector('.mantine-Drawer-content [data-action="reply"]').click()`);
+    await page.waitFor(`(() => { const box = document.querySelector('[data-pane="thread"]')?.getBoundingClientRect();
+      return box && box.left <= 1 && box.width >= ${PHONE.width - 1}; })()`, 'the thread over the room');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
 test('Enter sends and Shift+Enter breaks the line on a desktop; Enter never sends while composing', { skip }, async () => {
   const { fixture, api, owner } = await started();
   const roomId = await companyRoomOf(personIn(api, owner, fixture.companyId));
@@ -294,7 +356,7 @@ test('the owner posts, gives work, and sees the work\'s state change on the mess
     await page.evaluate(`${ROW('Tulis newsletter Oktober')}.querySelector('[data-actions]').click()`);
     await page.waitFor(`document.querySelector('[data-action="work"]')`, 'the message\'s actions');
     await page.evaluate(`document.querySelector('[data-action="work"]').click()`);
-    await page.waitFor(`document.querySelector('[data-askwork]')`, 'the drawer that asks the team');
+    await page.waitFor(`document.querySelector('[data-askwork] textarea')`, 'the drawer that asks the team, with its fields');
     const goal = await page.evaluate<string>(`document.querySelector('[data-askwork] textarea').value`);
     assert.equal(goal, 'Tulis newsletter Oktober', 'what the message said is what is asked');
     const money = await page.evaluate<string>(`document.querySelector('[data-askwork]').innerText`);
@@ -325,33 +387,37 @@ test('a staff seat posts, mentions the owner with @owner, and the owner\'s badge
   const { fixture, api, owner } = await started();
   const rina = await joined(api, owner, fixture, 'Rina', 'member', 'rina');
   const roomId = await companyRoomOf(personIn(api, owner, fixture.companyId));
-  const seat = await drawn(api, DESKTOP);
+  // The console is closed whatever happens, or it keeps the file running after its tests end.
   try {
-    // A member of staff lands on the rooms, in the company room.
-    await staffSignsIn(seat, api, rina.handle, rina.code);
-    await seat.waitFor(`location.hash.startsWith('#/c/${fixture.companyId}/rooms') && document.querySelector('[data-composer]')`, 'the rooms, as Rina');
-    await seat.evaluate(`document.querySelector('[data-composer]').focus()`);
-    await seat.type('@own');
-    await seat.waitFor(`document.querySelector('[data-mention="owner"]')`, 'the owner offered');
-    await seat.press('Enter');
-    await seat.waitFor(`document.querySelector('[data-composer]').value === '@owner '`, '@owner written in');
-    await seat.type('stok kopi tinggal sedikit');
-    await seat.press('Enter');
-    await seat.waitFor(`${ROW('stok kopi tinggal sedikit')}?.getAttribute('data-message')?.length === 36`, 'the message, as the server keeps it');
-  } finally {
-    await seat.close();
-  }
-  const [sent] = (await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text');
-  assert.deepEqual(sent?.mentions.map((one) => one.principal), ['owner'], 'the owner is mentioned');
+    const seat = await drawn(api, DESKTOP);
+    try {
+      // A member of staff lands on the rooms, in the company room.
+      await staffSignsIn(seat, api, rina.handle, rina.code);
+      await seat.waitFor(`location.hash.startsWith('#/c/${fixture.companyId}/rooms') && document.querySelector('[data-composer]')`, 'the rooms, as Rina');
+      await seat.evaluate(`document.querySelector('[data-composer]').focus()`);
+      await seat.type('@own');
+      await seat.waitFor(`document.querySelector('[data-mention="owner"]')`, 'the owner offered');
+      await seat.press('Enter');
+      await seat.waitFor(`document.querySelector('[data-composer]').value === '@owner '`, '@owner written in');
+      await seat.type('stok kopi tinggal sedikit');
+      await seat.press('Enter');
+      await seat.waitFor(`${ROW('stok kopi tinggal sedikit')}?.getAttribute('data-message')?.length === 36`, 'the message, as the server keeps it');
+    } finally {
+      await seat.close();
+    }
+    const [sent] = (await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text');
+    assert.deepEqual(sent?.mentions.map((one) => one.principal), ['owner'], 'the owner is mentioned');
 
-  const page = await drawn(api, DESKTOP);
-  try {
-    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/overview`);
-    await page.waitFor(`document.querySelector('[data-badge="rooms"]')?.innerText.trim() === '1'`, 'the Rooms badge counting the mention');
-    const title = await page.evaluate<string>('document.title');
-    assert.match(title, /^\(1\) PALUGADA/, 'the tab says it too');
+    const page = await drawn(api, DESKTOP);
+    try {
+      await ownerSignsIn(page, api, `#/c/${fixture.companyId}/overview`);
+      await page.waitFor(`document.querySelector('[data-badge="rooms"]')?.innerText.trim() === '1'`, 'the Rooms badge counting the mention');
+      const title = await page.evaluate<string>('document.title');
+      assert.match(title, /^\(1\) PALUGADA/, 'the tab says it too');
+    } finally {
+      await page.close();
+    }
   } finally {
-    await page.close();
     await api.close();
   }
 });
@@ -369,6 +435,11 @@ test('unread badges come from the server and survive a reload', { skip }, async 
   try {
     for (const time of ['first', 'after a reload']) {
       // A reload signs the owner out, since the session lives in the tab's memory: the badge comes back from the server.
+      // The reloaded page is waited for before signing in, or going to the address it is already at cancels the reload.
+      if (time !== 'first') {
+        await page.evaluate('location.reload()');
+        await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in, after the reload');
+      }
       await ownerSignsIn(page, api, `#/c/${fixture.companyId}/overview`);
       await page.waitFor(`document.querySelector('[data-badge="rooms"]')?.innerText.trim() === '3'`, `two direct messages and a mention, ${time}`);
     }
@@ -447,7 +518,7 @@ test('giving work in a direct room says the words become company work', { skip }
     await page.evaluate(`${ROW('Tolong siapkan laporan stok minggu ini.')}.querySelector('[data-actions]').click()`);
     await page.waitFor(`document.querySelector('[data-action="work"]')`, 'the message\'s actions');
     await page.evaluate(`document.querySelector('[data-action="work"]').click()`);
-    await page.waitFor(`document.querySelector('[data-askwork]')`, 'the drawer that asks the team');
+    await page.waitFor(`document.querySelector('[data-askwork] textarea')`, 'the drawer that asks the team, with its fields');
     const said_ = await page.evaluate<string>(`document.querySelector('[data-askwork]').innerText`);
     assert.match(said_, /This becomes company work: its words are visible to everyone in Toko Kopi Senja and to its agents\./);
   } finally {

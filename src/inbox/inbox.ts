@@ -266,9 +266,11 @@ async function answerSince(tx: TenantClient, taskId: string, itemId: string): Pr
  * The seats of a company that decide what waits at tier 2 and below: joined,
  * not revoked, and approvers. A member answers what is put to it but decides
  * nothing (F19.8), so a card from staff work with no approver beside its
- * instigators is the owner's at once, however many members there are.
+ * instigators is the owner's at once, however many members there are. The
+ * rooms' cards ask the same (`src/workspace/cards.ts`), so the inbox and a
+ * room never disagree about who may decide.
  */
-async function approverSeats(companyId: string): Promise<string[]> {
+export async function approverSeats(companyId: string): Promise<string[]> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `SELECT id FROM staff_seats

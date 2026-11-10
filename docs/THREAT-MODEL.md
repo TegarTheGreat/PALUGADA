@@ -660,7 +660,10 @@ public half is kept in the clear (`relay_identity`). A database backup without
 the master key cannot sign as the deployment (section 2.5). The application
 role has no grant on any relay table. The owner rotates it with a fresh
 factor; the old key keeps signing beside the new for a week, so a relay that
-pinned it is told by an envelope it can verify. Residual: someone holding the
+pinned it is told by an envelope it can verify. A relay takes the new key
+only from an envelope the key it pinned now and the new key both sign, so
+whoever kept the old key cannot, in its week, announce a key of their own
+(`docs/relay-protocol.md` section 2.3; the reference relay holds to it). Residual: someone holding the
 master key and a backup can sign as the deployment to every paired relay
 until the owner rotates the key and re-pairs; what they can make a relay do is
 show notices, not act in PALUGADA.
@@ -701,17 +704,26 @@ seat's kind is read again at the press, and four eyes hold; it is recorded as
 a decision from a chat, through the relay. A stolen relay key can therefore
 press only the tier 2 and lower buttons already offered to people who linked
 a phone, once each -- and nothing at all for a link made with a device key,
-which needs the device's signature on every act, or for the owner, whose link
-counts for nothing without one. It can never assign, instruct, call a
+which needs the device's signature on every act, made within five minutes of
+it and, for an end, after the link was made, so a signed act kept back or an
+end of an earlier link is no act -- or for the owner, whose link counts for
+nothing without one. It can never assign, instruct, call a
 meeting, change a setting, seat anyone, pair, or export: there is no type for
-any of it. Revoking the relay refuses it at once and voids its offers.
+any of it. Revoking the relay refuses it at once and voids its offers. Text it sends that
+no column keeps (a NUL) is refused before anything is spent, and a press that
+fails for a reason that is no refusal gives its token back, so a relay cannot
+spend a person's button by making the decision fail.
 Residual: a relay can withhold or delay notices, and can show a person a
 notice PALUGADA never sent; the link it carries opens PALUGADA, where the
 truth is.
 
 **The deployment's own requests to a relay** are made only for the owner's
 actions that need its answer (its document, its accept) and by the relay loop,
-with five-second timeouts, `https` or this machine only, and no redirects. A
+`https` or this machine only, with no redirects, and each read only to a
+bound: its document and its accept within five seconds and 64 KiB, each send
+within five seconds with its answer unread, and a pull within the wait it asks
+for and ten seconds more and 8 MiB, past which nothing of it is taken. A relay
+cannot make the deployment hold more than that of what it streams. A
 relay that answers slowly holds up nothing the worker does: the loop is not a
 stage of its tick. The trigger door shares the signature verifier, so an
 inbound webhook signed with Ed25519 is checked the same way.
@@ -783,7 +795,7 @@ All under `test/acceptance/` unless named.
 | The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
 | A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |
-| The relay: a sealed identity showing only its public half; pairing with a fresh factor, sixteen typed characters and a bound accept; widening takes the device; revocation at once | `relay-pairing.test.ts` |
+| The relay: a sealed identity showing only its public half; pairing with a fresh factor, sixteen typed characters and a bound accept; a document read to a bound; widening takes the device; revocation at once | `relay-pairing.test.ts` |
 | The relay: canonical signed envelopes; share levels; no button at tier 3 or on an incident; a slow relay holds up no tick | `relay-delivery.test.ts`, `test/documents/relay-protocol.test.ts` |
-| The relay: signature, freshness, once, nothing written for a stranger, throttled before the database; a press once, never at tier 3, the device's signature, the owner's link inert without one, a seat read again, four eyes | `relay-inbound.test.ts` |
-| A second implementation of the protocol that pins the deployment by fingerprint | `relay-reference.test.ts` |
+| The relay: signature, freshness, once, nothing written for a stranger, throttled per address before the database; a press once, never at tier 3, the device's signature at its own moment and for its own link, the owner's link inert without one, a seat read again, four eyes; text no column keeps refused, a failed press given back; a pull read to a bound | `relay-inbound.test.ts` |
+| A second implementation of the protocol that pins the deployment by fingerprint, and takes a new key only from the pinned key and the new one | `relay-reference.test.ts` |

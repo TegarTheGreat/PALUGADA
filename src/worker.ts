@@ -95,6 +95,7 @@ import { sleep } from './timers.ts';
 import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
 import type { OtlpExporter } from './reporting/otlp.ts';
 import { pollMailboxes, type MailOptions } from './chats/mail.ts';
+import { syncRoomCards } from './workspace/cards.ts';
 import type { SecretManager } from './secrets/manager.ts';
 
 export interface WorkerOptions {
@@ -809,6 +810,13 @@ export class Worker {
       // take it goes to the owner at once, and should go on this tick.
       await this.#stage(report, 'escalate', async () => {
         report.escalated += await inbox.handEscalations(company);
+      });
+
+      // F19.5, F19.16: the rooms' cards, drawn from what the stages above
+      // moved -- a question raised, an approval decided, work finished --
+      // and before the owner is notified, so a card and its notice agree.
+      await this.#stage(report, 'rooms', async () => {
+        await syncRoomCards(company);
       });
 
       // F10.5, F10.9. After `watch`, because that stage is what raises the

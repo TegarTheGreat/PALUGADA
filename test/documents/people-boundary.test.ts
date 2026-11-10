@@ -59,8 +59,8 @@ const MAY_OPEN: Record<string, readonly string[]> = {
   withRoomPlatform: ['src/workspace/cards.ts', 'src/workspace/rooms.ts'],
 };
 
-/** How many calls of the helpers the people's code makes now. The rooms' server (S3) raises it to 10. */
-const HELPER_CALLS_AT_LEAST = 0;
+/** How many calls of the helpers the people's code makes now: the rooms' server's (STATUS 2.206). */
+const HELPER_CALLS_AT_LEAST = 10;
 
 test("only the people's code opens a room transaction, and only tenant.ts names a reader", async () => {
   const all = await sources('src');
@@ -133,8 +133,13 @@ test("no code on an agent's path names a room table", async () => {
  * writes one, and only these four.
  */
 const DOOR_EVENTS = ['task.given_in_room', 'content.staff_said', 'staff.instructed', 'meeting.called'];
-/** How many events the doors write now. The rooms' server (S3) raises it to 4. */
-const DOOR_EVENTS_AT_LEAST = 0;
+/**
+ * How many events the doors write themselves now: that work was given in a
+ * room, and that a seat's press began it (STATUS 2.206). The instruction's
+ * record and a quoted seat's mark are written by the engine's functions the
+ * doors call (`instructTaskWithin`, and `carriesStaff` on the task's maker).
+ */
+const DOOR_EVENTS_AT_LEAST = 2;
 
 test("appendEvent in the workspace is the doors', with four types", async () => {
   const workspace = await sources('src/workspace');

@@ -268,6 +268,8 @@ import {
 } from './views.ts';
 import { PRINT_MAX_BYTES, type Browsers, type OwnerInput } from '../browser/browsers.ts';
 import { giveBack, holdOf, takeOver, touchHold } from '../browser/holds.ts';
+import { ownWordsToFile } from '../workspace/doors.ts';
+import { principalOf } from '../workspace/principal.ts';
 
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
@@ -4351,33 +4353,39 @@ export class OwnerApi {
         // starts nothing until somebody is given it.
         method: 'POST',
         pattern: '/api/companies/:companyId/tickets',
-        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => {
-          const project = typeof body.projectId === 'string' && body.projectId
-            ? body.projectId
-            : (await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1')).rows[0]?.id;
-          if (!project) throw new PalugadaError('contract.violation', 'the company has no project to file it in', { field: 'projectId' });
-          const opened = await openTicket(tx, {
-            companyId: params.companyId!,
-            projectId: project,
-            divisionId: typeof body.divisionId === 'string' && body.divisionId ? body.divisionId : null,
-            title: requireText(body.title, 'title'),
-            body: typeof body.body === 'string' ? body.body : '',
-            ...(body.priority === undefined ? {} : { priority: Number(body.priority) }),
-            // Work, unless the owner files a problem to solve (F18.4): a hire
-            // is proposed by the CEO, and the owner hires with the CEO.
-            ...(body.kind === undefined || body.kind === null || body.kind === ''
-              ? {} : { kind: oneOf(body.kind, ['work', 'issue'] as const, 'kind') }),
-            ...(body.horizon === undefined || body.horizon === null || body.horizon === ''
-              ? {} : { horizon: oneOf(body.horizon, ['now', 'long_term'] as const, 'horizon') }),
-            openedBy: 'owner',
-            // The owner's words: typed on the board, or on a card the
-            // assistant wrote and the owner applied. The assistant files one
-            // by itself only when it has read nothing an agent or a stranger
-            // wrote (assistant-actions.ts, `auto`).
-            outside: false,
+        handle: async ({ params, body, session, staff }) => {
+          // Filed from a room (F19.9): only the owner's own words, typed in the
+          // console, are filed as the owner's; the words are the message's.
+          const words = body.fromMessage === undefined ? null
+            : await ownWordsToFile(params.companyId!, principalOf(session, staff), body.fromMessage);
+          return withTenant(params.companyId!, async (tx) => {
+            const project = typeof body.projectId === 'string' && body.projectId
+              ? body.projectId
+              : (await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1')).rows[0]?.id;
+            if (!project) throw new PalugadaError('contract.violation', 'the company has no project to file it in', { field: 'projectId' });
+            const opened = await openTicket(tx, {
+              companyId: params.companyId!,
+              projectId: project,
+              divisionId: typeof body.divisionId === 'string' && body.divisionId ? body.divisionId : null,
+              title: requireText(body.title, 'title'),
+              body: words ?? (typeof body.body === 'string' ? body.body : ''),
+              ...(body.priority === undefined ? {} : { priority: Number(body.priority) }),
+              // Work, unless the owner files a problem to solve (F18.4): a hire
+              // is proposed by the CEO, and the owner hires with the CEO.
+              ...(body.kind === undefined || body.kind === null || body.kind === ''
+                ? {} : { kind: oneOf(body.kind, ['work', 'issue'] as const, 'kind') }),
+              ...(body.horizon === undefined || body.horizon === null || body.horizon === ''
+                ? {} : { horizon: oneOf(body.horizon, ['now', 'long_term'] as const, 'horizon') }),
+              openedBy: 'owner',
+              // The owner's words: typed on the board, or on a card the
+              // assistant wrote and the owner applied. The assistant files one
+              // by itself only when it has read nothing an agent or a stranger
+              // wrote (assistant-actions.ts, `auto`).
+              outside: false,
+            });
+            return { ticketId: opened.ticket.id, existing: opened.existing };
           });
-          return { ticketId: opened.ticket.id, existing: opened.existing };
-        }),
+        },
       },
 
       {

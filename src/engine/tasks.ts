@@ -160,8 +160,11 @@ export interface StaffWord {
   name: string;
 }
 
-/** Where derived work took a member of staff's words from (`content.staff_said`'s `from`). */
-export type StaffCarriedFrom = 'rerun' | 'follow_up' | 'ticket' | 'escalation' | 'meeting' | 'quarter' | 'week' | 'month';
+/**
+ * Where derived work took a member of staff's words from (`content.staff_said`'s
+ * `from`). `room`: a seat's message in a room that someone else gave as work.
+ */
+export type StaffCarriedFrom = 'rerun' | 'follow_up' | 'ticket' | 'escalation' | 'meeting' | 'quarter' | 'week' | 'month' | 'room';
 
 /** What a member of staff's words are called when none of their names is known. */
 export const UNNAMED_STAFF = 'a member of staff';

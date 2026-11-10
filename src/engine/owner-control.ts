@@ -196,11 +196,18 @@ export async function cancelTask(
   companyId: string,
   taskId: string,
   reason?: string | null,
-  by: 'owner' | 'system' = 'owner',
+  by: 'owner' | 'system' | (Author & { kind: 'seat' }) = 'owner',
 ): Promise<number> {
   const root = await taskHere(companyId, taskId);
   if (isTerminal(root.status)) {
     throw new PalugadaError('contract.violation', `task ${taskId} is already ${root.status}`, { taskId });
+  }
+  // A member of staff stops only work it asked for (a room's door checks
+  // that), and the stop is the seat's: recorded under its name, never as
+  // the owner's cancel (F19.9).
+  if (typeof by === 'object') {
+    const seat = authorOf(by) as Author & { kind: 'seat' };
+    return cancelTree(companyId, taskId, reason, seat, 'staff_cancel', false);
   }
   return cancelTree(companyId, taskId, reason, by, by === 'owner' ? 'owner_cancel' : 'work_taken_up', false);
 }
@@ -223,7 +230,7 @@ async function cancelTree(
   companyId: string,
   taskId: string,
   reason: string | null | undefined,
-  by: 'owner' | 'system',
+  by: 'owner' | 'system' | (Author & { kind: 'seat' }),
   haltReason: HaltReason,
   stopped: boolean,
 ): Promise<number> {
@@ -261,8 +268,9 @@ async function cancelTree(
         projectId: row.project_id,
         taskId: row.id,
         type: 'task.cancelled',
-        actor: by,
+        ...(typeof by === 'object' ? recordedAs(by) : { actor: by }),
         payload: {
+          ...(typeof by === 'object' ? recordedAs(by).payload : {}),
           haltReason,
           ...(row.id === taskId ? {} : { under: taskId }),
           ...(why ? { reason: why } : {}),

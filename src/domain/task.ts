@@ -112,6 +112,8 @@ export type HaltReason =
   | 'owner_stop'
   /** The owner cancelled this task, or the task it was started for. */
   | 'owner_cancel'
+  /** A member of staff cancelled work they asked for in a room, or the work it was started for (F19.9). */
+  | 'staff_cancel'
   /**
    * The platform stopped it, and what was under it, because the work it was
    * handed was taken up another way: run again, gone on with, or answered on

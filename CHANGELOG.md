@@ -1072,3 +1072,16 @@ The first version. What it holds, in the order an owner meets it.
   a handle, a picture, their language and quiet hours as they join, sign in
   with their handle and code, and are locked out of a handle after five
   wrong codes; everyone has a profile in the menu (STATUS 2.209).
+- The rooms' server: you and your staff can make topic rooms, open or
+  private, and direct conversations of two to eight people, talk in threads,
+  mention one another, react, pin, edit within a day and take words back,
+  and see what is unread and what is addressed to you. A message becomes
+  work only when someone who may ask presses for it, with the money held
+  first and the message marked in the same step; a reply becomes an
+  instruction only when whoever asked for the work tells it, and a member of
+  staff stops only work they asked for, recorded under their name. Your own
+  words typed here are your work; a member of staff's are always staff work.
+  The company's work appears in rooms only as cards that hold no words, and
+  a tier 3 approval there is a link to your inbox. Nothing people say in
+  rooms is written into the work's record. The rooms' page in the console
+  comes next (STATUS 2.206).

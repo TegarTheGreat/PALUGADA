@@ -108,11 +108,18 @@ test('approving is never the prettiest button, and never a keystroke', async () 
   // "Approve" is the irreversible one. It is an outline beside a plain
   // "Deny"; a console that made approving the easiest thing to hit would get
   // approvals it did not mean. The arrows move between items; nothing
-  // approves from the keyboard.
-  const decisions = (await sources()).get('pages/Decisions.tsx') ?? '';
-  const approve = decisions.match(/<Button[^\n]*onClick=\{\(\) => void decide\('approve'\)\}/)?.[0] ?? '';
+  // approves from the keyboard. The inbox and a room's approval card draw
+  // the same buttons (F19.7), so the rule is held in one place.
+  const files = await sources();
+  const buttons = files.get('components/DecisionButtons.tsx') ?? '';
+  const approve = buttons.match(/<Button[^\n]*onClick=\{\(\) => void decide\('approve'\)\}/)?.[0] ?? '';
   assert.ok(approve.length > 0, 'the approve button was not found; the scan is broken');
   assert.match(approve, /variant="outline" color="teal"/);
+  assert.doesNotMatch(buttons, /useHotkeys|onKeyDown/, 'the decision buttons answer a key');
+  for (const path of ['pages/Decisions.tsx', 'workspace/ApprovalCard.tsx']) {
+    assert.match(files.get(path) ?? '', /<DecisionButtons\b/, `${path} draws its own decision buttons`);
+  }
+  const decisions = files.get('pages/Decisions.tsx') ?? '';
   const hotkeys = decisions.match(/useHotkeys\(\[(.*)\]\)/)?.[1] ?? '';
   assert.ok(hotkeys.length > 0, 'the hotkeys were not found; the scan is broken');
   assert.doesNotMatch(hotkeys, /approve|decide/);

@@ -58,60 +58,6 @@ const API_ONLY: Record<string, string> = {
     'machine: a load balancer asks whether to send this process requests, which it is told not to from the moment the process begins to stop',
   'GET /api/metrics':
     'machine: a Prometheus scraper reads what the deployment is doing, with a token of its own',
-  // The rooms' server (STATUS 2.206) is built beside the rooms' console
-  // (STATUS 2.207), which presses each of these and strikes its line.
-  'GET /api/rooms/unread':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/people':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/rooms':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/direct-rooms':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/rooms/:roomId':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/archive':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/join':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/leave':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/members':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/settings':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/read':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/rooms/:roomId/messages':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/rooms/:roomId/threads/:messageId':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/edit':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/delete':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/react':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/pin':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/rooms/:roomId/messages/:messageId/history':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/threads/:messageId/follow':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'GET /api/companies/:companyId/me/activity':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/work':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/tell':
-    'todo: pressed by the Rooms page (section 2.207)',
-  'POST /api/companies/:companyId/rooms/:roomId/messages/:messageId/stop':
-    'todo: pressed by the Rooms page (section 2.207)',
   'GET /api/relay/v1/identity':
     'machine: a relay reads this deployment\'s public key here before the owner pairs it',
   'POST /api/relay/v1/relays/:relayId/inbound':

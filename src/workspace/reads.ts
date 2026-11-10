@@ -118,14 +118,16 @@ const WORK_DONE_DAYS = 7;
  * a room took its unseen ones, 0150); questions put to them; for an
  * approver, the team's cards they may decide, named by the item alone so an
  * approver who cannot see the room the work was asked in learns nothing of
- * it; and the work they pressed for that ended in the last week.
+ * it; and the work they pressed for that ended in the last week. A reply,
+ * a mention in a thread and a card name the thread they are in, since that
+ * is where they are read and so seen.
  */
 export async function activityOf(viewer: Viewer): Promise<ActivityItem[]> {
   const me = viewer.person.principal;
   const inRooms = await withPeople(viewer.companyId, viewer.person, async (tx) => (await tx.query<{
-    reason: 'mention' | 'reply' | 'card'; room_id: string; message_id: string; created_at: Date; seen: boolean;
+    reason: 'mention' | 'reply' | 'card'; room_id: string; message_id: string; thread_of: string | null; created_at: Date; seen: boolean;
   }>(
-    `SELECT n.reason, m.room_id, n.message_id, n.created_at, n.seen_at IS NOT NULL AS seen
+    `SELECT n.reason, m.room_id, n.message_id, m.thread_of, n.created_at, n.seen_at IS NOT NULL AS seen
        FROM room_mentions n JOIN room_messages m ON m.company_id = n.company_id AND m.id = n.message_id
       WHERE n.principal = $1
       ORDER BY n.created_at DESC LIMIT ${ACTIVITY_PAGE}`, [me])).rows);
@@ -156,7 +158,7 @@ export async function activityOf(viewer: Viewer): Promise<ActivityItem[]> {
   });
   const items: Array<ActivityItem & { sortAt: number }> = [
     ...inRooms.map((row) => ({
-      kind: row.reason, roomId: row.room_id, messageId: row.message_id, at: row.created_at.toISOString(), seen: row.seen,
+      kind: row.reason, roomId: row.room_id, messageId: row.message_id, threadOf: row.thread_of, at: row.created_at.toISOString(), seen: row.seen,
       sortAt: row.created_at.getTime(),
     })),
     ...work.questions.map((row) => ({ kind: 'question' as const, itemId: row.id, taskId: row.task_id, at: row.created_at.toISOString(), sortAt: row.created_at.getTime() })),

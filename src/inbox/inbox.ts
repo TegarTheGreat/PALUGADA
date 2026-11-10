@@ -262,6 +262,25 @@ async function answerSince(tx: TenantClient, taskId: string, itemId: string): Pr
   return said ? said.slice(0, 2_000) : null;
 }
 
+/**
+ * The seats of a company that decide what waits at tier 2 and below: joined,
+ * not revoked, and approvers. A member answers what is put to it but decides
+ * nothing (F19.8), so a card from staff work with no approver beside its
+ * instigators is the owner's at once, however many members there are. The
+ * rooms' cards ask the same (`src/workspace/cards.ts`), so the inbox and a
+ * room never disagree about who may decide.
+ */
+export async function approverSeats(companyId: string): Promise<string[]> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT id FROM staff_seats
+        WHERE company_id = $1 AND kind = 'approver' AND joined_at IS NOT NULL AND revoked_at IS NULL`,
+      [companyId],
+    );
+    return rows.map((row) => row.id);
+  });
+}
+
 export async function requestApproval(input: ApprovalInput): Promise<string> {
   const ttl = input.ttlHours ?? DEFAULT_APPROVAL_TTL_HOURS;
   // F9.3: a tier 3 approval may wake the owner; anything gentler waits for
@@ -274,7 +293,7 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
   // owner's at once rather than a day later for nothing.
   const instigators = [...new Set(input.instigators ?? [])];
   const team = instigators.length > 0 && input.tier <= 2;
-  const othersDecide = team && (await askableSeats(input.companyId)).some((one) => !instigators.includes(one.seatId));
+  const othersDecide = team && (await approverSeats(input.companyId)).some((seatId) => !instigators.includes(seatId));
 
   // One transaction for the item and the task it parks. As two, a crash
   // between them left an approval open against a task still `running`, and

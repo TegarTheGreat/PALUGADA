@@ -86,10 +86,52 @@ const SECRET_LABELS = [
 ];
 void SECRET_LABELS;
 
+/** Who the conversation is with: a company's CEO, or PALUGADA's own assistant. */
+export function AssistantTitle({ company }: { company: Company | null }) {
+  if (!company) return <Group gap={8} wrap="nowrap"><IconSparkles size={20} /><Text fw={700}>{t('Ask PALUGADA')}</Text></Group>;
+  const ceo = company.ceo;
+  return (
+    <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
+      <Avatar size={36} radius="xl" src={ceo ? rolePicture(ceo.slug, 'CEO') : rolePicture('ceo', 'CEO')} alt="" />
+      <div style={{ minWidth: 0 }}>
+        <Text fw={700} truncate>{ceo ? ceo.displayName ?? ceo.slug : t('No CEO yet')}</Text>
+        <Text size="xs" c="dimmed" truncate>{t('CEO of {company}', { company: company.name })}</Text>
+      </div>
+    </Group>
+  );
+}
+
+/** The conversation in a drawer, opened from anywhere in the console. */
 export function Assistant({ opened, onClose, company = null, draft = null }: {
   opened: boolean; onClose: () => void; company?: Company | null;
   /** Words put in the box when it opens, for the owner to send or change: a card's "hire it with the CEO". */
   draft?: string | null;
+}) {
+  return (
+    <Drawer
+      opened={opened}
+      onClose={onClose}
+      position="right"
+      size="lg"
+      title={<AssistantTitle company={company} />}
+      styles={{ body: { display: 'flex', flexDirection: 'column', height: 'calc(100% - 60px)' } }}
+    >
+      {opened && <AssistantThread company={company} draft={draft} leave={onClose} />}
+    </Drawer>
+  );
+}
+
+/**
+ * One conversation: what was said, the cards, and the box to say more in.
+ * Drawn in the drawer above, and inline on the Rooms page, where the owner's
+ * CEO and PALUGADA are pinned among the direct messages (STATUS 2.207). It
+ * fills the column it is put in; read again whenever it is drawn.
+ */
+export function AssistantThread({ company = null, draft = null, leave }: {
+  company?: Company | null;
+  draft?: string | null;
+  /** Called before the conversation sends the owner elsewhere: the drawer closes. */
+  leave?: () => void;
 }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [text, setText] = useState('');
@@ -117,21 +159,18 @@ export function Assistant({ opened, onClose, company = null, draft = null }: {
   };
 
   useEffect(() => {
-    if (opened && draft) setText(draft);
-  }, [opened, draft]);
+    if (draft) setText(draft);
+  }, [draft]);
 
   useEffect(() => {
-    if (!opened) {
-      setConversation(null);
-      return;
-    }
+    setConversation(null);
     // A CEO whose owner has been away and who has news says it first; most
     // times there is nothing to say, and the conversation is as it was.
     void (async () => {
       if (companyId) await api('POST', `/api/companies/${companyId}/conversation/briefing`, {}).catch(() => undefined);
       await load();
     })();
-  }, [opened, companyId]);
+  }, [companyId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
@@ -203,28 +242,10 @@ export function Assistant({ opened, onClose, company = null, draft = null }: {
     await load();
   };
 
-  const title = company
-    ? (
-      <Group gap={10} wrap="nowrap">
-        <Avatar size={36} radius="xl" src={ceo ? rolePicture(ceo.slug, ceo.title) : undefined} alt="" />
-        <div style={{ minWidth: 0 }}>
-          <Text fw={700} truncate>{ceoName ?? t('No CEO yet')}</Text>
-          <Text size="xs" c="dimmed" truncate>{t('CEO of {company}', { company: company.name })}</Text>
-        </div>
-      </Group>
-    )
-    : <Group gap={8}><IconSparkles size={20} /><Text fw={700}>{t('Ask PALUGADA')}</Text></Group>;
   const examples = company ? CEO_EXAMPLES : EXAMPLES;
 
   return (
-    <Drawer
-      opened={opened}
-      onClose={onClose}
-      position="right"
-      size="lg"
-      title={title}
-      styles={{ body: { display: 'flex', flexDirection: 'column', height: 'calc(100% - 60px)' } }}
-    >
+    <>
       {conversation && !conversation.available && (
         <Alert color="yellow" variant="light" mb="sm" title={t('Choose a model first')}>
           <Text size="sm">
@@ -232,7 +253,7 @@ export function Assistant({ opened, onClose, company = null, draft = null }: {
               ? t('{name} thinks with this deployment\'s own model, and none is set up yet.', { name: ceoName })
               : t('The assistant thinks with this deployment\'s own model, and none is set up yet.')}
           </Text>
-          <Button size="compact-sm" mt="xs" variant="light" onClick={() => { onClose(); go({ kind: 'deployment', section: 'model' }); }}>
+          <Button size="compact-sm" mt="xs" variant="light" onClick={() => { leave?.(); go({ kind: 'deployment', section: 'model' }); }}>
             {t('Choose a model')}
           </Button>
         </Alert>
@@ -320,7 +341,7 @@ export function Assistant({ opened, onClose, company = null, draft = null }: {
           </ActionIcon>
         </Tooltip>
       </Group>
-    </Drawer>
+    </>
   );
 }
 

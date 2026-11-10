@@ -86,9 +86,12 @@ export type MessagePage = { messages: MessageView[]; readPosition: number; hasBe
 /** A thread: its root and replies; work threads also carry the work's last line, redacted. */
 export type ThreadView = { root: MessageView; replies: MessageView[]; following: boolean; progress: string | null };
 
-/** What asks for a person's attention, newest first. */
+/**
+ * What asks for a person's attention, newest first. A message in a thread
+ * names its thread, so it opens where it is read, and is seen there.
+ */
 export type ActivityItem =
-  | { kind: 'mention' | 'reply' | 'card'; roomId: string; messageId: string; at: string; seen: boolean }
+  | { kind: 'mention' | 'reply' | 'card'; roomId: string; messageId: string; threadOf: string | null; at: string; seen: boolean }
   | { kind: 'question' | 'team_item'; itemId: string; taskId: string | null; at: string }
   | { kind: 'work_done'; taskId: string; state: string; at: string };
 

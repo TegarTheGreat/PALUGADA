@@ -16,7 +16,8 @@
  * nothing writes nothing.
  */
 import { randomUUID } from 'node:crypto';
-import { withControlPlane, withRoomPlatform, type TenantClient } from '../db/tenant.ts';
+import { withRoomPlatform, type TenantClient } from '../db/tenant.ts';
+import { approverSeats } from '../inbox/inbox.ts';
 import { ensureCompanyRooms } from './rooms.ts';
 import { itemState } from './views.ts';
 
@@ -46,14 +47,6 @@ export async function postNotice(
        VALUES ($1, $2, $3, $4, 'notice', 'platform', 'platform', $5, $6, 0)`,
       [randomUUID(), companyId, roomId, threadOf, code, JSON.stringify(values)]);
   });
-}
-
-/** Approvers of the company who may decide a card: joined, unrevoked, and none of the seats whose words are in the work. */
-async function approvers(companyId: string): Promise<string[]> {
-  const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
-    `SELECT id FROM staff_seats WHERE company_id = $1 AND kind = 'approver' AND joined_at IS NOT NULL AND revoked_at IS NULL`,
-    [companyId]));
-  return rows.map((row) => row.id);
 }
 
 /**
@@ -97,7 +90,8 @@ async function askingMessageOf(tx: TenantClient, taskId: string): Promise<{ id: 
 export async function syncRoomCards(companyId: string): Promise<number> {
   // A division made since the last pass has its room before a card is put in it.
   await ensureCompanyRooms(companyId);
-  const deciders = await approvers(companyId);
+  // Who may decide a card: the inbox's approvers, less the seats whose words are in the work (below).
+  const deciders = await approverSeats(companyId);
   return withRoomPlatform(companyId, async (tx) => {
     // The clock's row, held to commit: two workers' passes over one company
     // run one after the other, and each sees what the other wrote.

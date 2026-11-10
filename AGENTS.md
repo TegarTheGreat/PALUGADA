@@ -53,7 +53,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
-| `console/src/workspace/` | the people's workspace in the console: the shapes the server answers with (`types.ts`) and a person's profile (`Profile.tsx`) |
+| `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`) and a person's profile (`Profile.tsx`) |
 | `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
@@ -174,10 +174,19 @@ Each of these is a test, and each exists because the mistake was made once.
 - **The console stores nothing in the browser.** The session lives in memory;
   preferences live in the owner API.
 - **The console fits a phone.** Drawn in Chromium at 390 pixels, the work,
-  the money and the overview have nothing wider than the screen, nothing
-  that scrolls sideways, no badge cut and no figure broken.
-  `test/acceptance/console-phone.test.ts`, which skips where no Chromium is
+  the money, the overview, the rooms' rail and an open room have nothing
+  wider than the screen, nothing that scrolls sideways, no badge cut and no
+  figure broken; an open room is the whole screen, its composer above the
+  keyboard. `test/acceptance/console-phone.test.ts` and
+  `test/acceptance/console-rooms.test.ts`, which skip where no Chromium is
   installed; `PALUGADA_CHROMIUM` names one.
+- **A decision is pressed, and pressed the same way everywhere.** The inbox
+  and a room's approval card draw `console/src/components/DecisionButtons.tsx`:
+  Approve is an outline after a plain Deny, and nothing approves, decides,
+  asks for work or sends it from the keyboard. What an agent wrote is drawn
+  in a room with `Prose`, never as raw text.
+  `test/documents/console-page.test.ts`,
+  `test/documents/console-workspace.test.ts`.
 - **Every column of an exported table is exported**, or listed with a reason
   in `test/acceptance/audit-export.test.ts`. A change that adds a column to
   an exported table exports it, or lists it there, in the same commit.

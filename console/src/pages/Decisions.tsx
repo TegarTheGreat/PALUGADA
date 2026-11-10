@@ -41,6 +41,7 @@ import { locale, t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
 import { ConversationOfTask } from '../components/ChatThread.tsx';
+import { DecisionButtons } from '../components/DecisionButtons.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 import { channelName } from '../channels.ts';
@@ -1085,11 +1086,11 @@ function Detail({
         <Button variant="subtle" leftSection={<IconMessageQuestion size={16} />} loading={busy === 'ask'} onClick={() => void decide('ask')}>
           {t('Ask a question')}
         </Button>
-        <Group gap="xs">
-          <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
-            {t('Deny')}
-          </Button>
-          {(item.allowFor || item.forSchedule) && !seat ? (
+        <DecisionButtons
+          decide={decide}
+          busy={busy}
+          approveDisabled={item.plan !== undefined && chosen.length === 0}
+          approve={(item.allowFor || item.forSchedule) && !seat ? (
             <Group gap={0} wrap="nowrap">
               <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
                 onClick={() => void decide('approve')} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
@@ -1126,13 +1127,8 @@ function Detail({
                 </Menu.Dropdown>
               </Menu>
             </Group>
-          ) : (
-            <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
-              disabled={item.plan !== undefined && chosen.length === 0} onClick={() => void decide('approve')}>
-              {t('Approve')}
-            </Button>
-          )}
-        </Group>
+          ) : undefined}
+        />
       </Group>
       )}
     </Paper>

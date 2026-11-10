@@ -44,8 +44,10 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/owner/conversation-money.ts` | what the owner's conversations may spend: each CEO turn reserved and held in a row before the call, the sweep of holds a crash left, PALUGADA's own monthly allowance |
 | `src/owner/confusables.ts` | the look-alike letters people's names and handles are compared on, generated from Unicode's data by `scripts/confusables.ts` |
 | `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
-| `src/relay/` | relay protocol v1: the deployment's identity, canonical JSON and signatures, pairing, links, offers, the outbox and its loop, and what a relay sends back |
+| `src/relay/` | relay protocol v1: the deployment's identity, canonical JSON and signatures, pairing, links, offers, the outbox and its loop, what a relay sends back, and a person's own notices as envelopes (`people.ts`) |
 | `docs/relay-protocol.md` | the relay protocol, for whoever builds a relay, with its test vectors; `scripts/relay-reference.ts` is the reference relay (`npm run relay:reference`) |
+| `src/owner/member-notify.ts` | people's notices: who is told of what and when, planned under the delivery reader and read again as the person before it is sent; the sentences are `src/owner/people-said.ts` |
+| `docs/phones.md` | how the owner puts people's notices on their staff's phones: the reference relay, a private ntfy, one topic a person, Link a phone |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
@@ -154,6 +156,11 @@ Each of these is a test, and each exists because the mistake was made once.
   document describes none the code does not know, and its test vectors
   verify. A type is only ever added within v1.
   `test/documents/relay-protocol.test.ts`.
+- **A person's notice is never an inbox item, and never words a link's share
+  does not allow.** People's notices are planned only under the delivery
+  reader, which sees no words, and read again as the person told before they
+  are sent; the owner hears people only when they turned it on.
+  `test/acceptance/people-notify.test.ts`.
 - **The workspace's shapes are written twice and held together**:
   `src/workspace/contract.ts` and `console/src/workspace/types.ts`, type by
   type and field by field. `test/documents/workspace-contract.test.ts`.

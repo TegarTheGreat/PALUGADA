@@ -16,6 +16,7 @@ import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { LANGUAGES, t } from '../i18n.ts';
 import { PEOPLE_PICTURES, peoplePicture, personPicture } from '../images.ts';
+import { PhoneLinks } from './LinkPhone.tsx';
 
 /** What `/api/me/profile` answers. */
 export interface Profile {
@@ -219,6 +220,9 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
           )}
           {error && <Alert color="red" variant="light">{error}</Alert>}
           <Button loading={busy} onClick={() => void save()}>{t('Save')}</Button>
+          <Divider />
+          {/* Link a phone (STATUS section 2.213): done at once, not saved with the rest. */}
+          <PhoneLinks />
         </Stack>
       )}
     </Drawer>

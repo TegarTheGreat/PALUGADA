@@ -5,9 +5,10 @@
  * Nothing is sent on anyone's behalf until they link a device themselves.
  * The person asks for a code, eight characters good for ten minutes, and
  * enters it (or scans it) in the relay's app; the owner's code takes a factor
- * given now, since the owner's phone may decide things. The same component
- * serves the owner on the Relays section and, later, every person on their
- * profile; it shows only the caller's own links.
+ * given now, since the owner's phone may decide things; a seat's needs none.
+ * The same component serves the owner on the Relays section and every person
+ * in their profile (`PhoneLinks`, STATUS section 2.213); it shows only the
+ * caller's own links.
  */
 import { useState } from 'react';
 import { Alert, Badge, Button, Code, Group, Stack, Text } from '@mantine/core';
@@ -92,6 +93,34 @@ export function LinkPhone({ relayId, relayName }: { relayId: string; relayName: 
         </Stack>
       )}
       {error && <Alert color="red" variant="light">{error}</Alert>}
+    </Stack>
+  );
+}
+
+/**
+ * A person's phones, in their profile (STATUS section 2.213): every relay
+ * they may link one through -- paired, and hearing about their company --
+ * each with its own Link a phone and the links already made. Linking is done
+ * at once, apart from the profile's Save.
+ */
+export function PhoneLinks() {
+  const view = useLoad(async (): Promise<Links> => api('GET', '/api/relays/links'), []);
+  const relays = view.data?.relays ?? [];
+  return (
+    <Stack gap="sm">
+      <Text size="sm" fw={500}>{t('Phones')}</Text>
+      <Text size="xs" c="dimmed">
+        {t('A phone you link is told who wrote to you or mentioned you, and what waits for you. Nothing is sent to it until you link it.')}
+      </Text>
+      {view.data && relays.length === 0 && (
+        <Text size="xs" c="dimmed">{t('No relay is paired for this company yet: the owner pairs one in This deployment, Relays.')}</Text>
+      )}
+      {relays.map((relay) => (
+        <Stack key={relay.id} gap={4}>
+          {relays.length > 1 && <Text size="xs" fw={500}>{relay.name}</Text>}
+          <LinkPhone relayId={relay.id} relayName={relay.name} />
+        </Stack>
+      ))}
     </Stack>
   );
 }

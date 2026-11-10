@@ -9,7 +9,16 @@
 import type { Area } from '../types.ts';
 
 export const NOTICES: Area = {
-  id: { dictionary: {}, kept: [] },
+  id: {
+    dictionary: {
+      'Phones': 'Ponsel',
+      'A phone you link is told who wrote to you or mentioned you, and what waits for you. Nothing is sent to it until you link it.':
+        'Ponsel yang Anda tautkan diberi tahu siapa yang menulis kepada Anda atau menyebut Anda, dan apa yang menunggu Anda. Tidak ada yang dikirim kepadanya sampai Anda menautkannya.',
+      'No relay is paired for this company yet: the owner pairs one in This deployment, Relays.':
+        'Belum ada relay yang dipasangkan untuk perusahaan ini: pemilik memasangkannya di Deployment ini, Relay.',
+    },
+    kept: [],
+  },
   ms: { dictionary: {}, kept: [] },
   jv: { dictionary: {}, kept: [] },
   su: { dictionary: {}, kept: [] },

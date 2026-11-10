@@ -774,6 +774,8 @@ test('every column of every exported table travels, or is named as deliberately 
     'document_passages.embedding': 'made again from the passage by the provider the receiving deployment chose; another deployment\'s model means nothing there',
     'document_passages.embedding_model': 'the model of that vector, which is not carried',
     'agent_runs.briefing': 'what a run was told is prompt text, gone after the prompt window, and built from the charters, skills, memory and journal the archive carries',
+    'room_messages.client_id': 'a browser\'s retry key, which means nothing once the message is kept',
+    'room_files.path': 'where the bytes were kept on the other deployment; the archive carries no file, so a restored one is a name',
   };
 
   const missing: string[] = [];
@@ -995,4 +997,155 @@ test("a restored company's staff work is still marked as staff work", async () =
   assert.deepEqual(found.tasks, [{ created_by: 'staff', requested_by_seat: null }], 'staff work, pressed by a seat not seated here');
   assert.deepEqual(found.items, [{ instigators: [seat] }], 'whose words are in the work the card asks about');
   assert.deepEqual(found.tickets, [{ instigators: [seat] }], 'and in the work a ticket its run filed becomes');
+});
+
+/**
+ * The rooms travel with the company (F19.4, F19.15, F1.5; STATUS section
+ * 2.212). What people said is the company's record, a private room's and a
+ * direct conversation's too, so the archive carries every room, its members,
+ * its messages with their edits, reactions, pins and files' names. What is a
+ * person's own place and attention -- where they read to, what is owed to
+ * them -- and the delivery's bookkeeping are not the company's record, and
+ * the archive says so rather than carrying them. A restore brings the rooms
+ * back in their order, with their authors named as they were, and owes
+ * nobody anything for them: no unread, no mention, no Activity.
+ */
+async function talkedIn(fixture: Fixture) {
+  const { consoleWithSettings } = await import('../helpers/owner-console.ts');
+  const { companyRoomOf, ok, personIn, said, seated } = await import('../helpers/rooms.ts');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const api = await consoleWithSettings({ files: { root: await mkdtemp(join(tmpdir(), 'palugada-export-rooms-')) } });
+  const owner = personIn(api, await api.signIn(), fixture.companyId);
+  const seat = await seated(fixture, 'Siti Rahayu', 'member', { handle: 'siti' });
+  const siti = personIn(api, seat.token, fixture.companyId);
+  const company = await companyRoomOf(owner);
+  const morning = await said(owner, company, 'Selamat pagi, semua.');
+  const ask = await said(siti, company, { body: 'Pagi @owner, stok kopi tinggal sedikit.', mentions: ['owner'] });
+  await said(owner, company, { body: 'Saya pesan hari ini.', threadOf: ask });
+  await said(siti, company, { body: 'Terima kasih!', threadOf: ask });
+  ok(await owner.on(company, morning, 'edit', { body: 'Selamat pagi, semuanya.' }));
+  ok(await siti.on(company, morning, 'react', { emoji: '👋', on: true }));
+  ok(await owner.on(company, ask, 'pin', { on: true }));
+  const filed = ok(await owner.say(company, {
+    body: 'Daftar harga baru.', files: [{ name: 'harga.pdf', data: Buffer.from('%PDF-1.4 harga').toString('base64') }],
+  })).message.id as string;
+  const secret = String(ok(await owner.makeRoom({ name: 'keuangan', private: true, members: [seat.principal] })).room.id);
+  await said(siti, secret, 'Laporan bulan ini sudah siap.');
+  const direct = String(ok(await owner.direct([seat.principal])).room.id);
+  await said(owner, direct, 'Rahasia: bonus akhir tahun.');
+  const given = await said(owner, company, 'Tolong buat laporan stok.');
+  const work = ok(await owner.on(company, given, 'work', { target: fixture.roleId, goal: 'Buat laporan stok', goalId: fixture.goalId }));
+  return { api, owner, seat, company, secret, direct, morning, ask, filed, given, taskId: String(work.taskId) };
+}
+
+test("a company's rooms and messages travel with it, private rooms and direct messages too; reading places and delivery bookkeeping do not", async () => {
+  const fixture = await createCompany('export-rooms');
+  const talked = await talkedIn(fixture);
+  try {
+    await setRetention(fixture.companyId, { messageDays: 90 });
+    const { summary, sections } = await collectExport(fixture.companyId);
+    const rooms = sections.rooms ?? [];
+    assert.deepEqual(rooms.map((row) => row.kind).sort(), ['company', 'direct', 'division', 'topic']);
+    assert.ok(rooms.some((row) => row.kind === 'topic' && row.private === true && row.name === 'keuangan'));
+    const messages = sections.room_messages ?? [];
+    assert.ok(messages.some((row) => row.body === 'Rahasia: bonus akhir tahun.'), 'a direct conversation is the company\'s record');
+    assert.ok(messages.some((row) => row.body === 'Laporan bulan ini sudah siap.'), 'and so is a private room');
+    assert.ok(messages.every((row) => !('client_id' in row)), 'a browser\'s retry key stays behind');
+    assert.deepEqual((sections.room_message_revisions ?? []).map((row) => row.body), ['Selamat pagi, semua.']);
+    assert.deepEqual((sections.room_reactions ?? []).map((row) => [row.message_id, row.emoji]), [[talked.morning, '👋']]);
+    assert.deepEqual((sections.room_pins ?? []).map((row) => row.message_id), [talked.ask]);
+    const files = sections.room_files ?? [];
+    assert.deepEqual(files.map((row) => [row.message_id, row.name, 'path' in row]), [[talked.filed, 'harga.pdf', false]],
+      'a file travels as its name: the archive carries no file');
+    assert.ok((sections.room_members ?? []).some((row) => row.principal === talked.seat.principal && row.name === 'Siti Rahayu'));
+    for (const kept of ['room_places', 'room_access', 'room_feed', 'room_clock', 'room_mentions', 'room_follows']) {
+      assert.equal(sections[kept], undefined, `${kept} is not the company's record`);
+      assert.ok(summary.leftOut[kept], `the archive says why ${kept} is not in it`);
+    }
+    assert.deepEqual((sections.retention_policies ?? []).map((row) => row.message_days), [90]);
+  } finally {
+    await talked.api.close();
+  }
+});
+
+test("a restored company's rooms and messages come back in order, their authors named as they were", async () => {
+  const fixture = await createCompany('export-rooms-restore');
+  const talked = await talkedIn(fixture);
+  try {
+    await setRetention(fixture.companyId, { messageDays: 120 });
+    const lines: ArchiveLine[] = [];
+    await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+    const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+    const said = (companyId: string) => withControlPlane((tx) => tx.query<{
+      kind: string; author: string; author_name: string | null; body: string | null; room: string | null; thread: string | null;
+    }>(
+      `SELECT m.kind, m.author, m.author_name, m.body, coalesce(r.name, r.kind) AS room, root.body AS thread
+         FROM room_messages m JOIN rooms r ON r.company_id = m.company_id AND r.id = m.room_id
+         LEFT JOIN room_messages root ON root.company_id = m.company_id AND root.id = m.thread_of
+        WHERE m.company_id = $1 ORDER BY m.position`, [companyId])).then((result) => result.rows);
+    const before = await said(fixture.companyId);
+    const after_ = await said(restored.companyId);
+    assert.ok(before.length >= 9);
+    assert.deepEqual(after_, before, 'in their order, each by whom it was said, under the name it was said under, in its room and thread');
+
+    const { ok, personIn } = await import('../helpers/rooms.ts');
+    const owner = personIn(talked.api, talked.owner.token, restored.companyId);
+    const rooms = ok(await owner.rooms()).rooms as Array<{ id: string; kind: string; name: string | null }>;
+    assert.deepEqual(rooms.map((room) => room.kind).sort(), ['company', 'direct', 'topic'], 'the owner is in each as before');
+    const company = rooms.find((room) => room.kind === 'company')!.id;
+    const page = ok(await owner.page(company)).messages as Array<{
+      body: string | null; author: { principal: string; name: string | null; handle: string | null }; files: Array<{ id: string; name: string }>;
+    }>;
+    const fromSiti = page.find((one) => one.body?.startsWith('Pagi @owner'))!;
+    assert.deepEqual([fromSiti.author.principal, fromSiti.author.name, fromSiti.author.handle], [talked.seat.principal, 'Siti Rahayu', null],
+      'named as she was, and seated nowhere here');
+    const file = page.find((one) => one.files.length > 0)!.files[0]!;
+    assert.equal(file.name, 'harga.pdf');
+    const { refusedWith } = await import('../helpers/rooms.ts');
+    refusedWith(await owner.get(`/rooms/${company}/files/${file.id}`), 404, 'file.not_kept');
+    // The work a message was given as is found again by the restored message.
+    const keys = await withControlPlane((tx) => tx.query<{ key: string; id: string }>(
+      `SELECT t.idempotency_key AS key, m.id FROM tasks t JOIN room_messages m ON m.company_id = t.company_id AND m.task_id = t.id
+        WHERE t.company_id = $1`, [restored.companyId]));
+    assert.deepEqual(keys.rows.map((row) => row.key), keys.rows.map((row) => `room:${row.id}`));
+    assert.equal(keys.rows.length, 1);
+    const policy = await withControlPlane((tx) => tx.query<{ message_days: number }>(
+      'SELECT message_days FROM retention_policies WHERE company_id = $1', [restored.companyId]));
+    assert.deepEqual(policy.rows, [{ message_days: 120 }]);
+  } finally {
+    await talked.api.close();
+  }
+});
+
+test('a restored room raises no unread, mention or Activity, and its threads count their replies once', async () => {
+  const fixture = await createCompany('export-rooms-quiet');
+  const talked = await talkedIn(fixture);
+  try {
+    const lines: ArchiveLine[] = [];
+    await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+    const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+    const { ok, personIn } = await import('../helpers/rooms.ts');
+    const owner = personIn(talked.api, talked.owner.token, restored.companyId);
+    const unread = (ok(await talked.api.call('GET', '/api/rooms/unread', talked.owner.token)).unread as Array<{
+      companyId: string; mentions: number; direct: number; rooms: number;
+    }>).find((one) => one.companyId === restored.companyId)!;
+    assert.deepEqual([unread.mentions, unread.direct, unread.rooms], [0, 0, 0], 'nothing restored is new to anyone');
+    const activity = ok(await owner.activity()).items as Array<{ kind: string }>;
+    assert.deepEqual(activity.filter((item) => ['mention', 'reply', 'card'].includes(item.kind)), []);
+    const rooms = ok(await owner.rooms()).rooms as Array<{ id: string; kind: string; unread: number; mentions: number }>;
+    assert.ok(rooms.every((room) => room.unread === 0 && room.mentions === 0));
+    const company = rooms.find((room) => room.kind === 'company')!.id;
+    const asked = (ok(await owner.page(company)).messages as Array<{ id: string; body: string | null; replies: { count: number } | null }>)
+      .find((one) => one.body?.startsWith('Pagi @owner'))!;
+    assert.equal(asked.replies?.count, 2, 'two replies, counted once');
+    assert.equal(ok(await owner.thread(company, asked.id)).replies.length, 2);
+    const feed = await withControlPlane((tx) => tx.query<{ kind: string; n: number }>(
+      'SELECT kind, count(*)::int AS n FROM room_feed WHERE company_id = $1 GROUP BY kind ORDER BY kind', [restored.companyId]));
+    const roomCount = (await withControlPlane((tx) => tx.query('SELECT 1 FROM rooms WHERE company_id = $1', [restored.companyId]))).rowCount;
+    assert.deepEqual(feed.rows, [{ kind: 'room', n: roomCount }], 'one change per room, so an open stream reads each once, and none per message');
+  } finally {
+    await talked.api.close();
+  }
 });

@@ -1112,3 +1112,17 @@ The first version. What it holds, in the order an owner meets it.
   title too. On a phone, Rooms is a tab, a room fills the screen above the
   keyboard, a thread is a sheet, and a long press or a message's one button
   opens what you may do with it; Money moves into More (STATUS 2.207).
+- Find and keep what the rooms say. A search box at the top of the rooms,
+  and ⌘K, find messages in the rooms each person may see, and for you in
+  every company at once, never a direct conversation you are not in; the
+  general search your assistant reads still finds no message. A message
+  carries up to five files, 24 MB together, from a phone's camera too; a
+  small picture is drawn and everything else is saved, and no agent can
+  reach a room file. A room's details list its pinned messages and its
+  files. Messages are kept for good unless you set a window of 30 days or
+  more in Settings, Retention, each message by its own age; a removed
+  message's files go with it, and closing a company erases its room files.
+  The company's archive now carries its rooms and messages, direct
+  conversations too, and a restore brings them back with nothing unread.
+  `PALUGADA_PEOPLE_FILES_ROOT` keeps room files apart from the company's
+  files (STATUS 2.212).

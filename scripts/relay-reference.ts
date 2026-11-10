@@ -111,7 +111,7 @@ interface State {
 export interface ReferenceRelayOptions {
   port?: number;
   host?: string;
-  /** The deployment's fingerprint, as its owner reads it from Settings, Relays: the only deployment this relay pairs with. */
+  /** The deployment's fingerprint, as its owner reads it under This deployment, Relays: the only deployment this relay pairs with. */
   deploymentFingerprint: string;
   /** Where this relay is reached; `http://<host>:<port>` unless given. */
   publicUrl?: string;
@@ -140,7 +140,7 @@ export interface ReferenceRelay {
 export async function startReferenceRelay(options: ReferenceRelayOptions): Promise<ReferenceRelay> {
   const pinned = options.deploymentFingerprint.toUpperCase().replace(/[\s-]/g, '');
   if (!/^[A-Z2-7]{24}$/.test(pinned)) {
-    throw new Error('--deployment-fingerprint is the 24 characters the owner reads in PALUGADA under Settings, Relays');
+    throw new Error('--deployment-fingerprint is the 24 characters the owner reads in PALUGADA under This deployment, Relays');
   }
   const say = (line: string) => {
     if (!options.quiet) process.stdout.write(`${line}\n`);
@@ -304,7 +304,13 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
 
   const local = (req: IncomingMessage, res: ServerResponse, path: string, body: string) => {
     // A person's acts, from this machine only: what a phone's app would send.
-    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')) return refuse(res, 403, 'acts come from this machine');
+    // A proxy in front of the relay connects from this machine too, so a
+    // request it forwarded is a stranger's, whatever address it arrives from.
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')
+        || req.headers['x-forwarded-for'] !== undefined || req.headers.forwarded !== undefined
+        || req.headers['x-real-ip'] !== undefined) {
+      return refuse(res, 403, 'acts come from this machine, not through a proxy');
+    }
     try {
       const given = JSON.parse(body || '{}') as Record<string, string>;
       if (path === '/local/link') {
@@ -406,7 +412,7 @@ async function main(args: string[]): Promise<void> {
   const port = Number(flag(rest, 'port') ?? process.env.RELAY_PORT ?? 8790);
   if (command === 'serve') {
     const fingerprint = flag(rest, 'deployment-fingerprint') ?? process.env.RELAY_DEPLOYMENT_FINGERPRINT;
-    if (!fingerprint) throw new Error('--deployment-fingerprint is required: the 24 characters PALUGADA shows under Settings, Relays');
+    if (!fingerprint) throw new Error('--deployment-fingerprint is required: the 24 characters PALUGADA shows under This deployment, Relays');
     await startReferenceRelay({
       port,
       deploymentFingerprint: fingerprint,

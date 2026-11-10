@@ -60,7 +60,11 @@ Each relay has a 32-byte salt of its own, which PALUGADA keeps and never sends.
 
 - A person is `recipient = base32(HMAC-SHA256(salt, principal))[:26]`, where
   `principal` is `owner` or `seat:<uuid>`.
-- A company is `ref = "co_" + base32(HMAC-SHA256(salt, company id))[:16]`.
+- A company is `ref = "co_" + base32(HMAC-SHA256(salt, company id))[:16]`,
+  the company id written as a lower-case UUID.
+
+The HMAC is keyed with the salt's 32 bytes and taken over the UTF-8 bytes of
+the text; `base32` is that of section 2.1 (RFC 4648, upper case, no padding).
 
 So a relay sees the same person as the same recipient every time, and two
 relays cannot join what each knows.
@@ -73,6 +77,21 @@ paired relay is sent a `keys_rotated` envelope that both sign. A relay that
 pinned the old key verifies it with that key and pins the new one from it. A
 relay MUST keep accepting the old key until the `until` the envelope names,
 and SHOULD stop after.
+
+### 2.4 The deployment's identity
+
+Anyone may read the deployment's public key at
+`GET /api/relay/v1/identity` on the deployment:
+
+```json
+{ "v": 1, "versions": [1], "deployment": "<uuid>", "key": "<base64url>", "kid": "<16 hex>",
+  "fingerprint": "<24 base32>", "previous": { "key": "…", "kid": "…", "until": "<ISO 8601>" } }
+```
+
+`previous` is `null` except in the week after a rotation (section 2.3). The
+owner sees the same fingerprint in the console and gives it to the relay's
+operator; a relay MUST NOT trust this document alone, since whoever answers
+it could be anyone between the relay and the deployment.
 
 ## 3. Canonical JSON
 
@@ -112,14 +131,15 @@ the request line, section 9). They travel as headers:
 |---|---|
 | `webhook-id` | the message id |
 | `webhook-timestamp` | the time of signing, in seconds |
-| `webhook-signature` | `v1a,<base64 signature>`, and while a key is rotated a second one after a space |
+| `webhook-signature` | `v1a,` and the 64-byte signature in standard base64 with padding (RFC 4648 section 4); while a key is rotated, a second one after a single space |
 | `palugada-key` | the `kid` of the deployment's current key (deployment to relay only) |
 | `palugada-relay-version` | `1` (deployment to relay only) |
 | `content-type` | `application/json` |
 
-A receiver MUST refuse a message whose signature does not verify with a key
-it holds for the sender, and one signed more than 300 seconds from its own
-clock, either way. A receiver MUST NOT take an HMAC (`v1`) signature in place
+A receiver takes a message when any one of its signatures verifies with a key
+it holds for the sender. It MUST refuse a message none of whose signatures
+verifies, and one signed more than 300 seconds from its own clock, either
+way. A receiver MUST NOT take an HMAC (`v1`) signature in place
 of a `v1a` one.
 
 ## 5. Discovery and pairing
@@ -280,9 +300,12 @@ ready at `signal`, names the company at `summary`, and is the digest at
 ## 7. The outbox and delivery
 
 - **The id is fixed.** An envelope's id is a UUID made from the SHA-256 of
-  `deployment`, `relay`, the link, the type, what it is about and a version,
-  joined by line feeds; the first 16 bytes, with the version nibble set to 8
-  and the RFC 4122 variant. The same notice is the same id however often it
+  `deployment`, `relay`, the link's id (empty when the envelope is for no
+  link), the type, what it is about and a version (`1`, in decimal), joined
+  by line feeds and hashed as UTF-8: the first 16 bytes, with the high nibble
+  of byte 6 set to 8 (RFC 9562's custom version) and the top two bits of
+  byte 8 set to `10` (the RFC 4122 variant), written in lower-case hex as
+  8-4-4-4-12. A relay never needs to make one; the test vectors show how. The same notice is the same id however often it
   is sent, so a relay drops a repeat by its `webhook-id`.
 - **Delivered** is a `2xx` answer, or `409`, which a relay MAY answer for an
   id it already has.
@@ -315,16 +338,18 @@ No link, nothing is sent on that person's behalf.
 A code is good at the relay it was offered through and no other, and once.
 
 **The device form.** When a link has a device key, every act for it MUST
-carry `device_sig`: the device's Ed25519 signature, base64url, over the bytes
+carry `device_sig`: the device's Ed25519 signature, in base64url without
+padding, over the bytes
 
 ```
 palugada-device/v1\n<canonical JSON of the fields>
 ```
 
-where the fields are `deployment`, `relay`, `recipient`, `type`, `at` (the
-act's own `at`), and, where they apply, `token`, `sha256` (the hex SHA-256 of
-the free text the act carries: an answer, or a reply's words) and `clientId`.
-A relay holding only its own key therefore cannot make an act.
+in UTF-8, where `\n` is one line feed and the fields are `deployment`,
+`relay`, `recipient`, `type`, `at` (the act's own `at`), and, where they
+apply, `token`, `sha256` (the lower-case hex SHA-256 of the UTF-8 of the free
+text the act carries: an answer, or a reply's words) and `clientId`. A relay
+holding only its own key therefore cannot make an act.
 
 **The owner's link needs a device key to act.** Without one the owner is still
 told, but no offer to press is made, and nothing sent for that link counts
@@ -481,7 +506,8 @@ envelope, prints it, drops retracted content, and forwards `text` and `link`
 to ntfy (`RELAY_NTFY_URL`, `RELAY_NTFY_TOKEN`) at priority 5 for `interrupt`,
 3 for `normal` and 2 for `quiet`. Its commands `link <code>`,
 `press <token> [answer]` and `reply <token> <text>` act as a phone's app
-would, with a device key for each link.
+would, with a device key for each link; the relay takes them only from the
+machine it runs on, and refuses one a proxy in front of it forwarded.
 
 ## 13. Test vectors
 

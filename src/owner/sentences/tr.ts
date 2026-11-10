@@ -407,6 +407,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Geri çekildi: ilgili görev yeniden çalıştırıldı.',
   'Withdrawn: the day it was about has ended.':
     'Geri çekildi: ilgili gün sona erdi.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Geri çekildi: ilgili dönem sona erdi ve notlandırıldı.',
+  'Withdrawn: the goal it was about was closed.':
+    'Geri çekildi: ilgili hedef kapatıldı.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Geri çekildi: ayın tavanına ulaşıldı ve yerini şirketin duraklatıldığını söyleyen kart aldı.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -443,4 +447,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Tamamlanan işler: {count}',
   'Stopped: its work was taken up another way':
     'Durduruldu: işi başka bir yoldan ele alındı',
+  'Its work stopped, and each time it took down the worker running it.':
+    'İşi durdu ve her seferinde onu çalıştıran worker\'ı da çökertti.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Dış bir hizmete yazma işlemi, amaçlanandan farklı biçimde gerçekleşmiş olabilir.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Aynı bütçe hesabına yazılan iş, hesapta yeniden yer açılana kadar durur.',
+  'Its work stopped before it was done.':
+    'İşi bitmeden durdu.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform {lost} kayıp worker saydı; bir görevin kaybedebileceği en fazla sayı bu.',
+  'The platform read back what was written, and it did not match.':
+    'Platform yazılanı geri okudu ve eşleşmedi.',
+  'The budget account had nothing left to reserve for the work.':
+    'Bütçe hesabında iş için ayrılacak bir şey kalmamıştı.',
+  'The platform found it ended with no card raised for it.':
+    'Platform, onun için hiçbir kart açılmadan bittiğini buldu.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kart, bölümün bununla ilgilenmesi için belirlediği kişiye, ardından size gitti.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Görev durduruldu ve gelen kutusundaki bir kartla size bildirildi.',
+  'Postmortem: {cause} ({about})':
+    'Olay sonrası inceleme: {cause} ({about})',
+  'What happened':
+    'Ne oldu',
+  'Impact':
+    'Etki',
+  'Trigger':
+    'Tetikleyici',
+  'Detection':
+    'Tespit',
+  'What was done':
+    'Ne yapıldı',
+  'A task of {role} stopped before it was done.':
+    '{role} rolünün bir görevi bitmeden durdu.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Çözmek için: her yanıta neden diye sorup kayıtlarla karşılaştırarak kök nedeni bulun, bir kez karar verin ve kararı uygulayacak yapılacakları, her biri tek koltukla, açın.',
+  'Off track: {name}':
+    'Hedefin dışında: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}, {week} haftasında {value} oldu; haftalık hedef {target}.',
+  '{role} answers for it.':
+    'Bundan {role} sorumlu.',
+  'No seat answers for it.':
+    'Bundan sorumlu bir pozisyon yok.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform bunu haftalık operasyon toplantısından önce haftalık karneden okudu.',
+  'Not done at two meetings: {title}':
+    'İki toplantıda yapılmadı: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Son tarihi {due} olan "{title}" yapılacağı, {previous} tarihli haftalık operasyon toplantısında yapılmamıştı, bu toplantıda da yapılmadı.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform bunu haftalık operasyon toplantısından önce yapılacaklardan okudu.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Haftalık operasyon toplantısı yapıldı ({week}): {where}',
+  'see its task under Work':
+    'görevini İşler altında görün',
+  'New goals proposed, to approve line by line':
+    'Yeni hedefler önerildi, satır satır onaylanacak',
+  'Line {line}: the {kind} "{goal}"':
+    'Satır {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Bağlı olduğu: {goal}',
+  'Under line {line}: {goal}':
+    'Bağlı olduğu satır {line}: {goal}',
+  'Period: {from} to {to}':
+    'Dönem: {from} – {to}',
+  'Committed: done in full, or missed.':
+    'Taahhütlü: tamamen yapılır ya da kaçırılır.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'İddialı: puanlanır ve 0,6 ile 0,7 arası iyi bir sonuçtur.',
+  'Learning: a test of the prediction below.':
+    'Öğrenme: aşağıdaki tahmini sınar.',
+  'Owned by: {role}':
+    'Sorumlu koltuk: {role}',
+  'Done when: {doneWhen}':
+    'Şu olunca tamam: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'İşten önce yazılan tahmin: {name}, {baseline} değerinden {target} değerine ulaşır.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Ölçüsü {name}: {baseline} değerinden {target} değerine.',
+  'Watched with: {measure}':
+    'Birlikte izlendiği ölçü: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Bu yılın hedefleri: {count}; bir şirketin gözünün önünde tutabileceği {limit} hedeften fazla.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Bu amacın altındaki anahtar sonuçlar: {count}; bir amacın gözünün önünde tutabileceği {limit} sonuçtan fazla.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Aynı anda çeyrek öncelikleri: {count}; bir şirketin gözünün önünde tutabileceği {limit} öncelikten fazla.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} için aynı anda çeyrek öncelikleri: {count}; bir koltuğun taşıyabileceği {limit} öncelikten fazla.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Onaylamak, onayladığınız her satırı ölçüsüyle birlikte bir hedef yapar; reddettiğiniz satır oluşturulmaz. O zamana kadar iş, hedeflerin şimdiki hâliyle sürer.',
+  'No goal is made.':
+    'Hiçbir hedef oluşturulmaz.',
+  'Missed: {statement}':
+    'Kaçırıldı: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{from} ile {to} arası için taahhüt edilen {statement} tamamlanmadı.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Sayılarıyla ölçüldüğünde yolun {progress} kadarını geldi.',
+  'It was not marked met by its due date.':
+    'Bitiş tarihine kadar ulaşıldı olarak işaretlenmedi.',
+  'The platform graded it when its period ended.':
+    'Platform, dönemi bittiğinde onu puanladı.',
+  'Off pace: {statement}':
+    'Hızın gerisinde: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement}, bitiş tarihi {due} olan taahhütlü bir öncelik. Sayıları yolun yalnızca {progress} kadarını geldi, dönemin ise {elapsed} kadarı geçti.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Yetişmek için hiçbir şey değiştirilmedi ve hiçbir ajandan istenmedi: zamanının gerisinde kalan taahhütlü bir sayı, açığı kapatmak için daha riskli adımlara davet eder ve böyle bir riski almak senin kararındır. Tarihi ertelemeye, hedefi düşürmeye, onu iddialı yapmaya ya da sürmesine izin verip kaçırmaya karar ver.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Cevap ne olursa olsun hiçbir şey durmaz. Öncelik olduğu gibi kalır ve dönemi bitince puanlanır; karar verirsen Ekip, Hedefler altında değiştir.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Değerlerimiz',
+  'Purpose and niche': 'Amaç ve niş',
+  'Long-range target': 'Uzun vadeli hedef',
+  'Who we serve and what makes us different': 'Kime hizmet ediyoruz ve bizi farklı kılan ne',
+  'Where we will be in three years': 'Üç yıl sonra nerede olacağız',
+  'Our promise': 'Sözümüz',
 };

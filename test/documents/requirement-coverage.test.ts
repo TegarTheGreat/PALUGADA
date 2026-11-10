@@ -89,3 +89,57 @@ test('docs/STATUS.md grades every requirement the PRD declares', async () => {
     'graded in the status table and not declared by the PRD',
   );
 });
+
+/** The ids in the status table's "Not built" column, ranges expanded. */
+function notBuilt(status: string): Set<string> {
+  const ids = new Set<string>();
+  for (const line of status.split('\n')) {
+    if (!/^\|\s*F\d+ /.test(line)) continue;
+    const cell = line.split('|')[4] ?? '';
+    for (const match of cell.matchAll(/F(\d+)\.(\d+)\s*[–-]\s*(?:F\d+\.)?(\d+)/g)) {
+      for (let n = Number(match[2]); n <= Number(match[3]); n += 1) ids.add(`F${match[1]}.${n}`);
+    }
+    for (const match of cell.matchAll(/F(\d+)\.(\d+)/g)) ids.add(`F${match[1]}.${match[2]}`);
+  }
+  return ids;
+}
+
+test('no requirement a section of docs/STATUS.md says it built is graded not built in the table', async () => {
+  // F18 was built as twelve change sets in parallel, each with a section
+  // whose heading names the requirements it builds, and each left the table
+  // to the merge. The merge came and the table still listed all fifteen as
+  // not built, so a reader -- or palugada-dev's engineer, which AGENTS.md
+  // sends to "a gap from docs/STATUS.md" -- would take finished, tested work
+  // for work to do. A section's heading is the claim; the table must agree.
+  const status = await readFile(new URL('../../docs/STATUS.md', import.meta.url), 'utf8');
+  const unbuilt = notBuilt(status);
+  const contradicted: string[] = [];
+  for (const line of status.split('\n')) {
+    const heading = /^## (2\.\d+) .*\(([^)]*)\)\s*$/.exec(line);
+    if (!heading) continue;
+    for (const match of heading[2]!.matchAll(/F\d+\.\d+/g)) {
+      if (unbuilt.has(match[0])) contradicted.push(`${match[0]} (section ${heading[1]})`);
+    }
+  }
+  assert.deepEqual(contradicted, [], 'built by a section and listed as not built in the table');
+});
+
+test('docs/STATUS.md speaks of no change set as still to be merged', async () => {
+  // Each change set of F18 wrote what was true of it alone: "until it is
+  // merged", "on this branch", "the merge words them once", and the names of
+  // the sets (CS5, CS7) that mean nothing once they are one history. After
+  // the merge each such line was false, and nothing said so. These are the
+  // phrases only an unmerged branch can truthfully write.
+  const status = await readFile(new URL('../../docs/STATUS.md', import.meta.url), 'utf8');
+  const stale = [
+    /until it (?:is merged|lands)/i,
+    /on this branch/i,
+    /under not built/i,
+    /when the change sets .* are merged/i,
+    /the merge words/i,
+    /\bCS\d+\b/,
+  ];
+  const found = status.split('\n').flatMap((line, index) =>
+    stale.some((phrase) => phrase.test(line)) ? [`line ${index + 1}: ${line.trim().slice(0, 120)}`] : []);
+  assert.deepEqual(found, [], 'written for a branch that has since been merged');
+});

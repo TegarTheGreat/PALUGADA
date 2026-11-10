@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ingetrokken: de taak waar het over ging is opnieuw uitgevoerd.',
   'Withdrawn: the day it was about has ended.':
     'Ingetrokken: de dag waar het over ging is voorbij.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ingetrokken: de periode waar het over ging is voorbij en beoordeeld.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ingetrokken: het doel waar het over ging is gesloten.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ingetrokken: het plafond van de maand is bereikt, en de kaart die zegt dat het bedrijf gepauzeerd is neemt de plaats in.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -442,4 +446,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Werk klaar: {count}',
   'Stopped: its work was taken up another way':
     'Gestopt: het werk is op een andere manier opgepakt',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Het werk stopte, en elke keer nam het de worker die het uitvoerde mee.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Er is misschien naar een externe dienst geschreven, maar niet zoals bedoeld.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Werk dat op dezelfde budgetrekening drukt, staat stil tot die weer ruimte heeft.',
+  'Its work stopped before it was done.':
+    'Het werk stopte voordat het af was.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Het platform telde {lost} verloren workers, het hoogste aantal dat een taak mag verliezen.',
+  'The platform read back what was written, and it did not match.':
+    'Het platform las terug wat er geschreven was, en het kwam niet overeen.',
+  'The budget account had nothing left to reserve for the work.':
+    'Op de budgetrekening was niets meer over om voor het werk te reserveren.',
+  'The platform found it ended with no card raised for it.':
+    'Het platform zag dat het eindigde zonder dat er een kaart voor was aangemaakt.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'De kaart ging naar wie de afdeling ervoor aanwijst, en daarna naar u.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'De taak werd stilgezet, en u kreeg het te horen op een kaart in de inbox.',
+  'Postmortem: {cause} ({about})':
+    'Nabeschouwing: {cause} ({about})',
+  'What happened':
+    'Wat er gebeurde',
+  'Impact':
+    'Gevolgen',
+  'Trigger':
+    'Aanleiding',
+  'Detection':
+    'Ontdekking',
+  'What was done':
+    'Wat er gedaan is',
+  'A task of {role} stopped before it was done.':
+    'Een taak van {role} stopte voordat hij af was.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Zo los je het op: zoek de hoofdoorzaak door bij elk antwoord te vragen waarom en het te toetsen aan wat is vastgelegd, besluit één keer, en maak de acties aan die het besluit uitvoeren, elk met één zetel.',
+  'Off track: {name}':
+    'Niet op koers: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} was {value} in de week van {week}, tegenover een weekdoel van {target}.',
+  '{role} answers for it.':
+    '{role} is hiervoor verantwoordelijk.',
+  'No seat answers for it.':
+    'Geen functie is hiervoor verantwoordelijk.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Het platform las dit vóór het wekelijkse operationele overleg uit de wekelijkse scorecard.',
+  'Not done at two meetings: {title}':
+    'Niet gedaan bij twee overleggen: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'De actie "{title}", te doen op {due}, was niet gedaan bij het wekelijkse operationele overleg van {previous}, en ook niet bij dit overleg.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Het platform las dit vóór het wekelijkse operationele overleg uit de acties.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Wekelijks operationeel overleg gehouden ({week}): {where}',
+  'see its task under Work':
+    'zie de taak ervan onder Werk',
+  'New goals proposed, to approve line by line':
+    'Nieuwe doelen voorgesteld, regel voor regel goed te keuren',
+  'Line {line}: the {kind} "{goal}"':
+    'Regel {line}: {kind} ‘{goal}’',
+  'Under: {goal}':
+    'Onder: {goal}',
+  'Under line {line}: {goal}':
+    'Onder regel {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periode: {from} tot en met {to}',
+  'Committed: done in full, or missed.':
+    'Toegezegd: helemaal gehaald, of gemist.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Ambitieus: krijgt een cijfer, en 0,6 tot 0,7 is een goed resultaat.',
+  'Learning: a test of the prediction below.':
+    'Leren: toetst de voorspelling hieronder.',
+  'Owned by: {role}':
+    'Verantwoordelijk: {role}',
+  'Done when: {doneWhen}':
+    'Klaar als: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'De voorspelling, vastgelegd voor het werk: {name} bereikt {target}, vanaf {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Gemeten met {name}: van {baseline} naar {target}.',
+  'Watched with: {measure}':
+    'Bekeken samen met: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Doelen voor dit jaar: {count}, meer dan de {limit} die een bedrijf in het oog houdt.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Kernresultaten onder deze doelstelling: {count}, meer dan de {limit} die één doelstelling in het oog houdt.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Kwartaalprioriteiten tegelijk: {count}, meer dan de {limit} die een bedrijf in het oog houdt.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Kwartaalprioriteiten van {seat} tegelijk: {count}, meer dan de {limit} die één stoel kan dragen.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Goedkeuren maakt van elke goedgekeurde regel een doel, met zijn maat; een afgewezen regel wordt niet gemaakt. Tot die tijd gaat het werk door onder de doelen zoals ze zijn.',
+  'No goal is made.':
+    'Er wordt geen doel gemaakt.',
+  'Missed: {statement}':
+    'Gemist: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, toegezegd voor {from} tot {to}, is niet gehaald.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Gemeten aan zijn cijfers kwam het {progress} van de weg.',
+  'It was not marked met by its due date.':
+    'Het is niet vóór de einddatum als gehaald gemarkeerd.',
+  'The platform graded it when its period ended.':
+    'Het platform gaf het een cijfer toen zijn periode eindigde.',
+  'Off pace: {statement}':
+    'Achter op schema: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} is een toegezegde prioriteit met einddatum {due}. De cijfers zijn pas {progress} van de weg gekomen, terwijl {elapsed} van de periode voorbij is.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Er is niets veranderd om in te halen, en geen agent wordt dat gevraagd: een toegezegd getal dat achterloopt op zijn tijd nodigt uit tot riskanter handelen om het goed te maken, en of dat risico genomen wordt, beslis jij. Beslis of de datum opschuift, het doel omlaag gaat, het ambitieus wordt, of dat het doorloopt en gemist wordt.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Er stopt niets, wat je ook antwoordt. De prioriteit blijft zoals ze is en krijgt een cijfer als haar periode eindigt; pas haar aan onder Team, Doelen als je dat besluit.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Onze waarden',
+  'Purpose and niche': 'Doel en niche',
+  'Long-range target': 'Langetermijndoel',
+  'Who we serve and what makes us different': 'Wie we dienen en wat ons onderscheidt',
+  'Where we will be in three years': 'Waar we over drie jaar staan',
+  'Our promise': 'Onze belofte',
 };

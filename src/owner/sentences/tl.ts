@@ -403,6 +403,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Binawi: pinatakbo ulit ang gawaing tinutukoy nito.',
   'Withdrawn: the day it was about has ended.':
     'Binawi: tapos na ang araw na tinutukoy nito.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Binawi: tapos na at namarkahan na ang panahong tinutukoy nito.',
+  'Withdrawn: the goal it was about was closed.':
+    'Binawi: isinara ang layuning tinutukoy nito.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Binawi: naabot na ang limitasyon ng buwan, at ang card na nagsasabing naka-pause ang kumpanya ang pumalit dito.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -439,4 +443,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Mga gawaing natapos: {count}',
   'Stopped: its work was taken up another way':
     'Itinigil: inasikaso na ang trabaho nito sa ibang paraan',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Huminto ang trabaho nito, at sa bawat pagkakataon ay pinabagsak nito ang worker na nagpapatakbo rito.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Maaaring may naisulat na sa serbisyong panlabas na hindi ayon sa nilayon.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Humihinto ang trabahong nakasingil sa parehong budget account hanggang magkaroon ulit ito ng puwang.',
+  'Its work stopped before it was done.':
+    'Huminto ang trabaho nito bago natapos.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Nabilang ng platform ang {lost} nawalang worker, ang pinakamaraming maaaring mawala sa isang gawain.',
+  'The platform read back what was written, and it did not match.':
+    'Binasa muli ng platform ang naisulat, at hindi ito tumugma.',
+  'The budget account had nothing left to reserve for the work.':
+    'Wala nang natitira sa budget account na maireserba para sa trabaho.',
+  'The platform found it ended with no card raised for it.':
+    'Natuklasan ng platform na natapos ito nang walang card na itinaas para rito.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Napunta ang card sa itinatalaga ng dibisyon na humawak nito, at sa iyo pagkatapos.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Itinigil ang gawain, at sinabihan ka sa pamamagitan ng card sa inbox.',
+  'Postmortem: {cause} ({about})':
+    'Pagsusuri pagkatapos ng insidente: {cause} ({about})',
+  'What happened':
+    'Ang nangyari',
+  'Impact':
+    'Epekto',
+  'Trigger':
+    'Nag-udyok',
+  'Detection':
+    'Pagtuklas',
+  'What was done':
+    'Ang ginawa',
+  'A task of {role} stopped before it was done.':
+    'Huminto ang isang gawain ng {role} bago natapos.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Para lutasin: hanapin ang ugat na sanhi sa pagtatanong kung bakit sa bawat sagot at pagsuri nito sa talaan, magpasya nang isang beses, at isampa ang mga gagawing magsasagawa ng pasya, bawat isa ay may isang upuan.',
+  'Off track: {name}':
+    'Wala sa landas: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    'Ang {name} ay {value} sa linggo ng {week}, laban sa lingguhang layunin na {target}.',
+  '{role} answers for it.':
+    'Ang {role} ang may pananagutan dito.',
+  'No seat answers for it.':
+    'Walang posisyong may pananagutan dito.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Binasa ito ng platform mula sa lingguhang scorecard bago ang lingguhang operating meeting.',
+  'Not done at two meetings: {title}':
+    'Hindi natapos sa dalawang pulong: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Ang gagawing "{title}", na dapat matapos sa {due}, ay hindi natapos sa lingguhang operating meeting ng {previous}, at hindi rin sa pulong na ito.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Binasa ito ng platform mula sa mga gagawin bago ang lingguhang operating meeting.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Naganap ang lingguhang operating meeting ({week}): {where}',
+  'see its task under Work':
+    'tingnan ang gawain nito sa Trabaho',
+  'New goals proposed, to approve line by line':
+    'Mga bagong layunin ang iminumungkahi, para aprubahan bawat linya',
+  'Line {line}: the {kind} "{goal}"':
+    'Linya {line}: ang {kind} na "{goal}"',
+  'Under: {goal}':
+    'Sa ilalim ng: {goal}',
+  'Under line {line}: {goal}':
+    'Sa ilalim ng linya {line}: {goal}',
+  'Period: {from} to {to}':
+    'Panahon: {from} hanggang {to}',
+  'Committed: done in full, or missed.':
+    'Tiyak na gagawin: buong natapos, o hindi naabot.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Pinapangarap: binibigyan ng marka, at ang 0.6 hanggang 0.7 ay magandang resulta.',
+  'Learning: a test of the prediction below.':
+    'Pag-aaral: sinusubok ang hula sa ibaba.',
+  'Owned by: {role}':
+    'May-ari: {role}',
+  'Done when: {doneWhen}':
+    'Tapos kapag: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ang hula, isinulat bago ang trabaho: aabot ang {name} sa {target}, mula sa {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Sinusukat ng {name}: mula {baseline} hanggang {target}.',
+  'Watched with: {measure}':
+    'Binabantayan kasama ng: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Mga layunin ngayong taon: {count}, higit sa {limit} na kayang bantayan ng isang kumpanya.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Mga pangunahing resulta sa ilalim ng layuning ito: {count}, higit sa {limit} na kayang bantayan ng isang layunin.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Mga quarterly na prayoridad nang sabay: {count}, higit sa {limit} na kayang bantayan ng isang kumpanya.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Mga quarterly na prayoridad ni {seat} nang sabay: {count}, higit sa {limit} na kayang hawakan ng isang upuan.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Kapag inaprubahan, magiging layunin ang bawat linyang inaprubahan mo, kasama ang sukat nito; hindi gagawin ang linyang tinanggihan mo. Hanggang doon, magpapatuloy ang trabaho sa ilalim ng mga layunin gaya ng dati.',
+  'No goal is made.':
+    'Walang layuning ginawa.',
+  'Missed: {statement}':
+    'Hindi naabot: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    'Ang {statement}, na tiyak na gagawin mula {from} hanggang {to}, ay hindi natapos.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Sinukat ayon sa mga numero nito, umabot ito sa {progress} ng daan.',
+  'It was not marked met by its due date.':
+    'Hindi ito minarkahang naabot bago ang takdang petsa nito.',
+  'The platform graded it when its period ended.':
+    'Minarkahan ito ng platform nang matapos ang panahon nito.',
+  'Off pace: {statement}':
+    'Nahuhuli: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    'Ang {statement} ay isang tiyak na prayoridad na dapat matapos sa {due}. Umabot pa lang ang mga numero nito sa {progress} ng daan, habang lumipas na ang {elapsed} ng panahon nito.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Walang binago para humabol, at walang agent na inutusan: ang tiyak na numerong nahuhuli sa oras nito ay nag-aanyaya ng mas mapanganib na hakbang para makabawi, at ikaw ang magpapasya kung tatanggapin ang ganoong panganib. Pagpasyahan kung iuurong ang petsa, ibababa ang target, gagawin itong pinapangarap, o hahayaan itong tumakbo at hindi maabot.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Walang ititigil, anuman ang sagot. Mananatili ang prayoridad at mamarkahan pagtatapos ng panahon nito; baguhin ito sa Koponan, Mga layunin kung iyon ang pasya mo.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Ang aming mga pinahahalagahan',
+  'Purpose and niche': 'Layunin at niche',
+  'Long-range target': 'Pangmatagalang target',
+  'Who we serve and what makes us different': 'Sino ang aming pinaglilingkuran at ano ang nagpapaiba sa amin',
+  'Where we will be in three years': 'Nasaan kami sa loob ng tatlong taon',
+  'Our promise': 'Ang aming pangako',
 };

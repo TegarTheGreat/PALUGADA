@@ -20,7 +20,7 @@ import {
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLivePulse, useLoad, useNow } from '../hooks.ts';
-import { go } from '../router.ts';
+import { go, ISSUES_ITEM } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
   actorSaid, budgetStopSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
@@ -43,7 +43,10 @@ const LIVE = ['pending', 'checked_out', 'running'];
 export function Work({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const [filter, setFilter] = useState<Filter>('all');
-  const [view, setView] = useState<'tasks' | 'tickets' | 'results'>('tasks');
+  // The Plan page opens the issues list here (`item=issues`); any other item is a task.
+  const issues = route.item === ISSUES_ITEM;
+  const taskItem = issues ? null : route.item;
+  const [view, setView] = useState<'tasks' | 'tickets' | 'results'>(issues ? 'tickets' : 'tasks');
   // Narrowing to one project, role or goal (0074), and the older pages
   // fetched on request, kept until the filters change.
   const [project, setProject] = useState<string | null>(null);
@@ -96,10 +99,10 @@ export function Work({ ctx, route }: PageProps) {
   ];
   // A task named in the address that is not on the pages loaded -- a
   // ticket's work, a decision's task -- is fetched by itself.
-  const listed = items.find((item) => item.id === route.item) ?? null;
-  const single = useLoad(async (): Promise<WorkItem | null> => (route.item && !listed
-    ? ((await api('GET', `/api/companies/${companyId}/tasks/${route.item}`)) as { item: WorkItem | null }).item
-    : null), [companyId, route.item, Boolean(listed)]);
+  const listed = items.find((item) => item.id === taskItem) ?? null;
+  const single = useLoad(async (): Promise<WorkItem | null> => (taskItem && !listed
+    ? ((await api('GET', `/api/companies/${companyId}/tasks/${taskItem}`)) as { item: WorkItem | null }).item
+    : null), [companyId, taskItem, Boolean(listed)]);
   const open = listed ?? single.data ?? null;
   const openTask = (id: string | null) => go({ ...route, item: id });
 
@@ -124,7 +127,7 @@ export function Work({ ctx, route }: PageProps) {
 
       {view === 'results' && <Gallery companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} />}
 
-      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} talk={(draft) => ctx.talk(draft)} /> : (<>
+      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} talk={(draft) => ctx.talk(draft)} first={issues ? 'issues' : 'all'} /> : (<>
       {/* The same choice as a list on a phone, where five segments ran off
           the screen and "Stopped" was the one out of sight (§2.3 item 8). */}
       <SegmentedControl
@@ -603,22 +606,30 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
   );
 }
 
-/** Which capability an event is about, when it is about one. */
 /**
  * How the work came to carry outside content, where it is not a capability's
- * name: handed down, rerun, given a run's ticket or an escalation about
- * tainted work, or told a lesson learned from outside. In the owner's
- * language, like the sentence around it.
+ * name: handed down, rerun, given a run's ticket or tickets to triage or an
+ * escalation about tainted work, handed a week, a month or a meeting's facts
+ * whose records outside work wrote, or told a lesson learned from outside. In the owner's
+ * language, like the sentence around it; `console-events.test.ts` reads the
+ * server for every way it writes.
  */
 function outsideLabel(name: string): string {
   if (name === 'the task that made it') return t('the task that made it');
   if (name === 'the task it reruns') return t('the task it reruns');
   if (name === 'the ticket it was given') return t('the ticket it was given');
+  if (name === 'the tickets it was given') return t('the tickets it was given');
+  if (name === 'the to-do it was given') return t('the to-do it was given');
   if (name === 'the escalation it was given') return t('the escalation it was given');
+  if (name === 'the week it was handed') return t('the week it was handed');
+  if (name === 'the month it was handed') return t('the month it was handed');
+  if (name === 'the meeting facts it was handed') return t('the meeting facts it was handed');
+  if (name === 'the quarter facts it was handed') return t('the quarter facts it was handed');
   if (name === 'memory') return t('a lesson learned from outside');
   return name;
 }
 
+/** Which capability an event is about, when it is about one. */
 function capabilityOf(event: { payload: Record<string, unknown> }): string | null {
   return typeof event.payload.capability === 'string' ? capabilitySaid(event.payload.capability) : null;
 }

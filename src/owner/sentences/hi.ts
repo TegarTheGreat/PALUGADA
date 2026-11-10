@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'वापस लिया गया: जिस कार्य के बारे में था, उसे फिर से चलाया गया।',
   'Withdrawn: the day it was about has ended.':
     'वापस लिया गया: जिस दिन के बारे में था, वह बीत गया।',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'वापस लिया गया: जिस अवधि के बारे में था, वह बीत गई और उसका मूल्यांकन हो गया।',
+  'Withdrawn: the goal it was about was closed.':
+    'वापस लिया गया: जिस लक्ष्य के बारे में था, वह बंद कर दिया गया।',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'वापस लिया गया: महीने की सीमा पूरी हो गई, और इसकी जगह वह कार्ड है जो बताता है कि कंपनी रोक दी गई है।',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -442,4 +446,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'पूरे हुए काम: {count}',
   'Stopped: its work was taken up another way':
     'रोका गया: इसका काम दूसरे तरीके से उठा लिया गया',
+  'Its work stopped, and each time it took down the worker running it.':
+    'इसका काम रुक गया, और हर बार इसने इसे चलाने वाले वर्कर को भी गिरा दिया।',
+  'A write to an outside service may have happened without being what was meant.':
+    'हो सकता है किसी बाहरी सेवा में कुछ लिखा गया हो, पर वैसा नहीं जैसा चाहा गया था।',
+  'Work charged to the same budget account stops until it has room again.':
+    'उसी बजट खाते पर चलने वाला काम तब तक रुका रहता है जब तक उसमें फिर से गुंजाइश न हो।',
+  'Its work stopped before it was done.':
+    'इसका काम पूरा होने से पहले रुक गया।',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'प्लेटफ़ॉर्म ने {lost} खोए हुए वर्कर गिने, जितने किसी कार्य को अधिकतम खोने की अनुमति है।',
+  'The platform read back what was written, and it did not match.':
+    'प्लेटफ़ॉर्म ने लिखा हुआ वापस पढ़ा, और वह मेल नहीं खाया।',
+  'The budget account had nothing left to reserve for the work.':
+    'बजट खाते में काम के लिए रखने को कुछ नहीं बचा था।',
+  'The platform found it ended with no card raised for it.':
+    'प्लेटफ़ॉर्म ने पाया कि यह बिना किसी कार्ड के खत्म हो गया।',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'कार्ड उस भूमिका को गया जिसे विभाग इसे संभालने के लिए नामित करता है, और उसके बाद आपको।',
+  'The task was halted, and you were told on a card in the inbox.':
+    'कार्य रोक दिया गया, और इनबॉक्स में एक कार्ड से आपको बताया गया।',
+  'Postmortem: {cause} ({about})':
+    'घटना के बाद समीक्षा: {cause} ({about})',
+  'What happened':
+    'क्या हुआ',
+  'Impact':
+    'असर',
+  'Trigger':
+    'कारण बना',
+  'Detection':
+    'पता कैसे चला',
+  'What was done':
+    'क्या किया गया',
+  'A task of {role} stopped before it was done.':
+    '{role} का एक कार्य पूरा होने से पहले रुक गया।',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'इसे सुलझाने के लिए: हर जवाब पर ‘क्यों’ पूछकर और उसे रिकॉर्ड से जाँचकर मूल कारण खोजें, एक बार फ़ैसला करें, और फ़ैसले को लागू करने वाले काम दर्ज करें, हर काम एक सीट के साथ।',
+  'Off track: {name}':
+    'लक्ष्य से भटका: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{week} वाले सप्ताह में {name} {value} रहा, जबकि साप्ताहिक लक्ष्य {target} है।',
+  '{role} answers for it.':
+    'इसकी ज़िम्मेदारी {role} की है।',
+  'No seat answers for it.':
+    'इसकी ज़िम्मेदारी किसी पद की नहीं है।',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'प्लेटफ़ॉर्म ने इसे साप्ताहिक संचालन बैठक से पहले साप्ताहिक स्कोरकार्ड से पढ़ा।',
+  'Not done at two meetings: {title}':
+    'दो बैठकों में पूरा नहीं हुआ: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'करने का काम "{title}", जिसकी नियत तारीख {due} थी, {previous} की साप्ताहिक संचालन बैठक में पूरा नहीं हुआ, और इस बैठक में भी नहीं।',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'प्लेटफ़ॉर्म ने इसे साप्ताहिक संचालन बैठक से पहले करने के कामों से पढ़ा।',
+  'Weekly operating meeting held ({week}): {where}':
+    'साप्ताहिक संचालन बैठक हुई ({week}): {where}',
+  'see its task under Work':
+    'इसका कार्य काम में देखें',
+  'New goals proposed, to approve line by line':
+    'नए लक्ष्य प्रस्तावित, हर पंक्ति अलग से स्वीकृत करने के लिए',
+  'Line {line}: the {kind} "{goal}"':
+    'पंक्ति {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'इसके तहत: {goal}',
+  'Under line {line}: {goal}':
+    'पंक्ति {line} के तहत: {goal}',
+  'Period: {from} to {to}':
+    'अवधि: {from} से {to}',
+  'Committed: done in full, or missed.':
+    'पक्का: पूरा हुआ, या चूका।',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'महत्वाकांक्षी: अंक मिलते हैं, और 0.6 से 0.7 अच्छा परिणाम है।',
+  'Learning: a test of the prediction below.':
+    'सीखना: नीचे दिए अनुमान को परखता है।',
+  'Owned by: {role}':
+    'ज़िम्मेदार: {role}',
+  'Done when: {doneWhen}':
+    'पूरा तब, जब: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'अनुमान, काम से पहले लिखा गया: {name} {baseline} से {target} तक पहुँचेगा।',
+  'Measured by {name}: from {baseline} to {target}.':
+    'मापदंड {name}: {baseline} से {target} तक।',
+  'Watched with: {measure}':
+    'इसके साथ देखा जाता है: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'इस साल के लक्ष्य: {count}, जो एक कंपनी की नज़र में रह सकने वाले {limit} से ज़्यादा हैं।',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'इस उद्देश्य के मुख्य परिणाम: {count}, जो एक उद्देश्य की नज़र में रह सकने वाले {limit} से ज़्यादा हैं।',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'एक साथ चल रही तिमाही प्राथमिकताएँ: {count}, जो एक कंपनी की नज़र में रह सकने वाली {limit} से ज़्यादा हैं।',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} की एक साथ चल रही तिमाही प्राथमिकताएँ: {count}, जो एक सीट के सँभाल सकने वाली {limit} से ज़्यादा हैं।',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'स्वीकृत करने पर आपकी स्वीकृत हर पंक्ति अपने मापदंड के साथ एक लक्ष्य बन जाती है; अस्वीकृत पंक्ति नहीं बनती। तब तक काम मौजूदा लक्ष्यों के तहत ही चलता रहेगा।',
+  'No goal is made.':
+    'कोई लक्ष्य नहीं बनता।',
+  'Missed: {statement}':
+    'चूक गया: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, जो {from} से {to} तक पक्का होना था, पूरा नहीं हुआ।',
+  'Measured by its numbers, it came {progress} of the way.':
+    'उसके आँकड़ों से मापा जाए तो वह {progress} रास्ता तय कर पाया।',
+  'It was not marked met by its due date.':
+    'उसे नियत तारीख़ तक पूरा चिह्नित नहीं किया गया।',
+  'The platform graded it when its period ended.':
+    'उसकी अवधि ख़त्म होने पर प्लेटफ़ॉर्म ने उसे अंक दिए।',
+  'Off pace: {statement}':
+    'रफ़्तार से पीछे: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} एक पक्की प्राथमिकता है, जिसकी नियत तारीख़ {due} है। उसके आँकड़े अभी {progress} रास्ते तक ही पहुँचे हैं, जबकि उसकी अवधि का {elapsed} बीत चुका है।',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'पकड़ने के लिए कुछ नहीं बदला गया, और किसी एजेंट से नहीं कहा गया: समय से पीछे चल रहा पक्का आँकड़ा उसे पूरा करने के लिए ज़्यादा जोखिम भरे कदम को न्योता देता है, और ऐसा जोखिम उठाना है या नहीं, यह आपका फ़ैसला है। तय करें कि तारीख़ आगे बढ़ानी है, लक्ष्य घटाना है, उसे महत्वाकांक्षी बनाना है, या उसे चलने देना है और चूकने देना है।',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'जवाब जो भी हो, कुछ नहीं रुकता। प्राथमिकता जैसी है वैसी रहती है और अवधि ख़त्म होने पर उसे अंक दिए जाते हैं; अगर आप तय करें तो टीम, लक्ष्य में उसे बदलें।',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'हमारे मूल्य',
+  'Purpose and niche': 'उद्देश्य और विशिष्ट क्षेत्र',
+  'Long-range target': 'दीर्घकालिक लक्ष्य',
+  'Who we serve and what makes us different': 'हम किसकी सेवा करते हैं और हमें क्या अलग बनाता है',
+  'Where we will be in three years': 'तीन साल में हम कहाँ होंगे',
+  'Our promise': 'हमारा वादा',
 };

@@ -25,9 +25,12 @@ import { count, dateTime, goalKind, money, relative, roleLabel } from '../format
 import type { PageProps } from '../App.tsx';
 import { N, locale, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
-import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { ActionButton, ActionForm, type Field } from '../components/ActionForm.tsx';
+import { CHANNELS, channelName } from '../channels.ts';
 import { AssignWork } from '../components/AssignWork.tsx';
-import { GoalMetrics } from '../components/Metrics.tsx';
+import { GoalMetrics, type MetricTeam } from '../components/Metrics.tsx';
+import { Scorecard } from '../components/Scorecard.tsx';
+import { HeadlineChooser } from '../components/Headline.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects, useWorkLanguage } from '../components/Projects.tsx';
@@ -35,7 +38,9 @@ import { ConfigHistory } from '../components/ConfigHistory.tsx';
 import { Charters } from '../components/Charters.tsx';
 import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
-import { openGoals } from '../goals.ts';
+import { COMMITMENT, goalStatus, openGoals, periodSaid } from '../goals.ts';
+import { CoreProcessesPanel } from '../components/CoreProcesses.tsx';
+import { GradeLine } from '../components/GradeLine.tsx';
 
 export function Organization({ ctx, route }: PageProps) {
   const { companyId } = ctx;
@@ -69,15 +74,24 @@ export function Organization({ ctx, route }: PageProps) {
   const { structure, schedules } = view.data;
   const openRole = role ? structure.roles.find((one) => one.id === role.id) ?? null : null;
   const openDivision = division ? structure.divisions.find((one) => one.id === division.id) ?? null : null;
+  // A change to a measure can let go of the headline, which the company's
+  // card in the portfolio shows; so the companies are read again with the page.
+  const changedHeadline = () => {
+    view.reload();
+    void ctx.refreshCompanies();
+  };
 
   return (
     <Stack gap="lg">
       {header}
 
-      <Tabs defaultValue="chart" keepMounted={false}>
+      {/* The Overview's scorecard opens the whole of it here, and the Plan
+          page opens the goals, the scorecard and the charter. */}
+      <Tabs defaultValue={route.item === 'scorecard' || route.item === 'goals' || route.item === 'charter' ? route.item : 'chart'} keepMounted={false}>
         <Tabs.List mb="lg">
           <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>{t('Divisions & roles')}</Tabs.Tab>
           <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>{t('Goals')}</Tabs.Tab>
+          <Tabs.Tab value="scorecard" leftSection={<IconChartBar size={16} />}>{t('Weekly scorecard')}</Tabs.Tab>
           <Tabs.Tab value="projects" leftSection={<IconFolders size={16} />}>{t('Projects')}</Tabs.Tab>
           <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
           <Tabs.Tab value="handoffs" leftSection={<IconArrowsRight size={16} />}>{t('Handoffs')}</Tabs.Tab>
@@ -88,10 +102,27 @@ export function Organization({ ctx, route }: PageProps) {
 
         <Tabs.Panel value="chart">
           <Grow companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
+          <SeatWarnings structure={structure} openRole={setRole} />
+          <CoreProcessesPanel report={structure.coreProcesses} roles={structure.roles} openRole={setRole} />
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={() => ctx.talk()} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
-          <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
+          <Stack gap="lg">
+            {/* Keyed by the saved choice: when the database lets go of the
+                headline (its measure retired, or put on the scorecard, from
+                the ladder below or the Scorecard tab), the chooser starts
+                again from what is saved rather than holding the old one. */}
+            <HeadlineChooser key={structure.headlineMetricId ?? 'inferred'} companyId={companyId} company={ctx.company}
+              structure={structure} changed={changedHeadline} />
+            <GoalLadder companyId={companyId} goals={structure.goals} roles={structure.roles} changed={changedHeadline}
+              team={{
+                roles: structure.roles, metrics: structure.goals.flatMap((goal) => goal.metrics),
+                headlineMetricId: structure.headlineMetricId,
+              }} />
+          </Stack>
+        </Tabs.Panel>
+        <Tabs.Panel value="scorecard">
+          <Scorecard companyId={companyId} structure={structure} changed={changedHeadline} />
         </Tabs.Panel>
         <Tabs.Panel value="projects">
           <Projects companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
@@ -167,12 +198,16 @@ function Grow({ companyId, company, structure, changed }: {
             { name: 'doneCriteria', label: t('How to know it is done'), type: 'textarea', required: true, wide: true,
               description: t('One per line. Work is checked against these before it counts as finished.'),
               placeholder: t('e.g. every claim about the product is one the product page makes') },
+            { name: 'accountabilities', label: t('Accountable for'), type: 'textarea', wide: true,
+              description: ACCOUNTABLE_FOR_HELP(),
+              placeholder: t('e.g. Newsletters sent on time') },
           ]}
           factor={t('Hire a role')}
           submit={async (values, proof) => {
             const hired: { roleId: string; ungranted: string[]; granted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
               divisionId: values.divisionId, slug: values.slug, systemPrompt: values.systemPrompt,
               tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/), grantTools: true,
+              accountabilities: list(values.accountabilities, /\n/),
               ...(values.person ? { person: values.person } : {}),
               ...(values.displayName ? { displayName: values.displayName } : {}), ...(values.title ? { title: values.title } : {}), proof,
             });
@@ -320,6 +355,7 @@ function OrgChart({
                   <Badge size="sm" variant="filled" leftSection={<IconCrown size={11} />}>CEO</Badge>
                 </Group>
                 <Text size="xs" c="dimmed" truncate>{t('Runs {company} for you', { company: company.name })}</Text>
+                <SeatLine role={ceo} />
                 {(() => {
                   const preset = personas.data?.personas.find((one) => one.id === ceo.persona?.preset);
                   return preset
@@ -374,11 +410,78 @@ function OrgChart({
   );
 }
 
-const GOAL_STATUS: Record<string, string> = { active: N('Active'), met: N('Met'), abandoned: N('Abandoned') };
+/* ------------------------------------------------ seats and accountabilities --- */
 
-function goalStatus(status: string): string {
-  const label = GOAL_STATUS[status];
-  return label ? t(label) : status;
+/** What the owner is told about the list wherever they write one (F18.3, migration 0138). */
+const ACCOUNTABLE_FOR_HELP = () =>
+  t('At most five, one per line: the results this seat answers for. Every run of it is told them, and the CEO hands work about them to this seat.');
+
+/**
+ * A seat's accountabilities on the chart, under its name: what it answers
+ * for, or that it answers for nothing yet. A seat with none is drawn in the
+ * warning colour rather than refused: the owner may be halfway through.
+ */
+function SeatLine({ role }: { role: Role }) {
+  return role.accountabilities.length > 0
+    ? <Text size="xs" c="dimmed" lineClamp={2} title={role.accountabilities.join('\n')}>{role.accountabilities.join(' · ')}</Text>
+    : <Text size="xs" c="orange" truncate>{t('No accountabilities yet')}</Text>;
+}
+
+/**
+ * What the chart warns of (F18.3): a seat with no accountabilities, an
+ * accountability two seats both claim, which is one result nobody is sure is
+ * theirs, and a line on the scorecard or a key result no seat answers for.
+ * Each seat named opens it, where the list is changed; a number is given its
+ * seat from its own form. Shown, never refused; the checks are the server's
+ * (`seatChecksOf`, src/domain/seats.ts).
+ */
+function SeatWarnings({ structure, openRole }: { structure: Structure; openRole: (role: Role) => void }) {
+  const { withoutAccountabilities, sharedAccountabilities, linesWithoutSeat, keyResultsWithoutSeat } = structure.seatChecks;
+  if (withoutAccountabilities.length === 0 && sharedAccountabilities.length === 0
+    && linesWithoutSeat.length === 0 && keyResultsWithoutSeat.length === 0) return null;
+  // A number no seat answers for is named as the owner named it: the line's
+  // measure, or the key result's statement.
+  const lines = linesWithoutSeat
+    .map((id) => structure.goals.flatMap((goal) => goal.metrics).find((metric) => metric.id === id)?.name)
+    .filter((name): name is string => name !== undefined);
+  const results = keyResultsWithoutSeat
+    .map((id) => structure.goals.find((goal) => goal.id === id)?.statement)
+    .filter((statement): statement is string => statement !== undefined);
+  const seats = (ids: string[]) => {
+    const roles = ids.map((id) => structure.roles.find((role) => role.id === id)).filter((role): role is Role => role !== undefined);
+    return (
+      <Group gap={6} component="span" style={{ display: 'inline-flex' }}>
+        {roles.map((role) => (
+          <Anchor key={role.id} size="sm" component="button" type="button" onClick={() => openRole(role)}>{role.displayName ?? role.slug}</Anchor>
+        ))}
+      </Group>
+    );
+  };
+  return (
+    <Alert variant="light" color="yellow" mb="md" title={t('Seats to look at')}>
+      <Stack gap={6}>
+        <Text size="sm">{t('A seat answers for at most five results. One with none, or a result two seats both claim, is work nobody is sure is theirs.')}</Text>
+        {withoutAccountabilities.length > 0 && (
+          <Group gap={6} wrap="wrap">
+            <Text size="sm" fw={600}>{t('No accountabilities yet')}</Text>
+            {seats(withoutAccountabilities)}
+          </Group>
+        )}
+        {sharedAccountabilities.map((shared) => (
+          <Group key={shared.accountability} gap={6} wrap="wrap">
+            <Text size="sm" fw={600}>{t('Claimed by more than one seat: {accountability}', { accountability: shared.accountability })}</Text>
+            {seats(shared.roleIds)}
+          </Group>
+        ))}
+        {lines.length > 0 && (
+          <Text size="sm"><Text span fw={600}>{t('Scorecard lines no seat answers for:')}</Text> {lines.join(' · ')}</Text>
+        )}
+        {results.length > 0 && (
+          <Text size="sm"><Text span fw={600}>{t('Key results no seat answers for:')}</Text> {results.join(' · ')}</Text>
+        )}
+      </Stack>
+    </Alert>
+  );
 }
 
 function roleState(role: Role): { label: string; color: string } {
@@ -420,6 +523,7 @@ function DivisionCard({
                     {role.persona?.preset && <Tooltip label={t('Has a persona')}><IconSparkles size={12} color="var(--mantine-color-grape-5)" style={{ flexShrink: 0 }} /></Tooltip>}
                   </Group>
                   {role.title && <Text size="xs" c="dimmed" truncate>{role.title}</Text>}
+                  <SeatLine role={role} />
                 </div>
                 <Tooltip label={role.frozenReason ?? t('{open} open · {done} done this week', { open: role.openTasks, done: role.doneLastWeek })}>
                   <Badge size="sm" variant="dot" color={state.color} style={{ flexShrink: 0 }}>{state.label}</Badge>
@@ -586,6 +690,21 @@ function RoleDrawer({
                 </List>
               </>
             )}
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mt="md" mb={6}>{t('Accountable for')}</Text>
+            {role.accountabilities.length > 0 ? (
+              <List size="sm" spacing={4}>
+                {role.accountabilities.map((line) => <List.Item key={line}>{line}</List.Item>)}
+              </List>
+            ) : <Text size="sm" c="orange">{t('Nothing yet. Say what this seat answers for, so work about it comes here.')}</Text>}
+            {structure.coreProcesses.processes.some((process) => process.ownerRoleId === role.id) && (
+              <>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mt="md" mb={6}>{t('Core processes it owns')}</Text>
+                <List size="sm" spacing={4}>
+                  {structure.coreProcesses.processes.filter((process) => process.ownerRoleId === role.id)
+                    .map((process) => <List.Item key={process.skillId}>{process.slug}</List.Item>)}
+                </List>
+              </>
+            )}
           </Paper>
           <div>
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>{t('Tools')}</Text>
@@ -610,6 +729,27 @@ function RoleDrawer({
             <Accordion.Item value="runtime">
               <Accordion.Control>{t('Who does its work')}</Accordion.Control>
               <Accordion.Panel><RoleRuntime companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
+            </Accordion.Item>
+            <Accordion.Item value="seat">
+              <Accordion.Control>{t('What its seat is accountable for')}</Accordion.Control>
+              <Accordion.Panel>
+                <ActionForm
+                  columns={1}
+                  fields={[{
+                    name: 'accountabilities', label: t('Accountable for'), type: 'textarea',
+                    initial: role.accountabilities.join('\n'), description: ACCOUNTABLE_FOR_HELP(),
+                  }]}
+                  submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, {
+                    accountabilities: String(values.accountabilities ?? '').split('\n').map((line) => line.trim()).filter(Boolean),
+                    summary: t('What {role} is accountable for', { role: role.displayName ?? role.slug }),
+                    proof,
+                  })}
+                  factor={t('Change what {role} is accountable for', { role: role.displayName ?? role.slug })}
+                  action={t('Change it')}
+                  success={t('Accountabilities changed.')}
+                  done={changed}
+                />
+              </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
               <Accordion.Control>{t('Change its charter, done criteria, model or run length')}</Accordion.Control>
@@ -1193,11 +1333,58 @@ function DivisionDrawer({
 
 /* ------------------------------------------------------------------- goals --- */
 
-function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: Goal[]; changed: () => void }) {
+/** A soft limit a goal is past (F18.1), as the owner reads it on the goal's card. */
+function warningSaid(warning: Goal['warnings'][number], roles: Role[]): string {
+  const values = { count: warning.count, limit: warning.limit };
+  switch (warning.kind) {
+    case 'year_goals': return t('Goals for this year: {count}, more than the {limit} a company keeps in view.', values);
+    case 'objective_key_results': return t('Key results under this objective: {count}, more than the {limit} one objective keeps in view.', values);
+    case 'quarter_priorities': return t('Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.', values);
+    case 'seat_priorities': {
+      const role = roles.find((one) => one.id === warning.roleId);
+      return t('Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.',
+        { ...values, seat: role ? roleLabel(role) : warning.roleId });
+    }
+  }
+}
+
+/** The fields of a goal's period, seat and finish line (F18.1, F18.11), with what a goal already has. */
+function goalPlanFields(roles: Role[], goal: Goal | null): Field[] {
+  return [
+    { name: 'startsOn', label: t('Starts on'), type: 'date', initial: goal?.startsOn ?? null },
+    { name: 'dueOn', label: t('Due on'), type: 'date', initial: goal?.dueOn ?? null },
+    {
+      name: 'commitment', label: t('Commitment'), type: 'select', initial: goal?.commitment ?? null,
+      description: t('Committed is done in full or missed; aspirational is graded; learning tests a prediction.'),
+      options: Object.entries(COMMITMENT).map(([value, label]) => ({ value, label: t(label) })),
+    },
+    {
+      name: 'ownerRoleId', label: t('Owning seat'), type: 'select', initial: goal?.ownerRoleId ?? null,
+      description: t('The one role that answers for it. A quarterly priority needs one.'),
+      options: roles.map((role) => ({ value: role.id, label: roleLabel(role) })),
+    },
+    {
+      name: 'channel', label: t('Channel it tests'), type: 'select', initial: goal?.channel ?? null, wide: true,
+      options: CHANNELS.map((channel) => ({ value: channel.value, label: t(channel.label) })),
+    },
+    {
+      name: 'doneWhen', label: t('Done when'), type: 'textarea', initial: goal?.doneWhen ?? null,
+      description: t('What is true once it is done. A new key result of a quarter or less needs this; once a measure is defined for it, this may be cleared.'),
+    },
+  ];
+}
+
+const GOAL_PLAN = ['startsOn', 'dueOn', 'commitment', 'ownerRoleId', 'channel', 'doneWhen'] as const;
+
+function GoalLadder({ companyId, goals, roles, changed, team }: { companyId: string; goals: Goal[]; roles: Role[]; changed: () => void; team: MetricTeam }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Goal | null>(null);
   const roots = goals.filter((goal) => goal.parentId === null);
   const childrenOf = (id: string) => goals.filter((goal) => goal.parentId === id);
+  const seatOf = (goal: Goal) => {
+    const role = roles.find((one) => one.id === goal.ownerRoleId);
+    return role ? roleLabel(role) : goal.ownerRole;
+  };
 
   const renderGoal = (goal: Goal, depth: number): React.ReactNode => (
     <Box key={goal.id} ps={depth * 28}>
@@ -1208,7 +1395,10 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
               {goal.kind === 'mission' ? <IconFlag size={16} /> : <IconTarget size={16} />}
             </ThemeIcon>
             <div style={{ minWidth: 0 }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{goalKind(goal.kind)}</Text>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                {goal.kind === 'key_result' && goal.period === 'quarter' ? t('Quarterly priority')
+                  : goal.kind === 'objective' && goal.period === 'year' ? t("This year's goal") : goalKind(goal.kind)}
+              </Text>
               <Text size="sm" fw={600}>{goal.statement}</Text>
             </div>
           </Group>
@@ -1224,12 +1414,25 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
             <Badge color={goal.status === 'active' ? 'brand' : goal.status === 'met' ? 'teal' : 'gray'} variant="light">{goalStatus(goal.status)}</Badge>
           </Group>
         </Group>
+        {(goal.startsOn || goal.commitment || goal.ownerRoleId || goal.channel) && (
+          <Group gap={6} mt={6} ps={44}>
+            {goal.startsOn && goal.dueOn && <Badge variant="outline" color="gray" size="sm">{periodSaid(goal.startsOn, goal.dueOn)}</Badge>}
+            {goal.commitment && <Badge variant="light" color="grape" size="sm">{t(COMMITMENT[goal.commitment] ?? goal.commitment)}</Badge>}
+            {goal.ownerRoleId && <Badge variant="light" color="blue" size="sm">{t('Owned by {seat}', { seat: seatOf(goal) ?? '' })}</Badge>}
+            {goal.channel && <Badge variant="light" color="orange" size="sm">{t('Tests the channel {channel}', { channel: channelName(goal.channel) })}</Badge>}
+          </Group>
+        )}
+        {goal.doneWhen && <Text size="xs" c="dimmed" mt={4} ps={44}>{t('Done when: {done}', { done: goal.doneWhen })}</Text>}
+        {goal.grade && <GradeLine grade={goal.grade} ps={44} />}
+        {goal.warnings.map((warning) => (
+          <Text key={warning.kind} size="xs" c="yellow.8" mt={4} ps={44}>{warningSaid(warning, roles)}</Text>
+        ))}
         {(goal.kind !== 'mission' || goal.metrics.length > 0) && (
           // The goal opens its editor on a click; recording a value or adding
           // a measure is its own action, including inside the modals it opens,
           // whose events still bubble through React to this card.
           <div onClick={(event) => event.stopPropagation()}>
-            <GoalMetrics companyId={companyId} goal={goal} changed={changed} />
+            <GoalMetrics companyId={companyId} goal={goal} changed={changed} team={team} />
           </div>
         )}
       </Paper>
@@ -1254,6 +1457,7 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'grow-revenue' },
             { name: 'parentGoalId', label: t('Under'), type: 'select', options: goals.map((goal) => ({ value: goal.id, label: `${goalKind(goal.kind)}: ${goal.statement}` })), wide: true },
             { name: 'statement', label: t('Statement'), type: 'textarea', required: true },
+            ...goalPlanFields(roles, null),
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/goals`, values)}
           action={t('Add it')}
@@ -1261,12 +1465,12 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
           done={() => { setAdding(false); changed(); }}
         />
       </Modal>
-      <GoalEditor companyId={companyId} goal={editing} close={() => setEditing(null)} changed={changed} />
+      <GoalEditor companyId={companyId} goal={editing} roles={roles} close={() => setEditing(null)} changed={changed} />
     </Section>
   );
 }
 
-function GoalEditor({ companyId, goal, close, changed }: { companyId: string; goal: Goal | null; close: () => void; changed: () => void }) {
+function GoalEditor({ companyId, goal, roles, close, changed }: { companyId: string; goal: Goal | null; roles: Role[]; close: () => void; changed: () => void }) {
   const detail = useLoad(async () => {
     if (!goal) return null;
     const answer: { kind: string; slug: string; status: string; statement: string; parentGoalId: string | null } =
@@ -1279,14 +1483,23 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
         <Stack>
           {detail.data && <Text size="sm" c="dimmed">{goalKind(detail.data.kind)} · {detail.data.slug} · {goalStatus(detail.data.status)}</Text>}
           <ActionForm
-            columns={1}
+            columns={2}
             fields={[
               { name: 'statement', label: t('Statement'), type: 'textarea', initial: goal.statement },
-              { name: 'status', label: t('Status'), type: 'select', initial: goal.status, options: [
+              { name: 'status', label: t('Status'), type: 'select', initial: goal.status, wide: true, options: [
                 { value: 'active', label: t('Active') }, { value: 'met', label: t('Met') }, { value: 'abandoned', label: t('Abandoned') },
               ] },
+              // A mission is the company's direction: it has no period, seat or finish line.
+              ...(goal.kind === 'mission' ? [] : goalPlanFields(roles, goal)),
             ]}
-            submit={(values, proof) => api('POST', `/api/companies/${companyId}/goals/${goal.id}`, { ...values, proof })}
+            submit={(values, proof) => {
+              // A field the owner emptied is sent as null, which clears it;
+              // the form leaves an empty field out, which would keep it.
+              const cleared = goal.kind === 'mission' ? {} : Object.fromEntries(GOAL_PLAN
+                .filter((field) => values[field] === undefined && goal[field] !== null)
+                .map((field) => [field, null]));
+              return api('POST', `/api/companies/${companyId}/goals/${goal.id}`, { ...values, ...cleared, proof });
+            }}
             factor={t('Change a goal')}
             action={t('Change it')}
             done={(result) => {

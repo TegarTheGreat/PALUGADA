@@ -25,6 +25,7 @@ import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
 import { ancestryForTask, applyGoalChangeWithin, type GoalChange } from '../domain/goals.ts';
+import { applyGoalPlanWithin, planLinesChosen, type GoalPlanProposal } from '../domain/goal-plans.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
@@ -34,6 +35,7 @@ import {
   runQuestionCard, skillCard, skillsCard, taskCalledWithin,
 } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
+import { filePostmortemWithin } from '../engine/postmortem.ts';
 import type { AnswerFile } from '../chats/attachments.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
@@ -139,6 +141,12 @@ export interface InboxItem {
    * card's own task is not listed again.
    */
   stopped?: Array<{ taskId: string; role: string; roleName: string | null }>;
+  /**
+   * A plan of new goals (F18.7): its lines, for a choice beside each. What
+   * each says in full is the card's detail; the channel a line tests is here,
+   * for the console to name in the owner's language.
+   */
+  plan?: Array<{ line: number; kind: string; slug: string; statement: string; channel: string | null; warned: boolean }>;
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -1655,6 +1663,12 @@ export async function raiseBudgetHaltWithin(
     companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
     payload: { inboxItemId: id, budgetAccountId: account.id },
   });
+  // Why the money ran out is the company's to find (F18.4): one issue for
+  // the account while it is open, however often its card is raised again.
+  await filePostmortemWithin(tx, {
+    companyId, taskId, how: 'budget', reason: 'budget_exhausted', inboxItemId: id,
+    budget: { accountId: account.id, name: account.name },
+  });
   return id;
 }
 
@@ -1712,6 +1726,7 @@ export async function listOpen(
       addressee: { seatId: string; name: string } | null; escalated: boolean;
       hire: { ticketId: string; role: string; why: string } | null;
       stopped: Array<{ taskId: string; role: string; roleName: string | null }> | null;
+      plan: InboxItem['plan'] | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1730,6 +1745,12 @@ export async function listOpen(
                                            'why', coalesce(i.payload->>'why', '')) END AS hire,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               CASE WHEN i.kind = 'budget_alert' THEN i.payload->'budgetHalt'->>'budgetAccountId' END AS budget_account,
+              CASE WHEN i.kind = 'escalation' AND jsonb_typeof(i.payload->'goalPlan'->'lines') = 'array' THEN (
+                SELECT jsonb_agg(jsonb_build_object(
+                         'line', (l->>'line')::int, 'kind', l->>'kind', 'slug', l->>'slug', 'statement', l->>'statement',
+                         'channel', l->'channel', 'warned', coalesce((l->>'warned')::boolean, false))
+                       ORDER BY (l->>'line')::int)
+                  FROM jsonb_array_elements(i.payload->'goalPlan'->'lines') l) END AS plan,
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
               CASE WHEN i.kind = 'skill_candidate'
@@ -1783,6 +1804,7 @@ export async function listOpen(
         ...(r.escalated ? { escalated: true } : {}),
         ...(r.hire ? { hire: r.hire } : {}),
         ...(r.stopped && r.stopped.length > 0 ? { stopped: r.stopped } : {}),
+        ...(r.plan ? { plan: r.plan } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
@@ -2103,6 +2125,12 @@ export interface DecideOptions {
   seat?: { id: string; name: string } | null;
   /** The files an answer to a run's question carried, already kept (`keepAnswerFiles`): recorded with the answer in the same step. */
   answerFiles?: AnswerFile[];
+  /**
+   * On a plan of new goals (F18.7), the numbers of the lines a yes approves;
+   * the rest are refused. Left out, a yes approves every line. Checked here,
+   * as anything from a caller is.
+   */
+  lines?: unknown;
 }
 
 /** The longest the owner may allow a capability for without being asked: a week. */
@@ -2149,9 +2177,9 @@ export async function decide(
   // sessions, which answer for it, and not taken from the caller.
   const login = await signedInWithDevice(options);
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule, addressee } = await withTenant(companyId, async (tx) => {
+  const { tier, stageChange, goalChange, goalPlan, overdue, standing, scheduled, proposesSchedule, addressee } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; overdue: boolean;
+      tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; goal_plan: GoalPlanProposal | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
       schedule_id: string | null; action_fingerprint: string | null; proposes_schedule: boolean;
       addressee_seat: string | null; addressee_name: string | null;
@@ -2159,6 +2187,7 @@ export async function decide(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
               i.addressee_seat, i.payload->'addressee'->>'name' AS addressee_name,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
+              CASE WHEN i.kind = 'escalation' THEN i.payload->'goalPlan' END AS goal_plan,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
               (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id,
               CASE WHEN ${FOR_SCHEDULE_SQL} THEN app.task_schedule(i.task_id) END AS schedule_id, i.action_fingerprint,
@@ -2173,6 +2202,7 @@ export async function decide(
       tier: row?.tier ?? null,
       stageChange: row?.stage_change ?? null,
       goalChange: row?.goal_change ?? null,
+      goalPlan: row?.goal_plan ?? null,
       overdue: row?.overdue ?? false,
       standing: row?.allow_for && row.capability_name && row.role_id
         ? { capabilityName: row.capability_name, roleId: row.role_id }
@@ -2288,6 +2318,17 @@ export async function decide(
     }
   }
 
+  // F18.7: the lines a yes to a plan of new goals approves, checked before
+  // any factor is spent on it, so a list the plan cannot take leaves the card,
+  // and the owner's code, as they were.
+  if (options.lines !== undefined && goalPlan === null) {
+    throw new PalugadaError('contract.violation', 'lines are chosen only on a plan of new goals; this card is not one', { field: 'lines' });
+  }
+  if (options.lines !== undefined && decision !== 'approve') {
+    throw new PalugadaError('contract.violation', 'lines are chosen with a yes: a no refuses the whole plan', { field: 'lines' });
+  }
+  const planned = goalPlan !== null && decision === 'approve' ? planLinesChosen(goalPlan, options.lines) : null;
+
   // Approving a stage proposal moves the company, which the application role
   // may not write (0047), so that one decision is made on the control plane --
   // still one transaction, so the answer and the move happen together. The
@@ -2297,11 +2338,13 @@ export async function decide(
   // So is a yes to a goal change (`goal.propose`): the application role reads
   // goals and never writes them (F3.10), and the owner's answer is the change.
   const redirecting = goalChange !== null && decision === 'approve';
+  // And a yes to a plan of new goals, which makes them (F18.7).
+  const planning = planned !== null;
   // A standing yes is written only on the control plane (0083), in the same
   // transaction as the decision it came with.
   const granting = allowForHours !== undefined;
   const transaction = <T>(fn: (tx: TenantClient) => Promise<T>) =>
-    moving || redirecting || granting || forSchedule ? withControlPlane(fn) : withTenant(companyId, fn);
+    moving || redirecting || planning || granting || forSchedule ? withControlPlane(fn) : withTenant(companyId, fn);
 
   let factor: VerifiedFactor | null = null;
   if (decision === 'approve' && (tier ?? 0) >= 3) {
@@ -2441,6 +2484,10 @@ export async function decide(
         ...(options.batch ? { batch: options.batch } : {}),
         ...(granting ? { allowForHours } : {}),
         ...(forSchedule ? { forSchedule: scheduled!.slug } : {}),
+        // Which lines of a plan the yes made, and which it refused (F18.7).
+        ...(planning
+          ? { lines: { approved: planned, refused: goalPlan!.lines.map((line) => line.line).filter((line) => !planned!.includes(line)) } }
+          : {}),
         ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
       },
     });
@@ -2564,6 +2611,12 @@ export async function decide(
         status: goalChange!.to.status,
         inboxItemId: itemId,
       });
+    }
+
+    // F18.7: a plan of new goals a run proposed is answered by making the
+    // lines approved, under the goals as they stood when it was proposed.
+    if (planning) {
+      await applyGoalPlanWithin(tx, { companyId, inboxItemId: itemId, plan: goalPlan!, approved: planned! });
     }
 
     // F9.1: an escalation about a schedule is answered by acting on it. Deny

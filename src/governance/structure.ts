@@ -31,6 +31,7 @@ import { TIER } from '../domain/tier.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { recordVersion } from './config-versions.ts';
 import { CEO, titleFor } from './ceo.ts';
+import { accountabilitiesFrom } from '../domain/seats.ts';
 import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/work.ts';
 
 export type StructuralChange =
@@ -292,6 +293,12 @@ export interface RoleFields {
    * attempt counts (0084); null is no limit beyond the task's deadline.
    */
   maxRunSeconds?: number | null;
+  /**
+   * What the seat answers for (F18.3, 0138): at most five lines, told to
+   * every run of it and to the CEO when it hands work on. Replaces the
+   * seat's list; an empty one leaves the seat answering for nothing yet.
+   */
+  accountabilities?: string[];
 }
 
 /** The most criteria a role is held to: each is answered, with evidence, in every run. */
@@ -343,7 +350,9 @@ function changeKindOf(fields: RoleFields): RoleChange {
   // Who a role is changes how it works, as its charter does.
   // So does what done means: it is what every run is held to.
   if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined
-    || fields.title !== undefined || fields.doneCriteria !== undefined) {
+    || fields.title !== undefined || fields.doneCriteria !== undefined
+    // And what the seat answers for: every run of it is told, as it is told its charter.
+    || fields.accountabilities !== undefined) {
     return 'charter';
   }
   if (fields.tools !== undefined) return 'skills';
@@ -379,6 +388,7 @@ export async function applyRoleChange(
       { field: 'maxRunSeconds' });
   }
   const doneCriteria = fields.doneCriteria === undefined ? undefined : doneCriteriaFrom(fields.doneCriteria);
+  const accountabilities = fields.accountabilities === undefined ? undefined : accountabilitiesFrom(fields.accountabilities);
 
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -394,9 +404,10 @@ export async function applyRoleChange(
       persona: RolePersona | null;
       done_criteria: string[];
       max_run_seconds: number | null;
+      accountabilities: string[];
     }>(
       `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona,
-              done_criteria, max_run_seconds
+              done_criteria, max_run_seconds, accountabilities
          FROM roles WHERE id = $1`,
       [roleId],
     );
@@ -422,6 +433,7 @@ export async function applyRoleChange(
         persona: before.persona,
         doneCriteria: before.done_criteria,
         maxRunSeconds: before.max_run_seconds,
+        accountabilities: before.accountabilities,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -438,7 +450,8 @@ export async function applyRoleChange(
               title          = CASE WHEN $9 THEN $10 ELSE title END,
               persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END,
               done_criteria  = coalesce($13::text[], done_criteria),
-              max_run_seconds = CASE WHEN $14 THEN $15::integer ELSE max_run_seconds END
+              max_run_seconds = CASE WHEN $14 THEN $15::integer ELSE max_run_seconds END,
+              accountabilities = coalesce($16::text[], accountabilities)
         WHERE id = $1`,
       [
         roleId,
@@ -452,6 +465,7 @@ export async function applyRoleChange(
         fields.persona !== undefined, fields.persona ? JSON.stringify(fields.persona) : null,
         doneCriteria ?? null,
         fields.maxRunSeconds !== undefined, fields.maxRunSeconds ?? null,
+        accountabilities ?? null,
       ],
     );
 
@@ -500,6 +514,8 @@ export interface NewRole {
    * answer is what it produced, so it runs on no model and holds no tools.
    */
   person?: { seatId: string; name: string };
+  /** What the seat answers for (F18.3), at most five lines; none unless said. */
+  accountabilities?: string[];
 }
 
 /**
@@ -526,6 +542,7 @@ export async function addRole(
     throw new PalugadaError('contract.violation', 'say what the role is for: its system prompt is empty', { field: 'systemPrompt' });
   }
   const doneCriteria = doneCriteriaFrom(role.doneCriteria ?? []);
+  const accountabilities = accountabilitiesFrom(role.accountabilities ?? []);
   const tools = (role.tools ?? []).map(String);
   if (tools.length > 12) {
     throw new PalugadaError('contract.violation', 'a role has at most 12 tools (F2.6)', { field: 'tools' });
@@ -565,16 +582,16 @@ export async function addRole(
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools, input_schema, output_schema,
                           max_tokens_per_run, done_criteria, runtime, backend, display_name, title, persona,
-                          person_seat, person_name)
+                          person_seat, person_name, accountabilities)
        VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10::text[],
-               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb, $16, $17)
+               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb, $16, $17, $18::text[])
        RETURNING id`,
       [
         companyId, role.divisionId, slug, systemPrompt, role.model ?? 'standard', tools,
         JSON.stringify(WORK_INPUT), JSON.stringify(WORK_OUTPUT), role.maxTokensPerRun ?? 60_000, doneCriteria,
         role.person ? 'person' : usual[0]?.runtime ?? null, role.person ? 'local' : usual[0]?.backend ?? null,
         role.displayName ?? null, title ?? null, role.persona ? JSON.stringify(role.persona) : null,
-        role.person?.seatId ?? null, role.person?.name ?? null,
+        role.person?.seatId ?? null, role.person?.name ?? null, accountabilities,
       ],
     );
     const roleId = rows[0]!.id;
@@ -582,7 +599,7 @@ export async function addRole(
       companyId,
       kind: 'role',
       subjectId: roleId,
-      snapshot: { slug, systemPrompt, tools, modelPrimary: role.model ?? 'standard', modelFallback: [] },
+      snapshot: { slug, systemPrompt, tools, modelPrimary: role.model ?? 'standard', modelFallback: [], accountabilities },
       summary: `Hired ${slug}`,
     });
     await appendEvent(tx, {

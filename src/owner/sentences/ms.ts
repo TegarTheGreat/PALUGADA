@@ -405,6 +405,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tugasan yang berkaitan telah dijalankan semula.',
   'Withdrawn: the day it was about has ended.':
     'Ditarik: hari yang berkaitan telah berakhir.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: tempoh yang berkaitan telah berakhir dan telah dinilai.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: matlamat yang berkaitan telah ditutup.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ditarik: had bulan ini telah dicapai, dan kad yang menyatakan syarikat dijeda menggantikannya.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -441,4 +445,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Kerja selesai: {count}',
   'Stopped: its work was taken up another way':
     'Dihentikan: kerjanya telah diuruskan dengan cara lain',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Kerjanya terhenti, dan setiap kali ia menjatuhkan worker yang menjalankannya.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Penulisan ke perkhidmatan luar mungkin telah berlaku, tetapi bukan seperti yang dimaksudkan.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Kerja yang dicaj kepada akaun bajet yang sama terhenti sehingga akaun itu ada ruang semula.',
+  'Its work stopped before it was done.':
+    'Kerjanya terhenti sebelum siap.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform mengira {lost} worker yang hilang, had paling banyak bagi satu tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform membaca semula apa yang ditulis, dan ia tidak sepadan.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akaun bajet tiada baki untuk dikhaskan bagi kerja itu.',
+  'The platform found it ended with no card raised for it.':
+    'Platform mendapati ia berakhir tanpa sebarang kad dibangkitkan untuknya.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kad itu pergi kepada sesiapa yang dinamakan bahagian untuk menanganinya, dan kemudian kepada anda.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugas itu dihentikan, dan anda dimaklumkan melalui kad dalam peti masuk.',
+  'Postmortem: {cause} ({about})':
+    'Analisis selepas kejadian: {cause} ({about})',
+  'What happened':
+    'Apa yang berlaku',
+  'Impact':
+    'Kesan',
+  'Trigger':
+    'Pencetus',
+  'Detection':
+    'Pengesanan',
+  'What was done':
+    'Apa yang dilakukan',
+  'A task of {role} stopped before it was done.':
+    'Satu tugas {role} terhenti sebelum siap.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara menyelesaikannya: cari punca utama dengan bertanya mengapa pada setiap jawapan dan menyemaknya dengan rekod, putuskan sekali, dan failkan tindakan yang melaksanakan keputusan itu, setiap satu dengan satu kerusi.',
+  'Off track: {name}':
+    'Terkeluar landasan: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} ialah {value} pada minggu {week}, berbanding sasaran mingguan {target}.',
+  '{role} answers for it.':
+    '{role} bertanggungjawab atasnya.',
+  'No seat answers for it.':
+    'Tiada jawatan yang bertanggungjawab atasnya.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform membacanya daripada kad skor mingguan sebelum mesyuarat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Tidak selesai di dua mesyuarat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tindakan "{title}", perlu siap pada {due}, tidak selesai pada mesyuarat operasi mingguan {previous}, dan tidak juga pada mesyuarat ini.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform membacanya daripada senarai tindakan sebelum mesyuarat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Mesyuarat operasi mingguan diadakan ({week}): {where}',
+  'see its task under Work':
+    'lihat tugasnya di Kerja',
+  'New goals proposed, to approve line by line':
+    'Matlamat baharu dicadangkan, untuk diluluskan baris demi baris',
+  'Line {line}: the {kind} "{goal}"':
+    'Baris {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Di bawah: {goal}',
+  'Under line {line}: {goal}':
+    'Di bawah baris {line}: {goal}',
+  'Period: {from} to {to}':
+    'Tempoh: {from} hingga {to}',
+  'Committed: done in full, or missed.':
+    'Wajib dicapai: siap sepenuhnya, atau terlepas.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Aspirasi: diberi gred, dan 0.6 hingga 0.7 ialah hasil yang baik.',
+  'Learning: a test of the prediction below.':
+    'Pembelajaran: menguji ramalan di bawah.',
+  'Owned by: {role}':
+    'Dimiliki oleh: {role}',
+  'Done when: {doneWhen}':
+    'Siap apabila: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalannya, ditulis sebelum kerja bermula: {name} mencapai {target}, daripada {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Diukur dengan {name}: daripada {baseline} kepada {target}.',
+  'Watched with: {measure}':
+    'Dipantau bersama: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Matlamat tahun ini: {count}, lebih daripada {limit} yang dapat dipantau sebuah syarikat.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Hasil utama di bawah objektif ini: {count}, lebih daripada {limit} yang dapat dipantau satu objektif.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Keutamaan suku tahun serentak: {count}, lebih daripada {limit} yang dapat dipantau sebuah syarikat.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Keutamaan suku tahun untuk {seat} serentak: {count}, lebih daripada {limit} yang dapat dipegang satu kerusi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Meluluskan menjadikan setiap baris yang anda luluskan satu matlamat, bersama ukurannya; baris yang anda tolak tidak dibuat. Sehingga itu kerja diteruskan di bawah matlamat yang sedia ada.',
+  'No goal is made.':
+    'Tiada matlamat dibuat.',
+  'Missed: {statement}':
+    'Terlepas: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, yang wajib dicapai dari {from} hingga {to}, tidak siap.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Diukur dengan angkanya, ia sampai {progress} daripada perjalanannya.',
+  'It was not marked met by its due date.':
+    'Ia tidak ditandakan tercapai sebelum tarikh akhirnya.',
+  'The platform graded it when its period ended.':
+    'Platform menilainya apabila tempohnya berakhir.',
+  'Off pace: {statement}':
+    'Ketinggalan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} ialah keutamaan wajib dicapai yang berakhir pada {due}. Angkanya baru sampai {progress} daripada perjalanannya, sedangkan {elapsed} daripada tempohnya sudah berlalu.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Tiada apa yang diubah untuk mengejarnya, dan tiada ejen yang diminta: angka wajib yang ketinggalan masa mengundang tindakan yang lebih berisiko untuk menebusnya, dan sama ada risiko itu diambil ialah keputusan anda. Putuskan sama ada tarikhnya dianjakkan, sasarannya diturunkan, dijadikan aspirasi, atau dibiarkan berjalan dan terlepas.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Tiada apa yang dihentikan, apa pun jawapannya. Keutamaan itu kekal seperti sedia ada dan dinilai apabila tempohnya berakhir; ubah di Pasukan, Matlamat jika anda memutuskannya.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nilai-nilai kami',
+  'Purpose and niche': 'Tujuan dan ceruk pasaran',
+  'Long-range target': 'Sasaran jangka panjang',
+  'Who we serve and what makes us different': 'Siapa yang kami layani dan apa yang membezakan kami',
+  'Where we will be in three years': 'Di mana kami dalam tiga tahun',
+  'Our promise': 'Janji kami',
 };

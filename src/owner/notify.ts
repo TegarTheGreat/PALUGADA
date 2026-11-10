@@ -720,7 +720,11 @@ export const RETRY_BASE_MS = 30_000;
 export async function retryDigests(
   companyId: string,
   channels: readonly OwnerChannel[],
-  options: { maxAttempts?: number; baseDelayMs?: number; now?: Date } = {},
+  options: {
+    maxAttempts?: number; baseDelayMs?: number; now?: Date;
+    /** The owner's app's link to a task, for the digest's line about the weekly meeting. */
+    linkFor?: (taskId: string) => string | null;
+  } = {},
 ): Promise<{ delivered: number }> {
   const maxAttempts = options.maxAttempts ?? 3;
   const baseDelayMs = options.baseDelayMs ?? RETRY_BASE_MS;
@@ -757,7 +761,7 @@ export async function retryDigests(
       await channel.deliverDigest({
         companyId,
         day: row.digest_day,
-        text: redactor.redact(renderDailyDigest(digest, row.language, await moneyDisplay())),
+        text: redactor.redact(renderDailyDigest(digest, row.language, await moneyDisplay(), options.linkFor ?? null)),
       });
       await withTenant(companyId, async (tx) => {
         await tx.query(
@@ -1058,6 +1062,8 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'ticket_closed': return say(language, 'Withdrawn: the ticket it was about was closed.');
     case 'task_rerun': return say(language, 'Withdrawn: the task it was about was run again.');
     case 'day_ended': return say(language, 'Withdrawn: the day it was about has ended.');
+    case 'period_graded': return say(language, 'Withdrawn: the period it was about has ended and been graded.');
+    case 'goal_closed': return say(language, 'Withdrawn: the goal it was about was closed.');
     case 'spend_paused':
       return say(language, 'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.');
     case 'period_started': return say(language, 'Withdrawn: the month it was about has ended.');

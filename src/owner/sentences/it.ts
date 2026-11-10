@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ritirato: l’attività a cui si riferiva è stata eseguita di nuovo.',
   'Withdrawn: the day it was about has ended.':
     'Ritirato: il giorno a cui si riferiva è finito.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ritirato: il periodo a cui si riferiva è finito ed è stato valutato.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ritirato: l’obiettivo a cui si riferiva è stato chiuso.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ritirato: il tetto del mese è stato raggiunto, e al suo posto c’è la scheda che dice che l’azienda è in pausa.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -442,4 +446,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Lavori completati: {count}',
   'Stopped: its work was taken up another way':
     'Fermata: il suo lavoro è stato ripreso in un altro modo',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Il suo lavoro si è fermato e ogni volta ha fatto cadere il worker che lo eseguiva.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Una scrittura su un servizio esterno potrebbe essere avvenuta senza essere quella voluta.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Il lavoro addebitato allo stesso conto di budget si ferma finché non ha di nuovo margine.',
+  'Its work stopped before it was done.':
+    'Il suo lavoro si è fermato prima di essere finito.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'La piattaforma ha contato {lost} worker persi, il massimo che un compito può perdere.',
+  'The platform read back what was written, and it did not match.':
+    'La piattaforma ha riletto ciò che era stato scritto, e non corrispondeva.',
+  'The budget account had nothing left to reserve for the work.':
+    'Al conto di budget non restava nulla da riservare per il lavoro.',
+  'The platform found it ended with no card raised for it.':
+    'La piattaforma l\'ha trovato concluso senza che fosse aperta alcuna scheda.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'La scheda è andata a chi la divisione indica per occuparsene, e poi a te.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Il compito è stato fermato e sei stato avvisato con una scheda nella posta in arrivo.',
+  'Postmortem: {cause} ({about})':
+    'Analisi a posteriori: {cause} ({about})',
+  'What happened':
+    'Cosa è successo',
+  'Impact':
+    'Impatto',
+  'Trigger':
+    'Innesco',
+  'Detection':
+    'Rilevamento',
+  'What was done':
+    'Cosa è stato fatto',
+  'A task of {role} stopped before it was done.':
+    'Un compito di {role} si è fermato prima di essere finito.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Per risolverlo: trovare la causa principale chiedendo perché a ogni risposta e verificandola nei registri, decidere una volta e aprire le azioni che mettono in pratica la decisione, ognuna con un solo posto.',
+  'Off track: {name}':
+    'Fuori rotta: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} è stato {value} nella settimana del {week}, contro un obiettivo settimanale di {target}.',
+  '{role} answers for it.':
+    'Ne risponde {role}.',
+  'No seat answers for it.':
+    'Nessun ruolo ne risponde.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'La piattaforma l’ha letto dalla scheda settimanale prima della riunione operativa settimanale.',
+  'Not done at two meetings: {title}':
+    'Non fatto in due riunioni: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'L’azione "{title}", in scadenza il {due}, non era fatta alla riunione operativa settimanale del {previous}, né a questa.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'La piattaforma l’ha letto dalle azioni prima della riunione operativa settimanale.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Riunione operativa settimanale tenuta ({week}): {where}',
+  'see its task under Work':
+    'vedi il suo compito in Lavoro',
+  'New goals proposed, to approve line by line':
+    'Nuovi obiettivi proposti, da approvare riga per riga',
+  'Line {line}: the {kind} "{goal}"':
+    'Riga {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Sotto: {goal}',
+  'Under line {line}: {goal}':
+    'Sotto la riga {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periodo: dal {from} al {to}',
+  'Committed: done in full, or missed.':
+    'Vincolante: raggiunto per intero, o mancato.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Ambizioso: riceve un voto, e da 0,6 a 0,7 è un buon risultato.',
+  'Learning: a test of the prediction below.':
+    'Di apprendimento: mette alla prova la previsione qui sotto.',
+  'Owned by: {role}':
+    'Responsabile: {role}',
+  'Done when: {doneWhen}':
+    'Raggiunto quando: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'La previsione, scritta prima del lavoro: {name} arriva a {target}, partendo da {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Misurato da {name}: da {baseline} a {target}.',
+  'Watched with: {measure}':
+    'Osservato insieme a: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Obiettivi di quest\'anno: {count}, più dei {limit} che un\'azienda tiene sott\'occhio.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Risultati chiave sotto questo obiettivo: {count}, più dei {limit} che un obiettivo tiene sott\'occhio.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Priorità trimestrali insieme: {count}, più delle {limit} che un\'azienda tiene sott\'occhio.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Priorità trimestrali di {seat} insieme: {count}, più delle {limit} che un posto può reggere.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Approvare rende ogni riga approvata un obiettivo, con la sua misura; una riga rifiutata non viene creata. Fino ad allora il lavoro continua con gli obiettivi così come sono.',
+  'No goal is made.':
+    'Non viene creato alcun obiettivo.',
+  'Missed: {statement}':
+    'Mancato: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, vincolante dal {from} al {to}, non è stato raggiunto.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Misurato dai suoi numeri, ha percorso il {progress} della strada.',
+  'It was not marked met by its due date.':
+    'Non è stato segnato come raggiunto entro la scadenza.',
+  'The platform graded it when its period ended.':
+    'La piattaforma lo ha valutato alla fine del suo periodo.',
+  'Off pace: {statement}':
+    'In ritardo: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} è una priorità vincolante con scadenza il {due}. I suoi numeri hanno percorso solo il {progress} della strada, mentre è passato il {elapsed} del suo periodo.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Non è stato cambiato nulla per recuperare, e a nessun agente viene chiesto di farlo: un numero vincolante in ritardo sui tempi spinge ad azioni più rischiose per recuperarlo, e se correre questo rischio lo decidi tu. Decidi se spostare la data, abbassare l\'obiettivo, renderlo ambizioso o lasciarlo andare e mancarlo.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Non si ferma nulla, qualunque sia la risposta. La priorità resta com\'è e viene valutata alla fine del suo periodo; cambiala in Organizzazione, Obiettivi se lo decidi.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'I nostri valori',
+  'Purpose and niche': 'Scopo e nicchia',
+  'Long-range target': 'Obiettivo a lungo termine',
+  'Who we serve and what makes us different': 'Chi serviamo e cosa ci rende diversi',
+  'Where we will be in three years': 'Dove saremo tra tre anni',
+  'Our promise': 'La nostra promessa',
 };

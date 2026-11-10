@@ -11,7 +11,8 @@
  *
  *  - **reached** its target (the latest checked reading is at or past it),
  *  - is **overdue** (its due date has passed in the owner's day and the target
- *    has not been reached), or
+ *    has not been reached) -- unless it is due with the period of its goal or
+ *    after it, since the period's close grades that miss (quarter.ts), or
  *  - is **stale** (it has a source and nothing was read from it in a week).
  *
  * What keeps it from becoming a meter running on nothing:
@@ -41,12 +42,25 @@
  * Two workers that decide at once make one task between them: the key is
  * computed in the database, in the same statement that chooses the measure,
  * and the unique index on it does the rest.
+ *
+ * A fourth state is the owner's rather than the CEO's: a committed quarterly
+ * priority **off pace**, its numbers behind the share of its quarter that has
+ * gone (`ensureOffPace`, F18.8). It is not made into work. A committed
+ * number behind its time is what tempts a company of agents to take a
+ * riskier road to make it up -- the risk the OKR literature calls goals gone
+ * wild -- and whether to take a risk is the owner's. So it is one escalation
+ * to the owner, once a period, saying so.
  */
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { appendEvent } from '../audit/event-log.ts';
 import { isPalugadaError } from '../errors.ts';
 import { languageName, languagesFor } from '../domain/language.ts';
 import { withoutTemplateTokens } from '../context/builder.ts';
 import { wellFormed } from '../text.ts';
+import { raiseEscalationWithin } from '../inbox/inbox.ts';
+import { offPaceCard, ownerReadingWithin, roleCalledWithin } from '../owner/platform-cards.ts';
+import { prioritiesOnPace } from '../reporting/meeting.ts';
+import { dayIn } from '../domain/fiscal.ts';
 import { createRootTask } from './tasks.ts';
 
 /** The least time between one outcome task and the next for a company. */
@@ -101,21 +115,28 @@ const OWED = `
   ), seen AS (
     SELECT m.id, m.company_id, m.goal_id, m.slug, m.name, m.unit, m.direction, m.baseline, m.target, m.due_on,
            m.source_capability, m.created_at,
-           v.id AS read_id, v.value AS read_value, v.observed_at AS read_at
+           v.id AS read_id, v.value AS read_value, v.observed_at AS read_at,
+           -- A goal with a period is graded when it ends (quarter.ts), and a
+           -- committed miss filed as a postmortem: a measure due with it, or
+           -- after it, is that grade's, and not a milestone of its own.
+           coalesce(g.starts_on IS NOT NULL AND m.due_on >= g.due_on, false) AS graded
       FROM goal_metrics m
       JOIN open_goals og ON og.id = m.goal_id
+      JOIN goals g ON g.id = m.goal_id
       LEFT JOIN LATERAL (
            SELECT o.id, o.value, o.observed_at
              FROM metric_observations o
             WHERE o.company_id = m.company_id AND o.metric_id = m.id AND o.verified
             ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) v ON true
-     WHERE m.retired_at IS NULL
+     -- A line on the weekly scorecard (0137) is met or missed every week, and
+     -- the weekly review reads it; it is not a milestone to start work about.
+     WHERE m.retired_at IS NULL AND m.review_every IS NULL
   ), judged AS (
     SELECT s.*, CASE
         WHEN s.read_id IS NOT NULL
              AND (CASE s.direction WHEN 'up' THEN s.read_value >= s.target ELSE s.read_value <= s.target END)
           THEN 'reached'
-        WHEN s.due_on < (SELECT d FROM owner_day) THEN 'overdue'
+        WHEN s.due_on < (SELECT d FROM owner_day) AND NOT s.graded THEN 'overdue'
         WHEN s.source_capability IS NOT NULL
              AND coalesce(s.read_at, s.created_at) < $1::timestamptz - make_interval(days => $2::int)
           THEN 'stale'
@@ -275,7 +296,7 @@ function briefFor(owed: Owed, readers: Array<{ slug: string; self: boolean }>, l
   if (owed.state === 'reached') {
     state = 'The latest checked reading is at or past the target. Ask the owner once, with owner.ask, whether the goal is done: '
       + 'give the figure and its date, and offer "Close the goal", "Raise the target" and "Carry on". '
-      + "Their answer is for your report: closing the goal or raising the target is the owner's, on the Goals page, "
+      + "Their answer is for your report: closing the goal or raising the target is the owner's, under Team, Goals in the console, "
       + 'and you cannot do either.';
   } else if (owed.state === 'overdue') {
     const unread = !read || days > STALE_AFTER_DAYS;
@@ -301,4 +322,97 @@ function briefFor(owed: Owed, readers: Array<{ slug: string; self: boolean }>, l
     + 'so if it no longer matches, say so in your summary and stop.';
 
   return { goal, context: [facts, state, limits].join('\n\n') };
+}
+
+/**
+ * A priority this far into its quarter or less is behind by arithmetic only:
+ * three days into a quarter, a number that has not moved yet is 3% behind,
+ * and every committed priority would be put to the owner in its first week.
+ * The sources name no point; a quarter of the period is the first at which
+ * being behind says something about the quarter rather than its first days.
+ */
+const OFF_PACE_FROM = 0.25;
+/** The most priorities one read takes; the sweep reads page after page until none is left. */
+const OFF_PACE_PRIORITIES = 15;
+
+/**
+ * Puts each committed quarterly priority that is behind its quarter to the
+ * owner, once for each period, and returns how many it put. Behind means
+ * its numbers, by their last verified readings, have come less far than the
+ * share of the period gone (`prioritiesOnPace`, the weekly meeting's own
+ * reading), once a quarter of it is gone. A priority with no number, or no
+ * verified reading, is not judged behind: nothing says how far it came.
+ *
+ * Straight to the owner, tied to no task: a division's coordinator handed
+ * it (F2.1) is an agent asked to catch the number up, which is the risk the
+ * card exists to put to the owner instead. Once a period even after the
+ * owner has answered, since the answer was about this period.
+ *
+ * Every committed priority is read, a page at a time: a bound on how many
+ * are judged would hide for good the ones that come after it, since the
+ * same ones come first on every tick.
+ */
+export async function ensureOffPace(companyId: string, now = new Date()): Promise<number> {
+  return withTenant(companyId, async (tx) => {
+    const { rows: company } = await tx.query<{ timezone: string; stage: string | null }>(
+      'SELECT timezone, stage FROM companies WHERE id = $1', [companyId]);
+    if (!company[0] || company[0].stage === 'wind_down') return 0;
+    const { day } = dayIn(company[0].timezone, now);
+    const behind: Awaited<ReturnType<typeof prioritiesOnPace>>['items'] = [];
+    for (let offset = 0; ; offset += OFF_PACE_PRIORITIES) {
+      const { items } = await prioritiesOnPace(tx, companyId, { day, now, limit: OFF_PACE_PRIORITIES, offset, commitment: 'committed' });
+      behind.push(...items.filter((one) => one.why === 'behind' && one.elapsed >= OFF_PACE_FROM));
+      if (items.length < OFF_PACE_PRIORITIES) break;
+    }
+    let raised = 0;
+    for (const priority of behind) {
+      const once = `off-pace:${priority.goalId}:${priority.dueOn}`;
+      // Two workers looking at once: the second waits here and finds the card.
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${companyId}:${once}`]);
+      const { rowCount } = await tx.query(
+        "SELECT 1 FROM inbox_items WHERE company_id = $1 AND kind = 'escalation' AND payload->>'once' = $2 LIMIT 1", [companyId, once]);
+      if (rowCount !== 0) continue;
+      const card = offPaceCard(await ownerReadingWithin(tx), {
+        statement: priority.statement, dueOn: priority.dueOn, progress: priority.progress ?? 0, elapsed: priority.elapsed,
+        seat: priority.seatRoleId ? await roleCalledWithin(tx, { id: priority.seatRoleId }) : null,
+      });
+      await raiseEscalationWithin(tx, {
+        companyId, title: card.title, detail: card.detail, consequenceIfDenied: card.consequence,
+        payload: { once, offPace: { goalId: priority.goalId, dueOn: priority.dueOn, progress: priority.progress, elapsed: priority.elapsed } },
+      });
+      raised += 1;
+    }
+    return raised;
+  });
+}
+
+/**
+ * Withdraws the open off-pace cards of these goals -- of one period, given
+ * its due date, or of any -- and returns how many. A period graded has its
+ * answer (quarter.ts), and a goal closed has no pace to keep (goals.ts): a
+ * card still asking the owner whether to take a risk to catch up is about
+ * nothing left to decide, and an answer to it would act on a period already
+ * over. The card is raised once a period whatever became of it, so one
+ * withdrawn is not raised again.
+ */
+export async function withdrawOffPaceWithin(
+  tx: TenantClient,
+  companyId: string,
+  goals: { ids: readonly string[]; dueOn?: string },
+  reason: 'period_graded' | 'goal_closed',
+): Promise<number> {
+  if (goals.ids.length === 0) return 0;
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $3
+      WHERE company_id = $1 AND kind = 'escalation' AND status = 'open'
+        AND payload->>'once' LIKE 'off-pace:%' AND payload->'offPace'->>'goalId' = ANY($2::text[])
+        AND ($4::text IS NULL OR payload->'offPace'->>'dueOn' = $4)
+      RETURNING id`,
+    [companyId, goals.ids, reason, goals.dueOn ?? null]);
+  for (const item of rows) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
+    });
+  }
+  return rows.length;
 }

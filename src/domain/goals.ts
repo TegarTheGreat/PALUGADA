@@ -25,11 +25,65 @@ import { goalChangeCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
 import { transitionWithin } from '../engine/tasks.ts';
+import { withdrawOffPaceWithin } from '../engine/outcomes.ts';
+import { closeTodoWithin } from '../engine/tickets.ts';
 import { metricsIn } from './metrics.ts';
+import { CHANNEL_SLUGS, channelSaid, isChannel, type ChannelSlug } from './channels.ts';
 
 export type GoalKind = 'mission' | 'objective' | 'key_result';
 export const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
 export type GoalStatus = (typeof GOAL_STATUSES)[number];
+
+/**
+ * How the end of a goal's period is read (F18.1, F18.8), after the two kinds
+ * of objective in *Measure What Matters* and the learning goal of *The Lean
+ * Startup*: a committed goal is done in full or it is a miss, an
+ * aspirational one is graded (0.6 to 0.7 is a good result), and a learning
+ * one is a test whose prediction is written before the work starts.
+ */
+export const GOAL_COMMITMENTS = ['committed', 'aspirational', 'learning'] as const;
+export type GoalCommitment = (typeof GOAL_COMMITMENTS)[number];
+
+/**
+ * What a goal's period is, from its length. There is no fiscal year in the
+ * schema, so a quarter is read from the length rather than the calendar: a
+ * calendar quarter is 90 to 92 days, last day included, and 0136's trigger
+ * uses the same 92. A key result with a quarter's period is a quarterly
+ * priority; an objective with a year's is one of this year's goals; anything
+ * longer is where the company means to be in a few years.
+ */
+export type GoalPeriod = 'quarter' | 'year' | 'longer';
+const QUARTER_DAYS = 92;
+const YEAR_DAYS = 366;
+
+/**
+ * The soft limits, which warn and never refuse. The sources disagree, so one
+ * value is chosen for each and the reason is said here:
+ *
+ * - this year's goals: EOS Worldwide's one-year plan has three to seven,
+ *   "closer to three is ideal", and Google's re:Work three to five
+ *   objectives; five, where the two overlap;
+ * - key results under one objective: whatmatters.com says three to five; five;
+ * - quarterly priorities at once: EOS says three to seven for a company; seven;
+ * - priorities for one seat: EOS's glossary says three to seven for a team or
+ *   a person and its weekly meeting page about three to five; five, since
+ *   one seat is one role.
+ */
+const LIMITS = {
+  year_goals: 5,
+  objective_key_results: 5,
+  quarter_priorities: 7,
+  seat_priorities: 5,
+} as const;
+
+/** A soft limit a goal is past: shown to the owner, and nothing is refused for it. */
+export type GoalWarning =
+  | { kind: 'year_goals'; count: number; limit: number }
+  | { kind: 'objective_key_results'; count: number; limit: number; goalId: string }
+  | { kind: 'quarter_priorities'; count: number; limit: number }
+  | { kind: 'seat_priorities'; count: number; limit: number; roleId: string };
+
+const WARNING_ORDER: ReadonlyArray<GoalWarning['kind']> = ['year_goals', 'objective_key_results', 'quarter_priorities', 'seat_priorities'];
 
 export interface Goal {
   id: string;
@@ -38,6 +92,19 @@ export interface Goal {
   slug: string;
   statement: string;
   status: GoalStatus;
+  /** The period, as days (YYYY-MM-DD): both or neither, the due date its last day (0136). */
+  startsOn: string | null;
+  dueOn: string | null;
+  /** What the period's length makes it; null without one. */
+  period: GoalPeriod | null;
+  /** The one seat that answers for it, and that role's slug, as a run names roles. */
+  ownerRoleId: string | null;
+  ownerRole: string | null;
+  commitment: GoalCommitment | null;
+  /** What is true once it is done, in a sentence. */
+  doneWhen: string | null;
+  /** The traction channel it tests (F18.11). */
+  channel: ChannelSlug | null;
 }
 
 interface RawGoal {
@@ -47,6 +114,24 @@ interface RawGoal {
   slug: string;
   statement: string;
   status: GoalStatus;
+  starts_on: string | null;
+  due_on: string | null;
+  owner_role_id: string | null;
+  owner_role: string | null;
+  commitment: GoalCommitment | null;
+  done_when: string | null;
+  channel: ChannelSlug | null;
+}
+
+/** Whole days from one day to another, both written YYYY-MM-DD. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+export function periodOf(startsOn: string | null, dueOn: string | null): GoalPeriod | null {
+  if (!startsOn || !dueOn) return null;
+  const days = daysBetween(startsOn, dueOn);
+  return days <= QUARTER_DAYS ? 'quarter' : days <= YEAR_DAYS ? 'year' : 'longer';
 }
 
 const toGoal = (row: RawGoal): Goal => ({
@@ -56,38 +141,196 @@ const toGoal = (row: RawGoal): Goal => ({
   slug: row.slug,
   statement: row.statement,
   status: row.status,
+  startsOn: row.starts_on,
+  dueOn: row.due_on,
+  period: periodOf(row.starts_on, row.due_on),
+  ownerRoleId: row.owner_role_id,
+  ownerRole: row.owner_role,
+  commitment: row.commitment,
+  doneWhen: row.done_when,
+  channel: row.channel,
 });
 
-const SELECT_GOAL =
-  'SELECT id, parent_goal_id, kind, slug, statement, status FROM goals';
+// Days as text: the driver reads a `date` as midnight where this process
+// runs, which is the day before east of UTC. The seat by its slug, read in a
+// subquery so every query that filters on a goal's own columns can still
+// name them bare.
+const GOAL_COLUMNS = `g.id, g.parent_goal_id, g.kind, g.slug, g.statement, g.status,
+  to_char(g.starts_on, 'YYYY-MM-DD') AS starts_on, to_char(g.due_on, 'YYYY-MM-DD') AS due_on, g.owner_role_id,
+  (SELECT r.slug FROM roles r WHERE r.company_id = g.company_id AND r.id = g.owner_role_id) AS owner_role,
+  g.commitment, g.done_when, g.channel`;
+const SELECT_GOAL = `SELECT ${GOAL_COLUMNS} FROM goals g`;
 
-export async function createGoal(input: {
+/** What the owner sets about a goal's period and seat: left out is unchanged, null is cleared. */
+export interface GoalPlan {
+  startsOn?: string | null | undefined;
+  dueOn?: string | null | undefined;
+  ownerRoleId?: string | null | undefined;
+  commitment?: string | null | undefined;
+  doneWhen?: string | null | undefined;
+  channel?: string | null | undefined;
+}
+const PLAN_FIELDS = ['startsOn', 'dueOn', 'ownerRoleId', 'commitment', 'doneWhen', 'channel'] as const;
+const DONE_WHEN_MAX = 500;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The plan's fields, checked, as the database will hold them. The trigger in
+ * 0136 has the rules between them (a period has both ends, a quarterly
+ * priority a seat); what is checked here is each value on its own, so the
+ * owner is told which field is wrong by its name rather than by a constraint's.
+ */
+export function planFrom(plan: GoalPlan): Partial<Record<(typeof PLAN_FIELDS)[number], string | null>> {
+  const out: Partial<Record<(typeof PLAN_FIELDS)[number], string | null>> = {};
+  for (const field of PLAN_FIELDS) {
+    const raw = plan[field];
+    if (raw === undefined) continue;
+    const value = raw === null ? null : String(raw).trim() || null;
+    if (value !== null) {
+      if (field === 'startsOn' || field === 'dueOn') {
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00Z`) : null;
+        if (!day || Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== value) {
+          throw new PalugadaError('contract.violation',
+            `${field} is a day written YYYY-MM-DD, such as 2026-10-01; got ${value}`, { field });
+        }
+      }
+      if (field === 'ownerRoleId' && !UUID.test(value)) {
+        throw new PalugadaError('contract.violation',
+          `ownerRoleId is the id of one of this company's roles, as its structure lists them; got ${value}`, { field });
+      }
+      if (field === 'commitment' && !(GOAL_COMMITMENTS as readonly string[]).includes(value)) {
+        throw new PalugadaError('contract.violation',
+          `commitment is one of ${GOAL_COMMITMENTS.join(', ')}; got ${value}`, { field });
+      }
+      if (field === 'channel' && !isChannel(value)) {
+        throw new PalugadaError('contract.violation',
+          `channel is one of ${CHANNEL_SLUGS.join(', ')}; got ${value}`, { field });
+      }
+      if (field === 'doneWhen' && value.length > DONE_WHEN_MAX) {
+        throw new PalugadaError('contract.violation',
+          `doneWhen is a sentence of at most ${DONE_WHEN_MAX} characters, and this is ${value.length}`, { field });
+      }
+    }
+    out[field] = value;
+  }
+  return out;
+}
+
+/** The seat named is one of this company's roles: the control plane sees every company's. */
+async function assertSeatHere(tx: TenantClient, companyId: string, roleId: string | null | undefined): Promise<void> {
+  if (!roleId) return;
+  const { rowCount } = await tx.query('SELECT 1 FROM roles WHERE company_id = $1 AND id = $2', [companyId, roleId]);
+  if (rowCount !== 1) {
+    throw new PalugadaError('contract.violation',
+      `no role ${roleId} in this company: the owning seat is one of this company's roles, by its id`, { field: 'ownerRoleId' });
+  }
+}
+
+/** Every goal of one company, oldest first. */
+export async function goalsIn(tx: TenantClient, companyId: string): Promise<Goal[]> {
+  const { rows } = await tx.query<RawGoal>(`${SELECT_GOAL} WHERE g.company_id = $1 ORDER BY g.created_at, g.id`, [companyId]);
+  return rows.map(toGoal);
+}
+
+/**
+ * The soft limits each goal is past (F18.1), by goal. Only open goals count
+ * and are warned about: a met priority is not one the quarter still holds.
+ * "In a quarter" and "in a year" are the goals whose periods overlap this
+ * one's, since there is no fiscal calendar to cut them by.
+ */
+export function goalWarnings(goals: readonly Goal[]): Map<string, GoalWarning[]> {
+  const open = goals.filter((goal) => goal.status === 'active');
+  const overlaps = (one: Goal, other: Goal) => one.startsOn! <= other.dueOn! && other.startsOn! <= one.dueOn!;
+  const priorities = open.filter((goal) => goal.kind === 'key_result' && goal.period === 'quarter');
+  const yearGoals = open.filter((goal) => goal.kind === 'objective' && goal.period === 'year');
+  const found = new Map<string, GoalWarning[]>();
+  for (const goal of open) {
+    const warnings: GoalWarning[] = [];
+    if (goal.kind === 'objective' && goal.period === 'year') {
+      const count = yearGoals.filter((other) => overlaps(goal, other)).length;
+      if (count > LIMITS.year_goals) warnings.push({ kind: 'year_goals', count, limit: LIMITS.year_goals });
+    }
+    if (goal.kind === 'objective') {
+      const count = open.filter((other) => other.kind === 'key_result' && other.parentGoalId === goal.id).length;
+      if (count > LIMITS.objective_key_results) {
+        warnings.push({ kind: 'objective_key_results', count, limit: LIMITS.objective_key_results, goalId: goal.id });
+      }
+    }
+    if (goal.kind === 'key_result' && goal.period === 'quarter') {
+      const now = priorities.filter((other) => overlaps(goal, other));
+      if (now.length > LIMITS.quarter_priorities) {
+        warnings.push({ kind: 'quarter_priorities', count: now.length, limit: LIMITS.quarter_priorities });
+      }
+      const seat = now.filter((other) => other.ownerRoleId === goal.ownerRoleId).length;
+      if (goal.ownerRoleId && seat > LIMITS.seat_priorities) {
+        warnings.push({ kind: 'seat_priorities', count: seat, limit: LIMITS.seat_priorities, roleId: goal.ownerRoleId });
+      }
+    }
+    if (warnings.length > 0) found.set(goal.id, warnings);
+  }
+  return found;
+}
+
+/**
+ * The owner adds a goal (F2.7, F18.1). Answered with the soft limits it, or
+ * the objective it hangs from, is now past: a warning, never a refusal.
+ */
+export async function createGoal(input: NewGoal): Promise<Goal & { warnings: GoalWarning[] }> {
+  return withControlPlane((tx) => createGoalWithin(tx, input));
+}
+
+type NewGoal = {
   companyId: string;
   kind: GoalKind;
   slug: string;
   statement: string;
   parentGoalId?: string | null;
-}): Promise<Goal> {
-  return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<RawGoal>(
-      `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, parent_goal_id, kind, slug, statement, status`,
-      [input.companyId, input.parentGoalId ?? null, input.kind, input.slug, input.statement],
-    );
-    const goal = toGoal(rows[0]!);
-    await appendEvent(tx, {
-      companyId: input.companyId,
-      type: 'goal.created',
-      actor: 'owner',
-      payload: { goalId: goal.id, kind: goal.kind, slug: goal.slug },
-    });
-    return goal;
+  /** The card whose yes made it, for the record: a plan of new goals (F18.7). */
+  inboxItemId?: string;
+} & GoalPlan;
+
+/**
+ * The same, inside a control-plane transaction the caller holds: the owner's
+ * yes to a plan of new goals (inbox.decide), so every line approved is made
+ * with the answer or none is.
+ */
+export async function createGoalWithin(tx: TenantClient, input: NewGoal): Promise<Goal & { warnings: GoalWarning[] }> {
+  const plan = planFrom(input);
+  await assertSeatHere(tx, input.companyId, plan.ownerRoleId);
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement,
+                        starts_on, due_on, owner_role_id, commitment, done_when, channel)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
+    [
+      input.companyId, input.parentGoalId ?? null, input.kind, input.slug, input.statement,
+      plan.startsOn ?? null, plan.dueOn ?? null, plan.ownerRoleId ?? null, plan.commitment ?? null,
+      plan.doneWhen ?? null, plan.channel ?? null,
+    ],
+  );
+  const goals = await goalsIn(tx, input.companyId);
+  const goal = goals.find((one) => one.id === rows[0]!.id)!;
+  await appendEvent(tx, {
+    companyId: input.companyId,
+    type: 'goal.created',
+    actor: 'owner',
+    payload: {
+      goalId: goal.id, kind: goal.kind, slug: goal.slug,
+      ...Object.fromEntries(Object.entries(plan).filter(([, value]) => value !== null)),
+      ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
+    },
   });
+  // Its own, and the objective's it crowded.
+  const found = goalWarnings(goals);
+  const warnings = [
+    ...(goal.parentGoalId ? found.get(goal.parentGoalId) ?? [] : []).filter((one) => one.kind === 'objective_key_results'),
+    ...found.get(goal.id) ?? [],
+  ].sort((one, other) => WARNING_ORDER.indexOf(one.kind) - WARNING_ORDER.indexOf(other.kind));
+  return { ...goal, warnings };
 }
 
 export async function readGoal(tx: TenantClient, goalId: string): Promise<Goal | null> {
-  const { rows } = await tx.query<RawGoal>(`${SELECT_GOAL} WHERE id = $1`, [goalId]);
+  const { rows } = await tx.query<RawGoal>(`${SELECT_GOAL} WHERE g.id = $1`, [goalId]);
   return rows[0] ? toGoal(rows[0]) : null;
 }
 
@@ -100,15 +343,14 @@ export async function readGoal(tx: TenantClient, goalId: string): Promise<Goal |
  * pays one round trip instead of three.
  */
 export async function ancestryFor(tx: TenantClient, goalId: string): Promise<Goal[]> {
-  const { rows } = await tx.query<RawGoal & { depth: number }>(
+  const { rows } = await tx.query<RawGoal>(
     `WITH RECURSIVE chain AS (
-       SELECT id, parent_goal_id, kind, slug, statement, status, 0 AS depth
-         FROM goals WHERE id = $1
+       SELECT id, parent_goal_id, 0 AS depth FROM goals WHERE id = $1
        UNION ALL
-       SELECT g.id, g.parent_goal_id, g.kind, g.slug, g.statement, g.status, chain.depth + 1
-         FROM goals g JOIN chain ON g.id = chain.parent_goal_id
+       SELECT p.id, p.parent_goal_id, chain.depth + 1
+         FROM goals p JOIN chain ON p.id = chain.parent_goal_id
      )
-     SELECT * FROM chain ORDER BY depth DESC`,
+     SELECT ${GOAL_COLUMNS} FROM chain JOIN goals g ON g.id = chain.id ORDER BY chain.depth DESC`,
     [goalId],
   );
   return rows.map(toGoal);
@@ -133,9 +375,22 @@ export async function ancestryForTask(tx: TenantClient, taskId: string): Promise
 export function renderAncestry(chain: Goal[]): string {
   if (chain.length === 0) return 'No goal is attached to this task.';
   // A closed goal says so: a run still under one winds down rather than
-  // pressing on towards something the owner has stopped wanting.
-  return chain.map((goal) => `${goal.kind.replace('_', ' ')}${goal.status === 'active' ? '' : ` (${goal.status})`}: ${goal.statement}`)
-    .join(' → ');
+  // pressing on towards something the owner has stopped wanting. And a goal
+  // with a period says by when, how firmly, whose it is and what done is
+  // (F18.1), so a run can tell whether its work is on the path to it.
+  return chain.map((goal) => {
+    const said = [
+      goal.status === 'active' ? null : goal.status,
+      goal.kind === 'key_result' && goal.period === 'quarter' ? 'quarterly priority'
+        : goal.kind === 'objective' && goal.period === 'year' ? "one of this year's goals" : null,
+      goal.startsOn && goal.dueOn ? `${goal.startsOn} to ${goal.dueOn}` : null,
+      goal.commitment,
+      goal.ownerRole ? `owned by ${goal.ownerRole}` : null,
+      goal.doneWhen ? `done when: ${goal.doneWhen}` : null,
+      goal.channel ? `tests the channel ${channelSaid(goal.channel)}` : null,
+    ].filter((part): part is string => part !== null);
+    return `${goal.kind.replace('_', ' ')}${said.length > 0 ? ` (${said.join('; ')})` : ''}: ${goal.statement}`;
+  }).join(' → ');
 }
 
 /**
@@ -167,8 +422,8 @@ export interface GoalChange {
 }
 
 /** The longest reason a proposal carries; the owner reads it on a phone. */
-const GOAL_REASON_MAX = 4_000;
-const GOAL_STATEMENT_MAX = 1_000;
+export const GOAL_REASON_MAX = 4_000;
+export const GOAL_STATEMENT_MAX = 1_000;
 
 /**
  * F3.10: an agent that wants the strategy changed asks rather than acts.
@@ -212,7 +467,7 @@ export async function proposeGoalChange(input: {
   return withTenant(input.companyId, async (tx) => {
     // By id or by slug: a run is shown slugs (the weekly brief), not ids. The
     // id is compared as text so a slug is never cast to a uuid.
-    const { rows } = await tx.query<RawGoal>(`${SELECT_GOAL} WHERE id::text = $1 OR slug = $1`, [input.goal]);
+    const { rows } = await tx.query<RawGoal>(`${SELECT_GOAL} WHERE g.id::text = $1 OR g.slug = $1`, [input.goal]);
     const current = rows[0] ? toGoal(rows[0]) : null;
     if (!current) {
       // A run is told its goals by their words, so the answer names the
@@ -240,7 +495,9 @@ export async function proposeGoalChange(input: {
       ? (await metricsIn(tx)).filter((metric) => metric.goalId === current.id && !metric.retiredAt)
       : [];
     if (to.status === 'met') {
-      const short = measures.find((metric) => metric.latest?.verified === true
+      // A line on the weekly scorecard (0137) is a weekly goal, met or missed
+      // each week: a short week is shown on the card, and stops nothing.
+      const short = measures.find((metric) => metric.reviewEvery === null && metric.latest?.verified === true
         && (metric.direction === 'up' ? metric.latest.value < metric.target : metric.latest.value > metric.target));
       if (short) {
         throw new PalugadaError('contract.violation',
@@ -318,25 +575,42 @@ export async function applyGoalChange(input: {
   goalId: string;
   statement?: string;
   status?: GoalStatus;
-}): Promise<{ paused: { schedules: number; triggers: number } }> {
+} & GoalPlan): Promise<{ paused: { schedules: number; triggers: number } }> {
   return withControlPlane((tx) => applyGoalChangeWithin(tx, input));
 }
 
 /**
  * The same, inside a control-plane transaction the caller holds: the owner's
  * yes to a proposal (inbox.decide), so the answer and the change are one fact.
+ * A plan field left out stays as it is and one given as null is cleared.
  */
 export async function applyGoalChangeWithin(
   tx: TenantClient,
-  input: { companyId: string; goalId: string; statement?: string | undefined; status?: GoalStatus | undefined; inboxItemId?: string },
+  input: {
+    companyId: string; goalId: string; statement?: string | undefined; status?: GoalStatus | undefined; inboxItemId?: string;
+  } & GoalPlan,
 ): Promise<{ paused: { schedules: number; triggers: number } }> {
-  const { rows } = await tx.query<RawGoal>(
+  const plan = planFrom(input);
+  await assertSeatHere(tx, input.companyId, plan.ownerRoleId);
+  const given = (field: keyof typeof plan) => field in plan;
+  const { rows } = await tx.query<{ status: GoalStatus; statement: string }>(
     `UPDATE goals
         SET statement = coalesce($3, statement),
-            status = coalesce($4, status)
+            status = coalesce($4, status),
+            starts_on = CASE WHEN $5 THEN $6::date ELSE starts_on END,
+            due_on = CASE WHEN $7 THEN $8::date ELSE due_on END,
+            owner_role_id = CASE WHEN $9 THEN $10::uuid ELSE owner_role_id END,
+            commitment = CASE WHEN $11 THEN $12 ELSE commitment END,
+            done_when = CASE WHEN $13 THEN $14 ELSE done_when END,
+            channel = CASE WHEN $15 THEN $16 ELSE channel END
       WHERE id = $1 AND company_id = $2
-      RETURNING id, parent_goal_id, kind, slug, statement, status`,
-    [input.goalId, input.companyId, input.statement ?? null, input.status ?? null],
+      RETURNING status, statement`,
+    [
+      input.goalId, input.companyId, input.statement ?? null, input.status ?? null,
+      given('startsOn'), plan.startsOn ?? null, given('dueOn'), plan.dueOn ?? null,
+      given('ownerRoleId'), plan.ownerRoleId ?? null, given('commitment'), plan.commitment ?? null,
+      given('doneWhen'), plan.doneWhen ?? null, given('channel'), plan.channel ?? null,
+    ],
   );
   if (rows.length === 0) {
     throw new PalugadaError('contract.violation', `no goal ${input.goalId} in this company`, {
@@ -360,20 +634,30 @@ export async function applyGoalChangeWithin(
     paused.schedules = schedules.rows.length;
     paused.triggers = triggers.rows.length;
     // Nobody is woken about a goal that is done: the follow-ups waiting under
-    // it (`task.follow_up`) and the outcome and review looks the platform made
-    // for the CEO (src/engine/outcomes.ts, goal-review.ts) are cancelled, which
+    // it (`task.follow_up`) and the outcome and review looks, the weekly
+    // meeting and the quarterly planning the platform made for the CEO
+    // (src/engine/outcomes.ts, goal-review.ts, meeting.ts, quarter.ts), and
+    // the to-dos handed to their seats (triage.ts), are cancelled, which
     // releases what they held. Only what has not started: running work is
     // left to finish.
-    const waiting = await tx.query<{ id: string }>(
-      `${under} SELECT id FROM tasks
+    const waiting = await tx.query<{ id: string; todo: string | null }>(
+      `${under} SELECT id, CASE WHEN idempotency_key LIKE 'todo:%' THEN substr(idempotency_key, 6) END AS todo FROM tasks
                  WHERE company_id = $2 AND status = 'pending'
-                   AND (idempotency_key LIKE 'followup:%' OR idempotency_key LIKE 'outcome:%' OR idempotency_key LIKE 'review:%')
+                   AND (idempotency_key LIKE 'followup:%' OR idempotency_key LIKE 'outcome:%' OR idempotency_key LIKE 'review:%'
+                        OR idempotency_key LIKE 'meeting:%' OR idempotency_key LIKE 'quarter:%' OR idempotency_key LIKE 'todo:%')
                    AND goal_id IN (SELECT id FROM under)
                  ORDER BY id`,
       [input.goalId, input.companyId]);
     for (const task of waiting.rows) {
       await transitionWithin(tx, input.companyId, task.id, 'cancelled', { haltReason: 'owner_cancel' });
+      // Its ticket was opened again as the task ended (`settleTicketsOf`),
+      // and an open to-do whose work ended is the CEO's triage's to hand on:
+      // another paid run, for a goal the owner let go. It is closed instead,
+      // saying why, and the owner can open it again from the board.
+      if (task.todo) await closeTodoWithin(tx, input.companyId, task.todo, `its goal was closed (${rows[0]!.status}) before the work started`);
     }
+    const goals = await tx.query<{ id: string }>(`${under} SELECT id FROM under`, [input.goalId, input.companyId]);
+    await withdrawOffPaceWithin(tx, input.companyId, { ids: goals.rows.map((goal) => goal.id) }, 'goal_closed');
     if (paused.schedules + paused.triggers > 0) {
       await appendEvent(tx, {
         companyId: input.companyId,
@@ -394,6 +678,13 @@ export async function applyGoalChangeWithin(
     actor: 'owner',
     payload: {
       goalId: input.goalId, statement: rows[0]!.statement, status: rows[0]!.status,
+      // What the owner sent, by name, so the record says a due date moved
+      // rather than only that something did.
+      changed: [
+        ...(input.statement !== undefined ? ['statement'] : []), ...(input.status !== undefined ? ['status'] : []),
+        ...Object.keys(plan),
+      ],
+      ...plan,
       ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
     },
   });

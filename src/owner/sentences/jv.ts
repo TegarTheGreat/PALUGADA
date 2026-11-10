@@ -404,6 +404,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Dipunwangsulaken: tugas ingkang dipunrembag sampun dipunlampahaken malih.',
   'Withdrawn: the day it was about has ended.':
     'Dipunwangsulaken: dinten ingkang dipunrembag sampun rampung.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: periode sing dirembug wis rampung lan wis dibijèni.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: tujuan sing dirembug wis ditutup.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Dipunwangsulaken: wates sasi punika sampun kadugèn, lan kertu ingkang ngandharaken bilih perusahaan dipunendheg nggantosaken.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -440,4 +444,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Pakaryan ingkang rampung: {count}',
   'Stopped: its work was taken up another way':
     'Dimandhegaké: gawéané wis ditangani kanthi cara liya',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Padamelanipun mandheg, lan saben wekdal ndadosaken worker ingkang nglampahaken ugi mandheg.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Panyeratan dhateng layanan njawi saged sampun kedadosan, nanging mboten kados ingkang dipunkajengaken.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Padamelan ingkang dipuntanggelaken dhateng akun anggaran ingkang sami mandheg ngantos akun punika gadhah ruang malih.',
+  'Its work stopped before it was done.':
+    'Padamelanipun mandheg saderengipun rampung.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform ngetang {lost} worker ingkang ical, watesan paling kathah kangge setunggal tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform maos malih punapa ingkang dipunserat, lan asilipun mboten cocok.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akun anggaran mboten gadhah sisa kangge dipuncadhangaken tumrap padamelan punika.',
+  'The platform found it ended with no card raised for it.':
+    'Platform manggihaken punika rampung tanpa wonten kertu ingkang dipunajengaken.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kertu punika dipunparingaken dhateng sinten kemawon ingkang dipuntunjuk divisi kangge nanganinipun, lajeng dhateng panjenengan.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugas punika dipunkendelaken, lan panjenengan dipunparingi pirsa lumantar kertu ing kothak mlebet.',
+  'Postmortem: {cause} ({about})':
+    'Telaah sasampunipun kedadosan: {cause} ({about})',
+  'What happened':
+    'Ingkang kedadosan',
+  'Impact':
+    'Dampak',
+  'Trigger':
+    'Pemicu',
+  'Detection':
+    'Pandeteksian',
+  'What was done':
+    'Ingkang dipuntindakaken',
+  'A task of {role} stopped before it was done.':
+    'Setunggal tugas {role} mandheg saderengipun rampung.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara ngrampungaken: padosi oyot prekawis kanthi takon kenging punapa ing saben wangsulan lan nyocogaken kaliyan cathetan, putusaken sepisan, lajeng damel tumindak ingkang nindakaken putusan punika, saben setunggal kaliyan setunggal kursi.',
+  'Off track: {name}':
+    'Mlenceng saking rencana: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} angsal {value} ing minggu {week}, saking target mingguan {target}.',
+  '{role} answers for it.':
+    '{role} ingkang tanggel jawab.',
+  'No seat answers for it.':
+    'Boten wonten kalenggahan ingkang tanggel jawab.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform maos saking scorecard mingguan saderengipun rapat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Boten rampung ing kalih rapat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tumindak "{title}", tempo {due}, boten rampung ing rapat operasi mingguan {previous}, lan ugi boten ing rapat punika.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform maos saking daftar tumindak saderengipun rapat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Rapat operasi mingguan sampun dipunwontenaken ({week}): {where}',
+  'see its task under Work':
+    'pirsani tugasipun ing Pakaryan',
+  'New goals proposed, to approve line by line':
+    'Ancas enggal dipunusulaken, kangge dipunsetujoni larik mawon larik',
+  'Line {line}: the {kind} "{goal}"':
+    'Larik {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Ing sangandhapipun: {goal}',
+  'Under line {line}: {goal}':
+    'Ing sangandhapipun larik {line}: {goal}',
+  'Period: {from} to {to}':
+    'Wekdal: {from} ngantos {to}',
+  'Committed: done in full, or missed.':
+    'Kudu kaleksanan: rampung sedaya, utawi luput.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Gegayuhan dhuwur: dipunbiji, lan 0,6 ngantos 0,7 punika asil ingkang sae.',
+  'Learning: a test of the prediction below.':
+    'Sinau: nguji ramalan ing ngandhap punika.',
+  'Owned by: {role}':
+    'Dipungadhahi: {role}',
+  'Done when: {doneWhen}':
+    'Rampung menawi: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalanipun, dipunserat saderengipun pakaryan: {name} dumugi {target}, saking {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Dipunukur kaliyan {name}: saking {baseline} dumugi {target}.',
+  'Watched with: {measure}':
+    'Dipunawasi sesarengan: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Ancas taun punika: {count}, langkung saking {limit} ingkang saged dipunjagi perusahaan.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Asil utami ing sangandhaping gegayuhan punika: {count}, langkung saking {limit} ingkang saged dipunjagi setunggal gegayuhan.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioritas triwulan sesarengan: {count}, langkung saking {limit} ingkang saged dipunjagi perusahaan.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioritas triwulan {seat} sesarengan: {count}, langkung saking {limit} ingkang saged dipuncepeng setunggal kursi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Nyetujoni ndadosaken saben larik ingkang panjenengan setujoni satunggaling ancas, sesarengan ukuranipun; larik ingkang panjenengan tolak boten dipundamel. Ngantos wekdal punika pakaryan lajeng mlampah miturut ancas ingkang wonten sapunika.',
+  'No goal is made.':
+    'Boten wonten ancas ingkang dipundamel.',
+  'Missed: {statement}':
+    'Luput: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, ingkang kedah kaleksanan saking {from} ngantos {to}, boten rampung.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Dipunukur saking angka-angkanipun, dumugi {progress} saking lampahipun.',
+  'It was not marked met by its due date.':
+    'Boten dipuntandhani kaleksanan ngantos tanggal watesipun.',
+  'The platform graded it when its period ended.':
+    'Platform mbiji nalika periodenipun rampung.',
+  'Off pace: {statement}':
+    'Ketinggalan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} punika prioritas ingkang kedah kaleksanan, watesipun {due}. Angka-angkanipun nembe dumugi {progress} saking lampahipun, nalika {elapsed} saking periodenipun sampun kalampahan.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Boten wonten ingkang dipunewahi kangge ngoyak, lan boten wonten agen ingkang dipunsuwun: angka wajib ingkang ketinggalan wekdalipun ngundang tumindak ingkang langkung beresiko kangge nutupi, lan punapa resiko punika dipunpendhet punika kaputusan panjenengan. Putusaken punapa tanggalipun dipunundur, targetipun dipunandhapaken, dipundadosaken gegayuhan dhuwur, utawi dipunkarepaken mlampah lan luput.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Boten wonten ingkang dipunkendelaken, punapa kemawon wangsulanipun. Prioritas punika tetep kados mekaten lan dipunbiji nalika periodenipun rampung; ewahi wonten ing Tim, Ancas menawi panjenengan mutusaken.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Nilai-nilai kita',
+  'Purpose and niche': 'Ancas lan ceruk',
+  'Long-range target': 'Target jangka panjang',
+  'Who we serve and what makes us different': 'Sinten ingkang kita layani lan punapa ingkang mbedakaken kita',
+  'Where we will be in three years': 'Wonten pundi kita tigang taun malih',
+  'Our promise': 'Janji kita',
 };

@@ -54,6 +54,7 @@ import {
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { filePostmortemWithin } from './postmortem.ts';
 import {
   capabilityFailedCard, modelFailedCard, modelKeyRefusedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard,
 } from '../owner/platform-cards.ts';
@@ -259,7 +260,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'today', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
+  'language', 'today', 'stage', 'headline', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts', 'task_state',
 ]);
 
 // A place or a vendor's "not now" parks the task like the rest: handed to an
@@ -2127,8 +2128,12 @@ export class Engine {
       const unverified = haltReason === 'verification_failed'
         ? async (tx: TenantClient) => {
             const card = writeUnverifiedCard(await ownerReadingWithin(tx), { record: (error as Error).message });
-            await inbox.raiseIncidentWithin(tx, {
+            const incidentId = await inbox.raiseIncidentWithin(tx, {
               companyId, taskId, title: card.title, detail: card.detail, payload: { aboutTask: true },
+            });
+            // Why a write did not read back is the company's to find (F18.4).
+            await filePostmortemWithin(tx, {
+              companyId, taskId, how: 'verification', reason: 'verification_failed', inboxItemId: incidentId,
             });
           }
         : undefined;

@@ -1,24 +1,25 @@
 /**
  * The company's settings, and the owner's own (F1.5, F9.5, F9.6, F11.5,
- * F11.6, F12.5): hours, cheap hours, retention, alert thresholds, freezing
- * and exporting; languages; authenticators and sessions.
+ * F11.6, F12.5, F18.6): hours, the weekly meeting, cheap hours, retention,
+ * alert thresholds, freezing and exporting; languages; authenticators and
+ * sessions.
  *
  * Each is a section of the settings page (SettingsHub), not a page of its
  * own: an owner changes these rarely and should find them all in one place.
  */
-import { Alert, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
-import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
+import { LANGUAGES, isLanguage, language, locale, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext } from '../App.tsx';
-import type { Languages } from '../types.ts';
-import { LoadFailed, Loading, Section } from '../components/ui.tsx';
+import type { Digest, Languages } from '../types.ts';
+import { LoadFailed, Loading, Section, StatusBadge } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
-import { OfficeHoursForm, type Hours } from '../components/OfficeHours.tsx';
+import { OfficeHoursForm, dayName, type Hours } from '../components/OfficeHours.tsx';
 import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
@@ -27,16 +28,19 @@ const zoneOptions = ZONES.map((zone) => ({ value: zone, label: zone }));
 export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
-    const [window_, retention, office]: [
+    const [window_, retention, office, digest]: [
       { timezone: string; startHour: number; endHour: number },
       { policy: { eventDays: number; traceDays: number; promptDays: number }; log: Array<{ action: string; rowsAffected: number; throughAt: string }> },
       { hours: Hours | null },
+      Digest,
     ] = await Promise.all([
       api('GET', '/api/control/owner-window'),
       api('GET', `/api/companies/${companyId}/retention`),
       api('GET', `/api/companies/${companyId}/office-hours`),
+      // For the last weekly meeting, whose task is its record.
+      api('GET', `/api/companies/${companyId}/digest`),
     ]);
-    return { window: window_, retention, office: office.hours };
+    return { window: window_, retention, office: office.hours, lastMeeting: digest.lastMeeting };
   }, [companyId]);
 
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
@@ -86,6 +90,12 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
               reload={view.reload}
             />
           </Section>
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <Rhythm ctx={ctx} lastMeeting={view.data.lastMeeting} />
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <FiscalYear ctx={ctx} />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Section title={t('Cheap hours')} description={t('Work marked non-urgent, that only reads, waits for this window.')}>
@@ -167,6 +177,79 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
 
       <CloseCompany ctx={ctx} />
     </Stack>
+  );
+}
+
+/**
+ * The weekly operating meeting (F18.6, 0140): the day and hour the CEO holds
+ * it, on the company's clock, or that it is not held. Its record is the
+ * meeting's task, which the last one's line opens.
+ */
+function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest['lastMeeting'] }) {
+  const { companyId, company } = ctx;
+  return (
+    <Section title={t('Weekly operating meeting')} description={t("Once a week, at this hour in the company's time zone, the CEO reviews the scorecard, the quarterly priorities, the to-dos and the issues, and solves the top issues. A week with nothing to review costs nothing.")}>
+      <Stack gap="sm">
+        <ActionForm
+          columns={3}
+          fields={[
+            {
+              name: 'weekday', label: t('Day of the week'), type: 'select', required: true, initial: String(company.rhythm.weekday),
+              // Monday first, as the week the meeting is counted in starts.
+              options: [1, 2, 3, 4, 5, 6, 0].map((day) => ({ value: String(day), label: dayName(day) })),
+            },
+            { name: 'hour', label: t('Hour'), type: 'number', required: true, initial: company.rhythm.hour },
+            {
+              name: 'enabled', label: t('Held'), type: 'select', required: true, initial: company.rhythm.enabled ? 'on' : 'off',
+              options: [{ value: 'on', label: t('On') }, { value: 'off', label: t('Off') }],
+            },
+          ]}
+          submit={(values) => api('POST', `/api/companies/${companyId}/rhythm`, {
+            weekday: Number(values.weekday), hour: Number(values.hour), enabled: values.enabled === 'on',
+          })}
+          done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
+        />
+        {/* With its status, as on the Plan page: the last meeting may be pending, failed or cancelled. */}
+        {lastMeeting
+          ? (
+            <Group gap="xs">
+              <Anchor size="sm" onClick={() => ctx.open('work', { item: lastMeeting.taskId })}>{t('Last weekly operating meeting: {week}', { week: lastMeeting.week })}</Anchor>
+              <StatusBadge status={lastMeeting.status} />
+            </Group>
+          )
+          : <Text size="sm" c="dimmed">{t('No weekly operating meeting yet.')}</Text>}
+      </Stack>
+    </Section>
+  );
+}
+
+/**
+ * Where the company's fiscal year starts (F18.9, 0144). Its quarters are cut
+ * from it, and the CEO plans each next one ten days before this one ends,
+ * the next year with it in the last quarter. The weekly meeting's switch is
+ * the CEO's whole rhythm, so with it off the form says no planning is made.
+ */
+function FiscalYear({ ctx }: { ctx: ConsoleContext }) {
+  const { companyId, company } = ctx;
+  const months = Array.from({ length: 12 }, (_, at) => ({
+    value: String(at + 1),
+    label: new Intl.DateTimeFormat(locale(), { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, at, 1))),
+  }));
+  return (
+    <Section title={t('Fiscal year')} description={t("The company's quarters follow its fiscal year. Ten days before each quarter ends, the CEO reviews it and proposes the next quarter's priorities as one plan for you to approve; in the year's last quarter, next year's goals too.")}>
+      <ActionForm
+        key={company.fiscalYearStartMonth}
+        fields={[{
+          name: 'startMonth', label: t('The fiscal year starts in'), type: 'select', required: true,
+          initial: String(company.fiscalYearStartMonth), options: months,
+        }]}
+        submit={(values) => api('POST', `/api/companies/${companyId}/fiscal-year`, { startMonth: Number(values.startMonth) })}
+        done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
+      />
+      {!company.rhythm.enabled && (
+        <Text size="sm" c="dimmed" mt="xs">{t('The weekly operating meeting is off, so the CEO makes no quarterly planning either.')}</Text>
+      )}
+    </Section>
   );
 }
 

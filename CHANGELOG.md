@@ -751,3 +751,272 @@ The first version. What it holds, in the order an owner meets it.
   as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
   update to or go back to that release, and CI runs for a merge queue
   ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).
+
+### Operating rhythm (F18)
+
+- A goal has a period, one owning seat, a commitment (committed,
+  aspirational or learning), a sentence saying when it is done, and the
+  traction channel it tests. A key result of a quarter or less is a
+  quarterly priority, and the database refuses one without a seat, or
+  without words or a measure for done; an objective of a year is one of
+  this year's goals (STATUS 2.190).
+- A new quarterly priority is given its finish line in words; once a
+  measure is defined they may be cleared, and that measure, while it is the
+  last, cannot be retired until the words are back. A met or abandoned
+  priority is not held to the rule, so any company the console reaches can
+  be restored from its archive (STATUS 2.190).
+- More than 7 quarterly priorities at once, more than 5 for one seat or
+  under one objective, or more than 5 of this year's goals is said on the
+  goal's card and in the answer, and refuses nothing (STATUS 2.190).
+- Every run under such a goal is told its period, commitment, seat, finish
+  line and channel, and the archive carries them (STATUS 2.190).
+
+- **The weekly scorecard** (F18.2). A measure can be reviewed every week:
+  its target is then the weekly goal, a seat answers for it, and Team shows
+  thirteen weeks of it, on track, off track, claimed or not reported,
+  counted in the company's time zone. An agent's number nobody read from its
+  source is shown as claimed and judged neither way. The owner is warned
+  below 5 lines or above 15 (STATUS 2.191).
+- **Paired measures.** A measure can be watched with the one that would
+  suffer if it were pushed. The two are shown together on the scorecard and
+  in every run's context, the database refuses half a pair, and a key
+  result counted in units or money with no pair says so. A new measure
+  pairs only with one that has no pair; re-pairing is a change, under the
+  second factor, and a change form sends only what was changed in it
+  (STATUS 2.191).
+- A weekly goal met is not a milestone: it starts no outcome task, a
+  short week does not stop a goal being proposed met, and a weekly line is
+  never the portfolio's headline (STATUS 2.191).
+
+- Seats and accountabilities: each role says, in at most five lines, what
+  its seat answers for. The owner sets them from the role, or when hiring,
+  and each change is versioned like the charter. Every run of the seat is
+  told them, and the CEO's list of the roles it can hand work to shows every
+  seat's, so work about a result goes to the seat accountable for it. The
+  Team page shows them on the chart and warns of a seat with none and of an
+  accountability two seats both claim. It never refuses either (F18.3,
+  STATUS 2.192).
+
+- The operating kit (`company-os` 1.6.0) tests channels: the strategist
+  writes one strategy for each of the 19 channels, promotes about three,
+  ranks them by the ICE average, and proposes a cheap test of each to you
+  with its prediction and the most it may spend written before any work
+  starts. Nothing of a test starts before you approve it. It has no
+  account of its own: the work it hands to the role holding the channel's
+  tool is charged to the account the strategist's task is charged to, a
+  day at a time, and the test is read against its prediction at every
+  weekly review for about a month. The channel that meets its prediction
+  is proposed as the core one, and the round runs again when it
+  saturates. Paid ads before launch are still refused (STATUS 2.198).
+- Three skills for drafting before spending: a one-page business model
+  (nine boxes, the riskiest assumption first, adapted from Lean Canvas
+  under CC BY-SA), a fit survey that asks only recent users, once each, and
+  reads 40% very disappointed as a heuristic, and a press release with its
+  questions and answers written before a new offer is built and read by
+  the critic. The stage gates prefer learning priorities in explore and
+  validate and name the two ways a pivot goes wrong. Installing 1.6.0 over
+  an earlier kit brings them as candidates for review and your approval,
+  and the skills you approved stay live until you approve their new
+  versions (STATUS 2.198).
+
+- An issues list on the Tickets board. An issue is a problem the company solves rather than work it hands out:
+  file one yourself (New ticket, An issue to solve), on this week's list or the long-term one, and the CEO solves
+  it by naming its root cause and the decision taken and filing the to-dos that carry the decision out. An issue
+  cannot be marked solved without both, and it is never handed to a role as work. Its page shows the root cause,
+  the decision and every to-do with its seat, its due date and how it went. Each decision is kept in the company's
+  memory, so the division's runs are told what was decided and why (STATUS 2.193).
+- To-dos: each goes to one seat, is due seven days out unless the CEO says otherwise, and is handed to that seat
+  straight away instead of waiting for the CEO's triage. A to-do whose work ends unfinished opens again with the
+  reason and is then the CEO's to hand on, not handed to the same seat again (STATUS 2.193).
+- Postmortems: when a task keeps stopping its worker, a write does not read back as written, a budget account runs
+  out, or root work ends badly, the platform files an issue beside the card it shows you. The issue is a short
+  postmortem (what happened, impact, trigger, detection, what was done) in your language, with no customer's name
+  in it. While it is open, the same failure in the same seat, or the same account running out again, is recorded
+  against it instead of filing a second issue (STATUS 2.193).
+- The board's Issues and To-dos filters, and "filed by PALUGADA" on what the platform filed. Archives carry issues
+  and to-dos whole, with the card each came from and the seat each names mapped to the restored company
+  (STATUS 2.193).
+- An issue you open again on the board is not solved any more: it no longer shows the old root cause as if it were
+  current, and its page keeps each earlier root cause and decision as what was tried before. The CEO reading the
+  board sees the same (STATUS 2.193).
+- A to-do whose seat will not take it (a frozen seat, an archived project, or a paused month or spent budget three
+  times running) goes to the CEO to hand on, saying why, instead of being asked of the seat every ten minutes with
+  nobody told (STATUS 2.193).
+- A decision the CEO reaches on an issue of the whole company is kept for the CEO's own division, not for every
+  division: only what you decide is kept company-wide (STATUS 2.193).
+
+- **The weekly operating meeting** (F18.6). Once a week, on the day and at the hour you choose under Settings,
+  Company, in the company's time zone, the CEO holds it: the platform reads the records and hands it the
+  scorecard line by line, the quarterly priorities on or off pace, the week's headlines as counts, the to-dos done
+  and not done with the week's completion rate, the issues ranked with any older than eight weeks flagged, and the
+  operating kit's weekly business review. No model writes a figure. The CEO solves the top three issues with a root
+  cause, a decision and to-dos, takes the decisions that can be undone, brings you the ones that cannot, and ends
+  the record with what you need to know, in your language. A week with nothing on its agenda (an issue on the
+  long-term list or a to-do due later is not), a company winding down, a meeting you turned off and a deployment
+  with no model make no task and cost nothing. The CEO you appointed last is the one who holds it (STATUS 2.194).
+- A line off track last week, and a to-do not done at two meetings in a row, are on the issues list before the
+  meeting starts, each once while it is open (F18.4, F18.5; STATUS 2.194).
+- Every run of a seat is told its own lines on the scorecard and where each stands this week, its quarterly
+  priorities and its open to-dos, beside what it is accountable for; a to-do filed by work that had read outside
+  content is named there without its words. The chart's **Seats to look at** also names a line on the scorecard or
+  a key result no seat answers for (F18.3; STATUS 2.194).
+- The company's card on Home and its meeting settings link to the last meeting's task, which is its record, and
+  the daily digest the day after a meeting was held points to it, and says nothing of one cancelled or stopped.
+  Archives carry when the meeting is held (STATUS 2.194).
+
+- **A plan of new goals in one card.** The CEO, or any role holding
+  `goal.propose`, can propose up to twenty new goals at once: this year's
+  goals and the quarterly priorities under them, each with the goal it hangs
+  from, its period, its seat, its commitment, when it is done, the channel
+  it tests and a measure with its pair. A learning goal carries a measure
+  whose target, set in the proposal, is its prediction. Each line is checked
+  when it is proposed, and the run is told what to fix by the line's number
+  (STATUS 2.195).
+- You approve the plan line by line. The card shows every line, with the
+  soft limits it would pass, and you untick the ones you refuse. Your yes,
+  with your device, makes the lines you kept, with their measures and pairs,
+  in one step. It is refused if anything you set on a goal a line hangs
+  from (its words, status, period, seat, commitment, finish line or channel)
+  has changed since the proposal, and a line cannot be kept without the line
+  it hangs from. One plan waits at a time, even when two runs propose at
+  once, and agents still cannot write a goal (STATUS 2.195).
+- A plan line cannot pair its measure with an earlier line's measure that is
+  already paired, nor take a retired measure's slug: both are refused when
+  the plan is proposed, rather than refusing your yes after your device's
+  code is spent (STATUS 2.195).
+- The CEO now holds `goal.propose` in place of `doc.draft`, so it still has
+  twelve tools. Its division keeps the draft's grant, so you can trade it
+  back on Team. An existing CEO whose tools were still the founding ones is
+  traded the same way on upgrade, with a version to roll back to (STATUS
+  2.195).
+
+- **Grades at a period's end** (F18.8). Once a goal's due date has passed
+  in the company's time zone, PALUGADA grades it, once: from its measures,
+  each by its last checked reading of the period, clamped from 0 to 1 and
+  averaged (an objective with none of its own, from its key results'), or,
+  with no number, 1 if you marked it met and 0 if not. A committed goal is
+  done or missed, 1 or 0. A learning goal keeps its prediction beside what
+  happened. The goal ladder shows each goal's latest grade, and no agent can
+  write one (STATUS 2.196).
+- A committed goal that was missed is a postmortem on this week's issues
+  list, filed once, saying how far its numbers came and which seat answers
+  for it (STATUS 2.196).
+- **Off pace.** A committed quarterly priority whose numbers are behind the
+  share of its quarter that has gone, once a quarter of it has, comes to you
+  as one card a quarter, straight to you and not to an agent: a committed
+  number behind its time invites a riskier road to make it up, and that risk
+  is yours to take or refuse. Nothing is stopped either way (STATUS 2.196).
+- **Quarterly planning** (F18.9). Ten days before each quarter of the
+  company's fiscal year ends, the CEO is handed the quarter's facts --
+  grades, priorities done against 80%, the committed pass rate, the
+  aspirational average against 0.6 to 0.7, to-dos finished within seven
+  days, this year's goals, the long-term issues, thirteen weeks of the
+  scorecard, the vision from the charter and the core processes not changed
+  in ninety days -- and plans the next quarter, ending in one plan of new
+  goals for you to approve line by line. In the year's last quarter it plans
+  next year's goals too. Choose the month the fiscal year starts in under
+  Settings, Company, **Fiscal year**; January by default. A company winding
+  down, with nothing to plan, with its weekly operating meeting off, or on a
+  deployment with no model makes none. Archives carry the grades and the
+  fiscal year (STATUS 2.196).
+- A goal with measures that you marked met is graded met whatever its
+  readings say, with no postmortem, and the quarter's share of priorities
+  done reads a graded priority by its grade, as the committed pass rate
+  does. A to-do still inside its week is left out of the share finished
+  within seven days until its week is over or it is finished (STATUS 2.196).
+- Each quarterly planning belongs to its quarter's dates rather than its
+  name, so moving the start of the fiscal year cannot skip a quarter; and
+  every committed priority is judged for pace, however many priorities a
+  company holds (STATUS 2.196).
+- The stage gates in the operating kit (`company-os` 1.7.0) decide a pivot
+  from the grade of a learning priority, its prediction beside what
+  happened (STATUS 2.196).
+
+- **A monthly money review** in the operating kit (`company-os` 1.6.0): on the
+  first of each month the strategist reviews the last whole month from the
+  company's own books -- profit beside the month before, cash at its start
+  and end, every invoice owed and late, spend against the monthly ceiling,
+  each measure's month, and what one per cent on price, volume, cost of goods
+  and overhead, or one day of receivables, stock and payables, is worth on
+  them. The figures are read from the books as the review starts, not worked
+  out by a model; a lever whose account the books do not keep says so. A
+  month with nothing in the books and nothing late is passed over, and says
+  so. Until now nothing looked at a month of money, although the monthly
+  budget review was graded built; it is graded partial now, because a
+  company without the operating kit still has none (F18.12, F9.4; STATUS
+  2.199).
+- **The month's books go only to a role that may read them.** A bundle whose
+  cadence is handed the month is refused unless its role holds `ledger.read`
+  and the bundle grants it to the role's division, and the review is refused
+  as it fires when the owner has since taken either away (F18.12, F8.1;
+  STATUS 2.199).
+- **How work came to carry outside content is said in your language**: "the
+  week it was handed", "the month it was handed" and "the tickets it was
+  given" reached the trace's warning in English (F8.9; STATUS 2.199).
+
+- **The headline metric is yours to choose.** On Team, Goals, choose the
+  one number the company is judged by. The portfolio shows it on the
+  company's card instead of the first measure on the highest goal, and
+  every run is told it, with its pair. A measure aimed at a target can be
+  chosen, but a weekly scorecard line or a retired measure cannot. Retiring
+  the measure, putting it on the scorecard or deleting it lets go of the
+  choice. A headline with nothing paired to it is accepted with a warning,
+  and its card says it is not paired (F18.13, STATUS 2.200).
+- **A dropped headline is in the history, and a race cannot keep one.**
+  When retiring a measure, or putting it on the scorecard, lets go of the
+  headline, the company's history says so and why. A choice made while the
+  measure is being retired waits for the retirement and is then refused.
+  Before, it could be saved and point at a retired number. The chooser on
+  Team, Goals starts again from the saved choice when a change elsewhere on
+  the page lets go of it (F18.13, STATUS 2.200).
+- **Funnel steps on measures.** A measure can name the step of the funnel
+  it counts: acquisition, activation, retention, referral or revenue. The
+  weekly scorecard groups its lines by step, from acquisition to revenue,
+  keeping a pair together, and runs are told the step with the measure.
+  Archives carry the steps and the headline (F18.13, STATUS 2.200).
+
+- **Core processes** (F18.14). A switched-on skill can be named one of the
+  company's core processes, with the one seat that keeps it current: from
+  the skill's **Core process** tab on **Skills**. Every run of that seat is
+  told which it owns and to read them before that work. The Team chart lists
+  each with its seat, when it last changed (marked once a quarter has gone
+  by), and the share of its seat's division's runs that read it over the
+  last thirty days. Fewer than five, more than twelve, or one longer than
+  sixty lines is warned of and refuses nothing. The database holds a core
+  process to one seat of its own company, only the owner may name one, and
+  the archive carries both (STATUS 2.201).
+- A core process whose seat's division cannot open it with **skill.read**,
+  or that is not in force (quarantined, or brought back by an import waiting
+  for its gates), shows no share and says why, rather than a share of none;
+  and a seat is only told to follow a process in force (STATUS 2.201).
+- Every `skill.read` a run makes is now recorded on its task, naming the
+  skill, so the company can see which procedures its work follows
+  (STATUS 2.201).
+
+- **Vision and plan** (F18.10). A new **Plan** page puts the vision beside
+  the plan that serves it: the vision from the company charter, this year's
+  goals, this quarter's priorities on or off pace by the rule the weekly
+  operating meeting uses, each goal and priority with its latest grade, the
+  fiscal quarter's numbers (priorities done against 80%, the committed pass
+  rate, the aspirational average and what it says, to-dos finished within a
+  week), the weekly scorecard as it stood last week, the
+  headline, the long-term issues, the core processes, and the last weekly
+  operating meeting with the record of the last one that finished. Each part links to where it is changed: the
+  charter, the goals, the scorecard and the issues list. Nothing is stored
+  for it; it is read from what the company already keeps (STATUS 2.197).
+- **Start from the vision outline.** The company charter's editor offers six
+  headings in your language -- our values, purpose and niche, the
+  long-range target, who we serve and what makes us different, where we
+  will be in three years, and our promise -- added at the end for you to
+  fill in, only those the charter does not have yet in any language, with what goes under each said beside the editor and never
+  written into the charter. The Plan page shows those sections as the
+  vision, found in any of the company's languages, and the whole charter
+  when it has none of them. An existing charter, and the one a new company
+  starts with, are unchanged (STATUS 2.197).
+- **Channels by ring** (F18.11). The Plan page groups the channels the
+  company tests: probable while a learning priority tests one, working
+  (the core channel) once a committed priority does, and possible, the
+  list of a strategy for every channel: the newest document a run following
+  channel testing wrote as a list of most of the nineteen, so a later report
+  of one test does not replace it. The rings are read from the goals and
+  never stored (STATUS 2.197).

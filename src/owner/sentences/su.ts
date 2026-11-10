@@ -404,6 +404,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Ditarik: tugas anu dimaksud parantos dijalankeun deui.',
   'Withdrawn: the day it was about has ended.':
     'Ditarik: dinten anu dimaksud parantos réngsé.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Ditarik: periode anu dimaksud parantos réngsé sareng parantos dipeunteun.',
+  'Withdrawn: the goal it was about was closed.':
+    'Ditarik: tujuan anu dimaksud parantos ditutup.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Ditarik: wates bulan ieu parantos kahontal, sarta kartu anu nyebatkeun pausahaan direureuhkeun ngagentosna.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -440,4 +444,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Padamelan anu réngsé: {count}',
   'Stopped: its work was taken up another way':
     'Dieureunkeun: pagawéanana parantos diurus ku cara séjén',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Pagawéanana eureun, sarta unggal waktu ngajatuhkeun worker anu ngajalankeunana.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Panulisan ka layanan luar meureun geus kajadian, tapi henteu sakumaha anu dimaksud.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Pagawéan anu ditanggungkeun ka akun anggaran anu sarua eureun nepi ka akun éta boga rohangan deui.',
+  'Its work stopped before it was done.':
+    'Pagawéanana eureun saméméh réngsé.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Platform ngitung {lost} worker anu leungit, wates pangseueurna pikeun hiji tugas.',
+  'The platform read back what was written, and it did not match.':
+    'Platform maca deui naon anu ditulis, sarta hasilna teu cocog.',
+  'The budget account had nothing left to reserve for the work.':
+    'Akun anggaran teu boga sésa pikeun dicadangkeun pikeun pagawéan éta.',
+  'The platform found it ended with no card raised for it.':
+    'Platform mendakan éta réngsé tanpa aya kartu anu dijieun pikeun éta.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Kartuna dibikeun ka saha waé anu ditunjuk divisi pikeun nanganana, tuluy ka anjeun.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Tugasna dieureunkeun, sarta anjeun dibéjaan ngaliwatan kartu dina kotak asup.',
+  'Postmortem: {cause} ({about})':
+    'Telaah sanggeus kajadian: {cause} ({about})',
+  'What happened':
+    'Anu kajadian',
+  'Impact':
+    'Dampak',
+  'Trigger':
+    'Pamicu',
+  'Detection':
+    'Deteksi',
+  'What was done':
+    'Anu dilakukeun',
+  'A task of {role} stopped before it was done.':
+    'Hiji tugas {role} eureun saméméh réngsé.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Cara ngarengsekeunana: téangan akar pasualan ku nanya naha dina unggal jawaban jeung nyocogkeunana jeung catetan, putuskeun sakali, lajeng jieun tindakan anu ngalaksanakeun putusan éta, masing-masing ku hiji korsi.',
+  'Off track: {name}':
+    'Kaluar jalur: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} meunang {value} dina minggu {week}, tina target mingguan {target}.',
+  '{role} answers for it.':
+    '{role} anu tanggel waler.',
+  'No seat answers for it.':
+    'Teu aya jabatan anu tanggel waler.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Platform macana tina scorecard mingguan saméméh rapat operasi mingguan.',
+  'Not done at two meetings: {title}':
+    'Teu réngsé dina dua rapat: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Tindakan "{title}", wates waktu {due}, teu réngsé dina rapat operasi mingguan {previous}, kitu deui dina rapat ieu.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Platform macana tina daptar tindakan saméméh rapat operasi mingguan.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Rapat operasi mingguan geus diayakeun ({week}): {where}',
+  'see its task under Work':
+    'tingali tugasna di Padamelan',
+  'New goals proposed, to approve line by line':
+    'Udagan anyar diusulkeun, pikeun disatujuan baris demi baris',
+  'Line {line}: the {kind} "{goal}"':
+    'Baris {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Handapeun: {goal}',
+  'Under line {line}: {goal}':
+    'Handapeun baris {line}: {goal}',
+  'Period: {from} to {to}':
+    'Periode: {from} dugi ka {to}',
+  'Committed: done in full, or missed.':
+    'Kedah kahontal: réngsé sadayana, atanapi luput.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Aspirasional: dipeunteun, sareng 0,6 dugi ka 0,7 mangrupikeun hasil anu saé.',
+  'Learning: a test of the prediction below.':
+    'Diajar: nguji ramalan di handap ieu.',
+  'Owned by: {role}':
+    'Dipiboga ku: {role}',
+  'Done when: {doneWhen}':
+    'Réngsé upami: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Ramalanana, diserat saméméh padamelan dimimitian: {name} ngahontal {target}, ti {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Diukur ku {name}: ti {baseline} ka {target}.',
+  'Watched with: {measure}':
+    'Diawaskeun babarengan: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Udagan taun ieu: {count}, langkung ti {limit} nu tiasa dijaga ku hiji pausahaan.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Hasil utama di handapeun tujuan ieu: {count}, langkung ti {limit} nu tiasa dijaga ku hiji tujuan.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Prioritas triwulan sakaligus: {count}, langkung ti {limit} nu tiasa dijaga ku hiji pausahaan.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Prioritas triwulan {seat} sakaligus: {count}, langkung ti {limit} nu tiasa dicepeng ku hiji korsi.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Nyatujuan ngajantenkeun unggal baris anu disatujuan hiji udagan, sareng ukuranana; baris anu ditolak henteu didamel. Dugi ka harita padamelan diteraskeun handapeun udagan anu ayeuna.',
+  'No goal is made.':
+    'Teu aya udagan anu didamel.',
+  'Missed: {statement}':
+    'Lepat: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, anu kedah kahontal ti {from} dugi ka {to}, henteu réngsé.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Diukur ku angka-angkana, éta dugi ka {progress} tina jalanna.',
+  'It was not marked met by its due date.':
+    'Éta henteu ditandaan kahontal dugi ka tanggal watesna.',
+  'The platform graded it when its period ended.':
+    'Platform meunteun éta nalika periodena réngsé.',
+  'Off pace: {statement}':
+    'Katinggaleun: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} nyaéta prioritas anu kedah kahontal, watesna {due}. Angka-angkana nembé dugi ka {progress} tina jalanna, padahal {elapsed} tina periodena parantos kalangkung.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Teu aya anu dirobih pikeun ngudag, sarta teu aya agén anu dipénta: angka wajib anu katinggaleun waktuna ngondang tindakan anu langkung picilakaeun pikeun nutupanana, sarta naha résiko éta dicandak téh kaputusan anjeun. Putuskeun naha tanggalna dimundurkeun, targétna diturunkeun, didamel aspirasional, atanapi diantep lumangsung sarta lepat.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Teu aya anu dieureunkeun, naon waé waleranana. Prioritas éta tetep sakumaha ayana sarta dipeunteun nalika periodena réngsé; robih di Tim, Udagan upami anjeun mutuskeunana.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Ajén-ajén urang',
+  'Purpose and niche': 'Tujuan sareng ceruk',
+  'Long-range target': 'Target jangka panjang',
+  'Who we serve and what makes us different': 'Saha nu ku urang dilayanan sareng naon nu ngabédakeun urang',
+  'Where we will be in three years': 'Di mana urang tilu taun deui',
+  'Our promise': 'Jangji urang',
 };

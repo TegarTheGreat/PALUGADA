@@ -17,7 +17,7 @@ import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answerFilesSaid, answererSaid, answersFor, openQuestionsFor, takenUpOnHandedCard } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
-import { metricsIn, renderMetrics } from '../domain/metrics.ts';
+import { metricsIn, renderHeadline, renderMetrics, scorecardOf, type WeekState } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
 import { earlierWrites, madeFiles } from '../engine/journal.ts';
 import { readPlan } from '../engine/plan.ts';
@@ -27,6 +27,7 @@ import { outsideContentIn } from '../engine/tasks.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { documentTitlesFor } from '../knowledge/documents.ts';
+import { dayIn, zoneOf } from '../records/collections.ts';
 import { FAILED_INSTRUCTION, NOT_DONE_INSTRUCTION, doneInstruction, roomForDone } from '../engine/done.ts';
 
 export interface ContextSection {
@@ -39,6 +40,7 @@ export interface ContextSection {
     | 'today'
     | 'contract'
     | 'stage'
+    | 'headline'
     | 'project'
     | 'earlier_attempts'
     | 'documents'
@@ -398,13 +400,46 @@ async function roleSections(
   const { rows } = await tx.query<{
     slug: string; system_prompt: string; done_criteria: string[] | null; output_schema: Record<string, unknown> | null;
     display_name: string | null; title: string | null; persona: RolePersona | null; company: string;
+    accountabilities: string[]; role_id: string; company_id: string; lists_tickets: boolean;
   }>(
-    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company
+    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company,
+            r.accountabilities, r.id AS role_id, t.company_id, 'ticket.list' = ANY(r.tools) AS lists_tickets
        FROM tasks t JOIN roles r ON r.id = t.role_id JOIN companies c ON c.id = t.company_id WHERE t.id = $1`,
     [taskId],
   );
   const role = rows[0];
   if (!role) return { charter: [], contract: [] };
+  const seat = await yourSeat(tx, role.company_id, role.role_id, role.lists_tickets);
+  // The core processes this seat owns (F18.14, 0143): the company's way of
+  // doing that work, which the seat keeps current. Only those in force: a
+  // version that is active, since a run can read nothing else, and not
+  // quarantined, since this is the charter, never dropped to fit, and says
+  // to follow them. An import can quarantine a core process, or bring an
+  // outside one's versions back as candidates (F15.8), and leave it marked;
+  // a quarantined one is still in the skills' own sections under their
+  // caveat, and the chart says it is not in force (skills/core.ts).
+  // Summaries only, as every skill travels (F15.7), and each cut to a
+  // clause, at most twelve of them -- the most the method names -- and how
+  // many more: more than twelve is only a warning (skills/core.ts), a
+  // summary may be 400 characters, and this is the charter, never dropped to
+  // fit, so thirty of them would push the run's own memory out of the pack.
+  // Each is in the skills' sections whole, and skill.read opens it.
+  // Whether the run can open them is asked as the skills' section asks it
+  // (F4.8): a run told to call what its division was not granted is refused
+  // the moment it does as it was told.
+  const { rows: owned } = await tx.query<{ slug: string; summary: string; active_version: number; readable: boolean; total: number }>(
+    `SELECT s.slug, s.summary, s.active_version,
+            EXISTS (SELECT 1 FROM capability_grants g
+                     WHERE g.division_id = t.division_id AND g.capability_name = 'skill.read') AS readable,
+            count(*) OVER ()::int AS total
+       FROM tasks t
+       JOIN skills s ON s.company_id = t.company_id AND s.owner_role_id = t.role_id
+       JOIN skill_versions v ON v.company_id = s.company_id AND v.skill_id = s.id AND v.version = s.active_version
+      WHERE t.id = $1 AND s.core AND NOT s.quarantined AND v.state = 'active'
+      ORDER BY s.slug
+      LIMIT $2`,
+    [taskId, SEAT_CORE_PROCESSES],
+  );
   const done = (role.done_criteria ?? []).filter((criterion) => criterion.trim() !== '');
   // Who the role is, before what it does: the charter is then read as this
   // person's job, and the rule that a persona is not an identity travels with it.
@@ -416,6 +451,25 @@ async function roleSections(
     body: [
       ...(who ? [who, ''] : []),
       role.system_prompt.trim() || `You are the company's ${role.slug}.`,
+      // What the seat answers for (F18.3), after what it does and before
+      // what done means: the charter says how it works, this says which
+      // results are its own to see through, and done is about one task.
+      ...(role.accountabilities.length > 0
+        ? ['', 'You are accountable for:', ...role.accountabilities.map((line) => `- ${line}`)]
+        : []),
+      // And the seat's own numbers, priorities and to-dos (F18.3), beside
+      // what it answers for: what it is held to at the weekly meeting.
+      ...(seat.length > 0 ? ['', ...seat] : []),
+      ...(owned.length > 0
+        ? ['', 'Your seat owns these core processes, the company\'s way of doing this work:',
+            ...owned.map((process) => `- ${process.slug} (v${process.active_version}): ${summaryClause(process.summary)}`),
+            ...(owned[0]!.total > owned.length ? [`- and ${owned[0]!.total - owned.length} more`] : []),
+            (owned[0]!.readable
+              ? 'Read it with skill.read before you do that work, and follow it. '
+              : 'Your division cannot open them with skill.read, so work from these summaries and say when one is not enough. ') +
+              'When it no longer says how the work is really done, say what should change and name the process, so a new ' +
+              'version can be written; a new version is reviewed and approved by the owner before any run follows it.']
+        : []),
       ...(done.length > 0 ? ['', 'Done means:', ...done.map((criterion) => `- ${criterion}`)] : []),
     ].join('\n'),
   };
@@ -449,6 +503,120 @@ async function roleSections(
   return { charter: [charter], contract };
 }
 
+/** The most of each the "Your seat" block names; past it, it says how many more. */
+const SEAT_LINES = 10;
+const SEAT_PRIORITIES = 7;
+const SEAT_TODOS = 10;
+/** The most core processes a seat's charter names, the method's twelve, and how long each one's summary is there. */
+const SEAT_CORE_PROCESSES = 12;
+const CORE_SUMMARY_CHARACTERS = 120;
+
+/** A core process's summary cut to a clause, marked when it was cut. */
+function summaryClause(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim();
+  return line.length <= CORE_SUMMARY_CHARACTERS ? line : `${wellFormed(line.slice(0, CORE_SUMMARY_CHARACTERS - 1)).trimEnd()}\u2026`;
+}
+
+const WEEK_SAID: Record<WeekState, string> = {
+  on_track: 'on track',
+  off_track: 'off track',
+  claimed: 'claimed, and not yet read from its source',
+  not_reported: 'not reported',
+};
+
+/**
+ * The "Your seat" block (F18.3): the seat's own lines on the weekly
+ * scorecard with where each stands this week, its quarterly priorities this
+ * quarter, and its open to-dos. A seat was told what it answers for and not
+ * the numbers it is held to, so a run could not tell its own line from
+ * another's until the weekly meeting said so. Empty for a seat with none of
+ * them, which is then told nothing. Bounded, because the role charter is
+ * never dropped to fit the pack.
+ */
+async function yourSeat(tx: TenantClient, companyId: string, roleId: string, listsTickets: boolean): Promise<string[]> {
+  const out: string[] = [];
+  const more = (shown: number, total: number) => (total > shown ? [`- and ${total - shown} more`] : []);
+
+  // The scorecard reads thirteen weeks of readings: only for a seat that owns a line.
+  const { rowCount: owns } = await tx.query(
+    `SELECT 1 FROM goal_metrics WHERE company_id = $1 AND owner_role_id = $2 AND review_every = 'week' AND retired_at IS NULL LIMIT 1`,
+    [companyId, roleId]);
+  if (owns) {
+    const lines = (await scorecardOf(tx, companyId, new Date())).lines.filter((line) => line.ownerRole?.id === roleId);
+    if (lines.length > 0) {
+      out.push('Your lines on the weekly scorecard, this week:');
+      for (const line of lines.slice(0, SEAT_LINES)) {
+        const now = line.weeks.at(-1)!;
+        const last = line.weeks.at(-2);
+        const standing = now.value === null
+          ? `not reported this week; the weekly goal is ${line.target}`
+          : `${now.value} this week against a weekly goal of ${line.target}, ${WEEK_SAID[now.state]}`;
+        out.push(`- ${withoutTemplateTokens(line.name)} [${line.slug}]: ${standing}${last ? `; last week ${WEEK_SAID[last.state]}` : ''}.`);
+      }
+      out.push(...more(Math.min(lines.length, SEAT_LINES), lines.length));
+    }
+  }
+
+  // A quarterly priority whose quarter today is in, where the company is: a
+  // zone this platform cannot read counts in UTC rather than failing the run.
+  const today = dayIn(await zoneOf(tx, companyId), new Date());
+  const { rows: priorities } = await tx.query<{
+    slug: string; statement: string; starts_on: string; due_on: string; commitment: string | null; total: number;
+  }>(
+    `SELECT g.slug, g.statement, to_char(g.starts_on, 'YYYY-MM-DD') AS starts_on, to_char(g.due_on, 'YYYY-MM-DD') AS due_on,
+            g.commitment, count(*) OVER ()::int AS total
+       FROM goals g
+      WHERE g.company_id = $1 AND g.owner_role_id = $2 AND g.status = 'active' AND g.kind = 'key_result'
+        AND g.starts_on IS NOT NULL AND g.due_on - g.starts_on <= 92
+        AND g.starts_on <= $4::date AND g.due_on >= $4::date
+      ORDER BY g.due_on, g.created_at, g.id
+      LIMIT $3`,
+    [companyId, roleId, SEAT_PRIORITIES, today]);
+  if (priorities.length > 0) {
+    out.push('Your quarterly priorities:');
+    for (const goal of priorities) {
+      const statement = wellFormed(withoutTemplateTokens(goal.statement).replace(/\s+/g, ' ').trim().slice(0, 200));
+      out.push(`- ${statement} [${goal.slug}], ${goal.starts_on} to ${goal.due_on}${goal.commitment ? `, ${goal.commitment}` : ''}`);
+    }
+    out.push(...more(priorities.length, priorities[0]!.total));
+  }
+
+  // Its open to-dos: work given to the seat by name. A title written by work
+  // that had read something from outside is not quoted here, even wrapped:
+  // this is the role charter, the most trusted part of the pack, and a
+  // section the engine does not mark as outside. Quoted, a stranger's words
+  // would reach every run of the seat while none of them counted as having
+  // read outside content (F8.9), so their tier 2 calls would not ask the
+  // owner. The seat is told it has one and which, and reads it with
+  // ticket.list, whose listing taints the run that reads it -- or, for a
+  // seat that does not hold ticket.list (only the founding CEO does), is
+  // told it is handed the to-do as a task of its own (`handTodos`), which
+  // carries the words as outside content: told of a tool it lacks, a run
+  // tries it and is refused (F2.3).
+  const { rows: todos } = await tx.query<{ id: string; title: string; due_on: string | null; outside: boolean; total: number }>(
+    `SELECT id, title, to_char(due_on, 'YYYY-MM-DD') AS due_on, outside, count(*) OVER ()::int AS total
+       FROM tickets
+      WHERE company_id = $1 AND assignee_role_id = $2 AND kind = 'work' AND status IN ('open', 'in_progress')
+      ORDER BY due_on NULLS LAST, created_at, id
+      LIMIT $3`,
+    [companyId, roleId, SEAT_TODOS]);
+  if (todos.length > 0) {
+    out.push('Your open to-dos:');
+    for (const todo of todos) {
+      const title = todo.title.replace(/\s+/g, ' ').trim().slice(0, 200);
+      const said = todo.outside
+        ? `A to-do filed by work that had read outside content, ticket ${todo.id}; its words are not shown here, and ` +
+          (listsTickets
+            ? 'ticket.list with its id reads them as outside content'
+            : 'it is handed to you as a task of its own, which carries them as outside content')
+        : withoutTemplateTokens(title);
+      out.push(`- ${said}${todo.due_on ? `, due ${todo.due_on}` : ''}`);
+    }
+    out.push(...more(todos.length, todos[0]!.total));
+  }
+  return out.length > 0 ? ['Your seat:', ...out] : [];
+}
+
 /** More roles than this are counted rather than listed: the list is for choosing, not an org chart. */
 const TEAM_LIMIT = 60;
 
@@ -469,9 +637,10 @@ const TEAM_LIMIT = 60;
 async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
   const { rows } = await tx.query<{
     slug: string; display_name: string | null; title: string | null; system_prompt: string; division: string; frozen: boolean;
-    person_name: string | null;
+    person_name: string | null; accountabilities: string[]; proposes_hires: boolean;
   }>(
-    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen, r.person_name
+    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen, r.person_name,
+            r.accountabilities, 'ticket.create' = ANY(me.tools) AS proposes_hires
        FROM tasks t
        JOIN roles me ON me.id = t.role_id
        JOIN roles r ON r.company_id = t.company_id AND r.id <> me.id
@@ -481,16 +650,30 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
     [taskId],
   );
   if (rows.length === 0) return [];
+  // Said only in a company that has begun naming them: where no seat has
+  // any, "none yet" on every line is noise, and routing by charter is all
+  // there is to go on.
+  const seated = rows.some((role) => role.accountabilities.length > 0);
   const lines = rows.slice(0, TEAM_LIMIT).map((role) => {
     const who = [role.display_name, role.title].filter(Boolean).join(', ');
     const where = who ? `${who}, in ${role.division}.` : `In ${role.division}.`;
     const job = firstSentence(role.system_prompt);
+    // What the seat answers for (F18.3), so work goes to the seat that owns
+    // the result rather than to whichever charter sounds closest; a seat
+    // with none beside seats that have some is said to have none, so the
+    // CEO knows it is guessing there.
+    // Each is cut to a clause here, since this section is never dropped and
+    // sixty seats of five whole lines would push the delegating run's own
+    // memory out of the pack; the seat's own run is told them whole.
+    const owns = role.accountabilities.length > 0
+      ? ` Accountable for: ${role.accountabilities.map(clause).join('; ')}.`
+      : seated ? ' No accountabilities yet.' : '';
     const frozen = role.frozen ? ' (Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so.)' : '';
     // A person is slower than a model and answers in their own words: the one who hands work over should know.
     const person = role.person_name
       ? ` (A person, ${role.person_name}, not an agent: the work is put to them as a question and may take a day or more to be answered, so allow for it.)`
       : '';
-    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${person}${frozen}`;
+    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${owns}${person}${frozen}`;
   });
   const more = rows.length - lines.length;
   return [{
@@ -502,8 +685,22 @@ async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSe
         ? 'These are all the other roles the company has; there is no role that is not on this list.'
         : `These are ${lines.length} of the company's ${rows.length} other roles; ` +
           'task.delegate names the rest when asked for one it does not know.') +
+      (seated ? ' Each is a seat: where work is about a result a seat is accountable for, hand it to the seat accountable for it.' : '') +
+      // Only to a role that can file the ticket: told of a tool it lacks, a run tries it and is refused.
+      (rows[0]!.proposes_hires
+        ? ' When you propose a seat the company lacks with ticket.create of kind hire, say in its body what the seat ' +
+          'would be accountable for, at most five results; the owner decides.'
+        : '') +
       `\n\n${lines.join('\n')}`,
   }];
+}
+
+/** Longest an accountability is on a team line; enough to tell which seat owns a result, not to restate it. */
+const TEAM_ACCOUNTABILITY_CHARACTERS = 80;
+
+/** An accountability cut to fit a team line, marked when it was cut. */
+function clause(text: string): string {
+  return text.length <= TEAM_ACCOUNTABILITY_CHARACTERS ? text : `${text.slice(0, TEAM_ACCOUNTABILITY_CHARACTERS - 1).trimEnd()}…`;
 }
 
 /** The first sentence of a charter, which in every template says what the role does. */
@@ -574,6 +771,18 @@ async function stageSections(tx: TenantClient, companyId: string): Promise<Conte
       'Only the owner moves the company to another stage; when you have the evidence that it ' +
       'should move, propose it with stage.propose if you hold it, and otherwise say so in your result.',
   }];
+}
+
+/**
+ * The number the owner judges the company by (0142, F18.13), after the stage
+ * and kept whole like it: a run that knows only its own goal's measure can
+ * move that one at the cost of the number the company is for. Only the
+ * owner's choice is told; the portfolio's inferred headline is a guess about
+ * what matters, and a run told it would take the guess for the owner's word.
+ */
+async function headlineSections(tx: TenantClient, companyId: string): Promise<ContextSection[]> {
+  const body = await renderHeadline(tx, companyId);
+  return body ? [{ kind: 'headline', title: 'The company\'s headline metric', body }] : [];
 }
 
 /**
@@ -776,6 +985,7 @@ export async function buildContext(
       + 'a due date, a deadline -- is to be read against it: something recorded long ago may no longer be so.',
   });
   sections.push(...await stageSections(tx, options.companyId));
+  sections.push(...await headlineSections(tx, options.companyId));
   if (options.taskId) sections.push(...await projectSections(tx, options.taskId));
   sections.push(...role.contract);
   if (options.taskId) sections.push(...await teamSections(tx, options.taskId));
@@ -948,10 +1158,12 @@ export async function buildContext(
       // that knows the number it serves can say whether its work moved it;
       // one that knows only the goal's wording cannot.
       const onChain = new Set(chain.map((goal) => goal.id));
-      // A retired measure is history, not what the work aims at.
-      const measured = (await metricsIn(tx)).filter((metric) => onChain.has(metric.goalId) && !metric.retiredAt);
+      // A retired measure is history, not what the work aims at. A measure's
+      // pair is told beside it even from a goal off the chain (F18.2).
+      const live = (await metricsIn(tx)).filter((metric) => !metric.retiredAt);
+      const measured = live.filter((metric) => onChain.has(metric.goalId));
       if (measured.length > 0) {
-        sections.push({ kind: 'goal_measure', title: 'How this work is measured', body: renderMetrics(measured) });
+        sections.push({ kind: 'goal_measure', title: 'How this work is measured', body: renderMetrics(measured, live) });
       }
     }
 

@@ -1084,6 +1084,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // A goal nobody works on is put to the CEO only where a model can take
     // the task: without one it would halt each week, and be reported each week.
     reviewsGoals: llm !== null && llm !== undefined,
+    // And the weekly operating meeting, for the same reason (F18.6).
+    holdsMeetings: llm !== null && llm !== undefined,
     // The documents' meaning, from the provider chosen under Tools.
     ...(toolBindings.embed ? { meaning: toolBindings.embed } : {}),
     // What failed, in lines a log collector reads. A worker whose stage

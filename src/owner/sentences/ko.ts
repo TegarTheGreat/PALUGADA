@@ -404,6 +404,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '철회됨: 관련 작업을 다시 실행했습니다.',
   'Withdrawn: the day it was about has ended.':
     '철회됨: 해당 날짜가 지났습니다.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    '철회됨: 해당 기간이 끝나 평가되었습니다.',
+  'Withdrawn: the goal it was about was closed.':
+    '철회됨: 관련된 목표가 닫혔습니다.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     '철회됨: 이번 달 한도에 도달해, 회사가 일시 중지되었다는 카드가 이를 대신합니다.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -440,4 +444,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '완료된 일: {count}',
   'Stopped: its work was taken up another way':
     '중지됨: 이 작업은 다른 방식으로 이어졌습니다',
+  'Its work stopped, and each time it took down the worker running it.':
+    '작업이 멈췄고, 그때마다 실행하던 워커도 함께 멈췄습니다.',
+  'A write to an outside service may have happened without being what was meant.':
+    '외부 서비스에 쓰기가 의도와 다르게 이루어졌을 수 있습니다.',
+  'Work charged to the same budget account stops until it has room again.':
+    '같은 예산 계정에 청구되는 작업은 계정에 다시 여유가 생길 때까지 멈춥니다.',
+  'Its work stopped before it was done.':
+    '작업이 끝나기 전에 멈췄습니다.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    '플랫폼이 잃은 워커를 {lost}번 셌습니다. 작업 하나가 잃을 수 있는 최대치입니다.',
+  'The platform read back what was written, and it did not match.':
+    '플랫폼이 쓴 내용을 다시 읽었더니 일치하지 않았습니다.',
+  'The budget account had nothing left to reserve for the work.':
+    '예산 계정에 작업을 위해 확보할 것이 남아 있지 않았습니다.',
+  'The platform found it ended with no card raised for it.':
+    '플랫폼이 카드 없이 끝난 것을 발견했습니다.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    '카드는 부서가 처리 담당으로 지정한 쪽에 먼저 가고, 그다음 당신에게 갔습니다.',
+  'The task was halted, and you were told on a card in the inbox.':
+    '작업이 중단되었고, 받은편지함의 카드로 알려 드렸습니다.',
+  'Postmortem: {cause} ({about})':
+    '사후 분석: {cause} ({about})',
+  'What happened':
+    '무슨 일이 있었나',
+  'Impact':
+    '영향',
+  'Trigger':
+    '계기',
+  'Detection':
+    '탐지',
+  'What was done':
+    '취한 조치',
+  'A task of {role} stopped before it was done.':
+    '{role}의 작업 하나가 끝나기 전에 멈췄습니다.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    '해결하려면: 답마다 왜를 묻고 기록과 대조해 근본 원인을 찾고, 한 번 결정한 뒤, 결정을 실행할 할 일을 자리 하나씩 정해 등록합니다.',
+  'Off track: {name}':
+    '목표 이탈: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}은(는) {week} 주에 {value}였으며, 주간 목표는 {target}입니다.',
+  '{role} answers for it.':
+    '{role}이(가) 책임집니다.',
+  'No seat answers for it.':
+    '책임지는 자리가 없습니다.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    '플랫폼이 주간 운영 회의 전에 주간 스코어카드에서 읽었습니다.',
+  'Not done at two meetings: {title}':
+    '두 번의 회의에서 끝나지 않음: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    '할 일 "{title}"(마감 {due})은 {previous} 주간 운영 회의에서도, 이번 회의에서도 끝나지 않았습니다.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    '플랫폼이 주간 운영 회의 전에 할 일 목록에서 읽었습니다.',
+  'Weekly operating meeting held ({week}): {where}':
+    '주간 운영 회의를 열었습니다({week}): {where}',
+  'see its task under Work':
+    '작업에서 그 작업을 보세요',
+  'New goals proposed, to approve line by line':
+    '새 목표 제안, 한 줄씩 승인',
+  'Line {line}: the {kind} "{goal}"':
+    '{line}번째 줄: {kind} "{goal}"',
+  'Under: {goal}':
+    '상위: {goal}',
+  'Under line {line}: {goal}':
+    '상위는 {line}번째 줄: {goal}',
+  'Period: {from} to {to}':
+    '기간: {from}~{to}',
+  'Committed: done in full, or missed.':
+    '필달: 모두 해내거나 놓쳐요.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    '도전: 점수를 매기며, 0.6~0.7이면 좋은 결과예요.',
+  'Learning: a test of the prediction below.':
+    '학습: 아래 예측을 검증해요.',
+  'Owned by: {role}':
+    '책임 자리: {role}',
+  'Done when: {doneWhen}':
+    '완료 기준: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    '예측(일하기 전에 기록): {name}이(가) {baseline}에서 {target}에 도달해요.',
+  'Measured by {name}: from {baseline} to {target}.':
+    '지표 {name}: {baseline}에서 {target}로.',
+  'Watched with: {measure}':
+    '함께 보는 지표: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    '올해의 목표: {count}개로, 회사가 챙길 수 있는 {limit}개보다 많아요.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    '이 목표 아래의 핵심 결과: {count}개로, 목표 하나가 챙길 수 있는 {limit}개보다 많아요.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    '동시에 진행하는 분기 우선순위: {count}개로, 회사가 챙길 수 있는 {limit}개보다 많아요.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat}의 동시 분기 우선순위: {count}개로, 자리 하나가 맡을 수 있는 {limit}개보다 많아요.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    '승인하면 승인한 각 줄이 지표와 함께 목표가 돼요. 거절한 줄은 만들어지지 않아요. 그 전까지는 현재 목표대로 일이 계속돼요.',
+  'No goal is made.':
+    '목표가 만들어지지 않아요.',
+  'Missed: {statement}':
+    '미달: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{from}부터 {to}까지 필달로 정한 {statement}이(가) 완료되지 않았습니다.',
+  'Measured by its numbers, it came {progress} of the way.':
+    '수치로 보면 {progress}까지 왔습니다.',
+  'It was not marked met by its due date.':
+    '기한까지 달성으로 표시되지 않았습니다.',
+  'The platform graded it when its period ended.':
+    '기간이 끝났을 때 플랫폼이 채점했습니다.',
+  'Off pace: {statement}':
+    '속도 뒤처짐: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement}은(는) 기한이 {due}인 필달 우선순위입니다. 수치는 {progress}까지밖에 오지 않았는데 기간은 {elapsed}가 지났습니다.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    '따라잡기 위해 바꾼 것은 없으며 어떤 에이전트에게도 요청하지 않았습니다. 시간보다 뒤처진 필달 수치는 만회하려고 더 위험한 행동을 부르기 쉽고, 그런 위험을 질지는 당신이 결정합니다. 날짜를 미룰지, 목표를 낮출지, 도전 목표로 바꿀지, 그대로 두고 미달을 받아들일지 결정하세요.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    '어느 쪽으로 답해도 멈추는 것은 없습니다. 우선순위는 그대로이며 기간이 끝나면 채점됩니다. 바꾸기로 했다면 팀, 목표에서 바꾸세요.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '우리의 가치',
+  'Purpose and niche': '목적과 틈새',
+  'Long-range target': '장기 목표',
+  'Who we serve and what makes us different': '우리가 섬기는 사람과 우리를 다르게 만드는 것',
+  'Where we will be in three years': '3년 후 우리의 모습',
+  'Our promise': '우리의 약속',
 };

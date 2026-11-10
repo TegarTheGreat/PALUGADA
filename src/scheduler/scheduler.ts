@@ -31,6 +31,7 @@ import { ownerReadingWithin, scheduleRepeatsCard } from '../owner/platform-cards
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { assertTimeZone, instantsShowing, wallClockAt } from './windows.ts';
 import { buildWeekFacts, weekHadWork } from '../reporting/week.ts';
+import { buildMonthFacts, monthHadMoney, outsideInvoicesOf } from '../reporting/month.ts';
 
 const { parseExpression } = cronParser;
 
@@ -545,6 +546,15 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
         await passOver(schedule, occurrence, now);
         continue;
       }
+      // F18.12: and a money review of a month with no money in it -- nothing
+      // dated in the books, nothing owed and late -- likewise.
+      if (schedule.input.facts === 'month') {
+        const month = await monthHadMoney(schedule.company_id, now);
+        if (!month.had) {
+          await passOver(schedule, occurrence, now, month.month);
+          continue;
+        }
+      }
       // Inside the `try`, so a week that cannot be read is a failed
       // occurrence, recorded and tried again, like one that cannot be funded.
       task = await createScheduledTask(schedule, { createdBy: 'scheduler', idempotencyKey: key, now });
@@ -775,8 +785,10 @@ async function giveWay(schedule: DueSchedule, key: string, now: Date): Promise<b
  * An occurrence with nothing to do (N10): the schedule moves on to its next,
  * and says why it did not run, once. Guarded as an advance after a run is,
  * so two workers passing over the same occurrence say it once between them.
+ * A money review's says which month had nothing in it (F18.12), in words of
+ * its own: "nothing happened that week" is not what it found.
  */
-async function passOver(schedule: DueSchedule, occurrence: Date, now: Date): Promise<void> {
+async function passOver(schedule: DueSchedule, occurrence: Date, now: Date, quietMonth?: string): Promise<void> {
   await withTenant(schedule.company_id, async (tx) => {
     const next = nextOccurrence(schedule.cron_expression, schedule.timezone, now);
     const { rowCount } = await tx.query(
@@ -785,16 +797,25 @@ async function passOver(schedule: DueSchedule, occurrence: Date, now: Date): Pro
       [schedule.id, occurrence, next],
     );
     if (rowCount !== 1) return;
-    await appendEvent(tx, {
-      companyId: schedule.company_id,
-      projectId: schedule.project_id,
-      type: 'schedule.nothing_to_review',
-      actor: 'scheduler',
-      payload: {
-        scheduleId: schedule.id, slug: schedule.slug,
-        occurrence: occurrence.toISOString(), nextRunAt: next.toISOString(),
-      },
-    });
+    const said = {
+      scheduleId: schedule.id, slug: schedule.slug,
+      occurrence: occurrence.toISOString(), nextRunAt: next.toISOString(),
+    };
+    await appendEvent(tx, quietMonth === undefined
+      ? {
+        companyId: schedule.company_id,
+        projectId: schedule.project_id,
+        type: 'schedule.nothing_to_review',
+        actor: 'scheduler',
+        payload: said,
+      }
+      : {
+        companyId: schedule.company_id,
+        projectId: schedule.project_id,
+        type: 'schedule.quiet_month',
+        actor: 'scheduler',
+        payload: { ...said, month: quietMonth },
+      });
   });
 }
 
@@ -813,25 +834,31 @@ type ScheduleWork = Pick<DueSchedule,
  *
  * A schedule whose input asks for the week -- the weekly business review's
  * does (bundles/builtin.ts) -- is handed it, read from the company's records
- * as the run starts (reporting/week.ts).
+ * as the run starts (reporting/week.ts); one that asks for the month -- the
+ * monthly money review's -- is handed the last whole month's money from the
+ * company's books (reporting/month.ts, F18.12).
  */
 async function createScheduledTask(
   schedule: ScheduleWork,
   run: { createdBy: 'scheduler' | 'owner'; idempotencyKey: string; now: Date },
 ): Promise<TaskRow> {
   const week = schedule.input.facts === 'week' ? await buildWeekFacts(schedule.company_id, run.now) : null;
+  const month = schedule.input.facts === 'month' ? await buildMonthFacts(schedule.company_id, schedule.role_id, run.now) : null;
   const outside = week?.finished.filter((one) => one.outside).map((one) => one.task) ?? [];
+  const outsideInvoices = month ? outsideInvoicesOf(month) : [];
   return createRootTask({
     companyId: schedule.company_id,
     projectId: schedule.project_id,
     divisionId: schedule.division_id,
     roleId: schedule.role_id,
     budgetAccountId: schedule.budget_account_id,
-    input: week ? { ...schedule.input, week } : schedule.input,
+    input: week ? { ...schedule.input, week } : month ? { ...schedule.input, month } : schedule.input,
     // What finished work reported after reading outside content is in the
     // week, as data; the review carries that, as work that read it itself
-    // would (F8.9).
+    // would (F8.9). So is a late invoice's customer, named by work that had
+    // read an email, in the month.
     ...(outside.length > 0 ? { carriesOutside: { capability: 'the week it was handed', tasks: outside } } : {}),
+    ...(outsideInvoices.length > 0 ? { carriesOutside: { capability: 'the month it was handed', invoices: outsideInvoices } } : {}),
     createdBy: run.createdBy,
     reserveTokens: Number(schedule.reserve_tokens),
     idempotencyKey: run.idempotencyKey,

@@ -20,6 +20,7 @@
  * about the assistant as well.
  */
 import { AGENT_CATALOGUE } from '../settings/agents.ts';
+import { CHANNEL_SLUGS } from '../domain/channels.ts';
 
 /**
  * The kinds of key an agent CLI signs in with, from the catalogue itself: a
@@ -75,6 +76,18 @@ export interface AssistantAction {
 }
 
 const COMPANY = 'companyId comes from GET /api/companies.';
+
+/**
+ * A goal's period, seat, commitment, finish line and channel (F18.1, F18.11),
+ * as both goal routes take them.
+ */
+const GOAL_PLAN = {
+  startsOn: 'optional day, YYYY-MM-DD', dueOn: 'optional day, YYYY-MM-DD, the last of the period; with startsOn or not at all',
+  ownerRoleId: 'optional id of the role that owns it, from GET /api/companies/:companyId/structure',
+  commitment: 'optional: committed, aspirational or learning; needs a period',
+  doneWhen: 'optional sentence of at most 500 characters: what is true once it is done; a new quarterly priority needs it, and it may be cleared only while a live measure says when the priority is done',
+  channel: `optional traction channel it tests: ${CHANNEL_SLUGS.join(', ')}`,
+};
 
 export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   /* ------------------------------------------------ the whole deployment --- */
@@ -282,8 +295,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/tickets',
-    what: 'File a ticket: something that needs doing and is not given to anyone yet. The CEO hands tickets on.',
-    fields: { title: 'what needs doing, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)', divisionId: 'optional division it belongs to' },
+    what: 'File a ticket: something that needs doing and is not given to anyone yet, which the CEO hands on; or an issue, a problem the CEO solves with a root cause, a decision and to-dos.',
+    fields: {
+      title: 'what needs doing, or the problem, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)',
+      divisionId: 'optional division it belongs to', kind: 'optional: work (the default) or issue',
+      horizon: 'optional, for an issue: now (the weekly list, the default) or long_term (read at quarterly planning)',
+    },
     factor: 'never', chat: true, auto: true,
   },
   {
@@ -313,6 +330,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       decision: 'approve, deny or ask', note: 'why, or the question',
       allowForHours: 'optional, with approve: allow the same capability to the same role for this many hours (1 to 168), only where the item says allowFor',
       forSchedule: 'optional, true with approve: allow exactly this action every time the item\'s schedule does it, for ninety days, only where the item names forSchedule; never with allowForHours',
+      lines: 'optional, with approve on an item that has a plan: the numbers of the plan\'s lines to approve, such as [1, 3]; the others are refused, and left out every line is approved',
     },
     factor: 'sometimes',
   },
@@ -382,6 +400,18 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/rhythm',
+    what: 'When the CEO holds the weekly operating meeting, on the company\'s clock, or that it does not; a field left out is kept.',
+    fields: { weekday: '0-6, Sunday 0', hour: '0-23', enabled: 'true or false' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/fiscal-year',
+    what: 'The month the company\'s fiscal year starts in, which cuts its quarters: the CEO plans the next quarter ten days before each ends, and the next year in the last quarter.',
+    fields: { startMonth: '1-12, January 1' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/office-hours/clear',
     what: 'Run a company round the clock again: no office hours.',
     fields: {},
@@ -412,14 +442,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/goals',
-    what: 'Add a goal.',
-    fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it' },
+    what: 'Add a goal. A key result due 92 days or less after it starts is a quarterly priority: it needs ownerRoleId and doneWhen when it is added, because a measure can only be defined for a goal that exists; once a measure is defined, doneWhen may be cleared with POST /api/companies/:companyId/goals/:goalId. The answer lists the soft limits it is past (warnings), which refuse nothing.',
+    fields: { kind: 'mission, objective or key_result', slug: 'short id', statement: 'the goal', parentGoalId: 'the goal above it', ...GOAL_PLAN },
     factor: 'never', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/goals/:goalId',
-    what: 'Reword a goal, or close it. Closing one pauses the schedules and triggers under it.',
-    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always', auto: true,
+    what: 'Reword a goal, close it, or change its period, seat, commitment, finish line or channel; null clears one. Closing one pauses the schedules and triggers under it.',
+    fields: { statement: 'optional', status: 'optional: active, met or abandoned', ...GOAL_PLAN }, factor: 'always', auto: true,
   },
   {
     pattern: '/api/companies/:companyId/metrics/:metricId',
@@ -428,6 +458,10 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       name: 'optional', unit: 'optional, only before any value is recorded: currency, count, ratio or percent', direction: 'optional: up or down',
       baseline: 'optional number', target: 'optional number', dueOn: 'optional date, or null', sourceCapability: 'optional, or null',
       retired: 'true to retire it',
+      reviewEvery: 'optional: week puts it on the weekly scorecard, its target then the weekly goal; null takes it off',
+      ownerRoleId: 'optional: the id of the role (seat) that answers for it, from GET /api/companies/:companyId/structure; null for none',
+      pairedWith: 'optional: the id of the measure to watch it with, the one that would suffer if this were pushed; null to unpair',
+      funnelStep: 'optional: the funnel step it counts -- acquisition, activation, retention, referral or revenue; null for none',
     },
     factor: 'always',
   },
@@ -437,7 +471,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       name: 'what is counted, such as revenue in IDR or signups', slug: 'short id', unit: 'currency, count, ratio or percent', direction: 'up or down',
       baseline: 'number now', target: 'number wanted', dueOn: 'optional date', sourceCapability: 'optional capability that reads it',
+      reviewEvery: 'optional: week puts it on the weekly scorecard, and the target is then the weekly goal',
+      ownerRoleId: 'optional: the id of the role (seat) that answers for it',
+      pairedWith: 'optional: the id of a measure with no pair yet to watch it with, the one that would suffer if this were pushed; re-pairing a measure that has a pair is a change to that measure',
+      funnelStep: 'optional: the funnel step it counts -- acquisition, activation, retention, referral or revenue',
     },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/headline',
+    what: 'Choose the one number the company is judged by: the portfolio shows it on the company\'s card and every run is told it. A measure aimed at a target, not a weekly scorecard line or a retired one. Say so when it has no pair: a number nothing watches is easy to buy with something else.',
+    fields: { metricId: 'the id of the measure, from GET /api/companies/:companyId/structure (goals[].metrics); null to let the portfolio infer it again' },
     factor: 'never',
   },
   {
@@ -513,6 +557,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       divisionId: 'its division', slug: 'short id', systemPrompt: 'what it does and how',
       tools: 'list of capability names, at most twelve', model: 'fast, standard or deep', doneCriteria: 'list of what done means',
+      accountabilities: 'optional list of what the seat answers for, one result each, at most five',
       displayName: 'the name the owner calls it, such as Arka; give every role one', title: 'its title, such as CEO, CTO or Head of Support (GET /api/personas lists them)',
       persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
       grantTools: 'true to also let its division use the tools it lacks, except those that cannot be undone; say true whenever you name tools',
@@ -521,11 +566,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
-    what: 'Change a role: its charter, what done means, tools or model, how long one run may take, or who it is -- its name, title or persona.',
+    what: 'Change a role: its charter, what done means, what its seat is accountable for, tools or model, how long one run may take, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
       grantTools: 'true, with tools, to also let its division use the tools it lacks, except those that cannot be undone',
       doneCriteria: 'optional list, one testable sentence each, at most 12; replaces the role\'s',
+      accountabilities: 'optional list of what the seat answers for, one result each, at most five; replaces the seat\'s, and [] leaves it none',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
       maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',
       displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',
@@ -783,6 +829,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/skills/:skillId/scope',
     what: 'Where a skill applies.', fields: { scopeType: 'division, company or platform', scopeId: 'the division, for a division scope' }, factor: 'always',
   },
+  {
+    pattern: '/api/companies/:companyId/skills/:skillId/core',
+    what: 'Make an active skill one of the company\'s core processes, owned by one seat, or no longer one. The seat\'s runs are '
+      + 'told they own it and to follow it, and the chart shows how many of its division\'s runs read it. Five to twelve is the usual number; '
+      + 'outside it the answer warns and nothing is refused.',
+    fields: { core: 'true or false', roleId: 'the owning seat, when core is true; a role of the skill\'s division, or any role for a company-wide skill' },
+    factor: 'never',
+  },
   { pattern: '/api/companies/:companyId/skills/:skillId/quarantine/lift', what: 'Let a quarantined skill be used.', factor: 'always' },
   { pattern: '/api/companies/:companyId/evals/:caseId/accept', what: 'Accept a proposed evaluation case.', factor: 'never' },
   { pattern: '/api/companies/:companyId/devices/:deviceId/revoke', what: 'Stop a device from running work.', factor: 'never' },
@@ -807,7 +861,11 @@ export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
  */
 export const READS_OF_NO_ONE_ELSES_WORDS: readonly string[] = [
   '/api/companies',
+  // Its core processes come by slug, seat and numbers, without the skill's
+  // summary (structureOf), which an agent or a publisher wrote.
   '/api/companies/:companyId/structure',
+  // Names the owner gave and numbers: the same measures the structure carries.
+  '/api/companies/:companyId/scorecard',
   '/api/companies/:companyId/budget-accounts',
   '/api/companies/:companyId/spend',
   '/api/companies/:companyId/first-hour',

@@ -12,7 +12,7 @@ import {
   Anchor, Avatar, Badge, Button, Grid, Group, Paper, Progress, SimpleGrid, Stack, Text, Title,
   Tooltip, UnstyledButton,
 } from '@mantine/core';
-import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus, IconUpload } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowRight, IconChecklist, IconLinkOff, IconPlus, IconUpload } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { go, type CompanyPage } from '../router.ts';
@@ -261,7 +261,7 @@ export function Home({
               )}
             </Group>
             <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="lg">
-              {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page) => openCompany(state.company.id, page)} />)}
+              {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page, item) => openCompany(state.company.id, page, item)} />)}
             </SimpleGrid>
           </div>
         </>
@@ -270,7 +270,7 @@ export function Home({
   );
 }
 
-function CompanyCard({ state, open }: { state: CompanyState; open: (page: CompanyPage) => void }) {
+function CompanyCard({ state, open }: { state: CompanyState; open: (page: CompanyPage, item?: string | null) => void }) {
   const { company, inbox, digest, counts, spend } = state;
   const used = spend.limitCents > 0 ? Math.min(100, (spend.spentCents / spend.limitCents) * 100) : 0;
   const health = company.frozen
@@ -311,11 +311,26 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
         <Text size="xs" c="dimmed">{t('Spent today: {amount}', { amount: money(digest.moneySpentCents) })}</Text>
         <Anchor size="xs" onClick={() => open('inbox')}>{t('Open the inbox')}</Anchor>
       </Group>
+      {/* The weekly operating meeting's record is its task (F18.6). The last
+          one may be pending, failed or cancelled, so its status is beside it,
+          as on the Plan page: the line alone reads as a meeting held. */}
+      {digest.lastMeeting && (
+        <Group gap="xs" mt={6} wrap="nowrap">
+          <Anchor size="xs" onClick={() => open('work', digest.lastMeeting!.taskId)}>
+            {t('Last weekly operating meeting: {week}', { week: digest.lastMeeting.week })}
+          </Anchor>
+          <StatusBadge status={digest.lastMeeting.status} />
+        </Group>
+      )}
     </Paper>
   );
 }
 
-/** The number the company is judged by, and whether anyone checked it. */
+/**
+ * The number the company is judged by, and whether anyone checked it. One
+ * the owner chose (0142) is meant to be watched with a pair, and says so
+ * here, where it is judged, when nothing watches it.
+ */
 function Headline({ headline, onClick }: { headline: NonNullable<Company['headline']>; onClick: () => void }) {
   const percent = headline.progress === null ? 0 : headline.progress * 100;
   return (
@@ -323,6 +338,11 @@ function Headline({ headline, onClick }: { headline: NonNullable<Company['headli
       <Group justify="space-between" wrap="nowrap" gap="xs">
         <Text size="xs" c="dimmed" truncate>{headline.name}</Text>
         <Group gap={4} wrap="nowrap">
+          {headline.chosen && !headline.pair && (
+            <Tooltip label={t('Not paired')}>
+              <IconLinkOff size={12} color="var(--mantine-color-orange-6)" />
+            </Tooltip>
+          )}
           {headline.verified === false && (
             <Tooltip label={t('An agent reported this and did not read it from the source')}>
               <IconAlertTriangle size={12} color="var(--mantine-color-orange-6)" />

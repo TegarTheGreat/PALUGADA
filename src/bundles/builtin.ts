@@ -532,8 +532,16 @@ Approving is a claim that you checked. Say what you checked.
  *
  * With them comes a strategist: the role nobody else is, which reads the
  * goals, their numbers and last week's work, and proposes at most three bets
- * -- never applies them. And the one cadence every company needs: the weekly
- * business review, Monday morning in the company's time zone.
+ * -- never applies them. And two cadences on its clock, in the company's time
+ * zone: the weekly business review on Monday morning, and the monthly money
+ * review on the first of the month (1.6.0, F18.12), which hands the
+ * strategist the last month's books and ends with issues for the CEO's
+ * weekly operating meeting, which is handed the review.
+ *
+ * And how a company finds its customers and argues an offer before it is
+ * built (1.6.0, F18.11, F18.15): channel testing, the one-page business
+ * model, the fit survey and the press release first, each attributed in its
+ * description to the method it follows.
  *
  * And the stage gates (0057): the strategist proposes a move with the evidence
  * the stage-gates skill names, the owner decides, and three rules read the
@@ -556,13 +564,20 @@ Approving is a claim that you checked. Say what you checked.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.5.0',
+  // 1.7.0 (F18.8): the stage gates read a learning priority's grade, which
+  // the platform now writes at its period's end, to pivot or persevere.
+  version: '1.7.0',
   name: 'Company operating kit',
+  // What the owner reads before installing: every cadence it brings, and
+  // what each is handed. The monthly review reads the books, customers late
+  // with an invoice by name, and an owner is told so before saying yes.
   description:
     'A strategist, a critic who reviews every stage move before the owner does, a weekly business ' +
-    'review handed the week\'s numbers, stage gates, and the operating skills a company decides with: ' +
+    'review handed the week\'s numbers and the grades of the periods just ended, a monthly money review ' +
+    'handed the last month\'s books, stage gates, and the operating skills a company decides with: ' +
     'validating an idea, premortems, pricing, unit economics, customer discovery, positioning, market ' +
-    'research, launch readiness, outbound rules and the weekly review.',
+    'research, channel testing, a one-page business model, a fit survey, press release first, launch ' +
+    'readiness and outbound messages.',
   body: {
     divisions: [
       { slug: 'strategy', name: 'Strategy', maxConcurrency: 1 },
@@ -589,6 +604,13 @@ export const COMPANY_OS: Bundle = {
           'following the stage-gates skill. When the evidence says a goal is wrong -- a target ' +
           'nobody can reach, a goal that no longer serves the company, one met or not worth ' +
           'pursuing -- propose the change with goal.propose, naming the goal by its slug. ' +
+          // F18.11, F18.7: a test or a plan is new goals, which only the
+          // owner makes, and its prediction counts only if it was written
+          // before the work could colour it.
+          'To find the channel that brings customers, run channel tests by the channel-testing ' +
+          'skill. Propose each channel test, and any plan of new goals, to the owner with ' +
+          'goal.propose, each with its measure and a target set before any work starts; never ' +
+          'start one before the owner approves it. ' +
           'Write for the owner in the company\'s language, briefly.',
         // Twelve, the most a role may hold (F2.6). `metrics.read` made way
         // for `goal.propose`: it needs a vendor bound before it answers
@@ -984,6 +1006,288 @@ what was found in memory, so the next run does not start again from nothing.
           },
         ],
       },
+      // 1.6.0 (F18.11, F18.15): testing channels, and three documents a
+      // company drafts before it spends. Each is written in PALUGADA's words
+      // and names the method it follows once, in its description; the
+      // method's own name is never the skill's title.
+      {
+        slug: 'channel-testing',
+        scope: 'company',
+        source: `---
+name: channel-testing
+description: Finding the channel that brings the company its customers, by cheap tests with a prediction written first; after the Bullseye framework in Traction by Gabriel Weinberg and Justin Mares.
+---
+
+# Channel testing
+
+Start from a traction goal: the customers, users or revenue that would change
+what the company can do next -- break even, hire, raise money -- by a date.
+Its critical path is the fewest steps that reach it. Work on the first step;
+a task that is not on the path is not done.
+
+1. **Possible.** Write one strategy for every one of the 19 channels, the
+   unlikely ones too, since the channel a company overlooks is often its
+   best. Keep the list as a document: draft it with doc.draft, or hand the
+   drafting to a role that holds it if you do not:
+   (1) niche blogs its customers read; (2) publicity in newspapers,
+   magazines, radio and TV; (3) unconventional publicity: a stunt, or going
+   far beyond for customers; (4) search ads; (5) social and display ads;
+   (6) offline ads: print, outdoor, flyers; (7) search engine optimisation;
+   (8) content: the company's own writing; (9) email; (10) free tools and
+   widgets built to attract customers; (11) referrals: customers bringing
+   customers; (12) business development: partnerships; (13) direct sales;
+   (14) affiliates paid per customer; (15) existing platforms: app stores,
+   marketplaces, large networks; (16) trade shows; (17) offline events;
+   (18) speaking; (19) community.
+2. **Probable.** Promote about three, stopping where the excitement
+   clearly drops off. To rank strategies, score each by ICE -- impact,
+   confidence and ease, each 1 to 10 -- and take the average of the three
+   (the ICE average, not their product), resting each score on evidence.
+3. **Test cheaply.** For each one, the smallest test that answers three
+   questions: what one customer costs through it, how many customers it can
+   reach, and whether they are the customers the company wants now. Write
+   the prediction -- customers gained, the most the test may spend, and so
+   the cost per customer -- before any work starts, and propose the test to
+   the owner with goal.propose as one learning priority under the traction
+   goal: a plan line carries one measure, so the test's is customers
+   gained, its target the prediction. Start nothing before then:
+   once the owner approves it, hand each piece of the test to the role that
+   holds the channel's tool, by task.delegate. The test has no account of its
+   own: a piece spends from the account of the task that hands it on, is
+   filed under that task's goal, and lasts a day at most. So a test is
+   short pieces over about a month: record the customers it gains on its
+   measure with metric.record, report what it spent and the cost per
+   customer from the ledger at each weekly review, against the prediction,
+   and stop it when it has spent what it may. Paid ads before launch are
+   refused by the stage rules: test the others first.
+4. **Working.** When a test meets its prediction, propose that channel as
+   the core channel, a committed priority, and put the effort there. Keep
+   another only where it feeds the core one: publicity that earns links for
+   search, email that spreads referrals.
+5. **Again.** When the core channel saturates -- each customer costs more,
+   or it stops moving the traction goal -- run all five steps again with
+   what the tests taught, and look at the long shots again. If no channel
+   works after a few rounds, the product is losing the customers it gets:
+   fix that before buying reach.
+
+Report every test as its prediction against its result, each labelled
+confirmed, likely or speculative, with where the number came from.
+`,
+        evals: [
+          {
+            name: 'names every channel and promotes about three',
+            input: { goal: 'the first hundred paying customers' },
+            expectContains: ['every one of the 19 channels', 'about three', 'drops off', 'critical path'],
+          },
+          {
+            name: 'tests cheaply, with the prediction written first',
+            input: { channel: 'search ads' },
+            expectContains: [
+              'what one customer costs', 'how many customers', 'customers the company wants now',
+              'before any work starts', 'once the owner approves it', 'account of the task that hands it on',
+              'a day at most', 'about a month',
+            ],
+          },
+          {
+            name: 'ranks by the ICE average and keeps one core channel',
+            input: { question: 'which channel next?' },
+            expectContains: ['average of the three', 'core channel', 'feeds the core one', 'saturates'],
+          },
+        ],
+      },
+      {
+        slug: 'one-page-model',
+        scope: 'company',
+        source: `---
+name: one-page-model
+description: The business on one page, nine boxes with the riskiest assumption first, drafted for the owner before money is spent; adapted from Lean Canvas by Ash Maurya, CC BY-SA.
+---
+
+# One-page business model
+
+Write down how the business is believed to work today, on one page, so the
+owner can see which belief to test next. Draft it with doc.draft, or hand
+the drafting to a role that holds it if you do not. It is for the owner:
+doc.draft writes in the work language unless it is given a language, so
+give it the language you write to the owner in when the two differ. A box is a line or two -- fewer words, not smaller ones. Every line
+is a guess until it is tested, so label each one confirmed, likely or
+speculative, and say where it came from.
+
+1. **Customers.** Who pays and who uses, where they differ, and the early
+   adopters: the narrow group with the problem worst, who try new answers
+   first.
+2. **Problem.** Their top one to three problems, and how they cope today:
+   the alternatives the product has to beat.
+3. **Why it is different.** One sentence, for the early adopters, tied to
+   the first problem, saying what changes for them.
+4. **Solution.** The smallest thing that answers each problem. Keep it thin
+   until the problem is confirmed.
+5. **Channels.** How the company reaches the early adopters now. Any channel
+   that teaches is enough at first; the channel-testing skill tests them.
+6. **Revenue.** What is charged, along what, from when. Do not leave the
+   price for later: being paid is the first proof.
+7. **Costs.** What the next three to six months cost: building and
+   launching the first version, and what goes out every month.
+8. **Key numbers.** Three to five that show it working, leading ones before
+   lagging ones.
+9. **Unfair advantage.** What cannot easily be copied or bought.
+   Leave it blank rather than invent one: passion, features and being
+   first are not one. It is usually filled last, if at all.
+
+Then name the riskiest assumption: the box that, if wrong, sinks the rest.
+Put it first in the document, with the cheapest test of it and the result
+that would count. Any box may be filled in any order, or left blank when
+nothing is known. Draw the page again after every test: it describes the
+present, not a plan to defend.
+
+The nine boxes are adapted from Lean Canvas by Ash Maurya, itself adapted
+from the Business Model Canvas by Alexander Osterwalder, and are used under
+the Creative Commons Attribution-ShareAlike licence (CC BY-SA 3.0,
+https://creativecommons.org/licenses/by-sa/3.0/). This adaptation is shared
+under the same licence.
+`,
+        evals: [
+          {
+            name: 'puts the riskiest assumption first and leaves the advantage blank',
+            input: { idea: 'a booking app for barbers' },
+            expectContains: ['riskiest assumption', 'Leave it blank rather than invent one', 'confirmed, likely or'],
+          },
+          {
+            name: 'keeps the share-alike notice',
+            input: { question: 'may we reuse this page?' },
+            expectContains: ['CC BY-SA', 'same licence', 'Ash Maurya'],
+          },
+        ],
+      },
+      {
+        slug: 'fit-survey',
+        scope: 'company',
+        source: `---
+name: fit-survey
+description: Asking real users whether they would miss the product, to judge whether it fits its market, and counting what they say; after Sean Ellis's product/market fit survey.
+---
+
+# Fit survey
+
+Whether the product fits its market is something only its users can say.
+Agents draft the survey, have it sent and count the answers. They
+never answer in place of a customer, and never invent or tidy a reply.
+
+Who is asked:
+
+- only people who used the product at least twice in the last two weeks,
+  read from the company's own records, so every answer comes from real use;
+- never ask the same person twice: a second answer skews the count;
+- about 40 or more answers before the result is read. With fewer, give the
+  count and say it is too few to judge.
+
+The four questions, in the company's own words and in the work language
+your run is given, since customers read them -- never assumed to be English:
+
+1. How would you feel if you could no longer use the product? (Very
+   disappointed, somewhat disappointed, not disappointed.)
+2. What kind of person would get the most from it?
+3. What is the main thing it does for you?
+4. What would make it better for you?
+
+Sending it is outbound. The role that holds the email or chat tool sends
+it, by task.delegate, at tier 2, with whatever approval the policies ask
+for, and by the outbound-compliance skill: who it is from, a way to opt
+out, and consent where the law needs it.
+
+Reading it:
+
+- The result is the percent of answers that are very disappointed. Record
+  it with metric.record on the company's fit measure, a percent. If there
+  is none, ask the owner for one with owner.ask: a number written where
+  nothing can check it is not a result.
+- 40% very disappointed is a heuristic, from Ellis's comparison of about a
+  hundred startups, not a law. Above it the product likely fits. Below it,
+  read who the very disappointed are (question 2) and what they value
+  (question 3), and narrow the product and its customers to them.
+- Of the somewhat disappointed, act on those who value what the very
+  disappointed value, with question 4. Set the not disappointed aside.
+
+Report to the owner, in the language you write to them: the percent, how
+many answered, who was asked and when.
+`,
+        evals: [
+          {
+            name: 'asks only real recent users, once each, and never answers for them',
+            input: { users: 'everyone on the mailing list' },
+            expectContains: [
+              'at least twice in the last two weeks', 'never ask the same person twice',
+              'about 40 or more answers', 'never answer in place of a customer',
+            ],
+          },
+          {
+            name: 'reads 40% as a heuristic and sends at tier 2',
+            input: { result: '31% very disappointed from 52 answers' },
+            expectContains: ['very disappointed', 'a heuristic', 'tier 2', 'metric.record'],
+          },
+        ],
+      },
+      {
+        slug: 'press-release-first',
+        scope: 'company',
+        source: `---
+name: press-release-first
+description: Writing the announcement and its questions and answers before a new offer is built, so the customer's view decides what is built; after Amazon's working backwards practice.
+---
+
+# Press release first
+
+Before the company builds a new offer -- a product, a feature, a service --
+write the press release it would publish on the day the offer is ready, and
+the questions and answers people would want. If the announcement is not
+worth reading, the offer is not worth building yet. It is a document for
+deciding, not for sending: nothing in it goes outside the company.
+
+Draft both with doc.draft, or hand the drafting to a role that holds it if
+you do not, in the work language your run is given, as the customers it is
+for would read it. Together, a page and a half at most.
+
+The press release, a page or less:
+
+- a headline a customer would understand, and one line on who it is for
+  and what changes for them;
+- the problem, in customers' own words as the company heard them;
+- how the offer solves it, and how a customer starts;
+- why the company built it, in a sentence;
+- what it costs and how to get it.
+
+A customer quote is a real one, given with consent, or there is none:
+never invent a customer's words.
+
+The questions and answers:
+
+- what customers would ask: the price, how it differs from what they use
+  now, what happens when it goes wrong, and what it does not do;
+- what the owner would ask: what it costs to build and run, how many
+  customers it needs to pay back, its riskiest assumption and the cheapest
+  test of it, and the result that would make the company stop.
+
+No claim the company cannot back and no number without its source; mark
+each confirmed, likely or speculative.
+
+Then hand it to the critic with task.delegate and read the verdict with
+task.await. Revise until the critic supports it, or name the critic's
+objection for the owner. Only then propose the work: the goal with
+goal.propose, or a stage move with stage.propose.
+`,
+        evals: [
+          {
+            name: 'writes the release and its questions before building',
+            input: { offer: 'a monthly coffee subscription' },
+            expectContains: ['Before the company builds a new offer', 'press release', 'questions and answers', 'never invent a customer'],
+          },
+          {
+            name: 'is read by the critic before it is proposed',
+            input: { offer: 'a delivery service for the shop' },
+            expectContains: ['critic', 'task.delegate', 'goal.propose'],
+          },
+        ],
+      },
       {
         slug: 'launch-readiness',
         scope: 'company',
@@ -1056,7 +1360,7 @@ A message that breaks these is not sent, whatever the campaign.
         scope: 'company',
         source: `---
 name: stage-gates
-description: When the company moves from one stage to the next, and what the move must carry.
+description: When the company moves from one stage to the next, and what the move must carry; pivots and learning priorities after The Lean Startup by Eric Ries.
 ---
 
 # Stage gates
@@ -1076,6 +1380,28 @@ the evidence, and never act as though it had moved before they approve.
 - **To wind down:** the numbers have not moved for long enough that the
   weekly review keeps saying stop. Propose it; say what is owed to customers.
 
+In explore and validate, prefer learning priorities: goals whose result is
+what the company learns, each with its measure and a target written before
+its first task. The target is the prediction, and the result is read against
+it; a missed prediction is something learned, not a failure. When its period
+ends the platform grades it, writing what was predicted beside what happened,
+and the grades in the weekly review's input (\`week\`) are the last quarter's:
+read that grade, never a recollection, to pivot or persevere. A prediction
+met is a reason to persevere; one missed by far, test after test, is a
+reason to pivot.
+
+The fit-survey skill gives the GO one more piece of evidence: 40% or more of
+about 40 recent users very disappointed without the product. That is a
+heuristic, never the only evidence and never a stand-in for payment.
+
+When the evidence says the idea is wrong, pivot rather than start again:
+keep what was learned and change one thing -- the customer segment (the
+same product for other customers), the problem (the same customers, another
+problem), or the one feature people use, made the whole product. Watch for
+both failure modes: the living dead, a company that never pivots and waits
+for the next feature to bring customers; and the compulsive jumper, one that
+changes direction before any test could teach it something.
+
 Going back a stage is allowed and is often right. Propose it the same way.
 Each proposal names the evidence, where each piece came from, and what result
 would make the owner move the company back.
@@ -1085,6 +1411,16 @@ would make the owner move the company back.
             name: 'names the GO evidence',
             input: { question: 'are we ready to build?' },
             expectContains: ['willingness to pay', 'premortem', 'NO-GO'],
+          },
+          {
+            name: 'prefers learning priorities and names both ways a pivot fails',
+            input: { question: 'nobody is paying yet; do we change course?' },
+            expectContains: ['learning priorities', 'prediction', '40%', 'living dead', 'compulsive jumper', 'customer segment'],
+          },
+          {
+            name: 'decides from the grade the platform wrote',
+            input: { question: 'the test is over; was it right?' },
+            expectContains: ['the platform grades it', 'predicted beside what', 'pivot or persevere', "grades in the weekly review's input"],
           },
         ],
       },
@@ -1100,13 +1436,16 @@ description: The weekly review of the numbers, what changed, and what to continu
 
 Start from the week in the task's input (\`week\`): every active goal with its
 metrics, the work finished this week, the spend against the monthly limit,
-and any stage move waiting for the owner, all read from the company's
-records. Where it says something was left out, say so rather than guessing.
+any stage move waiting for the owner, and the grades of the periods that
+ended in the last quarter, all read from the company's records. Where it says
+something was left out, say so rather than guessing.
 
 One page, for the owner, in this order:
 
 1. The numbers: every goal metric against its target, verified or not, and
-   the change since last week. No number without its source.
+   the change since last week. No number without its source. For a learning
+   priority graded since the last review, its prediction against what
+   happened, and whether to pivot or persevere by the stage gates.
 2. What changed: what shipped, what was learned, what broke.
 3. Continue or stop: for each piece of work in flight, one line -- continue,
    change, or stop -- and why, in terms of the numbers.
@@ -1122,6 +1461,56 @@ a review.
             name: 'has the continue-or-stop section',
             input: { week: 'a slow week' },
             expectContains: ['target', 'continue', 'stop'],
+          },
+        ],
+      },
+      {
+        slug: 'monthly-review',
+        scope: 'company',
+        source: `---
+name: monthly-review
+description: The monthly money review from the company's own books -- profit, cash, what is owed, spend and the levers that move them; after Verne Harnish's Power of One.
+---
+
+# Monthly money review
+
+Start from the month in the task's input (\`month\`): the last whole month's
+sales, cost of goods, overhead and profit beside the month before; cash at its
+start and end; what customers owe, what is late and by how many days; what is
+owed to suppliers and held in stock; what the agents spent against the monthly
+ceiling; each measure at the month's end against its start; and the seven
+levers. All of it is read from the company's books, not estimated. Use those
+figures and no others; where the input says something was left out, say so.
+
+One page, for the owner, in the company's language, in this order:
+
+1. Profit: the month's against the month before's, in one line each, and what
+   made the difference.
+2. Cash: where it started and ended, and why it moved -- profit is not cash.
+3. What is owed: every late invoice, oldest first, with its days late, and the
+   days of sales still owed. Chasing is the bookkeeper's; say who needs a word
+   from the owner.
+4. Spend: what the agents spent against the ceiling, and whether the month's
+   work was worth it.
+5. The levers: for each, what one per cent or one day is worth on these
+   books. Name the one or two that would move profit or cash the most for the
+   least effort, and what it would take. A lever marked unavailable needs an
+   account the books do not keep (cost of goods is an expense account coded
+   50.., stock an asset account coded 13..): say so, and do not guess it.
+6. Issues for the weekly meeting: what should be solved, one line each, for
+   the CEO to take up. Put them last and keep them short: the CEO's next
+   weekly meeting is handed the end of this review's summary, about six
+   hundred characters. Never apply a change: a goal is proposed with
+   goal.propose, and spending is the owner's decision.
+
+The levers are a heuristic for where to look, not a forecast: one per cent is
+what it is worth if nothing else moves.
+`,
+        evals: [
+          {
+            name: 'names cash, what is late and the levers',
+            input: { month: 'a month with a late invoice' },
+            expectContains: ['cash', 'late', 'lever', 'unavailable'],
           },
         ],
       },
@@ -1154,6 +1543,21 @@ a review.
         // Without it the review saw the numbers of its own goal chain -- the
         // mission's -- and none of the week's work.
         facts: 'week',
+      },
+      {
+        slug: 'monthly-review',
+        roleSlug: 'strategist',
+        // The first of the month, ten to eight in the company's own time
+        // zone: five minutes after the weekly review's hour, so on a month
+        // that begins on a Monday the two are not made in the same pass.
+        cron: '50 7 1 * *',
+        goal:
+          'Monthly money review: follow the monthly-review skill, starting from the month in this ' +
+          'task\'s input -- profit, cash, what is owed and late, spend against the ceiling and the ' +
+          'levers, read from the company\'s books.',
+        // F18.12: the books are no run's unless it reads them; the review is
+        // handed the month's, and a month with nothing in them is passed over.
+        facts: 'month',
       },
     ],
   },

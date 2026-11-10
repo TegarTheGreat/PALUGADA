@@ -1,5 +1,6 @@
 /**
- * PRD F11.3, F11.4, F9.4, F10.6 -- cost, alerts, digest and retro.
+ * PRD F11.3, F11.4, F9.4, F10.6, F18.12 -- cost, alerts, digest, retro and
+ * the monthly money review.
  *
  * These are the instruments the owner steers by, so the properties that matter
  * are about trust rather than arithmetic: figures must not cross tenants, an
@@ -16,12 +17,17 @@ import { buildDailyDigest, buildWeeklyRetro } from '../../src/reporting/digest.t
 import { renderDailyDigest } from '../../src/owner/digest-said.ts';
 import { traceFromInboxItem } from '../../src/reporting/trace.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { createRootTask, outsideContentIn, transition } from '../../src/engine/tasks.ts';
 import { ENDED_AFTER_MS, reportEndedBadly } from '../../src/engine/ended.ts';
-import { evaluateSpendLimit } from '../../src/governance/spend-guard.ts';
+import { evaluateSpendLimit, setSpendLimit } from '../../src/governance/spend-guard.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { addAccount, entryInput, postEntry } from '../../src/records/books.ts';
+import { issueInvoice, payInvoice } from '../../src/records/invoices.ts';
+import { buildMonthFacts, type MonthFacts } from '../../src/reporting/month.ts';
+import { runDueSchedules, runScheduleNow, upsertSchedule } from '../../src/scheduler/scheduler.ts';
+import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup, runMigrationAgain } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -683,4 +689,246 @@ test('one company cannot trace another\'s inbox item (F1.3, F11.2)', async () =>
   // rather than "an item you may not read" -- which is the right answer,
   // because the second one confirms it exists.
   assert.equal(await traceFromInboxItem(mine.companyId, item!.id), null);
+});
+
+/* --------------------------------------------- the monthly money review --- */
+
+/** Posts an entry the owner wrote: a day, a memo and its lines by account code, in IDR. */
+async function post(fixture: Fixture, date: string, memo: string, lines: Array<[string, 'dr' | 'cr', number]>): Promise<void> {
+  await withTenant(fixture.companyId, (tx) => postEntry(tx, fixture.companyId, entryInput({
+    date, memo, currency: 'IDR',
+    lines: lines.map(([account, side, cents]) => (side === 'dr' ? { account, debitCents: cents } : { account, creditCents: cents })),
+  }), 'owner'));
+}
+
+/**
+ * F18.12, F9.4: the month's money, read from the company's own books.
+ *
+ * A trading company's September: an owner's capital and a cash sale in
+ * August, then stock bought on credit, two sales invoiced -- one paid into
+ * a second bank account, one written by work that had read an email and
+ * still owed -- goods sold out of stock, and the rent. Every figure is the
+ * books' own, and each lever is what one per cent or one day is worth on
+ * them. A company whose chart keeps no cost of goods or stock gets those
+ * levers marked as such, not a number made up from the rest.
+ */
+test('the monthly money review is read from the books: profit, cash, what is late, spend and the levers (F18.12)', async () => {
+  const fixture = await createCompany('money-month');
+  await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'Asia/Jakarta' WHERE id = $1", [fixture.companyId]));
+  await withTenant(fixture.companyId, async (tx) => {
+    await addAccount(tx, fixture.companyId, { code: '1110', name: 'Bank BCA', kind: 'asset' });
+    await addAccount(tx, fixture.companyId, { code: '1300', name: 'Stock', kind: 'asset' });
+    await addAccount(tx, fixture.companyId, { code: '5000', name: 'Cost of goods sold', kind: 'expense' });
+  });
+  await post(fixture, '2026-08-01', 'Owner capital', [['1100', 'dr', 10_000_000], ['3100', 'cr', 10_000_000]]);
+  await post(fixture, '2026-08-20', 'Cash sale', [['1100', 'dr', 1_000_000], ['4100', 'cr', 1_000_000]]);
+  await post(fixture, '2026-09-02', 'Stock bought on credit', [['1300', 'dr', 3_000_000], ['2100', 'cr', 3_000_000]]);
+  const late = await withTenant(fixture.companyId, (tx) => issueInvoice(tx, fixture.companyId, {
+    customerName: 'Toko Kopi Senja', currency: 'IDR', issueDate: '2026-09-05', dueDate: '2026-09-15',
+    lines: [{ description: 'Biji kopi', quantity: 1, unitCents: 5_000_000 }],
+  }, 'agent', { outside: true }));
+  const paid = await withTenant(fixture.companyId, (tx) => issueInvoice(tx, fixture.companyId, {
+    customerName: 'Warung Pak Budi', currency: 'IDR', issueDate: '2026-09-10', dueDate: '2026-09-24',
+    lines: [{ description: 'Biji kopi', quantity: 1, unitCents: 5_000_000 }],
+  }, 'owner'));
+  await withTenant(fixture.companyId, (tx) => payInvoice(tx, fixture.companyId, paid.number,
+    { amountCents: 5_000_000, date: '2026-09-20', depositTo: '1110' }, 'owner'));
+  await post(fixture, '2026-09-12', 'Goods sold out of stock', [['5000', 'dr', 2_000_000], ['1300', 'cr', 2_000_000]]);
+  await post(fixture, '2026-09-15', 'Rent', [['5100', 'dr', 1_500_000], ['1100', 'cr', 1_500_000]]);
+  // The day after the month: not the month's.
+  await post(fixture, '2026-10-01', 'Cash sale', [['1100', 'dr', 7_000_000], ['4100', 'cr', 7_000_000]]);
+  await withTenant(fixture.companyId, async (tx) => {
+    for (const [id, at, cents] of [['september', '2026-09-18T03:00:00Z', 2_500], ['august', '2026-08-18T03:00:00Z', 1_000]] as const) {
+      await tx.query(
+        `INSERT INTO llm_traces (id, company_id, model, prompt, cost_cents, occurred_at)
+         VALUES ($1, $2, 'test-model', '{}'::jsonb, $3, $4)`, [`money-${id}-${fixture.slug}`, fixture.companyId, cents, at]);
+    }
+  });
+
+  await setSpendLimit(fixture.companyId, 50_000);
+  await readsTheBooks(fixture);
+
+  // The first of October, ten to eight in Jakarta: September is reviewed.
+  const facts = await buildMonthFacts(fixture.companyId, fixture.roleId, new Date('2026-10-01T00:50:00Z'));
+  assert.deepEqual([facts.month, facts.from, facts.to, facts.days], ['2026-09', '2026-09-01', '2026-09-30', 30]);
+  assert.deepEqual(facts.spend, { monthCents: 2_500, previousMonthCents: 1_000, limitCents: 50_000 });
+  assert.equal(facts.books.length, 1, 'one currency');
+  const idr = facts.books[0]!;
+  assert.deepEqual(
+    {
+      currency: idr.currency, income: idr.incomeCents, costOfGoods: idr.costOfGoodsCents, overhead: idr.overheadCents,
+      profit: idr.profitCents, previous: idr.previous, cash: idr.cash,
+      receivable: idr.receivableCents, payable: idr.payableCents, stock: idr.stockCents, overdue: idr.overdueCents,
+      days: [idr.receivableDays, idr.stockDays, idr.payableDays],
+    },
+    {
+      currency: 'IDR', income: 10_000_000, costOfGoods: 2_000_000, overhead: 1_500_000, profit: 6_500_000,
+      previous: { incomeCents: 1_000_000, expenseCents: 0, profitCents: 1_000_000 },
+      // Both bank accounts are cash: 1100 and the 1110 the owner added.
+      cash: { startCents: 11_000_000, endCents: 14_500_000, changeCents: 3_500_000 },
+      receivable: 5_000_000, payable: 3_000_000, stock: 1_000_000, overdue: 5_000_000,
+      days: [15, 15, 45],
+    },
+  );
+  assert.deepEqual(idr.levers.map((lever) => [lever.lever, lever.effect, lever.cents, lever.unavailable]), [
+    ['price', 'profit', 100_000, null],
+    ['volume', 'profit', 80_000, null],
+    ['cost_of_goods', 'profit', 20_000, null],
+    ['overhead', 'profit', 15_000, null],
+    ['receivable_days', 'cash', 333_333, null],
+    ['stock_days', 'cash', 66_667, null],
+    ['payable_days', 'cash', 66_667, null],
+  ]);
+
+  // Late, by sixteen days on the first of October, and in words written
+  // after reading an email: data, and the review carries that.
+  assert.equal(facts.overdue.invoices.length, 1);
+  const owed = facts.overdue.invoices[0]!;
+  assert.deepEqual([owed.number, owed.dueDate, owed.daysOverdue, owed.outstandingCents, owed.outside],
+    [late.number, '2026-09-15', 16, 5_000_000, true]);
+  assert.match(owed.customer, /UNTRUSTED_CONTENT[\s\S]*Toko Kopi Senja/);
+  assert.equal(facts.overdue.leftOut, 0);
+
+  // A service company's books: no account for cost of goods or stock, so the
+  // levers that need them say so rather than guess.
+  const service = await createCompany('money-month-service');
+  await post(service, '2026-09-03', 'Consulting, paid at once', [['1100', 'dr', 2_000_000], ['4100', 'cr', 2_000_000]]);
+  await post(service, '2026-09-04', 'Software', [['5100', 'dr', 500_000], ['1100', 'cr', 500_000]]);
+  await readsTheBooks(service);
+  const plain = (await buildMonthFacts(service.companyId, service.roleId, new Date('2026-10-01T09:00:00Z'))).books[0]!;
+  assert.deepEqual([plain.costOfGoodsCents, plain.stockCents, plain.overheadCents, plain.receivableDays], [null, null, 500_000, 0]);
+  assert.deepEqual(plain.levers.map((lever) => [lever.lever, lever.cents, lever.unavailable]), [
+    ['price', 20_000, null],
+    ['volume', null, 'no_cost_of_goods_account'],
+    ['cost_of_goods', null, 'no_cost_of_goods_account'],
+    ['overhead', 5_000, null],
+    ['receivable_days', 66_667, null],
+    ['stock_days', null, 'no_stock_account'],
+    ['payable_days', null, 'no_cost_of_goods_account'],
+  ]);
+  assert.ok(JSON.stringify(facts).length < 16_000, 'it travels with every step of the run');
+});
+
+/** The last whole month, as a company in Jakarta (no daylight saving) counts it today. */
+function lastMonthInJakarta(): { month: string; day: string } {
+  const here = new Date(Date.now() + 7 * 3_600_000);
+  const lastDay = new Date(Date.UTC(here.getUTCFullYear(), here.getUTCMonth(), 1) - 86_400_000).toISOString().slice(0, 10);
+  return { month: lastDay.slice(0, 7), day: lastDay };
+}
+
+/**
+ * The month is the company's books, and the books are read through
+ * `ledger.read`: the role a review is for holds the tool, and its division
+ * the grant, as the operating kit's strategist does.
+ */
+async function readsTheBooks(fixture: Fixture): Promise<void> {
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'ledger.read');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [fixture.roleId]));
+}
+
+async function moneyReview(fixture: Fixture, options: { readsTheBooks?: boolean } = {}): Promise<string> {
+  if (options.readsTheBooks !== false) await readsTheBooks(fixture);
+  await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'Asia/Jakarta' WHERE id = $1", [fixture.companyId]));
+  const scheduleId = await upsertSchedule({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    slug: 'monthly-review', cronExpression: '50 7 1 * *', timezone: 'Asia/Jakarta',
+    input: { goal: 'Monthly money review.', facts: 'month' },
+  });
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE schedules SET next_run_at = date_trunc('milliseconds', now() - interval '1 minute') WHERE id = $1", [scheduleId]));
+  return scheduleId;
+}
+
+/**
+ * F18.12: "a month with no numbers is passed over". A company whose books
+ * had nothing dated in the month and nothing owed and late has nothing for
+ * a money review to read, and a review of it would spend tokens finding
+ * something to say (N10). The occurrence is passed over and said; the owner's
+ * "Run now" runs it all the same.
+ */
+test('a quiet month is passed over, and a month with money in it is reviewed with its facts (F18.12, N10)', async () => {
+  const { month, day } = lastMonthInJakarta();
+
+  const quiet = await createCompany('money-quiet');
+  const quietReview = await moneyReview(quiet);
+  // Long before the month: a sale, not late, all paid. Nothing of it is the month's.
+  await post(quiet, '2020-01-10', 'Cash sale', [['1100', 'dr', 1_000], ['4100', 'cr', 1_000]]);
+  assert.deepEqual(await runDueSchedules(), [], 'nothing was made');
+  const { rows: said } = await withTenant(quiet.companyId, (tx) => tx.query<{ payload: { slug: string; month: string } }>(
+    "SELECT payload FROM events WHERE type = 'schedule.quiet_month' AND payload->>'scheduleId' = $1", [quietReview]));
+  assert.deepEqual(said.map((one) => [one.payload.slug, one.payload.month]), [['monthly-review', month]], 'said once, naming the month');
+  const asked = await runScheduleNow(quiet.companyId, quietReview);
+  assert.equal((asked.input.month as { month: string }).month, month, 'the owner asked: it runs');
+
+  // An invoice owed and late since long before the month: money to chase.
+  // Written by work that had read an email, so the review carries that (F8.9).
+  const chasing = await createCompany('money-late');
+  const chasingReview = await moneyReview(chasing);
+  await withTenant(chasing.companyId, (tx) => issueInvoice(tx, chasing.companyId, {
+    customerName: 'Toko Lama', currency: 'IDR', issueDate: '2020-01-10', dueDate: '2020-01-24',
+    lines: [{ description: 'Kopi', quantity: 1, unitCents: 1_000 }],
+  }, 'agent', { outside: true }));
+
+  // A sale on the month's last day.
+  const busy = await createCompany('money-busy');
+  const busyReview = await moneyReview(busy);
+  await post(busy, day, 'Cash sale', [['1100', 'dr', 4_000], ['4100', 'cr', 4_000]]);
+
+  const fired = await runDueSchedules();
+  assert.deepEqual(fired.map((one) => one.companyId).sort(), [chasing.companyId, busy.companyId].sort());
+  const { rows } = await withTenant(busy.companyId, (tx) => tx.query<{ input: { facts: string; month: MonthFacts } }>(
+    'SELECT input FROM tasks WHERE schedule_id = $1', [busyReview]));
+  assert.equal(rows[0]!.input.facts, 'month');
+  assert.equal(rows[0]!.input.month.month, month);
+  assert.equal(rows[0]!.input.month.books[0]!.incomeCents, 4_000);
+  await withTenant(busy.companyId, async (tx) => {
+    assert.equal(await outsideContentIn(tx, (await tx.query<{ id: string }>('SELECT id FROM tasks WHERE schedule_id = $1', [busyReview])).rows[0]!.id), null);
+  });
+  await withTenant(chasing.companyId, async (tx) => {
+    const { rows: [review] } = await tx.query<{ id: string; overdue: number }>(
+      "SELECT id, jsonb_array_length(input->'month'->'overdue'->'invoices') AS overdue FROM tasks WHERE schedule_id = $1", [chasingReview]);
+    assert.equal(review!.overdue, 1);
+    assert.equal(await outsideContentIn(tx, review!.id), 'read', 'a late customer named by work that read an email is data');
+  });
+});
+
+/**
+ * F18.12, F8.1: the month's facts are the company's books -- cash, what is
+ * owed and the names of the customers late with it -- and nothing reads the
+ * books except through `ledger.read`. A schedule handed the month for a role
+ * that does not hold it, because the owner took the tool or the grant away
+ * after the kit installed it, or because the schedule was written by hand,
+ * is refused when it fires and when the owner runs it, naming what is
+ * missing, and no run is made with the books in its input.
+ */
+test("the month's books are handed only to a role that may read them (F18.12, F8.1)", async () => {
+  const { day } = lastMonthInJakarta();
+  const blind = await createCompany('money-blind');
+  await registerStandardCatalogue();
+  const review = await moneyReview(blind, { readsTheBooks: false });
+  await post(blind, day, 'Cash sale', [['1100', 'dr', 4_000], ['4100', 'cr', 4_000]]);
+
+  await assert.rejects(runScheduleNow(blind.companyId, review),
+    /role worker does not list ledger.read among its tools, so it may not be handed the month's books/);
+  assert.deepEqual(await runDueSchedules(), [], 'the clock makes no run either');
+  const { rows: [failed] } = await withTenant(blind.companyId, (tx) => tx.query<{ fire_failure: string | null }>(
+    'SELECT fire_failure FROM schedules WHERE id = $1', [review]));
+  assert.match(failed!.fire_failure ?? '', /does not list ledger.read/, 'the occurrence failed, saying why');
+
+  // The tool without the division's grant is not enough either: the broker
+  // would refuse the call.
+  await withTenant(blind.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = array_append(tools, 'ledger.read') WHERE id = $1", [blind.roleId]));
+  await assert.rejects(runScheduleNow(blind.companyId, review),
+    /division of role worker is not granted ledger.read, so it may not be handed the month's books/);
+  const { rows: made } = await withTenant(blind.companyId, (tx) => tx.query(
+    'SELECT 1 FROM tasks WHERE schedule_id = $1', [review]));
+  assert.equal(made.length, 0);
+
+  await grantCapability(blind, 'ledger.read');
+  const ran = await runScheduleNow(blind.companyId, review);
+  assert.equal((ran.input.month as MonthFacts).books[0]!.incomeCents, 4_000);
 });

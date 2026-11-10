@@ -598,6 +598,30 @@ pending ──▶ checked_out ──▶ running ──▶ completed
 | F17.3 | Skor eval ditampilkan sebelum owner menyetujui perubahan role | P1 |
 | F17.4 | Trajectory yang berakhir `halted` atau ditolak reviewer otomatis jadi kandidat eval negatif | P2 |
 
+### 8.18 Irama operasi dan kerangka kerja (F18)
+
+Perusahaan agent dijalankan dengan metode manajemen yang sudah terbukti dan dipakai luas, bukan metode karangan sendiri. Sumbernya: *Traction* (Gino Wickman, Entrepreneurial Operating System), *Measure What Matters* (John Doerr) dan *High Output Management* (Andy Grove) untuk OKR, *Traction* (Gabriel Weinberg dan Justin Mares) untuk pengujian kanal, *The Lean Startup* (Eric Ries), Lean Canvas (Ash Maurya), *Scaling Up* (Verne Harnish), siklus PDCA (Deming), Five Whys (Toyota), postmortem tanpa menyalahkan (Google SRE), dan *working backwards* (Amazon). PALUGADA memakai nama generik dengan atribusi dan tidak berafiliasi dengan pemegang merek mana pun (EOS®, Rocks™, Level 10 Meeting™, V/TO® adalah merek EOS Worldwide).
+
+Pembagian perannya: owner adalah *visionary*, yang menulis visi dan memutuskan setiap pintu satu arah (Tier 3); CEO adalah *integrator*, yang menjalankan irama, menagih angka setiap kursi, dan menyelesaikan isu antar kursi. Bagian yang hanya bermakna bagi manusia, seperti People Analyzer, rating rapat 1–10, dan daily huddle, sengaja tidak diadopsi (STATUS menjelaskan alasannya).
+
+| ID | Kebutuhan | P |
+|---|---|---|
+| F18.1 | Goal punya periode (mulai, jatuh tempo), satu kursi pemilik, jenis komitmen (`committed`, `aspirational`, `learning`) dan definisi selesai; objective satu tahun fiskal = sasaran tahun ini, key result satu kuartal = prioritas kuartalan; batas lunak (≤ 7 prioritas per kuartal, ≤ 5 per kursi) memberi peringatan, tidak menolak | P0 |
+| F18.2 | Scorecard mingguan: ukuran dengan kursi pemilik, target mingguan, riwayat 13 minggu, status on track / off track / belum dilaporkan menurut zona waktu company; ukuran boleh dipasangkan (indikator berpasangan, Grove) dan pasangannya selalu ditampilkan bersama | P0 |
+| F18.3 | Kursi dan akuntabilitas: setiap role memegang ≤ 5 akuntabilitas; setiap run diberi tahu akuntabilitasnya serta angka, prioritas, dan to-do kursinya sendiri; bagan menandai kursi tanpa akuntabilitas, angka tanpa pemilik, dan akuntabilitas yang diklaim dua kursi | P1 |
+| F18.4 | Daftar isu: isu adalah tiket dengan akar masalah, keputusan, dan to-do tindak lanjut; isu tidak bisa selesai tanpa akar masalah dan keputusan; penyelesaiannya menyimpan pelajaran di memori; insiden kelas tertentu, ukuran off track, dan prioritas yang meleset otomatis menjadi isu (postmortem) tanpa duplikat | P0 |
+| F18.5 | To-do: tindakan tujuh hari dengan satu kursi, dicatat selesai atau tidak; tingkat penyelesaian tujuh hari dihitung; to-do yang tidak selesai di dua rapat berturut-turut menjadi isu | P0 |
+| F18.6 | Rapat operasi mingguan dijalankan CEO pada hari dan jam pilihan owner, sekali per minggu, dengan fakta dari baris data (scorecard, prioritas, berita utama, to-do, isu) yang tidak ditulis model; company yang tidak punya apa pun untuk dibahas tidak menghabiskan token | P0 |
+| F18.7 | CEO atau strategist mengusulkan rencana (beberapa goal baru beserta ukurannya) sebagai satu kartu Tier 3; owner menyetujui atau menolak per baris; agent tetap tidak bisa menulis goal | P1 |
+| F18.8 | Nilai akhir periode dihitung platform, bukan agent: prioritas `committed` lulus atau gagal, `aspirational` dinilai 0,0–1,0 (0,6–0,7 wajar), `learning` mencatat prediksi terhadap hasil; prioritas `committed` yang gagal menjadi isu; nilai tidak pernah memengaruhi budget, tier, atau pembekuan role | P1 |
+| F18.9 | Perencanaan kuartalan sepuluh hari sebelum kuartal berakhir, mengikuti awal tahun fiskal company; kuartal terakhir menambahkan sasaran tahun berikutnya; hasilnya satu keputusan owner | P1 |
+| F18.10 | Halaman visi dan rencana: visi dari charter company, sasaran tahun ini, prioritas kuartal dengan laju dan nilainya, ringkasan scorecard, isu jangka panjang, kanal, dan catatan rapat terakhir | P1 |
+| F18.11 | Pengujian kanal (Bullseye): 19 kanal traksi, goal bisa menandai kanalnya, cincin *possible / probable / working* diturunkan dari data, pengujian murah dengan prediksi sebelum kerja; iklan berbayar sebelum peluncuran tetap ditolak | P1 |
+| F18.12 | Tinjauan uang bulanan dari buku company: laba, kas, piutang jatuh tempo, belanja terhadap batas, dan tuas *Power of One*; bulan yang tidak punya angka dilewati | P2 |
+| F18.13 | Angka utama company dipilih owner, wajib berpasangan; ukuran boleh menandai tahap corong (akuisisi, aktivasi, retensi, referral, pendapatan) | P2 |
+| F18.14 | Proses inti: skill yang ditandai inti punya satu kursi pemilik; perencanaan kuartalan menyebut proses inti yang lama tidak diperbarui dan seberapa sering proses itu dibaca | P2 |
+| F18.15 | Skill penyusunan dokumen di `company-os`: model bisnis satu halaman (Lean Canvas, CC BY-SA), survei kecocokan produk (Sean Ellis, 40% sebagai heuristik), *working backwards* (press release dan FAQ), dan stage-gates yang memakai prioritas belajar | P2 |
+
 ## 9. Kebutuhan non-fungsional
 
 | Area | Target | Catatan |

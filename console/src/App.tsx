@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconBook2, IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
+  IconBook2, IconCoin, IconCompass, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -41,6 +41,7 @@ import { Onboarding } from './pages/Onboarding.tsx';
 const DeploymentSettings = lazy(() => import('./pages/Deployment.tsx').then((module) => ({ default: module.DeploymentSettings })));
 const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({ default: module.Decisions })));
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
+const Plan = lazy(() => import('./pages/Plan.tsx').then((module) => ({ default: module.Plan })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
 const Customers = lazy(() => import('./pages/Customers.tsx').then((module) => ({ default: module.Customers })));
 const Books = lazy(() => import('./pages/Books.tsx').then((module) => ({ default: module.Books })));
@@ -63,6 +64,7 @@ import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
 const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
   { id: 'inbox', label: N('Inbox'), about: N('What waits for your decision'), icon: IconInbox, group: 'decide' },
   { id: 'overview', label: N('Overview'), about: N('How the company is doing'), icon: IconLayoutDashboard, group: 'company' },
+  { id: 'plan', label: N('Plan'), about: N('The vision, and the plan that serves it'), icon: IconCompass, group: 'company' },
   { id: 'work', label: N('Work'), about: N('What the team is doing now'), icon: IconActivity, group: 'company' },
   { id: 'customers', label: N('Customers'), about: N('Conversations with your customers'), icon: IconMessages, group: 'company' },
   { id: 'books', label: N('Books'), about: N('Money in, money out, and who owes whom'), icon: IconBook2, group: 'company' },
@@ -716,7 +718,7 @@ function Console({ device, staff, recovered, signOut }: {
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'books', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'plan', 'customers', 'books', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -793,6 +795,7 @@ function CompanyPageView({ ctx, route }: PageProps) {
   switch (route.page) {
     case 'inbox': return <Decisions ctx={ctx} route={route} />;
     case 'overview': return <Overview ctx={ctx} route={route} />;
+    case 'plan': return <Plan ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
     case 'customers': return <Customers ctx={ctx} route={route} />;
     case 'books': return <Books ctx={ctx} route={route} />;

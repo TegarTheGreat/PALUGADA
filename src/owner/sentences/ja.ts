@@ -402,6 +402,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '取り下げ済み：対象のタスクはもう一度実行されました。',
   'Withdrawn: the day it was about has ended.':
     '取り下げ済み：対象の日は終わりました。',
+  'Withdrawn: the period it was about has ended and been graded.':
+    '取り下げ済み：対象の期間が終わり、評価されました。',
+  'Withdrawn: the goal it was about was closed.':
+    '取り下げ済み：対象の目標が閉じられました。',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     '取り下げ済み：今月の上限に達したため、会社が一時停止中であることを伝えるカードに置き換わりました。',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -438,4 +442,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '完了した仕事：{count}',
   'Stopped: its work was taken up another way':
     '停止: その仕事は別の形で引き継がれました',
+  'Its work stopped, and each time it took down the worker running it.':
+    '作業が止まり、そのたびに実行中のワーカーも停止させました。',
+  'A write to an outside service may have happened without being what was meant.':
+    '外部サービスへの書き込みが、意図とは違う形で行われた可能性があります。',
+  'Work charged to the same budget account stops until it has room again.':
+    '同じ予算口座に請求される作業は、口座に余裕が戻るまで止まります。',
+  'Its work stopped before it was done.':
+    '作業が終わる前に止まりました。',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'プラットフォームは失われたワーカーを {lost} 回数えました。これはタスクが失ってよい上限です。',
+  'The platform read back what was written, and it did not match.':
+    'プラットフォームが書き込んだ内容を読み戻したところ、一致しませんでした。',
+  'The budget account had nothing left to reserve for the work.':
+    '予算口座には作業のために確保できる残りがありませんでした。',
+  'The platform found it ended with no card raised for it.':
+    'プラットフォームは、カードが一枚も出されないまま終わっているのを見つけました。',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'カードは部門が対応役に指名した者に送られ、その後あなたに届きました。',
+  'The task was halted, and you were told on a card in the inbox.':
+    'タスクは停止され、受信箱のカードでお知らせしました。',
+  'Postmortem: {cause} ({about})':
+    '事後分析：{cause}（{about}）',
+  'What happened':
+    '何が起きたか',
+  'Impact':
+    '影響',
+  'Trigger':
+    'きっかけ',
+  'Detection':
+    '検知',
+  'What was done':
+    '行った対応',
+  'A task of {role} stopped before it was done.':
+    '{role} のタスクが終わる前に止まりました。',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    '解決するには：答えのたびに「なぜ」を問い、記録と照らし合わせて根本原因を見つけ、一度決め、その決定を実行するやることを席一つずつに作成します。',
+  'Off track: {name}':
+    '未達：{name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} は {week} の週に {value} で、週の目標は {target} でした。',
+  '{role} answers for it.':
+    '{role} が責任を持ちます。',
+  'No seat answers for it.':
+    '責任を持つ席がありません。',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'プラットフォームが週次の運営会議の前に週次スコアカードから読み取りました。',
+  'Not done at two meetings: {title}':
+    '2回の会議で未完了：{title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'やること「{title}」（期日 {due}）は、{previous} の週次運営会議でも今回の会議でも完了していませんでした。',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'プラットフォームが週次の運営会議の前にやることから読み取りました。',
+  'Weekly operating meeting held ({week}): {where}':
+    '週次運営会議を開催しました（{week}）：{where}',
+  'see its task under Work':
+    '「仕事」でそのタスクを見てください',
+  'New goals proposed, to approve line by line':
+    '新しい目標の提案（1 行ずつ承認）',
+  'Line {line}: the {kind} "{goal}"':
+    '{line} 行目：{kind}「{goal}」',
+  'Under: {goal}':
+    '上位：{goal}',
+  'Under line {line}: {goal}':
+    '上位は {line} 行目：{goal}',
+  'Period: {from} to {to}':
+    '期間：{from} ～ {to}',
+  'Committed: done in full, or missed.':
+    '必達：完遂するか、未達か。',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    '挑戦：採点され、0.6 ～ 0.7 なら良い結果です。',
+  'Learning: a test of the prediction below.':
+    '学習：下の予測を検証します。',
+  'Owned by: {role}':
+    '責任を持つ席：{role}',
+  'Done when: {doneWhen}':
+    '完了条件：{doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    '予測（仕事の前に記録）：{name} が {baseline} から {target} に達する。',
+  'Measured by {name}: from {baseline} to {target}.':
+    '指標 {name}：{baseline} から {target} へ。',
+  'Watched with: {measure}':
+    '対になる指標：{measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    '今年の目標：{count}件。会社が見渡せる{limit}件を超えています。',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'この目標の主要な成果：{count}件。一つの目標が見渡せる{limit}件を超えています。',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    '同時に進む四半期の優先事項：{count}件。会社が見渡せる{limit}件を超えています。',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat}が同時に持つ四半期の優先事項：{count}件。一つの席が持てる{limit}件を超えています。',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    '承認すると、承認した各行が指標付きの目標になります。却下した行は作られません。それまでは、現在の目標のまま仕事が続きます。',
+  'No goal is made.':
+    '目標は作られません。',
+  'Missed: {statement}':
+    '未達：{statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}（{from} から {to} までの必達）は完了しませんでした。',
+  'Measured by its numbers, it came {progress} of the way.':
+    '数値で測ると、{progress} まで進みました。',
+  'It was not marked met by its due date.':
+    '期日までに達成済みにされませんでした。',
+  'The platform graded it when its period ended.':
+    'プラットフォームが期間の終わりに採点しました。',
+  'Off pace: {statement}':
+    '遅れ：{statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} は期日 {due} の必達の優先事項です。数値は {progress} までしか進んでおらず、期間は {elapsed} が過ぎています。',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    '追いつくために何も変えておらず、どのエージェントにも求めていません。時間に遅れた必達の数字は、取り戻すためにより危険な行動を誘います。そのリスクを取るかどうかはあなたが決めます。期日を延ばすか、目標を下げるか、挑戦目標にするか、そのまま進めて未達とするかを決めてください。',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'どちらを選んでも何も止まりません。優先事項はそのままで、期間の終わりに採点されます。変える場合はチーム、目標で変更してください。',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '私たちの価値観',
+  'Purpose and niche': '存在意義とニッチ',
+  'Long-range target': '長期目標',
+  'Who we serve and what makes us different': '私たちが仕える人と、私たちの違い',
+  'Where we will be in three years': '3年後の私たち',
+  'Our promise': '私たちの約束',
 };

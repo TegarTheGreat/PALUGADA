@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Zurückgezogen: Die Aufgabe, um die es ging, wurde erneut ausgeführt.',
   'Withdrawn: the day it was about has ended.':
     'Zurückgezogen: Der Tag, um den es ging, ist vorbei.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Zurückgezogen: Der Zeitraum, um den es ging, ist vorbei und bewertet.',
+  'Withdrawn: the goal it was about was closed.':
+    'Zurückgezogen: Das Ziel, um das es ging, wurde geschlossen.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Zurückgezogen: Die Obergrenze des Monats wurde erreicht, und an ihre Stelle tritt die Karte, die sagt, dass das Unternehmen pausiert ist.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -442,4 +446,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Erledigte Arbeiten: {count}',
   'Stopped: its work was taken up another way':
     'Gestoppt: Die Arbeit wurde auf anderem Weg aufgenommen',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Ihre Arbeit hielt an, und jedes Mal riss sie den Worker mit, der sie ausführte.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Ein Schreibvorgang bei einem externen Dienst ist vielleicht erfolgt, aber nicht so wie gemeint.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Arbeit, die demselben Budgetkonto belastet wird, steht still, bis es wieder Spielraum hat.',
+  'Its work stopped before it was done.':
+    'Ihre Arbeit hielt an, bevor sie fertig war.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Die Plattform zählte {lost} verlorene Worker, so viele, wie eine Aufgabe höchstens verlieren darf.',
+  'The platform read back what was written, and it did not match.':
+    'Die Plattform las zurück, was geschrieben wurde, und es stimmte nicht überein.',
+  'The budget account had nothing left to reserve for the work.':
+    'Auf dem Budgetkonto war nichts mehr übrig, das für die Arbeit reserviert werden konnte.',
+  'The platform found it ended with no card raised for it.':
+    'Die Plattform fand sie beendet, ohne dass eine Karte für sie angelegt war.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Die Karte ging an den, den die Abteilung dafür benennt, und danach an Sie.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Die Aufgabe wurde angehalten, und Sie wurden mit einer Karte im Posteingang informiert.',
+  'Postmortem: {cause} ({about})':
+    'Nachbetrachtung: {cause} ({about})',
+  'What happened':
+    'Was passiert ist',
+  'Impact':
+    'Auswirkung',
+  'Trigger':
+    'Auslöser',
+  'Detection':
+    'Erkennung',
+  'What was done':
+    'Was getan wurde',
+  'A task of {role} stopped before it was done.':
+    'Eine Aufgabe von {role} hielt an, bevor sie fertig war.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'So wird es gelöst: die Grundursache finden, indem man bei jeder Antwort nach dem Warum fragt und sie an den Aufzeichnungen prüft, einmal entscheiden und die To-dos anlegen, die die Entscheidung umsetzen, jedes mit einem Sitz.',
+  'Off track: {name}':
+    'Nicht auf Kurs: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} lag in der Woche ab {week} bei {value}, bei einem Wochenziel von {target}.',
+  '{role} answers for it.':
+    'Dafür ist {role} verantwortlich.',
+  'No seat answers for it.':
+    'Keine Stelle ist dafür verantwortlich.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Die Plattform hat es vor dem wöchentlichen Betriebsmeeting aus der Wochen-Scorecard gelesen.',
+  'Not done at two meetings: {title}':
+    'In zwei Meetings nicht erledigt: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Das To-do „{title}“, fällig am {due}, war weder beim wöchentlichen Betriebsmeeting vom {previous} noch bei diesem erledigt.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Die Plattform hat es vor dem wöchentlichen Betriebsmeeting aus den To-dos gelesen.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Wöchentliches Betriebsmeeting abgehalten ({week}): {where}',
+  'see its task under Work':
+    'die Aufgabe steht unter Arbeit',
+  'New goals proposed, to approve line by line':
+    'Neue Ziele vorgeschlagen, Zeile für Zeile zu genehmigen',
+  'Line {line}: the {kind} "{goal}"':
+    'Zeile {line}: {kind} „{goal}“',
+  'Under: {goal}':
+    'Unter: {goal}',
+  'Under line {line}: {goal}':
+    'Unter Zeile {line}: {goal}',
+  'Period: {from} to {to}':
+    'Zeitraum: {from} bis {to}',
+  'Committed: done in full, or missed.':
+    'Verbindlich: ganz erreicht oder verfehlt.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Ambitioniert: wird benotet, und 0,6 bis 0,7 ist ein gutes Ergebnis.',
+  'Learning: a test of the prediction below.':
+    'Lernen: prüft die Vorhersage unten.',
+  'Owned by: {role}':
+    'Verantwortlich: {role}',
+  'Done when: {doneWhen}':
+    'Erreicht, wenn: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Die Vorhersage, vor der Arbeit festgehalten: {name} erreicht {target}, ausgehend von {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Gemessen an {name}: von {baseline} auf {target}.',
+  'Watched with: {measure}':
+    'Beobachtet zusammen mit: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Ziele dieses Jahres: {count}, mehr als die {limit}, die ein Unternehmen im Blick behält.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Schlüsselergebnisse unter diesem Ziel: {count}, mehr als die {limit}, die ein Ziel im Blick behält.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Quartalsprioritäten zugleich: {count}, mehr als die {limit}, die ein Unternehmen im Blick behält.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Quartalsprioritäten von {seat} zugleich: {count}, mehr als die {limit}, die ein Platz tragen kann.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Eine Genehmigung macht jede genehmigte Zeile zu einem Ziel, mit seiner Kennzahl; eine abgelehnte Zeile wird nicht angelegt. Bis dahin geht die Arbeit unter den bisherigen Zielen weiter.',
+  'No goal is made.':
+    'Es wird kein Ziel angelegt.',
+  'Missed: {statement}':
+    'Verfehlt: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, verbindlich für {from} bis {to}, wurde nicht erreicht.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'An seinen Zahlen gemessen, kam es {progress} des Weges.',
+  'It was not marked met by its due date.':
+    'Es wurde bis zum Fälligkeitsdatum nicht als erreicht markiert.',
+  'The platform graded it when its period ended.':
+    'Die Plattform hat es am Ende seines Zeitraums bewertet.',
+  'Off pace: {statement}':
+    'Hinter dem Plan: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} ist eine verbindliche Priorität, fällig am {due}. Ihre Zahlen sind erst {progress} des Weges gekommen, während {elapsed} ihres Zeitraums vorbei sind.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Nichts wurde geändert, um aufzuholen, und kein Agent wird darum gebeten: Eine verbindliche Zahl, die hinter ihrer Zeit liegt, verleitet zu riskanterem Handeln, um sie aufzuholen, und ob dieses Risiko eingegangen wird, entscheidest du. Entscheide, ob das Datum verschoben, das Ziel gesenkt, sie ambitioniert gemacht oder laufen gelassen und verfehlt wird.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Nichts wird angehalten, wie auch immer du antwortest. Die Priorität bleibt, wie sie ist, und wird am Ende ihres Zeitraums bewertet; ändere sie unter Team, Ziele, wenn du dich dafür entscheidest.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Unsere Werte',
+  'Purpose and niche': 'Zweck und Nische',
+  'Long-range target': 'Langfristiges Ziel',
+  'Who we serve and what makes us different': 'Wem wir dienen und was uns unterscheidet',
+  'Where we will be in three years': 'Wo wir in drei Jahren stehen',
+  'Our promise': 'Unser Versprechen',
 };

@@ -235,108 +235,118 @@ export interface CreateTaskInput {
  */
 export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
   await assertSpendIsNotPaused(input.companyId);
-  return withTenant(input.companyId, async (tx) => {
-    // An explicit key means the caller can retry safely. Returning the
-    // existing task rather than reserving again keeps a retry from quietly
-    // consuming a second allowance.
-    if (input.idempotencyKey) {
+  return withTenant(input.companyId, (tx) => createRootTaskWithin(tx, input));
+}
+
+/**
+ * The same, in the caller's transaction, for a caller whose task must be made
+ * with what it wrote before it or not at all: the weekly meeting files the
+ * issues its facts list in the transaction that makes it (engine/meeting.ts),
+ * so a meeting refused for its budget leaves no issue filed for nothing. The
+ * caller asks whether the month's spending is paused first, as
+ * `createRootTask` does, since that is read on the control plane.
+ */
+export async function createRootTaskWithin(tx: TenantClient, input: CreateTaskInput): Promise<TaskRow> {
+  // An explicit key means the caller can retry safely. Returning the
+  // existing task rather than reserving again keeps a retry from quietly
+  // consuming a second allowance.
+  if (input.idempotencyKey) {
+    const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
+    if (existing) return existing;
+  }
+
+  // F3.7: a frozen role admits no work. Checked before the reservation, so
+  // a refused task does not tie up an allowance on the way out.
+  await assertRoleIsNotFrozen(tx, input.roleId);
+  await assertRoleIsComplete(tx, input.roleId);
+  if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
+
+  // F2.7: a root task is where the "why" is known, so it is where it is
+  // asked for. A task with no goal cannot explain itself to the owner later,
+  // and F10.2 needs exactly that explanation.
+  if (!input.goalId) {
+    throw new PalugadaError(
+      'goal.required',
+      'a root task must name the goal it serves (PRD F2.7)',
+      { roleId: input.roleId },
+    );
+  }
+  // And the goal must still be wanted: a closed one, or one under a closed
+  // one, starts nothing -- the schedule, the trigger, the handoff and the
+  // owner all come through here.
+  await assertGoalOpen(tx, input.goalId);
+  // Nor a closed project (0074): its work is finished, whoever asks.
+  const { rows: project } = await tx.query<{ name: string; archived: boolean }>(
+    'SELECT name, archived_at IS NOT NULL AS archived FROM projects WHERE id = $1', [input.projectId]);
+  if (project[0]?.archived) {
+    throw new PalugadaError('contract.violation',
+      `project "${project[0].name}" is archived and takes no new work; open it again, or give the work to another project`,
+      { field: 'projectId' });
+  }
+
+  // F1.6: the narrowest account that covers this task, unless the caller
+  // named one. A task charged to the company account while its division has
+  // one of its own would make that division's ceiling unenforceable, which
+  // is the whole point of having it.
+  const budgetAccountId = input.budgetAccountId
+    ?? await budget.accountFor(tx, {
+      companyId: input.companyId,
+      roleId: input.roleId,
+      divisionId: input.divisionId,
+      projectId: input.projectId,
+    });
+  if (!budgetAccountId) {
+    throw new PalugadaError(
+      'budget.reservation_refused',
+      'this company has no budget account to fund a task from',
+      { companyId: input.companyId, divisionId: input.divisionId },
+    );
+  }
+
+  const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
+  const granted = await budget.reserve(tx, budgetAccountId, reserveTokens);
+  if (!granted) {
+    throw new PalugadaError(
+      'budget.reservation_refused',
+      'the budget account cannot fund this task: its tokens are spent or held up to its ceiling. '
+        + 'Raise its ceiling under Money, or let running work finish and release what it holds',
+      { budgetAccountId, reserveTokens },
+    );
+  }
+
+  // Inside a savepoint, because the recovery below runs in this same
+  // transaction and PostgreSQL refuses every statement after an error until
+  // the transaction is rolled back. Without it the release and the lookup
+  // both failed with 25P02, and the race the comment below describes -- two
+  // replicas firing one schedule occurrence -- ended with the loser
+  // recording a failure for a task that had been created.
+  await tx.query('SAVEPOINT insert_task');
+  try {
+    const task = await insertTask(
+      tx,
+      { ...input, budgetAccountId },
+      { parentTaskId: null, hopDepth: 0, reserveTokens },
+    );
+    await tx.query('RELEASE SAVEPOINT insert_task');
+    if (input.carriesOutside) {
+      await appendEvent(tx, {
+        companyId: input.companyId, projectId: task.projectId, taskId: task.id,
+        type: 'content.read_outside', actor: 'engine', payload: input.carriesOutside,
+      });
+    }
+    return task;
+  } catch (error) {
+    // Two workers raced for the same occurrence. The unique constraint on
+    // (company_id, idempotency_key) settled it; this side gives its
+    // reservation back and adopts the winner's task.
+    if ((error as { code?: string }).code === '23505' && input.idempotencyKey) {
+      await tx.query('ROLLBACK TO SAVEPOINT insert_task');
+      await budget.release(tx, budgetAccountId, reserveTokens);
       const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
       if (existing) return existing;
     }
-
-    // F3.7: a frozen role admits no work. Checked before the reservation, so
-    // a refused task does not tie up an allowance on the way out.
-    await assertRoleIsNotFrozen(tx, input.roleId);
-    await assertRoleIsComplete(tx, input.roleId);
-    if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
-
-    // F2.7: a root task is where the "why" is known, so it is where it is
-    // asked for. A task with no goal cannot explain itself to the owner later,
-    // and F10.2 needs exactly that explanation.
-    if (!input.goalId) {
-      throw new PalugadaError(
-        'goal.required',
-        'a root task must name the goal it serves (PRD F2.7)',
-        { roleId: input.roleId },
-      );
-    }
-    // And the goal must still be wanted: a closed one, or one under a closed
-    // one, starts nothing -- the schedule, the trigger, the handoff and the
-    // owner all come through here.
-    await assertGoalOpen(tx, input.goalId);
-    // Nor a closed project (0074): its work is finished, whoever asks.
-    const { rows: project } = await tx.query<{ name: string; archived: boolean }>(
-      'SELECT name, archived_at IS NOT NULL AS archived FROM projects WHERE id = $1', [input.projectId]);
-    if (project[0]?.archived) {
-      throw new PalugadaError('contract.violation',
-        `project "${project[0].name}" is archived and takes no new work; open it again, or give the work to another project`,
-        { field: 'projectId' });
-    }
-
-    // F1.6: the narrowest account that covers this task, unless the caller
-    // named one. A task charged to the company account while its division has
-    // one of its own would make that division's ceiling unenforceable, which
-    // is the whole point of having it.
-    const budgetAccountId = input.budgetAccountId
-      ?? await budget.accountFor(tx, {
-        companyId: input.companyId,
-        roleId: input.roleId,
-        divisionId: input.divisionId,
-        projectId: input.projectId,
-      });
-    if (!budgetAccountId) {
-      throw new PalugadaError(
-        'budget.reservation_refused',
-        'this company has no budget account to fund a task from',
-        { companyId: input.companyId, divisionId: input.divisionId },
-      );
-    }
-
-    const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
-    const granted = await budget.reserve(tx, budgetAccountId, reserveTokens);
-    if (!granted) {
-      throw new PalugadaError(
-        'budget.reservation_refused',
-        'the budget account cannot fund this task: its tokens are spent or held up to its ceiling. '
-          + 'Raise its ceiling under Money, or let running work finish and release what it holds',
-        { budgetAccountId, reserveTokens },
-      );
-    }
-
-    // Inside a savepoint, because the recovery below runs in this same
-    // transaction and PostgreSQL refuses every statement after an error until
-    // the transaction is rolled back. Without it the release and the lookup
-    // both failed with 25P02, and the race the comment below describes -- two
-    // replicas firing one schedule occurrence -- ended with the loser
-    // recording a failure for a task that had been created.
-    await tx.query('SAVEPOINT insert_task');
-    try {
-      const task = await insertTask(
-        tx,
-        { ...input, budgetAccountId },
-        { parentTaskId: null, hopDepth: 0, reserveTokens },
-      );
-      await tx.query('RELEASE SAVEPOINT insert_task');
-      if (input.carriesOutside) {
-        await appendEvent(tx, {
-          companyId: input.companyId, projectId: task.projectId, taskId: task.id,
-          type: 'content.read_outside', actor: 'engine', payload: input.carriesOutside,
-        });
-      }
-      return task;
-    } catch (error) {
-      // Two workers raced for the same occurrence. The unique constraint on
-      // (company_id, idempotency_key) settled it; this side gives its
-      // reservation back and adopts the winner's task.
-      if ((error as { code?: string }).code === '23505' && input.idempotencyKey) {
-        await tx.query('ROLLBACK TO SAVEPOINT insert_task');
-        await budget.release(tx, budgetAccountId, reserveTokens);
-        const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
-        if (existing) return existing;
-      }
-      throw error;
-    }
-  });
+    throw error;
+  }
 }
 
 /**

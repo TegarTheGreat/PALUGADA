@@ -68,7 +68,15 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { name: 'company', sql: 'SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian FROM companies' },
+  {
+    name: 'company',
+    // With the measure the owner chose as its headline (0142), which the
+    // import maps once the measures are restored, and the month its fiscal
+    // year starts in (0144).
+    sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
+                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month
+            FROM companies`,
+  },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at, work_language FROM projects ORDER BY created_at' },
   {
     name: 'divisions',
@@ -85,25 +93,48 @@ const SECTIONS: Section[] = [
     // F1.5 counts a role's runtime, routing, completion criteria and run
     // length as config: an archive that restored a role without them would
     // restore something that behaves differently and is still called the
-    // same thing.
+    // same thing. So are what its seat answers for (F18.3, 0138), which
+    // every run of it is told.
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
                  heartbeat_minutes, dormant_until, frozen_at, frozen_reason, frozen_by, created_at,
-                 display_name, title, persona, max_run_seconds, person_name
+                 display_name, title, persona, max_run_seconds, person_name, accountabilities
             FROM roles ORDER BY slug`,
   },
   {
     name: 'goals',
-    // `status`, or an abandoned goal comes back active and its work with it.
-    sql: `SELECT id, parent_goal_id, kind, slug, statement, status, created_at
-            FROM goals ORDER BY created_at`,
+    // `status`, or an abandoned goal comes back active and its work with it;
+    // and its period, seat, commitment, finish line and channel (0136), or a
+    // quarterly priority comes back as a goal with no end and nobody's.
+    // Each goal before the goals under it, which the import's key to the
+    // parent checks at once: the ladder's rung first, since a goal hangs
+    // only from the rung above. By `created_at` alone, an objective and its
+    // key results written in one transaction (a plan approved at once) tied,
+    // the table's order broke the tie, and an objective changed since came
+    // after its children, so the restore was refused.
+    sql: `SELECT id, parent_goal_id, kind, slug, statement, status, created_at,
+                 starts_on, due_on, owner_role_id, commitment, done_when, channel
+            FROM goals
+           ORDER BY CASE kind WHEN 'mission' THEN 0 WHEN 'objective' THEN 1 ELSE 2 END, created_at, id`,
   },
   {
     name: 'goal_metrics',
+    // With its place on the weekly scorecard (0137): how often it is
+    // reviewed, the seat that owns it, and the measure it is watched with;
+    // and the funnel step it counts (0142).
     sql: `SELECT id, goal_id, slug, name, unit, direction, baseline, target, due_on,
-                 source_capability, created_at, retired_at
+                 source_capability, created_at, retired_at, review_every, owner_role_id, paired_metric_id,
+                 funnel_step
             FROM goal_metrics ORDER BY created_at`,
+  },
+  {
+    name: 'goal_grades',
+    // Each period's grade (0144): what the owner and the next plan read, and
+    // which the platform writes once. Restored without them, every ended
+    // period would be graded again from whatever readings travelled.
+    sql: `SELECT goal_id, period_starts_on, period_due_on, commitment, score, basis, predicted, actual, note, created_at
+            FROM goal_grades ORDER BY period_due_on, created_at, goal_id`,
   },
   {
     name: 'capability_grants',
@@ -180,10 +211,15 @@ const SECTIONS: Section[] = [
     // The backlog (0070): what was owed, who filed it, whether its words may
     // be a stranger's (0134), and what worked it. An archive from before
     // 0134 has no `outside`, and its tickets are restored as from outside.
+    // Issues and to-dos (0139): what an issue is about, its list, its root
+    // cause, the card it came from and its source; a to-do's issue, seat and
+    // date. An issue is written before the to-dos filed with it, so the
+    // reference a to-do holds finds it on the way back in.
     name: 'tickets',
     sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
-                 working_task_id, closed_reason, created_at, updated_at, closed_at
-            FROM tickets ORDER BY created_at`,
+                 working_task_id, closed_reason, goal_id, metric_id, horizon, root_cause, from_inbox_item_id,
+                 solves_ticket_id, assignee_role_id, due_on, source_key, created_at, updated_at, closed_at
+            FROM tickets ORDER BY created_at, solves_ticket_id IS NOT NULL, id`,
   },
   {
     // 0111. A customer channel without its keys: the address and the
@@ -368,8 +404,10 @@ const SECTIONS: Section[] = [
     // restored company would treat a hub's document as its own work (F15.8).
     // The destination re-quarantines regardless; what it needs from the archive
     // is to know there is something to re-quarantine.
+    // `core` and `owner_role_id` (0143): which skills are the company's core
+    // processes and the seat that owns each, which the owner decided.
     sql: `SELECT id, slug, scope_type, scope_id, summary, active_version,
-                 provenance, origin, quarantined, created_at
+                 provenance, origin, quarantined, created_at, core, owner_role_id
             FROM skills ORDER BY slug`,
   },
   {

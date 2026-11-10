@@ -532,6 +532,26 @@ export async function setSkillScope(
     const row = rows[0];
     if (!row) throw new PalugadaError('skill.unknown', `no skill ${skillId}`, {});
 
+    // A core process is measured by its owning seat's division reading it
+    // (F18.14), so it is not narrowed to a division that seat is not in:
+    // the share would fall to nothing because the runs could not open it.
+    if (target.scopeType === 'division') {
+      const { rows: owners } = await tx.query<{ slug: string; division_id: string }>(
+        `SELECT r.slug, r.division_id FROM skills s JOIN roles r ON r.company_id = s.company_id AND r.id = s.owner_role_id
+          WHERE s.id = $1 AND s.core`,
+        [skillId],
+      );
+      const owner = owners[0];
+      if (owner && owner.division_id !== target.scopeId) {
+        throw new PalugadaError(
+          'contract.violation',
+          `${row.slug} is a core process owned by ${owner.slug}, whose division could no longer read it: ` +
+            `give it a seat in that division first, or keep it where ${owner.slug} can read it`,
+          { skillId, field: 'scopeId' },
+        );
+      }
+    }
+
     // F15.8: a quarantined skill cannot be widened at all, approved or not.
     // The owner's route is to lift the quarantine -- which is a decision about
     // whether they vouch for where it came from -- and then to widen it. Two
@@ -1156,6 +1176,7 @@ export async function readSkill(
   companyId: string,
   slug: string,
   divisionId: string | null,
+  taskId?: string,
 ): Promise<{ slug: string; version: number; source: string; external: boolean } | null> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ version: number; body: string; provenance: string; origin: string | null }>(
@@ -1168,6 +1189,16 @@ export async function readSkill(
     );
     const row = rows[0];
     if (!row) return null;
+    // That a run read it, on the run's task: whether a core process is
+    // followed is the share of its seat's division's runs that read it
+    // (F18.14, skills/core.ts). The broker's `tool.called` says a skill was
+    // read and not which, so the read names its own. By slug, which an
+    // archive restores as it was, where the skill's id is a new one.
+    if (taskId) {
+      await appendEvent(tx, {
+        companyId, taskId, type: 'skill.read', actor: 'agent_run', payload: { slug, version: row.version },
+      });
+    }
     const external = row.provenance === 'external';
     if (!external) return { slug, version: row.version, source: row.body, external };
     const { wrapUntrusted } = await import('../context/builder.ts');

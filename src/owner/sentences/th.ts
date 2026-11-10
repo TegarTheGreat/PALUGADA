@@ -409,6 +409,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'ถอนออกแล้ว: งานที่เกี่ยวข้องถูกเรียกใช้อีกครั้งแล้ว',
   'Withdrawn: the day it was about has ended.':
     'ถอนออกแล้ว: วันที่เกี่ยวข้องผ่านไปแล้ว',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'ถอนออกแล้ว: ช่วงเวลาที่เกี่ยวข้องสิ้นสุดและได้รับการประเมินแล้ว',
+  'Withdrawn: the goal it was about was closed.':
+    'ถอนออกแล้ว: เป้าหมายที่เกี่ยวข้องถูกปิดแล้ว',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'ถอนออกแล้ว: ถึงเพดานของเดือนแล้ว และการ์ดที่แจ้งว่าบริษัทหยุดชั่วคราวเข้ามาแทนที่',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -445,4 +449,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'งานที่เสร็จแล้ว: {count}',
   'Stopped: its work was taken up another way':
     'หยุดแล้ว: งานนี้ถูกดำเนินการต่อด้วยวิธีอื่น',
+  'Its work stopped, and each time it took down the worker running it.':
+    'งานหยุดลง และทุกครั้งทำให้ worker ที่รันอยู่ล่มไปด้วย',
+  'A write to an outside service may have happened without being what was meant.':
+    'การเขียนไปยังบริการภายนอกอาจเกิดขึ้นแล้ว แต่ไม่ตรงกับที่ตั้งใจ',
+  'Work charged to the same budget account stops until it has room again.':
+    'งานที่เรียกเก็บจากบัญชีงบประมาณเดียวกันจะหยุดจนกว่าบัญชีจะมีที่ว่างอีกครั้ง',
+  'Its work stopped before it was done.':
+    'งานหยุดก่อนจะเสร็จ',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'แพลตฟอร์มนับ worker ที่หายไปได้ {lost} ตัว ซึ่งเป็นจำนวนสูงสุดที่งานหนึ่งเสียได้',
+  'The platform read back what was written, and it did not match.':
+    'แพลตฟอร์มอ่านสิ่งที่เขียนกลับมา และไม่ตรงกัน',
+  'The budget account had nothing left to reserve for the work.':
+    'บัญชีงบประมาณไม่เหลืออะไรให้จองไว้สำหรับงาน',
+  'The platform found it ended with no card raised for it.':
+    'แพลตฟอร์มพบว่ามันจบลงโดยไม่มีการ์ดใดถูกเปิดให้',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'การ์ดส่งไปให้ผู้ที่แผนกกำหนดให้จัดการ แล้วจึงถึงคุณ',
+  'The task was halted, and you were told on a card in the inbox.':
+    'งานถูกหยุด และแจ้งคุณด้วยการ์ดในกล่องข้อความ',
+  'Postmortem: {cause} ({about})':
+    'การทบทวนหลังเหตุการณ์: {cause} ({about})',
+  'What happened':
+    'เกิดอะไรขึ้น',
+  'Impact':
+    'ผลกระทบ',
+  'Trigger':
+    'ตัวกระตุ้น',
+  'Detection':
+    'การตรวจพบ',
+  'What was done':
+    'สิ่งที่ทำไปแล้ว',
+  'A task of {role} stopped before it was done.':
+    'งานหนึ่งของ {role} หยุดก่อนจะเสร็จ',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'วิธีแก้: หาสาเหตุที่แท้จริงโดยถามว่าทำไมกับทุกคำตอบและตรวจกับบันทึก ตัดสินใจครั้งเดียว แล้วเปิดสิ่งที่ต้องทำที่ลงมือตามการตัดสินใจ โดยแต่ละข้อมีที่นั่งเดียว',
+  'Off track: {name}':
+    'หลุดเป้า: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} ได้ {value} ในสัปดาห์ของ {week} เทียบกับเป้าหมายรายสัปดาห์ {target}',
+  '{role} answers for it.':
+    '{role} รับผิดชอบเรื่องนี้',
+  'No seat answers for it.':
+    'ไม่มีตำแหน่งใดรับผิดชอบเรื่องนี้',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'แพลตฟอร์มอ่านจากสกอร์การ์ดรายสัปดาห์ก่อนการประชุมปฏิบัติการประจำสัปดาห์',
+  'Not done at two meetings: {title}':
+    'ไม่เสร็จในการประชุมสองครั้ง: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'สิ่งที่ต้องทำ "{title}" ครบกำหนด {due} ยังไม่เสร็จในการประชุมปฏิบัติการประจำสัปดาห์ของ {previous} และยังไม่เสร็จในครั้งนี้',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'แพลตฟอร์มอ่านจากรายการสิ่งที่ต้องทำก่อนการประชุมปฏิบัติการประจำสัปดาห์',
+  'Weekly operating meeting held ({week}): {where}':
+    'จัดการประชุมปฏิบัติการประจำสัปดาห์แล้ว ({week}): {where}',
+  'see its task under Work':
+    'ดูงานของการประชุมได้ที่ งาน',
+  'New goals proposed, to approve line by line':
+    'เสนอเป้าหมายใหม่ เพื่ออนุมัติทีละบรรทัด',
+  'Line {line}: the {kind} "{goal}"':
+    'บรรทัด {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'อยู่ภายใต้: {goal}',
+  'Under line {line}: {goal}':
+    'อยู่ภายใต้บรรทัด {line}: {goal}',
+  'Period: {from} to {to}':
+    'ช่วงเวลา: {from} ถึง {to}',
+  'Committed: done in full, or missed.':
+    'ให้คำมั่น: ทำสำเร็จครบ หรือพลาด',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'มุ่งหวังสูง: ได้รับคะแนน และ 0.6 ถึง 0.7 คือผลที่ดี',
+  'Learning: a test of the prediction below.':
+    'การเรียนรู้: ทดสอบคำทำนายด้านล่าง',
+  'Owned by: {role}':
+    'ผู้รับผิดชอบ: {role}',
+  'Done when: {doneWhen}':
+    'เสร็จเมื่อ: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'คำทำนาย เขียนไว้ก่อนเริ่มงาน: {name} ไปถึง {target} จาก {baseline}',
+  'Measured by {name}: from {baseline} to {target}.':
+    'วัดด้วย {name}: จาก {baseline} ถึง {target}',
+  'Watched with: {measure}':
+    'ดูคู่กับ: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'เป้าหมายของปีนี้: {count} มากกว่า {limit} ที่บริษัทหนึ่งจะดูแลได้',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'ผลลัพธ์หลักภายใต้วัตถุประสงค์นี้: {count} มากกว่า {limit} ที่วัตถุประสงค์หนึ่งจะดูแลได้',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'ลำดับความสำคัญรายไตรมาสพร้อมกัน: {count} มากกว่า {limit} ที่บริษัทหนึ่งจะดูแลได้',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'ลำดับความสำคัญรายไตรมาสของ {seat} พร้อมกัน: {count} มากกว่า {limit} ที่ตำแหน่งหนึ่งจะรับได้',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'การอนุมัติจะทำให้ทุกบรรทัดที่คุณอนุมัติเป็นเป้าหมายพร้อมตัวชี้วัด บรรทัดที่คุณปฏิเสธจะไม่ถูกสร้าง ระหว่างนี้งานจะดำเนินต่อตามเป้าหมายเดิม',
+  'No goal is made.':
+    'ไม่มีการสร้างเป้าหมาย',
+  'Missed: {statement}':
+    'พลาด: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement} ซึ่งให้คำมั่นไว้สำหรับช่วง {from} ถึง {to} ไม่เสร็จ',
+  'Measured by its numbers, it came {progress} of the way.':
+    'วัดจากตัวเลขแล้ว ไปได้ {progress} ของทาง',
+  'It was not marked met by its due date.':
+    'ไม่ได้ถูกทำเครื่องหมายว่าบรรลุภายในวันครบกำหนด',
+  'The platform graded it when its period ended.':
+    'แพลตฟอร์มให้คะแนนเมื่อช่วงเวลาของมันสิ้นสุด',
+  'Off pace: {statement}':
+    'ช้ากว่ากำหนด: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} เป็นลำดับความสำคัญที่ให้คำมั่นไว้ ครบกำหนดวันที่ {due} ตัวเลขของมันไปได้เพียง {progress} ของทาง ขณะที่เวลาผ่านไปแล้ว {elapsed} ของช่วงเวลา',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'ไม่มีการเปลี่ยนแปลงใดเพื่อเร่งตามให้ทัน และไม่มีเอเจนต์ใดถูกขอให้ทำ ตัวเลขที่ให้คำมั่นไว้ซึ่งช้ากว่าเวลาชวนให้ใช้วิธีที่เสี่ยงขึ้นเพื่อชดเชย และการรับความเสี่ยงนั้นหรือไม่เป็นการตัดสินใจของคุณ ตัดสินใจว่าจะเลื่อนวัน ลดเป้า เปลี่ยนเป็นแบบมุ่งหวังสูง หรือปล่อยให้ดำเนินต่อไปและพลาด',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'ไม่ว่าคำตอบจะเป็นอย่างไรก็ไม่มีสิ่งใดหยุด ลำดับความสำคัญยังคงเดิมและจะได้รับคะแนนเมื่อช่วงเวลาสิ้นสุด เปลี่ยนได้ที่ ทีม, เป้าหมาย หากคุณตัดสินใจเช่นนั้น',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'ค่านิยมของเรา',
+  'Purpose and niche': 'จุดมุ่งหมายและตลาดเฉพาะ',
+  'Long-range target': 'เป้าหมายระยะยาว',
+  'Who we serve and what makes us different': 'เรารับใช้ใครและอะไรทำให้เราแตกต่าง',
+  'Where we will be in three years': 'เราจะอยู่ที่ไหนในอีกสามปี',
+  'Our promise': 'คำมั่นสัญญาของเรา',
 };

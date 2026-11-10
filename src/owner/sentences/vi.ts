@@ -410,6 +410,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Đã rút lại: nhiệm vụ mà nó nói đến đã được chạy lại.',
   'Withdrawn: the day it was about has ended.':
     'Đã rút lại: ngày mà nó nói đến đã kết thúc.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Đã rút lại: giai đoạn mà nó nói đến đã kết thúc và đã được chấm điểm.',
+  'Withdrawn: the goal it was about was closed.':
+    'Đã rút lại: mục tiêu liên quan đã được đóng.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Đã rút lại: đã chạm mức trần của tháng, và thẻ báo công ty đang tạm dừng thay thế cho nó.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -446,4 +450,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Việc đã xong: {count}',
   'Stopped: its work was taken up another way':
     'Đã dừng: công việc của nó đã được xử lý theo cách khác',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Công việc của nó dừng lại, và mỗi lần đều làm sập worker đang chạy nó.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Một lần ghi vào dịch vụ bên ngoài có thể đã xảy ra nhưng không đúng như ý muốn.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Công việc tính vào cùng tài khoản ngân sách sẽ dừng cho đến khi tài khoản có chỗ trở lại.',
+  'Its work stopped before it was done.':
+    'Công việc của nó dừng lại trước khi xong.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Nền tảng đếm được {lost} worker bị mất, mức tối đa một nhiệm vụ được phép mất.',
+  'The platform read back what was written, and it did not match.':
+    'Nền tảng đọc lại những gì đã ghi, và nó không khớp.',
+  'The budget account had nothing left to reserve for the work.':
+    'Tài khoản ngân sách không còn gì để dành cho công việc.',
+  'The platform found it ended with no card raised for it.':
+    'Nền tảng thấy nó đã kết thúc mà không có thẻ nào được tạo cho nó.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Thẻ được gửi đến người mà bộ phận chỉ định xử lý, rồi đến bạn.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Nhiệm vụ đã bị dừng, và bạn được báo bằng một thẻ trong hộp thư đến.',
+  'Postmortem: {cause} ({about})':
+    'Phân tích sau sự cố: {cause} ({about})',
+  'What happened':
+    'Điều đã xảy ra',
+  'Impact':
+    'Tác động',
+  'Trigger':
+    'Nguyên nhân kích hoạt',
+  'Detection':
+    'Phát hiện',
+  'What was done':
+    'Những gì đã làm',
+  'A task of {role} stopped before it was done.':
+    'Một nhiệm vụ của {role} đã dừng trước khi xong.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Để giải quyết: tìm nguyên nhân gốc bằng cách hỏi tại sao với mỗi câu trả lời và đối chiếu với hồ sơ, quyết định một lần, rồi tạo các việc cần làm để thực hiện quyết định, mỗi việc cho một vị trí.',
+  'Off track: {name}':
+    'Chệch hướng: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} đạt {value} trong tuần {week}, so với mục tiêu tuần là {target}.',
+  '{role} answers for it.':
+    '{role} chịu trách nhiệm về việc này.',
+  'No seat answers for it.':
+    'Không có vị trí nào chịu trách nhiệm về việc này.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Nền tảng đọc điều này từ bảng điểm hằng tuần trước cuộc họp vận hành hằng tuần.',
+  'Not done at two meetings: {title}':
+    'Chưa xong sau hai cuộc họp: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Việc cần làm "{title}", hạn {due}, chưa xong ở cuộc họp vận hành hằng tuần ngày {previous}, và cũng chưa xong ở cuộc họp này.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Nền tảng đọc điều này từ danh sách việc cần làm trước cuộc họp vận hành hằng tuần.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Đã họp vận hành hằng tuần ({week}): {where}',
+  'see its task under Work':
+    'xem nhiệm vụ của nó trong Công việc',
+  'New goals proposed, to approve line by line':
+    'Mục tiêu mới được đề xuất, để phê duyệt từng dòng',
+  'Line {line}: the {kind} "{goal}"':
+    'Dòng {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'Thuộc: {goal}',
+  'Under line {line}: {goal}':
+    'Thuộc dòng {line}: {goal}',
+  'Period: {from} to {to}':
+    'Thời hạn: {from} đến {to}',
+  'Committed: done in full, or missed.':
+    'Cam kết: xong trọn vẹn, hoặc trượt.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Tham vọng: được chấm điểm, và 0,6 đến 0,7 là kết quả tốt.',
+  'Learning: a test of the prediction below.':
+    'Học hỏi: kiểm chứng dự đoán bên dưới.',
+  'Owned by: {role}':
+    'Phụ trách: {role}',
+  'Done when: {doneWhen}':
+    'Xong khi: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Dự đoán, viết trước khi làm: {name} đạt {target}, từ {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Đo bằng {name}: từ {baseline} đến {target}.',
+  'Watched with: {measure}':
+    'Theo dõi cùng: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Mục tiêu năm nay: {count}, nhiều hơn {limit} mà một công ty có thể theo dõi.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Kết quả then chốt dưới mục tiêu này: {count}, nhiều hơn {limit} mà một mục tiêu có thể theo dõi.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Ưu tiên quý cùng lúc: {count}, nhiều hơn {limit} mà một công ty có thể theo dõi.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Ưu tiên quý của {seat} cùng lúc: {count}, nhiều hơn {limit} mà một vị trí có thể đảm đương.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Phê duyệt sẽ biến mỗi dòng bạn duyệt thành một mục tiêu, kèm thước đo của nó; dòng bạn từ chối sẽ không được tạo. Cho đến lúc đó, công việc vẫn tiếp tục theo các mục tiêu hiện tại.',
+  'No goal is made.':
+    'Không mục tiêu nào được tạo.',
+  'Missed: {statement}':
+    'Trượt: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, cam kết cho giai đoạn {from} đến {to}, đã không hoàn thành.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'Đo bằng các con số của nó, nó đi được {progress} chặng đường.',
+  'It was not marked met by its due date.':
+    'Nó không được đánh dấu là đạt trước hạn.',
+  'The platform graded it when its period ended.':
+    'Nền tảng đã chấm điểm khi giai đoạn của nó kết thúc.',
+  'Off pace: {statement}':
+    'Chậm tiến độ: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} là một ưu tiên cam kết, hạn vào {due}. Các con số của nó mới đi được {progress} chặng đường, trong khi {elapsed} thời gian của nó đã trôi qua.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Không có gì được thay đổi để đuổi kịp, và không agent nào được yêu cầu làm vậy: một con số cam kết chậm so với thời gian dễ dẫn tới hành động rủi ro hơn để bù lại, và có chấp nhận rủi ro đó hay không là quyết định của bạn. Hãy quyết định dời ngày, hạ mục tiêu, chuyển nó thành tham vọng, hay để nó chạy tiếp và trượt.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Dù trả lời thế nào cũng không có gì bị dừng. Ưu tiên vẫn như cũ và được chấm điểm khi giai đoạn kết thúc; hãy thay đổi nó trong Đội ngũ, Mục tiêu nếu bạn quyết định vậy.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Giá trị của chúng tôi',
+  'Purpose and niche': 'Mục đích và thị trường ngách',
+  'Long-range target': 'Mục tiêu dài hạn',
+  'Who we serve and what makes us different': 'Chúng tôi phục vụ ai và điều gì làm chúng tôi khác biệt',
+  'Where we will be in three years': 'Chúng tôi sẽ ở đâu sau ba năm',
+  'Our promise': 'Lời hứa của chúng tôi',
 };

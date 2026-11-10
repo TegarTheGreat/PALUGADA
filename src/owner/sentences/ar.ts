@@ -403,6 +403,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'سُحب: أُعيد تشغيل المهمة التي كان يتعلق بها.',
   'Withdrawn: the day it was about has ended.':
     'سُحب: انتهى اليوم الذي كان يتعلق به.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'سُحب: انتهت الفترة التي كان يتعلق بها وقُيّمت.',
+  'Withdrawn: the goal it was about was closed.':
+    'سُحب: أُغلق الهدف الذي كان يتعلق به.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'سُحب: بلغ الإنفاق سقف الشهر، وتحل محله البطاقة التي تقول إن الشركة متوقفة مؤقتًا.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -439,4 +443,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'أعمال اكتملت: {count}',
   'Stopped: its work was taken up another way':
     'أُوقفت: تُولّي عملها بطريقة أخرى',
+  'Its work stopped, and each time it took down the worker running it.':
+    'توقف عمله، وفي كل مرة أسقط العامل الذي يشغّله.',
+  'A write to an outside service may have happened without being what was meant.':
+    'ربما حدثت كتابة إلى خدمة خارجية على غير ما كان مقصوداً.',
+  'Work charged to the same budget account stops until it has room again.':
+    'يتوقف العمل المحمّل على حساب الميزانية نفسه حتى يتسع مجدداً.',
+  'Its work stopped before it was done.':
+    'توقف عمله قبل أن يكتمل.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'أحصت المنصة {lost} من العمال المفقودين، وهو أقصى ما يجوز لمهمة أن تفقده.',
+  'The platform read back what was written, and it did not match.':
+    'قرأت المنصة ما كُتب، ولم يتطابق.',
+  'The budget account had nothing left to reserve for the work.':
+    'لم يبقَ في حساب الميزانية ما يُحجز للعمل.',
+  'The platform found it ended with no card raised for it.':
+    'وجدت المنصة أنها انتهت دون رفع بطاقة لها.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'ذهبت البطاقة إلى من يسمّيه القسم للتعامل معها، ثم إليك بعد ذلك.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'أُوقفت المهمة، وأُبلغت ببطاقة في صندوق الوارد.',
+  'Postmortem: {cause} ({about})':
+    'تحليل ما بعد الحادث: {cause} ({about})',
+  'What happened':
+    'ما حدث',
+  'Impact':
+    'الأثر',
+  'Trigger':
+    'المسبب',
+  'Detection':
+    'الاكتشاف',
+  'What was done':
+    'ما تم فعله',
+  'A task of {role} stopped before it was done.':
+    'توقفت مهمة لـ {role} قبل أن تكتمل.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'لحلها: جد السبب الجذري بالسؤال «لماذا» عن كل جواب ومطابقته مع السجل، وقرر مرة واحدة، وافتح مهام المتابعة التي تنفذ القرار، لكل منها مقعد واحد.',
+  'Off track: {name}':
+    'خارج المسار: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    'كان {name} {value} في أسبوع {week}، مقابل هدف أسبوعي قدره {target}.',
+  '{role} answers for it.':
+    '{role} هو المسؤول عنه.',
+  'No seat answers for it.':
+    'لا يوجد منصب مسؤول عنه.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'قرأته المنصة من بطاقة الأداء الأسبوعية قبل اجتماع التشغيل الأسبوعي.',
+  'Not done at two meetings: {title}':
+    'لم تُنجز في اجتماعين: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'المهمة المتابعة «{title}»، المستحقة في {due}، لم تُنجز في اجتماع التشغيل الأسبوعي بتاريخ {previous}، ولا في هذا الاجتماع.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'قرأته المنصة من المهام المتابعة قبل اجتماع التشغيل الأسبوعي.',
+  'Weekly operating meeting held ({week}): {where}':
+    'عُقد اجتماع التشغيل الأسبوعي ({week}): {where}',
+  'see its task under Work':
+    'انظر مهمته في العمل',
+  'New goals proposed, to approve line by line':
+    'أهداف جديدة مقترحة، للموافقة عليها سطرًا سطرًا',
+  'Line {line}: the {kind} "{goal}"':
+    'السطر {line}: {kind} "{goal}"',
+  'Under: {goal}':
+    'تحت: {goal}',
+  'Under line {line}: {goal}':
+    'تحت السطر {line}: {goal}',
+  'Period: {from} to {to}':
+    'المدة: من {from} إلى {to}',
+  'Committed: done in full, or missed.':
+    'ملتزم به: يُنجَز كاملًا أو يُخفَق فيه.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'طموح: يُقيَّم بدرجة، ومن 0.6 إلى 0.7 نتيجة جيدة.',
+  'Learning: a test of the prediction below.':
+    'تعلّم: يختبر التوقع أدناه.',
+  'Owned by: {role}':
+    'المقعد المسؤول: {role}',
+  'Done when: {doneWhen}':
+    'يكتمل عندما: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'التوقع، مكتوبًا قبل العمل: يبلغ {name} القيمة {target}، بدءًا من {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'يُقاس بـ {name}: من {baseline} إلى {target}.',
+  'Watched with: {measure}':
+    'يُراقَب مع: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'أهداف هذا العام: {count}، أكثر من {limit} يمكن لشركة أن تبقيها في نظرها.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'النتائج الرئيسية تحت هذا الهدف: {count}، أكثر من {limit} يمكن لهدف واحد أن يبقيها في نظره.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'الأولويات الربع سنوية في وقت واحد: {count}، أكثر من {limit} يمكن لشركة أن تبقيها في نظرها.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'الأولويات الربع سنوية لـ {seat} في وقت واحد: {count}، أكثر من {limit} يمكن لمقعد واحد أن يحملها.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'الموافقة تجعل كل سطر توافق عليه هدفًا مع مقياسه؛ والسطر الذي ترفضه لا يُنشأ. وحتى ذلك الحين يستمر العمل في إطار الأهداف كما هي.',
+  'No goal is made.':
+    'لا يُنشأ أي هدف.',
+  'Missed: {statement}':
+    'لم يتحقق: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}، الملتزم به من {from} إلى {to}، لم يُنجز.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'بقياس أرقامه، قطع {progress} من الطريق.',
+  'It was not marked met by its due date.':
+    'لم يُوسم بأنه تحقق حتى تاريخ استحقاقه.',
+  'The platform graded it when its period ended.':
+    'قيّمته المنصة عند انتهاء فترته.',
+  'Off pace: {statement}':
+    'متأخر عن الوتيرة: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} أولوية ملتزم بها يستحق موعدها في {due}. لم تقطع أرقامها إلا {progress} من الطريق، بينما مضى {elapsed} من فترتها.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'لم يُغيَّر شيء للّحاق، ولم يُطلب ذلك من أي وكيل: الرقم الملتزم به المتأخر عن وقته يغري باتخاذ إجراء أكثر خطورة لتعويضه، وقرار تحمّل هذه المخاطرة لك. قرّر هل تؤجل الموعد، أو تخفض الهدف، أو تجعله طموحًا، أو تتركه يمضي ولا يتحقق.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'لا يتوقف شيء أيًّا كان الجواب. تبقى الأولوية كما هي وتُقيَّم عند انتهاء فترتها؛ غيّرها من الفريق، الأهداف إن قررت ذلك.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'قيمنا',
+  'Purpose and niche': 'الغاية والتخصص',
+  'Long-range target': 'الهدف بعيد المدى',
+  'Who we serve and what makes us different': 'من نخدم وما الذي يميزنا',
+  'Where we will be in three years': 'أين سنكون بعد ثلاث سنوات',
+  'Our promise': 'وعدنا',
 };

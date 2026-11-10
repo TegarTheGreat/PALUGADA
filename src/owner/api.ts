@@ -94,12 +94,14 @@ import { searchEverywhere } from './search.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
+import { TICKET_STATUSES, assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { DEFAULT_MISSION, FOUNDING_TEMPLATE_SLUG } from '../templates/founding.ts';
 import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { ownerSaidAlready, remember, retract, supersede } from '../memory/store.ts';
-import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
+import {
+  changeMetric, chooseHeadline, defineMetric, headlines, recordObservation, scorecardOf, type FunnelStep, type Headline, type MetricChange, type MetricUnit,
+} from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
@@ -126,7 +128,7 @@ import {
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
 import { base64Bytes, keepAnswerFiles } from '../chats/attachments.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
-import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
+import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal, type GoalPlan } from '../domain/goals.ts';
 import {
   addDivision,
   addProject,
@@ -164,6 +166,7 @@ import {
   setSkillScope,
   type SkillScopeTarget,
 } from '../skills/skills.ts';
+import { markCoreProcess } from '../skills/core.ts';
 import { installBundle, latestBundleVersion, verifyInstall } from '../bundles/bundle.ts';
 import {
   listTrustedPublishers,
@@ -243,6 +246,7 @@ import {
   skillOf,
   skillsOf,
   structureOf,
+  planOf,
   taskDetailOf,
   workOf,
   galleryOf,
@@ -1359,6 +1363,9 @@ export class OwnerApi {
                 ? {} : { allowForHours: Number(body.allowForHours) }),
               // 0116: every time the card's schedule does exactly this.
               ...(body.forSchedule === true ? { forSchedule: true } : {}),
+              // F18.7: the lines of a plan of new goals a yes approves;
+              // `decide` checks them against the plan.
+              ...(body.lines === undefined || body.lines === null ? {} : { lines: body.lines }),
               // A staff seat's decision: `decide` holds it to tier 2 and below.
               seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
@@ -1614,6 +1621,69 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
           }
           return { on: body.on };
+        },
+      },
+
+      {
+        // When the CEO holds the weekly operating meeting, and whether it
+        // does (F18.6, 0140): a day of the week and an hour on the company's
+        // clock. Moving or stopping it only changes when the company reviews
+        // itself, never what anyone may do, so the session is enough. A
+        // field left out is kept.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/rhythm',
+        handle: async ({ params, body }) => {
+          const whole = (value: unknown, field: string, from: number, to: number, said: string): number | undefined => {
+            if (value === undefined) return undefined;
+            if (typeof value !== 'number' || !Number.isInteger(value) || value < from || value > to) {
+              throw new PalugadaError('contract.violation', `${field} is a whole number from ${said}; got ${JSON.stringify(value)}`, { field });
+            }
+            return value;
+          };
+          const weekday = whole(body.weekday, 'weekday', 0, 6, '0 (Sunday) to 6 (Saturday)');
+          const hour = whole(body.hour, 'hour', 0, 23, '0 to 23, on the company\'s clock');
+          if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+            throw new PalugadaError('contract.violation', `enabled is true or false; got ${JSON.stringify(body.enabled)}`, { field: 'enabled' });
+          }
+          if (weekday === undefined && hour === undefined && body.enabled === undefined) {
+            throw new PalugadaError('contract.violation', 'give weekday (0 to 6, Sunday 0), hour (0 to 23) or enabled (true or false)', {});
+          }
+          const { rows } = await withControlPlane((tx) => tx.query<{ weekday: number; hour: number; enabled: boolean }>(
+            `UPDATE companies
+                SET meeting_weekday = coalesce($2::smallint, meeting_weekday),
+                    meeting_hour = coalesce($3::smallint, meeting_hour),
+                    meeting_enabled = coalesce($4::boolean, meeting_enabled)
+              WHERE id = $1
+              RETURNING meeting_weekday AS weekday, meeting_hour AS hour, meeting_enabled AS enabled`,
+            [params.companyId, weekday ?? null, hour ?? null, body.enabled ?? null]));
+          if (!rows[0]) {
+            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          }
+          return rows[0];
+        },
+      },
+
+      {
+        // The month the company's fiscal year starts in (F18.9, 0144), which
+        // cuts its quarters: quarterly planning is held ten days before each
+        // ends. Like the meeting's hour, it changes when the company plans,
+        // never what anyone may do, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/fiscal-year',
+        handle: async ({ params, body }) => {
+          const month = body.startMonth;
+          if (typeof month !== 'number' || !Number.isInteger(month) || month < 1 || month > 12) {
+            throw new PalugadaError('contract.violation',
+              `startMonth is the month the fiscal year starts in, a whole number from 1 (January) to 12 (December); got ${JSON.stringify(month ?? null)}`,
+              { field: 'startMonth' });
+          }
+          const { rows } = await withControlPlane((tx) => tx.query<{ startMonth: number }>(
+            `UPDATE companies SET fiscal_year_start_month = $2 WHERE id = $1 RETURNING fiscal_year_start_month AS "startMonth"`,
+            [params.companyId, month]));
+          if (!rows[0]) {
+            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          }
+          return rows[0];
         },
       },
 
@@ -4218,6 +4288,24 @@ export class OwnerApi {
       },
 
       {
+        // One ticket, for its own page: an issue with its root cause, its
+        // decision and the to-dos that carry the decision out (F18.4), done
+        // and closed ones too, which the board's open view leaves out.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tickets/:ticketId',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          const ticket = await readTicket(tx, params.ticketId!);
+          if (!ticket) throw new PalugadaError('contract.violation', 'no such ticket in this company', { field: 'ticketId' });
+          const todos = ticket.kind === 'issue'
+            ? await listTickets(tx, { status: 'all', solvesTicketId: ticket.id, limit: 100 })
+            : [];
+          // What was decided before it was opened again, which the issue no longer says.
+          const earlier = (await earlierSolves(tx, [ticket])).get(ticket.id) ?? [];
+          return { ticket, todos, earlierSolves: earlier };
+        }),
+      },
+
+      {
         // The owner files something that needs doing. No device: a ticket
         // starts nothing until somebody is given it.
         method: 'POST',
@@ -4234,6 +4322,12 @@ export class OwnerApi {
             title: requireText(body.title, 'title'),
             body: typeof body.body === 'string' ? body.body : '',
             ...(body.priority === undefined ? {} : { priority: Number(body.priority) }),
+            // Work, unless the owner files a problem to solve (F18.4): a hire
+            // is proposed by the CEO, and the owner hires with the CEO.
+            ...(body.kind === undefined || body.kind === null || body.kind === ''
+              ? {} : { kind: oneOf(body.kind, ['work', 'issue'] as const, 'kind') }),
+            ...(body.horizon === undefined || body.horizon === null || body.horizon === ''
+              ? {} : { horizon: oneOf(body.horizon, ['now', 'long_term'] as const, 'horizon') }),
             openedBy: 'owner',
             // The owner's words: typed on the board, or on a card the
             // assistant wrote and the owner applied. The assistant files one
@@ -4268,6 +4362,7 @@ export class OwnerApi {
           const companyId = params.companyId!;
           const ticket = await withTenant(companyId, (tx) => readTicket(tx, params.ticketId!));
           if (!ticket) throw new PalugadaError('contract.violation', 'no such ticket in this company', { field: 'ticketId' });
+          assertHandedOutAsWork(ticket);
           if (ticket.status !== 'open') {
             throw new PalugadaError('contract.violation', `ticket "${ticket.title}" is ${ticket.status.replace('_', ' ')}`, { field: 'ticketId' });
           }
@@ -4427,7 +4522,10 @@ export class OwnerApi {
       {
         // What a goal is measured by (0053). The owner's, like the goal: an
         // agent that could set its own target could meet any target. No
-        // factor, because adding a measure loosens nothing.
+        // factor, because adding a measure loosens nothing -- which is why a
+        // new measure may be paired only with one that has no pair (0137):
+        // taking a partner from an existing pair is a change to that measure,
+        // and the change route below asks for the factor.
         method: 'POST',
         pattern: '/api/companies/:companyId/goals/:goalId/metrics',
         handle: async ({ params, body }) => {
@@ -4443,8 +4541,50 @@ export class OwnerApi {
             target,
             dueOn: typeof body.dueOn === 'string' && body.dueOn ? body.dueOn : null,
             sourceCapability: typeof body.sourceCapability === 'string' && body.sourceCapability ? body.sourceCapability : null,
+            ...scorecardFields(body),
           });
           return { id };
+        },
+      },
+
+      {
+        // The weekly scorecard (F18.2): the measures reviewed every week, by
+        // week, in the company's time zone, with this week's state of each.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/scorecard',
+        handle: async ({ params }) => withTenant(params.companyId!, (tx) => scorecardOf(tx, params.companyId!, new Date())),
+      },
+
+      {
+        // The vision and plan page (F18.10, with F18.11's channel rings): the
+        // charter's vision beside this year's goals, the quarter's priorities
+        // on or off pace, the scorecard, the headline, the long-term issues,
+        // the channels, the core processes and the last weekly meeting, all
+        // read from the rows that already hold them.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/plan',
+        handle: async ({ params }) => planOf(params.companyId!),
+      },
+
+      {
+        // The number the company is judged by (0142, F18.13): the portfolio
+        // shows it and every run is told it. No factor: choosing it loosens
+        // nothing, and the measure it names is already the owner's. A
+        // measure with no pair is accepted, and the console warns of it.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/headline',
+        handle: async ({ params, body }) => {
+          if (!('metricId' in body)) {
+            throw new PalugadaError('contract.violation',
+              'give metricId: the id of the measure the company is judged by, or null to let the portfolio infer it', { field: 'metricId' });
+          }
+          if (body.metricId !== null && typeof body.metricId !== 'string') {
+            throw new PalugadaError('contract.violation',
+              "metricId must be the id of one of the company's measures, or null to let the portfolio infer the headline", { field: 'metricId' });
+          }
+          await chooseHeadline(params.companyId!, body.metricId === null || body.metricId === '' ? null : body.metricId.trim());
+          const measured = await withControlPlane((tx) => headlines(tx));
+          return { headline: measured.get(params.companyId!) ?? null };
         },
       },
 
@@ -4466,6 +4606,7 @@ export class OwnerApi {
             change.sourceCapability = typeof body.sourceCapability === 'string' && body.sourceCapability ? body.sourceCapability : null;
           }
           if (body.retired !== undefined) change.retired = body.retired === true;
+          Object.assign(change, scorecardFields(body));
           if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
           await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
           await changeMetric(params.companyId!, params.metricId!, change);
@@ -4926,6 +5067,9 @@ export class OwnerApi {
           ...(body.parentGoalId === undefined
             ? {}
             : { parentGoalId: body.parentGoalId === null ? null : String(body.parentGoalId) }),
+          // F18.1: its period, seat, commitment and finish line, and the
+          // channel it tests; the answer carries the soft limits it is past.
+          ...goalPlanFrom(body),
         }),
       },
 
@@ -4941,8 +5085,10 @@ export class OwnerApi {
           // Before the factor. A TOTP code is one-shot, so an empty edit would
           // spend the owner's code, write a `goal.changed` event, and change
           // nothing -- and the next real attempt would need a new code.
-          if (body.statement === undefined && body.status === undefined) {
-            throw new PalugadaError('contract.violation', 'no goal field was given', {});
+          const plan = goalPlanFrom(body);
+          if (body.statement === undefined && body.status === undefined && Object.keys(plan).length === 0) {
+            throw new PalugadaError('contract.violation',
+              `no goal field was given; a goal change sends any of statement, status, ${GOAL_PLAN_FIELDS.join(', ')}`, {});
           }
           await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
           const changed = await applyGoalChange({
@@ -4952,6 +5098,7 @@ export class OwnerApi {
             ...(body.status === undefined
               ? {}
               : { status: oneOf(body.status, GOAL_STATUSES, 'status') }),
+            ...plan,
           });
           return { ok: true, paused: changed.paused };
         },
@@ -5021,6 +5168,7 @@ export class OwnerApi {
             tools: body.tools === undefined ? [] : textList(body.tools, 'tools'),
             doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
             ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
+            ...(body.accountabilities === undefined ? {} : { accountabilities: accountabilityLines(body.accountabilities) }),
             ...whoFrom(body),
           }, { ownerApproved: true, grantTools: body.grantTools === true });
         },
@@ -5261,6 +5409,11 @@ export class OwnerApi {
                 { field: 'maxRunMinutes' });
             }
             fields.maxRunSeconds = minutes === 0 ? null : minutes * 60;
+          }
+          if (body.accountabilities !== undefined) {
+            // What the seat answers for (F18.3): bounded where the change is
+            // made, and versioned with the charter.
+            fields.accountabilities = accountabilityLines(body.accountabilities);
           }
           if (body.runtime !== undefined) {
             // Only one this deployment runs. A role moved onto a runtime
@@ -5614,6 +5767,33 @@ export class OwnerApi {
             ownerApproved: true,
           });
           return { ok: true };
+        },
+      },
+
+      {
+        // F18.14: one of the company's core processes, and the seat that
+        // owns it, or no longer one. Marking does change what the seat's
+        // runs are told: their charter names the process with its summary
+        // and says to read it and follow it (context/builder.ts). It takes
+        // no second factor all the same, as the owner's assistant may do it
+        // (assistant-actions.ts), because nothing in that is new to the
+        // run. The summary is one its runs already carry among the skills,
+        // of a version switched on with the factor; only a process in
+        // force, not quarantined, is put in the charter; the rest is the
+        // platform's own instruction; and the route undoes it in one press.
+        // Widening a skill's scope takes the factor (/scope) because that
+        // does put its text in front of runs that never had it. The soft
+        // limit comes back as warnings, never as a refusal.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/:skillId/core',
+        handle: async ({ params, body }) => {
+          if (typeof body.core !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'core must be true or false', { field: 'core' });
+          }
+          return markCoreProcess(params.companyId!, params.skillId!, {
+            core: body.core,
+            roleId: typeof body.roleId === 'string' && body.roleId.trim() ? body.roleId.trim() : null,
+          });
         },
       },
 
@@ -7197,6 +7377,25 @@ function chatKindNamed(name: string): WebhookChatKind {
 }
 
 /**
+ * A seat's accountabilities as sent (F18.3): a list of text, one each. Checked
+ * for text rather than cast, as done criteria are: `String(null)` would be an
+ * accountability reading "null". Trimmed and bounded in governance/structure.ts.
+ */
+function accountabilityLines(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new PalugadaError('contract.violation',
+      'accountabilities must be an array: one line each for what the seat answers for, at most five, or none',
+      { field: 'accountabilities' });
+  }
+  return value.map((line, index) => {
+    if (typeof line !== 'string') {
+      throw new PalugadaError('contract.violation', `accountabilities[${index}] must be text`, { field: 'accountabilities' });
+    }
+    return line;
+  });
+}
+
+/**
  * Who a role is, from a request: its name, its title and its persona, each
  * only when present, and each cleared by an explicit null or empty string.
  */
@@ -7606,6 +7805,31 @@ function pick(body: Record<string, unknown>, fields: readonly string[]): Record<
 }
 
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */
+/**
+ * What a measure's body says about the weekly scorecard (0137): how often it
+ * is reviewed, the seat that owns it, and the measure it is watched with;
+ * and the funnel step it counts (0142), which the scorecard groups by. A
+ * field left out is left as it is; null clears it. The domain checks each.
+ */
+function scorecardFields(body: Record<string, unknown>): Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith' | 'funnelStep'> {
+  const fields: Pick<MetricChange, 'reviewEvery' | 'ownerRoleId' | 'pairedWith' | 'funnelStep'> = {};
+  const idOrNull = (value: unknown, field: string): string | null => {
+    if (value === null || value === '') return null;
+    if (typeof value !== 'string') {
+      throw new PalugadaError('contract.violation', `${field} must be an id, or null to clear it`, { field });
+    }
+    return value.trim();
+  };
+  if (body.reviewEvery !== undefined) fields.reviewEvery = (body.reviewEvery === '' ? null : body.reviewEvery) as 'week' | null;
+  if (body.ownerRoleId !== undefined) fields.ownerRoleId = idOrNull(body.ownerRoleId, 'ownerRoleId');
+  if (body.pairedWith !== undefined) fields.pairedWith = idOrNull(body.pairedWith, 'pairedWith');
+  // The funnel step it counts (0142); the domain names the five it accepts.
+  if (body.funnelStep !== undefined) {
+    fields.funnelStep = (body.funnelStep === '' ? null : body.funnelStep) as FunnelStep | null;
+  }
+  return fields;
+}
+
 function requireText(value: unknown, field: string): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) {
@@ -7651,6 +7875,19 @@ function roleChange(value: unknown): RoleChange {
 }
 
 const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
+const GOAL_PLAN_FIELDS = ['startsOn', 'dueOn', 'ownerRoleId', 'commitment', 'doneWhen', 'channel'] as const;
+
+/**
+ * A goal's period, seat, commitment, finish line and channel, as sent: a
+ * field left out is not in the answer, and an empty one is null, which
+ * clears it. The values are checked by the goal's own code (`planFrom`), so
+ * a change made by a proposal's approval is held to the same.
+ */
+function goalPlanFrom(body: Record<string, unknown>): GoalPlan {
+  return Object.fromEntries(GOAL_PLAN_FIELDS
+    .filter((field) => body[field] !== undefined)
+    .map((field) => [field, body[field] === null || body[field] === '' ? null : String(body[field])]));
+}
 const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
 
 /** A skill's check (F15.4), as the owner writes one: a name and what the skill must say. */
@@ -7755,16 +7992,25 @@ async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
   guardian: boolean;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
+  rhythm: { weekday: number; hour: number; enabled: boolean };
+  fiscalYearStartMonth: number;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
       guardian: boolean;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
+      rhythm: { weekday: number; hour: number; enabled: boolean };
+      fiscalYearStartMonth: number;
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
       `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
               company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage, company.guardian,
+              -- When its CEO holds the weekly operating meeting (0140).
+              jsonb_build_object('weekday', company.meeting_weekday, 'hour', company.meeting_hour,
+                                 'enabled', company.meeting_enabled) AS rhythm,
+              -- Where its fiscal year starts, which cuts its quarters (0144).
+              company.fiscal_year_start_month AS "fiscalYearStartMonth",
               CASE WHEN ceo.id IS NULL THEN NULL
                    ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo
          FROM companies company LEFT JOIN roles ceo ON ceo.company_id = company.id AND ceo.title = 'CEO'

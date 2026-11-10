@@ -406,6 +406,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Отозвано: задачу, о которой шла речь, запустили заново.',
   'Withdrawn: the day it was about has ended.':
     'Отозвано: день, о котором шла речь, закончился.',
+  'Withdrawn: the period it was about has ended and been graded.':
+    'Отозвано: период, о котором шла речь, закончился и оценён.',
+  'Withdrawn: the goal it was about was closed.':
+    'Отозвано: цель, о которой шла речь, закрыта.',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     'Отозвано: месячный лимит достигнут, и его место заняла карточка о том, что компания на паузе.',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -442,4 +446,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     'Завершено работ: {count}',
   'Stopped: its work was taken up another way':
     'Остановлена: работу продолжили другим путём',
+  'Its work stopped, and each time it took down the worker running it.':
+    'Работа остановилась и каждый раз роняла воркер, который её выполнял.',
+  'A write to an outside service may have happened without being what was meant.':
+    'Запись во внешний сервис, возможно, произошла, но не такая, как задумывалось.',
+  'Work charged to the same budget account stops until it has room again.':
+    'Работа, оплачиваемая с того же бюджетного счёта, стоит, пока на нём снова не появится запас.',
+  'Its work stopped before it was done.':
+    'Работа остановилась, не будучи доделанной.',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    'Платформа насчитала {lost} потерянных воркеров — больше задача терять не может.',
+  'The platform read back what was written, and it did not match.':
+    'Платформа перечитала записанное, и оно не совпало.',
+  'The budget account had nothing left to reserve for the work.':
+    'На бюджетном счёте не осталось ничего, что можно зарезервировать под работу.',
+  'The platform found it ended with no card raised for it.':
+    'Платформа обнаружила, что она завершилась, а карточки о ней не было.',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    'Карточка ушла тому, кого отдел назначает разбираться с этим, а затем вам.',
+  'The task was halted, and you were told on a card in the inbox.':
+    'Задача остановлена, и вам сообщили карточкой во входящих.',
+  'Postmortem: {cause} ({about})':
+    'Разбор после сбоя: {cause} ({about})',
+  'What happened':
+    'Что случилось',
+  'Impact':
+    'Последствия',
+  'Trigger':
+    'Причина срабатывания',
+  'Detection':
+    'Обнаружение',
+  'What was done':
+    'Что сделано',
+  'A task of {role} stopped before it was done.':
+    'Задача роли {role} остановилась, не будучи доделанной.',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    'Как решить: найти первопричину, спрашивая «почему» о каждом ответе и сверяя его с записями, решить один раз и завести дела, которые выполняют решение, у каждого — одно место.',
+  'Off track: {name}':
+    'Отклонение от плана: {name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name}: {value} за неделю с {week} при недельной цели {target}.',
+  '{role} answers for it.':
+    'За это отвечает {role}.',
+  'No seat answers for it.':
+    'За это не отвечает ни одна должность.',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    'Платформа взяла это из еженедельной таблицы показателей перед еженедельным операционным совещанием.',
+  'Not done at two meetings: {title}':
+    'Не сделано к двум совещаниям: {title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    'Дело «{title}» со сроком {due} не было сделано ни к еженедельному операционному совещанию {previous}, ни к этому.',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    'Платформа взяла это из списка дел перед еженедельным операционным совещанием.',
+  'Weekly operating meeting held ({week}): {where}':
+    'Еженедельное операционное совещание проведено ({week}): {where}',
+  'see its task under Work':
+    'его задача — в разделе «Работа»',
+  'New goals proposed, to approve line by line':
+    'Предложены новые цели, их одобряют построчно',
+  'Line {line}: the {kind} "{goal}"':
+    'Строка {line}: {kind} «{goal}»',
+  'Under: {goal}':
+    'Под целью: {goal}',
+  'Under line {line}: {goal}':
+    'Под строкой {line}: {goal}',
+  'Period: {from} to {to}':
+    'Период: с {from} по {to}',
+  'Committed: done in full, or missed.':
+    'Обязательная: выполняется полностью или проваливается.',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    'Амбициозная: получает оценку, и 0,6–0,7 — хороший результат.',
+  'Learning: a test of the prediction below.':
+    'Учебная: проверяет прогноз ниже.',
+  'Owned by: {role}':
+    'Ответственное место: {role}',
+  'Done when: {doneWhen}':
+    'Готово, когда: {doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    'Прогноз, записанный до работы: {name} достигнет {target}, начиная с {baseline}.',
+  'Measured by {name}: from {baseline} to {target}.':
+    'Измеряется показателем {name}: от {baseline} до {target}.',
+  'Watched with: {measure}':
+    'Смотрится вместе с: {measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    'Целей на этот год: {count} — больше {limit}, которые компания может держать в поле зрения.',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    'Ключевых результатов под этой целью: {count} — больше {limit}, которые одна цель может держать в поле зрения.',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    'Квартальных приоритетов одновременно: {count} — больше {limit}, которые компания может держать в поле зрения.',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    'Квартальных приоритетов у {seat} одновременно: {count} — больше {limit}, которые может нести одно место.',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    'Одобрение делает каждую одобренную строку целью вместе с её показателем; отклонённая строка не создаётся. До тех пор работа идёт по целям в их нынешнем виде.',
+  'No goal is made.':
+    'Ни одна цель не создаётся.',
+  'Missed: {statement}':
+    'Не выполнено: {statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}, обязательная на период с {from} по {to}, не выполнена.',
+  'Measured by its numbers, it came {progress} of the way.':
+    'По её цифрам она прошла {progress} пути.',
+  'It was not marked met by its due date.':
+    'К сроку она не была отмечена выполненной.',
+  'The platform graded it when its period ended.':
+    'Платформа оценила её, когда закончился её период.',
+  'Off pace: {statement}':
+    'Отстаёт от темпа: {statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} — обязательный приоритет со сроком {due}. Её цифры прошли лишь {progress} пути, а прошло уже {elapsed} её периода.',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    'Ничего не менялось, чтобы наверстать, и ни одного агента об этом не просят: обязательная цифра, отстающая от своего времени, толкает к более рискованным действиям, чтобы догнать, а идти ли на такой риск — решаете вы. Решите, перенести ли срок, снизить ли цель, сделать её амбициозной или оставить как есть и не выполнить.',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    'Как бы вы ни ответили, ничего не останавливается. Приоритет остаётся как есть и будет оценён по окончании периода; измените его в разделе Команда, Цели, если решите.',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': 'Наши ценности',
+  'Purpose and niche': 'Назначение и ниша',
+  'Long-range target': 'Долгосрочная цель',
+  'Who we serve and what makes us different': 'Кому мы служим и чем мы отличаемся',
+  'Where we will be in three years': 'Где мы будем через три года',
+  'Our promise': 'Наше обещание',
 };

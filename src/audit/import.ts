@@ -71,6 +71,22 @@ interface ImportSection {
    * (`taskKeysFromArchive`).
    */
   remapJson?: readonly string[];
+  /**
+   * Text columns holding ids joined by colons, mapped part by part as a
+   * card's `once` is: an issue's source names the seat or the account it is
+   * about (`task:<reason>:<role>`, `budget:<account>`), and one restored as it
+   * was would never be found again, so the next failure there filed a second
+   * issue beside the restored one.
+   */
+  remapJoined?: readonly string[];
+  /**
+   * The section's ids are assigned before any section is imported, because a
+   * payload imported earlier names its rows -- a hire's card names its ticket
+   * -- while the rows reference something imported later by a foreign key.
+   * Nothing earlier may reference them by a foreign key, which would point at
+   * a row not there yet.
+   */
+  idsFirst?: boolean;
 }
 
 /**
@@ -110,9 +126,18 @@ interface ImportSection {
 const SECTIONS: ImportSection[] = [
   { name: 'projects', table: 'projects', references: [] },
   { name: 'divisions', table: 'divisions', references: ['parent_division_id'] },
-  { name: 'goals', table: 'goals', references: ['parent_goal_id'] },
-  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
   { name: 'roles', table: 'roles', references: ['division_id'] },
+  // After the roles, since a goal names the seat that owns it (0136). A
+  // quarterly priority measured rather than worded is checked against its
+  // measure at commit, so the measure coming after it is in time.
+  { name: 'goals', table: 'goals', references: ['parent_goal_id', 'owner_role_id'] },
+  // After the roles, which own a line on the weekly scorecard (0137). A pair
+  // names a sibling in either order; its key is checked when the import ends.
+  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id', 'owner_role_id', 'paired_metric_id'] },
+  // A period's grade (0144), after the goal it grades: written once by the
+  // platform where the company was, and restored as it was, so the next
+  // sweep does not grade the same period again.
+  { name: 'goal_grades', table: 'goal_grades', references: ['goal_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
     // F12.1: what travels is the reference and its division, never a value --
@@ -196,14 +221,16 @@ const SECTIONS: ImportSection[] = [
   { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'], remapJson: ['grounds'] },
   { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
-  {
-    name: 'tickets',
-    table: 'tickets',
-    references: ['project_id', 'division_id', 'opened_by_task_id', 'working_task_id'],
-  },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'run_notes', table: 'run_notes', references: ['task_id', 'agent_run_id'] },
-  { name: 'events', table: 'events', references: ['project_id', 'task_id'] },
+  // Its payload names rows by their ids, and the code finds state by them:
+  // an issue's earlier solves (`issue.solved`), a seat's refusal of a to-do
+  // (`ticket.not_handed`), the work a rerun replaced. Every id mapped by now
+  // is mapped in it -- the tickets' among them, which are assigned first --
+  // so a restored issue still shows what was tried before, and a to-do whose
+  // seat gave up is not offered to that seat again. A row imported after the
+  // events (a memory, a card) is still named by the archive's id.
+  { name: 'events', table: 'events', references: ['project_id', 'task_id'], remapJson: ['payload'] },
   {
     name: 'memories',
     table: 'memories',
@@ -212,7 +239,8 @@ const SECTIONS: ImportSection[] = [
   {
     name: 'skills',
     table: 'skills',
-    references: ['scope_id'],
+    // A core process names the seat that owns it (0143); the roles come first.
+    references: ['scope_id', 'owner_role_id'],
     // `quarantined` travels as it was, and the destination's own gate is
     // applied afterwards instead of here. Forcing it true looked like the
     // stricter choice and was not: 0026 refuses a quarantined skill that is
@@ -268,6 +296,20 @@ const SECTIONS: ImportSection[] = [
     table: 'inbox_items',
     references: ['task_id'],
     remapJson: ['payload'],
+  },
+  {
+    // After the inbox, since an issue the platform filed names the card it
+    // came from (0139); its ids are assigned first, since a hire's card names
+    // its ticket in its payload. Issues before the to-dos that solve them,
+    // as the export writes them.
+    name: 'tickets',
+    table: 'tickets',
+    references: [
+      'project_id', 'division_id', 'opened_by_task_id', 'working_task_id', 'goal_id', 'metric_id', 'from_inbox_item_id',
+      'solves_ticket_id', 'assignee_role_id',
+    ],
+    remapJoined: ['source_key'],
+    idsFirst: true,
   },
 
   // F1.5's configuration, restored last because it references divisions and
@@ -417,6 +459,11 @@ export interface ImportSummary {
   skipped: string[];
 }
 
+/** A whole number in a range as the archive wrote it, or null for anything else. */
+function wholeIn(value: unknown, from: number, to: number): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= from && value <= to ? value : null;
+}
+
 /**
  * Rebuilds a company from an archive.
  *
@@ -450,6 +497,7 @@ export async function importCompany(
     (name) => !SECTIONS.some((section) => section.name === name),
   );
   escalationSetFromHistory(bySection);
+  goalsParentsFirst(bySection);
 
   // One transaction, on the control plane, for the whole company.
   //
@@ -470,8 +518,9 @@ export async function importCompany(
     try {
       ({ rows } = await tx.query<{ id: string }>(
         // A restored company is not a new one: its first hour (0109) is over.
-        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
+                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -482,6 +531,14 @@ export async function importCompany(
           isStage(source!.stage) ? source!.stage : null,
           // A safeguard the owner turned on does not come back off (0092).
           source!.guardian === true,
+          // When the CEO holds the weekly meeting (0140); an archive from
+          // before it has none, and gets Monday at nine, held.
+          wholeIn(source!.meeting_weekday, 0, 6) ?? 1,
+          wholeIn(source!.meeting_hour, 0, 23) ?? 9,
+          source!.meeting_enabled !== false,
+          // Where its fiscal year starts (0144); an archive from before it
+          // has none, and gets January, a calendar year.
+          wholeIn(source!.fiscal_year_start_month, 1, 12) ?? 1,
         ],
       ));
     } catch (error) {
@@ -496,11 +553,25 @@ export async function importCompany(
     // should not appear, but might in a payload -- resolves rather than dangles.
     const remap = new Map<string, string>([[String(source!.id), companyId]]);
     const counts: Record<string, number> = {};
+    for (const section of SECTIONS.filter((one) => one.idsFirst)) {
+      for (const row of bySection.get(section.name) ?? []) {
+        if (typeof row.id === 'string' && !remap.has(row.id)) remap.set(row.id, randomUUID());
+      }
+    }
 
     for (const section of SECTIONS) {
       const sectionRows = bySection.get(section.name) ?? [];
       if (sectionRows.length === 0) continue;
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
+    }
+
+    // The headline the owner chose (0142), once its measure is here: the
+    // company row was written before any measure, and the key needs one. An
+    // archive from before it, or one whose measure did not travel, has none,
+    // and the portfolio infers it as for any company.
+    const headline = typeof source!.headline_metric_id === 'string' ? remap.get(source!.headline_metric_id) : undefined;
+    if (headline) {
+      await tx.query('UPDATE companies SET headline_metric_id = $2 WHERE id = $1', [companyId, headline]);
     }
 
     await taskKeysFromArchive(tx, companyId, remap);
@@ -543,6 +614,37 @@ function escalationSetFromHistory(bySection: Map<string, Array<Record<string, un
     escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
       || (typeof row.id === 'string' && said.has(row.id)),
   }));
+}
+
+/**
+ * The archive's goals, each after the goal it hangs from. The key to the
+ * parent is checked as each row is written, and an archive written before
+ * the export put them in order (by `created_at` alone) could name a key
+ * result before its objective: the two tie when a plan approved at once wrote
+ * them together, and the objective changed since came out after its
+ * children. Sorted by how far each is from the top of the archive's own
+ * ladder, and otherwise kept in the archive's order; a parent the archive
+ * does not carry counts as the top. Rows are reordered, not changed.
+ */
+function goalsParentsFirst(bySection: Map<string, Array<Record<string, unknown>>>): void {
+  const goals = bySection.get('goals');
+  if (!goals || goals.length < 2) return;
+  const parentOf = new Map<string, unknown>();
+  for (const row of goals) if (typeof row.id === 'string') parentOf.set(row.id, row.parent_goal_id);
+  const depth = (row: Record<string, unknown>): number => {
+    let steps = 0;
+    let parent = row.parent_goal_id;
+    // Bounded by the number of goals, so a malformed archive with a cycle
+    // cannot hold the import; the database refuses that row anyway.
+    while (typeof parent === 'string' && parentOf.has(parent) && steps < goals.length) {
+      steps += 1;
+      parent = parentOf.get(parent);
+    }
+    return steps;
+  };
+  const ranked = goals.map((row, index) => ({ row, index, depth: depth(row) }));
+  ranked.sort((a, b) => a.depth - b.depth || a.index - b.index);
+  bySection.set('goals', ranked.map((one) => one.row));
 }
 
 /**
@@ -701,6 +803,9 @@ async function importSection(
       if (values[column] !== null && values[column] !== undefined) {
         values[column] = remapIds(values[column], remap);
       }
+    }
+    for (const column of section.remapJoined ?? []) {
+      if (typeof values[column] === 'string') values[column] = remapJoined(values[column] as string, remap);
     }
 
     values.company_id = companyId;

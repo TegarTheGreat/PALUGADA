@@ -147,3 +147,27 @@ test('the chats name every capability as the console does', async () => {
   assert.ok(console_.size >= 40, `found only ${console_.size} names in the console`);
   assert.deepEqual([...chats].sort(), [...console_].sort());
 });
+
+/**
+ * Work that carries outside content says how it came to (F8.9), and the
+ * trace's warning names it among the capabilities that read outside: "the
+ * task that made it", "the week it was handed". Those are not capabilities,
+ * so `capabilitySaid` has no word for them, and a way `outsideLabel` in
+ * `console/src/pages/Work.tsx` did not know was joined into the owner's
+ * sentence in English whatever the console's language -- the week's and the
+ * month's reviews, and the triage of tickets, all were. So every way the
+ * server writes is read from the source, and each must be translated there.
+ */
+test('every way work comes to carry outside content is said in the owner\'s language', async () => {
+  const ways = new Set<string>();
+  for (const text of (await files(SERVER, /\.ts$/)).values()) {
+    for (const match of text.matchAll(/capability: '(the [^']+)'/g)) ways.add(match[1]!);
+  }
+  assert.ok(ways.size >= 6, `found only ${ways.size} ways of carrying outside content`);
+  const work = await readFile(join(CONSOLE, 'pages', 'Work.tsx'), 'utf8');
+  const label = work.slice(work.indexOf('function outsideLabel'), work.indexOf('function capabilityOf'));
+  assert.ok(label.length > 0, 'console/src/pages/Work.tsx keeps outsideLabel');
+  const said = new Set([...label.matchAll(/if \(name === '([^']+)'\) return t\('/g)].map((match) => match[1]!));
+  const missing = [...ways].filter((way) => !said.has(way)).sort();
+  assert.deepEqual(missing, [], `shown to the owner in English: ${missing.join(', ')}`);
+});

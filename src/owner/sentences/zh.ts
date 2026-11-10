@@ -405,6 +405,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已撤回：它涉及的任务已重新运行。',
   'Withdrawn: the day it was about has ended.':
     '已撤回：它涉及的那一天已经过去。',
+  'Withdrawn: the period it was about has ended and been graded.':
+    '已撤回：它涉及的周期已经结束并已评分。',
+  'Withdrawn: the goal it was about was closed.':
+    '已撤回：它涉及的目标已关闭。',
   'Withdrawn: the month\'s ceiling was reached, and the card that says the company is paused takes its place.':
     '已撤回：本月上限已达到，由说明公司已暂停的卡片取而代之。',
   'Work still waiting after about {hours} hours stops, and this card then stays open for you to run it again.':
@@ -441,4 +445,123 @@ export const SENTENCES: Readonly<Record<string, string>> = {
     '已完成的工作：{count}',
   'Stopped: its work was taken up another way':
     '已停止：其工作已通过其他方式接手',
+  'Its work stopped, and each time it took down the worker running it.':
+    '它的工作停止了，而且每次都让运行它的 worker 一起停掉。',
+  'A write to an outside service may have happened without being what was meant.':
+    '对外部服务的写入可能已经发生，但与本意不符。',
+  'Work charged to the same budget account stops until it has room again.':
+    '记在同一预算账户上的工作会停下，直到该账户重新有余额。',
+  'Its work stopped before it was done.':
+    '它的工作在完成前停止了。',
+  'The platform counted {lost} lost workers, the most a task may lose.':
+    '平台统计到 {lost} 次丢失 worker，这是一个任务最多可丢失的次数。',
+  'The platform read back what was written, and it did not match.':
+    '平台回读了写入的内容，结果不一致。',
+  'The budget account had nothing left to reserve for the work.':
+    '预算账户已没有可为这项工作预留的余额。',
+  'The platform found it ended with no card raised for it.':
+    '平台发现它已结束，却没有为它提出任何卡片。',
+  'The card went to whoever the division names to deal with it, and to you after.':
+    '卡片先交给部门指定的处理者，之后交给您。',
+  'The task was halted, and you were told on a card in the inbox.':
+    '该任务已被停止，并通过收件箱中的卡片告知了您。',
+  'Postmortem: {cause} ({about})':
+    '事后复盘：{cause}（{about}）',
+  'What happened':
+    '发生了什么',
+  'Impact':
+    '影响',
+  'Trigger':
+    '触发因素',
+  'Detection':
+    '发现方式',
+  'What was done':
+    '已采取的措施',
+  'A task of {role} stopped before it was done.':
+    '{role} 的一项任务在完成前停止了。',
+  'To solve it: find the root cause by asking why of each answer and checking it against the record, decide once, and file the to-dos that carry the decision out, each with one seat.':
+    '解决办法：对每个答案追问为什么，并与记录核对，找出根本原因；只做一次决定；再创建执行该决定的待办，每项只交给一个席位。',
+  'Off track: {name}':
+    '偏离目标：{name}',
+  '{name} was {value} in the week of {week}, against a weekly goal of {target}.':
+    '{name} 在 {week} 那一周为 {value}，每周目标为 {target}。',
+  '{role} answers for it.':
+    '由 {role} 负责。',
+  'No seat answers for it.':
+    '没有任何席位对此负责。',
+  'The platform read it from the weekly scorecard before the weekly operating meeting.':
+    '平台在每周运营会议之前从每周记分卡中读取。',
+  'Not done at two meetings: {title}':
+    '两次会议都未完成：{title}',
+  'The to-do "{title}", due on {due}, was not done at the weekly operating meeting of {previous}, nor at this one.':
+    '待办“{title}”于 {due} 到期，在 {previous} 的每周运营会议上没有完成，在本次会议上也没有完成。',
+  'The platform read it from the to-dos before the weekly operating meeting.':
+    '平台在每周运营会议之前从待办中读取。',
+  'Weekly operating meeting held ({week}): {where}':
+    '已召开每周运营会议（{week}）：{where}',
+  'see its task under Work':
+    '请在“工作”中查看它的任务',
+  'New goals proposed, to approve line by line':
+    '提议的新目标，逐行批准',
+  'Line {line}: the {kind} "{goal}"':
+    '第 {line} 行：{kind}“{goal}”',
+  'Under: {goal}':
+    '隶属于：{goal}',
+  'Under line {line}: {goal}':
+    '隶属于第 {line} 行：{goal}',
+  'Period: {from} to {to}':
+    '周期：{from} 至 {to}',
+  'Committed: done in full, or missed.':
+    '必达：全部完成，或未达成。',
+  'Aspirational: graded, and 0.6 to 0.7 is a good result.':
+    '挑战：按分评分，0.6 至 0.7 即为好成绩。',
+  'Learning: a test of the prediction below.':
+    '学习：检验下面的预测。',
+  'Owned by: {role}':
+    '负责席位：{role}',
+  'Done when: {doneWhen}':
+    '完成标准：{doneWhen}',
+  'The prediction, written before the work: {name} reaches {target}, from {baseline}.':
+    '预测，在工作开始前写下：{name} 从 {baseline} 达到 {target}。',
+  'Measured by {name}: from {baseline} to {target}.':
+    '衡量指标 {name}：从 {baseline} 到 {target}。',
+  'Watched with: {measure}':
+    '配对观察：{measure}',
+  'Goals for this year: {count}, more than the {limit} a company keeps in view.':
+    '今年的目标：{count} 个，超过一家公司能顾及的 {limit} 个。',
+  'Key results under this objective: {count}, more than the {limit} one objective keeps in view.':
+    '此目标下的关键结果：{count} 个，超过一个目标能顾及的 {limit} 个。',
+  'Quarterly priorities at once: {count}, more than the {limit} a company keeps in view.':
+    '同时进行的季度优先事项：{count} 个，超过一家公司能顾及的 {limit} 个。',
+  'Quarterly priorities for {seat} at once: {count}, more than the {limit} one seat keeps in view.':
+    '{seat} 同时承担的季度优先事项：{count} 个，超过一个席位能承担的 {limit} 个。',
+  'Approving makes a goal of each line you approve, with its measure; a line you refuse is not made. Until then the work carries on under the goals as they are.':
+    '批准后，您批准的每一行都会成为一个目标，并带上其衡量指标；您拒绝的行不会创建。在此之前，工作按现有目标继续进行。',
+  'No goal is made.':
+    '不会创建任何目标。',
+  'Missed: {statement}':
+    '未达成：{statement}',
+  '{statement}, committed for {from} to {to}, was not done.':
+    '{statement}，承诺于 {from} 至 {to} 完成，没有完成。',
+  'Measured by its numbers, it came {progress} of the way.':
+    '按其数字衡量，它完成了 {progress}。',
+  'It was not marked met by its due date.':
+    '到期日前它没有被标记为已达成。',
+  'The platform graded it when its period ended.':
+    '平台在其周期结束时为它评分。',
+  'Off pace: {statement}':
+    '进度落后：{statement}',
+  '{statement} is a committed priority due on {due}. Its numbers have come {progress} of the way, with {elapsed} of its period gone.':
+    '{statement} 是一项必达的优先事项，截止日期为 {due}。它的数字只完成了 {progress}，而周期已过去 {elapsed}。',
+  'Nothing was changed to catch up, and no agent is asked to: a committed number behind its time invites riskier action to make it up, and whether to take such a risk is yours. Decide whether to move the date, lower the target, make it aspirational, or let it run and be missed.':
+    '没有为追赶而做任何改变，也没有要求任何代理去追赶：一个落后于时间的必达数字会诱使人采取更冒险的行动来弥补，而是否承担这种风险由你决定。请决定是推迟日期、降低目标、改为挑战目标，还是让它继续进行并接受未达成。',
+  'Nothing is stopped either way. The priority stays as it is and is graded when its period ends; change it under Team, Goals if you decide to.':
+    '无论你如何回答，都不会停止任何事情。该优先事项保持不变，并在周期结束时评分；如果你决定修改，请在 团队、目标 中修改。',
+  // The vision outline's headings (src/owner/vision.ts), the same words the console writes.
+  'Our values': '我们的价值观',
+  'Purpose and niche': '使命与细分市场',
+  'Long-range target': '长期目标',
+  'Who we serve and what makes us different': '我们服务谁，以及我们的不同之处',
+  'Where we will be in three years': '三年后我们将在哪里',
+  'Our promise': '我们的承诺',
 };

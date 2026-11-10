@@ -107,11 +107,15 @@ export interface BundleCadence {
   /**
    * What each occurrence is handed from the company's own records as it
    * fires, beside the brief: `week` is the week's numbers, finished work,
-   * spend and what waits for the owner (reporting/week.ts). A run sees the
-   * metrics of its own goal chain and nothing else, so a review told to
-   * report every number against its target could see almost none of them.
+   * spend and what waits for the owner (reporting/week.ts); `month` is the
+   * last whole month's money from the company's own books -- profit, cash,
+   * what is owed and late, spend against the ceiling and the levers that
+   * move them (reporting/month.ts). A run sees the metrics of its own goal
+   * chain and nothing else, so a review told to report every number against
+   * its target could see almost none of them, and no run sees the books
+   * unless it reads them.
    */
-  facts?: 'week';
+  facts?: 'week' | 'month';
   /**
    * F9.1: what an occurrence does while the cadence's last run is live, as
    * a schedule takes it; `skip` when not given.
@@ -122,7 +126,7 @@ export interface BundleCadence {
 }
 
 /** What a cadence may be handed as it fires. */
-const CADENCE_FACTS = ['week'] as const;
+const CADENCE_FACTS = ['week', 'month'] as const;
 
 /**
  * A rule the bundle brings (F3.4, F16.1).
@@ -853,6 +857,30 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
         `cadence ${cadence.slug} asks to be handed ${String(cadence.facts)}; a cadence can be handed ${CADENCE_FACTS.join(', ')}, or nothing`,
         { slug: bundle.slug },
       );
+    }
+    // F18.12, F8.1: the month is the company's books, which a run reads only
+    // through `ledger.read`. A bundle that hands them to a role it does not
+    // let read them would put past the broker what an owner reviewing the
+    // bundle's tools and grants was told the role cannot see. The scheduler
+    // asks again as it fires (reporting/month.ts), since grants change.
+    if (cadence.facts === 'month') {
+      const role = bundle.body.roles.find((one) => one.slug === cadence.roleSlug)!;
+      if (!(role.tools ?? []).includes('ledger.read')) {
+        throw new PalugadaError(
+          'bundle.invalid',
+          `cadence ${cadence.slug} is handed the month's books, and role ${role.slug} does not list ledger.read among its tools; `
+            + 'list it, or hand the month to a role that reads the books',
+          { slug: bundle.slug },
+        );
+      }
+      if (!bundle.body.grants.some((grant) => grant.division === role.division && grant.capability === 'ledger.read')) {
+        throw new PalugadaError(
+          'bundle.invalid',
+          `cadence ${cadence.slug} is handed the month's books, and the bundle does not grant ledger.read to division ${role.division}; `
+            + 'grant it there, or hand the month to a role whose division the bundle grants it',
+          { slug: bundle.slug },
+        );
+      }
     }
     // A typo fails when the bundle is published, not on Monday morning.
     assertValidCron(cadence.cron, 'UTC');

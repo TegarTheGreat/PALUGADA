@@ -17,17 +17,30 @@ export interface Company {
   guardian: boolean;
   /** Where the company is in its life (0057); null until the owner sets one. */
   stage: Stage | null;
-  /** The first metric on its highest active goal, or null when nothing is measured yet. */
+  /**
+   * The number it is judged by: the measure the owner chose (0142), or, until
+   * they choose one, the first metric on its highest active goal; null when
+   * nothing is measured yet.
+   */
   headline: {
+    metricId: string;
     name: string;
     unit: Metric['unit'];
     target: number;
     value: number | null;
     verified: boolean | null;
     progress: number | null;
+    /** Whether the owner chose it; false when it is inferred. */
+    chosen: boolean;
+    /** The measure it is watched with; null when nothing watches it. */
+    pair: { id: string; name: string } | null;
   } | null;
   /** The role the owner talks to (0068); null only while the company has no roles. */
   ceo: { roleId: string; slug: string; displayName: string | null } | null;
+  /** When the CEO holds the weekly operating meeting (0140): 0 Sunday to 6 Saturday, an hour on the company's clock. */
+  rhythm: { weekday: number; hour: number; enabled: boolean };
+  /** The month, 1 to 12, its fiscal year starts in (0144): quarterly planning follows it. */
+  fiscalYearStartMonth: number;
 }
 
 export interface InboxItem {
@@ -66,6 +79,12 @@ export interface InboxItem {
   budgetHalt?: { accountId: string; account: string | null; tokensSpent: number; tokensMax: number; stopped: number };
   /** Work that stopped and is told on this card, not one of its own (a cause's card has no task), with whose it was. */
   stopped?: WaitingRole[];
+  /**
+   * A plan of new goals (F18.7): its lines, each approved or refused on its
+   * own. The card's text says what each is in full; `warned` says it would
+   * pass a soft limit, which the text names.
+   */
+  plan?: Array<{ line: number; kind: string; slug: string; statement: string; channel: string | null; warned: boolean }>;
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -123,6 +142,8 @@ export interface Digest {
   openInboxItems: number;
   openIncidents: number;
   highlights: string[];
+  /** The last weekly operating meeting (F18.6); its task is the record. */
+  lastMeeting: { taskId: string; week: string; status: string; finishedAt: string | null; heldThisDay: boolean } | null;
 }
 
 export interface Retro {
@@ -158,12 +179,54 @@ export interface Goal {
   slug: string;
   statement: string;
   status: string;
+  /** Its period (YYYY-MM-DD, both or neither) and what its length makes it (F18.1). */
+  startsOn: string | null;
+  dueOn: string | null;
+  period: 'quarter' | 'year' | 'longer' | null;
+  /** The one seat that answers for it. */
+  ownerRoleId: string | null;
+  ownerRole: string | null;
+  commitment: 'committed' | 'aspirational' | 'learning' | null;
+  doneWhen: string | null;
+  /** The traction channel it tests (F18.11). */
+  channel: string | null;
+  /** The soft limits it is past: shown to the owner, never refused. */
+  warnings: GoalWarning[];
   /** Tasks under this goal or any goal beneath it: finished, and in all. */
   tasksDone: number;
   tasksTotal: number;
   /** What the goal is measured by, with where each stands. */
   metrics: Metric[];
+  /** Its latest grade, written by the platform when a period of it ended (0144); null before any. */
+  grade: GoalGrade | null;
 }
+
+/** How a period of a goal went, as the platform graded it (F18.8). */
+export interface GoalGrade {
+  goalId: string;
+  periodStartsOn: string;
+  periodDueOn: string;
+  commitment: 'committed' | 'aspirational' | 'learning' | null;
+  /** 0 to 1; a committed goal's is 1 or 0. */
+  score: number;
+  /** From its numbers, or, with none, whether you marked it met. */
+  basis: 'measured' | 'declared';
+  /** A learning goal's prediction and what happened. */
+  predicted: number | null;
+  actual: number | null;
+  /** How it was reached, where the score alone does not say; `marked_met` is your met over its numbers. */
+  note: 'no_reading' | 'from_key_results' | 'marked_met' | null;
+  /** A committed goal passed or missed; null for any other. */
+  passed: boolean | null;
+  /** The goal's due date has moved since, and its new period has no grade yet. */
+  formerPeriod: boolean;
+}
+
+export type GoalWarning =
+  | { kind: 'year_goals'; count: number; limit: number }
+  | { kind: 'objective_key_results'; count: number; limit: number; goalId: string }
+  | { kind: 'quarter_priorities'; count: number; limit: number }
+  | { kind: 'seat_priorities'; count: number; limit: number; roleId: string };
 
 export interface Metric {
   id: string;
@@ -181,6 +244,130 @@ export interface Metric {
   history: Array<{ value: number; observedAt: string; verified: boolean }>;
   /** When the owner retired it; its history is kept and it takes no more values. */
   retiredAt: string | null;
+  /** `week` for a line on the weekly scorecard, whose target is then the weekly goal. */
+  reviewEvery: 'week' | null;
+  /** The seat that answers for it. */
+  ownerRoleId: string | null;
+  ownerRoleSlug: string | null;
+  /** The measure it is watched with, which names this one back. */
+  pairedWith: string | null;
+  /** The step of the funnel it counts (0142), or null. */
+  funnelStep: FunnelStep | null;
+}
+
+/** McClure's funnel, in the order a customer goes through it (src/domain/metrics.ts `FUNNEL_STEPS`). */
+export type FunnelStep = 'acquisition' | 'activation' | 'retention' | 'referral' | 'revenue';
+
+/** Where a week of a scorecard line stands; `claimed` is an agent's number nobody read from its source. */
+export type WeekState = 'on_track' | 'off_track' | 'claimed' | 'not_reported';
+
+/** GET /api/companies/:companyId/scorecard (src/domain/metrics.ts `scorecardOf`). */
+export interface Scorecard {
+  timezone: string;
+  /** The Mondays of the weeks shown, oldest first, ending with this week. */
+  weeks: string[];
+  lines: Array<{
+    metricId: string;
+    goalId: string;
+    slug: string;
+    name: string;
+    unit: Metric['unit'];
+    direction: 'up' | 'down';
+    target: number;
+    sourceCapability: string | null;
+    ownerRole: { id: string; slug: string; displayName: string | null; title: string | null } | null;
+    pairedWith: string | null;
+    pair: { id: string; slug: string; name: string } | null;
+    funnelStep: FunnelStep | null;
+    /** The step it is read under: its own, or its partner's for the second of a pair drawn together. */
+    group: FunnelStep | null;
+    weeks: Array<{ week: string; value: number | null; verified: boolean | null; state: WeekState }>;
+    state: WeekState;
+  }>;
+  warning: { kind: 'too_few' | 'too_many'; lines: number; fewest: number; most: number } | null;
+}
+
+/** A seat as the Plan page names it: by the owner's name for the role. */
+export interface PlanSeat { id: string; slug: string; displayName: string | null; title: string | null }
+
+/** GET /api/companies/:companyId/plan (src/owner/views.ts `planOf`): the vision and plan page (F18.10). */
+export interface Plan {
+  /** The company's own day, which this year and this quarter are read on. */
+  day: string;
+  timezone: string;
+  /** The charter's vision sections, or the whole charter when it has none of the outline's headings. */
+  vision: {
+    charterVersion: number | null;
+    sections: Array<{ part: string; heading: string; text: string }>;
+    whole: string | null;
+  };
+  yearGoals: Array<{
+    id: string; slug: string; statement: string; status: string; startsOn: string; dueOn: string;
+    seat: PlanSeat | null; commitment: Goal['commitment']; doneWhen: string | null; metrics: Metric[];
+    priorities: number;
+    /** Its latest grade, written when a period of it ended (F18.8); null before any. */
+    grade: GoalGrade | null;
+  }>;
+  priorities: {
+    items: Array<{
+      goalId: string; goal: string; statement: string; seatRole: PlanSeat | null; commitment: Goal['commitment'];
+      channel: string | null; startsOn: string; dueOn: string;
+      /** How much of the quarter is gone, and how far its measures have come, 0 to 1. */
+      elapsed: number; progress: number | null; finishedThisWeek: number;
+      pace: 'on_pace' | 'off_pace';
+      why: 'behind' | 'no_reading' | 'no_recent_work' | null;
+      /** Its latest grade, as for a year's goal. */
+      grade: GoalGrade | null;
+    }>;
+    leftOut: number;
+  };
+  scorecard: {
+    lines: Array<{
+      metricId: string; goalId: string; name: string; unit: Metric['unit']; target: number; seat: PlanSeat | null;
+      lastWeek: WeekState; lastValue: number | null; thisWeek: WeekState;
+    }>;
+    lastWeek: Record<WeekState, number>;
+    warning: Scorecard['warning'];
+  };
+  headline: Company['headline'];
+  longTermIssues: {
+    items: Array<{ id: string; title: string; priority: number; ageDays: number; filedBy: 'owner' | 'agent' | 'platform'; outside: boolean }>;
+    leftOut: number;
+  };
+  channels: {
+    /** The strategist's list of a strategy for every channel; null when none was written. */
+    possible: { taskId: string; step: number; title: string; excerpt: string; path: string; at: string; role: PlanSeat } | null;
+    probable: PlanChannel[];
+    working: PlanChannel[];
+  };
+  coreProcesses: CoreProcesses;
+  /**
+   * The fiscal quarter today is in, and its numbers as quarterly planning is
+   * handed them (`gradeReportOf`, F18.8): shares are 0 to 1, null with nothing to count.
+   */
+  grades: {
+    quarter: string; from: string; to: string;
+    numbers: {
+      priorities: { total: number; done: number; share: number | null; aim: number };
+      committed: { graded: number; passed: number; passRate: number | null };
+      aspirational: {
+        graded: number; average: number | null; expected: [number, number];
+        reading: 'too_safe' | 'too_ambitious' | 'expected' | 'below_expected' | 'above_expected' | null;
+      };
+      /** The to-dos due so far in the quarter, a dropped one left out, and how many were done: the weekly meeting's count. */
+      todos: { due: number; done: number; completionRate: number | null };
+    };
+  };
+  /** The last weekly operating meeting, whatever its status, and the record of the last one that completed. */
+  lastMeeting: {
+    taskId: string; week: string; status: string; finishedAt: string | null;
+    record: { taskId: string; week: string; finishedAt: string; summary: string | null } | null;
+  } | null;
+}
+
+export interface PlanChannel {
+  channel: string;
+  goals: Array<{ id: string; slug: string; statement: string; commitment: Goal['commitment']; startsOn: string | null; dueOn: string | null }>;
 }
 
 export interface Division {
@@ -222,6 +409,8 @@ export interface Role {
   displayName: string | null;
   title: string | null;
   persona: RolePersona | null;
+  /** What the seat answers for (F18.3, migration 0138): at most five lines, told to every run of it. */
+  accountabilities: string[];
 }
 
 /** The persona a role takes after, and the owner's own words about how it should be. */
@@ -251,6 +440,69 @@ export interface Structure {
   goals: Goal[];
   divisions: Division[];
   roles: Role[];
+  /** What the chart warns of (F18.3): shown, never refused. */
+  seatChecks: {
+    /** Seats, by role id, that answer for nothing yet. */
+    withoutAccountabilities: string[];
+    /** An accountability two or more seats claim in the same words, as the first of them wrote it. */
+    sharedAccountabilities: Array<{ accountability: string; roleIds: string[] }>;
+    /** Live lines on the weekly scorecard, by measure id, that no seat answers for. */
+    linesWithoutSeat: string[];
+    /** Open key results, by goal id, that no seat answers for. */
+    keyResultsWithoutSeat: string[];
+  };
+  /** The measure the owner chose as the company's headline (0142); null while it is inferred. */
+  headlineMetricId: string | null;
+  /** The core processes (F18.14, migration 0143), with how far each is followed over the window. */
+  coreProcesses: CoreProcesses;
+}
+
+/** A warning about the core processes: shown, never refused (src/skills/core.ts). */
+export type CoreProcessWarning =
+  | { kind: 'fewer_than_five'; count: number }
+  | { kind: 'more_than_twelve'; count: number }
+  | { kind: 'longer_than_sixty_lines'; slug: string; lines: number }
+  | { kind: 'not_in_force'; slug: string; reason: 'quarantined' | 'not_active' }
+  | { kind: 'division_cannot_read'; slug: string; roleId: string };
+
+/**
+ * A core process as the structure carries it, and the plan page reads it:
+ * without the skill's summary, which the structure leaves out because a
+ * skill's author wrote it (structureOf in src/owner/views.ts). The Skills page
+ * reads the summary from /skills.
+ */
+export interface CoreProcess {
+  skillId: string;
+  slug: string;
+  ownerRoleId: string;
+  ownerRole: string;
+  divisionId: string;
+  activeVersion: number | null;
+  quarantined: boolean;
+  /** Its active version is in force and it is not quarantined: what the seat's runs are told to follow. */
+  inForce: boolean;
+  /** The seat's division holds skill.read; without it no run there can open the process. */
+  divisionCanRead: boolean;
+  /** When the version the runs follow was switched on. */
+  updatedAt: string;
+  ageDays: number;
+  /** Not changed in a quarter. */
+  stale: boolean;
+  lines: number;
+  /** When its count starts: the window's start, or when it came into force, if that was later. */
+  countedSince: string;
+  /** Runs of the seat's division since then, and how many of them read the process. */
+  runs: number;
+  followedRuns: number;
+  /** Null where it measures nothing: no run in the window, a division that cannot read it, or not in force. */
+  followedShare: number | null;
+}
+
+export interface CoreProcesses {
+  windowDays: number;
+  since: string;
+  processes: CoreProcess[];
+  warnings: CoreProcessWarning[];
 }
 
 export type WorkGroup = 'active' | 'waiting' | 'done' | 'stopped';
@@ -473,6 +725,10 @@ export interface Skill {
   origin: string | null;
   activeVersion: number | null;
   checks: number;
+  /** One of the company's core processes (F18.14), and the seat that owns it. */
+  core: boolean;
+  ownerRoleId: string | null;
+  ownerRole: string | null;
   latest: SkillVersion | null;
 }
 
@@ -804,17 +1060,27 @@ export interface PolicyRow {
 export interface Ticket {
   id: string;
   projectId: string;
-  /** `hire`: a role the company lacks, which the owner decides (0132). */
-  kind: 'work' | 'hire';
+  /** `hire`: a role the company lacks, which the owner decides (0132). `issue`: a problem to solve (0139). */
+  kind: 'work' | 'hire' | 'issue';
   divisionId: string | null;
   title: string;
   body: string;
   status: 'open' | 'in_progress' | 'done' | 'closed';
   priority: number;
-  openedBy: 'owner' | 'agent';
+  /** `platform`: PALUGADA filed it itself, as a postmortem. */
+  openedBy: 'owner' | 'agent' | 'platform';
   openedByTaskId: string | null;
   workingTaskId: string | null;
+  /** Why it was closed; on a solved issue, the decision. */
   closedReason: string | null;
+  /** An issue's list: this week's, or the one read at quarterly planning. */
+  horizon: 'now' | 'long_term';
+  /** A solved issue's root cause. */
+  rootCause: string | null;
+  /** A to-do's issue, its one seat and the day it is due (YYYY-MM-DD). */
+  solvesTicketId: string | null;
+  assigneeRoleId: string | null;
+  dueOn: string | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;

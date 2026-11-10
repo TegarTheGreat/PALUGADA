@@ -691,8 +691,10 @@ link that is this relay's and active, for a company the relay hears about;
 the device's signature when the link has a device key; then a closed list of
 types (`src/relay/inbound.ts`). Nothing is written for an unknown relay or a
 bad signature, and the open route is throttled before the database is read,
-so a stranger cannot fill a table. The only act that changes anything is a
-press: it redeems a token PALUGADA sent with a notice to that person, for that
+so a stranger cannot fill a table; a paired relay, pushed from or pulled, is
+taken at sixty new envelopes a minute in each process at most, so even a
+stolen relay key cannot flood a company's record with refusals. The only act
+that changes anything is a press: it redeems a token PALUGADA sent with a notice to that person, for that
 item, once; it is refused at tier 3 even with a valid token (no offer is ever
 made there, and `decide` refuses a `chat` decision at tier 3 regardless); a
 seat's kind is read again at the press, and four eyes hold; it is recorded as

@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react';
 import { Avatar, Badge, Box, Button, Group, ScrollArea, Stack, Text, UnstyledButton } from '@mantine/core';
 import { IconBellOff, IconBolt, IconCompass, IconHash, IconLock, IconMessagePlus, IconPlus, IconSparkles } from '@tabler/icons-react';
-import { t } from '../i18n.ts';
+import { t, tp } from '../i18n.ts';
 import { companyEmblem, personPicture, rolePicture } from '../images.ts';
 import { roomName, useScope } from './scope.ts';
 import type { RoomListItem } from './types.ts';
@@ -44,6 +44,7 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
   const row = (item: string, label: string, icon: ReactNode, options: { room?: RoomListItem; count?: number } = {}) => {
     const room = options.room;
     const fresh = room ? room.unread > 0 && !quiet(room) : false;
+    const mentions = room ? room.mentions : options.count ?? 0;
     return (
       <UnstyledButton
         key={item}
@@ -58,11 +59,14 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
           <Box className="rail-icon">{icon}</Box>
           <Text size="sm" fw={fresh ? 700 : 500} truncate style={{ flex: 1, minWidth: 0 }}>{label}</Text>
           {room && quiet(room) && <IconBellOff size={14} color="var(--mantine-color-dimmed)" aria-label={t('Quiet')} />}
-          {(room ? room.mentions : options.count ?? 0) > 0 && (
-            <Badge size="sm" color="red" circle={(room ? room.mentions : options.count ?? 0) < 10}>{capped(room ? room.mentions : options.count ?? 0)}</Badge>
+          {/* Each count says what it counts to a screen reader, which hears only a number otherwise. */}
+          {mentions > 0 && (
+            <Badge size="sm" color="red" circle={mentions < 10} aria-label={tp('{count} mention', '{count} mentions', mentions)}>{capped(mentions)}</Badge>
           )}
           {room && room.kind === 'direct' && room.unread > 0 && room.mentions === 0 && !quiet(room) && (
-            <Badge size="sm" color="red" variant="light" circle={room.unread < 10}>{capped(room.unread)}</Badge>
+            <Badge size="sm" color="red" variant="light" circle={room.unread < 10} aria-label={tp('{count} unread message', '{count} unread messages', room.unread)}>
+              {capped(room.unread)}
+            </Badge>
           )}
         </Group>
       </UnstyledButton>
@@ -112,7 +116,7 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
           <Avatar size={28} radius="xl" src={personPicture(scope.me, me?.picture ?? null)} alt="" />
           <div style={{ minWidth: 0 }}>
             <Text size="sm" fw={600} truncate>{owner ? t('Owner') : me?.name ?? scope.ctx.staff?.name}</Text>
-            {me?.handle && <Text size="xs" c="dimmed" truncate>@{me.handle}</Text>}
+            {me?.handle && <Text size="xs" c="dimmed" truncate dir="ltr">@{me.handle}</Text>}
           </div>
         </Group>
       </UnstyledButton>

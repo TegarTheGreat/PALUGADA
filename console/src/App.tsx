@@ -28,7 +28,7 @@ import {
 import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
-import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
+import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, tp, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
@@ -494,7 +494,9 @@ function Console({ device, staff, recovered, signOut }: {
         {...(inline ? { description: t(page.about) } : { py: 7 })}
         leftSection={<page.icon size={18} stroke={1.7} />}
         rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge>
-          : page.id === 'rooms' && roomsCount > 0 ? <Badge data-badge="rooms" size="sm" color="red" circle>{roomsCount}</Badge> : null}
+          : page.id === 'rooms' && roomsCount > 0
+            ? <Badge data-badge="rooms" size="sm" color="red" circle aria-label={tp('{count} message for you', '{count} messages for you', roomsCount)}>{roomsCount}</Badge>
+            : null}
         active={active === page.id}
         onClick={() => open(page.id)}
         className={`nav-link${spotted(page.id as TourSpot)}`}
@@ -813,7 +815,9 @@ function Console({ device, staff, recovered, signOut }: {
         </Group>
       </AppShell.Footer>}
 
-      <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
+      {/* As tall as what it lists, rather than the whole screen. */}
+      <Drawer opened={more} onClose={() => setMore(false)} position="bottom" title={company?.name} radius="lg"
+        styles={{ content: { flex: '0 0 auto', height: 'auto', maxHeight: '85dvh' } }}>
         <Stack gap={4} pb="md">
           {PAGES.filter((page) => !['inbox', 'rooms', 'work'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
           {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
@@ -941,7 +945,9 @@ function CompanyMenu({
             rightSection={(
               <Group gap={4} wrap="nowrap">
                 {badgeOf(unread.find((waiting) => waiting.companyId === one.id)) > 0 && (
-                  <Badge size="xs" color="blue" circle aria-label={t('Messages for you')}>{badgeOf(unread.find((waiting) => waiting.companyId === one.id))}</Badge>
+                  <Badge size="xs" color="blue" circle aria-label={tp('{count} message for you', '{count} messages for you', badgeOf(unread.find((waiting) => waiting.companyId === one.id)))}>
+                    {badgeOf(unread.find((waiting) => waiting.companyId === one.id))}
+                  </Badge>
                 )}
                 {openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
               </Group>

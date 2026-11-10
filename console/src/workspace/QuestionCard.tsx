@@ -53,14 +53,15 @@ export function QuestionCard({ card }: { card: CardView }) {
   return (
     <Paper withBorder radius="md" p="sm" mt={6} maw={560} style={{ borderInlineStart: '3px solid var(--mantine-color-violet-5)' }}>
       <Stack gap={6}>
-        <Group gap="xs" justify="space-between" wrap="nowrap">
-          <Group gap={6} wrap="nowrap">
-            <IconMessageQuestion size={16} color="var(--mantine-color-violet-6)" />
-            <Text size="sm" fw={600}>
+        {/* On a narrow column the state moves to its own line rather than being cut short. */}
+        <Group gap="xs" justify="space-between" wrap="wrap" align="flex-start" style={{ rowGap: 4 }}>
+          <Group gap={6} wrap="nowrap" align="flex-start" style={{ minWidth: 0, flex: '1 1 10rem' }}>
+            <IconMessageQuestion size={16} color="var(--mantine-color-violet-6)" style={{ flexShrink: 0, marginTop: 2 }} />
+            <Text size="sm" fw={600} style={{ overflowWrap: 'anywhere' }}>
               {question.addressee ? t('A question for {name}', { name: nameOf(question.addressee) }) : t('A question from {role}', { role: card.role?.label ?? t('the role') })}
             </Text>
           </Group>
-          <Badge size="sm" variant="light" color={card.state === 'open' ? 'violet' : 'gray'} radius="sm">{itemStateSaid(card.state)}</Badge>
+          <Badge size="sm" variant="light" color={card.state === 'open' ? 'violet' : 'gray'} radius="sm" style={{ flexShrink: 0 }}>{itemStateSaid(card.state)}</Badge>
         </Group>
         {!question.hidden && <Prose text={question.text} />}
         {question.endsAt && card.state === 'open' && (

@@ -21,7 +21,8 @@ export function EmojiPicker({ target, pick, opened, setOpened }: {
     <Popover opened={opened} onChange={setOpened} position="top-end" shadow="md" withinPortal trapFocus>
       <Popover.Target>{target}</Popover.Target>
       <Popover.Dropdown p="xs" maw="min(320px, calc(100vw - 32px))">
-        <ScrollArea type="never" mb={6}>
+        {/* The groups are wider than the popover: a scrollbar shows there are more of them, and reaches them. */}
+        <ScrollArea type="auto" scrollbarSize={6} offsetScrollbars="x" mb={6}>
           <SegmentedControl
             size="xs"
             value={group}

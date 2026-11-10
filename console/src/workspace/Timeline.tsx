@@ -87,7 +87,7 @@ export function PendingRow({ pending, retry }: { pending: Pending; retry: (pendi
     <Box className="message-row" data-pending px={{ base: 'xs', sm: 'md' }} py={4} style={{ opacity: pending.failed ? 1 : 0.6 }}>
       <Group gap="sm" wrap="nowrap" align="flex-start">
         <Box w={36} style={{ flexShrink: 0 }} />
-        <Box style={{ flex: 1, minWidth: 0 }} className="message-body">
+        <Box style={{ flex: 1, minWidth: 0 }} className="message-body" dir="auto">
           <Prose text={pending.body} />
           {pending.failed
             ? <Group gap={6}><Text size="xs" c="red">{t('Not sent')}</Text><Button size="compact-xs" variant="subtle" color="red" onClick={() => retry(pending)}>{t('Retry')}</Button></Group>
@@ -192,10 +192,12 @@ export function Timeline({ roomId, pending, retry, editing, setEditing, shown, e
     if (atBottom.current) end.current?.scrollIntoView({ block: 'end' });
   }, [messages.length, pending.length]);
 
-  // The room read up to its newest message; a mark the server already has is not sent again.
+  // The room read up to its newest message; a mark the server already has is not sent again. Someone who has not
+  // joined the room is read for too: the server keeps them no mark, but sees what named them (STATUS 2.206).
   const newest = messages.at(-1);
+  const shownHere = scope.room?.id === roomId;
   const readTo = (position: number) => {
-    if (!scope.room?.joined || position <= Math.max(readPosition, lastSeen.current)) return;
+    if (!shownHere || position <= Math.max(readPosition, lastSeen.current)) return;
     lastSeen.current = position;
     api('POST', `/api/companies/${companyId}/rooms/${roomId}/read`, { position })
       .then((answer: { readPosition: number }) => {
@@ -208,7 +210,7 @@ export function Timeline({ roomId, pending, retry, editing, setEditing, shown, e
   // Read once the newest has been in view for a second.
   useEffect(() => {
     const target = end.current;
-    if (!target || !newest || !scope.room?.joined) return undefined;
+    if (!target || !newest || !shownHere) return undefined;
     let timer: number | undefined;
     const watch = new IntersectionObserver(([entry]) => {
       if (timer !== undefined) window.clearTimeout(timer);
@@ -221,7 +223,7 @@ export function Timeline({ roomId, pending, retry, editing, setEditing, shown, e
       watch.disconnect();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [newest?.position, readPosition, scope.room?.joined, companyId, roomId]);
+  }, [newest?.position, readPosition, shownHere, companyId, roomId]);
 
   const pins = scope.room?.pins ?? [];
   return (

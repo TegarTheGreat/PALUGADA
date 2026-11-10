@@ -5,11 +5,14 @@
  * control is offered only where the server says the reader may use it
  * (`Room.may`), and refused there anyway if not. A direct conversation's
  * people are fixed: adding someone opens the conversation of the new set,
- * with none of what was said before.
+ * with none of what was said before. What cannot be undone from here is
+ * asked about first: archiving, after which nobody writes in the room
+ * again, and a member of staff leaving a private room, which they come
+ * back to only when someone in it adds them.
  */
 import { useEffect, useState } from 'react';
 import {
-  ActionIcon, Alert, Avatar, Badge, Button, Divider, Drawer, Group, MultiSelect, Select, Stack, Text, TextInput, Textarea,
+  ActionIcon, Alert, Avatar, Badge, Button, Divider, Drawer, Group, Modal, MultiSelect, Select, Stack, Text, TextInput, Textarea,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconUserMinus } from '@tabler/icons-react';
@@ -40,6 +43,7 @@ export function RoomInfo({ opened, close, addPeople }: {
   const [name, setName] = useState(room?.name ?? '');
   const [about, setAbout] = useState(room?.about ?? '');
   const [adding, setAdding] = useState<string[]>([]);
+  const [confirming, setConfirming] = useState<'archive' | 'leave' | null>(null);
   useEffect(() => {
     setName(room?.name ?? '');
     setAbout(room?.about ?? '');
@@ -58,9 +62,12 @@ export function RoomInfo({ opened, close, addPeople }: {
   const members = (body: { add?: string[]; remove?: string[] }) =>
     api('POST', `/api/companies/${scope.companyId}/rooms/${room.id}/members`, body).then(() => { setAdding([]); done(); }, done);
   const archive = () =>
-    api('POST', `/api/companies/${scope.companyId}/rooms/${room.id}/archive`, {}).then(() => { close(); done(); }, done);
+    api('POST', `/api/companies/${scope.companyId}/rooms/${room.id}/archive`, {}).then(() => { setConfirming(null); close(); done(); }, done);
   const leave = () =>
-    api('POST', `/api/companies/${scope.companyId}/rooms/${room.id}/leave`, {}).then(() => { close(); done(); scope.ctx.open('rooms', { item: null }); }, done);
+    api('POST', `/api/companies/${scope.companyId}/rooms/${room.id}/leave`, {})
+      .then(() => { setConfirming(null); close(); done(); scope.ctx.open('rooms', { item: null }); }, done);
+  // The owner joins any private room again; anyone else is added back by someone in it.
+  const leavingForGood = room.private && scope.kind !== 'owner';
 
   const muted = room.mutedUntil !== null && new Date(room.mutedUntil).getTime() > Date.now();
   const inRoom = new Set(room.members.map((member) => member.principal));
@@ -115,7 +122,7 @@ export function RoomInfo({ opened, close, addPeople }: {
                 <div style={{ minWidth: 0 }}>
                   <Group gap={6} wrap="nowrap">
                     <Text size="sm" fw={600} truncate>{nameOf(member)}</Text>
-                    {member.handle && <Text size="xs" c="dimmed">@{member.handle}</Text>}
+                    {member.handle && <Text size="xs" c="dimmed" dir="ltr">@{member.handle}</Text>}
                   </Group>
                   {member.role === 'admin' && <Badge size="xs" variant="light" radius="sm">{t('Runs this room')}</Badge>}
                 </div>
@@ -156,15 +163,30 @@ export function RoomInfo({ opened, close, addPeople }: {
 
         {(room.may.archive || (room.joined && room.kind !== 'company' && room.kind !== 'direct')) && <Divider />}
         {room.joined && room.kind !== 'company' && room.kind !== 'direct' && (
-          <Button variant="default" onClick={() => void leave()}>{t('Leave this room')}</Button>
+          <Button variant="default" onClick={() => (leavingForGood ? setConfirming('leave') : void leave())}>{t('Leave this room')}</Button>
         )}
         {room.may.archive && (
           <Alert variant="light" color="gray">
             <Text size="sm" mb="xs">{t('An archived room is kept, with everything said in it, and nobody can write in it.')}</Text>
-            <Button size="xs" color="red" variant="light" onClick={() => void archive()}>{t('Archive this room')}</Button>
+            <Button size="xs" color="red" variant="light" onClick={() => setConfirming('archive')}>{t('Archive this room')}</Button>
           </Alert>
         )}
       </Stack>
+
+      <Modal opened={confirming === 'archive'} onClose={() => setConfirming(null)} title={t('Archive this room?')} centered>
+        <Text size="sm">{t('Nobody can write in it again: this cannot be undone. What was said in it is kept.')}</Text>
+        <Group justify="flex-end" mt="md">
+          <Button variant="default" onClick={() => setConfirming(null)}>{t('Keep it')}</Button>
+          <Button color="red" onClick={() => void archive()}>{t('Archive it')}</Button>
+        </Group>
+      </Modal>
+      <Modal opened={confirming === 'leave'} onClose={() => setConfirming(null)} title={t('Leave this private room?')} centered>
+        <Text size="sm">{t('You can come back only if someone in it adds you again.')}</Text>
+        <Group justify="flex-end" mt="md">
+          <Button variant="default" onClick={() => setConfirming(null)}>{t('Stay')}</Button>
+          <Button color="red" onClick={() => void leave()}>{t('Leave it')}</Button>
+        </Group>
+      </Modal>
     </Drawer>
   );
 }

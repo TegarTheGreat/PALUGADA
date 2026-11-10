@@ -10,10 +10,12 @@
  * points at, read live; a notice is said in the reader's language.
  *
  * What may be done with a message is what the server says the reader may
- * (`MessageView.may`): pressed from a menu on a desktop, and from a sheet a
- * long press opens on a phone. No action is a keystroke.
+ * (`MessageView.may`): pressed from a menu on a desktop, and on a phone from
+ * a sheet that a long press opens, or the message's one button beside it,
+ * which a keyboard, a screen reader and a narrow window without touch reach
+ * too. No action is a keystroke.
  */
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActionIcon, Anchor, Avatar, Badge, Box, Button, Drawer, Group, Menu, Modal, NavLink, Stack, Text, Textarea, Tooltip, UnstyledButton,
 } from '@mantine/core';
@@ -23,7 +25,7 @@ import {
   IconPlayerStop, IconSparkles, IconTrash,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
-import { Prose } from '../components/Prose.tsx';
+import { Prose, type Mention } from '../components/Prose.tsx';
 import { dateTime, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { ApprovalCard } from './ApprovalCard.tsx';
@@ -32,7 +34,7 @@ import { QUICK_REACTIONS } from './emoji.ts';
 import { NoticeRow } from './NoticeRow.tsx';
 import { QuestionCard } from './QuestionCard.tsx';
 import { personPicture } from '../images.ts';
-import { nameOf, useScope } from './scope.ts';
+import { nameOf, tokenOf, useScope } from './scope.ts';
 import type { MessageView } from './types.ts';
 import { WorkState } from './WorkState.tsx';
 
@@ -67,6 +69,9 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
   const [words, setWords] = useState(message.body ?? '');
   const pressing = useRef<number | undefined>(undefined);
   const author = message.author;
+  // An edit starts from the words as they are now, however it was opened (the menu, or ↑ in the composer): the
+  // message may have been edited since the row was first drawn, and saving the older words would undo that.
+  useEffect(() => { if (editing) setWords(message.body ?? ''); }, [editing]);
 
   if (message.kind === 'notice' && message.notice) {
     return <Box className="message-row" data-message={message.id} px={{ base: 'xs', sm: 'md' }}><NoticeRow notice={message.notice} /></Box>;
@@ -142,7 +147,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
     ...(!inThread && message.threadOf === null ? [{ id: 'reply', label: t('Reply in thread'), icon: <IconMessageReply size={16} />, run: () => scope.openThread(message.id) }] : []),
     ...(text ? [{ id: 'react', label: t('React'), icon: <IconMoodSmile size={16} />, run: () => setReacting(true) }] : []),
     ...(text && message.body ? [{ id: 'copy', label: t('Copy'), icon: <IconCopy size={16} />, run: () => { void navigator.clipboard?.writeText(message.body ?? ''); } }] : []),
-    ...(message.may.edit ? [{ id: 'edit', label: t('Edit'), icon: <IconPencil size={16} />, run: () => { setWords(message.body ?? ''); setEditing?.(true); } }] : []),
+    ...(message.may.edit ? [{ id: 'edit', label: t('Edit'), icon: <IconPencil size={16} />, run: () => setEditing?.(true) }] : []),
     ...(message.may.pin ? [{ id: 'pin', label: pinned ? t('Unpin') : t('Pin'), icon: pinned ? <IconPinnedOff size={16} /> : <IconPin size={16} />, run: () => void pin() }] : []),
     ...(message.may.giveAsWork ? [{ id: 'work', label: t('Ask the team about this'), icon: <IconSparkles size={16} />, run: () => scope.askWork(message) }] : []),
     // A seat stops only work it asked for, by its message; the owner stops any, here or under the work.
@@ -172,6 +177,13 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
   const said = author.principal === 'platform' ? 'PALUGADA' : 'former' in author ? author.name : nameOf(author);
   const picture = author.principal === 'platform' ? '/brand/palugada-app-icon.svg' : personPicture(author.principal, 'picture' in author ? author.picture : null);
 
+  // The people the words told, marked where they are named: the reader most strongly, and the room when it was called.
+  const named: Mention[] = [
+    ...message.mentions.map((person) => ({ token: tokenOf(person).slice(1), principal: person.principal, mine: person.principal === scope.me })),
+    ...(message.mentionsRoom ? [{ token: 'room', principal: 'room', mine: author.principal !== scope.me }] : []),
+  ].filter((one) => one.token.length > 0);
+  // The room was called without `@room` in the words (a relay may say so): said beneath them instead.
+  const roomUnwritten = message.mentionsRoom && !/(^|[^\w@])@room(?![\w-])/iu.test(message.body ?? '');
   // Words addressed to the reader stand out from the rest: named by them, or the whole room called by someone else.
   const forMe = author.principal !== scope.me
     && (message.mentions.some((person) => person.principal === scope.me) || message.mentionsRoom);
@@ -187,7 +199,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
           {!compact && (
             <Group gap={6} wrap="wrap" align="baseline">
               {author.principal !== 'owner' && <Text size="sm" fw={700} className="message-author">{said}</Text>}
-              {handle && <Text size="xs" c="dimmed" data-handle>@{handle}</Text>}
+              {handle && <Text size="xs" c="dimmed" data-handle dir="ltr">@{handle}</Text>}
               {chip}
               {'former' in author && <Badge size="xs" variant="outline" color="gray" radius="sm">{t('imported')}</Badge>}
               <Tooltip label={dateTime(message.createdAt)} openDelay={300}>
@@ -202,18 +214,18 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             <Text size="sm" c="dimmed" fs="italic">{t('This message was removed.')}</Text>
           ) : editing ? (
             <Stack gap={6} mt={4}>
-              <Textarea autosize minRows={1} maxRows={8} value={words} onChange={(event) => setWords(event.currentTarget.value)} autoFocus />
+              <Textarea autosize minRows={1} maxRows={8} value={words} onChange={(event) => setWords(event.currentTarget.value)} autoFocus dir="auto" />
               <Group gap="xs" justify="flex-end">
                 <Button size="compact-sm" variant="default" onClick={() => setEditing?.(false)}>{t('Cancel')}</Button>
                 <Button size="compact-sm" disabled={!words.trim() || words === message.body} onClick={() => void edit()}>{t('Save')}</Button>
               </Group>
             </Stack>
           ) : message.body !== null ? (
-            <Box className="message-body">
-              <Prose text={message.body} />
-              {(message.edited || message.mentionsRoom) && (
+            <Box className="message-body" dir="auto">
+              <Prose text={message.body} mentions={named} />
+              {(message.edited || roomUnwritten) && (
                 <Group gap={6} mt={2}>
-                  {message.mentionsRoom && <Badge size="xs" variant="light" color="orange" radius="sm" tt="none">@room</Badge>}
+                  {roomUnwritten && <Badge size="xs" variant="light" color="orange" radius="sm" tt="none">@room</Badge>}
                   {message.edited && (message.may.history
                     ? <Anchor component="button" type="button" size="xs" c="dimmed" onClick={() => void showHistory()}>{t('edited')}</Anchor>
                     : <Text size="xs" c="dimmed">{t('edited')}</Text>)}
@@ -232,7 +244,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             <Group gap={4} mt={4}>
               {message.reactions.map((one) => (
                 <UnstyledButton key={one.emoji} className="reaction" data-mine={one.mine || undefined} onClick={() => void react(one.emoji, !one.mine)}
-                  aria-label={t('{emoji} from {count}', { emoji: one.emoji, count: one.count })} disabled={!text}>
+                  aria-label={tp('{emoji}: {count} person', '{emoji}: {count} people', one.count, { emoji: one.emoji })} disabled={!text}>
                   {one.emoji} <span className="tabular">{one.count}</span>
                 </UnstyledButton>
               ))}
@@ -245,7 +257,14 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             </UnstyledButton>
           )}
         </Box>
-        {actions.length > 0 && !editing && (
+        {actions.length > 0 && !editing && scope.phone && (
+          <Group gap={0} className="message-actions" wrap="nowrap">
+            <ActionIcon size="sm" variant="subtle" color="gray" data-actions={message.id} aria-label={t('More actions')} onClick={() => setSheet(true)}>
+              <IconDots size={16} />
+            </ActionIcon>
+          </Group>
+        )}
+        {actions.length > 0 && !editing && !scope.phone && (
           <Group gap={0} className="message-actions" wrap="nowrap">
             {text && (
               <EmojiPicker opened={reacting} setOpened={setReacting} pick={(emoji) => void react(emoji, true)} target={
@@ -277,7 +296,9 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
         )}
       </Group>
 
-      <Drawer opened={sheet} onClose={() => setSheet(false)} position="bottom" size="auto" radius="lg" withCloseButton={false}>
+      {/* As tall as what it offers, so the message it acts on stays in sight above it. */}
+      <Drawer opened={sheet} onClose={() => setSheet(false)} position="bottom" radius="lg" withCloseButton={false}
+        styles={{ content: { flex: '0 0 auto', height: 'auto', maxHeight: '80dvh' } }}>
         {text && (
           <Group gap={4} justify="center" pb="xs">
             {QUICK_REACTIONS.map((emoji) => (

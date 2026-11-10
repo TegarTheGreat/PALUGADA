@@ -314,10 +314,14 @@ body { background: var(--mantine-color-body); }
 
 .message-row { position: relative; }
 .message-row:hover { background: var(--mantine-color-default-hover); }
-/* Words that name the reader, or call the whole room. */
-.message-row[data-for-me] { background: var(--mantine-color-yellow-light); box-shadow: inset 3px 0 0 var(--mantine-color-yellow-6); }
-/* A person's words keep their own direction: a name written right to left cannot turn the line round. */
+/* Words that name the reader, or call the whole room: marked at the start of the line, which is the right in Arabic. */
+.message-row[data-for-me] { background: var(--mantine-color-yellow-light); border-inline-start: 3px solid var(--mantine-color-yellow-6); }
+/* A person's words keep their own direction (`dir="auto"` on the element), isolated so a name written right to left
+   cannot turn the line round, nor Latin words in an Arabic console have their punctuation at the wrong end. */
 .message-body { unicode-bidi: isolate; overflow-wrap: anywhere; min-width: 0; }
+/* A person the words told, marked where they are named; the reader more strongly. */
+.mention-chip { padding: 0 3px; border-radius: 4px; font-weight: 600; background: var(--mantine-color-brand-light); color: var(--mantine-color-brand-light-color); }
+.mention-chip[data-mine] { background: var(--mantine-color-orange-light); color: var(--mantine-color-orange-light-color); }
 .message-actions { opacity: 0.35; flex-shrink: 0; }
 .message-row:hover .message-actions, .message-actions:focus-within { opacity: 1; }
 .thread-summary { display: block; }
@@ -351,5 +355,6 @@ body { background: var(--mantine-color-body); }
     z-index: 150;
     border: 0;
   }
-  .message-actions { display: none; }
+  /* The one button a message keeps on a phone has no hover to show it: it is always seen. */
+  .message-actions { opacity: 0.7; }
 }

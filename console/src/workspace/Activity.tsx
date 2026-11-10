@@ -22,6 +22,8 @@ export function Activity({ rooms, open }: { rooms: RoomListItem[]; open: (item: 
     const answer: { items: ActivityItem[] } = await api('GET', `/api/companies/${scope.companyId}/me/activity`);
     return answer.items;
   }, [scope.companyId, scope.tick], { every: 30_000 });
+  // A message in a thread opens that thread, where reading it is what marks it seen; one in the room opens the room.
+  const placeOf = (item: { roomId: string; threadOf: string | null }) => (item.threadOf ? `${item.roomId}~${item.threadOf}` : item.roomId);
   const where = (roomId: string) => {
     const room = rooms.find((one) => one.id === roomId);
     return room ? roomName(room, scope.me) : t('a room');
@@ -48,11 +50,11 @@ export function Activity({ rooms, open }: { rooms: RoomListItem[]; open: (item: 
         {(items.data ?? []).map((item, index) => {
           switch (item.kind) {
             case 'mention':
-              return line(`${index}`, <IconAt size={18} />, t('You were mentioned in {room}', { room: where(item.roomId) }), item.at, () => open(item.roomId), !item.seen);
+              return line(`${index}`, <IconAt size={18} />, t('You were mentioned in {room}', { room: where(item.roomId) }), item.at, () => open(placeOf(item)), !item.seen);
             case 'reply':
-              return line(`${index}`, <IconMessageCircle size={18} />, t('A reply in a thread you follow, in {room}', { room: where(item.roomId) }), item.at, () => open(item.roomId), !item.seen);
+              return line(`${index}`, <IconMessageCircle size={18} />, t('A reply in a thread you follow, in {room}', { room: where(item.roomId) }), item.at, () => open(placeOf(item)), !item.seen);
             case 'card':
-              return line(`${index}`, <IconSparkles size={18} />, t('Work you asked for needs you, in {room}', { room: where(item.roomId) }), item.at, () => open(item.roomId), !item.seen);
+              return line(`${index}`, <IconSparkles size={18} />, t('Work you asked for needs you, in {room}', { room: where(item.roomId) }), item.at, () => open(placeOf(item)), !item.seen);
             case 'question':
               return line(`${index}`, <IconMessageQuestion size={18} />, t('A question for you'), item.at, () => scope.ctx.open('inbox', { item: item.itemId }), true);
             case 'team_item':

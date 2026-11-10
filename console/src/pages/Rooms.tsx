@@ -68,7 +68,8 @@ export function Rooms({ ctx, route }: PageProps) {
   const phone = useMediaQuery('(max-width: 48em)') ?? false;
   const open = openOf(route.item, owner);
   const [tick, setTick] = useState(0);
-  const [asking, setAsking] = useState<MessageView | null>(null);
+  // What Ask the team is open for: a message, or nothing yet; null while it is closed.
+  const [asking, setAsking] = useState<{ message: MessageView | null } | null>(null);
   const [making, setMaking] = useState(false);
   const [writing, setWriting] = useState<string[] | null>(null);
 
@@ -122,15 +123,18 @@ export function Rooms({ ctx, route }: PageProps) {
     people: people.data ?? [],
     phone,
     openThread: (messageId) => { if (roomId) select(`${roomId}~${messageId}`); },
-    askWork: setAsking,
+    askWork: (message) => setAsking({ message }),
     changed,
     tick,
   } : null), [ctx, companyId, me, owner, shownRoom, people.data, phone, roomId, select, changed, tick]);
 
-  // Alt+↑/↓ the room above or below; with Shift, the one above or below that has something new. Esc closes the
-  // thread, or marks the room read when none is open (Timeline.tsx). Nothing here sends, asks or decides: those
-  // are pressed.
-  const listed = (rooms.data ?? []).filter((one) => one.joined);
+  // Alt+↑/↓ the room above or below in the rail, as the rail lists them; with Shift, the one above or below that has
+  // something new. They work from the composer too, where the cursor usually is. Esc closes the thread, or marks the
+  // room read when none is open (Timeline.tsx). Nothing here sends, asks or decides: those are pressed.
+  const listed = [
+    ...(rooms.data ?? []).filter((one) => one.joined && one.kind === 'direct'),
+    ...(rooms.data ?? []).filter((one) => one.joined && one.kind !== 'direct'),
+  ];
   const step = (by: number, fresh: boolean) => {
     const at = listed.findIndex((one) => one.id === roomId);
     for (let index = at + by; index >= 0 && index < listed.length; index += by) {
@@ -143,6 +147,8 @@ export function Rooms({ ctx, route }: PageProps) {
     ['alt+ArrowDown', () => step(1, false)],
     ['alt+shift+ArrowUp', () => step(-1, true)],
     ['alt+shift+ArrowDown', () => step(1, true)],
+  ], []);
+  useHotkeys([
     ['Escape', () => { if (open.kind === 'room' && open.threadId) select(open.roomId); }],
   ]);
 
@@ -198,7 +204,7 @@ export function Rooms({ ctx, route }: PageProps) {
           <ThreadPanel key={open.threadId} roomId={open.roomId} rootId={open.threadId!} close={() => select(open.roomId)} alone={!wide && !phone} />
         )}
       </Box>
-      <AskWork message={asking} close={() => setAsking(null)} />
+      <AskWork asking={asking} close={() => setAsking(null)} />
       <NewRoom opened={making} close={() => setMaking(false)} made={(id) => select(id)} />
       <NewMessage opened={writing !== null} chosen={writing ?? []} close={() => setWriting(null)} made={(id) => select(id)} />
     </ScopeContext.Provider>
@@ -249,7 +255,13 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
         }
       }, failed);
   };
+  // Words to ask about are posted first, and the drawer opens on the message once it is kept; `/task` alone opens
+  // the drawer with nothing asked yet.
   const ask = (body: string) => {
+    if (!body) {
+      scope.askWork(null);
+      return;
+    }
     void posting.start({ body, mentions: [], mentionsRoom: false, alsoInRoom: false, threadOf: null, then: 'ask' }).catch(failed);
   };
   const shown = useCallback((messages: MessageView[]) => {

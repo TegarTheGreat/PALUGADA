@@ -10,35 +10,51 @@
  * that the words become company work, which everyone in the company and its
  * agents can read. Refused, the message stays a message and its thread says
  * why.
+ *
+ * Opened by `/task` alone, there is no message yet: the drawer starts with
+ * nothing asked, and what is asked in it is posted to the room as the
+ * person's words when Ask is pressed, then given as work, so the work still
+ * comes from a message pressed for it. The words are posted once, however
+ * often Ask is pressed after a refusal.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Drawer, Group, Select, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { api, explain } from '../api.ts';
 import { AssignFields, startingAssignment, type Assignment } from '../components/AssignWork.tsx';
 import { t } from '../i18n.ts';
 import type { Structure } from '../types.ts';
-import { useScope } from './scope.ts';
+import { newClientId, useScope } from './scope.ts';
 import type { MessageView } from './types.ts';
 
-export function AskWork({ message, close }: { message: MessageView | null; close: () => void }) {
+export function AskWork({ asking, close }: {
+  /** What the drawer is open for: a message, or none yet (`/task` alone); null while it is closed. */
+  asking: { message: MessageView | null } | null;
+  close: () => void;
+}) {
   const scope = useScope();
   const [structure, setStructure] = useState<Structure | null>(null);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [priority, setPriority] = useState<string | null>('2');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Opened with no message: the one posted from the drawer, once, and the id that keeps a retry of it one message.
+  const [posted, setPosted] = useState<MessageView | null>(null);
+  const clientId = useRef('');
+  const message = asking?.message ?? posted;
 
   useEffect(() => {
-    if (!message) return;
+    if (!asking) return;
     setError(null);
     setPriority('2');
+    setPosted(null);
+    clientId.current = newClientId();
     void api('GET', `/api/companies/${scope.companyId}/structure`).then((read: Structure) => {
       setStructure(read);
       // The company first: its CEO decides who does it, as an owner who does not know whose it is would want.
-      setAssignment(startingAssignment(read, { roleId: scope.ctx.company.ceo ? 'company' : undefined, goal: message.body ?? '', serves: 'mission' }));
+      setAssignment(startingAssignment(read, { roleId: scope.ctx.company.ceo ? 'company' : undefined, goal: asking.message?.body ?? '', serves: 'mission' }));
     }, (failure: unknown) => setError(explain(failure)));
-  }, [message?.id]);
+  }, [asking]);
 
   // Whose budget holds the money: the CEO's when the company is asked, the role's otherwise.
   const ceo = scope.ctx.company.ceo;
@@ -48,11 +64,21 @@ export function AskWork({ message, close }: { message: MessageView | null; close
   const quietRoom = scope.room !== null && (scope.room.private || scope.room.kind === 'direct');
 
   const ask = async () => {
-    if (!message || !assignment?.roleId || !assignment.goalId || !assignment.goal.trim()) return;
+    const room = scope.room;
+    if (!asking || !assignment?.roleId || !assignment.goalId || !assignment.goal.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      await api('POST', `/api/companies/${scope.companyId}/rooms/${message.roomId}/messages/${message.id}/work`, {
+      let asked = message;
+      if (!asked) {
+        if (!room) return;
+        const answer: { message: MessageView } = await api('POST', `/api/companies/${scope.companyId}/rooms/${room.id}/messages`, {
+          body: assignment.goal.trim(), clientId: clientId.current, mentions: [],
+        });
+        asked = answer.message;
+        setPosted(asked);
+      }
+      await api('POST', `/api/companies/${scope.companyId}/rooms/${asked.roomId}/messages/${asked.id}/work`, {
         target: assignment.roleId, goal: assignment.goal.trim(), goalId: assignment.goalId,
         ...(priority === null ? {} : { priority: Number(priority) }),
       });
@@ -69,12 +95,13 @@ export function AskWork({ message, close }: { message: MessageView | null; close
   };
 
   return (
-    <Drawer opened={message !== null} onClose={close} position="right" size="md" title={t('Ask the team')}>
+    <Drawer opened={asking !== null} onClose={close} position="right" size="md" title={t('Ask the team')}>
       <Box data-askwork>
         {!structure || !assignment ? (
           error ? <Alert color="red" variant="light">{error}</Alert> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>
         ) : (
           <Stack>
+            {!message && <Text size="sm" c="dimmed">{t('What you ask is posted in this room as your words, then given as work.')}</Text>}
             <AssignFields structure={structure} value={assignment} onChange={setAssignment} theCompany={Boolean(scope.ctx.company.ceo)} project={false} />
             <Select label={t('Priority')} value={priority} onChange={setPriority} allowDeselect={false} data={[
               { value: '0', label: t('P0 · first') }, { value: '1', label: t('P1 · soon') }, { value: '2', label: t('P2 · normal') }, { value: '3', label: t('P3 · when there is time') },

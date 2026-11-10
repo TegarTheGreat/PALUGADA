@@ -47,15 +47,17 @@ export function WorkState({ card, message }: { card: CardView; message: MessageV
   return (
     <Paper withBorder radius="md" p="sm" mt={6} className="work-card" maw={560}>
       <Stack gap={6}>
-        <Group gap="xs" wrap="nowrap" justify="space-between" align="flex-start">
-          <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-            <Avatar size={28} radius="xl" src={rolePicture(card.role?.picture ?? 'agent')} alt="" />
+        {/* Which agent, that it is an agent, and who asked are what the card is for: on a narrow column they wrap,
+            and the state moves to its own line, rather than any of them being cut to a letter. */}
+        <Group gap="xs" wrap="wrap" justify="space-between" align="flex-start" style={{ rowGap: 4 }}>
+          <Group gap="xs" wrap="nowrap" align="flex-start" style={{ minWidth: 0, flex: '1 1 10rem' }}>
+            <Avatar size={28} radius="xl" src={rolePicture(card.role?.picture ?? 'agent')} alt="" style={{ flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
-              <Group gap={6} wrap="nowrap">
-                <Text size="sm" fw={600} truncate>{card.role ? card.role.label : t('The company')}</Text>
-                <Badge size="xs" variant="light" color="grape" radius="sm">{t('agent')}</Badge>
+              <Group gap={6} wrap="wrap" style={{ rowGap: 2 }}>
+                <Text size="sm" fw={600} style={{ overflowWrap: 'anywhere' }}>{card.role ? card.role.label : t('The company')}</Text>
+                <Badge size="xs" variant="light" color="grape" radius="sm" style={{ flexShrink: 0 }}>{t('agent')}</Badge>
               </Group>
-              {card.askedBy && <Text size="xs" c="dimmed" truncate>{t('asked by {name}', { name: nameOf(card.askedBy) })}</Text>}
+              {card.askedBy && <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>{t('asked by {name}', { name: nameOf(card.askedBy) })}</Text>}
             </div>
           </Group>
           <Badge data-work-state={card.state} variant="light" color={STATUS_COLORS[card.state] ?? 'gray'} radius="sm" style={{ flexShrink: 0 }}>

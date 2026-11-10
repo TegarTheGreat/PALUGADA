@@ -59,7 +59,8 @@ export function ApprovalCard({ card }: { card: CardView }) {
             {card.state !== 'open' && <Badge size="sm" variant="light" color="gray" radius="sm">{itemStateSaid(card.state)}</Badge>}
           </Group>
         </Group>
-        <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{approval.summary}</Text>
+        {/* A capability's approval often says the same thing twice: it is said once. */}
+        {approval.summary.trim() !== approval.title.trim() && <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{approval.summary}</Text>}
         {approval.consequence && <Text size="xs" c="dimmed">{t('If denied: {consequence}', { consequence: approval.consequence })}</Text>}
         {card.state === 'open' && (card.inInbox ? (
           scope.kind === 'owner'

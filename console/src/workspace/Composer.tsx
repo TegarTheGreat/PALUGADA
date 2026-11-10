@@ -5,10 +5,17 @@
  * breaks the line and the button sends. Enter never sends while an input
  * method is still composing a word, nor while the mention picker is open,
  * where it chooses. Telling the work is never sent by Enter: it is pressed.
- * A slash command only opens what it names. What is not sent yet stays
- * with the room in this tab's memory, and is gone with the tab.
+ * A slash command only opens what it names, and only for someone who may
+ * use it: a viewer's `/task` is kept as typed, and the composer says who
+ * may ask. What is not sent yet stays with the room in this tab's memory,
+ * and is gone with the tab.
+ *
+ * The words keep their own direction as they are typed, whatever the
+ * console's is. The text area is the mention list's combobox: while the
+ * list is open it says so, names the list and the person the arrows are on,
+ * so a screen reader follows the choice as a sighted person does.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconArrowUp, IconMoodSmile, IconSparkles } from '@tabler/icons-react';
@@ -16,7 +23,7 @@ import { api, explain } from '../api.ts';
 import { count } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { EmojiPicker } from './EmojiPicker.tsx';
-import { mentionAt, mentionChoices, MentionPicker, type MentionChoice } from './MentionPicker.tsx';
+import { mentionAt, mentionChoices, MentionPicker, optionId, type MentionChoice } from './MentionPicker.tsx';
 import { mayAsk, useScope } from './scope.ts';
 
 /** A message's longest, as the server holds it (STATUS 2.206). */
@@ -43,7 +50,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
   threadOf?: string | null;
   placeholder: string;
   send: (sent: Sent) => void;
-  /** Ask the team: the words are posted, then the drawer that gives them as work opens. */
+  /** Ask the team: the words are posted, then the drawer that gives them as work opens; with none, it opens empty. */
   ask?: (body: string) => void;
   /** ↑ in an empty composer: edit your last message. */
   editLast?: () => void;
@@ -62,6 +69,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
   const [mode, setMode] = useState<'message' | 'tell'>('message');
   const [alsoInRoom, setAlsoInRoom] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
+  const listId = useId();
   // Where the caret goes once a chosen name or emoji is written in. Placed as the words are drawn, before the
   // next key is read: placed a frame later, a key typed at once lands before the caret moves back over it.
   const caretTo = useRef<number | null>(null);
@@ -113,10 +121,15 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
   const submit = () => {
     const body = value.trim();
     if (!body || disabled) return;
-    // A slash command opens what it names, and sends nothing.
+    // A slash command opens what it names, and sends nothing. A viewer may not ask for work: the words stay as they
+    // were typed, to be changed or sent as they are, and the composer says who may ask.
     const command = /^\/(task|tugas)(?:\s+([\s\S]*))?$/.exec(body);
     if (command && ask) {
-      if (command[2]?.trim()) ask(command[2].trim());
+      if (!mayAsk(scope.kind)) {
+        notifications.show({ color: 'yellow', message: t('Asking the team for work is for members and approvers.') });
+        return;
+      }
+      ask(command[2]?.trim() ?? '');
       setValue('');
       return;
     }
@@ -148,6 +161,8 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
   };
 
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Alt with an arrow goes to another room (Rooms.tsx), whatever is being typed.
+    if (event.altKey) return;
     if (picking) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -181,7 +196,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
 
   return (
     <Box className="composer" px={{ base: 'xs', sm: 'md' }} pb={{ base: 'xs', sm: 'md' }} pt={6}>
-      {picking && <MentionPicker choices={choices} active={Math.min(active, choices.length - 1)} pick={pick} />}
+      {picking && <MentionPicker id={listId} choices={choices} active={Math.min(active, choices.length - 1)} pick={pick} />}
       {tellable && (
         <SegmentedControl size="xs" mb={6} value={mode} onChange={(next) => setMode(next as 'message' | 'tell')}
           data={[{ value: 'message', label: t('Message people') }, { value: 'tell', label: t('Tell the work') }]} />
@@ -211,6 +226,13 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
           onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={keyDown}
           aria-label={placeholder}
+          dir="auto"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={picking}
+          aria-controls={picking ? listId : undefined}
+          aria-activedescendant={picking ? optionId(listId, Math.min(active, choices.length - 1)) : undefined}
         />
         {/* Attaching files (section 2.212) goes here. */}
         <EmojiPicker opened={emoji} setOpened={setEmoji} pick={insert} target={

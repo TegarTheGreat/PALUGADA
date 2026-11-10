@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActionIcon, Box, Group, Loader, ScrollArea, Switch, Text } from '@mantine/core';
+import { useDocumentVisibility } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconArrowLeft, IconX } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
@@ -90,18 +91,25 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
     }
   };
 
-  // The thread's mentions of the reader are seen once its newest reply has been shown.
+  // The thread's mentions of the reader are seen once its newest reply has been shown for a second in a tab that is
+  // looked at; someone who has not joined the room is read for too, as the server sees what named them without a
+  // mark (STATUS 2.206). Once read, the rail and the badges are read again, since their counts fell.
   const newest = thread?.replies.at(-1) ?? thread?.root;
+  const shownHere = scope.room?.id === roomId;
+  const visible = useDocumentVisibility() === 'visible';
   useEffect(() => {
-    if (!newest || newest.position <= seen.current || !scope.room?.joined) return;
-    seen.current = newest.position;
+    if (!newest) return;
     end.current?.scrollIntoView({ block: 'end' });
+  }, [newest?.position]);
+  useEffect(() => {
+    if (!newest || newest.position <= seen.current || !shownHere || !visible) return;
     const timer = window.setTimeout(() => {
+      seen.current = newest.position;
       void api('POST', `/api/companies/${companyId}/rooms/${roomId}/read`, { position: newest.position, threadOf: rootId })
-        .then(() => scope.ctx.refreshUnread(), () => undefined);
+        .then(() => scope.changed(), () => { seen.current = 0; });
     }, 1_000);
     return () => window.clearTimeout(timer);
-  }, [newest?.position, scope.room?.joined]);
+  }, [newest?.position, shownHere, visible]);
 
   const mine = [...(thread?.replies ?? [])].reverse().find((one) => one.author.principal === scope.me && one.may.edit);
   const work = thread?.root.card?.kind === 'work' ? thread.root.card : null;

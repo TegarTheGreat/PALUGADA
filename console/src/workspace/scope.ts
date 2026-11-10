@@ -27,8 +27,11 @@ export interface Scope {
   /** On a phone: a thread is a sheet, and a long press opens a message's actions. */
   phone: boolean;
   openThread: (messageId: string) => void;
-  /** "Ask the team" about a message: the drawer that gives it as work. */
-  askWork: (message: MessageView) => void;
+  /**
+   * "Ask the team" about a message: the drawer that gives it as work. With no message (`/task` alone) the drawer
+   * opens empty, and what is asked in it is posted to the room as the person's words before it is given as work.
+   */
+  askWork: (message: MessageView | null) => void;
   /** Something changed that the rail and the room should read again. */
   changed: () => void;
   /** Counts the changes: what reads the room reads again when it moves. */

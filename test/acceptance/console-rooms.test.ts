@@ -325,6 +325,12 @@ test('typing @ offers people, never roles', { skip }, async () => {
     await page.waitFor(`${ROW('cek stok ya')}`, 'the message in the room');
     const [sent] = (await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text');
     assert.deepEqual(sent?.mentions.map((one) => one.principal), [rina.principal], 'the person chosen is the one mentioned');
+    // The person named is marked in the words, as written; the rest of the words are as they were typed.
+    await page.waitFor(`${ROW('cek stok ya')}?.getAttribute('data-message')?.length === 36`, 'the message, as the server keeps it');
+    const chips = await page.evaluate<Array<{ text: string; who: string | null }>>(
+      `[...${ROW('cek stok ya')}.querySelectorAll('[data-mention-chip]')].map((one) => ({ text: one.innerText, who: one.getAttribute('data-mention-chip') }))`);
+    assert.deepEqual(chips, [{ text: '@rina', who: rina.principal }], 'the person mentioned is not marked in the words');
+    assert.match(await page.evaluate<string>(`${ROW('cek stok ya')}.querySelector('.message-body').innerText`), /^@rina cek stok ya$/);
   } finally {
     await page.close();
     await api.close();
@@ -774,7 +780,7 @@ test('leaving a private room is asked about first, since only its people can add
     const PRESS = (label: string) => `[...document.querySelectorAll('button')].find((one) => one.innerText.trim() === ${JSON.stringify(label)})`;
     await page.waitFor(PRESS('Leave this room'), 'the room\'s details');
     await page.evaluate(`${PRESS('Leave this room')}.click()`);
-    await page.waitFor(`document.querySelector('.mantine-Modal-content')?.innerText.includes('add you again')`, 'the question');
+    await page.waitFor(`document.querySelector('.mantine-Modal-content')?.innerText.includes('adds you again')`, 'the question');
     assert.equal(await inRoom(), 1, 'Rina left at the first press');
     await page.evaluate(`${PRESS('Leave it')}.click()`);
     await page.waitFor(`!location.hash.includes(${JSON.stringify(roomId)})`, 'out of the room');

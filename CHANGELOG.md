@@ -1083,8 +1083,7 @@ The first version. What it holds, in the order an owner meets it.
   words typed here are your work; a member of staff's are always staff work.
   The company's work appears in rooms only as cards that hold no words, and
   a tier 3 approval there is a link to your inbox. Nothing people say in
-  rooms is written into the work's record. The rooms' page in the console
-  comes next (STATUS 2.206).
+  rooms is written into the work's record (STATUS 2.206).
 - A relay can tell your phone what PALUGADA has for you. Under This
   deployment, Relays, add one by its address and pair it by typing at least
   sixteen characters of the fingerprint its operator shows, naming the

@@ -45,6 +45,10 @@ export interface FakeRelayOptions {
   acceptKey?: KeyObject;
   /** What the inbox answers a pull with, when it is not 200. */
   inboxStatus?: number;
+  /** Pads each answer to a pull with this many characters, written a piece at a time with no length given: an answer too large to hold. */
+  inboxPadding?: number;
+  /** Pads the well-known document with this many characters. */
+  documentPadding?: number;
 }
 
 export interface FakeRelay {
@@ -118,6 +122,7 @@ export async function fakeRelay(options: FakeRelayOptions = {}): Promise<FakeRel
             ...(options.noInbox ? {} : { inbox: `${elsewhere}/v1/inbox` }),
             modes: options.noInbox ? ['push'] : ['push', 'pull'],
             features: ['press', 'reply', 'read', 'device-keys'],
+            ...(options.documentPadding ? { padding: 'x'.repeat(options.documentPadding) } : {}),
           });
           return;
         }
@@ -129,6 +134,21 @@ export async function fakeRelay(options: FakeRelayOptions = {}): Promise<FakeRel
           }
           const after = Number(url.searchParams.get('after') ?? '0') || 0;
           const answer = inbox.slice(after);
+          if (options.inboxPadding) {
+            // Unknown fields are ignored, so only the size of this answer is wrong.
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.write(`{"envelopes":${JSON.stringify(answer)},"cursor":${JSON.stringify(String(after + answer.length))},"padding":"`);
+            for (let left = options.inboxPadding; left > 0 && !res.destroyed; left -= 65_536) {
+              if (!res.write('x'.repeat(Math.min(left, 65_536)))) {
+                await new Promise((resolve) => {
+                  res.once('drain', resolve);
+                  res.once('close', resolve);
+                });
+              }
+            }
+            res.end('"}');
+            return;
+          }
           json(res, 200, { envelopes: answer, cursor: String(after + answer.length) });
           return;
         }

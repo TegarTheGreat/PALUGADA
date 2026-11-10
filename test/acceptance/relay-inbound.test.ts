@@ -14,6 +14,8 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
@@ -177,23 +179,30 @@ test('nothing is written for an unknown relay or a bad signature, and the route 
       assert.equal(badlySigned.status, 401);
       const unsigned = await relay.push(api.url, relayId, { id: 'x', timestamp: String(Math.floor(Date.now() / 1000)), signature: '', body: '{}' });
       assert.equal(unsigned.status, 401);
+      assert.equal(Number(await count()), before, 'an envelope nobody signed is counted, never kept');
+      const metrics = await import('../../src/relay/outbox.ts');
+      assert.ok((metrics.RELAY_COUNTS.refused.get('signature') ?? 0) >= 2, 'the refusals are counted');
+      assert.ok((metrics.RELAY_COUNTS.refused.get('unknown_relay') ?? 0) >= 2);
+
+      // Sixty from one address in a minute, then no more, whoever signed them:
+      // pushes for relays that do not exist, which no relay's own minute ever
+      // counts, fill the address's minute, and the 61st is refused before
+      // anything is read.
+      const answers: number[] = [];
+      for (let index = 0; index < 61; index += 1) {
+        answers.push((await stranger.push(api.url, randomUUID(), stranger.sign({ v: 1, type: 'ack', ids: [] }))).status);
+      }
+      assert.deepEqual([...new Set(answers)].sort(), [401, 429], answers.join(' '));
+      assert.equal(answers.at(-1), 429);
+      assert.ok(answers.indexOf(429) <= 56, `the address had used five of its sixty before; refused from ${answers.indexOf(429)}`);
+      assert.ok(answers.slice(answers.indexOf(429)).every((status) => status === 429));
+      // And so is the paired relay's own next push from that address, though its own minute has room.
+      const throttled = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', ids: [] }));
+      assert.deepEqual([throttled.status, throttled.body.code], [429, 'relay.throttled']);
+      assert.equal(Number(await count()), before, 'nothing refused for the address is kept');
     } finally {
       await stranger.close();
     }
-    assert.equal(Number(await count()), before, 'an envelope nobody signed is counted, never kept');
-    const metrics = await import('../../src/relay/outbox.ts');
-    assert.ok((metrics.RELAY_COUNTS.refused.get('signature') ?? 0) >= 2, 'the refusals are counted');
-    assert.ok((metrics.RELAY_COUNTS.refused.get('unknown_relay') ?? 0) >= 2);
-
-    // Sixty from one address in a minute, then no more, whoever signed them: the 61st is refused before anything is read.
-    let refused = 0;
-    for (let index = 0; index < 64; index += 1) {
-      const answer = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', ids: [] }));
-      if (answer.status === 429) refused += 1;
-    }
-    assert.ok(refused >= 4, `${refused} of sixty-four were refused`);
-    const throttled = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', ids: [] }));
-    assert.equal(throttled.status, 429);
     // And too large a body is refused unread.
     const large = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', ids: [], padding: 'x'.repeat(70_000) }));
     assert.ok(large.status === 400 || large.status === 413 || large.status === 429, String(large.status));
@@ -611,5 +620,171 @@ test('a relay cannot assign, instruct, call a meeting or change a setting', asyn
     assert.equal(rows.length, 11);
   } finally {
     await close();
+  }
+});
+
+/**
+ * Runs `work` while a trigger the schema's owner puts on `inbox_items` refuses
+ * to change one item, as a failure nobody planned would: a statement that
+ * timed out, a constraint somebody added. Taken off again whatever happens.
+ */
+async function refusingDecisions<T>(itemId: string, work: () => Promise<T>): Promise<T> {
+  const owner = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  try {
+    await owner.query(`CREATE FUNCTION public.test_refuses() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'refused by the test on %', TG_TABLE_NAME; END $$`);
+    await owner.query(
+      `CREATE TRIGGER test_refuses BEFORE UPDATE ON inbox_items FOR EACH ROW WHEN (OLD.id = '${itemId}'::uuid) EXECUTE FUNCTION public.test_refuses()`);
+    return await work();
+  } finally {
+    await owner.query('DROP TRIGGER IF EXISTS test_refuses ON inbox_items');
+    await owner.query('DROP FUNCTION IF EXISTS public.test_refuses()');
+    await owner.end();
+  }
+}
+
+const offerRow = async (token: string) => (await withControlPlane((tx) => tx.query<{ uses: number; voided_at: Date | null }>(
+  'SELECT uses, voided_at FROM relay_offers WHERE token_hash = $1', [createHash('sha256').update(token).digest('hex')]))).rows[0]!;
+
+test('text the database cannot keep is refused as such, and an envelope that failed for another reason is taken when it comes again', async () => {
+  const { relay, api, relayId, linked, fixture, token, close } = await ready('relay-in-unkept');
+  try {
+    // An answer with a character no text column keeps: refused for what it
+    // is, before anything is spent, and the question is still there to answer.
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'price the coffee' }, createdBy: 'owner', reserveTokens: 100,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Which price?' });
+    const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const answerOffer = offersFor(relay, asked.inboxItemId).answer!;
+    const unkept = await press(api, relay, relayId, linked, answerOffer, { answer: 'Rp \u0000 30.000' });
+    assert.deepEqual([unkept.status, unkept.body.code], [422, 'relay.malformed']);
+    assert.equal((await offerRow(answerOffer)).uses, 0, 'nothing was spent');
+    assert.equal((await itemState(fixture.companyId, asked.inboxItemId)).status, 'open');
+    const answered = await press(api, relay, relayId, linked, answerOffer, { answer: 'Rp 30.000' });
+    assert.equal(answered.status, 200, JSON.stringify(answered.body));
+
+    // A press whose decision fails for a reason that is no refusal -- the
+    // database refused the write -- spends nothing and keeps no answer, so the
+    // relay sending the same envelope again is taken, not told it is in hand.
+    const offers = offersFor(relay, itemId);
+    const { deployment } = await identityOf(api);
+    const at = new Date().toISOString();
+    const signed = relay.sign({
+      v: 1, type: 'press', at, token: offers.approve,
+      device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token: offers.approve, at }),
+    });
+    const failed = await refusingDecisions(itemId, () => relay.push(api.url, relayId, signed));
+    assert.equal(failed.status, 500, JSON.stringify(failed.body));
+    assert.equal((await offerRow(offers.approve!)).uses, 0, 'the token is given back');
+    assert.equal((await offerRow(offers.deny!)).voided_at, null, 'and so is the other button');
+    assert.equal((await itemState(fixture.companyId, itemId)).status, 'open');
+    const again = await relay.push(api.url, relayId, signed);
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual([(await itemState(fixture.companyId, itemId)).decision], ['approve']);
+
+    // A device's name no text column keeps: the code is refused, and still there to claim.
+    const offered = await api.call('POST', '/api/relays/links', token, { relayId, proof: { totp: api.code() } });
+    assert.equal(offered.status, 200, JSON.stringify(offered.body));
+    const named = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'link_claim', at: new Date().toISOString(), code: offered.body.code, label: 'a\u0000b' }));
+    assert.deepEqual([named.status, named.body.code], [422, 'relay.malformed']);
+    const claimed = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'link_claim', at: new Date().toISOString(), code: offered.body.code, label: 'Phone' }));
+    assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+  } finally {
+    await close();
+  }
+});
+
+test('approve and deny pressed at once for one item: one is taken, the other is spent, and neither fails', async () => {
+  const { relay, api, relayId, linked, fixture, close } = await ready('relay-in-together');
+  try {
+    const items: string[] = [];
+    for (let index = 0; index < 4; index += 1) items.push(await approval(fixture.companyId, 2, `Send letter ${index}`));
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    for (const itemId of items) {
+      const offers = offersFor(relay, itemId);
+      const answers = await Promise.all([
+        press(api, relay, relayId, linked, offers.approve!),
+        press(api, relay, relayId, linked, offers.deny!),
+      ]);
+      const outcomes = answers.map((answer) => (answer.status === 200 ? 'taken' : `${answer.status} ${answer.body.code}`)).sort();
+      assert.deepEqual(outcomes, ['422 relay.press_spent', 'taken'], JSON.stringify(answers));
+      assert.equal((await itemState(fixture.companyId, itemId)).status, 'decided');
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("a device's signature holds for its own moment and its own link", async () => {
+  const { relay, api, relayId, linked, fixture, token, close } = await ready('relay-in-moment');
+  try {
+    const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const offers = offersFor(relay, itemId);
+    const { deployment } = await identityOf(api);
+    // A press the device signed long ago, sent now by the relay: refused.
+    const long = '2000-01-01T00:00:00.000Z';
+    const old = await relay.push(api.url, relayId, relay.sign({
+      v: 1, type: 'press', at: long, token: offers.approve,
+      device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token: offers.approve, at: long }),
+    }));
+    assert.deepEqual([old.status, old.body.code], [422, 'relay.device_sig']);
+    assert.equal((await itemState(fixture.companyId, itemId)).status, 'open');
+
+    // The device ends its link, and links again with the same key.
+    const at = new Date().toISOString();
+    const end = {
+      v: 1, type: 'link_end', at, recipient: linked.recipient,
+      device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'link_end', at }),
+    };
+    const ended = await relay.push(api.url, relayId, relay.sign(end));
+    assert.equal(ended.status, 200, JSON.stringify(ended.body));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const offered = await api.call('POST', '/api/relays/links', token, { relayId, proof: { totp: api.code() } });
+    assert.equal(offered.status, 200, JSON.stringify(offered.body));
+    const relinked = await relay.push(api.url, relayId, relay.sign({
+      v: 1, type: 'link_claim', at: new Date().toISOString(), code: offered.body.code, label: 'Same phone',
+      device_key: linked.device!.publicKey.toString('base64url'),
+    }));
+    assert.equal(relinked.status, 200, JSON.stringify(relinked.body));
+    assert.equal(relinked.body.result.recipient, linked.recipient, 'the same person on the same relay');
+    // The relay sends the old end again, under an id of its own: the device
+    // signed the end of the link it had then, not of the one it has now.
+    const replayed = await relay.push(api.url, relayId, relay.sign(end));
+    assert.deepEqual([replayed.status, replayed.body.code], [422, 'relay.device_sig']);
+    const links = await api.call('GET', '/api/relays/links', token);
+    assert.deepEqual(links.body.links.map((one: { status: string; label: string }) => [one.label, one.status]), [['Same phone', 'active']]);
+  } finally {
+    await close();
+  }
+});
+
+test("an inbox's answer larger than a relay may send is not read past its bound, and nothing of it is taken", async () => {
+  const fixture = await createCompany('relay-in-pull-large');
+  // Nine megabytes, more than a hundred envelopes of 64 KiB could ever be.
+  const relay = await fakeRelay({ inboxPadding: 9 * 1024 * 1024 });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], mode: 'pull' });
+    relay.inbox.push(relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    const said: Array<Record<string, unknown>> = [];
+    const report = await relayPass({ master: () => api.master, pullWaitSeconds: 0, awaitPulls: true, log: (entry) => said.push(entry) });
+    assert.equal(report.pulled, 0);
+    assert.ok(said.some((entry) => entry.event === 'relay.pull_failed' && /larger than/.test(String(entry.message))), JSON.stringify(said));
+    const { rows: [row] } = await withControlPlane((tx) => tx.query<{ n: number; cursor: string | null }>(
+      `SELECT (SELECT count(*)::int FROM relay_receipts WHERE relay_id = $1) AS n,
+              (SELECT inbound_cursor FROM relays WHERE id = $1) AS cursor`, [relayId]));
+    assert.deepEqual([row!.n, row!.cursor], [0, null]);
+  } finally {
+    await api.close();
+    await relay.close();
   }
 });

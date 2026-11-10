@@ -15,13 +15,14 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, verify } from 'node:crypto';
-import { closePools } from '../../src/db/pool.ts';
+import { adminPool, closePools } from '../../src/db/pool.ts';
 import { withControlPlane } from '../../src/db/tenant.ts';
 import { clearStopAll, requestStopAll } from '../../src/engine/control.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { jcs } from '../../src/relay/canonical.ts';
 import { RelayChannel, relayChannels } from '../../src/relay/channel.ts';
 import { RelayLoop, relayBookkeeping } from '../../src/relay/loop.ts';
@@ -295,6 +296,9 @@ test('the outbox sends each envelope once, retries with backoff under the same i
     const shown = page.body.relays.find((one: { id: string }) => one.id === relayId);
     assert.deepEqual(shown.dead.map((one: { id: string; type: string }) => [one.id, one.type]), [[queued[0]!.id, 'inbox_item']]);
     assert.equal(shown.outbox.dead, 1);
+    // What went wrong is a reason the console says in the owner's language, never the transport's own words.
+    assert.deepEqual(shown.dead[0].lastError, { reason: 'status', status: 500 });
+    assert.deepEqual(shown.lastError, { reason: 'status', status: 500 });
 
     // Retry puts it back, and a relay that answers takes it.
     failing = false;
@@ -341,6 +345,11 @@ test('an envelope whose send was cut off is sent again once, under the same id',
       `UPDATE relay_outbox SET status = 'sending', claimed_at = now() WHERE relay_id = $1 AND status = 'pending'`, [relayId]));
     await sendOutbox(api.master);
     assert.equal(items(relay.received).length, 1, 'a send in flight elsewhere is left to it');
+    // And the owner's next envelope waits behind it, so the relay never sees the later one first.
+    await inbox.raiseIncident({ companyId: fixture.companyId, title: 'Back up', detail: 'at two' });
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    assert.equal(items(relay.received).length, 1, 'a later envelope for the same phone waits for one still being sent');
     // A relay that already had it answers 409, which is as good as taken.
     await withControlPlane((tx) => tx.query(
       `UPDATE relay_outbox SET status = 'pending', next_at = now() - interval '1 second' WHERE id = $1`, [row!.id]));
@@ -491,7 +500,7 @@ test('a relay that forgot the deployment is paused, and the owner is told to pai
     const page = await api.call('GET', '/api/control/relays', token);
     const shown = page.body.relays.find((one: { id: string }) => one.id === relayId);
     assert.ok(shown.pausedUntil, 'paused');
-    assert.equal(shown.lastError, 'gone');
+    assert.deepEqual(shown.lastError, { reason: 'gone' });
     assert.equal(shown.outbox.pending, 1, 'what it was owed waits, rather than counting as a failure');
     const before = relay.received.length;
     await sendOutbox(api.master);
@@ -571,9 +580,15 @@ test('spent offers, old receipts, old dead letters and old refusals are purged',
     await sendOutbox(api.master);
     const old = new Date(Date.now() - 15 * 86_400_000);
     await withControlPlane(async (tx) => {
-      // Two offers: one spent a fortnight ago, one still live.
+      // Two offers: one spent a fortnight ago, one voided two days ago, kept
+      // so a late press is still told it came too late; and a third, live.
       const { rows: offers } = await tx.query<{ token_hash: string }>('SELECT token_hash FROM relay_offers WHERE inbox_item_id = $1 ORDER BY act', [itemId]);
       await tx.query('UPDATE relay_offers SET uses = max_uses, created_at = $2, expires_at = $2 WHERE token_hash = $1', [offers[0]!.token_hash, old]);
+      await tx.query("UPDATE relay_offers SET voided_at = now() - interval '2 days' WHERE token_hash = $1", [offers[1]!.token_hash]);
+      await tx.query(
+        `INSERT INTO relay_offers (token_hash, relay_id, link_id, company_id, principal, act, inbox_item_id, expires_at)
+         SELECT $2, relay_id, link_id, company_id, principal, act, inbox_item_id, now() + interval '1 day' FROM relay_offers WHERE token_hash = $1`,
+        [offers[1]!.token_hash, 'f'.repeat(64)]);
       await tx.query("INSERT INTO relay_receipts (relay_id, envelope_id, received_at, result) VALUES ($1, 'old', $2, '{}'), ($1, 'new', now(), '{}')", [relayId, old]);
       await tx.query("INSERT INTO relay_refusals (relay_id, reason, at) VALUES ($1, 'relay.press_unknown', $2), ($1, 'relay.press_unknown', now())", [relayId, old]);
       await tx.query(
@@ -585,11 +600,150 @@ test('spent offers, old receipts, old dead letters and old refusals are purged',
     const purged = await relayBookkeeping(new Date());
     assert.ok(purged.offers >= 1 && purged.receipts === 1 && purged.refusals === 1 && purged.outbox >= 2, JSON.stringify(purged));
     const count = async (sql: string) => (await withControlPlane((tx) => tx.query(sql, [relayId]))).rows.length;
-    assert.equal(await count('SELECT 1 FROM relay_offers WHERE relay_id = $1'), 1, 'the live offer stays');
+    assert.equal(await count('SELECT 1 FROM relay_offers WHERE relay_id = $1'), 2, 'the live offer stays, and one voided four days ago or less');
+    assert.equal(await count('SELECT 1 FROM relay_offers WHERE relay_id = $1 AND voided_at IS NOT NULL'), 1);
     assert.equal(await count("SELECT 1 FROM relay_receipts WHERE relay_id = $1 AND envelope_id IN ('old', 'new')"), 1);
     assert.equal(await count('SELECT 1 FROM relay_refusals WHERE relay_id = $1'), 1);
     assert.equal(await count("SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND status = 'dead'"), 1, 'the new dead letter stays for the owner to see');
     assert.equal(await count("SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND status = 'delivered'"), 0);
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test("a retraction waits for the relay's row before its offers, as a change of the relay's settings does, so the two never deadlock", async () => {
+  const fixture = await createCompany('relay-retract-locks');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  const admin = await adminPool().connect();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'summary', mayPress: true });
+    await linkThrough(api, token, relay, relayId, { device: true });
+    const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    await inbox.decide(fixture.companyId, itemId, 'deny', '', { channel: 'app', assurance: 'session' });
+    const channel = new RelayChannel(relayId);
+    await channel.prepare();
+
+    // A change of settings holds the relay's row, as it does first.
+    await admin.query('BEGIN');
+    await admin.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relayId]);
+    // The worker's retraction starts meanwhile.
+    const retracting = channel.retract({
+      id: itemId, companyId: fixture.companyId, kind: 'approval', title: 'Send the newsletter', status: 'decided',
+      decision: 'deny', closedReason: null, language: 'en',
+    }, 'ref');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The change goes on to void the offers presses no longer allow, and finishes.
+    await admin.query(`UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL AND act = ANY($2::text[])`,
+      [relayId, ['approve', 'deny', 'answer']]);
+    await admin.query('COMMIT');
+    assert.equal(await retracting, 'retracted');
+  } finally {
+    await admin.query('ROLLBACK').catch(() => undefined);
+    admin.release();
+    await api.close();
+    await relay.close();
+  }
+});
+
+test('an item closed before its notice could be sent is never sent, closed or open', async () => {
+  const fixture = await createCompany('relay-retract-unsent');
+  let down = true;
+  const relay = await fakeRelay({ answer: (one) => (down && one.envelope?.type !== 'pair_request' ? { status: 503 } : undefined) });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'summary', mayPress: true });
+    await linkThrough(api, token, relay, relayId, { device: true });
+    const incident = await inbox.raiseIncident({ companyId: fixture.companyId, title: 'The till is down', detail: 'since noon' });
+    const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const { rows: owed } = await withControlPlane((tx) => tx.query("SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND type = 'inbox_item' AND status = 'pending'", [relayId]));
+    assert.equal(owed.length, 2, 'the relay is down, so both notices wait');
+
+    // Both close in the app while the relay is down.
+    await inbox.decide(fixture.companyId, itemId, 'approve', '', { channel: 'app', assurance: 'session' });
+    await inbox.decide(fixture.companyId, incident, 'approve', 'fixed', { channel: 'app', assurance: 'session' });
+    const channel = new RelayChannel(relayId);
+    await channel.prepare();
+    const { retractClosed } = await import('../../src/owner/notify.ts');
+    await retractClosed(fixture.companyId, channel);
+    const { rows: left } = await withControlPlane((tx) => tx.query<{ type: string }>(
+      "SELECT type FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'dead') AND link_id IS NOT NULL AND type <> 'link_confirmed'", [relayId]));
+    assert.deepEqual(left, [], 'nothing about either is owed any more');
+
+    // The relay comes back: it is never told of them, and never rings for an incident already resolved.
+    down = false;
+    await sendOutbox(api.master, new Date(Date.now() + 120_000));
+    assert.deepEqual(relay.received.filter((one) => ['inbox_item', 'inbox_closed'].includes(one.envelope?.type)), []);
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test('a notice still owed when the relay is told less is sent at the new share, not dropped', async () => {
+  const fixture = await createCompany('relay-narrowed');
+  let down = true;
+  const relay = await fakeRelay({ answer: (one) => (down && one.envelope?.type !== 'pair_request' ? { status: 503 } : undefined) });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'content', mayPress: true });
+    await linkThrough(api, token, relay, relayId, { device: true });
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'price the coffee' }, createdBy: 'owner', reserveTokens: 100,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Which price?', options: ['Rp 25.000', 'Rp 30.000'] });
+    await approval(fixture.companyId, 2, 'Pay the coffee supplier');
+    const channel = new RelayChannel(relayId);
+    await channel.prepare();
+    await channel.deliverNotice!({ companyId: fixture.companyId, taskId: randomUUID(), text: 'Done: price the coffee\nRp 25.000 a cup', url: null, language: 'en' });
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const choices = async () => (await withControlPlane((tx) => tx.query(
+      'SELECT 1 FROM relay_offers WHERE inbox_item_id = $1 AND option IS NOT NULL AND voided_at IS NULL', [asked.inboxItemId]))).rows.length;
+    assert.equal(await choices(), 2, 'the choices are buttons at content');
+
+    // Told what it is about, and no longer what it says: the question's
+    // choices go, and its notice is still owed, without the run's words.
+    const summary = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { share: 'summary' });
+    assert.equal(summary.status, 200, JSON.stringify(summary.body));
+    assert.equal(await choices(), 0, 'a choice is a button only where the run\'s words are told');
+    down = false;
+    await sendOutbox(api.master, new Date(Date.now() + 120_000));
+    const of = (type: string) => relay.received.filter((one) => one.envelope?.type === type);
+    const question = of('inbox_item').find((one) => one.envelope.offers.some((offer: { act: string }) => offer.act === 'answer'))!;
+    assert.ok(question, 'the question is still told');
+    assert.equal(question.envelope.share, 'summary');
+    assert.deepEqual([question.envelope.data.question, question.envelope.data.options], [undefined, undefined]);
+    assert.equal(question.body.includes('Rp 30.000'), false);
+    assert.deepEqual(question.envelope.offers.map((offer: { act: string; label: string }) => `${offer.act}:${offer.label}`), ['answer:Answer']);
+    assert.equal(of('work_done')[0]!.envelope.text, 'Done: price the coffee');
+    assert.equal(of('inbox_item').length, 2, 'the approval too');
+
+    // Told only that something happened: what is still owed goes at signal.
+    down = true;
+    await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    const signal = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { share: 'signal' });
+    assert.equal(signal.status, 200, JSON.stringify(signal.body));
+    down = false;
+    await sendOutbox(api.master, new Date(Date.now() + 240_000));
+    const last = of('inbox_item').at(-1)!;
+    assert.equal(of('inbox_item').length, 3, 'the newsletter is still told');
+    assert.equal(last.envelope.share, 'signal');
+    assert.equal(last.envelope.text, 'Something new needs you in PALUGADA.');
+    assert.deepEqual(last.envelope.offers, []);
+    assert.equal(last.envelope.company.name, undefined);
+    assert.equal(last.body.includes('newsletter'), false);
   } finally {
     await api.close();
     await relay.close();

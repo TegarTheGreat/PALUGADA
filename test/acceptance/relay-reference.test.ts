@@ -10,11 +10,14 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createPrivateKey, generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { startReferenceRelay } from '../../scripts/relay-reference.ts';
+import { jcs } from '../../src/relay/canonical.ts';
+import { rawPublicKey } from '../../src/relay/signature.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { handToRelay, sendOutbox } from '../helpers/relay.ts';
@@ -162,6 +165,71 @@ test('the reference relay refuses a deployment whose fingerprint it was not give
   } finally {
     await wrong.close();
     await right.close();
+    await api.close();
+  }
+});
+
+/** The deployment's signing key, opened from the seed it sealed, as only someone holding that seed could. */
+async function sealedKey(api: Awaited<ReturnType<typeof consoleWithSettings>>, ref: string): Promise<KeyObject> {
+  const seed = Buffer.from(await api.secrets.resolve(ref), 'base64');
+  return createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
+}
+
+test('the reference relay takes a new key only from a rotation that the key it pinned and the new key both sign', async () => {
+  const fixture = await createCompany('relay-reference-rotation');
+  const api = await consoleWithSettings();
+  const identity = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { fingerprint: string; deployment: string };
+  const relay = await startReferenceRelay({ port: 0, deploymentFingerprint: identity.fingerprint, quiet: true });
+  try {
+    const token = await api.signIn();
+    const added = await api.call('POST', '/api/control/relays', token, { url: relay.url });
+    const relayId = String(added.body.relay.id);
+    const paired = await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: relay.fingerprint, companies: [fixture.companyId], proof: { totp: api.code() },
+    });
+    assert.equal(paired.status, 200, JSON.stringify(paired.body));
+    const { rows: [first] } = await withControlPlane((tx) => tx.query<{ secret_ref: string }>('SELECT secret_ref FROM relay_identity'));
+    const old = await sealedKey(api, first!.secret_ref);
+
+    // The owner rotates: the relay is told in an envelope both keys sign, and takes the new key.
+    const rotated = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
+    assert.equal(rotated.status, 200, JSON.stringify(rotated.body));
+    await sendOutbox(api.master);
+    assert.ok(relay.received().some((envelope) => envelope.type === 'keys_rotated'), 'the rotation is taken');
+    assert.equal(relay.refused(), 0);
+
+    // Whoever kept the old key -- the reason a key is rotated -- announces a key of their own, in the old key's week.
+    const theirs = generateKeyPairSync('ed25519');
+    const post = async (body: Record<string, unknown>, keys: KeyObject[]) => {
+      const text = jcs(body);
+      const id = String(body.id);
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const signature = keys.map((key) => `v1a,${sign(null, Buffer.from(`${id}.${timestamp}.${text}`, 'utf8'), key).toString('base64')}`).join(' ');
+      return (await fetch(`${relay.url}/v1/envelopes`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'webhook-id': id, 'webhook-timestamp': timestamp, 'webhook-signature': signature }, body: text,
+      })).status;
+    };
+    const announce = () => ({
+      v: 1, id: randomUUID(), type: 'keys_rotated', at: new Date().toISOString(), deployment: identity.deployment, relay: relayId,
+      key: rawPublicKey(theirs.publicKey).toString('base64url'), kid: '0123456789abcdef', fingerprint: 'X'.repeat(24),
+      previous: { key: rawPublicKey(old).toString('base64url'), kid: 'fedcba9876543210', until: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+    });
+    const refusedBefore = relay.refused();
+    assert.notEqual(await post(announce(), [old]), 200, 'signed by the old key alone');
+    assert.notEqual(await post(announce(), [old, theirs.privateKey]), 200, 'signed by the old key and the key it names, but not the key the relay pinned');
+    const notice = { v: 1, id: randomUUID(), type: 'ping', at: new Date().toISOString(), deployment: identity.deployment, relay: relayId, lang: 'en', text: 'Approve now at https://elsewhere.example' };
+    assert.notEqual(await post(notice, [theirs.privateKey]), 200, 'and nothing signed by their key alone is taken');
+    assert.equal(relay.refused(), refusedBefore + 3);
+    assert.equal(relay.received().filter((envelope) => envelope.type === 'keys_rotated').length, 1);
+
+    // The deployment is still heard, under its new key.
+    const tested = await api.call('POST', `/api/control/relays/${relayId}/test`, token, {});
+    assert.equal(tested.status, 200, JSON.stringify(tested.body));
+    await sendOutbox(api.master);
+    assert.equal(relay.received().at(-1)!.type, 'ping');
+    assert.equal(relay.refused(), refusedBefore + 3);
+  } finally {
+    await relay.close();
     await api.close();
   }
 });

@@ -13,7 +13,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
-import { closePools } from '../../src/db/pool.ts';
+import { adminPool, closePools } from '../../src/db/pool.ts';
 import { withControlPlane } from '../../src/db/tenant.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { base32, publicKeyFrom } from '../../src/relay/signature.ts';
@@ -125,9 +125,12 @@ test('a relay is paired only with the owner\'s fresh code and at least sixteen c
 
     // Typed as the operator reads it out: in groups, in small letters.
     const typed = relay.fingerprint.slice(0, 20).toLowerCase().replace(/(.{4})/g, '$1 ').trim();
+    const version = await settingsVersion();
     const paired = await pair({ fingerprint: typed, companies: [fixture.companyId], proof: { totp: api.code() } });
     assert.equal(paired.status, 200, JSON.stringify(paired.body));
     assert.equal(paired.body.relay.status, 'paired');
+    // Every replica starts again to take the relay among the owner's channels, not only the one that paired it.
+    assert.notEqual(await settingsVersion(), version, 'a relay paired is a change every replica takes up');
 
     // The relay was sent a pairing request signed by the key the deployment publishes.
     const identity = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { key: string; kid: string; deployment: string };
@@ -248,6 +251,15 @@ test('a relay whose envelopes live on another host is refused', async () => {
     // One that does not answer says so.
     const gone = await api.call('POST', '/api/control/relays', token, { url: 'http://127.0.0.1:9/' });
     assert.deepEqual([gone.status, gone.body.code], [502, 'relay.unreachable']);
+    // And a document larger than any relay's is not read to its end.
+    const large = await fakeRelay({ documentPadding: 200_000 });
+    try {
+      const refused = await api.call('POST', '/api/control/relays', token, { url: large.url });
+      assert.deepEqual([refused.status, refused.body.code], [502, 'relay.unreachable']);
+      assert.match(String(refused.body.error ?? refused.body.message ?? JSON.stringify(refused.body)), /larger than/);
+    } finally {
+      await large.close();
+    }
   } finally {
     await api.close();
     await relay.close();
@@ -491,6 +503,43 @@ test("a person ends their own phone's link, and the owner anyone's", async () =>
     const malformed = await api.call('POST', '/api/relays/links/not-an-id/end', owner, {});
     assert.equal(malformed.status, 400);
   } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test("a person's link ended while the relay is revoked: each waits for the relay first, and neither fails", async () => {
+  const fixture = await createCompany('relay-unlink-revoke');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  const admin = await adminPool().connect();
+  try {
+    const owner = await api.signIn();
+    const relayId = await pairThrough(api, owner, relay, { companies: [fixture.companyId], share: 'summary', mayPress: true });
+    const linked = await linkThrough(api, owner, relay, relayId, { device: true });
+    await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'email.send', tier: 2, actionSummary: 'Send the offer',
+      rationale: 'ready', consequenceIfDenied: 'not sent',
+    });
+    await handToRelay(fixture.companyId, relayId);
+
+    // A revocation holds the relay, and has voided its offers, as revoking does first.
+    await admin.query('BEGIN');
+    await admin.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relayId]);
+    await admin.query('UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL', [relayId]);
+    // Meanwhile the owner ends the phone's link.
+    const ending = api.call('POST', `/api/relays/links/${linked.linkId}/end`, owner, {});
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The revocation goes on to the links, and finishes.
+    await admin.query(`UPDATE relay_links SET status = 'ended', ended_at = now() WHERE relay_id = $1 AND status <> 'ended'`, [relayId]);
+    await admin.query('COMMIT');
+    const ended = await ending;
+    assert.notEqual(ended.status, 500, JSON.stringify(ended.body));
+    const { rows } = await withControlPlane((tx) => tx.query<{ status: string }>('SELECT status FROM relay_links WHERE id = $1', [linked.linkId]));
+    assert.deepEqual(rows.map((row) => row.status), ['ended']);
+  } finally {
+    await admin.query('ROLLBACK').catch(() => undefined);
+    admin.release();
     await api.close();
     await relay.close();
   }

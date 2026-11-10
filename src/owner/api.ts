@@ -7412,6 +7412,8 @@ const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
   'relay.other_host': 400,
   'relay.companies': 400,
   'relay.owner_device': 409,
+  'relay.accept': 400,
+  'relay.not_paired': 400,
   'import.zip': 400,
   'import.part_missing': 409,
   'import.too_large': 400,

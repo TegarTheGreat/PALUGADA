@@ -37,6 +37,7 @@ import { deleteSecret, putSecret, type MasterKey } from '../settings/store.ts';
 import { CONFUSABLES } from './confusables.ts';
 import { TOTP_DRIFT_STEPS, decodeBase32, encodeBase32, stepFor, totpCode, totpUri } from './mfa.ts';
 import { qrMatrix } from './qr.ts';
+import { endLinksOf } from '../relay/links.ts';
 
 export type StaffKind = 'viewer' | 'member' | 'approver';
 
@@ -679,8 +680,9 @@ export class StaffSeats {
    * room they were in, the direct ones too, with the platform named as who
    * took them out, so nothing in a room is planned for them again and what
    * they were owed there goes with them (the room triggers). Their own
-   * settings go, and their handle is free for whoever is seated next. What
-   * they said stays the company's.
+   * settings go, and their handle is free for whoever is seated next, and
+   * so do the phones they linked through a relay. What they said stays the
+   * company's.
    */
   async revoke(companyId: string, seatId: string): Promise<void> {
     const revoked = await withControlPlane(async (tx) => {
@@ -699,6 +701,9 @@ export class StaffSeats {
           WHERE company_id = $1 AND principal = $2 AND left_at IS NULL`,
         [companyId, `seat:${seatId}`, this.#now()]);
       await tx.query('DELETE FROM principal_prefs WHERE principal = $1', [`seat:${seatId}`]);
+      // Its phones go with it: every link through a relay ends, and every
+      // offer to press it was sent is void (STATUS section 2.208).
+      await endLinksOf(tx, `seat:${seatId}`, this.#now());
       return rows[0];
     });
     if (!revoked) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is already ended', { seatId });

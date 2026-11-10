@@ -110,12 +110,26 @@ export async function putSecret(
   name: string,
   value: string,
   master: MasterKey,
-  options: { renewal?: boolean } = {},
+  options: { renewal?: boolean; quiet?: boolean } = {},
 ): Promise<void> {
   assertSecretName(name);
   if (value === '') throw new PalugadaError('contract.violation', 'a secret is not empty', { name });
   const { nonce, ciphertext, tag } = seal(name, value, master);
   await withControlPlane(async (tx) => {
+    // A key the platform makes for itself -- the relay identity (STATUS
+    // section 2.208) -- is not the owner changing a setting: written at the
+    // epoch, as `writeSetting` writes what it learns quietly, so no replica
+    // restarts to take up what every replica reads at each use.
+    if (options.quiet) {
+      await tx.query(
+        `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'epoch')
+         ON CONFLICT (name) DO UPDATE
+           SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag, key_id = EXCLUDED.key_id`,
+        [name, nonce, ciphertext, tag, master.id],
+      );
+      return;
+    }
     // A renewal -- a token refreshed because the last one ran out -- replaces
     // the value and leaves `updated_at` as the owner last set it. Every
     // replica restarts when `settingsVersion` moves, and a refresh moving it
@@ -352,10 +366,15 @@ export async function writeSetting(key: string, value: object | null, options: {
 export async function settingsVersion(): Promise<string> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ at: Date | null }>(
-      // What the platform learned by itself is written at the epoch (`quiet`)
-      // and is no change: nothing in it is something a replica restarts for.
+      // What the platform learned or made by itself is written at the epoch
+      // (`quiet`) and is no change: nothing in it is something a replica
+      // restarts for.
+      // A relay the owner paired is among the owner's channels only in a
+      // process that started after it was paired (STATUS section 2.208), so
+      // pairing one is a change every replica starts again for.
       `SELECT greatest((SELECT max(updated_at) FROM deployment_settings WHERE updated_at > 'epoch'),
-                       (SELECT max(updated_at) FROM deployment_secrets)) AS at`);
+                       (SELECT max(updated_at) FROM deployment_secrets WHERE updated_at > 'epoch'),
+                       (SELECT max(paired_at) FROM relays)) AS at`);
     return rows[0]?.at?.toISOString() ?? 'never';
   });
 }

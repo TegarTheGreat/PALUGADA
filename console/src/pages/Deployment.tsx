@@ -15,7 +15,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
+  IconApi, IconBell, IconBrain, IconBroadcast, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
   IconPhoto, IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
   IconWorldSearch,
 } from '@tabler/icons-react';
@@ -28,6 +28,7 @@ import { N, locale, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
 import { recordingSupported, useRecorder } from '../recorder.ts';
+import { RelaySettings } from './deployment/Relays.tsx';
 
 const TIERS = ['fast', 'standard', 'deep'] as const;
 type Tier = (typeof TIERS)[number];
@@ -80,6 +81,7 @@ const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
   { id: 'erasures', label: N('Erased companies'), hint: N('Companies you closed, erased here when their days were over: when, and how much of each went.'), icon: IconTrash },
+  { id: 'relays', label: N('Relays'), hint: N('Services that tell people\'s phones what PALUGADA has for them: pair one, choose what it is told, and link your phone.'), icon: IconBroadcast },
 ];
 
 const GROUPS: Array<{ id: ProviderEntry['group']; label: string }> = [
@@ -125,6 +127,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           {current.id === 'services' && <ServiceSettings />}
           {current.id === 'mcp' && <McpSettings />}
           {current.id === 'erasures' && <ErasureList />}
+          {current.id === 'relays' && <RelaySettings />}
         </Grid.Col>
       </Grid>
     </Stack>

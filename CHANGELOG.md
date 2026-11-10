@@ -1085,3 +1085,17 @@ The first version. What it holds, in the order an owner meets it.
   a tier 3 approval there is a link to your inbox. Nothing people say in
   rooms is written into the work's record. The rooms' page in the console
   comes next (STATUS 2.206).
+- A relay can tell your phone what PALUGADA has for you. Under This
+  deployment, Relays, add one by its address and pair it by typing at least
+  sixteen characters of the fingerprint its operator shows, naming the
+  companies it may hear about, with a code given then. It is told only that
+  something happened until you let it say more, and only an incident or a
+  tier 3 approval asks your phone to ring. Link your phone there with a code
+  or a QR; with presses turned on, a phone that linked with its own key can
+  approve or deny at tier 2 and below and answer questions, once per button,
+  recorded as a decision from a chat. A relay can never assign, instruct,
+  call a meeting or change a setting. Every envelope is signed with this
+  deployment's own key, sealed like your other secrets, which you can give a
+  new one. `npm run relay:reference` starts a small relay that forwards to
+  ntfy, and `docs/relay-protocol.md` is the protocol for anyone building one
+  (STATUS 2.208).

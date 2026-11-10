@@ -44,6 +44,8 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/owner/conversation-money.ts` | what the owner's conversations may spend: each CEO turn reserved and held in a row before the call, the sweep of holds a crash left, PALUGADA's own monthly allowance |
 | `src/owner/confusables.ts` | the look-alike letters people's names and handles are compared on, generated from Unicode's data by `scripts/confusables.ts` |
 | `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
+| `src/relay/` | relay protocol v1: the deployment's identity, canonical JSON and signatures, pairing, links, offers, the outbox and its loop, and what a relay sends back |
+| `docs/relay-protocol.md` | the relay protocol, for whoever builds a relay, with its test vectors; `scripts/relay-reference.ts` is the reference relay (`npm run relay:reference`) |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
@@ -147,6 +149,11 @@ Each of these is a test, and each exists because the mistake was made once.
   `carriesOutsideFrom`, passes `carriesStaff` or `carriesStaffFrom`, so a
   member of staff's words held at tier 2 in one task are held in the work
   made from it. `test/documents/provenance-sites.test.ts`.
+- **The relay protocol is one document and the code that speaks it.** Every
+  envelope type in `src/relay/` is described in `docs/relay-protocol.md`, the
+  document describes none the code does not know, and its test vectors
+  verify. A type is only ever added within v1.
+  `test/documents/relay-protocol.test.ts`.
 - **The workspace's shapes are written twice and held together**:
   `src/workspace/contract.ts` and `console/src/workspace/types.ts`, type by
   type and field by field. `test/documents/workspace-contract.test.ts`.

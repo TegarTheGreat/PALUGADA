@@ -239,6 +239,8 @@ export type ErrorCode =
   | 'relay.other_host'
   | 'relay.companies'
   | 'relay.owner_device'
+  | 'relay.accept'
+  | 'relay.not_paired'
   | 'import.zip'
   | 'import.part_missing'
   | 'import.too_large'

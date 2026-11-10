@@ -1215,6 +1215,9 @@ export class Worker {
     if (channels.length === 0) return;
 
     await this.#stage(report, 'notify', async () => {
+      // What a channel's answers depend on, read again: a relay narrowed or
+      // revoked since the last tick is that relay's answer from this one.
+      for (const channel of channels) await channel.prepare?.();
       for (const channel of channels) {
         const options = {
           now,

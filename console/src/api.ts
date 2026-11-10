@@ -203,6 +203,8 @@ const EXPLAINED: Record<string, string> = {
   'relay.other_host': N('The relay\'s addresses must be on the host you entered.'),
   'relay.companies': N('Name the companies this relay may hear about.'),
   'relay.owner_device': N('Link your phone with a device key before presses or replies from it count.'),
+  'relay.accept': N('The relay did not accept this pairing: check that it is the relay whose fingerprint you compared.'),
+  'relay.not_paired': N('That relay is not paired to tell you about this company.'),
   'import.zip': N('That file is not a Slack export PALUGADA can read.'),
   'import.part_missing': N('A part of the export has not arrived yet.'),
   'import.too_large': N('That export unpacks to more than PALUGADA reads at once.'),

@@ -20,7 +20,7 @@ export const ISSUES_ITEM = 'issues';
 export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'people', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-export const DEPLOYMENT_SECTIONS = ['model', 'agents', 'tools', 'channels', 'services', 'mcp', 'erasures'] as const;
+export const DEPLOYMENT_SECTIONS = ['model', 'agents', 'tools', 'channels', 'services', 'mcp', 'erasures', 'relays'] as const;
 export type DeploymentSection = (typeof DEPLOYMENT_SECTIONS)[number];
 
 export type Route =

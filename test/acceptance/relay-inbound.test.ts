@@ -19,6 +19,7 @@ import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
+import { relayPass } from '../../src/relay/loop.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { deviceSignature, fakeRelay, sha256Hex, type FakeRelay } from '../helpers/fake-relay.ts';
@@ -530,6 +531,62 @@ test('the deployment pulls from a relay it cannot be reached by', async () => {
     assert.match(relay.pulls.at(-1)!.path, /after=2/);
     const { rows: [row] } = await withControlPlane((tx) => tx.query<{ inbound_cursor: string }>('SELECT inbound_cursor FROM relays WHERE id = $1', [relayId]));
     assert.equal(row!.inbound_cursor, '2');
+  } finally {
+    await close();
+  }
+});
+
+test("a pull is held to the relay's minute as a push is, and loses nothing it could not take", async () => {
+  const { relay, api, relayId, close } = await ready('relay-in-pull-pace');
+  try {
+    // Seventy acts wait at the relay: more than the sixty a minute a relay may send.
+    const waiting = Array.from({ length: 70 }, () => relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    relay.inbox.push(...waiting);
+    const taken = async () => (await withControlPlane((tx) => tx.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM relay_receipts WHERE relay_id = $1 AND envelope_id = ANY($2)',
+      [relayId, waiting.map((one) => one.id)]))).rows[0]!.n;
+    const cursor = async () => (await withControlPlane((tx) => tx.query<{ inbound_cursor: string | null }>(
+      'SELECT inbound_cursor FROM relays WHERE id = $1', [relayId]))).rows[0]!.inbound_cursor;
+
+    const now = new Date();
+    const first = await sendOutbox(api.master, now);
+    const inTheMinute = await taken();
+    assert.ok(inTheMinute > 0 && inTheMinute <= 60, `a pull takes at most the relay's sixty a minute, took ${inTheMinute}`);
+    assert.equal(first.pulled, inTheMinute);
+    // The cursor stays before what was not taken, so the relay keeps it.
+    assert.equal(await cursor(), null);
+    // While the minute is full the relay is not asked again.
+    const pulls = relay.pulls.length;
+    await sendOutbox(api.master, new Date(now.getTime() + 1000));
+    assert.equal(relay.pulls.length, pulls);
+    assert.equal(await taken(), inTheMinute);
+
+    // A minute on, the same cursor is named again: what was taken is answered
+    // as before and counts for nothing, and the rest is taken.
+    const later = await sendOutbox(api.master, new Date(now.getTime() + 61_000));
+    assert.equal(relay.pulls.length, pulls + 1);
+    assert.doesNotMatch(relay.pulls.at(-1)!.path, /after=/);
+    assert.equal(await taken(), 70, 'nothing that waited at the relay was lost');
+    assert.equal(later.pulled, 70, 'the deployment is done with all seventy');
+    assert.equal(await cursor(), '70');
+  } finally {
+    await close();
+  }
+});
+
+test('an inbox that answers more than a hundred envelopes at once is taken from not at all, and said', async () => {
+  const { relay, api, relayId, close } = await ready('relay-in-pull-many');
+  try {
+    relay.inbox.push(...Array.from({ length: 101 }, () => relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] })));
+    const said: Array<Record<string, unknown>> = [];
+    const report = await relayPass({ master: () => api.master, pullWaitSeconds: 0, awaitPulls: true, log: (entry) => said.push(entry) });
+    assert.equal(report.pulled, 0);
+    assert.ok(said.some((entry) => entry.event === 'relay.pull_failed' && /more than 100/.test(String(entry.message))), JSON.stringify(said));
+    const { rows: [row] } = await withControlPlane((tx) => tx.query<{ n: number; cursor: string | null }>(
+      `SELECT (SELECT count(*)::int FROM relay_receipts WHERE relay_id = $1 AND envelope_id LIKE 'in\\_%') AS n,
+              (SELECT inbound_cursor FROM relays WHERE id = $1) AS cursor`, [relayId]));
+    // Only the link's own claim was taken; nothing of the hundred and one, and the cursor did not move past them.
+    assert.deepEqual([row!.n, row!.cursor], [1, null]);
   } finally {
     await close();
   }

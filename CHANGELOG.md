@@ -1056,3 +1056,11 @@ The first version. What it holds, in the order an owner meets it.
   allow one action to one role for a while for staff work too, with a code
   given then, and another seat cannot read a question put to someone else
   (STATUS 2.204).
+- Talking to a company's CEO is now paid for before each turn, from the
+  CEO's own budget. While everything is stopped, the company is frozen or
+  its spending is paused at the ceiling, or its budget has no room, the CEO
+  answers with one line from the platform and no model is called; the inbox
+  works as before. A reservation a crash interrupted is given back within
+  the hour, and only the newest part of a long conversation is sent each
+  turn. PALUGADA's own assistant stops at a monthly allowance, USD 20 until
+  you change it under This deployment, Model (STATUS 2.205).

@@ -140,7 +140,9 @@ const ROOM_STAFF: AreaPolicy = {
 // --- the conversation's money (STATUS 2.205) ---
 const TALK_STAFF: AreaPolicy = {
   reads: [],
-  hidden: {},
+  hidden: {
+    '/api/control/assistant-allowance': 'the owner\'s conversation with PALUGADA',
+  },
   talks: [],
   asks: [],
   decides: [],

@@ -41,6 +41,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
 | `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
 | `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
+| `src/owner/conversation-money.ts` | what the owner's conversations may spend: each CEO turn reserved and held in a row before the call, the sweep of holds a crash left, PALUGADA's own monthly allowance |
 | `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |

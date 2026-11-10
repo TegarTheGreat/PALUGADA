@@ -46,6 +46,8 @@ export const RELAY: Area = {
       "What it is told": "Apa yang diberitahukan",
       "A public ntfy topic is readable by anyone who guesses its name: above \"that something happened\", use a relay you trust, or a self-hosted or token-protected ntfy.": "Topik ntfy publik bisa dibaca siapa pun yang menebak namanya: di atas \"bahwa sesuatu terjadi\", pakai relay yang Anda percaya, atau ntfy milik sendiri atau yang dilindungi token.",
       "Presses: approve and deny at tier 2 and below, and answer questions, from a phone linked with its own key": "Tekanan: setujui dan tolak di Tier 2 ke bawah, serta jawab pertanyaan, dari ponsel yang ditautkan dengan kuncinya sendiri",
+      "Replies: a person answers a notice about a room from their phone, as a plain message in their own name": "Balasan: seseorang menjawab pemberitahuan tentang sebuah ruang dari ponselnya, sebagai pesan biasa atas namanya sendiri",
+      "PALUGADA fetches from the relay, for a relay that cannot reach this deployment": "PALUGADA mengambil dari relay, untuk relay yang tidak bisa menjangkau deployment ini",
       "Sent {delivered}, waiting {pending}, given up {dead}. Last answered {when}.": "Terkirim {delivered}, menunggu {pending}, menyerah {dead}. Terakhir menjawab {when}.",
       "never": "belum pernah",
       "Retry": "Coba lagi",

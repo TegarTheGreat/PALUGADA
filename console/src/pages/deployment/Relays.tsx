@@ -233,14 +233,18 @@ function RelayControls({ relay, companies, reload }: { relay: RelayView; compani
   const requireFactor = useFactor();
   const [share, setShare] = useState<Share>(relay.share);
   const [mayPress, setMayPress] = useState(relay.mayPress);
+  const [mayPost, setMayPost] = useState(relay.mayPost);
+  const [pulled, setPulled] = useState(relay.mode === 'pull');
   const [chosen, setChosen] = useState<string[]>(relay.companies);
   const [all, setAll] = useState(relay.allCompanies);
-  const changed = share !== relay.share || mayPress !== relay.mayPress || all !== relay.allCompanies
+  const mode = pulled ? 'pull' : 'push';
+  const changed = share !== relay.share || mayPress !== relay.mayPress || mayPost !== relay.mayPost || mode !== relay.mode
+    || all !== relay.allCompanies
     || (!all && (chosen.length !== relay.companies.length || chosen.some((one) => !relay.companies.includes(one))));
   const save = async () => {
     try {
       const done = await requireFactor(t('Change what {name} is told', { name: relay.name }), (proof) => api('POST', `/api/control/relays/${relay.id}/settings`, {
-        share, mayPress, allCompanies: all, ...(all ? {} : { companies: chosen }), proof,
+        share, mayPress, mayPost, mode, allCompanies: all, ...(all ? {} : { companies: chosen }), proof,
       }));
       if (done) reload();
     } catch (failure) {
@@ -262,6 +266,12 @@ function RelayControls({ relay, companies, reload }: { relay: RelayView; compani
       <Checkbox label={t('Every company, later ones too')} checked={all} onChange={(event) => setAll(event.currentTarget.checked)} />
       <Switch checked={mayPress} onChange={(event) => setMayPress(event.currentTarget.checked)}
         label={t('Presses: approve and deny at tier 2 and below, and answer questions, from a phone linked with its own key')} />
+      <Switch checked={mayPost} onChange={(event) => setMayPost(event.currentTarget.checked)}
+        label={t('Replies: a person answers a notice about a room from their phone, as a plain message in their own name')} />
+      {relay.pull && (
+        <Switch checked={pulled} onChange={(event) => setPulled(event.currentTarget.checked)}
+          label={t('PALUGADA fetches from the relay, for a relay that cannot reach this deployment')} />
+      )}
       <Group justify="flex-end">
         <Button size="xs" disabled={!changed || (!all && chosen.length === 0)} onClick={() => void save()}>{t('Save')}</Button>
       </Group>

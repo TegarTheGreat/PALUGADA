@@ -1178,7 +1178,9 @@ The first version. What it holds, in the order an owner meets it.
   reads is refused. If you keep messages for a number of days, what was said
   in Slack before them goes at the next retention pass, as every message
   does. The upload is kept beside the company's files, where no agent
-  reaches it, until it is read, and a week at most (STATUS 2.214).
+  reaches it, until it is read, and a week at most; a company restored from
+  an archive taken while an import was still arriving or waiting to be read
+  shows it as failed, its parts having stayed behind (STATUS 2.214).
 - People meet people: anyone in a room sets a meeting from their own words
   there, with the Meeting button or `/meet` (`/rapat`), giving it a time, a
   length, the people asked -- only people who can see the room -- and a call
@@ -1189,6 +1191,8 @@ The first version. What it holds, in the order an owner meets it.
   more if it moves, never more. Whoever set it, or you, can move it, fix its
   link or its people while it is under way, or cancel it; a cancelled
   meeting reminds nobody, and removing its words cancels it and takes the
-  link with them. A meeting is not work: no agent sees it, its words are
-  never given as work, nothing is spent, and it travels with the company's
-  export (STATUS 2.215).
+  link with them, as archiving its room cancels it unless it has begun. If
+  you keep messages for a number of days, a meeting's words stay until it
+  has ended, however far ahead it was set. A meeting is not work: no agent
+  sees it, its words are never given as work, nothing is spent, and it
+  travels with the company's export (STATUS 2.215).

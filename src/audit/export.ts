@@ -625,6 +625,19 @@ const SECTIONS: Section[] = [
     viaControlPlane: true,
   },
   {
+    // People's meetings (STATUS 2.215): when, for how long, who was asked, the
+    // link pasted, who set and who cancelled each, and whether its reminder
+    // went. Its title and agenda are its message, above; a meeting whose
+    // message was removed is no meeting any more, and stays behind with it.
+    name: 'room_meetings',
+    sql: `SELECT id, room_id, message_id, starts_at, minutes, attendees, call_url, set_by, reminded_at, cancelled_at,
+                 cancelled_by, created_at
+            FROM room_meetings WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
+           ORDER BY created_at, id`,
+    viaControlPlane: true,
+  },
+  {
     name: 'batch_windows',
     sql: `SELECT id, timezone, start_hour, end_hour, days_of_week, created_at
             FROM batch_windows WHERE company_id IS NOT NULL`,

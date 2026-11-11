@@ -356,6 +356,12 @@ const SECTIONS: ImportSection[] = [
     name: 'room_pins', table: 'room_pins', references: ['room_id', 'message_id'], required: ['room_id', 'message_id'], room: true,
   },
   { name: 'room_files', table: 'room_files', references: ['message_id'], required: ['message_id'], room: true },
+  // People's meetings (STATUS 2.215), on their messages, as they were: who
+  // was asked and who set them are the other deployment's people, named as
+  // they were, as a message's author is.
+  {
+    name: 'room_meetings', table: 'room_meetings', references: ['room_id', 'message_id'], required: ['room_id', 'message_id'], room: true,
+  },
   { name: 'room_members', table: 'room_members', references: ['room_id'], required: ['room_id'], room: true },
 
   // F1.5's configuration, restored last because it references divisions and

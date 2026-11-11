@@ -358,6 +358,8 @@ test('a cancelled meeting reminds nobody', async () => {
     const drawn = await meetingOn(sari.in, room, first);
     assert.deepEqual([drawn?.cancelled, drawn?.cancelledBy?.principal], [true, budi.seat.principal], 'drawn as cancelled, by whom');
     assert.equal(await meetingOn(sari.in, room, third), null, 'a removed message carries no meeting');
+    assert.equal((await meetingRows(w.fixture.companyId)).find((row) => row.message_id === third)!.cancelled_by, budi.seat.principal,
+      'its meeting was cancelled with its words, by whoever removed them');
   } finally {
     await w.close();
   }

@@ -11,7 +11,10 @@
 import type { SentenceArea } from './index.ts';
 
 export const MEET: SentenceArea = {
-  id: {},
+  id: {
+    'A meeting starts in ten minutes in {room}.': 'Rapat dimulai sepuluh menit lagi di {room}.',
+    'A meeting starts in ten minutes.': 'Rapat dimulai sepuluh menit lagi.',
+  },
   ms: {},
   jv: {},
   su: {},

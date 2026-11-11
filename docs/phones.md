@@ -2,7 +2,8 @@
 
 PALUGADA tells a person's phone what is theirs -- someone wrote to them,
 mentioned them or replied in a thread they follow, a run's question was put
-to them, an approval waits that they may decide, work they asked for ended --
+to them, an approval waits that they may decide, work they asked for ended, a
+meeting they were asked to starts in ten minutes --
 through a **relay**: a small service, run by you or someone you trust, that
 receives signed notices from your deployment and passes them on. The
 protocol is `docs/relay-protocol.md`. Until a hosted relay exists, the one

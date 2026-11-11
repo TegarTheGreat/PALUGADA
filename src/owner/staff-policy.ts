@@ -254,10 +254,17 @@ const IMPORT_STAFF: AreaPolicy = {
 };
 
 // --- people's meetings (STATUS 2.215) ---
+// Setting a meeting of people, and moving or cancelling it, is talk: it is a
+// person's own words at the top of a room, given a time and the people asked,
+// and makes no work and spends nothing, so every seat may, a viewer too. Who
+// may change which meeting is the handler's and the database's to say.
 const MEET_STAFF: AreaPolicy = {
   reads: [],
   hidden: {},
-  talks: [],
+  talks: [
+    '/api/companies/:companyId/rooms/:roomId/people-meetings',
+    '/api/companies/:companyId/rooms/:roomId/people-meetings/:meetingId',
+  ],
   asks: [],
   decides: [],
 };

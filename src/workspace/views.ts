@@ -15,7 +15,7 @@ import { tasksKeptFromSeat } from '../inbox/inbox.ts';
 import type { StaffKind } from '../owner/staff.ts';
 import { deliverablesWithin, summarise } from '../owner/views.ts';
 import { redactor } from '../secrets/manager.ts';
-import type { CardView, FileView, MessageView, PersonRef } from './contract.ts';
+import type { CardView, FileView, MessageView, PeopleMeetingView, PersonRef } from './contract.ts';
 
 /** Who is reading, in which company: the person, and what the owner made them. */
 export interface Viewer {
@@ -200,6 +200,8 @@ export async function messageViews(
   // the whole page on this transaction rather than once a card.
   const reading: SeatReading | undefined = viewer.seatId === null ? undefined
     : { asked: new Set(taskIds), kept: await tasksKeptFromSeat(tx, taskIds, { id: viewer.seatId }) };
+  // The people's meetings set from the page's messages (STATUS 2.215), read once for the page.
+  const meetings = await peopleMeetingsOf(tx, viewer, directory, ids);
   const steers = (taskId: string | null | undefined, calledBy?: string | null): boolean => {
     const task = taskId ? tasks.get(taskId) : undefined;
     if (!task || !LIVE(task.status) || !mayAsk(viewer)) return false;
@@ -246,7 +248,8 @@ export async function messageViews(
         id: one.id, name: one.name, mime: one.mime, bytes: Number(one.bytes),
         inline: drawnInline(one.mime, Number(one.bytes), one.kept),
       })),
-      peopleMeeting: null,
+      // A removed message names no meeting: its words were the meeting's title and agenda.
+      peopleMeeting: deleted ? null : meetings.get(row.id) ?? null,
       edited: row.edited_at !== null,
       deleted,
       // Removed by nobody: its time was up under the owner's window (STATUS 2.212).
@@ -268,6 +271,37 @@ export async function messageViews(
     });
   }
   return views;
+}
+
+/**
+ * The people's meetings set from these messages (F19.26, STATUS 2.215), by
+ * message: when, for how long, who is asked, the pasted link, who set it and
+ * who cancelled it. Read on the reader's own transaction, which shows only
+ * the meetings of rooms they may see (0159). Its setter and the owner change
+ * it while it is on.
+ */
+export async function peopleMeetingsOf(
+  tx: TenantClient, viewer: Viewer, directory: Directory, messageIds: readonly string[],
+): Promise<Map<string, PeopleMeetingView>> {
+  if (messageIds.length === 0) return new Map();
+  const { rows } = await tx.query<{
+    id: string; message_id: string; starts_at: Date; minutes: number; attendees: string[]; call_url: string | null;
+    set_by: string; cancelled_by: string | null;
+  }>(
+    `SELECT id, message_id, starts_at, minutes, attendees::text[] AS attendees, call_url, set_by, cancelled_by
+       FROM room_meetings WHERE message_id = ANY($1::uuid[])`, [messageIds]);
+  const me = viewer.person.principal;
+  return new Map(rows.map((row) => [row.message_id, {
+    id: row.id,
+    startsAt: row.starts_at.toISOString(),
+    minutes: row.minutes,
+    attendees: row.attendees.map((principal) => directory.refOf(principal)),
+    callUrl: row.call_url,
+    setBy: directory.refOf(row.set_by),
+    cancelled: row.cancelled_by !== null,
+    cancelledBy: row.cancelled_by === null ? null : directory.refOf(row.cancelled_by),
+    may: { change: row.cancelled_by === null && (row.set_by === me || viewer.kind === 'owner') },
+  }]));
 }
 
 /** What a card is about: the work, or the inbox item, and who pressed for the work when a person did. */

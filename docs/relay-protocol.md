@@ -246,14 +246,16 @@ What a person is told is the lower of the relay's level and their own:
 A person's notice about a room (`room_activity`) says at `signal` only why
 and how many, with its read mark and mute; at `summary` the company, the
 room's name and who wrote, by name and handle; and the words only at
-`content`.
+`content`. A meeting about to start (`meeting_soon`) says at `signal` only
+that a meeting is soon; at `summary` the company, the room's name and when
+it starts; and the title its setter wrote only at `content`.
 
 ### 6.2 Urgency
 
 | Value | When | The relay may |
 |---|---|---|
 | `interrupt` | an incident, or an approval at tier 3 | ring the phone |
-| `normal` | something the person may decide or answer, or a notice addressed to them: a direct message, a mention, a reply in a thread they follow, a question put to them, an approval they may decide, work they asked for done | show a notification |
+| `normal` | something the person may decide or answer, or a notice addressed to them: a direct message, a mention, a reply in a thread they follow, a question put to them, an approval they may decide, work they asked for done, a meeting they were asked to about to start | show a notification |
 | `quiet` | everything else | nothing that sounds |
 
 ### 6.3 Types
@@ -343,9 +345,25 @@ of an approval only to someone who can see it.
 
 Words a person was told of were deleted in PALUGADA, or their time was up.
 `data` is `{ "refs": ["<envelope id>", …] }`: every `room_activity` the relay
-was sent, or may have read before it refused it, that carried them. A relay
-MUST drop what it holds of each (section 10). An envelope that had not been
-sent when the words went is not sent at all, and its tokens are void.
+was sent, or may have read before it refused it, that carried them, and every
+`meeting_soon` whose title they were. A relay MUST drop what it holds of each
+(section 10). An envelope that had not been sent when the words went is not
+sent at all, and its tokens are void.
+
+#### `meeting_soon`
+
+A meeting the person was asked to starts in ten minutes. People set it in a
+room of PALUGADA, with a time, a length and the people asked; its title and
+agenda are a message its setter wrote there, and its thread is the notes.
+Sent once for each time it is set for, only while the person may still see
+the room, and never for a meeting cancelled, begun, or whose message was
+removed. `data` is `{}` at `signal`; adds `room` (its name, or `null` for a
+direct conversation), `startsAt` (ISO 8601) and `minutes` at `summary`; adds
+`title` (the setter's words, at most 140 characters, with any secret in them
+redacted) at `content`, which `text` also carries on its second line. `link`
+opens the meeting's thread. `urgency` is `normal`, and `offers` is always
+empty. The meeting's call link is never sent: the person opens it from the
+thread.
 
 ## 7. The outbox and delivery
 
@@ -376,7 +394,8 @@ sent when the words went is not sent at all, and its tokens are void.
 - **A message deleted is not sent.** A `room_activity` owed for words deleted
   since, or taken when their time was up, is never sent, whenever it was
   owed or tried, and is dropped; a relay that had it, was being sent it, or
-  was tried with it, is sent `room_activity_retracted`.
+  was tried with it, is sent `room_activity_retracted`. So is a
+  `meeting_soon` whose title was those words.
 - Each send has five seconds. Sending runs in a loop of its own, never in the
   path of a request or of the work, and runs while the owner has stopped
   everything.
@@ -619,6 +638,7 @@ message give the same signature in any library.
 - `roomActivity`: a person's `room_activity` at `summary`, its canonical
   body, its `v1a` signature with `key` at `timestamp`, and the notice and
   link its id is made from.
+- `meetingSoon`: a person's `meeting_soon` at `summary`, the same way.
 - `reply`: a reply's words, and the fields, bytes and signature of the
   `device` key's signature on it.
 
@@ -830,6 +850,40 @@ message give the same signature in any library.
     },
     "message": "palugada-device/v1\n{\"at\":\"2026-11-08T12:06:00.000Z\",\"clientId\":\"phone-7f3a\",\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"sha256\":\"d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\",\"type\":\"reply\"}",
     "signature": "7ZSwpy11tNhzYk8f8ao8hCqJ1D8vW8mfXjgGTH74SDhkhQ4Wk1qX9D0sosTsRerPJcTGOFnGrRBmi2-50PalAQ"
+  },
+  "meetingSoon": {
+    "value": {
+      "v": 1,
+      "id": "a9246138-de3d-84ce-909a-3c6a7335a2e9",
+      "type": "meeting_soon",
+      "at": "2026-11-08T13:50:00.000Z",
+      "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
+      "relay": "9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+      "to": {
+        "recipient": "DUO7HGJ6ZVY3R2L2UMWI6IR3IM"
+      },
+      "company": {
+        "ref": "co_SCS6VUU5FYH6FLKQ",
+        "name": "Toko Kopi"
+      },
+      "share": "summary",
+      "urgency": "normal",
+      "lang": "id",
+      "text": "Rapat dimulai sepuluh menit lagi di Dapur.",
+      "link": "https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e&thread=4d5e6f7a-8b9c-4d0e-8f1a-2b3c4d5e6f7a",
+      "data": {
+        "room": "Dapur",
+        "startsAt": "2026-11-08T14:00:00.000Z",
+        "minutes": 30
+      },
+      "offers": []
+    },
+    "canonical": "{\"at\":\"2026-11-08T13:50:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"minutes\":30,\"room\":\"Dapur\",\"startsAt\":\"2026-11-08T14:00:00.000Z\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"a9246138-de3d-84ce-909a-3c6a7335a2e9\",\"lang\":\"id\",\"link\":\"https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e&thread=4d5e6f7a-8b9c-4d0e-8f1a-2b3c4d5e6f7a\",\"offers\":[],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Rapat dimulai sepuluh menit lagi di Dapur.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"meeting_soon\",\"urgency\":\"normal\",\"v\":1}",
+    "id": "a9246138-de3d-84ce-909a-3c6a7335a2e9",
+    "timestamp": "1794145800",
+    "signature": "v1a,3Zpvtwt9Rj8e1IpwGY1q/lj6atNtYnCl8x4wjxjJgpVn7bcbocLfvCWpxt7VNGRQbeDIDBjfcBcCCqfUMBwSCw==",
+    "subject": "8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d",
+    "link": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
   }
 }
 ```

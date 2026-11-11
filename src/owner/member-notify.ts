@@ -8,7 +8,9 @@
  *     who hear the room), and a reply in a thread they follow;
  *   - of agent work, only a run's question put to them, an approval they may
  *     decide, and work they asked for that ended. A card an agent's work draws
- *     in a room is the platform's, and tells nobody anything here.
+ *     in a room is the platform's, and tells nobody anything here;
+ *   - a people's meeting they were asked to, ten minutes before it starts,
+ *     once the rooms' sweep has reminded it (STATUS section 2.215).
  *
  * Never of their own words. One notice per room in ten minutes, the rest
  * counted on it. At most their daily number a day, then only how many more,
@@ -40,7 +42,7 @@ import { directoryOf, type Directory } from '../workspace/views.ts';
 import { haltSaid } from './halt-said.ts';
 import { askerOf, RETRY_BASE_MS, type OwnerChannel } from './notify.ts';
 import {
-  approvalSaid, moreYesterdaySaid, questionSaid, roomNoticeSaid, somethingNewSaid, whoSaid, workSaid,
+  approvalSaid, meetingSoonSaid, moreYesterdaySaid, questionSaid, roomNoticeSaid, somethingNewSaid, whoSaid, workSaid,
 } from './people-said.ts';
 
 /** How long one room's notices are one notice. */
@@ -60,7 +62,7 @@ const SEND_BATCH = 100;
 
 const ROOM_REASONS = ['direct', 'mention', 'reply'] as const;
 type RoomReason = (typeof ROOM_REASONS)[number];
-type Reason = RoomReason | 'question' | 'approval' | 'work_done';
+type Reason = RoomReason | 'question' | 'approval' | 'work_done' | 'meeting';
 
 /** Where a notice opens in the console: a room and a thread, an item, or a task. */
 export interface NoticeTarget {
@@ -321,6 +323,8 @@ export async function planNotices(
   // company waits while the clock is held. Only a notice it writes takes it.
   const seats = [...audience.people.keys()].filter((principal) => principal !== 'owner');
   if (seats.length > 0) planned += await withDelivery(companyId, (tx) => planWork(tx, companyId, audience, seats, timing, now));
+  // People's meetings about to start, in a transaction of their own for the same reason.
+  if (audience.people.size > 0) planned += await withDelivery(companyId, (tx) => planMeetings(tx, companyId, audience, timing, now));
   if (purge) {
     await withDelivery(companyId, (tx) => tx.query(
       `DELETE FROM people_notices WHERE created_at < $1::timestamptz - make_interval(days => ${NOTICE_DAYS})`, [now]));
@@ -353,10 +357,12 @@ async function owe1(tx: TenantClient, input: {
   position: number; after: Date; day: string; now: Date;
 }): Promise<number> {
   // The window's newest notice, which is its heaviest: a lighter or equal
-  // reason never opens one.
+  // reason never opens one. A meeting's reminder names its room too, and is
+  // no window of words.
   const { rows: [open] } = await tx.query<{ id: string; reason: RoomReason }>(
     `SELECT id, reason FROM people_notices
       WHERE principal = $1 AND channel = $2 AND room_id = $3 AND created_at > $4::timestamptz - make_interval(mins => ${WINDOW_MINUTES})
+        AND reason IN ('direct', 'mention', 'reply')
         AND (settled_as IS NULL OR settled_as IN ('sent', 'capped'))
       ORDER BY created_at DESC, position DESC LIMIT 1`,
     [input.principal, input.channel, input.roomId, input.now]);
@@ -438,12 +444,62 @@ async function planWork(
   return planned;
 }
 
+/**
+ * What a people's meeting about to start tells the people asked (F19.26,
+ * STATUS section 2.215): once the rooms' sweep has reminded it, a notice for
+ * each person asked who may be told and can still see the room, once for
+ * each time it is set for and channel, since the channel's link was made. A
+ * reminder that the person's quiet hours, or the owner's window, would hold
+ * until the meeting has begun is not planned. Read under the delivery
+ * reader, which sees who was asked and when, and never the words.
+ */
+async function planMeetings(
+  tx: TenantClient, companyId: string, audience: Audience,
+  timing: (principal: string, prefs: Prefs) => { after: Date; day: string }, now: Date,
+): Promise<number> {
+  const { rows: meetings } = await tx.query<{ id: string; room_id: string; starts_at: Date; attendees: string[]; reminded_at: Date }>(
+    `SELECT id, room_id, starts_at, attendees::text[] AS attendees, reminded_at FROM room_meetings
+      WHERE reminded_at IS NOT NULL AND cancelled_at IS NULL AND starts_at > $1
+      ORDER BY starts_at, id`, [now]);
+  if (meetings.length === 0) return 0;
+  const keyOf = (meeting: { id: string; starts_at: Date }) => `meeting:${meeting.id}@${meeting.starts_at.toISOString()}`;
+  // What is told already is left alone without a write, as for agent work.
+  const { rows: told } = await tx.query<{ principal: string; channel: string; window_key: string }>(
+    'SELECT principal, channel, window_key FROM people_notices WHERE window_key = ANY($1::text[])', [meetings.map(keyOf)]);
+  const known = new Set(told.map((row) => `${row.principal}|${row.channel}|${row.window_key}`));
+  let planned = 0;
+  for (const meeting of meetings) {
+    const key = keyOf(meeting);
+    for (const principal of new Set(meeting.attendees)) {
+      const person = audience.people.get(principal);
+      if (!person) continue;
+      const owed = person.channels.filter(({ channel, since }) =>
+        (since === null || meeting.reminded_at >= since) && !known.has(`${principal}|${channel}|${key}`));
+      if (owed.length === 0) continue;
+      const { after, day } = timing(principal, person.prefs);
+      if (after >= meeting.starts_at) continue;
+      const { rows: [seen] } = await tx.query<{ ok: boolean }>('SELECT app.may_see($1, $2, $3) AS ok', [companyId, meeting.room_id, principal]);
+      if (seen?.ok !== true) continue;
+      for (const { channel } of owed) {
+        const { rowCount } = await tx.query(
+          `INSERT INTO people_notices (company_id, principal, room_id, reason, subject, window_key, day, channel, notify_after, created_at)
+           VALUES ($1, $2, $3, 'meeting', $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (company_id, principal, channel, window_key) DO NOTHING`,
+          [companyId, principal, meeting.room_id, `meeting:${meeting.id}`, key, day, channel, after, now]);
+        planned += rowCount ?? 0;
+      }
+    }
+  }
+  return planned;
+}
+
 interface DueRow {
   id: string;
   principal: string;
   room_id: string | null;
   reason: Reason;
   subject: string;
+  window_key: string;
   position: string | null;
   count: number;
   channel: string;
@@ -456,7 +512,7 @@ type Outcome = { settled: 'sent' | 'read' | 'capped' | 'gone'; day?: string } | 
 type Subject =
   | { state: 'gone' | 'read' }
   | { state: 'ok'; type: PeopleNotice['type']; said: Record<'summary' | 'content', Said> & { signal: Said };
-      target: NoticeTarget; room?: PeopleNotice['room']; item?: PeopleNotice['item']; subjects: string[] };
+      target: NoticeTarget; room?: PeopleNotice['room']; item?: PeopleNotice['item']; subjects: string[]; words?: string };
 
 /**
  * Sends what is due of a company's notices, each to the channel it was
@@ -469,7 +525,7 @@ export async function dispatchPeopleNotices(
   const now = options.now ?? new Date();
   const report = { sent: 0, read: 0, capped: 0, gone: 0, failed: 0 };
   const due = await withDelivery(companyId, async (tx) => (await tx.query<DueRow>(
-    `SELECT id, principal, room_id, reason, subject, position, count, channel FROM people_notices
+    `SELECT id, principal, room_id, reason, subject, window_key, position, count, channel FROM people_notices
       WHERE delivered_at IS NULL AND settled_as IS NULL AND notify_after <= $1 AND (${retryDue('$1')})
       ORDER BY created_at, id LIMIT ${SEND_BATCH}`, [now])).rows);
   if (due.length === 0) return report;
@@ -567,6 +623,7 @@ async function deliver(companyId: string, row: DueRow, context: Context): Promis
   const sent = await relayPeopleNotice(row.channel.slice('relay:'.length), {
     id: row.id, companyId, principal: row.principal, type: subject.type, subjects: subject.subjects, language, link, said,
     ...(subject.room ? { room: subject.room } : {}), ...(subject.item ? { item: subject.item } : {}),
+    ...(subject.words ? { words: subject.words } : {}),
   }, context.now);
   return sent === null ? { settled: 'gone' } : { settled: 'sent', day: today };
 }
@@ -584,7 +641,7 @@ function roomLabel(room: { kind: string; name: string | null; division_id: strin
  * may no longer see is not there, and the words are read only here.
  */
 async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: string, context: Context): Promise<Subject> {
-  const [kind, id] = row.subject.split(':') as ['message' | 'item' | 'task', string];
+  const [kind, id] = row.subject.split(':') as ['message' | 'item' | 'task' | 'meeting', string];
   const signal: Said = { text: somethingNewSaid(language), data: {} };
 
   if (kind === 'message') {
@@ -684,6 +741,8 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
     };
   }
 
+  if (kind === 'meeting') return meetingSubject(tx, row, as, language, context, id);
+
   const { rows: [task] } = await tx.query<{ status: string; goal: string | null; halt_reason: string | null; seat: string | null; summary: string | null }>(
     `SELECT status, input->>'goal' AS goal, halt_reason, requested_by_seat::text AS seat, output->>'summary' AS summary
        FROM tasks WHERE id = $1`, [id]);
@@ -700,6 +759,45 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
       content: task.summary ? { text: sentence, data: { title, summary: redactor.redact(task.summary.slice(0, 500)) } } : summary,
     },
     target: { companyId: context.directory.companyId, taskId: id },
+  };
+}
+
+/**
+ * A people's meeting about to start, read as the person reminded: gone when
+ * they can no longer see its room or are no longer asked, when it was
+ * cancelled, its words removed, moved since this was planned, or begun. It
+ * says when and where above `signal`, and the setter's words, as its title,
+ * only at `content`; it opens the meeting's thread, its notes. The relay
+ * holds the title against a delete on its way, as a notice of words does.
+ */
+async function meetingSubject(tx: TenantClient, row: DueRow, as: Person, language: string, context: Context, id: string): Promise<Subject> {
+  const { rows: [meeting] } = await tx.query<{
+    room_id: string; message_id: string; starts_at: Date; minutes: number; attendees: string[]; cancelled: boolean;
+    body: string | null; deleted: boolean; room_kind: string; room_name: string | null; division_id: string | null;
+  }>(
+    `SELECT g.room_id, g.message_id, g.starts_at, g.minutes, g.attendees::text[] AS attendees, g.cancelled_at IS NOT NULL AS cancelled,
+            m.body, m.deleted_at IS NOT NULL AS deleted, r.kind AS room_kind, r.name AS room_name, r.division_id
+       FROM room_meetings g
+       JOIN room_messages m ON m.company_id = g.company_id AND m.id = g.message_id
+       JOIN rooms r ON r.company_id = g.company_id AND r.id = g.room_id
+      WHERE g.id = $1`, [id]);
+  if (!meeting || meeting.cancelled || meeting.deleted || meeting.starts_at <= context.now
+    || !meeting.attendees.includes(as.principal)
+    || row.window_key !== `meeting:${id}@${meeting.starts_at.toISOString()}`) {
+    return { state: 'gone' };
+  }
+  const room = roomLabel({ kind: meeting.room_kind, name: meeting.room_name, division_id: meeting.division_id }, context.names);
+  const sentence = meetingSoonSaid(language, room);
+  const summary: Said = { text: sentence, data: { room, startsAt: meeting.starts_at.toISOString(), minutes: meeting.minutes } };
+  const title = meeting.body === null ? null : excerptOf(meeting.body);
+  return {
+    state: 'ok', type: 'meeting_soon', subjects: [row.subject, `message:${meeting.message_id}`], words: meeting.message_id,
+    said: {
+      signal: { text: meetingSoonSaid(language, null), data: {} },
+      summary,
+      content: title === null ? summary : { text: `${sentence}\n${title}`, data: { ...summary.data, title } },
+    },
+    target: { companyId: context.directory.companyId, roomId: meeting.room_id, threadOf: meeting.message_id },
   };
 }
 

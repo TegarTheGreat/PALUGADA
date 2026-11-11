@@ -36,8 +36,11 @@ interface Offer {
   seat: { id: string; name: string; kind: 'viewer' | 'member' | 'approver'; company: string };
 }
 
-/** A handle as 0149 shapes it: what the field accepts before the server is asked whether it can be used. */
-const HANDLE = /^[a-z][a-z0-9._-]{2,31}$/;
+/**
+ * A handle as 0149 shapes it: what the field accepts before the server is asked whether it can be used. The
+ * profile checks a handle changed there by it too (STATUS 2.218).
+ */
+export const HANDLE = /^[a-z][a-z0-9._-]{2,31}$/;
 
 export function Join({ code, onSignedIn }: {
   code: string;

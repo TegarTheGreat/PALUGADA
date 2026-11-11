@@ -83,8 +83,11 @@ export function MeetingCard({ card, message }: { card: CardView; message: Messag
     [t('To-dos'), meeting.agenda.todos ?? 0],
     [t('Issues'), meeting.agenda.issues ?? 0],
   ];
+  // The week reads left to right and on one line in every console: isolated (U+2066 to U+2069) so a right-to-left
+  // sentence does not turn "2026-W46" round, and joined with a hyphen that does not break (STATUS 2.218).
+  const week = meeting.week ? `\u2066${meeting.week.replace(/-/g, '\u2011')}\u2069` : null;
   const title = meeting.called ? t('A meeting about this message')
-    : meeting.week ? t('Weekly operating meeting, {week}', { week: meeting.week }) : t('Weekly operating meeting');
+    : week ? t('Weekly operating meeting, {week}', { week }) : t('Weekly operating meeting');
 
   return (
     <Paper withBorder radius="md" p="sm" mt={6} className="meeting-card" data-meeting={card.taskId ?? undefined} maw={560}

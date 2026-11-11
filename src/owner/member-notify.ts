@@ -14,7 +14,9 @@
  *
  * Never of their own words. One notice per room in ten minutes, the rest
  * counted on it. At most their daily number a day, then only how many more,
- * said with the next day's first. Held through their quiet hours, and the
+ * said with the next day's first; a seat's direct message or mention by name
+ * is told past the number and spends none of it (STATUS section 2.217), the
+ * owner's holds every notice. Held through their quiet hours, and the
  * owner's through the owner's window. The owner hears people only when they
  * turned it on, and a notice is never an inbox item, so the owner's day is
  * what the inbox counts (G3).
@@ -212,6 +214,11 @@ function afterQuietHours(now: Date, prefs: Prefs): Date {
 /** How much a reason weighs when one message owes a person for two: a mention survives mute, and says most. */
 const WEIGHT: Record<RoomReason, number> = { mention: 3, direct: 2, reply: 1 };
 
+/** A window's weight: its reason's, and a mention by name above the room's @room. */
+function weightOf(one: { reason: RoomReason; named: boolean }): number {
+  return WEIGHT[one.reason] * 2 + (one.reason === 'mention' && one.named ? 1 : 0);
+}
+
 /**
  * Plans what each person of a company is owed since the last pass: a notice
  * for every person, channel and room window, and for every question,
@@ -237,7 +244,7 @@ export async function planNotices(
     // takes no lock at all, and every room write goes on.
     const { rows: [peek] } = await tx.query<{ position: string; through: string }>(
       'SELECT position, notices_through AS through FROM room_clock WHERE company_id = $1', [companyId]);
-    let feed: Array<{ position: string; room_id: string; ref: string; author: string; kind: string; created_at: Date }> = [];
+    let feed: Array<{ position: string; room_id: string; ref: string; author: string; kind: string; created_at: Date; mentions: string[] }> = [];
     let through: number | null = null;
     if (peek && Number(peek.position) > Number(peek.through)) {
       // Two workers plan one company one at a time, by a lock of the
@@ -250,7 +257,7 @@ export async function planNotices(
       const { rows: [clock] } = await tx.query<{ position: string; through: string }>(
         'SELECT position, notices_through AS through FROM room_clock WHERE company_id = $1', [companyId]);
       ({ rows: feed } = await tx.query(
-        `SELECT f.position, f.room_id, f.ref, f.author, r.kind, f.created_at
+        `SELECT f.position, f.room_id, f.ref, f.author, r.kind, f.created_at, f.mentions
            FROM room_feed f JOIN rooms r ON r.company_id = f.company_id AND r.id = f.room_id
           WHERE f.kind = 'message' AND f.position > $1 AND f.position <= $2
           ORDER BY f.position LIMIT ${FEED_BATCH}`,
@@ -312,10 +319,13 @@ export async function planNotices(
           if (reason !== 'mention' && place?.muted_until && place.muted_until > now) continue;
           if (!(await maySee(message.room_id, principal))) continue;
           const { after, day } = timing(principal, person.prefs);
+          // Addressed to the person: a direct message, or their name rather
+          // than the room's @room (STATUS 2.217).
+          const named = reason === 'direct' || (reason === 'mention' && message.mentions.includes(principal));
           for (const { channel, since } of person.channels) {
             if (since !== null && message.created_at < since) continue;
             await owing.owe(tx, {
-              companyId, principal, channel, roomId: message.room_id, reason, messageId: message.ref,
+              companyId, principal, channel, roomId: message.room_id, reason, named, messageId: message.ref,
               position: Number(message.position), after, day, now,
             });
           }
@@ -356,6 +366,8 @@ function purgeDue(companyId: string, now: Date): boolean {
 /** One person's notice about words in a room, on one channel, as a pass decides it. */
 interface OwedWords {
   companyId: string; principal: string; channel: string; roomId: string; reason: RoomReason; messageId: string;
+  /** A direct message, or a mention by name: told past the person's daily number. */
+  named: boolean;
   position: number; after: Date; day: string; now: Date;
 }
 
@@ -370,12 +382,14 @@ interface OwedWords {
  * closed: what comes after it is told afresh. A heavier reason than the
  * window's opens a notice of its own: a mention after a direct message or a
  * reply is told as a mention, in a room muted since the window opened too,
- * rather than counted on a notice that may have gone. A window this pass
- * opened is counted on as one already written is.
+ * rather than counted on a notice that may have gone, and a mention by name
+ * after an @room is told as one too: it is told past the person's daily
+ * number, which the @room was held to. A window this pass opened is counted
+ * on as one already written is.
  */
 class Owing {
   /** The window of each person, channel and room, read once: a notice already written, or one this pass makes. */
-  readonly #windows = new Map<string, { reason: RoomReason; id: string | null; made: number | null } | null>();
+  readonly #windows = new Map<string, { reason: RoomReason; named: boolean; id: string | null; made: number | null } | null>();
   /** Notices already written, counted on: how many more, and the newest position. */
   readonly #counted = new Map<string, { more: number; position: number }>();
   readonly #made: Array<OwedWords & { count: number }> = [];
@@ -386,17 +400,17 @@ class Owing {
       // The window's newest notice, which is its heaviest: a lighter or equal
       // reason never opens one. A meeting's reminder names its room too, and
       // is no window of words.
-      const { rows: [open] } = await tx.query<{ id: string; reason: RoomReason }>(
-        `SELECT id, reason FROM people_notices
+      const { rows: [open] } = await tx.query<{ id: string; reason: RoomReason; named: boolean }>(
+        `SELECT id, reason, named FROM people_notices
           WHERE principal = $1 AND channel = $2 AND room_id = $3 AND created_at > $4::timestamptz - make_interval(mins => ${WINDOW_MINUTES})
             AND reason IN ('direct', 'mention', 'reply')
             AND (settled_as IS NULL OR settled_as IN ('sent', 'capped'))
           ORDER BY created_at DESC, position DESC LIMIT 1`,
         [input.principal, input.channel, input.roomId, input.now]);
-      this.#windows.set(key, open ? { reason: open.reason, id: open.id, made: null } : null);
+      this.#windows.set(key, open ? { reason: open.reason, named: open.named, id: open.id, made: null } : null);
     }
     const open = this.#windows.get(key) ?? null;
-    if (open && WEIGHT[input.reason] <= WEIGHT[open.reason]) {
+    if (open && weightOf(input) <= weightOf(open)) {
       if (open.made !== null) {
         const made = this.#made[open.made]!;
         made.count = Math.min(made.count + 1, 32767);
@@ -408,7 +422,7 @@ class Owing {
       return;
     }
     this.#made.push({ ...input, count: 1 });
-    this.#windows.set(key, { reason: input.reason, id: null, made: this.#made.length - 1 });
+    this.#windows.set(key, { reason: input.reason, named: input.named, id: null, made: this.#made.length - 1 });
   }
 
   /** Writes what the pass decided, in two statements; answers how many notices were made. */
@@ -423,14 +437,14 @@ class Owing {
     if (this.#made.length === 0) return 0;
     const made = this.#made;
     const { rowCount } = await tx.query(
-      `INSERT INTO people_notices (company_id, principal, room_id, reason, subject, position, window_key, day, channel, notify_after, created_at, count)
+      `INSERT INTO people_notices (company_id, principal, room_id, reason, subject, position, window_key, day, channel, notify_after, created_at, count, named)
        SELECT * FROM unnest($1::uuid[], $2::text[], $3::uuid[], $4::text[], $5::text[], $6::bigint[], $7::text[], $8::date[], $9::text[],
-                            $10::timestamptz[], $11::timestamptz[], $12::smallint[])
+                            $10::timestamptz[], $11::timestamptz[], $12::smallint[], $13::boolean[])
        ON CONFLICT (company_id, principal, channel, window_key) DO NOTHING`,
       [made.map((one) => one.companyId), made.map((one) => one.principal), made.map((one) => one.roomId), made.map((one) => one.reason),
         made.map((one) => `message:${one.messageId}`), made.map((one) => one.position), made.map((one) => `room:${one.roomId}:${one.messageId}`),
         made.map((one) => one.day), made.map((one) => one.channel), made.map((one) => one.after), made.map((one) => one.now),
-        made.map((one) => one.count)]);
+        made.map((one) => one.count), made.map((one) => one.named)]);
     return rowCount ?? 0;
   }
 }
@@ -574,6 +588,8 @@ interface DueRow {
   position: string | null;
   count: number;
   channel: string;
+  /** A direct message, or a mention by name. */
+  named: boolean;
 }
 
 /** What a notice became: sent, or settled without being sent, or a send that failed. */
@@ -596,7 +612,7 @@ export async function dispatchPeopleNotices(
   const now = options.now ?? new Date();
   const report = { sent: 0, read: 0, capped: 0, gone: 0, failed: 0 };
   const due = await withDelivery(companyId, async (tx) => (await tx.query<DueRow>(
-    `SELECT id, principal, room_id, reason, subject, window_key, position, count, channel FROM people_notices
+    `SELECT id, principal, room_id, reason, subject, window_key, position, count, channel, named FROM people_notices
       WHERE delivered_at IS NULL AND settled_as IS NULL AND notify_after <= $1 AND (${retryDue('$1')})
       ORDER BY created_at, id LIMIT ${SEND_BATCH}`, [now])).rows);
   if (due.length === 0) return report;
@@ -673,12 +689,16 @@ async function deliver(companyId: string, row: DueRow, context: Context): Promis
 
   const today = localTime(context.now, person.prefs.timezone).date;
   const yesterday = localTime(new Date(context.now.getTime() - 86_400_000), person.prefs.timezone).date;
-  const { rows: [counted] } = await withDelivery(companyId, (tx) => tx.query<{ today: number; capped: number }>(
+  // A seat's direct message or mention by name is told past its number and
+  // spends none of it; the owner's number holds every notice (G3; STATUS 2.217).
+  const free = row.principal !== 'owner';
+  const { rows: [counted] } = await withDelivery(companyId, (tx) => tx.query<{ today: number; spent: number; capped: number }>(
     `SELECT count(*) FILTER (WHERE day = $3::date AND settled_as = 'sent')::int AS today,
+            count(*) FILTER (WHERE day = $3::date AND settled_as = 'sent' AND NOT ($5 AND named))::int AS spent,
             count(*) FILTER (WHERE day = $4::date AND settled_as = 'capped')::int AS capped
        FROM people_notices WHERE principal = $1 AND channel = $2 AND day IN ($3::date, $4::date)`,
-    [row.principal, row.channel, today, yesterday]));
-  if (counted!.today >= person.prefs.perDay) return { settled: 'capped', day: today };
+    [row.principal, row.channel, today, yesterday, free]));
+  if (!(free && row.named) && counted!.spent >= person.prefs.perDay) return { settled: 'capped', day: today };
   // The day's first says how many the day before went past the person's number.
   const more = counted!.today === 0 && counted!.capped > 0 ? `\n${moreYesterdaySaid(language, counted!.capped)}` : '';
   const said = Object.fromEntries((['signal', 'summary', 'content'] as const).map((share) => [

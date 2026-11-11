@@ -207,11 +207,18 @@ test('a seat is told at most its daily number, then only the count', async () =>
     const budi = await person(w, 'Budi');
     const sari = await person(w, 'Sari');
     ok(await w.api.call('POST', '/api/me/profile', sari.seat.token, { noticesPerDay: 2, timezone: 'UTC' }));
-    // Four rooms, so four notices nothing coalesces.
-    await said(budi.in, await direct(budi.in, sari.seat), 'One.');
+    // Four replies in threads she began, in four rooms, so four notices
+    // nothing coalesces. A message to her or her name would not be held to
+    // the number (the test below).
+    const rooms = [await companyRoomOf(w.owner)];
     for (const name of ['Kitchen', 'Deliveries', 'Payroll']) {
       const room = String(ok(await budi.in.makeRoom({ name })).room.id);
-      await said(budi.in, room, mention(sari.seat));
+      ok(await sari.in.join(room));
+      rooms.push(room);
+    }
+    for (const room of rooms) {
+      const root = await said(sari.in, room, 'Who has the keys?');
+      await said(budi.in, room, { body: 'I do.', threadOf: root });
     }
     await tell(w.fixture.companyId, w.api.master);
     assert.equal(toldTo(w.relay, sari.phone!).length, 2, 'two, her daily number');
@@ -225,6 +232,46 @@ test('a seat is told at most its daily number, then only the count', async () =>
     const told = toldTo(w.relay, sari.phone!);
     assert.equal(told.length, 3);
     assert.match(told[2].text, /And more yesterday: 2\./);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a direct message and a mention by name reach a seat past its daily number, and spend none of it', async () => {
+  // The daily number keeps a busy day's noise off a seat's phone; a message
+  // to the person, or their name, is not that noise (STATUS 2.217).
+  const w = await workspace('notify-cap-named');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    ok(await w.api.call('POST', '/api/me/profile', sari.seat.token, { noticesPerDay: 1, timezone: 'UTC' }));
+    const rooms: string[] = [];
+    for (const name of ['Kitchen', 'Deliveries', 'Payroll', 'Stock']) {
+      const room = String(ok(await w.owner.makeRoom({ name })).room.id);
+      ok(await sari.in.join(room));
+      ok(await budi.in.join(room));
+      rooms.push(room);
+    }
+    const [kitchen, deliveries, payroll, stock] = rooms as [string, string, string, string];
+    // A reply in a thread she began spends her one.
+    const root = await said(sari.in, kitchen, 'Who has the keys?');
+    await said(budi.in, kitchen, { body: 'I do.', threadOf: root });
+    await tell(w.fixture.companyId, w.api.master);
+    assert.equal(toldTo(w.relay, sari.phone!).length, 1);
+
+    // Past it, a message to her and her name are told; an @room is the
+    // room's, and a reply too, and both are counted.
+    await said(budi.in, await direct(budi.in, sari.seat), 'Lunch?');
+    await said(budi.in, deliveries, mention(sari.seat));
+    await said(w.owner, payroll, { body: '@room the payslips are out', mentionsRoom: true });
+    const later = await said(sari.in, stock, 'Is the flour in?');
+    await said(budi.in, stock, { body: 'Tomorrow.', threadOf: later });
+    await tell(w.fixture.companyId, w.api.master);
+
+    assert.deepEqual(toldTo(w.relay, sari.phone!).map((one) => one.data.reasons).flat(), ['reply', 'direct', 'mention']);
+    const rows = await noticesOf(w.fixture.companyId, sari.seat.principal);
+    assert.deepEqual(rows.map((row) => `${row.reason} ${row.settled_as}`).sort(),
+      ['direct sent', 'mention capped', 'mention sent', 'reply capped', 'reply sent']);
   } finally {
     await w.close();
   }

@@ -264,3 +264,15 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION app.room_files_kept(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.room_files_kept(uuid) TO palugada_app;
+
+-- ---------------------------------------------------------------------------
+-- A message to a seat, or its name, is told past its daily number (F19.13).
+--
+-- A seat's daily number keeps a busy day's noise off its phone: thirty room
+-- windows, then only a count the next morning. A direct message or a
+-- mention by name past it was that count, and a person missed what was
+-- addressed to them. A notice the planner marks `named` is sent past the
+-- number and spends none of it; an @room, a reply and agent work are held
+-- to it as before. The owner's number holds every notice: the owner's day
+-- is what it keeps (G3).
+ALTER TABLE people_notices ADD COLUMN named boolean NOT NULL DEFAULT false;

@@ -180,9 +180,18 @@ async function partsFolder(folder: string, importId: string, make: boolean): Pro
   return here;
 }
 
+/** The folder an import's parts are in, or null: not there, or something other than a folder where one goes. */
+async function partsThere(folder: string, importId: string): Promise<string | null> {
+  try {
+    return await partsFolder(folder, importId, false);
+  } catch {
+    return null;
+  }
+}
+
 /** Removes an import's parts, whatever is left of them. */
 async function removeParts(folder: string, importId: string): Promise<void> {
-  const at = await partsFolder(folder, importId, false).catch(() => null);
+  const at = await partsThere(folder, importId);
   if (at !== null) await rm(at, { recursive: true, force: true });
 }
 
@@ -340,6 +349,18 @@ function formerOf(row: FormerRow, privateRooms: number): FormerPerson {
   };
 }
 
+/**
+ * The company's room clock, taken first on the control plane as every room
+ * write takes it (0150): an import and a link both write room members and
+ * former people, and taking the clock before either keeps them from waiting
+ * on each other in opposite orders.
+ */
+async function clockFirst(tx: TenantClient, companyId: string, importing = false): Promise<void> {
+  await roomsOnControlPlane(tx, companyId, { importing });
+  await tx.query('INSERT INTO room_clock (company_id) VALUES ($1) ON CONFLICT DO NOTHING', [companyId]);
+  await tx.query('SELECT 1 FROM room_clock WHERE company_id = $1 FOR UPDATE', [companyId]);
+}
+
 const FORMER_COLUMNS = `f.former, f.name, f.seat_id, s.name AS seat_name, f.linked_at, f.rooms::text[] AS rooms, f.gave::text[] AS gave`;
 
 /** Every author an import brought, with the seat each is linked to, by name. */
@@ -399,6 +420,8 @@ export async function linkFormer(
   // Seated, joined and not ended, in this company.
   const [seat] = await assertPeopleOf(companyId, [principal]);
   return withControlPlane(async (tx) => {
+    // Each membership is told to whoever has the room open: not importing.
+    await clockFirst(tx, companyId);
     const row = await formerRow(tx, companyId, former);
     if (row.seat_id !== null && row.seat_id !== seatId) {
       throw new PalugadaError('import.former_linked', `${row.name} is linked to ${row.seat_name ?? 'a seat'} already: unlink them first`,
@@ -409,8 +432,6 @@ export async function linkFormer(
       const linked = row.seat_id === seatId;
       return { person: formerOf(row, row.rooms.length), rooms: linked ? [] : gaining, linked };
     }
-    // Each membership is told to whoever has the room open: not importing.
-    await roomsOnControlPlane(tx, companyId);
     const gave: string[] = [];
     for (const room of gaining) {
       const { rowCount } = await tx.query(
@@ -437,9 +458,9 @@ export async function linkFormer(
 export async function unlinkFormer(companyId: string, body: Record<string, unknown>): Promise<{ person: FormerPerson; rooms: LinkedRoom[] }> {
   const former = formerFrom(body.former);
   return withControlPlane(async (tx) => {
+    await clockFirst(tx, companyId);
     const row = await formerRow(tx, companyId, former);
     if (row.seat_id === null) return { person: formerOf(row, row.rooms.length), rooms: [] };
-    await roomsOnControlPlane(tx, companyId);
     const { rows: taken } = await tx.query<{ room_id: string }>(
       `UPDATE room_members SET left_at = clock_timestamp(), left_by = 'owner'
         WHERE company_id = $1 AND room_id = ANY($2::uuid[]) AND principal = $3 AND left_at IS NULL
@@ -825,11 +846,9 @@ async function writeChannel(
   problems: Problems, counts: Counts,
 ): Promise<void> {
   await withControlPlane(async (tx) => {
-    await roomsOnControlPlane(tx, companyId, { importing: true });
-    // The company's clock first, as every room write takes it: whether a room
-    // or a message is already here is then read once nobody else can add one.
-    await tx.query('INSERT INTO room_clock (company_id) VALUES ($1) ON CONFLICT DO NOTHING', [companyId]);
-    await tx.query('SELECT 1 FROM room_clock WHERE company_id = $1 FOR UPDATE', [companyId]);
+    // The clock first: whether a room or a message is already here is then
+    // read once nobody else can add one.
+    await clockFirst(tx, companyId, true);
     await tx.query('UPDATE room_imports SET reading_until = now() + make_interval(mins => $3) WHERE company_id = $1 AND id = $2',
       [companyId, importId, READING_MINUTES]);
     let wrote = false;
@@ -1005,7 +1024,7 @@ async function readOne(companyId: string, folder: string, importId: string, part
   };
   let failed: Problem | null = null;
   let unexpected: unknown = null;
-  const at = await partsFolder(folder, importId, false).catch(() => null);
+  const at = await partsThere(folder, importId);
   let source: Awaited<ReturnType<typeof partsAsOne>> | null = null;
   try {
     if (at === null) throw new PalugadaError('import.part_missing', 'the parts of this export are gone', {});

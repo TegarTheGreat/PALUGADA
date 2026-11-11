@@ -58,6 +58,8 @@ interface Entry {
   stored?: boolean;
   /** Its compressed bytes damaged, as a part cut short in transit leaves one. */
   broken?: boolean;
+  /** Its sizes and place in the ZIP64 extra field, as a writer of a large export puts them. */
+  zip64?: boolean;
 }
 
 function zipOf(entries: readonly Entry[]): Buffer {
@@ -90,11 +92,20 @@ function zipOf(entries: readonly Entry[]): Buffer {
     record.writeUInt16LE(0x0800, 8);
     record.writeUInt16LE(method, 10);
     record.writeUInt32LE(crc32(data), 16);
-    record.writeUInt32LE(packed.length, 20);
-    record.writeUInt32LE(data.length, 24);
+    record.writeUInt32LE(entry.zip64 ? 0xffffffff : packed.length, 20);
+    record.writeUInt32LE(entry.zip64 ? 0xffffffff : data.length, 24);
     record.writeUInt16LE(name.length, 28);
-    record.writeUInt32LE(offset, 42);
-    central.push(record, name);
+    record.writeUInt32LE(entry.zip64 ? 0xffffffff : offset, 42);
+    const extra = Buffer.alloc(entry.zip64 ? 28 : 0);
+    if (entry.zip64) {
+      record.writeUInt16LE(28, 30);
+      extra.writeUInt16LE(0x0001, 0);
+      extra.writeUInt16LE(24, 2);
+      extra.writeBigUInt64LE(BigInt(data.length), 4);
+      extra.writeBigUInt64LE(BigInt(packed.length), 12);
+      extra.writeBigUInt64LE(BigInt(offset), 20);
+    }
+    central.push(record, name, extra);
     offset += local.length + name.length + packed.length;
   }
   const directory = Buffer.concat(central);
@@ -836,6 +847,29 @@ test('only an import says where a room or a message came from, and it never chan
       await roomsOnControlPlane(tx, companyId, { importing: true });
       await tx.query("UPDATE rooms SET external_id = 'slack:C99' WHERE company_id = $1 AND external_id = 'slack:C01GEN'", [companyId]);
     }), /never changes/);
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test('a channel whose name a room here has comes in beside it, and an archived channel stays archived', async () => {
+  const ws = await workspace('slack-names');
+  try {
+    ok(await ws.owner.makeRoom({ name: 'dev' }));
+    const OLD = { id: 'C03OLD', name: 'old-dev', created: 1600000000, is_archived: true, members: [], purpose: { value: 'The old dev room' } };
+    const entries = slackExport({
+      more: [{ name: 'old-dev/2020-09-13.json', data: '[]' }],
+    }).map((entry) => (entry.name === 'channels.json' ? { ...entry, data: json([...CHANNELS, OLD]) } : entry))
+      // Written as a large export's writer writes them: sizes and places in the ZIP64 field.
+      .map((entry) => ({ ...entry, zip64: true }));
+    const report = await imported(ws, entries);
+    assert.equal(report.status, 'done', JSON.stringify(report.problems));
+    assert.deepEqual(report.problems.filter((one: { code: string }) => one.code === 'renamed'), [{ code: 'renamed', entry: 'dev', name: 'dev (slack)' }]);
+    const all = ok(await ws.owner.rooms(true)).rooms as ListedRoom[];
+    const named = (name: string) => all.find((room) => room.name === name);
+    assert.equal(named('dev')?.joined, true, "the owner's own room keeps its name");
+    assert.equal((await pageOf(ws.owner, named('dev (slack)')!.id))[0].body, 'Build is green.');
+    assert.equal(named('old-dev')?.archived, true, 'an archived channel arrives archived');
   } finally {
     await ws.api.close();
   }

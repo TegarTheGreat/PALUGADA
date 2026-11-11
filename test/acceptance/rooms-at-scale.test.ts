@@ -294,3 +294,52 @@ test("the rooms' card sweep draws a busy division's work without holding the clo
     await api.close();
   }
 });
+
+test("the rooms' card sweep commits a busy division's work in turns, so a post waits for one turn at most", async () => {
+  // Five hundred cards to a statement, but every statement in one transaction that took the company's clock first:
+  // a first sweep over three thousand pieces of work held every post of the company for over half a second, and a
+  // larger one would hold it longer still (STATUS 2.220). Each turn is now its own transaction; which transaction
+  // last wrote a row is its xmin.
+  const { consoleWithSettings } = await import('../helpers/owner-console.ts');
+  const { ok, personIn } = await import('../helpers/rooms.ts');
+  const { syncRoomCards } = await import('../../src/workspace/cards.ts');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { withTenant } = await import('../../src/db/tenant.ts');
+  const fixture = await createCompany('scale-card-turns');
+  const api = await consoleWithSettings();
+  try {
+    const owner = personIn(api, await api.signIn(), fixture.companyId);
+    const division = (ok(await owner.rooms(true)).rooms as Array<{ id: string; kind: string }>).find((one) => one.kind === 'division')!.id;
+    ok(await owner.post(`/rooms/${division}`, { showsWork: 'all' }));
+    const first = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'Hitung stok' }, createdBy: 'owner',
+    });
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO tasks SELECT (jsonb_populate_record(NULL::tasks, to_jsonb(t)
+                || jsonb_build_object('id', gen_random_uuid(), 'idempotency_key', 'clone:' || gen_random_uuid()::text))).*
+         FROM tasks t, generate_series(1, 1500) WHERE t.id = $1`, [first.id]));
+    /** The work cards drawn in a state, by the transaction that last wrote each. */
+    const turns = async (state: string) => (await withControlPlane((tx) => tx.query<{ turn: string; cards: number }>(
+      `SELECT xmin::text AS turn, count(*)::int AS cards FROM room_messages
+        WHERE company_id = $1 AND kind = 'work' AND author = 'platform' AND notice_values->>'state' = $2 GROUP BY xmin::text`,
+      [fixture.companyId, state]))).rows;
+
+    assert.ok(await syncRoomCards(fixture.companyId) >= 1501, 'every piece of work is drawn');
+    const made = await turns('pending');
+    assert.equal(made.reduce((sum, turn) => sum + turn.cards, 0), 1501, 'one card a piece of work');
+    assert.ok(made.length >= 4, `1,501 cards are written in turns of five hundred at most, each committed (${made.length} transactions)`);
+    assert.ok(made.every((turn) => turn.cards <= 500), `no turn writes more than five hundred cards (${made.map((turn) => turn.cards).join(', ')})`);
+
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      "UPDATE tasks SET status = 'cancelled', finished_at = now() WHERE id IN (SELECT id FROM tasks WHERE status = 'pending' LIMIT 1200)"));
+    assert.ok(await syncRoomCards(fixture.companyId) >= 1200, 'every moved card is drawn again');
+    const redrawn = await turns('cancelled');
+    assert.equal(redrawn.reduce((sum, turn) => sum + turn.cards, 0), 1200, 'every moved card is drawn again once');
+    assert.ok(redrawn.length >= 3, `1,200 cards are drawn again in turns, each committed (${redrawn.length} transactions)`);
+    assert.ok(redrawn.every((turn) => turn.cards <= 500), `no turn draws more than five hundred again (${redrawn.map((turn) => turn.cards).join(', ')})`);
+    assert.equal(await syncRoomCards(fixture.companyId), 0, 'and a sweep after them writes nothing');
+  } finally {
+    await api.close();
+  }
+});

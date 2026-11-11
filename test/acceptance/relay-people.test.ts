@@ -721,7 +721,7 @@ test('a window whose first message is deleted still tells the rest, without the 
  * relay from inside the purge, which would take a relay's row after the
  * clock and the messages' rows, the reverse of every other order.
  */
-test('what retention takes is retracted at the relay, a root left without its words too, with its files, and what was owed never goes', async () => {
+test('what retention takes was dropped at the relay at its fortnight, a root left without its words too, with its files, and what was owed never goes', async () => {
   const { mkdtemp, stat } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -779,20 +779,27 @@ test('what retention takes is retracted at the relay, a root left without its wo
     const files = await withControlPlane((tx) => tx.query('SELECT 1 FROM room_files WHERE company_id = $1', [companyId]));
     assert.equal(files.rows.length, 0, 'and its row');
 
+    // Retention keeps a message thirty days at least, and the deployment its
+    // relays' envelopes a fortnight (STATUS section 2.216): by the time
+    // retention takes a message, what told of it is gone from the outbox, as
+    // the protocol requires a relay to have dropped it (docs/relay-protocol.md,
+    // section 10). The relay loop's daily bookkeeping runs at that moment too.
+    const { relayBookkeeping } = await import('../../src/relay/loop.ts');
+    await relayBookkeeping(at);
     // The relay loop comes round first: what was owed of a message retention took is not sent.
     await sendOutbox(w.api.master);
     assert.doesNotMatch(sentTo(w.relay), /vault code is 2222/, 'what retention took before it went never goes');
-    // The notify stage's next pass tells Sari's relay to drop what it holds, and drops what it was owed.
+    // The notify stage's next pass drops what it was owed; there is nothing
+    // left at the deployment for a retraction to name.
     await tell(companyId, w.api.master);
     const retracted = toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted');
-    assert.equal(retracted.length, 1, 'one retraction for the link');
-    assert.deepEqual(retracted[0].data.refs, [sentFiled.id, sentRoot.id].sort(), 'the message taken, and the root left without words');
+    assert.deepEqual(retracted, [], 'the relay was bound to drop it a fortnight after it was sent');
     const still = await withControlPlane((tx) => tx.query(
-      "SELECT 1 FROM relay_outbox WHERE type = 'room_activity' AND subjects && $1::text[]", [[`message:${owed}`]]));
-    assert.equal(still.rows.length, 0, 'what was owed of it is dropped');
+      "SELECT 1 FROM relay_outbox WHERE type = 'room_activity' AND subjects && $1::text[]", [[`message:${owed}`, `message:${filed}`, `message:${rooted}`]]));
+    assert.equal(still.rows.length, 0, 'nothing of what it took is left in the outbox');
     for (const [notice, what] of [[sentFiled, 'the message taken'], [sentRoot, 'the root left without words']] as const) {
       const late = await act(w, sari.phone!, 'reply', offers(notice).reply!, { body: 'Still there?', clientId: `late-${what}` });
-      assert.deepEqual([late.status, late.body.code], [422, 'relay.press_spent'], `a reply on ${what} is spent`);
+      assert.deepEqual([late.status, late.body.code], [422, 'relay.press_unknown'], `a reply on ${what} finds no token`);
     }
     // No token Sari was sent, or was to be sent, about what retention took is left to press.
     const usable = await withControlPlane((tx) => tx.query<{ act: string }>(
@@ -805,7 +812,7 @@ test('what retention takes is retracted at the relay, a root left without its wo
 
     // The pass after says nothing more.
     await tell(companyId, w.api.master);
-    assert.equal(toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted').length, 1);
+    assert.equal(toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted').length, 0);
   } finally {
     await w.close();
   }

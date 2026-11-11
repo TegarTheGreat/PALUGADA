@@ -268,7 +268,8 @@ test('a direct message and a mention by name reach a seat past its daily number,
     await said(budi.in, stock, { body: 'Tomorrow.', threadOf: later });
     await tell(w.fixture.companyId, w.api.master);
 
-    assert.deepEqual(toldTo(w.relay, sari.phone!).map((one) => one.data.reasons).flat(), ['reply', 'direct', 'mention']);
+    // Sent in no order of their own: planned in one pass, they are one statement's rows.
+    assert.deepEqual(toldTo(w.relay, sari.phone!).map((one) => one.data.reasons).flat().sort(), ['direct', 'mention', 'reply']);
     const rows = await noticesOf(w.fixture.companyId, sari.seat.principal);
     assert.deepEqual(rows.map((row) => `${row.reason} ${row.settled_as}`).sort(),
       ['direct sent', 'mention capped', 'mention sent', 'reply capped', 'reply sent']);

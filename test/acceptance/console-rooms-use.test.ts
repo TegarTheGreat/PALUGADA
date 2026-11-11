@@ -252,30 +252,37 @@ test('a picture is put on the page in its own box, never with no height between 
     for (const size of [DESKTOP, PHONE]) {
       const page = await drawn(api, size);
       try {
-        // Each picture's height as it is put on the page, before the browser has drawn a frame of it: a picture with no
-        // height there makes what the log holds shrink under a view at its end, and the browser moves the view.
-        await page.beforeLoad(`window.__putAt = [];
+        // Each picture's height as it is put on the page, by its name, before the browser has drawn a frame of it: a
+        // picture with no height there makes what the log holds shrink under a view at its end, and the browser moves
+        // the view. They are put on the page in the order their reads end, not the room's.
+        await page.beforeLoad(`window.__putAt = {};
           new MutationObserver((changes) => {
             for (const change of changes) for (const node of change.addedNodes) {
               if (node.nodeType !== 1) continue;
               for (const one of [...(node.matches('[data-files] img') ? [node] : []), ...node.querySelectorAll('[data-files] img')]) {
-                window.__putAt.push(Math.round(one.getBoundingClientRect().height));
+                (window.__putAt[one.alt] ??= []).push(Math.round(one.getBoundingClientRect().height));
               }
             }
           }).observe(document, { childList: true, subtree: true });`);
         await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
         const pictures = `[...document.querySelectorAll('[role="log"] [data-files] img')]`;
         await page.waitFor(`${pictures}.length === 2 && ${pictures}.every((one) => one.complete)`, `${size.width} px: the two pictures, drawn`);
-        const putAt = await page.evaluate<number[]>('window.__putAt');
-        assert.equal(putAt.length, 2, `${size.width} px: each picture is put on the page once`);
-        assert.ok(putAt.every((height) => height > 0), `${size.width} px: a picture was put on the page ${JSON.stringify(putAt)} px tall, before its size was known`);
-        const boxes = await page.evaluate<Array<{ width: number; height: number }>>(`${pictures}.map((one) => {
+        const putAt = await page.evaluate<Record<string, number[]>>('window.__putAt');
+        assert.deepEqual(Object.keys(putAt).sort(), ['etalase.png', 'rak.png'], `${size.width} px: both pictures are put on the page`);
+        const boxes = await page.evaluate<Record<string, { width: number; height: number }>>(`Object.fromEntries(${pictures}.map((one) => {
           const box = one.getBoundingClientRect();
-          return { width: Math.round(box.width), height: Math.round(box.height) };
-        })`);
-        assert.deepEqual(boxes.map((box) => box.height), putAt, `${size.width} px: a picture keeps the box it was put on the page with`);
-        for (const box of boxes) assert.ok(box.width > 0 && box.width <= 320 && box.height <= 240, `${size.width} px: a picture is drawn ${box.width} by ${box.height} px`);
-        const [wide, tall] = boxes as [{ width: number; height: number }, { width: number; height: number }];
+          return [one.alt, { width: Math.round(box.width), height: Math.round(box.height) }];
+        }))`);
+        for (const [name, heights] of Object.entries(putAt)) {
+          assert.equal(heights.length, 1, `${size.width} px: ${name} is put on the page once`);
+          assert.ok(heights[0]! > 0, `${size.width} px: ${name} was put on the page ${heights[0]} px tall, before its size was known`);
+          assert.equal(boxes[name]!.height, heights[0], `${size.width} px: ${name} keeps the box it was put on the page with`);
+        }
+        for (const [name, box] of Object.entries(boxes)) {
+          assert.ok(box.width > 0 && box.width <= 320 && box.height <= 240, `${size.width} px: ${name} is drawn ${box.width} by ${box.height} px`);
+        }
+        const wide = boxes['rak.png']!;
+        const tall = boxes['etalase.png']!;
         assert.ok(Math.abs(wide.width / wide.height - 2000 / 1333) < 0.03, `${size.width} px: the wide picture keeps its shape (${wide.width} by ${wide.height})`);
         assert.ok(Math.abs(tall.width / tall.height - 900 / 1600) < 0.03, `${size.width} px: the tall picture keeps its shape (${tall.width} by ${tall.height})`);
       } finally {

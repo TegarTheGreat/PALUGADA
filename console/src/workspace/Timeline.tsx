@@ -201,6 +201,10 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   // Where the log last put itself. A scroll event for that is the log's own, not the person's: a picture laid out
   // between the scroll and its event leaves the view short of the newest, and is not the person scrolling up.
   const ownTop = useRef<number | null>(null);
+  // How tall what the log holds was, and its own box, when the log last put itself or last heard where it was. A
+  // scroll heard after either changed, before the log has held its view again, is the browser keeping the view
+  // inside what changed -- something put on the page before its size was known, the composer drawn -- not the person.
+  const knownSize = useRef<{ content: number; box: number } | null>(null);
   const lastSeen = useRef(0);
   const opening = useRef(0);
   const loadingNewer = useRef(false);
@@ -367,6 +371,7 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   const scrollLog = useCallback((log: HTMLElement, top: number) => {
     log.scrollTop = top;
     ownTop.current = log.scrollTop;
+    knownSize.current = { content: log.scrollHeight, box: log.clientHeight };
   }, []);
 
   // The view held as sizes change: at the newest, the newest; anywhere else, the message at the top of the view.
@@ -390,11 +395,18 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
     if (!log || jumping.current) return;
     const gap = log.scrollHeight - log.scrollTop - log.clientHeight;
     const own = ownTop.current !== null && Math.abs(log.scrollTop - ownTop.current) < 2;
-    if (own && atBottom.current && gap >= NEAR_END) {
-      // The log put itself at the newest and what it holds grew since: still at the newest, as the person left it.
+    const known = knownSize.current;
+    const resized = known !== null && (known.content !== log.scrollHeight || known.box !== log.clientHeight);
+    if (atBottom.current && gap > 1 && (own || resized)) {
+      // At the newest, and either the log put itself here and what it holds grew since, or the browser moved the view
+      // as sizes changed and they changed again before it said so -- on a busy phone, two pictures put on the page
+      // before they were read moved the view up by their placeholders and were drawn full size before the browser
+      // told of it (STATUS 2.220). Still at the newest, as the person left it. A person who scrolls in that same
+      // instant is brought back once; their next move is theirs.
       scrollLog(log, log.scrollHeight);
       return;
     }
+    knownSize.current = { content: log.scrollHeight, box: log.clientHeight };
     atBottom.current = gap < NEAR_END && !held.current.hasAfter;
     setFar(gap > log.clientHeight / 2 || held.current.hasAfter);
     for (const row of log.querySelectorAll<HTMLElement>('[data-room-position]')) {

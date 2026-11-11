@@ -37,24 +37,55 @@ function save(file: Read): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-/** A picture the server says may be drawn, read when its row is drawn. */
+/** A picture as it is drawn: what the server answered, and its own width and height. */
+type Sized = Read & { width: number; height: number };
+
+/** The most a picture is drawn across and down, in CSS pixels. */
+const PICTURE_WIDE = 320;
+const PICTURE_HIGH = 240;
+
+/**
+ * A picture's own size, read from its bytes before it is put on the page. Put
+ * there unread, a picture has no height until the browser has read it, and
+ * what the room's log holds shrinks under the view and grows again: a log at
+ * its newest is moved up and has to tell that from the person scrolling
+ * (STATUS 2.220). Bytes that are not a picture are refused, and the file is
+ * offered to be saved instead.
+ */
+function sized(file: Read): Promise<Sized> {
+  return new Promise((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => {
+      if (image.naturalWidth > 0 && image.naturalHeight > 0) resolve({ ...file, width: image.naturalWidth, height: image.naturalHeight });
+      else reject(new Error(`${file.name} has no size to draw`));
+    };
+    image.onerror = () => reject(new Error(`${file.name} is not a picture the browser can read`));
+    image.src = `data:${file.mime};base64,${file.data}`;
+  });
+}
+
+/** A picture the server says may be drawn, read when its row is drawn and put on the page in a box of its own shape. */
 function Picture({ roomId, file }: { roomId: string; file: FileView }) {
   const scope = useScope();
-  const [read, setRead] = useState<Read | null>(null);
+  const [read, setRead] = useState<Sized | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
     api('GET', `/api/companies/${scope.companyId}/rooms/${roomId}/files/${file.id}`)
-      .then((answer: Read) => { if (live) setRead(answer); }, () => { if (live) setFailed(true); });
+      .then((answer: Read) => (answer.inline ? sized(answer) : { ...answer, width: 0, height: 0 }))
+      .then((answer) => { if (live) setRead(answer); }, () => { if (live) setFailed(true); });
     return () => { live = false; };
   }, [scope.companyId, roomId, file.id]);
-  if (failed) return <Saved roomId={roomId} file={file} />;
+  if (failed || (read && !read.inline)) return <Saved roomId={roomId} file={file} />;
+  // As wide as the message allows up to PICTURE_WIDE, and no wider than keeps it PICTURE_HIGH at most: the box is
+  // the picture's shape, and its height is known before the picture is drawn in it.
+  const box = read ? { width: `min(${PICTURE_WIDE}px, 100%, ${Math.floor((PICTURE_HIGH * read.width) / read.height)}px)` } : {};
   return (
     <UnstyledButton className="room-picture" aria-label={t('Save {name}', { name: file.name })} onClick={() => { if (read) save(read); }}
-      style={{ maxWidth: '100%', minWidth: 0 }}>
-      {read && read.inline
-        ? <Image src={`data:${read.mime};base64,${read.data}`} alt={file.name} radius="sm" mah={240} fit="contain"
-          style={{ maxWidth: 'min(320px, 100%)' }} />
+      style={{ maxWidth: '100%', minWidth: 0, ...box }}>
+      {read
+        ? <Image src={`data:${read.mime};base64,${read.data}`} alt={file.name} radius="sm" fit="contain"
+          style={{ aspectRatio: `${read.width} / ${read.height}`, height: 'auto' }} />
         : <Box w={160} h={96} className="room-picture-loading" />}
     </UnstyledButton>
   );

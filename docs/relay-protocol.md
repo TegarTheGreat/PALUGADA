@@ -374,8 +374,9 @@ sent when the words went is not sent at all, and its tokens are void.
   that closed before it was sent is not sent at all, and nor is its
   `inbox_closed`.
 - **A message deleted is not sent.** A `room_activity` owed for words deleted
-  since is dropped, and a relay that had it, or was tried with it, is sent
-  `room_activity_retracted`.
+  since, or taken when their time was up, is never sent, whenever it was
+  owed or tried, and is dropped; a relay that had it, was being sent it, or
+  was tried with it, is sent `room_activity_retracted`.
 - Each send has five seconds. Sending runs in a loop of its own, never in the
   path of a request or of the work, and runs while the owner has stopped
   everything.

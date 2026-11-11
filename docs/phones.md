@@ -24,10 +24,12 @@ This page is for the owner. It takes about twenty minutes the first time.
   inbox* in your profile, and only inside your window. A person's notice is
   never an inbox item: your day is what your inbox counts.
 - Nothing is sent about a person who has not linked a phone. The mention
-  picker marks such a person "not told outside PALUGADA".
+  picker marks such a person "not told outside PALUGADA", and you too until
+  you hear from people, on a phone or in your Telegram.
 - A relay is never sent a room list, a room's history, who is in a room, or
-  anyone else's notices. A deleted message is withdrawn from the relay, and
-  one not yet sent is never sent.
+  anyone else's notices. A deleted message, or one whose time was up under
+  your retention, is withdrawn from the relay, and one not yet sent is never
+  sent.
 
 ## 1. Run the reference relay
 

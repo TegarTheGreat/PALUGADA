@@ -26,6 +26,7 @@ import { personPicture } from '../images.ts';
 import type { ConsoleContext } from '../App.tsx';
 import { LoadFailed, Loading } from '../components/ui.tsx';
 import { kindAbout, kindLabel } from '../workspace/Profile.tsx';
+import { FormerPeople, ImportSlack } from '../workspace/ImportSlack.tsx';
 
 type Kind = 'viewer' | 'member' | 'approver';
 
@@ -243,6 +244,13 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
       </Paper>
 
       <ChangeSeat companyId={companyId} seat={changing} close={() => setChanging(null)} changed={() => { setChanging(null); seats.reload(); }} />
+
+      {/* A Slack workspace's history, and the people it came with, linked to the seats above (STATUS 2.214). */}
+      <Paper withBorder radius="lg" p="lg">
+        <Title order={4} mb={4}>{t('Import from Slack')}</Title>
+        <ImportSlack companyId={companyId} />
+      </Paper>
+      <FormerPeople companyId={companyId} seats={seats.data?.seats ?? []} />
     </Stack>
   );
 }

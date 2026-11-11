@@ -38,6 +38,7 @@ import { NewMessage } from '../workspace/NewMessage.tsx';
 import { NewRoom } from '../workspace/NewRoom.tsx';
 import { RoomInfo } from '../workspace/RoomInfo.tsx';
 import { SearchPanel } from '../workspace/SearchPanel.tsx';
+import { SlackInvite } from '../workspace/ImportSlack.tsx';
 import { quiet, RoomRail } from '../workspace/RoomRail.tsx';
 import { roomName, ScopeContext, useScope, type Scope } from '../workspace/scope.ts';
 import { ThreadPanel } from '../workspace/ThreadPanel.tsx';
@@ -190,6 +191,9 @@ export function Rooms({ ctx, route }: PageProps) {
         )}
         {showMain && (
           <Box className="rooms-main" data-pane="room" component="section">
+            {/* While the company has no topic room, the owner is offered their Slack workspace's (STATUS 2.214). */}
+            {open.kind === 'room' && owner && rooms.data && shownRoom?.kind === 'company'
+              && !rooms.data.some((one) => one.kind === 'topic') && <SlackInvite companyId={companyId} imported={changed} />}
             {open.kind === 'room' && (
               <RoomPane key={open.roomId} roomId={open.roomId} threadOpen={threadOpen} back={() => select(null)} addPeople={(principals) => setWriting(principals)} />
             )}

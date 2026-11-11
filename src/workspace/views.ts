@@ -297,7 +297,7 @@ export async function messageViews(
  * The people's meetings set from these messages (F19.26, STATUS 2.215), by
  * message: when, for how long, who is asked, the pasted link, who set it and
  * who cancelled it. Read on the reader's own transaction, which shows only
- * the meetings of rooms they may see (0159). Its setter and the owner change
+ * the meetings of rooms they may see (0160). Its setter and the owner change
  * it while it is on.
  */
 export async function peopleMeetingsOf(

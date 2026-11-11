@@ -14,7 +14,7 @@
  * It is not work. Nothing here makes a task, reaches a run or writes an
  * event: a meeting is a row beside its message, read and written as the
  * person through `withPeople`, so the database's rule on who sees which room
- * (0150) and on who sets and changes a meeting (0159) holds whatever a
+ * (0150) and on who sets and changes a meeting (0160) holds whatever a
  * handler forgets. The people asked are reminded ten minutes before it
  * starts, by the rooms' sweep (`cards.ts`) and through people's notices
  * (`src/owner/member-notify.ts`).
@@ -29,7 +29,7 @@ import { directoryOf, peopleMeetingsOf, type Directory, type Viewer } from './vi
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** How long a meeting may be, in minutes, as the table holds it (0159). */
+/** How long a meeting may be, in minutes, as the table holds it (0160). */
 const MEETING_MINUTES = { least: 5, most: 480 } as const;
 /** How many people one meeting asks. */
 const ATTENDEES_MOST = 50;
@@ -111,7 +111,7 @@ function callUrlOf(value: unknown): string | null {
 
 /**
  * A refusal the database gave, said in the words the console explains
- * (0159's named checks). Who may be asked is the database's to say, and only
+ * (0160's named checks). Who may be asked is the database's to say, and only
  * its: everyone of the company in the company's room, a division's and an
  * open topic room; a private room's members and the owner; a direct
  * conversation's people alone -- the rule every room table holds (0150), so
@@ -176,7 +176,7 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
     if (already.length > 0) return shown(tx, viewer, directory, messageId);
     try {
       // No RETURNING: the row is read back as the reader, after the guard
-      // has written who set it (0159).
+      // has written who set it (0160).
       await tx.query(
         `INSERT INTO room_meetings (company_id, room_id, message_id, starts_at, minutes, attendees, call_url, set_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -193,7 +193,7 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
  * cancels it: its setter's, or the owner's. Only what the change names
  * changes, so a meeting under way keeps its time while its link is fixed. A
  * meeting moved after its reminder is reminded again for its new time, once
- * (0159); a cancelled one stays cancelled, and reminds nobody.
+ * (0160); a cancelled one stays cancelled, and reminds nobody.
  */
 export async function changePeopleMeeting(
   viewer: Viewer, roomId: string, meetingIdText: string | undefined, body: Record<string, unknown>,
@@ -227,7 +227,7 @@ export async function changePeopleMeeting(
     if (meeting.removed) throw new PalugadaError('contract.violation', 'the message that set that meeting was removed', { meetingId });
     // Only those asked anew must be the company's people now: whoever was
     // asked stays on the list though their seat has gone, as the database
-    // asks only those added whether they can see the room (0159), so a
+    // asks only those added whether they can see the room (0160), so a
     // change made with the whole list, as the console makes it, is not
     // refused for someone nobody added.
     if (attendees !== undefined) {

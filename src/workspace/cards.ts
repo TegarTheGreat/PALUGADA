@@ -284,12 +284,12 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     //    attention for each person asked who can still see the room, so their
     //    Activity says it and the notify stage tells them where they linked a
     //    phone. Marking it reminded draws its message again and counts the
-    //    reminder (0159), so a meeting moved again and again is reminded at
+    //    reminder (0160), so a meeting moved again and again is reminded at
     //    most twice. A meeting whose start passed before any pass reached it
     //    is not reminded late, and is marked all the same, so the sweep
     //    stops looking at it. A cancelled meeting is never chosen, and one
     //    whose words were removed, by a person or by retention, was
-    //    cancelled with them (0159).
+    //    cancelled with them (0160).
     const { rows: soon } = await tx.query<{ id: string; room_id: string; message_id: string; starts_at: Date; attendees: string[] }>(
       `SELECT id, room_id, message_id, starts_at, attendees::text[] AS attendees FROM room_meetings
         WHERE reminded_at IS NULL AND cancelled_at IS NULL AND starts_at <= $1::timestamptz + make_interval(mins => ${REMIND_MINUTES})

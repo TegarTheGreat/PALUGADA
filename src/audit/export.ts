@@ -390,7 +390,7 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, memory_type, scope_type, scope_id, body, confidence, source,
                  shared, source_event_id, valid_from, superseded_by, approval_state,
                  approved_at, fact_kind, embedding, embedding_model, created_at,
-                 outside, source_task_id, reinforced_count, last_reinforced_at
+                 outside, source_task_id, reinforced_count, last_reinforced_at, staff
             FROM memories ORDER BY created_at`,
   },
   {

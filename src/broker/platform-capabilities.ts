@@ -19,7 +19,7 @@
  * itself.
  */
 import { withTenant } from '../db/tenant.ts';
-import { wrapUntrusted } from '../context/builder.ts';
+import { wrapColleague, wrapUntrusted } from '../context/builder.ts';
 import { recall } from '../memory/store.ts';
 import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
@@ -62,6 +62,8 @@ export interface MemorySearchInput {
 export interface MemorySearchResult {
   facts: Array<{
     body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
+    /** The members of staff whose work taught it: their words, not the company's knowledge (0161). */
+    staff?: string[];
     /** The day it was recorded: a price or a status may have changed since, and the record wins. */
     recordedOn: string;
     /** How many days ago that was, so a run need not do the arithmetic against a date it was never told. */
@@ -135,13 +137,30 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           ? (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id
           : undefined;
         if (memoryType === 'episodic' && !projectId) return [];
-        return recall(tx, ctx.companyId, {
+        const found = await recall(tx, ctx.companyId, {
           memoryType,
           divisionId: ctx.divisionId,
           projectId,
           text: input.query,
           limit: limit + 1,
         });
+        // A fact learned from work members of staff asked for or spoke to is
+        // their words: the work that found it carries them now, as work told
+        // it in its briefing does (F19.9, STATUS 2.217).
+        const told = new Map<string, { seatId: string | null; name: string }>();
+        for (const memory of found.slice(0, limit)) {
+          if (memory.source === 'owner') continue;
+          for (const word of memory.staff) told.set(`${word.seatId}:${word.name}`, word);
+        }
+        const project = told.size === 0 ? undefined
+          : (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id;
+        for (const word of told.values()) {
+          await appendEvent(tx, {
+            companyId: ctx.companyId, ...(project ? { projectId: project } : {}), taskId: ctx.taskId, type: 'content.staff_said', actor: 'broker',
+            payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: 'memory' },
+          });
+        }
+        return found;
       });
 
       // And the company's documents: the passages the same words point at
@@ -167,19 +186,23 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           forCustomers: found.forCustomers === true,
           passage: wrapUntrusted(`document:${found.title}`, found.body),
         })),
-        facts: facts.slice(0, limit).map((memory) => ({
-          body: memory.body,
-          confidence: memory.confidence,
-          source: memory.source,
-          // The same warning the context pack carries. A fact fetched through a
-          // tool must not arrive more certain than the same fact would have
-          // been in the pack -- nor one learned from outside content arrive
-          // as anything but data (0071).
-          unverified: memory.confidence < 0.6 || memory.outside,
-          recordedOn: memory.validFrom.toISOString().slice(0, 10),
-          ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
-          ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
-        })),
+        facts: facts.slice(0, limit).map((memory) => {
+          const staff = memory.source === 'owner' ? [] : [...new Set(memory.staff.map((word) => word.name))];
+          return {
+            body: memory.body,
+            confidence: memory.confidence,
+            source: memory.source,
+            // The same warning the context pack carries. A fact fetched through a
+            // tool must not arrive more certain than the same fact would have
+            // been in the pack -- nor one learned from outside content arrive
+            // as anything but data (0071), nor a colleague's as the company's (0161).
+            unverified: memory.confidence < 0.6 || memory.outside || staff.length > 0,
+            recordedOn: memory.validFrom.toISOString().slice(0, 10),
+            ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
+            ...(staff.length > 0 ? { staff, body: wrapColleague(staff.join(', '), memory.body) } : {}),
+            ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
+          };
+        }),
         truncated: facts.length > limit,
       };
     },

@@ -116,3 +116,17 @@ BEGIN
   END IF;
   RETURN NULL;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- A lesson says whose words taught it.
+--
+-- What work a member of staff asked for or spoke to taught the company -- a
+-- lesson its run declared, a fact distilled from its record, an issue solved
+-- in it -- was kept as the company's own, and reached the owner's later work
+-- as a known fact with no mark that a colleague's words were in it: the hold
+-- at tier 2 and four eyes no longer saw them (F19.9). Such a memory now names
+-- the seats, as `staffWordsIn` names them, and is never a known fact: a run
+-- is told it inside a colleague's fence and carries those words from then on.
+-- An empty list is the company's own, which every memory before this is.
+ALTER TABLE memories ADD COLUMN staff jsonb NOT NULL DEFAULT '[]'::jsonb
+  CONSTRAINT memories_staff_listed CHECK (jsonb_typeof(staff) = 'array' AND jsonb_array_length(staff) <= 20);

@@ -59,6 +59,8 @@ export interface ContextSection {
   body: string;
   /** A lesson learned from content written outside the company (0071). */
   outside?: true;
+  /** A lesson learned from work members of staff asked for or spoke to: whose words a run told it carries (0161). */
+  staff?: StaffWord[];
 }
 
 /**
@@ -1185,7 +1187,7 @@ export async function buildContext(
     ...await recallFacts('others', options.semanticLimit ?? 10),
   ];
   const lowConfidenceMemories = semanticMemories.filter(
-    (memory) => memory.confidence < LOW_CONFIDENCE || memory.outside,
+    (memory) => memory.confidence < LOW_CONFIDENCE || memory.outside || memory.staff.length > 0,
   );
 
   // F4.5: the run is *told*, in words, before it reads the facts themselves.
@@ -1226,7 +1228,12 @@ export async function buildContext(
     // known fact, however often it was seen: it is shown as the data it came
     // from, so words planted in an email cannot come back as the company's
     // own instructions (F8.9).
-    const unverified = memory.confidence < LOW_CONFIDENCE || memory.outside;
+    // And something learned from work a member of staff asked for or spoke
+    // to is their words, not the company's knowledge: never a known fact,
+    // told inside a colleague's fence, and a run told it carries their words
+    // as if they had said them to it (F19.9, STATUS 2.217).
+    const staff = memory.source === 'owner' ? [] : memory.staff;
+    const unverified = memory.confidence < LOW_CONFIDENCE || memory.outside || staff.length > 0;
     sections.push({
       kind: 'semantic_memory',
       // Confidence travels with the fact rather than being flattened away, and
@@ -1234,10 +1241,14 @@ export async function buildContext(
       // headings should not have to compare decimals to notice.
       title:
         `${memory.source === 'owner' ? 'Known fact, from the owner' : unverified ? 'UNVERIFIED fact' : 'Known fact'}`
-        + `${memory.outside ? ', learned from outside content' : ''} `
+        + `${memory.outside ? ', learned from outside content' : ''}`
+        + `${staff.length > 0 ? `, learned from work ${namesOf(staff)} of the owner's staff asked for or spoke to` : ''} `
         + `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source}, recorded ${memory.validFrom.toISOString().slice(0, 10)})`,
-      body: memory.outside ? wrapUntrusted(`memory:${memory.source}`, memory.body) : memory.body,
+      body: memory.outside
+        ? wrapUntrusted(`memory:${memory.source}`, memory.body)
+        : staff.length > 0 ? wrapColleague(namesOf(staff), memory.body) : memory.body,
       ...(memory.outside ? { outside: true as const } : {}),
+      ...(staff.length > 0 ? { staff } : {}),
     });
   }
 

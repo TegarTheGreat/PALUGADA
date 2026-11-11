@@ -163,6 +163,8 @@ export interface StaffWord {
 /**
  * Where derived work took a member of staff's words from (`content.staff_said`'s
  * `from`). `room`: a seat's message in a room that someone else gave as work.
+ * `memory` (written by the engine and `memory.search`, not through
+ * `carriesStaff`): a lesson their work taught, which the run was told.
  */
 export type StaffCarriedFrom = 'rerun' | 'follow_up' | 'ticket' | 'escalation' | 'meeting' | 'quarter' | 'week' | 'month' | 'room';
 
@@ -1054,6 +1056,10 @@ async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, o
     .slice(0, LESSONS_PER_RUN);
   if (lessons.length === 0) return;
   const outside = (await outsideContentIn(tx, task.id)) !== null;
+  // And whose words were in the work, which a lesson keeps as outside content
+  // is kept (F19.9, STATUS 2.217): a lesson a colleague's request taught is
+  // never the company's known fact, and a run told it carries their words.
+  const staff = await staffWordsIn(tx, task.id);
   for (const lesson of lessons) {
     await learn(tx, {
       companyId,
@@ -1064,6 +1070,7 @@ async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, o
       source: 'agent',
       factKind: 'observation',
       outside,
+      staff,
       sourceTaskId: task.id,
     });
   }
@@ -1107,6 +1114,7 @@ async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, o
     // below the line a search draws between known and unverified, as a lesson is.
     confidence: LEARNED_CONFIDENCE.first,
     outside: (await outsideContentIn(tx, task.id)) !== null,
+    staff: await staffWordsIn(tx, task.id),
     sourceTaskId: task.id,
   });
 }

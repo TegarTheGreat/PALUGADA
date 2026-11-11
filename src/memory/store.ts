@@ -22,6 +22,7 @@
 import { PalugadaError } from '../errors.ts';
 
 import type { TenantClient } from '../db/tenant.ts';
+import type { StaffWord } from '../engine/tasks.ts';
 
 export type MemoryType = 'working' | 'episodic' | 'semantic' | 'procedural';
 export type ScopeType = 'agent_run' | 'task' | 'project' | 'division' | 'company' | 'platform';
@@ -52,6 +53,11 @@ export interface MemoryItem {
   factKind: FactKind | null;
   /** It came, however indirectly, from content the company did not write (F8.9, 0071). */
   outside: boolean;
+  /**
+   * The members of staff whose words were in the work that taught it (F19.9,
+   * 0161): never a known fact, and told to a run as a colleague's words.
+   */
+  staff: StaffWord[];
   /** The finished work that taught it, when one did. */
   sourceTaskId: string | null;
   /** How many more times the same lesson has been learned since. */
@@ -75,7 +81,21 @@ export interface RememberInput {
   factKind?: FactKind | undefined;
   approvalState?: ApprovalState | undefined;
   outside?: boolean | undefined;
+  staff?: readonly StaffWord[] | undefined;
   sourceTaskId?: string | undefined;
+}
+
+/** Whose words a memory names, each once, at most twenty, as the column holds them (0161). */
+function staffOf(staff: readonly StaffWord[] | undefined): StaffWord[] {
+  const seen = new Set<string>();
+  const named: StaffWord[] = [];
+  for (const word of staff ?? []) {
+    const key = `${word.seatId ?? ''}:${word.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    named.push({ seatId: word.seatId, name: word.name });
+  }
+  return named.slice(0, 20);
 }
 
 /** The longest memory: a fact or a way to work, not a document (0071). */
@@ -102,8 +122,8 @@ export async function remember(tx: TenantClient, input: RememberInput): Promise<
     `INSERT INTO memories
        (company_id, memory_type, scope_type, scope_id, body, confidence, source,
         shared, source_event_id, embedding, embedding_model, valid_from,
-        fact_kind, approval_state, outside, source_task_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE($12, now()), $13, $14, $15, $16)
+        fact_kind, approval_state, outside, source_task_id, staff)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE($12, now()), $13, $14, $15, $16, $17)
      RETURNING id`,
     [
       input.companyId,
@@ -122,6 +142,7 @@ export async function remember(tx: TenantClient, input: RememberInput): Promise<
       input.approvalState ?? 'active',
       input.outside ?? false,
       input.sourceTaskId ?? null,
+      JSON.stringify(staffOf(input.staff)),
     ],
   );
   return rows[0]!.id;
@@ -189,9 +210,16 @@ export async function learn(tx: TenantClient, input: RememberInput): Promise<{ i
               -- email saying it again: that turned the owner's own sentence into
               -- data wrapped as someone else's, and tainted every run told it (the
               -- audit of 6 October, M4). Said again, it is only counted.
-              outside = CASE WHEN source = 'owner' THEN outside ELSE outside OR $5 END
+              outside = CASE WHEN source = 'owner' THEN outside ELSE outside OR $5 END,
+              -- And a colleague's words that taught it again are named beside
+              -- those already named, as outside content is marked: the
+              -- owner's word stays the owner's.
+              staff = CASE WHEN source = 'owner' THEN staff ELSE (
+                SELECT coalesce(jsonb_agg(DISTINCT one), '[]'::jsonb) FROM (
+                  SELECT one FROM jsonb_array_elements(staff || $6::jsonb) one LIMIT 20) named) END
         WHERE id = $1`,
-      [found.id, LEARNED_CONFIDENCE.most, input.confidence ?? LEARNED_CONFIDENCE.first, LEARNED_CONFIDENCE.step, input.outside ?? false]);
+      [found.id, LEARNED_CONFIDENCE.most, input.confidence ?? LEARNED_CONFIDENCE.first, LEARNED_CONFIDENCE.step, input.outside ?? false,
+        JSON.stringify(staffOf(input.staff))]);
     return { id: found.id, reinforced: true };
   }
   return {
@@ -348,6 +376,7 @@ interface RawMemory {
   approval_state: ApprovalState;
   fact_kind: FactKind | null;
   outside: boolean;
+  staff: StaffWord[];
   source_task_id: string | null;
   reinforced_count: number;
   distance: number | null;
@@ -456,7 +485,7 @@ export async function recall(
   const { rows } = await tx.query<RawMemory>(
     `SELECT m.id, m.body, m.memory_type, m.scope_type, m.scope_id, m.confidence,
             m.source, m.shared, m.valid_from, m.superseded_by,
-            m.approval_state, m.fact_kind, m.outside, m.source_task_id, m.reinforced_count, ${distance}
+            m.approval_state, m.fact_kind, m.outside, m.staff, m.source_task_id, m.reinforced_count, ${distance}
        FROM memories m
       WHERE ${where.join(' AND ')}
       ORDER BY ${orderBy}
@@ -478,6 +507,7 @@ export async function recall(
     approvalState: row.approval_state,
     factKind: row.fact_kind,
     outside: row.outside,
+    staff: row.staff,
     sourceTaskId: row.source_task_id,
     reinforcedCount: row.reinforced_count,
     ...(row.distance === null ? {} : { distance: row.distance }),

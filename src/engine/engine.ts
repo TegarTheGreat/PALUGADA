@@ -474,6 +474,17 @@ export class Engine {
           payload: { capability: 'the task that made it', from: 'follow_up', parentTaskId: context.carriesOutsideFrom },
         });
       }
+      // A lesson that work members of staff asked for or spoke to taught is
+      // their words: a run told it carries them from its first step, as one
+      // told a lesson from outside content carries that (F19.9, STATUS 2.217).
+      const toldStaff = new Map<string, { seatId: string | null; name: string }>();
+      for (const word of context.sections.flatMap((section) => section.staff ?? [])) toldStaff.set(`${word.seatId}:${word.name}`, word);
+      for (const word of toldStaff.values()) {
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
+          payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: 'memory' },
+        });
+      }
       // And a member of staff's words that work came to carry (F19.9).
       for (const word of context.carriesStaffFrom?.staff ?? []) {
         await appendEvent(tx, {

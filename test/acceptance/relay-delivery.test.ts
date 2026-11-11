@@ -758,7 +758,7 @@ test('a notice still owed when the relay is told less is sent at the new share, 
 });
 
 test("two replicas sending one relay's outbox at once still send each person's envelopes in the order they were made", async () => {
-  // STATUS section 2.216 (F13): a claim waits for the other replica's claim
+  // STATUS section 2.216: a claim waits for the other replica's claim
   // to commit, so it sees that replica's rows as being sent and holds a
   // link's later rows behind them.
   const { randomBytes, generateKeyPairSync } = await import('node:crypto');
@@ -821,7 +821,7 @@ test("two replicas sending one relay's outbox at once still send each person's e
 });
 
 test('an offer is purged four days after it was spent, not four days after it would have expired', async () => {
-  // STATUS section 2.216 (F24).
+  // STATUS section 2.216.
   const fixture = await createCompany('relay-spent-purge');
   const relay = await fakeRelay();
   const api = await consoleWithSettings();
@@ -860,7 +860,7 @@ test('an offer is purged four days after it was spent, not four days after it wo
 });
 
 test("a run's choices reach the owner's phone redacted, as its question does, and a press still answers what the run offered", async () => {
-  // STATUS section 2.216 (F8).
+  // STATUS section 2.216.
   const { redactor } = await import('../../src/secrets/manager.ts');
   const secret = 'sk-live-RELAYCHOICESECRET0216';
   redactor.register(secret);
@@ -893,7 +893,7 @@ test("a run's choices reach the owner's phone redacted, as its question does, an
 });
 
 test("each company is told at most its own share, under the relay's, and widening one takes the owner's device", async () => {
-  // STATUS section 2.216 (F61): the lowest of the relay's, the company's and the person's.
+  // STATUS section 2.216: the lowest of the relay's, the company's and the person's.
   const first = await createCompany('relay-share-first');
   const second = await createCompany('relay-share-second');
   const relay = await fakeRelay();

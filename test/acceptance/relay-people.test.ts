@@ -819,7 +819,7 @@ test('what retention takes was dropped at the relay at its fortnight, a root lef
 });
 
 test('a person taken out of a private room after their notice was written is not sent it, then or from the dead letters', async () => {
-  // STATUS section 2.216 (F2): the relay loop asks again, as it sends,
+  // STATUS section 2.216: the relay loop asks again, as it sends,
   // whether the person may still see the room a notice is about.
   let down = true;
   const w = await workspace('relay-people-removed-late', { share: 'content', relay: { answer: (one) => (down && one.envelope?.type === 'room_activity' ? { status: 503 } : undefined) } });
@@ -855,7 +855,7 @@ test('a person taken out of a private room after their notice was written is not
 });
 
 test("a deleted message's words leave the deployment's outbox at once, from the envelope already delivered too", async () => {
-  // STATUS section 2.216 (F19): F19.4's removal takes the words at once.
+  // STATUS section 2.216: F19.4's removal takes the words at once.
   const w = await workspace('relay-people-delete-blanks', { share: 'content' });
   try {
     const budi = await person(w, 'Budi');
@@ -882,7 +882,7 @@ test("a deleted message's words leave the deployment's outbox at once, from the 
 });
 
 test("a run's choices reach a seat's phone redacted, as its question does", async () => {
-  // STATUS section 2.216 (F8).
+  // STATUS section 2.216.
   const { redactor } = await import('../../src/secrets/manager.ts');
   const secret = 'sk-live-SEATCHOICESECRET0216';
   redactor.register(secret);
@@ -911,7 +911,7 @@ test("a run's choices reach a seat's phone redacted, as its question does", asyn
 });
 
 test('a company erased is forgotten at every relay that may hold anything of it', async () => {
-  // STATUS section 2.216 (F20): the erasure's cascade takes every envelope of
+  // STATUS section 2.216: the erasure's cascade takes every envelope of
   // the company and every link of its seats, so the relays are told first.
   const { eraseDueCompanies } = await import('../../src/governance/closing.ts');
   const { companyRef } = await import('../../src/relay/envelope.ts');
@@ -945,7 +945,7 @@ test('a company erased is forgotten at every relay that may hold anything of it'
 });
 
 test("a device's signed act is taken once: sent again under another id it is refused, so an old mute cannot quiet a room heard again", async () => {
-  // STATUS section 2.216 (F55).
+  // STATUS section 2.216.
   const w = await workspace('relay-people-device-replay', { share: 'summary' });
   try {
     const budi = await person(w, 'Budi');
@@ -973,7 +973,7 @@ test("a device's signed act is taken once: sent again under another id it is ref
 });
 
 test('a reply whose client id the person used before, elsewhere or for other words, is refused rather than answered with the old message', async () => {
-  // STATUS section 2.216 (F49): a client id is the person's, unique for all time.
+  // STATUS section 2.216: a client id is the person's, unique for all time.
   const w = await workspace('relay-people-client-id', { share: 'summary', mayPost: true });
   try {
     const budi = await person(w, 'Budi');
@@ -1004,7 +1004,7 @@ test('a reply whose client id the person used before, elsewhere or for other wor
 });
 
 test('a link that ends in PALUGADA is told to its relay, naming the claim that made it and why', async () => {
-  // STATUS section 2.216 (F53).
+  // STATUS section 2.216.
   const w = await workspace('relay-people-link-ended');
   try {
     const budi = await person(w, 'Budi');

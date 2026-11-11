@@ -550,7 +550,7 @@ test("a person's link ended while the relay is revoked: each waits for the relay
 });
 
 test("a relay behind for the rotation's week is still sent its rotation signed by the key it pinned, and a second rotation waits for it", async () => {
-  // STATUS section 2.216 (F48).
+  // STATUS section 2.216.
   const { forgetPreviousKey } = await import('../../src/relay/identity.ts');
   const fixture = await createCompany('relay-rotate-behind');
   let down = true;
@@ -589,7 +589,7 @@ test("a relay behind for the rotation's week is still sent its rotation signed b
 });
 
 test('a relay rotates its own key in an envelope its pinned key and its new key both sign, and the old one stands for its week', async () => {
-  // STATUS section 2.216 (F58).
+  // STATUS section 2.216.
   const fixture = await createCompany('relay-own-rotation');
   const relay = await fakeRelay();
   const api = await consoleWithSettings();
@@ -625,7 +625,7 @@ test('a relay rotates its own key in an envelope its pinned key and its new key 
 });
 
 test("a paired relay is paired again in place with a key it took out of band, keeping its id, its salt and its people's links", async () => {
-  // STATUS section 2.216 (F48, F58): the way back for a relay that can verify
+  // STATUS section 2.216: the way back for a relay that can verify
   // nothing the deployment sends, or that changed its key some other way.
   const fixture = await createCompany('relay-repin');
   const relay = await fakeRelay();

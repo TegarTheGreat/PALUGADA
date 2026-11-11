@@ -351,7 +351,7 @@ async function pairedReference(api: Awaited<ReturnType<typeof consoleWithSetting
 }
 
 test('the reference relay keeps its inbox, its cursor and the tokens it was sent across a restart', async () => {
-  // STATUS section 2.216 (F45).
+  // STATUS section 2.216.
   const fixture = await createCompany('relay-reference-restart');
   const api = await consoleWithSettings();
   const token = await api.signIn();
@@ -393,7 +393,7 @@ test('the reference relay keeps its inbox, its cursor and the tokens it was sent
 });
 
 test('the reference relay prints no words or links above signal unless asked, and drops what it was told a fortnight on', async () => {
-  // STATUS section 2.216 (F59, F43).
+  // STATUS section 2.216.
   const fixture = await createCompany('relay-reference-quiet');
   const api = await consoleWithSettings();
   const token = await api.signIn();
@@ -453,7 +453,7 @@ test('the reference relay prints no words or links above signal unless asked, an
 });
 
 test("the reference relay signs an act when it is pulled, not when it was made, and is told the deployment's answer", async () => {
-  // STATUS section 2.216 (F46).
+  // STATUS section 2.216.
   const fixture = await createCompany('relay-reference-late');
   const api = await consoleWithSettings();
   const token = await api.signIn();
@@ -480,7 +480,7 @@ test("the reference relay signs an act when it is pulled, not when it was made, 
 });
 
 test("a reference relay that missed the deployment's rotation is paired again in place, and one that rotates its own key is taken", async () => {
-  // STATUS section 2.216 (F48, F58).
+  // STATUS section 2.216.
   const { forgetPreviousKey } = await import('../../src/relay/identity.ts');
   const fixture = await createCompany('relay-reference-repin');
   const api = await consoleWithSettings();

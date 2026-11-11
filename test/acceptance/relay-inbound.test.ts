@@ -833,7 +833,7 @@ async function takenAndKilled(relayId: string, envelope: { id: string; timestamp
 }
 
 test('an act a stopped replica left half done is taken over, its buttons given back, and a pull that meets it keeps its cursor', async () => {
-  // STATUS section 2.216 (F12, F57).
+  // STATUS section 2.216.
   const { relay, api, relayId, linked, fixture, close } = await ready('relay-in-crash');
   try {
     const first = await approval(fixture.companyId, 2, 'Send the newsletter');
@@ -884,7 +884,7 @@ test('an act a stopped replica left half done is taken over, its buttons given b
 });
 
 test('a pull whose lease ran out, and was taken by another replica, neither clears that lease nor moves the cursor', async () => {
-  // STATUS section 2.216 (F16).
+  // STATUS section 2.216.
   const { relay, api, relayId, close } = await ready('relay-in-lease');
   try {
     relay.inbox.push(relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
@@ -918,7 +918,7 @@ test('a pull whose lease ran out, and was taken by another replica, neither clea
 });
 
 test("a pulled act's answer is sent back to the relay, a lapsed one's too, and the pull is signed for that relay alone", async () => {
-  // STATUS section 2.216 (F46, F47).
+  // STATUS section 2.216.
   const { relay, api, relayId, linked, fixture, token, close } = await ready('relay-in-pull-answers');
   try {
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
@@ -960,7 +960,7 @@ test("a pulled act's answer is sent back to the relay, a lapsed one's too, and t
 });
 
 test('strangers filling the open route do not lock a paired relay out, and a refusal for too many says when to come back', async () => {
-  // STATUS section 2.216 (F50).
+  // STATUS section 2.216.
   const { request } = await import('node:http');
   const { relay, api, relayId, close } = await ready('relay-in-route-flood');
   try {
@@ -988,7 +988,7 @@ test('strangers filling the open route do not lock a paired relay out, and a ref
 });
 
 test('an inbound body names version 1, or is refused as a version the deployment does not speak', async () => {
-  // STATUS section 2.216 (F54).
+  // STATUS section 2.216.
   const { relay, api, relayId, close } = await ready('relay-in-version');
   try {
     const two = await relay.push(api.url, relayId, relay.sign({ v: 2, type: 'ack', at: new Date().toISOString(), ids: [] }));

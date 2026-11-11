@@ -1255,3 +1255,12 @@ The first version. What it holds, in the order an owner meets it.
   docs/configuration.md names every variable the platform reads, among them
   `PALUGADA_CONSOLE_ORIGIN`, `PALUGADA_HOST`, `PALUGADA_PORT` and
   `PALUGADA_WORKER_ID` (STATUS 2.219).
+- A room whose newest messages are pictures opens on them on a phone,
+  every time: a picture is put on the page in a box of its own shape once
+  its size is read, never with no height, and a room at its newest stays
+  there while what it shows changes size. The rooms' card sweep commits a
+  busy division's work five hundred cards at a time, so a post waits for
+  one turn of it at most rather than the whole pass. The relay protocol
+  says its licence is not set yet, and the status document names what is
+  left to you: how long staff stay signed in, phones told without a relay,
+  the licence and a release, and people's own pictures (STATUS 2.220).

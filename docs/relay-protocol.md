@@ -9,6 +9,10 @@ alone, checked against the test vectors in section 13, interoperates.
 Requirements: PRD F19.19 and F19.20; how it was built: `docs/STATUS.md`
 sections 2.208, 2.213 and 2.216.
 
+Licence: none is set yet. The owner of PALUGADA chooses the licence this
+protocol is offered under before anyone else's relay or app is built on it
+(`docs/STATUS.md` section 2.220); until then this text grants none.
+
 The key words MUST, MUST NOT, SHOULD and MAY are used as RFC 2119 uses them.
 
 ## 1. What a relay is, and is not

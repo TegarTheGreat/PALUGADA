@@ -738,6 +738,66 @@ test('search looks in the open room first, and narrows to a person, by the picke
     await page.type('gayo from:@owner in:#promo');
     await page.press('Enter');
     await page.waitFor(`${hits}.length === 1 && ${hits}[0].includes('Promo kopi gayo')`, 'what the owner said in promo');
+    // A person named alone, with no words, is everything they said, as Slack's from: is.
+    await page.evaluate(`(() => { const box = document.querySelector('.search-panel input[aria-label="Search messages"]'); box.focus(); box.select(); })()`);
+    await page.type('from:@budi');
+    await page.press('Enter');
+    await page.waitFor(`${hits}.length === 1 && ${hits}[0].includes('Stok kopi gayo di gudang.')`, 'everything Budi said, with no words typed');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a search begun in a room the person has not joined says that is where it looks', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const budi = await joined(api, owner, fixture, 'Budi Santoso', 'member', 'budi');
+  await companyRoomOf(me);
+  await companyRoomOf(budi.in);
+  const gudang = String(ok(await me.makeRoom({ name: 'gudang', private: false })).room.id);
+  await said(me, gudang, 'Kunci gudang di laci kasir.');
+  const page = await drawn(api, DESKTOP);
+  const hits = `[...document.querySelectorAll('[data-hit]')].map((one) => one.innerText)`;
+  try {
+    await staffSignsIn(page, api, budi.handle, budi.code, `#/c/${fixture.companyId}/rooms?item=${gudang}`);
+    await page.waitFor(`[...document.querySelectorAll('[role="log"] [data-message]')].length > 0`, 'the gudang room, not joined');
+    await page.evaluate(`document.querySelector('[data-pane="rail"] input[name="q"]').focus()`);
+    await page.type('kunci');
+    await page.press('Enter');
+    await page.waitFor(`${hits}.length === 1`, 'the hit in gudang');
+    assert.equal(await page.evaluate<string>(`document.querySelector('[data-search-room]').value`), 'gudang', 'the choice of where to look names the room');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a file copied in a file manager is attached when pasted, though its name comes with it; words pasted stay words', { skip }, async () => {
+  const { fixture, api, owner } = await started({ files: { root: await filesRoot() } });
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const page = await drawn(api, DESKTOP);
+  const pasteOf = (name: string, words: string) => `(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['%PDF-1.4 laporan'], ${JSON.stringify(name)}, { type: 'application/pdf' }));
+    data.setData('text/plain', ${JSON.stringify(words)});
+    const box = document.querySelector('[data-composer]');
+    box.focus();
+    return !box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  })()`;
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
+    // Finder and Explorer put the file and its name on the clipboard together; Linux's file managers, its path.
+    assert.equal(await page.evaluate<boolean>(pasteOf('laporan.pdf', 'laporan.pdf')), true, 'the paste is the file, not its name');
+    await page.waitFor(`document.querySelectorAll('[data-attached] .attached-file').length === 1`, 'the file, attached');
+    assert.equal(await page.evaluate<boolean>(pasteOf('nota.pdf', '/home/sari/Dokumen/nota.pdf')), true, 'a path is a name too');
+    await page.waitFor(`document.querySelectorAll('[data-attached] .attached-file').length === 2`, 'the second file, attached');
+    // Words copied with something attached to them are the words the person meant.
+    assert.equal(await page.evaluate<boolean>(pasteOf('salinan.pdf', 'Harga naik minggu depan.')), false, 'words pasted are left to be pasted');
+    await pause(500);
+    assert.equal(await page.evaluate<number>(`document.querySelectorAll('[data-attached] .attached-file').length`), 2, 'and nothing more is attached');
   } finally {
     await page.close();
     await api.close();

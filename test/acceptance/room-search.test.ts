@@ -99,6 +99,36 @@ test('a person finds messages only in rooms they may see', async () => {
   }
 });
 
+test('naming a person alone finds everything they said that the reader may see, newest first, as from: does in Slack', async () => {
+  const { fixture, api, owner } = await workspace('search-from-alone');
+  try {
+    const budi = await seated(fixture, 'Budi', 'member');
+    const sari = await seated(fixture, 'Sari', 'member');
+    const budiIn = personIn(api, budi.token, fixture.companyId);
+    const sariIn = personIn(api, sari.token, fixture.companyId);
+    const open = await companyRoomOf(owner);
+    await companyRoomOf(sariIn);
+    const secret = await topic(owner, 'pemasok', true, [sari.principal]);
+    const first = await said(sariIn, open, 'Stok susu tinggal dua.');
+    const hidden = await said(sariIn, secret, 'Pemasok baru minta DP.');
+    const last = await said(sariIn, open, 'Saya pesan besok.');
+    await said(owner, open, 'Terima kasih.');
+
+    const fromSari = (ok(await budiIn.get(`/room-search?q=&from=${encodeURIComponent(sari.principal)}`), 'everything Sari said').hits as Hit[]);
+    assert.deepEqual(fromSari.map((hit) => hit.messageId), [last, first], 'newest first, and nothing of a room Budi cannot see');
+    assert.equal(fromSari[0]!.excerpt, 'Saya pesan besok.', 'with the start of the words');
+    assert.deepEqual((ok(await sariIn.get(`/room-search?from=${encodeURIComponent(sari.principal)}&room=${secret}`)).hits as Hit[])
+      .map((hit) => hit.messageId), [hidden], 'narrowed to a room as well');
+    // Words are still needed when nobody is named, and one letter is still too few.
+    refusedWith(await budiIn.get('/room-search?q='), 400, 'contract.violation');
+    refusedWith(await budiIn.get(`/room-search?q=&room=${open}`), 400, 'contract.violation');
+    refusedWith(await budiIn.get(`/room-search?q=s&from=${encodeURIComponent(sari.principal)}`), 400, 'contract.violation');
+    refusedWith(await api.call('GET', '/api/room-search?q=', owner.token), 400, 'contract.violation');
+  } finally {
+    await api.close();
+  }
+});
+
 test("a seat's search never reaches a direct room it is not in, nor another company", async () => {
   const { fixture, api, owner } = await workspace('search-direct');
   try {

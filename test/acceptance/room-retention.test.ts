@@ -16,9 +16,10 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
-import { roomsOnControlPlane, withControlPlane } from '../../src/db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withPeople } from '../../src/db/tenant.ts';
 import { peopleFilesFolder } from '../../src/owner/route.ts';
-import { readRetentionLog, runRetention } from '../../src/retention/retention.ts';
+import { purgeExpiredMessages, readRetentionLog, runRetention } from '../../src/retention/retention.ts';
+import { takeClock } from '../../src/workspace/rooms.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { companyRoomOf, ok, personIn, refusedWith, said, type Console, type PersonIn } from '../helpers/rooms.ts';
@@ -151,9 +152,11 @@ test('a root past the window with live replies keeps no words, and goes with its
     assert.deepEqual([tombstone!.id, tombstone!.body, tombstone!.deleted_at !== null, tombstone!.deleted_by], [root, null, true, null],
       'no words, removed by nobody: its time was up');
     const shown = (await shownIn(owner, room)).find((one) => one.id === root)!;
-    assert.deepEqual([shown.deleted, shown.expired, shown.body, shown.files.length], [true, true, null, 1]);
-    assert.equal((shown.files[0] as { inline: boolean }).inline, false);
-    refusedWith(await owner.get(`/rooms/${room}/files/${fileId}`), 404, 'file.not_kept');
+    assert.deepEqual([shown.deleted, shown.expired, shown.body, shown.files], [true, true, null, []],
+      'no file either: not its name, its kind or its size');
+    refusedWith(await owner.get(`/rooms/${room}/files/${fileId}`), 400, 'contract.violation');
+    const files = await withControlPlane((tx) => tx.query('SELECT 1 FROM room_files WHERE message_id = $1', [root]));
+    assert.equal(files.rowCount, 0, 'its files are not kept as names');
     assert.deepEqual(await readdir(join(folder, 'rooms', room)), [], 'its bytes are gone');
     const revisions = await withControlPlane((tx) => tx.query('SELECT 1 FROM room_message_revisions WHERE message_id = $1', [root]));
     assert.equal(revisions.rowCount, 0);
@@ -166,6 +169,95 @@ test('a root past the window with live replies keeps no words, and goes with its
     // Twenty-five days on, the reply is past the window too: it goes, and the root with it.
     await runRetention(fixture.companyId, new Date(Date.now() + 25 * DAY), { filesRoot });
     assert.deepEqual((await left(fixture)).map((row) => row.id), [mine]);
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * A person's transaction in the rooms, held open after it has written: it has
+ * taken the company's clock, as every room write does first (0150), and
+ * commits when `release` is called.
+ */
+function heldOpen(fixture: Fixture, write: (tx: { query: (sql: string, values?: unknown[]) => Promise<unknown> }) => Promise<unknown>) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let wrote!: () => void;
+  const written = new Promise<void>((resolve) => { wrote = resolve; });
+  const done = withPeople(fixture.companyId, { principal: 'owner', name: null }, async (tx) => {
+    await takeClock(tx);
+    await write(tx);
+    wrote();
+    await gate;
+  });
+  return { written, release, done };
+}
+
+test('a reply or a removal made while retention decides is kept, and the pass still runs', async () => {
+  const { fixture, api, owner } = await workspace('retention-race');
+  try {
+    const room = await companyRoomOf(owner);
+    const quiet = await saidAgo(fixture, room, 'Empat puluh hari lalu, belum ada yang membalas.', 40);
+    ok(await owner.post('/retention', { messageDays: 30 }));
+
+    // Someone replies to the old message today; the post has not committed when retention starts.
+    const reply = randomUUID();
+    const posting = heldOpen(fixture, (tx) => tx.query(
+      `INSERT INTO room_messages (id, company_id, room_id, thread_of, kind, author, body, via, client_id, position)
+       VALUES ($1, $2, $3, $4, 'text', 'owner', 'Saya baru lihat ini, masih berlaku?', 'console', 'race-reply', 0)`,
+      [reply, fixture.companyId, room, quiet]));
+    await posting.written;
+    const purging = purgeExpiredMessages(fixture.companyId);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    posting.release();
+    await posting.done;
+    const purged = await purging;
+    assert.deepEqual([purged.deleted, purged.tombstoned], [[], [quiet]], 'the old message keeps no words, and its new reply keeps it');
+    assert.deepEqual((await left(fixture)).map((row) => [row.id, row.body]), [[quiet, null], [reply, 'Saya baru lihat ini, masih berlaku?']],
+      'a reply written today is never lost with the message it answers');
+
+    // The owner removes an old message retention was about to leave without words.
+    const root = await saidAgo(fixture, room, 'Akar lama.', 45);
+    await said(owner, room, { body: 'Balasan hari ini.', threadOf: root });
+    const removing = heldOpen(fixture, (tx) => tx.query('UPDATE room_messages SET deleted_at = now() WHERE id = $1', [root]));
+    await removing.written;
+    const passing = purgeExpiredMessages(fixture.companyId);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    removing.release();
+    await removing.done;
+    const pass = await passing;
+    assert.deepEqual([pass.deleted, pass.tombstoned], [[], []], 'already removed: nothing more to take, and nothing refused');
+    const [removed] = (await left(fixture)).filter((row) => row.id === root);
+    assert.equal(removed!.deleted_by, 'owner', 'removed by the owner, not by its time');
+  } finally {
+    await api.close();
+  }
+});
+
+test("the rooms' feed is kept for two weeks, whatever the other windows", async () => {
+  const { fixture, api, owner } = await workspace('retention-feed');
+  try {
+    const room = await companyRoomOf(owner);
+    await said(owner, room, 'Tiga minggu lalu.');
+    await said(owner, room, 'Sepuluh hari lalu.');
+    // What an open room would have caught up from, as old as the words.
+    const aged = async (body: string, days: number) => withControlPlane(async (tx) => (await tx.query(
+      `UPDATE room_feed f SET created_at = now() - make_interval(days => $3)
+         FROM room_messages m
+        WHERE f.company_id = $1 AND m.company_id = f.company_id AND m.id = f.ref AND m.body = $2`,
+      [fixture.companyId, body, days])).rowCount ?? 0);
+    const old = await aged('Tiga minggu lalu.', 21);
+    assert.ok(old > 0);
+    assert.ok(await aged('Sepuluh hari lalu.', 10) > 0);
+    const feed = () => withControlPlane(async (tx) => (await tx.query<{ n: number; old: number }>(
+      `SELECT count(*)::int AS n, count(*) FILTER (WHERE created_at < now() - interval '14 days')::int AS old
+         FROM room_feed WHERE company_id = $1`, [fixture.companyId])).rows[0]!);
+    const before = await feed();
+    const outcome = await runRetention(fixture.companyId);
+    assert.equal(outcome.bookkeepingPurged, old, 'counted with the bookkeeping');
+    assert.deepEqual(await feed(), { n: before.n - old, old: 0 }, 'what is older than two weeks goes, and the rest stays');
+    assert.ok((await readRetentionLog(fixture.companyId)).some((entry) => entry.action === 'bookkeeping_purged' && entry.rowsAffected === old));
+    assert.equal((await left(fixture)).length, 2, 'the feed is not the messages: both are still said');
   } finally {
     await api.close();
   }

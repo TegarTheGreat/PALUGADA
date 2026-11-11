@@ -1149,3 +1149,55 @@ test('a restored room raises no unread, mention or Activity, and its threads cou
     await talked.api.close();
   }
 });
+
+test('an archive taken while people talk names nothing it does not carry, and restores', async () => {
+  const fixture = await createCompany('export-rooms-live');
+  const talked = await talkedIn(fixture);
+  try {
+    const { ok, personIn, said } = await import('../helpers/rooms.ts');
+    const siti = personIn(talked.api, talked.seat.token, fixture.companyId);
+    const lines: ArchiveLine[] = [];
+    let talking = false;
+    await exportCompany(fixture.companyId, async (line) => {
+      lines.push(line);
+      if (line.section !== 'rooms' || talking) return;
+      talking = true;
+      // While the archive is being written, the company goes on: a new room
+      // with a member and a message, a file, a reaction, a pin, an edit and a
+      // reply, each after the room sections the archive has started to read.
+      const room = String(ok(await talked.owner.makeRoom({ name: 'gudang', members: [talked.seat.principal] })).room.id);
+      await said(siti, room, 'Rak baru sudah dipasang.');
+      const late = ok(await talked.owner.say(talked.company, {
+        body: 'Foto gudang terbaru.', files: [{ name: 'gudang.pdf', data: Buffer.from('%PDF-1.4 gudang').toString('base64') }],
+      })).message.id as string;
+      ok(await siti.on(talked.company, late, 'react', { emoji: '👀', on: true }));
+      ok(await talked.owner.on(talked.company, late, 'pin', { on: true }));
+      ok(await talked.owner.on(talked.company, talked.filed, 'edit', { body: 'Daftar harga baru, berlaku Senin.' }));
+      await said(siti, talked.company, { body: 'Siap, Bu.', threadOf: talked.morning });
+    });
+    assert.ok(talking, 'the company talked while the archive was written');
+
+    const rows = (section: string) => lines.filter((line) => line.section === section).map((line) => line.row);
+    const rooms = new Set(rows('rooms').map((row) => row.id));
+    const messages = new Set(rows('room_messages').map((row) => row.id));
+    const dangling: string[] = [];
+    for (const row of rows('room_members')) if (!rooms.has(row.room_id)) dangling.push(`member of ${String(row.room_id)}`);
+    for (const row of rows('room_messages')) {
+      if (!rooms.has(row.room_id)) dangling.push(`message in ${String(row.room_id)}`);
+      if (row.thread_of !== null && !messages.has(row.thread_of)) dangling.push(`reply to ${String(row.thread_of)}`);
+    }
+    for (const section of ['room_message_revisions', 'room_reactions', 'room_pins', 'room_files']) {
+      for (const row of rows(section)) if (!messages.has(row.message_id)) dangling.push(`${section} of ${String(row.message_id)}`);
+    }
+    assert.deepEqual(dangling, [], 'one moment of the rooms: everything the archive names, it carries');
+    const lateReplies = rows('room_messages').filter((row) => row.thread_of === talked.morning);
+    assert.deepEqual(lateReplies, [], 'what was said after the archive began is not in it');
+
+    const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+    const back = await withControlPlane((tx) => tx.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM room_messages WHERE company_id = $1', [restored.companyId]));
+    assert.equal(back.rows[0]!.n, messages.size, 'and the restore brings back every message it carries');
+  } finally {
+    await talked.api.close();
+  }
+});

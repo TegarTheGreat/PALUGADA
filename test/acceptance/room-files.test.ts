@@ -273,8 +273,8 @@ test('deleting a message removes its files, and a delete cut off before the byte
       `rooms/${room}/${second.files[0]!.id}.png`, `rooms/${room}/${kept.files[0]!.id}.pdf`,
     ].sort(), 'a delete takes its bytes at once');
     const gone = ok(await owner.page(room)).messages.find((one: { id: string }) => one.id === first.id);
-    assert.equal(gone.deleted, true);
-    refusedWith(await owner.get(`/rooms/${room}/files/${first.files[0]!.id}`), 404, 'file.not_kept');
+    assert.deepEqual([gone.deleted, gone.files], [true, []]);
+    refusedWith(await owner.get(`/rooms/${room}/files/${first.files[0]!.id}`), 400, 'contract.violation');
 
     // A delete whose process stopped after its commit, before it removed the bytes: the row says no path.
     await withPeople(fixture.companyId, { principal: 'owner', name: null }, (tx) => tx.query(
@@ -286,6 +286,37 @@ test('deleting a message removes its files, and a delete cut off before the byte
     await runRetention(fixture.companyId, new Date(Date.now() + 2 * 60 * 60 * 1000), { filesRoot: root });
     assert.deepEqual(await filesUnder(folder), [`rooms/${room}/${kept.files[0]!.id}.pdf`], 'what no row names is swept; what a live message carries stays');
     assert.ok((await stat(join(folder, `rooms/${room}/${kept.files[0]!.id}.pdf`))).isFile());
+  } finally {
+    await api.close();
+  }
+});
+
+test('a removed message keeps no file: not its name, its kind or its size, pinned or archived', async () => {
+  const { fixture, api, owner } = await workspace('room-files-removed');
+  try {
+    const sari = await seated(fixture, 'Sari', 'member');
+    const budi = await seated(fixture, 'Budi', 'member');
+    const sariIn = personIn(api, sari.token, fixture.companyId);
+    const budiIn = personIn(api, budi.token, fixture.companyId);
+    const room = await companyRoomOf(sariIn);
+    await companyRoomOf(budiIn);
+    const salary = await carrying(sariIn, room, [sent('gaji-budi-november.pdf', PDF)], 'Salah kirim.');
+    ok(await sariIn.on(room, salary.id, 'pin', { on: true }));
+    ok(await sariIn.on(room, salary.id, 'delete'));
+
+    const seen = (ok(await budiIn.page(room)).messages as Array<{ id: string; deleted: boolean; body: string | null; files: FileView[] }>)
+      .find((one) => one.id === salary.id)!;
+    assert.deepEqual([seen.deleted, seen.body, seen.files], [true, null, []], 'the words and the files go at once (F19.4)');
+    const pinned = ok(await budiIn.get(`/rooms/${room}/pins`)).messages as Array<{ id: string; files: FileView[] }>;
+    assert.deepEqual(pinned.map((one) => [one.id, one.files]), [[salary.id, []]], 'nor is it named where the room keeps its pins');
+    assert.deepEqual(ok(await budiIn.get(`/rooms/${room}/files`)).files, []);
+    const found = ok(await owner.get('/room-search?q=gaji-budi&files=1')).hits as unknown[];
+    assert.deepEqual(found, [], 'nor is it found by its name');
+    const rows = await withControlPlane((tx) => tx.query('SELECT name FROM room_files WHERE company_id = $1', [fixture.companyId]));
+    assert.deepEqual(rows.rows, [], 'the database keeps no row of it');
+    const { collectExport } = await import('../../src/audit/export.ts');
+    const { sections } = await collectExport(fixture.companyId);
+    assert.deepEqual(sections.room_files ?? [], [], 'and the archive carries none');
   } finally {
     await api.close();
   }

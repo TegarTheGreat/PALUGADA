@@ -871,3 +871,32 @@ test("a small picture said in a room is drawn, any other file is saved, and the 
     await api.close();
   }
 });
+
+test('on a phone a file with a long name is still saved from its own button, on the screen', { skip }, async () => {
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fixture, api, owner } = await started({ files: { root: await mkdtemp(join(tmpdir(), 'palugada-console-files-')) } });
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const name = 'kontrak-panjang-sekali-namanya-untuk-uji-tata-letak.pdf';
+  ok(await me.say(roomId, { body: 'Kontraknya.', files: [{ name, data: Buffer.from('%PDF-1.4 kontrak').toString('base64') }] }), 'posting a file');
+  const page = await drawn(api, PHONE);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-file] button')`, 'the file, offered to save');
+    const placed = await page.evaluate<{ button: Box; row: Box; width: number; scroll: number }>(`(() => {
+      const row = document.querySelector('[data-file]').getBoundingClientRect();
+      const button = document.querySelector('[data-file] button').getBoundingClientRect();
+      const shape = (box) => ({ top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height });
+      return { button: shape(button), row: shape(row), width: window.innerWidth, scroll: document.documentElement.scrollWidth };
+    })()`);
+    assert.ok(placed.button!.width > 0 && placed.button!.left >= 0 && placed.button!.right <= placed.width,
+      `the save button is on the screen: ${JSON.stringify(placed)}`);
+    assert.ok(placed.row!.right <= placed.width, `the file's row fits the screen, its name cut short: ${JSON.stringify(placed)}`);
+    assert.ok(placed.scroll <= placed.width, 'and nothing scrolls sideways');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});

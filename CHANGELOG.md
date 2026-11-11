@@ -1118,7 +1118,8 @@ The first version. What it holds, in the order an owner meets it.
   you at once and wait as many minutes as you said, and when they pass the
   meeting goes on without your answer, which is never taken as a yes. A
   one-way door is still a tier 3 decision in your inbox. You or an approver
-  can call a meeting about a message in a room: the CEO holds it against the
+  can call a meeting about a message in a room, or about words in the
+  composer, which are posted as yours first: the CEO holds it against the
   same scorecard, priorities, to-dos and issues, with money held first, at
   most three a day, and a member of staff's topic reaches it as theirs
   (STATUS 2.211).

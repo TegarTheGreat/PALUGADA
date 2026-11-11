@@ -535,7 +535,7 @@ test('the deployment pulls from a relay it cannot be reached by', async () => {
     const identity = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { key: string };
     const { verify } = await import('node:crypto');
     const { publicKeyFrom } = await import('../../src/relay/signature.ts');
-    assert.ok(verify(null, Buffer.from(`${pull.id}.${pull.timestamp}.GET ${pull.path}`), publicKeyFrom(Buffer.from(identity.key, 'base64url')),
+    assert.ok(verify(null, Buffer.from(`${pull.id}.${pull.timestamp}.GET ${pull.path}\n${relayId}`), publicKeyFrom(Buffer.from(identity.key, 'base64url')),
       Buffer.from(pull.signature.split(' ')[0]!.slice(4), 'base64')));
     // And it picks up where it left off.
     await sendOutbox(api.master);
@@ -731,13 +731,17 @@ test("a device's signature holds for its own moment and its own link", async () 
     await sendOutbox(api.master);
     const offers = offersFor(relay, itemId);
     const { deployment } = await identityOf(api);
-    // A press the device signed long ago, sent now by the relay: refused.
+    // A press the device signed long ago, sent now by the relay: refused, as
+    // a time out of step rather than a forgery, with the deployment's own
+    // time so the relay can tell the person their phone's clock is wrong
+    // (STATUS section 2.216).
     const long = '2000-01-01T00:00:00.000Z';
     const old = await relay.push(api.url, relayId, relay.sign({
       v: 1, type: 'press', at: long, token: offers.approve,
       device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token: offers.approve, at: long }),
     }));
-    assert.deepEqual([old.status, old.body.code], [422, 'relay.device_sig']);
+    assert.deepEqual([old.status, old.body.code], [422, 'relay.device_stale']);
+    assert.ok(Math.abs(Date.parse(String(old.body.now)) - Date.now()) < 60_000, 'and is told the deployment\'s time');
     assert.equal((await itemState(fixture.companyId, itemId)).status, 'open');
 
     // The device ends its link, and links again with the same key.
@@ -788,5 +792,203 @@ test("an inbox's answer larger than a relay may send is not read past its bound,
   } finally {
     await api.close();
     await relay.close();
+  }
+});
+
+/**
+ * Forks a replica that takes `envelope` while another transaction holds the
+ * item's row, so its press waits after spending the token, and kills it
+ * there: the process stopped in the middle of an act (STATUS section 2.216).
+ */
+async function takenAndKilled(relayId: string, envelope: { id: string; timestamp: string; signature: string; body: string }, itemId: string, token: string) {
+  const { fork } = await import('node:child_process');
+  const blocker = new pg.Client({ connectionString: connectionString('admin') });
+  await blocker.connect();
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('SELECT 1 FROM inbox_items WHERE id = $1 FOR UPDATE', [itemId]);
+    const child = fork(new URL('../helpers/relay-act-child.ts', import.meta.url).pathname, [relayId, JSON.stringify(envelope)],
+      { execArgv: [], env: process.env, stdio: 'ignore' });
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    const deadline = Date.now() + 30_000;
+    while ((await offerRow(token)).uses === 0) {
+      assert.ok(Date.now() < deadline, 'the replica never spent the token');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    child.kill('SIGKILL');
+    await exited;
+    await blocker.query('ROLLBACK');
+  } finally {
+    await blocker.end();
+  }
+}
+
+test('an act a stopped replica left half done is taken over, its buttons given back, and a pull that meets it keeps its cursor', async () => {
+  // STATUS section 2.216 (F12, F57).
+  const { relay, api, relayId, linked, fixture, close } = await ready('relay-in-crash');
+  try {
+    const first = await approval(fixture.companyId, 2, 'Send the newsletter');
+    const second = await approval(fixture.companyId, 2, 'Pay the roaster');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const { deployment } = await identityOf(api);
+    const signedPress = (token: string) => {
+      const at = new Date().toISOString();
+      return relay.sign({
+        v: 1, type: 'press', at, token,
+        device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token, at }),
+      });
+    };
+    const offers = offersFor(relay, first);
+    const envelope = signedPress(offers.approve!);
+    await takenAndKilled(relayId, envelope, first, offers.approve!);
+    assert.equal((await itemState(fixture.companyId, first)).status, 'open', 'the replica stopped before it decided');
+
+    // Sent again at once: the first is still being taken, which the protocol names.
+    const soon = await relay.push(api.url, relayId, envelope);
+    assert.deepEqual([soon.status, soon.body.code], [409, 'relay.in_progress']);
+    // A pull that meets it stops there and keeps its cursor, so it is asked for again.
+    relay.inbox.push(envelope);
+    await sendOutbox(api.master);
+    const cursor = async () => (await withControlPlane((tx) => tx.query<{ inbound_cursor: string | null }>(
+      'SELECT inbound_cursor FROM relays WHERE id = $1', [relayId]))).rows[0]!.inbound_cursor;
+    assert.equal(await cursor(), null, 'the cursor did not move past an act still in hand');
+
+    // Three minutes on, the claim is abandoned: the same envelope is taken afresh, the token given back first.
+    const later = await (await import('../../src/relay/inbound.ts')).receiveFromRelay(relayId, envelope, new Date(Date.now() + 180_000));
+    assert.equal(later.status, 200, JSON.stringify(later.body));
+    assert.deepEqual([(await itemState(fixture.companyId, first)).decision], ['approve']);
+    const again = await relay.push(api.url, relayId, envelope);
+    assert.equal(again.status, 200, 'answered as it was answered');
+
+    // Left half done and never sent again: the relay loop gives the buttons back on its own.
+    const more = offersFor(relay, second);
+    await takenAndKilled(relayId, signedPress(more.approve!), second, more.approve!);
+    assert.deepEqual([(await offerRow(more.approve!)).uses, (await offerRow(more.deny!)).voided_at !== null], [1, true]);
+    await relayPass({ master: () => api.master, now: new Date(Date.now() + 180_000), pullWaitSeconds: 0, awaitPulls: true });
+    assert.deepEqual([(await offerRow(more.approve!)).uses, (await offerRow(more.deny!)).voided_at], [0, null], 'both buttons are the owner\'s again');
+    assert.equal((await itemState(fixture.companyId, second)).status, 'open');
+  } finally {
+    await close();
+  }
+});
+
+test('a pull whose lease ran out, and was taken by another replica, neither clears that lease nor moves the cursor', async () => {
+  // STATUS section 2.216 (F16).
+  const { relay, api, relayId, close } = await ready('relay-in-lease');
+  try {
+    relay.inbox.push(relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const held = (async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes('/v1/inbox')) await gate;
+      return fetch(url, init);
+    }) as typeof fetch;
+    const pass = relayPass({ master: () => api.master, fetch: held, pullWaitSeconds: 0, awaitPulls: true });
+    const lease = async () => (await withControlPlane((tx) => tx.query<{ pulling_until: Date | null; pulling_by: string | null; inbound_cursor: string | null }>(
+      'SELECT pulling_until, pulling_by, inbound_cursor FROM relays WHERE id = $1', [relayId]))).rows[0]!;
+    const deadline = Date.now() + 10_000;
+    while ((await lease()).pulling_until === null) {
+      assert.ok(Date.now() < deadline, 'the pull never took its lease');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // The lease runs out while the poll waits, and another replica takes it.
+    const other = randomUUID();
+    await withControlPlane((tx) => tx.query(
+      "UPDATE relays SET pulling_until = now() + interval '40 seconds', pulling_by = $2 WHERE id = $1", [relayId, other]));
+    open();
+    await pass;
+    const after = await lease();
+    assert.equal(after.pulling_by, other, "the other replica's lease stands");
+    assert.notEqual(after.pulling_until, null);
+    assert.equal(after.inbound_cursor, null, 'a poll that lost its lease does not move the cursor');
+  } finally {
+    await close();
+  }
+});
+
+test("a pulled act's answer is sent back to the relay, a lapsed one's too, and the pull is signed for that relay alone", async () => {
+  // STATUS section 2.216 (F46, F47).
+  const { relay, api, relayId, linked, fixture, token, close } = await ready('relay-in-pull-answers');
+  try {
+    const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const offers = offersFor(relay, itemId);
+    const { deployment } = await identityOf(api);
+    const at = new Date().toISOString();
+    const pressed = relay.sign({
+      v: 1, type: 'press', at, token: offers.approve,
+      device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token: offers.approve, at }),
+    });
+    // A code the person entered while the deployment could not be reached, queued six minutes ago and signed then.
+    const offered = await api.call('POST', '/api/relays/links', token, { relayId, proof: { totp: api.code() } });
+    const sixMinutesAgo = new Date(Date.now() - 6 * 60_000);
+    const lapsed = relay.sign({ v: 1, type: 'link_claim', at: sixMinutesAgo.toISOString(), code: offered.body.code, label: 'Phone' }, { at: sixMinutesAgo });
+    relay.inbox.push(pressed, lapsed);
+    await sendOutbox(api.master);
+    await sendOutbox(api.master);
+    const results = relay.received.filter((one) => one.envelope?.type === 'act_result').map((one) => one.envelope);
+    const about = (id: string) => results.find((one) => one.data.ref === id);
+    assert.deepEqual([about(pressed.id)?.data.status, about(pressed.id)?.data.answer.ok], [200, true], 'the press is answered');
+    assert.match(String(about(pressed.id)?.data.answer.text), /Decided through/);
+    assert.deepEqual([about(lapsed.id)?.data.status, about(lapsed.id)?.data.answer.code], [408, 'relay.stale'], 'and the lapsed claim is told it lapsed');
+    assert.equal(results.filter((one) => one.data.ref === pressed.id).length, 1, 'once');
+
+    // The pull is signed over the request line and the relay it is for, so another relay cannot replay it.
+    const pull = relay.pulls.at(-1)!;
+    const identity = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { key: string };
+    const { verify } = await import('node:crypto');
+    const { publicKeyFrom } = await import('../../src/relay/signature.ts');
+    const verifies = (payload: string) => verify(null, Buffer.from(`${pull.id}.${pull.timestamp}.${payload}`), publicKeyFrom(Buffer.from(identity.key, 'base64url')),
+      Buffer.from(pull.signature.split(' ')[0]!.slice(4), 'base64'));
+    assert.ok(verifies(`GET ${pull.path}\n${relayId}`), 'signed over the request line and the relay');
+    assert.equal(verifies(`GET ${pull.path}`), false, 'not over the request line alone');
+  } finally {
+    await close();
+  }
+});
+
+test('strangers filling the open route do not lock a paired relay out, and a refusal for too many says when to come back', async () => {
+  // STATUS section 2.216 (F50).
+  const { request } = await import('node:http');
+  const { relay, api, relayId, close } = await ready('relay-in-route-flood');
+  try {
+    const port = Number(new URL(api.url).port);
+    const junk = (from: string) => new Promise<{ status: number; retryAfter: string | undefined }>((resolve) => {
+      const req = request({ host: '127.0.0.1', port, localAddress: from, method: 'POST', path: `/api/relay/v1/relays/${relayId}/inbound`,
+        headers: { 'content-type': 'application/json' } }, (res) => {
+        res.resume();
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, retryAfter: res.headers['retry-after'] as string | undefined }));
+      });
+      req.on('error', () => resolve({ status: -1, retryAfter: undefined }));
+      req.end('{}');
+    });
+    for (let host = 2; host <= 11; host += 1) {
+      for (let one = 0; one < 60; one += 1) await junk(`127.0.0.${host}`);
+    }
+    const refused = await junk('127.0.0.12');
+    assert.equal(refused.status, 429, 'the route as a whole is full for strangers');
+    assert.match(String(refused.retryAfter), /^\d+$/, 'and says when to come back');
+    const honest = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    assert.equal(honest.status, 200, `a paired relay's signed envelope is still taken: ${JSON.stringify(honest.body)}`);
+  } finally {
+    await close();
+  }
+});
+
+test('an inbound body names version 1, or is refused as a version the deployment does not speak', async () => {
+  // STATUS section 2.216 (F54).
+  const { relay, api, relayId, close } = await ready('relay-in-version');
+  try {
+    const two = await relay.push(api.url, relayId, relay.sign({ v: 2, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    assert.deepEqual([two.status, two.body.code], [422, 'relay.unknown_version']);
+    const none = await relay.push(api.url, relayId, relay.sign({ type: 'ack', at: new Date().toISOString(), ids: [] }));
+    assert.deepEqual([none.status, none.body.code], [422, 'relay.unknown_version']);
+    const one = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    assert.equal(one.status, 200);
+  } finally {
+    await close();
   }
 });

@@ -95,3 +95,24 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- A restore gives a room's access only from its members.
+--
+-- A private room's creator was given access as the room was written, even
+-- while an archive was read in, so a restore let a seat back into a room the
+-- archive says it had left -- a revoked seat's direct room, a private room it
+-- made and was taken out of. Read in, a room's access is its members' alone,
+-- which their own rows give as they come (0150).
+CREATE OR REPLACE FUNCTION app.rooms_after() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'INSERT' AND NEW.private AND app.is_person(NEW.created_by) AND NOT app.importing() THEN
+    INSERT INTO room_access (company_id, room_id, principal) VALUES (NEW.company_id, NEW.id, NEW.created_by)
+    ON CONFLICT DO NOTHING;
+  END IF;
+  IF app.room_feed_on() THEN
+    PERFORM app.room_feed_write(NEW.company_id, NEW.id, 'room', NULL);
+  END IF;
+  RETURN NULL;
+END $$;

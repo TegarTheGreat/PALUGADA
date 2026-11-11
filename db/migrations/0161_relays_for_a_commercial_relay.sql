@@ -57,10 +57,12 @@ ALTER TABLE relays
 CREATE INDEX relay_receipts_pending ON relay_receipts (received_at) WHERE result ? 'pending';
 
 -- A device's signature, taken once: an act signed by a person's phone is not
--- taken again under another envelope id.
+-- taken again under another envelope id. The envelope it came in is kept, so
+-- the same envelope taken over after a replica stopped is not a replay.
 CREATE TABLE relay_device_acts (
   relay_id       uuid NOT NULL REFERENCES relays(id) ON DELETE CASCADE,
   signature_hash text NOT NULL CHECK (signature_hash ~ '^[0-9a-f]{64}$'),
+  envelope_id    text NOT NULL CHECK (char_length(envelope_id) BETWEEN 1 AND 128),
   at             timestamptz NOT NULL,
   PRIMARY KEY (relay_id, signature_hash)
 );

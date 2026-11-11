@@ -15,7 +15,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import { linkedSaid } from '../owner/relay-said.ts';
+import { linkedSaid, unlinkedSaid } from '../owner/relay-said.ts';
 import { qrMatrix } from '../owner/qr.ts';
 import { companyRef, envelopeBody, envelopeId, recipientId, SHARE_LEVELS, type Share } from './envelope.ts';
 import { enqueue } from './outbox.ts';
@@ -108,17 +108,15 @@ export async function claimLink(
   const link = rows[0];
   if (!link) return null;
   const recipient = recipientId(relay.salt, link.principal);
-  // One active link per person per relay: a phone linked again replaces the old one.
+  // One active link per person per relay: a phone linked again replaces the
+  // old one, and the relay is told which device's link that was.
   const { rows: replaced } = await tx.query<{ id: string }>(
-    `UPDATE relay_links SET status = 'ended', ended_at = $3 WHERE relay_id = $1 AND principal = $2 AND status = 'active' RETURNING id`,
-    [relay.id, link.principal, now]);
-  if (replaced.length > 0) {
-    await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE link_id = ANY($1::uuid[]) AND voided_at IS NULL', [replaced.map((one) => one.id), now]);
-  }
+    `SELECT id FROM relay_links WHERE relay_id = $1 AND principal = $2 AND status = 'active' FOR UPDATE`, [relay.id, link.principal]);
+  await endLinks(tx, replaced.map((one) => one.id), now, 'replaced');
   await tx.query(
-    `UPDATE relay_links SET status = 'active', recipient_id = $2, label = $3, device_key = $4, claimed_at = $5, code_hash = NULL
+    `UPDATE relay_links SET status = 'active', recipient_id = $2, label = $3, device_key = $4, claimed_at = $5, code_hash = NULL, claim_id = $6
       WHERE id = $1`,
-    [link.id, recipient, claim.label, claim.deviceKey, now]);
+    [link.id, recipient, claim.label, claim.deviceKey, now, claim.claimId]);
 
   const companies = await companiesHeard(tx, relay, link.company_id);
   const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
@@ -146,14 +144,43 @@ async function companiesHeard(tx: TenantClient, relay: RelayRow, companyId: stri
 }
 
 /**
- * Ends links, and voids their offers and drops what they were owed and not
- * yet sent. The caller holds the row of every relay the links are through.
+ * Why a link ended, as its relay is told: another device linked in its
+ * place, the person or the owner unlinked it in PALUGADA, the seat ended,
+ * or the relay ended it itself.
  */
-export async function endLinks(tx: TenantClient, linkIds: readonly string[], now = new Date()): Promise<void> {
+export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay';
+
+/**
+ * Ends links, and voids their offers and drops what they were owed and not
+ * yet sent. Each that was active is told to its relay as `link_ended`, naming
+ * the claim that made it and why (STATUS section 2.216), so a relay app
+ * forgets that device rather than learn of it from a refusal; it waits behind
+ * whatever of the link is still being sent. The caller holds the row of every
+ * relay the links are through.
+ */
+export async function endLinks(tx: TenantClient, linkIds: readonly string[], now: Date, why: LinkEnding): Promise<void> {
   if (linkIds.length === 0) return;
-  await tx.query(`UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE id = ANY($1::uuid[]) AND status <> 'ended'`, [linkIds, now]);
+  const { rows: ended } = await tx.query<{ id: string; relay_id: string; recipient_id: string | null; claim_id: string | null; company_id: string | null }>(
+    `UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE id = ANY($1::uuid[]) AND status <> 'ended'
+      RETURNING id, relay_id, recipient_id, claim_id, company_id`,
+    [linkIds, now]);
   await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE link_id = ANY($1::uuid[]) AND voided_at IS NULL', [linkIds, now]);
   await tx.query(`DELETE FROM relay_outbox WHERE link_id = ANY($1::uuid[]) AND status IN ('pending', 'dead')`, [linkIds]);
+  const told = ended.filter((one) => one.recipient_id !== null);
+  if (told.length === 0) return;
+  const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
+    'SELECT deployment_id::text AS deployment, console_language AS language FROM platform_control');
+  for (const link of told) {
+    const id = envelopeId({ deployment: control!.deployment, relay: link.relay_id, link: link.id, type: 'link_ended', subject: link.id });
+    await enqueue(tx, {
+      id, relayId: link.relay_id, linkId: link.id, companyId: link.company_id, type: 'link_ended', subjects: [`link:${link.id}`],
+      body: envelopeBody({
+        v: 1, id, type: 'link_ended', at: now.toISOString(), deployment: control!.deployment, relay: link.relay_id,
+        to: { recipient: link.recipient_id }, lang: control!.language ?? 'en', text: unlinkedSaid(control!.language),
+        data: { claim: link.claim_id, reason: why },
+      }),
+    }, now);
+  }
 }
 
 /**
@@ -170,7 +197,7 @@ export async function endLink(linkId: string, by: Linker): Promise<void> {
     if (!rows[0] || (by.principal !== 'owner' && rows[0].principal !== by.principal)) {
       throw new PalugadaError('contract.violation', 'there is no such link of yours', { linkId });
     }
-    await endLinks(tx, [linkId]);
+    await endLinks(tx, [linkId], new Date(), 'unlinked');
   });
 }
 
@@ -183,7 +210,7 @@ export async function endLinksOf(tx: TenantClient, principal: string, now = new 
   for (const one of relays) await relayRow(tx, one.relay_id, true);
   const { rows } = await tx.query<{ id: string }>(
     `SELECT id FROM relay_links WHERE principal = $1 AND status <> 'ended' FOR UPDATE`, [principal]);
-  await endLinks(tx, rows.map((row) => row.id), now);
+  await endLinks(tx, rows.map((row) => row.id), now, 'seat_ended');
   return rows.length;
 }
 

@@ -37,8 +37,11 @@ export const OUTBOUND_TYPES = [
   'room_activity_retracted',
   // A people's meeting about to start, to the people asked (STATUS section 2.215).
   'meeting_soon',
-  // A company erased: everything of it is to be forgotten (STATUS section 2.216).
+  // STATUS section 2.216: a company erased, everything of it to be forgotten;
+  // a link ended in PALUGADA; and what a pulled envelope was answered.
   'company_forgotten',
+  'link_ended',
+  'act_result',
 ] as const;
 export type OutboundType = (typeof OUTBOUND_TYPES)[number];
 
@@ -182,7 +185,10 @@ export function narrowedEnvelope(
       // Names envelopes, never what they said.
       return { envelope, dropped };
     case 'company_forgotten':
-      // Names a company by its reference alone, at every share.
+    case 'link_ended':
+    case 'act_result':
+      // A company by its reference alone, a link that ended, an answer: the
+      // same at every share.
       return { envelope, dropped };
     case 'pair_request':
     case 'ping':

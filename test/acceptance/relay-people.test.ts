@@ -453,8 +453,9 @@ test("a revoked seat's link stops at once", async () => {
 
     const revoked = await w.api.call('POST', `/api/companies/${w.fixture.companyId}/staff/${sari.seat.id}/revoke`, w.ownerToken, {});
     assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
-    const left = await withControlPlane((tx) => tx.query("SELECT 1 FROM relay_outbox WHERE link_id = $1 AND status IN ('pending', 'dead')", [sari.phone!.linkId]));
-    assert.equal(left.rows.length, 0, 'what it was owed is dropped');
+    const left = await withControlPlane((tx) => tx.query<{ type: string }>(
+      "SELECT type FROM relay_outbox WHERE link_id = $1 AND status IN ('pending', 'dead')", [sari.phone!.linkId]));
+    assert.deepEqual(left.rows.map((row) => row.type), ['link_ended'], 'what it was owed is dropped, and the relay is told the link ended (STATUS section 2.216)');
     const reply = await act(w, sari.phone!, 'reply', tokens.reply!, { body: 'I am still here.', clientId: 'r-1' });
     assert.deepEqual([reply.status, reply.body.code], [410, 'relay.link_ended']);
     // And nothing more is planned for her.

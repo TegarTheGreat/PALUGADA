@@ -313,7 +313,9 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
   const pull = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     const id = header(req, 'webhook-id');
     const timestamp = header(req, 'webhook-timestamp');
-    if (!state.paired || !verified(header(req, 'webhook-signature'), keys(), id, timestamp, `GET ${url.pathname}${url.search}`) || !fresh(timestamp)) {
+    // Signed over the request line and this relay's id at the deployment, so
+    // a pull another relay was sent cannot be replayed here.
+    if (!state.paired || !verified(header(req, 'webhook-signature'), keys(), id, timestamp, `GET ${url.pathname}${url.search}\n${state.paired.relay}`) || !fresh(timestamp)) {
       return refuse(res, 401, 'an inbox is read by the paired deployment only');
     }
     const after = Number(url.searchParams.get('after') ?? '0') || 0;

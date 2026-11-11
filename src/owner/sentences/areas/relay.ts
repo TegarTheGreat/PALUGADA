@@ -20,6 +20,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Ringkasan harian untuk {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Pesan uji dari PALUGADA: relay ini sudah dipasangkan dan menerima kabar dari deployment ini.',
     'This phone is linked to PALUGADA.': 'Ponsel ini sudah ditautkan ke PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Ponsel ini tidak lagi ditautkan ke PALUGADA.',
   },
   ms: {
     'Something urgent needs you in PALUGADA.': 'Ada perkara mendesak yang menanti anda dalam PALUGADA.',

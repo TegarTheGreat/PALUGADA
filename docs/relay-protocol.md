@@ -365,6 +365,40 @@ opens the meeting's thread. `urgency` is `normal`, and `offers` is always
 empty. The meeting's call link is never sent: the person opens it from the
 thread.
 
+#### `link_ended`
+
+A person's link through this relay ended in PALUGADA: they linked another
+device through the same relay (`replaced`), they or the owner unlinked it
+(`unlinked`), their seat ended (`seat_ended`), or the relay itself sent
+`link_end` (`relay`). `to` names the person; `data` is
+`{ "claim": "<the link_claim envelope's id that made the link>", "reason" }`,
+`claim` `null` for a link made before PALUGADA kept it; `text` says the phone
+is no longer linked. A relay MUST forget the device key that link was made
+with, and SHOULD tell that device. Sent after anything of the link still on
+its way, and never to a revoked relay, which is told nothing.
+
+#### `company_forgotten`
+
+A company the relay was told of is being erased. `company` is `{ "ref" }`
+alone and `data` is `{}`; there is no `to`. A relay MUST drop everything it
+holds that names that `ref`, MUST show nothing it is sent later that names it,
+and MUST forget each person whose link heard about that company alone (a
+seat's link names one company in its `link_confirmed`), since their links end
+with the company. Erasing a company in PALUGADA cannot reach what a relay
+already handed to a push service or a phone (section 10).
+
+#### `act_result`
+
+What PALUGADA answered an envelope it pulled from the relay's inbox (section
+9), so a relay in pull mode learns what a relay that posts learns from the
+answer to its request. `data` is
+`{ "ref": "<the pulled envelope's webhook-id>", "status": <the HTTP status a push would have been answered>, "answer": { … } }`,
+`answer` the body of that answer exactly (section 9.2). There is no `to`.
+Sent once for each pulled envelope whose signature verified, the same `ref`
+sent again answered again with the same id, so a relay drops the repeat.
+Not sent for an envelope the relay's minute or another replica held back:
+that one is taken at a later pull.
+
 ## 7. The outbox and delivery
 
 - **The id is fixed.** An envelope's id is a UUID made from the SHA-256 of
@@ -460,9 +494,13 @@ GET <inbox>?after=<cursor>&wait=25
 ```
 
 with `webhook-id`, `webhook-timestamp` and `webhook-signature` signed by the
-deployment over the request line, `GET <path>?<query>`, as it appears. The
-relay MUST answer only a request that verifies with the deployment's key, and
-answers, as soon as it has something or after `wait` seconds,
+deployment over the request line, `GET <path>?<query>` as it appears, a line
+feed, and the relay's id at the deployment (the `relay` of every envelope it
+is sent): `GET <path>?<query>\n<relay id>`. The relay MUST answer only a
+request that verifies with the deployment's key over its own id, so a pull
+another relay was sent cannot be replayed at it to read its inbox, and SHOULD
+refuse a pull whose `webhook-id` it has answered before. It answers, as soon
+as it has something or after `wait` seconds,
 
 ```json
 { "envelopes": [ { "id": "…", "timestamp": "…", "signature": "v1a,…", "body": "<canonical JSON>" } ], "cursor": "<opaque>" }
@@ -500,7 +538,9 @@ keep an envelope until a later cursor is named.
    link without one, only `link_end`.
 6. The type.
 
-Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
+Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`; one
+whose `v` is not `1`, or that has none, is refused (`relay.unknown_version`)
+before anything else is read of it.
 
 ### 9.2 Answers
 
@@ -512,18 +552,35 @@ Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
 | `410` | `{ "ok": false, "code": "relay.link_ended" }` | the link has ended |
 | `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's own rule (such as `approval.own_instigation`: four eyes) |
+| `409` | `{ "ok": false, "code": "relay.in_progress" }` | the same envelope is still being taken, by this request's twin or a replica that stopped: send it again under the same id after a few seconds, and it is answered as it was answered, or, once two minutes have passed with nothing settled, taken afresh with whatever the first attempt spent given back |
 | `400`, `500` | `{ "error", "code" }`, without `ok` | the deployment failed for a reason that is no answer to the envelope: nothing it asked for was done, and the same envelope, sent again under its id, is taken afresh |
-| `429` | `{ "ok": false, "code": "relay.throttled" }` | too many |
+| `429` | `{ "ok": false, "code": "relay.throttled" }` | too many: the answer carries `Retry-After`, the whole seconds until there is room, and a relay sends nothing more to the deployment until then |
 
 A press refused at tier 3 also carries `text`, saying that tier 3 is decided
 in the app, in the person's language.
 
-The `422` codes: `relay.unknown_type`, `relay.press_off`, `relay.press_unknown`,
-`relay.press_spent`, `relay.press_tier3`, `relay.device_sig`,
+The `422` codes: `relay.unknown_type`, `relay.unknown_version` (a body
+whose `v` is not `1`, or that has none), `relay.press_off`,
+`relay.press_unknown`, `relay.press_spent`, `relay.press_tier3`,
+`relay.device_sig` (no device signature, or one that does not verify),
+`relay.device_stale` (a device signature that verifies, over an `at` more
+than 300 seconds from the deployment's clock; the answer carries the
+deployment's `now`, so the relay can tell the person their phone's clock is
+wrong or that the act waited too long), `relay.device_replayed` (a device
+signature PALUGADA already took, under another envelope id),
 `relay.owner_device`, `relay.not_member`, `relay.seat_changed`,
-`relay.post_off`, `relay.link_unknown`, and `relay.malformed` for a body
-holding text PALUGADA cannot keep (the NUL character, `\u0000`, anywhere in a
-name or a value). An answer never repeats what an item says.
+`relay.post_off`, `relay.link_unknown`, `relay.client_id_used` (a reply's
+`clientId` the person used before for other words or another room or
+thread), and `relay.malformed` for a body holding text PALUGADA cannot keep
+(the NUL character, `\u0000`, anywhere in a name or a value). A refusal by
+the room itself is answered with the room's own code (such as
+`room.not_member` when the person has left it). An answer never repeats
+what an item says.
+
+A relay that is answered `429` waits the `Retry-After` it was given, then at
+least 30 seconds more for each further `429` in a row, doubling up to ten
+minutes, before it sends again; an act a person made then waits with it,
+and lapses once its device signature is five minutes old.
 
 ### 9.3 Types
 
@@ -545,8 +602,14 @@ others sent with it.
 #### `reply`
 
 `{ token, body, clientId, device_sig? }`: words in reply to a notice about a
-room, `body` 1 to 4,000 characters and `clientId` 1 to 64, by which a reply
-sent twice is one message. Only while the owner allows replies through the
+room, `body` 1 to 4,000 characters and `clientId` 1 to 64 characters, by
+which a reply sent twice is one message. A `clientId` MUST be unique for that
+person for all time -- a fresh UUID for each reply the person writes, never a
+device's id or a counter that starts again -- and the same reply sent again
+MUST carry the same one. A `clientId` the person used before is taken as
+that reply sent again only for the same words, room and thread; anything else
+is refused (`relay.client_id_used`) rather than answered with the earlier
+message. Only while the owner allows replies through the
 relay (`relay.post_off`), and only with a `reply` token sent to this person
 through this relay, unspent and unexpired (`relay.press_unknown`,
 `relay.press_spent`). It lands in the room and thread the token names, and
@@ -775,8 +838,8 @@ message give the same signature in any library.
   "pull": {
     "id": "pull_3f2e1d0c-9b8a-4766-8554-433221100fed",
     "timestamp": "1794139200",
-    "request": "GET /v1/inbox?after=7&wait=25",
-    "signature": "v1a,Id5MCxe3xgUVSAOrGcRpRe9fMiHX+blrxpKQ7HgIMRsf+czjusYKeUdDrMqX+PRyFcLqHnhQew1XETwKA20vDA=="
+    "request": "GET /v1/inbox?after=7&wait=25\n9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+    "signature": "v1a,gdxZImQq2F4odj8OKU8B3EJ1X1w+aOJH9ZENR/ECOBbxisY7gr4g4Ipqw0cA8DaaqmrovanDNM57BbYganE/CA=="
   },
   "roomActivity": {
     "value": {
@@ -846,10 +909,10 @@ message give the same signature in any library.
       "token": "pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
       "at": "2026-11-08T12:06:00.000Z",
       "sha256": "d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808",
-      "clientId": "phone-7f3a"
+      "clientId": "4f0e6a52-9c1b-4d7e-8a3f-2b6c9d1e0f57"
     },
-    "message": "palugada-device/v1\n{\"at\":\"2026-11-08T12:06:00.000Z\",\"clientId\":\"phone-7f3a\",\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"sha256\":\"d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\",\"type\":\"reply\"}",
-    "signature": "7ZSwpy11tNhzYk8f8ao8hCqJ1D8vW8mfXjgGTH74SDhkhQ4Wk1qX9D0sosTsRerPJcTGOFnGrRBmi2-50PalAQ"
+    "message": "palugada-device/v1\n{\"at\":\"2026-11-08T12:06:00.000Z\",\"clientId\":\"4f0e6a52-9c1b-4d7e-8a3f-2b6c9d1e0f57\",\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"sha256\":\"d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\",\"type\":\"reply\"}",
+    "signature": "0iewhXuOgJ6S6U8Zl0d4zMTMuVZzw2HjBQ21DwP0FgJdP1DjTqSDo0N4Q7CYmVaJF6Nn5MjzcXZXoFfr6MEgAg"
   },
   "meetingSoon": {
     "value": {

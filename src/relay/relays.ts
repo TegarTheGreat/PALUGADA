@@ -60,6 +60,11 @@ export interface RelayRow {
   last_error: string | null;
   created_at: Date;
   paired_at: Date | null;
+  /** Each company's own ceiling under the relay's share, by company id (STATUS section 2.216). */
+  company_shares: Record<string, Share>;
+  /** The relay's own key it rotated away from, accepted beside the new one until `previous_until`. */
+  previous_key: Buffer | null;
+  previous_until: Date | null;
 }
 
 /**

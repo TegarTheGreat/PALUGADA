@@ -196,10 +196,11 @@ test('nothing is written for an unknown relay or a bad signature, and the route 
       assert.equal(answers.at(-1), 429);
       assert.ok(answers.indexOf(429) <= 56, `the address had used five of its sixty before; refused from ${answers.indexOf(429)}`);
       assert.ok(answers.slice(answers.indexOf(429)).every((status) => status === 429));
-      // And so is the paired relay's own next push from that address, though its own minute has room.
-      const throttled = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', ids: [] }));
-      assert.deepEqual([throttled.status, throttled.body.code], [429, 'relay.throttled']);
       assert.equal(Number(await count()), before, 'nothing refused for the address is kept');
+      // The paired relay's own push from that address is not a stranger's: it
+      // goes to the relay's own minute, which has room (STATUS section 2.216).
+      const taken = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', ids: [] }));
+      assert.equal(taken.status, 200, JSON.stringify(taken.body));
     } finally {
       await stranger.close();
     }
@@ -849,11 +850,12 @@ test('an act a stopped replica left half done is taken over, its buttons given b
     const soon = await relay.push(api.url, relayId, envelope);
     assert.deepEqual([soon.status, soon.body.code], [409, 'relay.in_progress']);
     // A pull that meets it stops there and keeps its cursor, so it is asked for again.
-    relay.inbox.push(envelope);
-    await sendOutbox(api.master);
     const cursor = async () => (await withControlPlane((tx) => tx.query<{ inbound_cursor: string | null }>(
       'SELECT inbound_cursor FROM relays WHERE id = $1', [relayId]))).rows[0]!.inbound_cursor;
-    assert.equal(await cursor(), null, 'the cursor did not move past an act still in hand');
+    const kept = await cursor();
+    relay.inbox.push(envelope);
+    await sendOutbox(api.master);
+    assert.equal(await cursor(), kept, 'the cursor did not move past an act still in hand');
 
     // Three minutes on, the claim is abandoned: the same envelope is taken afresh, the token given back first.
     const later = await (await import('../../src/relay/inbound.ts')).receiveFromRelay(relayId, envelope, new Date(Date.now() + 180_000));

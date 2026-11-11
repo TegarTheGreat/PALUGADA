@@ -63,10 +63,13 @@ export interface Route {
 export class WithStatus {
   readonly status: number;
   readonly body: unknown;
+  /** Headers the answer carries beside the body, such as a refusal's `Retry-After` (STATUS section 2.216). */
+  readonly headers: Readonly<Record<string, string>>;
 
-  constructor(status: number, body: unknown) {
+  constructor(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}) {
     this.status = status;
     this.body = body;
+    this.headers = headers;
   }
 }
 

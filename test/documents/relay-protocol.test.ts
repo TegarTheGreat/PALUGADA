@@ -106,7 +106,8 @@ test("the document's test vectors verify", async () => {
   assert.equal(`palugada-device/v1\n${jcs(v.device.fields)}`, v.device.message);
   assert.equal(sign(null, Buffer.from(v.device.message, 'utf8'), device.privateKey).toString('base64url'), v.device.signature);
 
-  // A pull, signed over the request line.
+  // A pull, signed over the request line and the relay it is for (STATUS section 2.216).
+  assert.equal(v.pull.request, `GET /v1/inbox?after=7&wait=25\n${v.envelope.value.relay}`);
   assert.equal(signV1a([key.privateKey], v.pull.id, v.pull.timestamp, v.pull.request), v.pull.signature);
 
   // A person's notice about a room (STATUS section 2.213): canonical, signed,
@@ -118,8 +119,11 @@ test("the document's test vectors verify", async () => {
   assert.equal(envelopeId({
     deployment: String(room.value.deployment), relay: String(room.value.relay), link: room.link, type: 'room_activity', subject: room.subject,
   }), room.id);
-  // A reply from the person's device: its words hashed, its client id signed beside them.
+  // A reply from the person's device: its words hashed, its client id -- a
+  // fresh UUID for each reply, unique for the person for all time -- signed
+  // beside them.
   assert.equal(v.reply.fields.type, 'reply');
+  assert.match(String(v.reply.fields.clientId), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   assert.equal(v.reply.fields.sha256, createHash('sha256').update(v.reply.body, 'utf8').digest('hex'));
   assert.equal(`palugada-device/v1\n${jcs(v.reply.fields)}`, v.reply.message);
   assert.equal(sign(null, Buffer.from(v.reply.message, 'utf8'), device.privateKey).toString('base64url'), v.reply.signature);

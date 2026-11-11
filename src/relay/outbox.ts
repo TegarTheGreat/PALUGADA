@@ -14,7 +14,7 @@
  */
 import type { KeyObject } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
-import { envelopeHeaders } from './envelope.ts';
+import { envelopeBody, envelopeHeaders, envelopeId } from './envelope.ts';
 import { tokenHash } from './offers.ts';
 
 /** Rows claimed for one relay in one pass. */
@@ -84,6 +84,30 @@ export async function enqueue(tx: TenantClient, entry: OutboxEntry, now = new Da
     [entry.id, entry.relayId, entry.linkId, entry.companyId, entry.type, entry.subjects, entry.body, now,
       entry.handle ?? null, opens.roomId ?? null, opens.threadOf ?? null, opens.itemId ?? null, opens.taskId ?? null]);
   return rowCount === 1;
+}
+
+/**
+ * What an envelope the deployment pulled from a relay was answered, owed
+ * back to that relay as an `act_result` naming it (STATUS section 2.216): a
+ * relay that is pulled from learns what a pushing relay learns from the
+ * answer to its request -- a press decided or refused and why, a reply's
+ * message, an act that lapsed waiting. Its id is made from the envelope it
+ * answers, so a pull answered again owes it once.
+ */
+export async function answerPulled(relayId: string, ref: string, answer: { status: number; body: Record<string, unknown> }, now = new Date()): Promise<void> {
+  await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its outbox takes it.
+    await tx.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relayId]);
+    const { rows: [control] } = await tx.query<{ deployment: string }>('SELECT deployment_id::text AS deployment FROM platform_control');
+    const id = envelopeId({ deployment: control!.deployment, relay: relayId, link: null, type: 'act_result', subject: ref });
+    await enqueue(tx, {
+      id, relayId, linkId: null, companyId: null, type: 'act_result', subjects: [],
+      body: envelopeBody({
+        v: 1, id, type: 'act_result', at: now.toISOString(), deployment: control!.deployment, relay: relayId,
+        data: { ref, status: answer.status, answer: answer.body },
+      }),
+    }, now);
+  });
 }
 
 /** Rows a process took more than ten minutes ago and never settled: owed again, under the same id. */

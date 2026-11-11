@@ -13,7 +13,8 @@ import { randomUUID } from 'node:crypto';
 import { withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MessagePage, MessageView, ThreadView } from './contract.ts';
-import { attachFiles, filesToAttach, keptPaths, removeRoomFiles, stageFiles, unstage } from './files.ts';
+import { attachFiles, filesToAttach, keptPaths, removeRoomFiles, stageFiles, unstage, withinFilesLimit } from './files.ts';
+import { holdToMinute, reactionOf, REACTIONS_PER_PERSON } from './limits.ts';
 import { retractMessages } from '../relay/people.ts';
 import { isPerson } from './principal.ts';
 import { assertMember, ensureCompanyMember, takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
@@ -71,6 +72,15 @@ function slowDown(viewer: Viewer, options: { counted?: boolean } = {}, now = Dat
   if (recent.size > 10_000) {
     for (const [who, times] of recent) if (now - (times.at(-1) ?? 0) >= 60_000) recent.delete(who);
   }
+}
+
+/**
+ * Whether the person may post now, asked before a post's body is read (the
+ * route's `admit`, STATUS 2.217): a person past their minute's messages is
+ * refused before up to 33 MB of files arrive. Not counted: it is not a post.
+ */
+export function mayPostNow(viewer: Viewer): void {
+  slowDown(viewer, { counted: false });
 }
 
 /** Who may be mentioned in a room: everyone of the company in an open room, its members (and the owner) in a private one. */
@@ -157,9 +167,20 @@ export async function postMessage(
     assertMember(room);
     // The clock first, so a retry racing its original reads after it.
     await takeClock(tx);
+    // A retry is the same words to the same place: the key is the room's
+    // (0161), and the same key in another thread of this room is other words,
+    // refused by name rather than answered with the message it named first.
     const { rows: again } = await tx.query<MessageRow>(
-      `SELECT ${MESSAGE_COLUMNS} FROM room_messages m WHERE m.author = $1 AND m.client_id = $2`, [viewer.person.principal, clientId]);
-    if (again[0]) return { message: (await messageViews(tx, viewer, directory, again))[0]!, mentionsDropped: [] };
+      `SELECT ${MESSAGE_COLUMNS} FROM room_messages m WHERE m.room_id = $1 AND m.author = $2 AND m.client_id = $3`,
+      [room.id, viewer.person.principal, clientId]);
+    if (again[0]) {
+      if (again[0].thread_of !== threadOf) {
+        throw new PalugadaError('message.client_id_used',
+          'that clientId was used for other words in this room: a retry is sent to the same thread with the same words, and anything else takes a new clientId',
+          { field: 'clientId' });
+      }
+      return { message: (await messageViews(tx, viewer, directory, again))[0]!, mentionsDropped: [] };
+    }
     if (threadOf !== null) {
       const { rows: roots } = await tx.query<{ room_id: string; thread_of: string | null }>(
         'SELECT room_id, thread_of FROM room_messages WHERE id = $1', [threadOf]);
@@ -177,14 +198,27 @@ export async function postMessage(
       else if (!seeing.has(principal)) dropped.push({ principal, why: 'not_in_room' });
       else kept.push(principal);
     }
+    // The company's room files are held to the owner's limit (0161), read
+    // after the clock, so two posts at once cannot both pass its last bytes.
+    if (staged.length > 0) await withinFilesLimit(tx, viewer.companyId, staged.reduce((sum, one) => sum + one.file.bytes.length, 0));
     const id = randomUUID();
     // Where the words came from is the session's, as the database checks:
     // the console, or the relay whose inbound code opened this transaction.
-    await tx.query(
-      `INSERT INTO room_messages (id, company_id, room_id, thread_of, also_in_room, kind, author, body, mentions, mentions_room, via, via_relay, client_id, position)
-       VALUES ($1, $2, $3, $4, $5, 'text', $6, $7, $8, $9, $10, $11, $12, 0)`,
-      [id, viewer.companyId, room.id, threadOf, alsoInRoom, viewer.person.principal, body, kept, everyone,
-        relay ? 'relay' : 'console', relay?.relayId ?? null, clientId]);
+    try {
+      await tx.query(
+        `INSERT INTO room_messages (id, company_id, room_id, thread_of, also_in_room, kind, author, body, mentions, mentions_room, via, via_relay, client_id, position)
+         VALUES ($1, $2, $3, $4, $5, 'text', $6, $7, $8, $9, $10, $11, $12, 0)`,
+        [id, viewer.companyId, room.id, threadOf, alsoInRoom, viewer.person.principal, body, kept, everyone,
+          relay ? 'relay' : 'console', relay?.relayId ?? null, clientId]);
+    } catch (error) {
+      // Only another post with the same key could take it after the read
+      // above, which the clock forbids; said by name all the same, never in
+      // the database's words.
+      if ((error as { code?: string; constraint?: string }).constraint === 'room_messages_once') {
+        throw new PalugadaError('message.client_id_used', 'that clientId was used for other words in this room', { field: 'clientId' });
+      }
+      throw error;
+    }
     await attachFiles(tx, viewer.companyId, room.id, id, staged, folder);
     const { rows } = await tx.query<MessageRow>(`SELECT ${MESSAGE_COLUMNS} FROM room_messages m WHERE m.id = $1`, [id]);
     return { message: (await messageViews(tx, viewer, directory, rows))[0]!, mentionsDropped: dropped };
@@ -203,6 +237,7 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
   if (body.trim().length < 1 || body.length > BODY_MAX) {
     throw new PalugadaError('contract.violation', `a message says something, in at most ${BODY_MAX} characters`, { field: 'body' });
   }
+  holdToMinute(viewer, 'edit');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
@@ -256,19 +291,32 @@ export async function deleteMessage(
   return view;
 }
 
-/** A reaction given or taken back: a person's, on a person's words, and never a decision (0150 refuses one on a card). */
+/**
+ * A reaction given or taken back: a person's, on a person's words, and never
+ * a decision (0150 refuses one on a card). One emoji (`reactionOf`), and at
+ * most `REACTIONS_PER_PERSON` different ones from a person on a message,
+ * counted after the clock, so two put on at once cannot both pass the last
+ * (STATUS 2.217).
+ */
 export async function react(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<MessageView['reactions']> {
-  const emoji = typeof input.emoji === 'string' ? input.emoji : '';
-  if (emoji.length < 1 || emoji.length > 16 || /\s/.test(emoji)) {
-    throw new PalugadaError('contract.violation', 'a reaction is one emoji, at most 16 characters', { field: 'emoji' });
-  }
   if (typeof input.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true to react and false to take it back', { field: 'on' });
+  const emoji = reactionOf(input.emoji);
+  // Counted once the request is whole, before anything is read: a malformed one costs nothing and spends nothing.
+  holdToMinute(viewer, 'react');
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
+    await takeClock(tx);
     const message = await messageIn(tx, roomId, messageId);
     if (input.on) {
       if (message.kind !== 'text' || message.deleted_at) {
         throw new PalugadaError('contract.violation', "a reaction is for a person's message, not a card or a removed one", { messageId });
+      }
+      const { rows: given } = await tx.query<{ n: number; already: boolean }>(
+        'SELECT count(*)::int AS n, bool_or(emoji = $3) AS already FROM room_reactions WHERE message_id = $1 AND principal = $2',
+        [messageId, viewer.person.principal, emoji]);
+      if (!given[0]!.already && given[0]!.n >= REACTIONS_PER_PERSON) {
+        throw new PalugadaError('reaction.too_many',
+          `a person puts at most ${REACTIONS_PER_PERSON} different reactions on a message: take one back first`, { most: REACTIONS_PER_PERSON });
       }
       await tx.query(
         `INSERT INTO room_reactions (company_id, message_id, principal, emoji) VALUES ($1, $2, $3, $4)
@@ -287,6 +335,7 @@ export async function react(viewer: Viewer, roomId: string, messageId: string, i
 /** A message pinned to its room, or unpinned: at most fifty at once. */
 export async function pin(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<string[]> {
   if (typeof input.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true to pin and false to unpin', { field: 'on' });
+  holdToMinute(viewer, 'pin');
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
     await takeClock(tx);

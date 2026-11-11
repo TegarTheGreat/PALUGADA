@@ -349,6 +349,53 @@ export async function keptPaths(tx: TenantClient, messageIds: readonly string[])
   return rows.map((row) => row.path);
 }
 
+/** What a company's room files may take until the owner says otherwise: ten gigabytes (0161). */
+export const ROOM_FILES_MEGABYTES = { first: 10_240, least: 1, most: 1_048_576 } as const;
+
+const MEGABYTE = 1024 * 1024;
+
+/**
+ * Refuses a post whose files would take the company's room files past the
+ * limit the owner set (`room.files_full`, F19.4; STATUS 2.217), in the post's
+ * transaction after the room clock, so two posts at once cannot both pass
+ * its last bytes. Counted over every room of the company, the ones this
+ * person cannot see too, by the database (`app.room_files_kept`, 0161),
+ * which answers a number and nothing of any file.
+ */
+export async function withinFilesLimit(tx: TenantClient, companyId: string, adding: number): Promise<void> {
+  const { rows } = await tx.query<{ used: string; megabytes: number }>(
+    'SELECT app.room_files_kept($1) AS used, (SELECT room_files_megabytes FROM companies WHERE id = $1) AS megabytes', [companyId]);
+  const used = Number(rows[0]!.used);
+  const megabytes = rows[0]!.megabytes;
+  if (used + adding > megabytes * MEGABYTE) {
+    throw new PalugadaError('room.files_full',
+      `this company's room files have reached the limit the owner set, ${megabytes} MB: the owner can raise it in Settings, or remove files`,
+      { megabytes, usedBytes: used });
+  }
+}
+
+/** What a company's room files take now, and the limit the owner set: the owner's to read (STATUS 2.217). */
+export async function roomFilesLimit(companyId: string): Promise<{ usedBytes: number; megabytes: number }> {
+  const { rows } = await withControlPlane((tx) => tx.query<{ used: string; megabytes: number }>(
+    `SELECT coalesce(sum(f.bytes), 0) AS used, (SELECT room_files_megabytes FROM companies WHERE id = $1) AS megabytes
+       FROM room_files f WHERE f.company_id = $1 AND f.path IS NOT NULL`, [companyId]));
+  return { usedBytes: Number(rows[0]!.used), megabytes: rows[0]!.megabytes };
+}
+
+/**
+ * The owner sets how much the company's room files may take, in whole
+ * megabytes, from one to a terabyte; files already kept stay, and a post
+ * past the new limit is refused until some are removed.
+ */
+export async function setRoomFilesLimit(companyId: string, value: unknown): Promise<{ usedBytes: number; megabytes: number }> {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < ROOM_FILES_MEGABYTES.least || value > ROOM_FILES_MEGABYTES.most) {
+    throw new PalugadaError('contract.violation',
+      `room files are held to ${ROOM_FILES_MEGABYTES.least} to ${ROOM_FILES_MEGABYTES.most} megabytes, a whole number`, { field: 'megabytes' });
+  }
+  await withControlPlane((tx) => tx.query('UPDATE companies SET room_files_megabytes = $2 WHERE id = $1', [companyId, value]));
+  return roomFilesLimit(companyId);
+}
+
 /** A deployment's roots: its files root, and the room files' own when it sets one. */
 export interface PeopleRoots {
   filesRoot?: string | null | undefined;

@@ -38,6 +38,7 @@ import { roomsOnControlPlane, withControlPlane, type TenantClient } from '../db/
 import { isPalugadaError, PalugadaError } from '../errors.ts';
 import { peopleFolderOf, type PeopleRoots } from './files.ts';
 import { assertPeopleOf } from './principal.ts';
+import { SHORTCODE } from './limits.ts';
 import { openZip, type RandomAccess, type ZipEntry, type ZipReader } from './zip.ts';
 
 /** What one part may carry, and how many parts an export may be: a gigabyte of ZIP at most. */
@@ -739,10 +740,15 @@ const EMOJI: Readonly<Record<string, string>> = {
   point_up: '☝️', point_right: '👉', handshake: '🤝', partying_face: '🥳', heart_eyes: '😍', relieved: '😌', cry: '😢',
 };
 
-/** A reaction's emoji: the one Slack's name draws, or the name itself, short enough for a room (0150). */
-function emojiOf(name: string): string {
+/**
+ * A reaction's emoji: the one Slack's name draws, or the name itself between
+ * colons, a custom emoji's, which the rooms keep for an old author (0161);
+ * null for a name that is neither, which is not kept.
+ */
+function emojiOf(name: string): string | null {
   const bare = name.replace(/::skin-tone-\d$/, '');
-  return EMOJI[bare] ?? `:${bare.slice(0, 14)}:`;
+  const drawn = EMOJI[bare] ?? `:${bare.slice(0, 30)}:`;
+  return SHORTCODE.test(drawn) || !drawn.startsWith(':') ? drawn : null;
 }
 
 /**
@@ -851,6 +857,7 @@ function messagesFrom(
       const named = text(reaction.name);
       if (named === null) continue;
       const emoji = emojiOf(named);
+      if (emoji === null) continue;
       for (const by of Array.isArray(reaction.users) ? reaction.users : []) {
         if (typeof by === 'string' && SLACK_ID.test(by)) reactions.push({ principal: `former:slack:${by}`, emoji });
       }

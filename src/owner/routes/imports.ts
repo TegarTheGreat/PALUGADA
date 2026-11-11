@@ -20,6 +20,7 @@ import { PalugadaError } from '../../errors.ts';
 import {
   formerPeopleOf, importOf, importsOf, linkFormer, PART_BYTES, receivePart, startImport, unlinkFormer,
 } from '../../workspace/import-slack.ts';
+import { holdToMinute } from '../../workspace/limits.ts';
 import { principalOf } from '../../workspace/principal.ts';
 import type { Route, RouteContext, RouteKit } from '../route.ts';
 
@@ -49,6 +50,7 @@ export function importRoutes(kit: RouteKit): Route[] {
       handle: async (context) => {
         theOwner(context);
         const companyId = context.params.companyId!;
+        holdToMinute({ companyId, person: { principal: 'owner' } }, 'import');
         return { import: await startImport(companyId, kit.peopleFilesRoot(companyId), context.body) };
       },
     },
@@ -97,6 +99,7 @@ export function importRoutes(kit: RouteKit): Route[] {
       pattern: '/api/companies/:companyId/former-people/link',
       handle: async (context) => {
         theOwner(context);
+        holdToMinute({ companyId: context.params.companyId!, person: { principal: 'owner' } }, 'import');
         return linkFormer(context.params.companyId!, context.body);
       },
     },
@@ -106,6 +109,7 @@ export function importRoutes(kit: RouteKit): Route[] {
       pattern: '/api/companies/:companyId/former-people/unlink',
       handle: async (context) => {
         theOwner(context);
+        holdToMinute({ companyId: context.params.companyId!, person: { principal: 'owner' } }, 'import');
         return unlinkFormer(context.params.companyId!, context.body);
       },
     },

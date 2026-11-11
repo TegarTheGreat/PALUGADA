@@ -63,9 +63,9 @@ DECLARE
   root room_messages%ROWTYPE;
   reader text := app.reader();
 BEGIN
-  IF NOT (reader = 'control' AND app.importing()
-          AND NEW.position BETWEEN coalesce(nullif(current_setting('app.positions_from', true), '')::bigint, 1)
-                               AND coalesce(nullif(current_setting('app.positions_to', true), '')::bigint, 0)) THEN
+  IF NOT coalesce(reader = 'control' AND app.importing()
+                  AND NEW.position BETWEEN coalesce(nullif(current_setting('app.positions_from', true), '')::bigint, 1)
+                                       AND coalesce(nullif(current_setting('app.positions_to', true), '')::bigint, 0), false) THEN
     NEW.position := app.next_room_position(NEW.company_id);
   END IF;
   -- An archive or an export read in keeps when each message was written.
@@ -130,3 +130,137 @@ END $$;
 -- An empty list is the company's own, which every memory before this is.
 ALTER TABLE memories ADD COLUMN staff jsonb NOT NULL DEFAULT '[]'::jsonb
   CONSTRAINT memories_staff_listed CHECK (jsonb_typeof(staff) = 'array' AND jsonb_array_length(staff) <= 20);
+
+-- ---------------------------------------------------------------------------
+-- A reaction is one emoji (F19.4).
+--
+-- 0150 held a reaction to sixteen characters of anything, so a word, a tag,
+-- a direction override or nothing visible at all could be pinned under a
+-- colleague's message as a "reaction". The server holds a reaction to one
+-- emoji as Unicode lists them (`\p{RGI_Emoji}`); the database holds the same
+-- shape: a keycap, a pair of regional indicators, a tag sequence, or
+-- pictographs with their modifiers joined by zero width joiners, sixteen
+-- code points at most. It reads the words as UTF-8 bytes and decodes them
+-- itself, so it says the same whatever encoding the database was made in. A
+-- reaction read in from Slack by one of its old authors may keep a custom
+-- emoji's name, which no Unicode emoji draws.
+CREATE FUNCTION app.is_pictograph(cp integer) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT cp IN (169, 174, 8252, 8265, 8482, 8505, 9000, 9167, 9410, 9654, 9664, 11088, 11093, 12336, 12349, 12951, 12953)
+      OR cp BETWEEN 8596 AND 8601 OR cp BETWEEN 8617 AND 8618 OR cp BETWEEN 8986 AND 8987
+      OR cp BETWEEN 9193 AND 9203 OR cp BETWEEN 9208 AND 9210 OR cp BETWEEN 9642 AND 9643
+      OR cp BETWEEN 9723 AND 9726 OR cp BETWEEN 9728 AND 10175 OR cp BETWEEN 10548 AND 10549
+      OR cp BETWEEN 11013 AND 11015 OR cp BETWEEN 11035 AND 11036 OR cp BETWEEN 126976 AND 129791 $$;
+
+CREATE FUNCTION app.is_reaction(emoji text, author text) RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  b bytea;
+  n integer;
+  i integer := 0;
+  lead integer;
+  width integer;
+  cp integer;
+  cps integer[] := '{}';
+  m integer;
+  wants_picture boolean := true;
+BEGIN
+  IF emoji IS NULL THEN RETURN false; END IF;
+  IF author LIKE 'former:%' AND emoji ~ '^:[a-z0-9_+''-]{1,30}:$' THEN RETURN true; END IF;
+  b := convert_to(emoji, 'UTF8');
+  n := octet_length(b);
+  IF n = 0 OR n > 64 THEN RETURN false; END IF;
+  WHILE i < n LOOP
+    lead := get_byte(b, i);
+    IF lead < 128 THEN cp := lead; width := 1;
+    ELSIF lead >= 240 THEN cp := lead & 7; width := 4;
+    ELSIF lead >= 224 THEN cp := lead & 15; width := 3;
+    ELSIF lead >= 192 THEN cp := lead & 31; width := 2;
+    ELSE RETURN false;
+    END IF;
+    IF i + width > n THEN RETURN false; END IF;
+    FOR k IN 1 .. width - 1 LOOP
+      cp := (cp << 6) | (get_byte(b, i + k) & 63);
+    END LOOP;
+    cps := cps || cp;
+    i := i + width;
+  END LOOP;
+  m := array_length(cps, 1);
+  IF m > 16 THEN RETURN false; END IF;
+  -- A keycap: a digit, # or *, its emoji form, and the keycap.
+  IF cps[1] IN (35, 42) OR cps[1] BETWEEN 48 AND 57 THEN
+    RETURN (m = 2 AND cps[2] = 8419) OR (m = 3 AND cps[2] = 65039 AND cps[3] = 8419);
+  END IF;
+  -- A country's flag: two regional indicators.
+  IF cps[1] BETWEEN 127462 AND 127487 THEN
+    RETURN m = 2 AND cps[2] BETWEEN 127462 AND 127487;
+  END IF;
+  -- A region's flag: the black flag, tags, and the cancel tag.
+  IF cps[1] = 127988 AND m > 2 AND cps[2] BETWEEN 917536 AND 917630 THEN
+    FOR k IN 2 .. m - 1 LOOP
+      IF NOT cps[k] BETWEEN 917536 AND 917630 THEN RETURN false; END IF;
+    END LOOP;
+    RETURN cps[m] = 917631;
+  END IF;
+  -- Pictographs, each with its emoji form or skin tone, joined by zero width joiners.
+  FOR k IN 1 .. m LOOP
+    cp := cps[k];
+    IF wants_picture THEN
+      IF NOT app.is_pictograph(cp) THEN RETURN false; END IF;
+      wants_picture := false;
+    ELSIF cp = 65039 OR cp BETWEEN 127995 AND 127999 THEN
+      CONTINUE;
+    ELSIF cp = 8205 THEN
+      wants_picture := true;
+    ELSE
+      RETURN false;
+    END IF;
+  END LOOP;
+  RETURN NOT wants_picture;
+END $$;
+
+-- What 0150 let in that is no emoji goes: it was never a reaction. Row
+-- security is lifted for the statement and restored, as 0157 does.
+ALTER TABLE room_reactions NO FORCE ROW LEVEL SECURITY;
+DELETE FROM room_reactions WHERE NOT app.is_reaction(emoji, principal);
+ALTER TABLE room_reactions FORCE ROW LEVEL SECURITY;
+ALTER TABLE room_reactions
+  DROP CONSTRAINT room_reactions_emoji_check,
+  ADD CONSTRAINT room_reactions_one_emoji CHECK (app.is_reaction(emoji, principal));
+
+-- ---------------------------------------------------------------------------
+-- A retry key belongs to the room it was posted in (F19.20).
+--
+-- A post's `clientId` was unique for its author across the company, so the
+-- same key sent to another room was answered with the message of the first
+-- room, and the new words were never posted; and once the first room was
+-- one the author could no longer see, the post failed on this index with the
+-- database's own words. A relay's reply lands in the room its token names
+-- and no other. The key is now the room's: the same key in another room is
+-- new words there, and in another thread of the same room is refused by
+-- name (`message.client_id_used`).
+DROP INDEX room_messages_once;
+CREATE UNIQUE INDEX room_messages_once ON room_messages (company_id, room_id, author, client_id) WHERE client_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- How much a company's room files may take (F19.4).
+--
+-- Twenty-four megabytes a post, thirty posts a minute, and no limit but the
+-- disk: one seat could fill the deployment's. A company's room files are
+-- held to a number of megabytes the owner sets, ten gigabytes until they do,
+-- and a post that would pass it keeps nothing and says so.
+ALTER TABLE companies ADD COLUMN room_files_megabytes integer NOT NULL DEFAULT 10240
+  CONSTRAINT companies_room_files_bounded CHECK (room_files_megabytes BETWEEN 1 AND 1048576);
+
+-- What a company's room files take, over every room of it: a post counts
+-- them against the limit as the person posting, who cannot see every room,
+-- so the database counts them, for that company only, and answers a number.
+CREATE FUNCTION app.room_files_kept(company uuid) RETURNS bigint
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF company IS DISTINCT FROM nullif(current_setting('app.company_id', true), '')::uuid THEN
+    RAISE EXCEPTION 'a company counts only its own room files' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN (SELECT coalesce(sum(bytes), 0) FROM room_files WHERE company_id = company AND path IS NOT NULL);
+END $$;
+REVOKE EXECUTE ON FUNCTION app.room_files_kept(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.room_files_kept(uuid) TO palugada_app;

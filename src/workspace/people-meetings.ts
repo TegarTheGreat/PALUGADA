@@ -21,6 +21,7 @@
  */
 import { withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { holdToMinute } from './limits.ts';
 import type { PeopleMeetingView } from './contract.ts';
 import { messageIdOf, messageIn } from './messages.ts';
 import { assertPeopleOf, isPerson } from './principal.ts';
@@ -147,6 +148,7 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
   const minutes = minutesOf(body.minutes);
   const callUrl = callUrlOf(body.callUrl);
   const attendees = attendeesOf(body.attendees);
+  holdToMinute(viewer, 'meeting');
   // A revoked seat, or one of another company, is nobody here to ask.
   await assertPeopleOf(viewer.companyId, attendees);
   const directory = await directoryOf(viewer.companyId);
@@ -208,6 +210,7 @@ export async function changePeopleMeeting(
   const minutes = body.minutes === undefined ? undefined : minutesOf(body.minutes);
   const callUrl = body.callUrl === undefined ? undefined : callUrlOf(body.callUrl);
   const attendees = body.attendees === undefined ? undefined : attendeesOf(body.attendees);
+  holdToMinute(viewer, 'meeting');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);

@@ -42,6 +42,8 @@ import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
 import { PAUSED_TITLE } from '../governance/spend-guard.ts';
 import { slugTaken } from '../templates/company.ts';
+import { ROOM_FILES_MEGABYTES } from '../workspace/files.ts';
+import { keptReaction } from '../workspace/limits.ts';
 import type { ArchiveLine } from './export.ts';
 
 interface ImportSection {
@@ -364,7 +366,12 @@ const SECTIONS: ImportSection[] = [
   {
     name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], required: ['message_id'], room: true,
   },
-  { name: 'room_reactions', table: 'room_reactions', references: ['message_id'], required: ['message_id'], room: true },
+  {
+    // An archive taken before a reaction was held to one emoji (0161) may
+    // carry words as one: left out, rather than refused with the restore.
+    name: 'room_reactions', table: 'room_reactions', references: ['message_id'], required: ['message_id'], room: true,
+    keep: (row) => keptReaction(row.emoji, row.principal),
+  },
   {
     name: 'room_pins', table: 'room_pins', references: ['room_id', 'message_id'], required: ['room_id', 'message_id'], room: true,
   },
@@ -591,8 +598,8 @@ export async function importCompany(
         // A restored company is not a new one: its first hour (0109) is over.
         `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
                                 meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month,
-                                meeting_owner_joins, meeting_join_minutes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12, $13) RETURNING id`,
+                                meeting_owner_joins, meeting_join_minutes, room_files_megabytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -616,6 +623,9 @@ export async function importCompany(
           // neither, and the owner does not attend until they say so.
           source!.meeting_owner_joins === true,
           wholeIn(source!.meeting_join_minutes, 5, 120) ?? 20,
+          // How much its room files may take (0161); an archive from before
+          // it has none, and gets the ten gigabytes every company starts with.
+          wholeIn(source!.room_files_megabytes, ROOM_FILES_MEGABYTES.least, ROOM_FILES_MEGABYTES.most) ?? ROOM_FILES_MEGABYTES.first,
         ],
       ));
     } catch (error) {

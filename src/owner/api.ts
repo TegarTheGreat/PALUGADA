@@ -209,6 +209,7 @@ import {
 } from './route.ts';
 import { findRoutes } from './routes/find.ts';
 import { importRoutes } from './routes/imports.ts';
+import { limitRoutes } from './routes/limits.ts';
 import { meetingRoutes } from './routes/meetings.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { relayRoutes } from './routes/relay.ts';
@@ -6380,6 +6381,7 @@ export class OwnerApi {
       ...meetingRoutes(kit),
       ...findRoutes(kit),
       ...importRoutes(kit),
+      ...limitRoutes(kit),
     ];
   }
 
@@ -7226,6 +7228,16 @@ export class OwnerApi {
       }
     }
 
+    if (match.route.admit) {
+      try {
+        match.route.admit({ session, staff, params: match.params });
+      } catch (error) {
+        if (!(error instanceof PalugadaError)) throw error;
+        send(res, statusFor(error.code), { error: error.message, code: error.code, details: error.details });
+        return;
+      }
+    }
+
     let body: Record<string, unknown> = {};
     let raw: Buffer = Buffer.alloc(0);
     if (req.method === 'POST') {
@@ -7506,6 +7518,11 @@ const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
   'import.part_missing': 409,
   'import.too_large': 400,
   'import.former_linked': 409,
+  'workspace.too_fast': 429,
+  'reaction.not_emoji': 400,
+  'reaction.too_many': 409,
+  'room.files_full': 409,
+  'message.client_id_used': 409,
 };
 
 /**

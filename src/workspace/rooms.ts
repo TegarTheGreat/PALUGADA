@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { withControlPlane, withPeople, withRoomPlatform, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { holdToMinute } from './limits.ts';
 import { linkedPeople } from '../relay/people.ts';
 import type { Person as PersonView, Room, RoomListItem } from './contract.ts';
 import { assertPeopleOf, isPerson } from './principal.ts';
@@ -319,6 +320,7 @@ export async function makeTopicRoom(viewer: Viewer, body: Record<string, unknown
     throw new PalugadaError('contract.violation', 'private is true or false', { field: 'private' });
   }
   const members = principalsOf(body.members, 'members', 50);
+  holdToMinute(viewer, 'room');
   const directory = await directoryOf(viewer.companyId);
   const id = randomUUID();
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
@@ -352,6 +354,7 @@ export async function openDirectRoom(viewer: Viewer, body: Record<string, unknow
     throw new PalugadaError('room.too_many_people', `a direct message is for ${DIRECT_MIN} to ${DIRECT_MAX} people, you included; this names ${people.length}`,
       { people: people.length });
   }
+  holdToMinute(viewer, 'direct');
   const named = await assertPeopleOf(viewer.companyId, people.filter((principal) => principal !== viewer.person.principal));
   const key = people.join(',');
   const directory = await directoryOf(viewer.companyId);
@@ -469,6 +472,7 @@ export async function leaveRoom(viewer: Viewer, roomId: string): Promise<void> {
 export async function changeMembers(viewer: Viewer, roomId: string, body: Record<string, unknown>): Promise<Room> {
   const add = principalsOf(body.add, 'add', 50);
   const remove = principalsOf(body.remove, 'remove', 50);
+  holdToMinute(viewer, 'members');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);

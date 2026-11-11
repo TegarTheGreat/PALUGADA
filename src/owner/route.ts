@@ -56,6 +56,13 @@ export interface Route {
    * forms and text as well as JSON.
    */
   raw?: boolean;
+  /**
+   * Asked once who is asking is known and before the body is read: a refusal
+   * here costs the server nothing of the body. The post route asks whether
+   * the person is already past their minute's messages before up to 33 MB of
+   * files arrive and are parsed (STATUS 2.217).
+   */
+  admit?: (context: Pick<RouteContext, 'session' | 'staff' | 'params'>) => void;
   handle: Handler;
 }
 

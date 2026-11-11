@@ -503,7 +503,8 @@ test("a reaction is a person's, on a person's message, and can be taken back", a
     assert.deepEqual(ok(await budi.on(room, id, 'react', { emoji: '🎉', on: true })).reactions, [{ emoji: '🎉', count: 1, mine: true }]);
     assert.deepEqual(ok(await owner.page(room)).messages[0].reactions, [{ emoji: '🎉', count: 1, mine: false }]);
     assert.deepEqual(ok(await budi.on(room, id, 'react', { emoji: '🎉', on: false })).reactions, []);
-    refusedWith(await budi.on(room, id, 'react', { emoji: 'x'.repeat(17), on: true }), 400, 'contract.violation');
+    // A reaction is one emoji, never words (STATUS 2.217).
+    refusedWith(await budi.on(room, id, 'react', { emoji: 'x'.repeat(17), on: true }), 400, 'reaction.not_emoji');
 
     // A card, or a notice, takes no reaction: a 👍 approves nothing.
     const notice = randomUUID();
@@ -533,7 +534,14 @@ test('at most fifty pins in a room', async () => {
         ids.push(id);
       }
     });
-    for (const id of ids.slice(0, 50)) ok(await owner.on(room, id, 'pin', { on: true }));
+    // Forty-nine pinned as people pin them, over time: a person pins ten a
+    // minute at most (STATUS 2.217), and this is about the room's fifty.
+    await withPeople(fixture.companyId, { principal: 'owner', name: null }, async (tx) => {
+      for (const id of ids.slice(0, 49)) {
+        await tx.query('INSERT INTO room_pins (company_id, room_id, message_id, pinned_by) VALUES ($1, $2, $3, $4)', [fixture.companyId, room, id, 'owner']);
+      }
+    });
+    ok(await owner.on(room, ids[49]!, 'pin', { on: true }));
     refusedWith(await owner.on(room, ids[50]!, 'pin', { on: true }), 409, 'room.pins_full');
     assert.equal(ok(await owner.room(room)).room.pins.length, 50);
     ok(await owner.on(room, ids[0]!, 'pin', { on: false }));

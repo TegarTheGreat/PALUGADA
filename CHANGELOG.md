@@ -1162,3 +1162,14 @@ The first version. What it holds, in the order an owner meets it.
   retention removes, is withdrawn from the phone. You hear people only once
   you turn it on, inside your window, never as an inbox item, and the daily
   digest counts the team's cards as your badge does (STATUS 2.213).
+- Bring a Slack workspace's history in. In Settings, People, choose the ZIP
+  Slack's export gives you, up to 1 GB: each channel becomes a room, a
+  private one staying private with you and the seats its people are linked
+  to, with its threads and reactions, and its people as authors you can link
+  to the seats you have here, after seeing which private rooms each link
+  would open; unlinking takes those back. Files come as their names, and
+  direct conversations are counted and left out. Nothing imported is new to
+  anyone, importing the same export again adds nothing, a damaged part is
+  reported line by line, and an export that unpacks past what PALUGADA reads
+  is refused. The upload is kept beside the company's files, where no agent
+  reaches it, until it is read, and a week at most (STATUS 2.214).

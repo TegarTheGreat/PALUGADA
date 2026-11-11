@@ -38,6 +38,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub (`hub.ts`, the room stream's one reader per company), search, files; `principal.ts` is who a person is |
+| `src/workspace/import-slack.ts` | the Slack import: an export uploaded in parts under the people folder's `imports/`, read by the worker into rooms in importing mode, and the old workspace's people linked to seats; `src/workspace/zip.ts` reads the ZIP, ZIP64 included, under a cap on everything it unpacks |
 | `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
 | `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
 | `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
@@ -55,7 +56,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
-| `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`), a person's profile (`Profile.tsx`), and the room stream every page listens to, one per tab (`useRoomStream.ts`) |
+| `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`), a person's profile (`Profile.tsx`), the room stream every page listens to, one per tab (`useRoomStream.ts`), and the Slack importer with the old workspace's people (`ImportSlack.tsx`) |
 | `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
@@ -135,7 +136,9 @@ Each of these is a test, and each exists because the mistake was made once.
 - **No agent capability reaches a room file.** Room files live beside the
   company's files, never under them, under their own id with the kind their
   bytes show; only a small picture is drawn, and everything else is saved.
-  `test/acceptance/room-files.test.ts`.
+  `test/acceptance/room-files.test.ts`. So do the parts of a Slack export
+  waiting to be read, which go when the import ends and after seven days in
+  any case. `test/acceptance/import-slack.test.ts`.
 - **No route that reads people's words is readable by the assistant.** Every
   GET of a people's route module is under `UNREADABLE_UNDER`, both of the
   assistant's gates ask `unreadable()`, and the people's helpers throw inside

@@ -516,21 +516,39 @@ export async function revokeRelayWithin(tx: TenantClient, relay: RelayRow, now: 
 }
 
 /**
+ * Takes the row of every relay a company's erasure changes, in id order,
+ * before the erasure takes the company's own row (STATUS 2.217): each relay
+ * that names the company, hears about every company, or holds a link, an
+ * offer or an envelope of it, which the erasure's cascade removes. Relay
+ * work takes the relay's row and then, by its foreign key, the company's;
+ * an erasure that took them the other way round deadlocked with it.
+ */
+export async function holdRelaysOf(tx: TenantClient, companyId: string): Promise<RelayRow[]> {
+  const { rows } = await tx.query<RelayRow>(
+    `SELECT * FROM relays r
+      WHERE $1 = ANY(r.companies) OR r.all_companies
+         OR EXISTS (SELECT 1 FROM relay_links l WHERE l.relay_id = r.id AND l.company_id = $1)
+         OR EXISTS (SELECT 1 FROM relay_offers o WHERE o.relay_id = r.id AND o.company_id = $1)
+         OR EXISTS (SELECT 1 FROM relay_outbox e WHERE e.relay_id = r.id AND e.company_id = $1)
+      ORDER BY r.id FOR UPDATE OF r`,
+    [companyId]);
+  return rows;
+}
+
+/**
  * A company erased (STATUS 2.217): every relay that heard about it hears
  * about it no more, in the erasure's own transaction and before its rows
- * go, each relay's row taken first as every change of a relay's links and
- * outbox takes it. A paired relay that heard about that company alone has
- * nothing left to hear and is ended, as if the owner had revoked it: a
- * paired relay names at least one company (0155).
+ * go, on the relays' rows the erasure already holds (`holdRelaysOf`). A
+ * paired relay that heard about that company alone has nothing left to
+ * hear and is ended, as if the owner had revoked it: a paired relay names
+ * at least one company (0155).
  */
-export async function forgetCompanyOnRelays(tx: TenantClient, companyId: string, now: Date): Promise<void> {
-  const { rows } = await tx.query<{ id: string }>('SELECT id FROM relays WHERE $1 = ANY(companies) ORDER BY id', [companyId]);
-  for (const { id } of rows) {
-    const relay = await relayRow(tx, id, true);
-    if (!relay) continue;
+export async function forgetCompanyOnRelays(tx: TenantClient, held: readonly RelayRow[], companyId: string, now: Date): Promise<void> {
+  for (const relay of held) {
+    if (!relay.companies.includes(companyId)) continue;
     const left = relay.companies.filter((one) => one !== companyId);
     if (relay.status === 'paired' && !relay.all_companies && left.length === 0) await revokeRelayWithin(tx, relay, now);
-    await tx.query('UPDATE relays SET companies = $2 WHERE id = $1', [id, left]);
+    await tx.query('UPDATE relays SET companies = $2 WHERE id = $1', [relay.id, left]);
   }
 }
 

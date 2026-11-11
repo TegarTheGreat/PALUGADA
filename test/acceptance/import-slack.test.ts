@@ -1042,6 +1042,44 @@ test("a Slack import travels with the company's archive, and importing it again 
   }
 });
 
+test('an import unfinished when the archive was taken comes back failed, its parts left behind', async () => {
+  // The parts of an import still receiving or waiting to be read stay on the
+  // deployment the archive was taken from. Restored as it was, it would take
+  // the rest of its parts here and fail when read, its report emptied; it
+  // comes back ended instead, saying its parts were gone, and takes none.
+  const ws = await workspace('slack-archive-unfinished');
+  try {
+    const zip = zipOf(slackExport());
+    const receiving = ok(await ws.owner.post('/room-imports', { source: 'slack', parts: 2 })).import;
+    ok(await ws.owner.post(`/room-imports/${receiving.id}/parts`, { index: 0, base64: zip.subarray(0, 100).toString('base64') }));
+    const waiting = await upload(ws, zip);
+    assert.equal(ok(await ws.owner.get(`/room-imports/${waiting}`)).import.status, 'reading');
+
+    const lines: ArchiveLine[] = [];
+    await exportCompany(ws.fixture.companyId, (line) => { lines.push(line); });
+    const restored = await importCompany(lines, { slug: `${ws.fixture.slug}-restored` });
+    const there = personIn(ws.api, ws.owner.token, restored.companyId);
+    const reports = ok(await there.get('/room-imports')).imports as Array<{
+      id: string; status: string; received: number; parts: number; problems: Array<{ code: string }>;
+    }>;
+    assert.deepEqual(reports.map((one) => [one.status, one.received, one.parts, one.problems]).sort(),
+      [['failed', 1, 2, [{ code: 'part_missing' }]], ['failed', 1, 1, [{ code: 'part_missing' }]]].sort());
+    const halfway = reports.find((one) => one.parts === 2)!;
+    refusedWith(await there.post(`/room-imports/${halfway.id}/parts`, { index: 1, base64: zip.subarray(100).toString('base64') }),
+      409, 'import.part_missing', 'the rest of a restored import');
+
+    // The reading step finds nothing to read there, and the reports stay as they came.
+    await readImports(restored.companyId, { filesRoot: ws.root });
+    assert.deepEqual(ok(await there.get('/room-imports')).imports, reports);
+    // And on the deployment it came from, the same imports go on.
+    ok(await ws.owner.post(`/room-imports/${receiving.id}/parts`, { index: 1, base64: zip.subarray(100).toString('base64') }));
+    await readImports(ws.fixture.companyId, { filesRoot: ws.root });
+    assert.deepEqual((ok(await ws.owner.get('/room-imports')).imports as Array<{ status: string }>).map((one) => one.status), ['done', 'done']);
+  } finally {
+    await ws.api.close();
+  }
+});
+
 test('only an import says where a room or a message came from, and it never changes', async () => {
   const ws = await workspace('slack-external');
   try {
@@ -1399,8 +1437,11 @@ test("a retention pass takes an import's old words by their own age and its unre
     assert.deepEqual([...(await roomsOf(ws.owner)).keys()].sort(), ['board', 'dev', 'general', 'ops']);
     assert.equal((await tally(ws.fixture.companyId)).room_former_people, formers);
 
-    // Today's meeting is untouched. The old one with notes keeps no words
-    // and no link, cancelled by nobody; the one with none went with its words.
+    // Today's meeting is untouched. The two set on old words were held two
+    // days on, and had ended by the pass's time, so their words went by their
+    // age as any do: the one with notes keeps no words and no link, cancelled
+    // by nobody; the one with none went with its words. (A meeting not yet
+    // held keeps its words: people-meetings.test.ts.)
     const rows = await meetingRows(ws.fixture.companyId);
     assert.deepEqual(rows.map((row) => row.message_id), [today, noted]);
     assert.deepEqual([rows[0]!.call_url, rows[0]!.cancelled_at], ['https://meet.example/move', null]);

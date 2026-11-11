@@ -557,7 +557,9 @@ test('a meeting whose words retention took keeps no link and reminds nobody', as
     // A note keeps its thread, so retention leaves the meeting's message without words rather than taking it.
     await said(budi.in, room, { body: 'Notes: bring the old numbers.', threadOf: words });
     ok(await w.owner.post('/retention', { messageDays: 30 }));
-    assert.deepEqual((await purgeExpiredMessages(w.fixture.companyId)).tombstoned, [words]);
+    // A meeting not yet held keeps its words (the case below); this pass is
+    // taken an hour on, once the meeting has ended.
+    assert.deepEqual((await purgeExpiredMessages(w.fixture.companyId, new Date(Date.now() + 60 * MINUTE))).tombstoned, [words]);
     const [row] = await meetingRows(w.fixture.companyId);
     assert.deepEqual([row!.call_url, row!.cancelled_at !== null, row!.cancelled_by], [null, true, null],
       'the pasted link went with the words, and the meeting with them, cancelled by nobody');
@@ -567,6 +569,132 @@ test('a meeting whose words retention took keeps no link and reminds nobody', as
     assert.deepEqual(await remindersIn(w.fixture.companyId), [], 'nothing is said in a thread whose words are gone');
     assert.deepEqual(remindedOf(w.relay!, budi.phone!), []);
     assert.deepEqual((await noticesOf(w.fixture.companyId, budi.seat.principal)).filter((one) => one.reason === 'meeting'), []);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a meeting not yet held keeps its words through retention, and is reminded', async () => {
+  // Retention takes each message by its own age (STATUS 2.212), but a
+  // meeting's words are the meeting: taken, or left without words, they
+  // would cancel a meeting that has not happened, and tell the people asked
+  // nothing. They are kept until it ends; the notes under them go by their
+  // own age, as every reply does.
+  const w = await workspace('meet-kept', { relay: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const room = await companyRoomOf(w.owner);
+    // The owner's words of forty days ago, and a note of as long ago under
+    // them, written on the control plane, which alone writes the past.
+    const words = randomUUID();
+    const oldNote = randomUUID();
+    await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, w.fixture.companyId);
+      await tx.query(
+        `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, position, created_at)
+         VALUES ($1, $2, $3, 'text', 'owner', 'The quarter, looked back on.', 0, now() - interval '40 days')`,
+        [words, w.fixture.companyId, room]);
+      await tx.query(
+        `INSERT INTO room_messages (id, company_id, room_id, thread_of, kind, author, body, position, created_at)
+         VALUES ($1, $2, $3, $4, 'text', 'owner', 'Bring last year too.', 0, now() - interval '40 days')`,
+        [oldNote, w.fixture.companyId, room, words]);
+    });
+    const soon = ok(await setMeeting(w.owner, room, {
+      messageId: words, startsAt: inMinutes(8), minutes: 30, attendees: ['owner', budi.seat.principal],
+      callUrl: 'https://meet.example/quarter',
+    })).meeting as MeetingView;
+    // And one set today for forty days ahead, past the window when it is held.
+    const far = await said(w.owner, room, 'Planning day, all of us.');
+    const later = ok(await setMeeting(w.owner, room, {
+      messageId: far, startsAt: inMinutes(40 * 24 * 60), minutes: 60, attendees: ['owner', budi.seat.principal],
+    })).meeting as MeetingView;
+    ok(await w.owner.post('/retention', { messageDays: 30 }));
+
+    const taken = await purgeExpiredMessages(w.fixture.companyId);
+    assert.deepEqual([taken.deleted, taken.tombstoned], [[oldNote], []], 'the old note goes, and the words of a meeting to come stay');
+    const kept = await meetingOn(w.owner, room, words);
+    assert.deepEqual([kept?.id, kept?.cancelled, kept?.callUrl], [soon.id, false, 'https://meet.example/quarter']);
+
+    // Ten minutes before, its people are reminded, as of any meeting.
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+    assert.deepEqual((await remindersIn(w.fixture.companyId)).map((one) => one.thread_of), [words]);
+    const told = remindedOf(w.relay!, budi.phone!);
+    assert.deepEqual(told.map((one) => one.data.title), ['The quarter, looked back on.']);
+    const items = ok(await budi.in.activity()).items as Array<{ kind: string; threadOf: string | null }>;
+    assert.ok(items.some((item) => item.kind === 'meeting' && item.threadOf === words), 'and his Activity says it');
+
+    // Thirty-one days on, the meeting held today has ended and its words go;
+    // the one set today is nine days away, and its words stay.
+    const month = await purgeExpiredMessages(w.fixture.companyId, new Date(Date.now() + 31 * 24 * 60 * MINUTE));
+    assert.ok(month.deleted.includes(words), 'the words of a meeting that has ended go by their age');
+    assert.equal(month.deleted.includes(far) || month.tombstoned.includes(far), false);
+    const ahead = (await meetingRows(w.fixture.companyId)).find((row) => row.id === later.id);
+    assert.deepEqual([ahead?.message_id, ahead?.cancelled_at], [far, null], 'the meeting forty days ahead is still on');
+  } finally {
+    await w.close();
+  }
+});
+
+test('archiving a room cancels its meetings not yet begun, as whoever archived it', async () => {
+  // An archived room takes no words and no change, so a meeting left on in
+  // it could be neither cancelled nor moved, while its people were still
+  // reminded of it. Archiving cancels each meeting that has not begun, as
+  // its archiver -- the room's creator, though someone else set it.
+  const w = await workspace('meet-archive', { relay: 'summary' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const topic = ok(await budi.in.makeRoom({ name: 'launch', private: false })).room as { id: string };
+    ok(await sari.in.join(topic.id));
+    const everyone = [budi.seat.principal, sari.seat.principal];
+
+    // Reminded already, its notice planned and not yet gone.
+    const reminded = await said(sari.in, topic.id, 'Launch checklist.');
+    const first = ok(await setMeeting(sari.in, topic.id, { messageId: reminded, startsAt: inMinutes(6), minutes: 15, attendees: everyone })).meeting as MeetingView;
+    await syncRoomCards(w.fixture.companyId);
+    const now = new Date();
+    await planNotices(w.fixture.companyId, { now });
+    // Not reminded yet.
+    const coming = await said(sari.in, topic.id, 'Launch day itself.');
+    const second = ok(await setMeeting(sari.in, topic.id, {
+      messageId: coming, startsAt: inMinutes(9), minutes: 30, attendees: everyone, callUrl: 'https://meet.example/launch',
+    })).meeting as MeetingView;
+    // Under way when the room is archived: it is left to end.
+    const going = await said(sari.in, topic.id, 'Standup.');
+    const third = ok(await setMeeting(sari.in, topic.id, { messageId: going, startsAt: inMinutes(30), minutes: 30, attendees: everyone })).meeting as MeetingView;
+    await withControlPlane((tx) => tx.query("UPDATE room_meetings SET starts_at = now() - interval '5 minutes' WHERE id = $1", [third.id]));
+
+    ok(await budi.in.post(`/rooms/${topic.id}/archive`));
+    const rows = new Map((await meetingRows(w.fixture.companyId)).map((row) => [row.id, row]));
+    for (const meeting of [first, second]) {
+      const row = rows.get(meeting.id)!;
+      assert.deepEqual([row.cancelled_at !== null, row.cancelled_by], [true, budi.seat.principal], 'cancelled, as the room\'s archiver');
+    }
+    assert.equal(rows.get(second.id)!.call_url, 'https://meet.example/launch', 'its words stay, and so does its link');
+    assert.equal(rows.get(third.id)!.cancelled_at, null, 'a meeting under way is not cancelled');
+
+    // Nobody is reminded of a meeting in a room that is closed.
+    await syncRoomCards(w.fixture.companyId);
+    await dispatchPeopleNotices(w.fixture.companyId, { now, linkFor });
+    await sendOutbox(w.api.master, now);
+    await tell(w.fixture.companyId, w.api.master);
+    assert.deepEqual((await remindersIn(w.fixture.companyId)).map((one) => one.thread_of), [reminded], 'nothing more is said in its threads');
+    for (const who of [budi, sari]) {
+      assert.deepEqual(remindedOf(w.relay!, who.phone!), [], 'no phone is told');
+      assert.deepEqual((await noticesOf(w.fixture.companyId, who.seat.principal)).filter((row) => row.reason === 'meeting')
+        .map((row) => [row.subject, row.settled_as]), [[`meeting:${first.id}`, 'gone']]);
+      const items = ok(await who.in.activity()).items as Array<{ kind: string; threadOf: string | null }>;
+      assert.deepEqual(items.filter((item) => item.kind === 'meeting' && item.threadOf !== reminded), []);
+    }
+
+    // Drawn as cancelled by whoever archived the room, and offered to nobody to change.
+    const drawn = await meetingOn(sari.in, topic.id, coming);
+    assert.deepEqual([drawn?.cancelled, drawn?.cancelledBy?.principal, drawn?.may.change], [true, budi.seat.principal, false]);
+    for (const reader of [sari.in, w.owner]) {
+      assert.equal((await meetingOn(reader, topic.id, going))?.may.change, false, 'nor the one under way, in a room that takes no change');
+    }
+    refusedWith(await changeMeeting(sari.in, topic.id, third.id, { minutes: 45 }), 409, 'room.archived');
   } finally {
     await w.close();
   }

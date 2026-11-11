@@ -168,8 +168,11 @@ Each of these is a test, and each exists because the mistake was made once.
 - **The relay protocol is one document and the code that speaks it.** Every
   envelope type in `src/relay/` is described in `docs/relay-protocol.md`, the
   document describes none the code does not know, and its test vectors
-  verify. A type is only ever added within v1.
-  `test/documents/relay-protocol.test.ts`.
+  verify. A type is only ever added within v1: the test records every type,
+  and one leaves its lists only with a v2. What the document binds a relay
+  to that the code depends on -- dropping content at the fortnight the
+  deployment keeps what it sent (`KEPT_DAYS`) -- is held to the code there
+  too. `test/documents/relay-protocol.test.ts`.
 - **A relay is sent no company, room, thread, item or task id.** A notice's
   link names a handle made for that one notice (`opaqueLink`), and what it
   opens is kept beside the envelope in the outbox and told by the owner API

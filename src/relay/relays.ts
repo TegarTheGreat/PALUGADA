@@ -378,7 +378,18 @@ export async function planRelaySettings(relayId: string, body: Record<string, un
     changes.share = body.share as Share;
   }
   if (body.companies !== undefined) {
-    const named = await namedCompanies(body.companies, body.allCompanies === true);
+    // A company erased since is let go, not refused: the console sends back
+    // the list it was shown, and a save that only turns presses off must not
+    // fail on a company erased meanwhile (STATUS 2.217). Any other id that is
+    // no company is refused as before.
+    let asked = body.companies;
+    if (Array.isArray(asked) && asked.every((one) => typeof one === 'string' && UUID.test(one))) {
+      const { rows: erased } = await withControlPlane((tx) => tx.query<{ company_id: string }>(
+        'SELECT company_id FROM company_erasures WHERE company_id = ANY($1::uuid[])', [asked]));
+      const gone = new Set(erased.map((row) => row.company_id));
+      asked = asked.filter((one) => !gone.has(one as string));
+    }
+    const named = await namedCompanies(asked, body.allCompanies === true);
     if (named === 'all') changes.allCompanies = true;
     else changes.companies = named;
   }
@@ -490,12 +501,37 @@ export async function revokeRelay(relayId: string, now = new Date()): Promise<vo
   await withControlPlane(async (tx) => {
     const relay = await relayRow(tx, relayId, true);
     if (!relay) throw new PalugadaError('contract.violation', 'there is no such relay', { relayId });
-    if (relay.status === 'revoked') return;
-    await tx.query(`UPDATE relays SET status = 'revoked', revoked_at = $2, pulling_until = NULL WHERE id = $1`, [relayId, now]);
-    await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE relay_id = $1 AND voided_at IS NULL', [relayId, now]);
-    await tx.query(`DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'sending', 'dead')`, [relayId]);
-    await tx.query(`UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE relay_id = $1 AND status <> 'ended'`, [relayId, now]);
+    await revokeRelayWithin(tx, relay, now);
   });
+}
+
+/** The same, in a transaction that already holds the relay's row (`relayRow(tx, id, true)`). */
+export async function revokeRelayWithin(tx: TenantClient, relay: RelayRow, now: Date): Promise<void> {
+  if (relay.status === 'revoked') return;
+  const relayId = relay.id;
+  await tx.query(`UPDATE relays SET status = 'revoked', revoked_at = $2, pulling_until = NULL WHERE id = $1`, [relayId, now]);
+  await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE relay_id = $1 AND voided_at IS NULL', [relayId, now]);
+  await tx.query(`DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'sending', 'dead')`, [relayId]);
+  await tx.query(`UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE relay_id = $1 AND status <> 'ended'`, [relayId, now]);
+}
+
+/**
+ * A company erased (STATUS 2.217): every relay that heard about it hears
+ * about it no more, in the erasure's own transaction and before its rows
+ * go, each relay's row taken first as every change of a relay's links and
+ * outbox takes it. A paired relay that heard about that company alone has
+ * nothing left to hear and is ended, as if the owner had revoked it: a
+ * paired relay names at least one company (0155).
+ */
+export async function forgetCompanyOnRelays(tx: TenantClient, companyId: string, now: Date): Promise<void> {
+  const { rows } = await tx.query<{ id: string }>('SELECT id FROM relays WHERE $1 = ANY(companies) ORDER BY id', [companyId]);
+  for (const { id } of rows) {
+    const relay = await relayRow(tx, id, true);
+    if (!relay) continue;
+    const left = relay.companies.filter((one) => one !== companyId);
+    if (relay.status === 'paired' && !relay.all_companies && left.length === 0) await revokeRelayWithin(tx, relay, now);
+    await tx.query('UPDATE relays SET companies = $2 WHERE id = $1', [id, left]);
+  }
 }
 
 /** Asks a paired relay to show it hears this deployment: a `ping`, sent by the relay loop like any envelope. */

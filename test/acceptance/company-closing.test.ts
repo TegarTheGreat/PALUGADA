@@ -306,6 +306,63 @@ test('erasing a company leaves no setting of its people', async () => {
   assert.deepEqual(seats.rows.map((row) => row.id), [dewi], 'its seats went with it, handles and all');
 });
 
+test("erasing a company removes its people's sign-in secrets, and no other company's", async () => {
+  // A seat's authenticator secret is sealed in the deployment's store under a
+  // name of its own; only revoking the seat removed it, so an erased
+  // company's people's seeds were kept for ever (STATUS 2.217).
+  const closing = await createCompany('closing-seeds');
+  const staying = await createCompany('staying-seeds');
+  const sealedSeat = async (fixture: Fixture, name: string) => withControlPlane(async (tx) => {
+    const secret = `staff-totp-${name}`;
+    await tx.query(
+      `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
+       VALUES ($1, '\\x000000000000000000000000', '\\x00', '\\x00000000000000000000000000000000', 'k1')`, [secret]);
+    await tx.query(
+      `INSERT INTO staff_seats (company_id, name, kind, secret_ref, joined_at) VALUES ($1, $2, 'member', $3, now())`,
+      [fixture.companyId, name, `db://${secret}`]);
+    return secret;
+  });
+  const gone = await sealedSeat(closing, 'siticlosing');
+  const kept = await sealedSeat(staying, 'dewistaying');
+  await closeCompany(closing.companyId, 30);
+  await graceOver(closing.companyId);
+  assert.deepEqual((await eraseDueCompanies()).failed, []);
+  const left = await withControlPlane((tx) => tx.query<{ name: string }>(
+    'SELECT name FROM deployment_secrets WHERE name = ANY($1::text[]) ORDER BY name', [[gone, kept]]));
+  assert.deepEqual(left.rows.map((row) => row.name), [kept]);
+});
+
+test('erasing a company takes it off every relay, and the relay can still be changed as the console sends it', async () => {
+  // A relay kept the erased company's id, so every save of its settings was
+  // refused as naming a company that is not the deployment's (STATUS 2.217).
+  const closing = await createCompany('closing-relay');
+  const staying = await createCompany('staying-relay');
+  const relays = await withControlPlane(async (tx) => {
+    const made: string[] = [];
+    for (const [name, companies] of [['both', [closing.companyId, staying.companyId]], ['only', [closing.companyId]]] as const) {
+      const { rows } = await tx.query<{ id: string }>(
+        `INSERT INTO relays (name, url, envelopes_url, public_key, fingerprint, versions, features, mode, status, companies, paired_at, salt)
+         VALUES ($1, $2, $2, $3, $4, '{1}', '{}', 'push', 'paired', $5, now(), $6) RETURNING id`,
+        [name, `https://${name}.relay.example`, Buffer.alloc(32, made.length + 1), name === 'both' ? 'A'.repeat(24) : 'B'.repeat(24),
+          companies, Buffer.alloc(32, 9)]);
+      made.push(rows[0]!.id);
+    }
+    return made;
+  });
+  await closeCompany(closing.companyId, 30);
+  await graceOver(closing.companyId);
+  assert.deepEqual((await eraseDueCompanies()).failed, []);
+  const { rows } = await withControlPlane((tx) => tx.query<{ name: string; status: string; companies: string[] }>(
+    'SELECT name, status, companies::text[] AS companies FROM relays WHERE id = ANY($1::uuid[]) ORDER BY name', [relays]));
+  assert.deepEqual(rows.map((row) => [row.name, row.status, row.companies]), [
+    ['both', 'paired', [staying.companyId]],
+    ['only', 'revoked', []],
+  ], 'each relay hears about what is left; one that heard only about the erased company has nothing to hear, and is ended');
+  const { planRelaySettings } = await import('../../src/relay/relays.ts');
+  const planned = await planRelaySettings(relays[0]!, { companies: [closing.companyId, staying.companyId], mayPress: false });
+  assert.deepEqual(planned.changes.companies, [staying.companyId], 'an id the relay already had and that is gone is let go, not refused');
+});
+
 test('the worker erases a company whose day has come, and a worker kept to one company does not', async () => {
   const fixture = await createCompany('worker-erases');
   await lived(fixture, 'credential-crm-worker');

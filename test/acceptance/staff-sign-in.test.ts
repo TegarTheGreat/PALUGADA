@@ -25,7 +25,7 @@ import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { StaffSeats } from '../../src/owner/staff.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { fakeRelay } from '../helpers/fake-relay.ts';
-import { linkThrough, pairThrough } from '../helpers/relay.ts';
+import { linkThrough, pairThrough, sendOutbox } from '../helpers/relay.ts';
 import { ok, personIn, refusedWith, said } from '../helpers/rooms.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -455,7 +455,7 @@ test('the owner gives a seat a new authenticator: the same person, signed out, i
     await said(hers, dm, 'My phone is in the river.');
     const room = String(ok(await hers.makeRoom({ name: 'Payroll', private: true })).room.id);
     const relayId = await pairThrough(api, owner, relay, { companies: [fixture.companyId] });
-    await linkThrough(api, rina.token, relay, relayId, { device: true, owner: false });
+    const phone = await linkThrough(api, rina.token, relay, relayId, { device: true, owner: false });
     const [before] = (ok(await api.call('GET', `${at}/staff`, owner)).seats as Array<{ id: string; joinedAt: string }>);
     // Locked out by someone guessing, too.
     await withControlPlane((tx) => tx.query(
@@ -474,6 +474,13 @@ test('the owner gives a seat a new authenticator: the same person, signed out, i
     const links = await withControlPlane((tx) => tx.query<{ status: string }>(
       'SELECT status FROM relay_links WHERE principal = $1', [`seat:${rina.seatId}`]));
     assert.ok(links.rows.length > 0 && links.rows.every((one) => one.status === 'ended'), 'her phone is told nothing more');
+    // The relay is told the link ended, and why: not that her seat ended,
+    // which it has not, but that she was given a new authenticator, so a
+    // relay's app never tells her phone she was let go (STATUS 2.216, 2.217).
+    await sendOutbox(api.master);
+    const ended = relay.received.map((one) => one.envelope)
+      .filter((one) => one?.type === 'link_ended' && one.to?.recipient === phone.recipient);
+    assert.deepEqual(ended.map((one) => one.data.reason), ['new_authenticator']);
 
     // The link opens as hers: her name and handle, nothing to choose again.
     const opened = ok(await api.call('POST', '/api/auth/join', '', { code: invite }));

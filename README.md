@@ -40,6 +40,11 @@ Most tools for agents ask you to watch them work. PALUGADA asks you only to
 decide. One installation runs as many companies as you like, each isolated by
 the database itself.
 
+You are the one owner, and you need not be alone: seat the people who work
+with you -- viewers, members and approvers -- and they talk with you in each
+company's rooms, ask the company for work where they talk, and are told on
+their phones. What cannot be undone, the money and the keys stay yours.
+
 | | Step | What happens |
 |---|---|---|
 | **01** | **Start a company** | From a template: eight divisions by function, a role in each with a charter and done criteria, a budget for every division, a goal ladder, and a CEO you talk to. |
@@ -56,9 +61,10 @@ the database itself.
 - ✅ You want agents to **spend money safely**: reserved before the work, capped per task and per month, paused at the ceiling.
 - ✅ You want to **bring your own agents and models** -- Claude Code, Codex, Gemini CLI, a local model -- rather than be locked to one.
 - ✅ You want to **decide from your phone**, in your own language.
+- ✅ You want **your team in the same place as the work**: rooms where people talk and ask for work, instead of Slack beside a separate agent tool.
 - ✅ You want it **on your own server**, with your data in your own PostgreSQL.
 
-It is **not** for you if you need many people working in it (there is one owner, by design), a chat workspace where agents talk in threads, a framework for building agents, or a boxes-and-arrows workflow builder. And it is not an autopilot without brakes: what cannot be undone always waits for a person. That is the design, not a setting.
+It is **not** for you if you need many owners with equal say over the same companies (there is one owner, by design: staff are seated by the owner, and tier 3, money and keys stay the owner's), a chat workspace where agents talk to each other in threads, a framework for building agents, or a boxes-and-arrows workflow builder. And it is not an autopilot without brakes: what cannot be undone always waits for a person. That is the design, not a setting.
 
 ## Quickstart
 
@@ -159,6 +165,29 @@ anything.
   </tr>
 </table>
 
+### Your team, in the company's rooms
+
+- **Seat people beside you** for each company, as viewers, members or
+  approvers. Each signs in with a handle of their own and an authenticator of
+  their own; you set every name, and look-alike names are refused.
+- **Rooms**: one for the company, one for each division, topic rooms open or
+  private, and direct conversations of two to eight people, with threads,
+  mentions, reactions, pins, files, search, people's meetings with a call
+  link, and a live stream, on a desktop or a 390-pixel phone.
+- **Ask for work where you talk.** A member presses **Ask the team** on a
+  message, and the work, with its money reserved first, shows under it as it
+  runs. Agents are never in a room: their work appears as cards. A mention or
+  a reaction starts nothing, and a colleague's words are never read as yours.
+- **Told on their phones** through a relay you pair, at the share you allow
+  ([docs/phones.md](docs/phones.md)); never an item in your inbox.
+- **Bring Slack with you**: an export's channels, threads and reactions
+  become rooms, its people linked to your seats.
+- **Yours alone**: seating people, settings, channels, relays, export,
+  tier 3, approvals for a while, the conversation with the CEO, and how long
+  messages are kept.
+
+[The guide's page on rooms and people](docs/guide/workspace.md) has the rest.
+
 Everything else -- goals measured by numbers, stage gates, schedules, signed
 webhooks, bundles, audit export -- is in [docs/features.md](docs/features.md).
 
@@ -168,7 +197,8 @@ webhooks, bundles, audit export -- is in [docs/features.md](docs/features.md).
 |---|---|
 | **Agents** | The platform's own model loop · Claude Code · Codex · Gemini CLI · OpenCode · OpenClaw · Hermes · any [Agent Client Protocol](https://agentclientprotocol.com) agent · an HTTP service · Docker with no network |
 | **Models** | Anthropic · OpenAI · OpenRouter · Gemini · DeepSeek · Groq · Ollama and vLLM on your own machine -- any OpenAI-compatible API whose models call tools |
-| **Your phone** | The console, installable as an app · Telegram and WhatsApp, with buttons that decide · email through Resend, Postmark or SendGrid · urgent alerts through ntfy or a push webhook · Slack and Discord |
+| **Your phone** | The console, installable as an app · Telegram and WhatsApp, with buttons that decide · email through Resend, Postmark or SendGrid · urgent alerts through ntfy or a push webhook · Slack and Discord · your staff's phones through a relay and ntfy |
+| **Moving in** | A Slack export: channels, threads, reactions and their people |
 | **Tools** | MCP servers, signed in with OAuth · Composio, Pipedream, Arcade, Smithery and Zapier by name · vendor files for any HTTP API · web search, a browser, image generation and speech from the providers you choose |
 | **Events in** | Signed webhooks from GitHub, Stripe, Slack and anything that speaks Standard Webhooks |
 | **Runs on** | Docker Compose · Coolify · Dokploy · Node 22 and PostgreSQL 16 under systemd |
@@ -214,7 +244,7 @@ companies are separated by the database rather than by application code.
 | **Integrations** | Slack: a large app directory | — | A governed MCP gateway | Built-ins, vendor files, MCP servers signed in with OAuth, and Composio, Pipedream, Arcade, Smithery and Zapier by name; every tool still at a tier |
 | **Watching it run** | — | — | Tracing | JSON logs, a health check, Prometheus metrics and OpenTelemetry traces |
 | **Installing** | Slack: nothing, it is hosted; Buzz: a container image | A script | A container image | `npm run setup`, then Docker Compose or Node and Postgres; Linux only |
-| **People** | Many | One | Many | One owner, by design |
+| **People** | Many | One | Many | One owner, by design, and the staff the owner seats as viewers, members or approvers, who talk in the company's rooms and ask for work there; agents work behind cards, never in the rooms |
 
 The ceiling row is cited to Paperclip's `server/src/services/budgets.ts`
 in [docs/COMPETITIVE-ANALYSIS-2026-09-30.md](docs/COMPETITIVE-ANALYSIS-2026-09-30.md),
@@ -233,17 +263,22 @@ integrations and observability were built.
 ```mermaid
 flowchart TB
   owner(["You, the owner"])
+  staff(["The people you seat"])
   subgraph palugada["PALUGADA"]
+    rooms["Rooms<br/>people talk · work shown as cards"]
     org["Companies → divisions<br/>→ roles → tasks"]
     engine["Durable engine<br/>journal · leases · budgets"]
     broker["Capability broker<br/>tiers · policies · read-back"]
     inbox["Decisions inbox<br/>approvals · incidents · questions"]
     org --> engine --> broker
     broker -- "tier 3 waits" --> inbox
+    rooms -- "a press, never a word" --> org
   end
   runtimes["Agent runtimes<br/>model loop · Claude Code · Codex · Gemini CLI<br/>OpenCode · ACP agents · HTTP · Docker"]
   world["The outside world<br/>email · DNS · invoices · deploys"]
   owner <-- "console · push · Telegram · WhatsApp · email" --> inbox
+  owner <--> rooms
+  staff <-- "console · a relay to their phones" --> rooms
   engine <-- "tool calls, steps, cost" --> runtimes
   broker --> world
 ```
@@ -316,6 +351,19 @@ after the grace period you choose.
 </details>
 
 <details>
+<summary><b>Can my team use it, instead of Slack?</b></summary>
+
+Yes. Seat each person for a company as a viewer (reads and talks), a member
+(also asks for work and answers what is put to them) or an approver (also
+decides what waits at tier 2 and below). They talk in the company's rooms,
+ask for work from a message, meet with a pasted call link, and are told on
+their phones through a relay. A colleague's words are never read as yours:
+the work they ask for is fenced as a colleague's request, and its actions
+that cost money are decided by someone who did not ask. Everything said is
+the company's record and in its export; how long it is kept is yours to set.
+</details>
+
+<details>
 <summary><b>How is it different from Claude Code or OpenClaw?</b></summary>
 
 PALUGADA runs them rather than replacing them. An agent does the work; PALUGADA
@@ -351,9 +399,10 @@ without you merging it.
   email, paying invoices or changing DNS is bound by a vendor file or an MCP
   server you provide; until then the role is told it needs one. The
   catalogues are the MCP aggregators you choose, not PALUGADA's own.
-- **One owner, on Linux.** There are no other users, no single sign-on and
-  no roles for staff. Run directly it is tested on Linux only; on macOS or
-  Windows, run the container with Docker Desktop. The container image runs
+- **One owner, on Linux.** Staff are seated by the owner, each for one
+  company, as a viewer, a member or an approver; there is no single sign-on,
+  no guest seat and no second owner. Run directly it is tested on Linux only;
+  on macOS or Windows, run the container with Docker Desktop. The container image runs
   no agent CLI of its own; one is added by extending it.
 - **History is kept whole.** The event log is append-only; a company leaves
   only all at once, when you close it and its grace period ends.
@@ -366,6 +415,7 @@ without you merging it.
 - [docs/guide/](docs/guide/README.md): the owner's guide -- a first hour, the concepts, how to do each thing, running it, scale, and what to do when something is wrong.
 - [docs/features.md](docs/features.md): the guarantees and everything that is built.
 - [docs/configuration.md](docs/configuration.md): installing, production and every setting.
+- [docs/phones.md](docs/phones.md): putting people's notices on their phones through a relay, and [docs/relay-protocol.md](docs/relay-protocol.md), the protocol, for whoever builds a relay.
 - [docs/STATUS.md](docs/STATUS.md): every requirement graded, with the defects found and fixed.
 - [CHANGELOG.md](CHANGELOG.md): what each version changed, for an owner or an operator.
 - [docs/RELEASING.md](docs/RELEASING.md): how a version is released, installed and rolled back, and the merge queue that keeps main green.

@@ -901,3 +901,37 @@ test("a run's choices reach a seat's phone redacted, as its question does", asyn
     await w.close();
   }
 });
+
+test('a company erased is forgotten at every relay that may hold anything of it', async () => {
+  // STATUS section 2.216 (F20): the erasure's cascade takes every envelope of
+  // the company and every link of its seats, so the relays are told first.
+  const { eraseDueCompanies } = await import('../../src/governance/closing.ts');
+  const { companyRef } = await import('../../src/relay/envelope.ts');
+  const w = await workspace('relay-people-erased', { share: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const dm = await direct(budi.in, sari.seat);
+    await said(budi.in, dm, 'My home address is Jalan Mawar 12.');
+    await tell(companyId, w.api.master);
+    assert.ok(toldTo(w.relay, sari.phone!).some((one) => /Jalan Mawar/.test(one.data?.excerpt ?? '')), 'the relay holds it');
+    await withControlPlane((tx) => tx.query(
+      "UPDATE companies SET closing_at = now() - interval '31 days', erase_after = now() - interval '1 minute' WHERE id = $1", [companyId]));
+    const before = w.relay.received.length;
+    const pass = await eraseDueCompanies({});
+    assert.equal(pass.erased.length, 1, JSON.stringify(pass.failed));
+    await sendOutbox(w.api.master);
+    const after = w.relay.received.slice(before).map((one) => one.envelope);
+    const forgotten = after.filter((one) => one?.type === 'company_forgotten');
+    assert.equal(forgotten.length, 1, 'the relay is told to forget the company');
+    const { rows: [relay] } = await withControlPlane((tx) => tx.query<{ salt: Buffer }>('SELECT salt FROM relays WHERE id = $1', [w.relayId]));
+    assert.deepEqual(forgotten[0].company, { ref: companyRef(relay!.salt, companyId) }, 'by the reference that relay knows it by, and nothing else');
+    assert.equal(JSON.stringify(forgotten[0]).includes(companyId), false);
+    // Erased twice over -- a pass that failed after telling and is tried again -- it is told once.
+    const { forgetCompanyAtRelays } = await import('../../src/relay/relays.ts');
+    assert.equal(await forgetCompanyAtRelays(companyId), 0);
+  } finally {
+    await w.close();
+  }
+});

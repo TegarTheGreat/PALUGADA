@@ -15,7 +15,9 @@
  * A person whose phone is lost or replaced is given a new authenticator
  * with the owner's code (STATUS 2.217): signed out everywhere, their phone
  * unlinked, and a new link that asks only for the code of a new app. They
- * stay the same person, in the same rooms and conversations.
+ * stay the same person, in the same rooms and conversations. One whose
+ * handle wrong codes have locked is let in again with the owner's code,
+ * signed out of nothing.
  */
 import { useState } from 'react';
 import {
@@ -25,7 +27,7 @@ import { notifications } from '@mantine/notifications';
 import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { relative } from '../format.ts';
+import { relative, time } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { personPicture } from '../images.ts';
 import type { ConsoleContext } from '../App.tsx';
@@ -46,6 +48,8 @@ interface Seat {
   invitePending: boolean;
   sharesName: boolean;
   lastUsedAt: string | null;
+  /** Until when wrong codes keep the seat's handle locked, while they do. */
+  lockedUntil: string | null;
 }
 
 const LADDER: Record<Kind, number> = { viewer: 0, member: 1, approver: 2 };
@@ -175,6 +179,20 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
     }
   };
 
+  // Wrong codes for a handle lock it; the owner, with their code, lets the person try again now (STATUS 2.217).
+  const unlock = async (one: Seat) => {
+    try {
+      const done = await requireFactor(t('Let {name} sign in again', { name: one.name }), async (proof) => {
+        await api('POST', `/api/companies/${companyId}/staff/${one.id}/unlock`, { proof });
+      });
+      if (!done) return;
+      notifications.show({ color: 'teal', message: t('{name} can sign in again.', { name: one.name }) });
+      seats.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+
   const sharing = seats.data?.seats.filter((one) => one.sharesName) ?? [];
 
   return (
@@ -249,6 +267,9 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
                             <Group gap={6} wrap="nowrap">
                               <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap' }}>{one.name}</Text>
                               {one.sharesName && <Badge size="xs" color="yellow" variant="light">{t('Same name')}</Badge>}
+                              {one.lockedUntil && (
+                                <Badge size="xs" color="red" variant="light">{t('Sign-in locked until {time}', { time: time(one.lockedUntil) })}</Badge>
+                              )}
                             </Group>
                             {one.handle && <Text size="xs" c="dimmed">@{one.handle}</Text>}
                           </div>
@@ -270,6 +291,9 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
                       <Table.Td ta="right">
                         <Group gap={4} justify="flex-end" wrap="nowrap">
                           <Button size="xs" variant="subtle" onClick={() => setChanging(one)}>{t('Change')}</Button>
+                          {one.lockedUntil && (
+                            <Button size="xs" variant="subtle" onClick={() => void unlock(one)}>{t('Let sign in again')}</Button>
+                          )}
                           {(one.joined || !one.invitePending) && (
                             <Button size="xs" variant="subtle" onClick={() => void renew(one)}>
                               {one.joined ? t('New authenticator') : t('New invite')}

@@ -30,6 +30,7 @@
  * seat's, and is locked after repeated wrong codes from wherever they come.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isIPv4, isIPv6 } from 'node:net';
 import { assistantDispatch, roomsOnControlPlane, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { redactor, type SecretManager } from '../secrets/manager.ts';
@@ -307,9 +308,31 @@ interface HandleCount {
   locked_until: Date | null;
 }
 
-/** An address, as a handle's count keeps it: a digest, never the address. */
+/** An address, as a handle's count keeps it: a digest of the network it counts as (`countedAddress`), never the address. */
 function addressKey(address: string): string {
-  return createHash('sha256').update(`palugada:sign-in:${address}`).digest('hex').slice(0, 32);
+  return createHash('sha256').update(`palugada:sign-in:${countedAddress(address)}`).digest('hex').slice(0, 32);
+}
+
+/**
+ * The address wrong codes are counted under: an IPv4 address whole, and an
+ * IPv6 one by its /64, the network one host is usually given, so a machine
+ * cannot count as four addresses by using four of its own (STATUS 2.217).
+ * An IPv4 address written as IPv6 is the IPv4 address. Anything else -- a
+ * name a proxy gave, or nothing -- is counted as it is written.
+ */
+export function countedAddress(address: string): string {
+  const bare = address.trim().replace(/^\[|\]$/g, '').replace(/%.*$/, '').toLowerCase();
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(bare);
+  if (mapped) return mapped[1]!;
+  if (isIPv4(bare)) return bare;
+  if (!isIPv6(bare)) return address;
+  // A trailing IPv4 part is the last two groups, and never among the four kept.
+  const written = bare.replace(/\d+\.\d+\.\d+\.\d+$/, '0:0');
+  const [head = '', tail = ''] = written.split('::');
+  const before = head ? head.split(':') : [];
+  const after = written.includes('::') && tail ? tail.split(':') : [];
+  const groups = written.includes('::') ? [...before, ...Array(8 - before.length - after.length).fill('0'), ...after] : before;
+  return `${groups.slice(0, 4).map((group) => Number.parseInt(group, 16).toString(16)).join(':')}::/64`;
 }
 
 /** The refusal while a handle is locked, the same for a handle nobody holds. */
@@ -347,6 +370,8 @@ export interface SeatListed {
   createdAt: Date;
   joinedAt: Date | null;
   lastUsedAt: Date | null;
+  /** Until when wrong codes keep the seat's handle locked, while they do: the owner may let the person in sooner. */
+  lockedUntil: Date | null;
 }
 
 export class StaffSeats {
@@ -422,17 +447,19 @@ export class StaffSeats {
       const { rows } = await tx.query<{
         id: string; name: string; kind: StaffKind; handle: string | null; picture: string | null; asks_per_day: number;
         name_skeleton: string | null; joined_at: Date | null; invite_pending: boolean; created_at: Date; last_used_at: Date | null;
+        locked_until: Date | null;
       }>(
-        `SELECT id, name, kind, handle, picture, asks_per_day, name_skeleton, joined_at, last_used_at, created_at,
-                invite_hash IS NOT NULL AND invite_expires_at > $2 AS invite_pending
-           FROM staff_seats WHERE company_id = $1 AND revoked_at IS NULL ORDER BY created_at, id`,
+        `SELECT s.id, s.name, s.kind, s.handle, s.picture, s.asks_per_day, s.name_skeleton, s.joined_at, s.last_used_at, s.created_at,
+                s.invite_hash IS NOT NULL AND s.invite_expires_at > $2 AS invite_pending,
+                (SELECT h.locked_until FROM handle_sign_ins h WHERE h.handle = s.handle AND h.locked_until > $2) AS locked_until
+           FROM staff_seats s WHERE s.company_id = $1 AND s.revoked_at IS NULL ORDER BY s.created_at, s.id`,
         [companyId, this.#now()]);
       const seen = rows.map((row) => looks(row.name));
       return rows.map((row, index) => ({
         id: row.id, name: row.name, kind: row.kind, handle: forTheAssistant ? null : row.handle, picture: row.picture, asksPerDay: row.asks_per_day,
         joined: row.joined_at !== null, invitePending: row.invite_pending,
         sharesName: row.name_skeleton === null || seen.some((other, at) => at !== index && looksAlike(other, seen[index]!)),
-        createdAt: row.created_at, joinedAt: row.joined_at, lastUsedAt: row.last_used_at,
+        createdAt: row.created_at, joinedAt: row.joined_at, lastUsedAt: row.last_used_at, lockedUntil: row.locked_until,
       }));
     });
   }
@@ -791,6 +818,27 @@ export class StaffSeats {
     if (!ended) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
     if (ended.secret_ref?.startsWith('db://')) await deleteSecret(ended.secret_ref.slice('db://'.length));
     return { seatId, invite };
+  }
+
+  /**
+   * The owner lets a seat whose handle wrong codes have locked sign in again
+   * (STATUS 2.217): a colleague who knows the handle can lock it from
+   * several networks, and the only other way back, a new authenticator, also
+   * signs the person out everywhere and unlinks their phone. The handle's
+   * count and its locks are forgotten, so the next wrong codes start from a
+   * minute's lock again; the seat's sessions, secret and links are left as
+   * they are. Whether the owner's code was asked is the route's. Answers
+   * whether a count was there to forget.
+   */
+  async unlockHandle(companyId: string, seatId: string): Promise<{ seatId: string; unlocked: boolean }> {
+    return withControlPlane(async (tx) => {
+      const { rows: [seat] } = await tx.query<{ handle: string | null }>(
+        'SELECT handle FROM staff_seats WHERE id = $1 AND company_id = $2 AND revoked_at IS NULL', [seatId, companyId]);
+      if (!seat) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
+      if (seat.handle === null) return { seatId, unlocked: false };
+      const { rowCount } = await tx.query('DELETE FROM handle_sign_ins WHERE handle = $1', [seat.handle]);
+      return { seatId, unlocked: (rowCount ?? 0) > 0 };
+    });
   }
 
   async signOut(token: string): Promise<void> {

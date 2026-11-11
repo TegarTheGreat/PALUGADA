@@ -278,7 +278,8 @@ const MEET_STAFF: AreaPolicy = {
 // --- what people may do, and how much is kept (STATUS 2.217) ---
 // How much the company's room files may take is the owner's to read and to
 // set, as how long its messages are kept is. A seat that loses its phone is
-// given a new authenticator by the owner, on no list.
+// given a new authenticator by the owner, and one locked out by wrong codes
+// is let in again by the owner, both on no list.
 const LIMITS_STAFF: AreaPolicy = {
   reads: [],
   hidden: {

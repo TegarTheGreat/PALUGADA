@@ -202,7 +202,7 @@ import {
 import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { changeSettings, settingsChange } from './profile.ts';
-import { handleOf, pictureOf, seatRequest, StaffSeats, type StaffSession } from './staff.ts';
+import { countedAddress, handleOf, pictureOf, seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
 import {
   EventStream, StreamRegistry, WithStatus, peopleFilesApart, peopleFilesFolder, type Route, type RouteKit, type StreamOpener,
@@ -7622,14 +7622,19 @@ function hostLabel(request: IncomingMessage): string {
   return host || 'palugada';
 }
 
-/** Who is asking: the connection's address, or behind a proxy the one it vouches for. */
+/**
+ * Who is asking: the connection's address, or behind a proxy the one it
+ * vouches for, as wrong codes are counted under it (`countedAddress`): an
+ * IPv6 address by its /64, so one machine's many addresses are one caller
+ * to the throttle and to a handle's lock (STATUS 2.217).
+ */
 function addressOf(request: IncomingMessage, behindProxy: boolean): string {
   if (behindProxy) {
     const forwarded = request.headers['x-forwarded-for'];
     const last = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '').split(',').at(-1)?.trim();
-    if (last) return last;
+    if (last) return countedAddress(last);
   }
-  return request.socket.remoteAddress ?? 'unknown';
+  return countedAddress(request.socket.remoteAddress ?? 'unknown');
 }
 
 /** A configuration kind from a path, or a refusal that lists the ones there are. */

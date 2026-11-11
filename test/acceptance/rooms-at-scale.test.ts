@@ -57,6 +57,8 @@ async function history(fixture: Fixture, roomId: string, shape: {
     const to = Math.min(shape.count, from + BUILD_BATCH);
     await withControlPlane(async (tx) => {
       await roomsOnControlPlane(tx, companyId, { importing: true });
+      // The planner has not seen these rows yet; joined by hash, the builder's own statements stay cheap.
+      await tx.query('SET LOCAL enable_nestloop = off');
       await tx.query(
         `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, via, created_at, position, external_id)
          SELECT gen_random_uuid(), $1, $2, 'text', 'owner', $3 || ' root ' || g, 'import',
@@ -73,6 +75,15 @@ async function history(fixture: Fixture, roomId: string, shape: {
             ORDER BY m.position`,
           [companyId, roomId, shape.tag, shape.replyDaysAgo, reply, from + 1, to]);
       }
+      // Each thread counts its replies, which an import's triggers leave to the importer.
+      await tx.query(
+        `UPDATE room_messages m SET reply_count = c.n, last_reply_position = c.last
+           FROM (SELECT r.thread_of, count(*)::int AS n, max(r.position) AS last
+                   FROM room_messages r JOIN room_messages t ON t.company_id = r.company_id AND t.id = r.thread_of
+                  WHERE r.company_id = $1 AND t.external_id IN (SELECT $2 || ':' || g FROM generate_series($3::int, $4::int) g)
+                  GROUP BY r.thread_of) c
+          WHERE m.company_id = $1 AND m.id = c.thread_of`,
+        [companyId, shape.tag, from + 1, to]);
       await tx.query(
         `INSERT INTO room_reactions (company_id, message_id, principal, emoji, created_at)
          SELECT $1, m.id, 'owner', '👍', m.created_at FROM room_messages m
@@ -111,8 +122,11 @@ async function slowestPostDuring<T>(fixture: Fixture, roomId: string, everyMs: n
   return { result: await finished, slowest, posts };
 }
 
-const counted = async (sql: string, values: unknown[]): Promise<number> => withControlPlane((tx) => tx.query<{ n: string }>(sql, values))
-  .then((result) => Number(result.rows[0]!.n));
+/** A count, joined by hash: the planner has not yet seen the rows this file wrote a moment ago. */
+const counted = async (sql: string, values: unknown[]): Promise<number> => withControlPlane(async (tx) => {
+  await tx.query('SET LOCAL enable_nestloop = off');
+  return tx.query<{ n: string }>(sql, values);
+}).then((result) => Number(result.rows[0]!.n));
 
 test('retention takes a long history in short turns, and a person posting meanwhile is never held long', async () => {
   const fixture = await createCompany('scale-retention');
@@ -139,9 +153,14 @@ test('retention takes a long history in short turns, and a person posting meanwh
       WHERE m.company_id = $1 AND m.thread_of IS NULL AND m.external_id LIKE 'alive:%'
         AND m.deleted_at IS NOT NULL AND m.body IS NULL AND m.reply_count = 1`, [fixture.companyId]), 10_000,
   'a root left without words still counts the reply it keeps');
-  assert.equal(await counted("SELECT count(*) AS n FROM room_reactions WHERE company_id = $1", [fixture.companyId]), 0,
-    'reactions go with the words they were on');
-  assert.equal(await counted("SELECT count(*) AS n FROM room_pins WHERE company_id = $1", [fixture.companyId]), 0);
+  assert.equal(await counted(
+    `SELECT count(*) AS n FROM room_reactions r JOIN room_messages m ON m.company_id = r.company_id AND m.id = r.message_id
+      WHERE r.company_id = $1 AND m.deleted_at IS NULL`, [fixture.companyId]), 0, 'reactions go with the words they were on');
+  assert.equal(await counted(
+    `SELECT count(*) AS n FROM room_pins p JOIN room_messages m ON m.company_id = p.company_id AND m.id = p.message_id
+      WHERE p.company_id = $1 AND m.deleted_at IS NULL`, [fixture.companyId]), 0, 'and pins');
+  assert.equal(await counted('SELECT count(*) AS n FROM room_pins WHERE company_id = $1', [fixture.companyId]), 100,
+    'a pin on a message that keeps its thread stays, as a person removing it leaves it');
 
   // What open consoles are told: the room changed, a few times, not once per message.
   const feedWritten = await counted('SELECT count(*) AS n FROM room_feed WHERE company_id = $1', [fixture.companyId]) - feedBefore - posts;

@@ -91,6 +91,14 @@ interface Section {
    * reader (0150), so no agent's reads them either.
    */
   viaControlPlane?: boolean;
+  /**
+   * Its rows are matched to the company's messages by hash, never by a
+   * nested loop. Until the planner has seen a company's rows -- a company
+   * restored or imported from Slack a moment ago -- it takes the company for
+   * one row and looked every reaction's message up among all the company's
+   * messages, which is the square of the history (STATUS 2.217).
+   */
+  hashed?: true;
 }
 
 const SECTIONS: Section[] = [
@@ -606,6 +614,7 @@ const SECTIONS: Section[] = [
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND kind = 'text' AND deleted_at IS NULL)
            ORDER BY created_at, message_id, principal, emoji`,
     viaControlPlane: true,
+    hashed: true,
   },
   {
     name: 'room_pins',
@@ -623,6 +632,7 @@ const SECTIONS: Section[] = [
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
            ORDER BY created_at, id`,
     viaControlPlane: true,
+    hashed: true,
   },
   // What a Slack export brought (STATUS 2.214): each import's report, and the
   // old workspace's authors with the private rooms they were in. A room and a
@@ -652,6 +662,7 @@ const SECTIONS: Section[] = [
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
            ORDER BY created_at, id`,
     viaControlPlane: true,
+    hashed: true,
   },
   {
     name: 'batch_windows',
@@ -700,7 +711,15 @@ export const EXPORT_SECTION_NAMES: readonly string[] = [
   'llm_traces',
 ];
 
-/** Rows are fetched in pages so a long history does not arrive all at once. */
+/**
+ * Rows are fetched in pages so a long history does not arrive all at once,
+ * from one cursor a section: the query runs once and each page continues
+ * where the last stopped. Paged by `OFFSET`, each page ran the section's
+ * query again and skipped every row before it, which is the square of the
+ * section's size -- a company with ninety thousand messages and their
+ * reactions ran past the statement timeout before its archive was written
+ * (STATUS 2.217).
+ */
 const PAGE_SIZE = 500;
 /** PostgreSQL's `date` (pg_type.oid 1082). */
 const DATE_TYPE = 1082;
@@ -711,15 +730,21 @@ async function streamSection(
   sql: string,
   write: ArchiveWriter,
   params: unknown[] = [],
+  hashed = false,
 ): Promise<number> {
-  let offset = 0;
   let total = 0;
 
+  // The plan is made as the cursor is declared, so the setting is lifted again at once.
+  if (hashed) {
+    const { rows: setting } = await tx.query<{ was: string }>(
+      "SELECT current_setting('enable_nestloop') AS was, set_config('enable_nestloop', 'off', true)");
+    await tx.query(`DECLARE archive_section NO SCROLL CURSOR FOR ${sql}`, params);
+    await tx.query("SELECT set_config('enable_nestloop', $1, true)", [setting[0]!.was]);
+  } else {
+    await tx.query(`DECLARE archive_section NO SCROLL CURSOR FOR ${sql}`, params);
+  }
   for (;;) {
-    const { rows, fields } = await tx.query<Record<string, unknown>>(
-      `${sql} LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
-      params,
-    );
+    const { rows, fields } = await tx.query<Record<string, unknown>>(`FETCH ${PAGE_SIZE} FROM archive_section`);
     // A date column is a day, and is written as one. The driver reads it as midnight where this process runs,
     // which as an instant is the day before east of UTC: an archive written in Jakarta restored every letter,
     // invoice and entry a day early. Its local day is the day the database holds.
@@ -735,8 +760,8 @@ async function streamSection(
       total += 1;
     }
     if (rows.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
   }
+  await tx.query('CLOSE archive_section');
 
   return total;
 }
@@ -770,7 +795,7 @@ export async function exportCompany(
 
       for (const section of SECTIONS) {
         counts[section.name] = section.viaControlPlane
-          ? await streamSection(admin, section.name, section.sql, write, [companyId])
+          ? await streamSection(admin, section.name, section.sql, write, [companyId], section.hashed === true)
           : await streamSection(tx, section.name, section.sql, write);
       }
 

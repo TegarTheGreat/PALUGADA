@@ -407,6 +407,34 @@ export interface PurgedMessages {
 const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
 
 /**
+ * How many messages one turn of a purge takes at most. Each turn is a
+ * transaction of its own that holds the company's room clock, which every
+ * post, edit, reaction and read mark of the company takes first, so a turn
+ * is kept to well under a second however long the history behind it
+ * (STATUS 2.217): a purge of a backlog in one transaction held the clock for
+ * minutes and then ran past the pool's statement timeout and kept nothing.
+ */
+const PURGE_TURN = 2000;
+
+/**
+ * Which messages of a turn's kind are still to be taken: spent -- past the
+ * window, or a card whose work and item retention took -- and, for a message
+ * that began a thread, not the words of a people's meeting that has not yet
+ * ended, which wait for it. `$1` is the company; the answer's `values` follow.
+ */
+function stillToTake(replies: boolean, cutoff: Date | null, now: Date): { where: string; values: unknown[] } {
+  const spent = '(m.created_at < $2 OR (m.kind = ANY($3::text[]) AND m.task_id IS NULL AND m.inbox_item_id IS NULL))';
+  if (replies) return { where: `m.thread_of IS NOT NULL AND ${spent}`, values: [cutoff, CARD_KINDS] };
+  return {
+    where: `m.thread_of IS NULL AND ${spent}
+            AND NOT EXISTS (SELECT 1 FROM room_meetings g
+                             WHERE g.company_id = m.company_id AND g.message_id = m.id AND g.cancelled_at IS NULL
+                               AND g.starts_at + make_interval(mins => g.minutes) > $4::timestamptz)`,
+    values: [cutoff, CARD_KINDS, now],
+  };
+}
+
+/**
  * Every message one pass of retention takes, in one place, on the control
  * plane after `roomsOnControlPlane`: replies past the window, and cards whose
  * work or item retention took, go outright; then a message that began a
@@ -423,63 +451,103 @@ const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
  * meeting nobody called off and remind the people asked of nothing. The
  * notes under them are replies like any other, and go by their own age.
  *
+ * In turns (`PURGE_TURN`), oldest first, replies before the messages they
+ * answer: each turn chooses what it may take without the clock, reading
+ * forward from where the last turn stopped, then takes the clock and asks
+ * again of just those messages -- a reply posted to an old message, or a
+ * removal, is either committed and read then or waits for the turn, so a
+ * reply written today is never taken with the message it answers and a
+ * removal never fails the pass. A turn writes no feed row per message: it
+ * touches each room it changed once, which is what an open room reloads by,
+ * and records what it took in the same transaction, so a pass stopped
+ * between turns has recorded exactly what it removed.
+ *
  * A relay's copy of a message's excerpt is retracted by the worker's notify
  * stage (`retractRemoved`, STATUS section 2.213), which finds each notice
  * whose message is gone or keeps no words, a tombstone left here included.
- * Nothing is called from this transaction: a retraction takes each relay's
+ * Nothing is called from these transactions: a retraction takes each relay's
  * row first, and taken here it would come after the clock and the
  * messages' rows, the reverse of the order a notice going out takes them.
  */
-async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date | null, now: Date): Promise<PurgedMessages> {
-  // The company's clock before anything is chosen, as every room write takes
-  // it first (0150): a reply posted to an old message, or a removal, is then
-  // either committed and read here or waits for this pass, and is never
-  // decided about before it lands.
-  await takeClock(tx);
-  const spent = `(m.created_at < $2 OR (m.kind = ANY($3::text[]) AND m.task_id IS NULL AND m.inbox_item_id IS NULL))`;
-  const { rows: replies } = await tx.query<{ id: string }>(
-    `SELECT m.id FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NOT NULL AND ${spent}`,
-    [companyId, cutoff, CARD_KINDS]);
-  const deleted = replies.map((row) => row.id);
-  const { rows: roots } = await tx.query<{ id: string; replied: boolean; removed: boolean }>(
-    `SELECT m.id, m.deleted_at IS NOT NULL AS removed,
-            EXISTS (SELECT 1 FROM room_messages r
-                     WHERE r.company_id = m.company_id AND r.thread_of = m.id AND NOT r.id = ANY($4::uuid[])) AS replied
-       FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NULL AND ${spent}
-        AND NOT EXISTS (SELECT 1 FROM room_meetings g
-                         WHERE g.company_id = m.company_id AND g.message_id = m.id AND g.cancelled_at IS NULL
-                           AND g.starts_at + make_interval(mins => g.minutes) > $5::timestamptz)`,
-    [companyId, cutoff, CARD_KINDS, deleted, now]);
-  deleted.push(...roots.filter((row) => !row.replied).map((row) => row.id));
-  const tombstoned = roots.filter((row) => row.replied && !row.removed).map((row) => row.id);
-  const paths = await keptPaths(tx, [...deleted, ...tombstoned]);
-  if (deleted.length > 0) {
-    await tx.query('DELETE FROM room_messages WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, deleted]);
+async function purgeMessages(
+  companyId: string, cutoff: Date | null, now: Date, folder: string | null,
+): Promise<PurgedMessages> {
+  const taken: PurgedMessages = { deleted: [], tombstoned: [], paths: [] };
+  for (const replies of [true, false]) {
+    const { where, values } = stillToTake(replies, cutoff, now);
+    const next = values.length + 2;
+    let after = -1;
+    for (;;) {
+      const { rows: chosen } = await withControlPlane((tx) => tx.query<{ id: string; position: string }>(
+        `SELECT m.id, m.position FROM room_messages m
+          WHERE m.company_id = $1 AND ${where} AND m.position > $${next}
+          ORDER BY m.position LIMIT $${next + 1}`,
+        [companyId, ...values, after, PURGE_TURN]));
+      if (chosen.length === 0) break;
+      after = Number(chosen[chosen.length - 1]!.position);
+      const turn = await purgeTurn(companyId, chosen.map((row) => row.id), replies, cutoff, now);
+      taken.deleted.push(...turn.deleted);
+      taken.tombstoned.push(...turn.tombstoned);
+      taken.paths.push(...turn.paths);
+      await removeRoomFiles(folder, turn.paths);
+      if (chosen.length < PURGE_TURN) break;
+    }
   }
-  if (tombstoned.length > 0) {
-    // The control plane's tombstone (0150): the words, revisions and files' paths go, and nobody is named as removing it.
-    await tx.query('UPDATE room_messages SET deleted_at = now() WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, tombstoned]);
-  }
-  return { deleted, tombstoned, paths };
+  return taken;
+}
+
+/**
+ * One turn: the messages `ids` names that are still to be taken once the
+ * clock is held -- replies outright, or roots outright when nothing is left
+ * under them and without words otherwise -- then each room they were in
+ * touched once, and the turn recorded.
+ */
+async function purgeTurn(
+  companyId: string, ids: readonly string[], replies: boolean, cutoff: Date | null, now: Date,
+): Promise<PurgedMessages> {
+  return withControlPlane(async (tx) => {
+    await roomsOnControlPlane(tx, companyId, { quiet: true });
+    // The company's clock before anything is decided, as every room write takes it first (0150).
+    await takeClock(tx);
+    const { where, values } = stillToTake(replies, cutoff, now);
+    const { rows } = await tx.query<{ id: string; room_id: string; replied: boolean; removed: boolean }>(
+      `SELECT m.id, m.room_id, m.deleted_at IS NOT NULL AS removed,
+              ${replies ? 'false' : 'EXISTS (SELECT 1 FROM room_messages r WHERE r.company_id = m.company_id AND r.thread_of = m.id)'} AS replied
+         FROM room_messages m
+        WHERE m.company_id = $1 AND ${where} AND m.id = ANY($${values.length + 2}::uuid[])`,
+      [companyId, ...values, ids]);
+    const deleted = rows.filter((row) => !row.replied).map((row) => row.id);
+    const tombstoned = rows.filter((row) => row.replied && !row.removed).map((row) => row.id);
+    const paths = await keptPaths(tx, [...deleted, ...tombstoned]);
+    if (deleted.length > 0) {
+      await tx.query('DELETE FROM room_messages WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, deleted]);
+    }
+    if (tombstoned.length > 0) {
+      // The control plane's tombstone (0150): the words, revisions and files' paths go, and nobody is named as removing it.
+      await tx.query('UPDATE room_messages SET deleted_at = now() WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, tombstoned]);
+    }
+    const changed = new Set([...deleted, ...tombstoned]);
+    const touched = [...new Set(rows.filter((row) => changed.has(row.id)).map((row) => row.room_id))];
+    if (touched.length > 0) {
+      // Each room once, no longer quiet: the one change an open stream reloads the room by.
+      await roomsOnControlPlane(tx, companyId);
+      await tx.query('UPDATE rooms SET name = name WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, touched]);
+    }
+    await recordRetention(tx, companyId, 'messages_purged', deleted.length + tombstoned.length, cutoff ?? now);
+    return { deleted, tombstoned, paths };
+  });
 }
 
 /**
  * Takes the messages the company's window has passed, and the cards whose
  * work is gone, whatever the window (F19.15). Rooms stay. The bytes of their
- * files are removed after the rows have let them go; a stop between the two
+ * files are removed after each turn has let them go; a stop between the two
  * leaves bytes for the sweep. Answers what went, by message.
  */
 export async function purgeExpiredMessages(companyId: string, now = new Date(), roots: PeopleRoots = {}): Promise<PurgedMessages> {
   const policy = await retentionFor(companyId);
   const cutoff = policy.messageDays === null ? null : new Date(now.getTime() - policy.messageDays * 86_400_000);
-  const purged = await withControlPlane(async (tx) => {
-    await roomsOnControlPlane(tx, companyId);
-    const taken = await purgeMessages(tx, companyId, cutoff, now);
-    await recordRetention(tx, companyId, 'messages_purged', taken.deleted.length + taken.tombstoned.length, cutoff ?? now);
-    return taken;
-  });
-  await removeRoomFiles(peopleFolderOf(roots, companyId), purged.paths);
-  return purged;
+  return purgeMessages(companyId, cutoff, now, peopleFolderOf(roots, companyId));
 }
 
 /**

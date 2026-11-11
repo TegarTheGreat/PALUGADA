@@ -67,7 +67,7 @@ test("only the people's code opens a room transaction, and only tenant.ts names 
   assert.ok(all.size > 200, `only ${all.size} files were read; the scan is broken`);
 
   // The settings a room table's policies and triggers read, set in one place.
-  const settings = ["set_config('app.reader'", "'app.principal'", "'app.principal_name'", "'app.via'", "'app.via_relay'", "'app.importing'"];
+  const settings = ["set_config('app.reader'", "'app.principal'", "'app.principal_name'", "'app.via'", "'app.via_relay'", "'app.importing'", "'app.quiet'"];
   for (const setting of settings) {
     const where = [...all].filter(([, text]) => text.includes(setting)).map(([path]) => path);
     assert.deepEqual(where.filter((path) => path !== 'src/db/tenant.ts'), [], `${setting} is set outside src/db/tenant.ts`);

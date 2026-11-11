@@ -163,16 +163,20 @@ export async function withRoomPlatform<T>(companyId: string, fn: (tx: TenantClie
  * schema's owner, which does not: they need the company, and they read
  * `control` to allow what only the control plane does (a revoked seat's
  * leaving, a tombstone). `importing` is a restore or an import, which writes
- * no feed, notice, mention or follow per row.
+ * no feed, notice, mention or follow per row. `quiet` is a retention pass,
+ * which writes no feed row per message it takes and touches each room it
+ * changed once instead (STATUS 2.217): a feed row per message took a clock
+ * position each, which a long history could not afford.
  */
 export async function roomsOnControlPlane(
   tx: TenantClient,
   companyId: string,
-  options: { importing?: boolean } = {},
+  options: { importing?: boolean; quiet?: boolean } = {},
 ): Promise<void> {
   await tx.query(
-    "SELECT set_config('app.company_id', $1, true), set_config('app.reader', 'control', true), set_config('app.importing', $2, true)",
-    [companyId, options.importing ? 'on' : '']);
+    `SELECT set_config('app.company_id', $1, true), set_config('app.reader', 'control', true), set_config('app.importing', $2, true),
+            set_config('app.quiet', $3, true)`,
+    [companyId, options.importing ? 'on' : '', options.quiet ? 'on' : '']);
 }
 
 /**

@@ -98,8 +98,20 @@ interface ImportSection {
    * A room table (0150): written after `roomsOnControlPlane` says a restore
    * is under way, so its triggers keep the archive's dates and owe nobody a
    * mention, a follow, a count or a change for any row (STATUS 2.212).
+   * Its rows are written many to a statement (STATUS 2.217).
    */
   room?: true;
+  /**
+   * The messages: each takes its place from the new company's clock in the
+   * archive's order, all of them in one step (STATUS 2.217).
+   */
+  positions?: true;
+  /**
+   * A row the database would refuse whole, and the restore with it, that an
+   * archive from before the rule may still carry: left out, and anything
+   * naming it with it (STATUS 2.217).
+   */
+  keep?: (row: Record<string, unknown>) => boolean;
 }
 
 /**
@@ -347,6 +359,7 @@ const SECTIONS: ImportSection[] = [
     drop: ['reply_count', 'last_reply_position'],
     remapJson: ['notice_values'],
     room: true,
+    positions: true,
   },
   {
     name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], required: ['message_id'], room: true,
@@ -672,6 +685,13 @@ export async function importCompany(
  * place was made at the end of the room.
  */
 async function roomsCounted(tx: TenantClient, companyId: string): Promise<void> {
+  // Not as a nested loop: the planner knows nothing yet of a company this
+  // transaction made, takes it for one row, and ran the grouped count again
+  // for every thread, which a restore of twenty thousand threads ran past the
+  // statement timeout and rolled back whole (STATUS 2.217). Joined by hash,
+  // the replies are counted once. The setting is this statement's alone.
+  const { rows: setting } = await tx.query<{ was: string }>("SELECT current_setting('enable_nestloop') AS was");
+  await tx.query("SELECT set_config('enable_nestloop', 'off', true)");
   await tx.query(
     `UPDATE room_messages m
         SET reply_count = counted.n, last_reply_position = counted.last
@@ -679,6 +699,7 @@ async function roomsCounted(tx: TenantClient, companyId: string): Promise<void> 
                FROM room_messages WHERE company_id = $1 AND thread_of IS NOT NULL GROUP BY thread_of) counted
       WHERE m.company_id = $1 AND m.id = counted.thread_of`,
     [companyId]);
+  await tx.query("SELECT set_config('enable_nestloop', $1, true)", [setting[0]!.was]);
   await roomsOnControlPlane(tx, companyId);
   await tx.query('UPDATE rooms SET name = name WHERE company_id = $1', [companyId]);
 }
@@ -896,11 +917,15 @@ async function importSection(
 
   const json = await jsonColumnsFor(tx, section.table);
 
-  let written = 0;
+  const kept: Array<Record<string, unknown>> = [];
   for (const row of rows) {
     // In the archive's order, so a reply after its message: a row left out
     // has its id taken out of the map, and whatever names it is left out in turn.
     if ((section.required ?? []).some((column) => typeof row[column] === 'string' && !remap.has(row[column] as string))) {
+      if (typeof row.id === 'string') remap.delete(row.id);
+      continue;
+    }
+    if (section.keep && !section.keep(row)) {
       if (typeof row.id === 'string') remap.delete(row.id);
       continue;
     }
@@ -940,19 +965,64 @@ async function importSection(
     }
 
     values.company_id = companyId;
-
-    const columns = Object.keys(values);
-    const placeholders = columns.map((_column, index) => `$${index + 1}`);
-    const { rowCount } = await tx.query(
-      `INSERT INTO ${section.table} (${columns.map(quote).join(', ')})
-       VALUES (${placeholders.join(', ')})
-       ON CONFLICT DO NOTHING`,
-      columns.map((column) => normalise(values[column], json.has(column))),
-    );
-    written += rowCount ?? 0;
+    kept.push(values);
   }
 
+  if (section.positions && kept.length > 0) {
+    // Every message's place from the new company's clock, in the archive's
+    // order, taken in one step rather than one update of the clock a message
+    // (0161): the room triggers keep a position taken so.
+    const { rows: taken } = await tx.query<{ first: string }>('SELECT app.take_room_positions($1, $2) AS first', [companyId, kept.length]);
+    const first = Number(taken[0]!.first);
+    kept.forEach((values, index) => { values.position = first + index; });
+  }
+
+  let written = 0;
+  if (!section.room) {
+    for (const values of kept) written += await insertRows(tx, section.table, [values], json);
+    return written;
+  }
+  // A room section can be a company's whole history, so its rows go many to
+  // a statement, each run of rows with the same columns together: one round
+  // trip a row was most of a large restore's time. A statement's rows are
+  // written in their order, and each row's triggers see the rows before it.
+  let run: Array<Record<string, unknown>> = [];
+  let shape = '';
+  for (const values of kept) {
+    const columns = Object.keys(values).join(',');
+    const most = Math.max(1, Math.min(ROWS_A_STATEMENT, Math.floor(PARAMETERS_A_STATEMENT / Object.keys(values).length)));
+    if (run.length > 0 && (columns !== shape || run.length >= most)) {
+      written += await insertRows(tx, section.table, run, json);
+      run = [];
+    }
+    shape = columns;
+    run.push(values);
+  }
+  if (run.length > 0) written += await insertRows(tx, section.table, run, json);
   return written;
+}
+
+/** The most rows one statement of a room section writes, and the most values: PostgreSQL takes 65,535 parameters. */
+const ROWS_A_STATEMENT = 500;
+const PARAMETERS_A_STATEMENT = 60_000;
+
+/** Rows that share their columns, in one statement; answers how many were written. */
+async function insertRows(
+  tx: Pick<TenantClient, 'query'>, table: string, rows: ReadonlyArray<Record<string, unknown>>, json: Set<string>,
+): Promise<number> {
+  const columns = Object.keys(rows[0]!);
+  const values: unknown[] = [];
+  const tuples = rows.map((row) => `(${columns.map((column) => {
+    values.push(normalise(row[column], json.has(column)));
+    return `$${values.length}`;
+  }).join(', ')})`);
+  const { rowCount } = await tx.query(
+    `INSERT INTO ${table} (${columns.map(quote).join(', ')})
+     VALUES ${tuples.join(', ')}
+     ON CONFLICT DO NOTHING`,
+    values,
+  );
+  return rowCount ?? 0;
 }
 
 /** Identifiers come from this module's own section list, never from an archive. */

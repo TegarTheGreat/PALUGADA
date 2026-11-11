@@ -63,6 +63,8 @@ export function countRefusal(reason: string): void {
 export interface Opens {
   roomId?: string | null | undefined;
   threadOf?: string | null | undefined;
+  /** The place in the room of the message the notice begins with, which the room opens around. */
+  position?: number | null | undefined;
   itemId?: string | null | undefined;
   taskId?: string | null | undefined;
 }
@@ -89,11 +91,12 @@ export async function enqueue(tx: TenantClient, entry: OutboxEntry, now = new Da
   const opens = entry.opens ?? {};
   const { rowCount } = await tx.query(
     `INSERT INTO relay_outbox (id, relay_id, link_id, company_id, type, subjects, body, next_at, created_at,
-                               handle, room_id, thread_of, item_id, task_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13)
+                               handle, room_id, thread_of, item_id, task_id, position)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (id) DO NOTHING`,
     [entry.id, entry.relayId, entry.linkId, entry.companyId, entry.type, entry.subjects, entry.body, now,
-      entry.handle ?? null, opens.roomId ?? null, opens.threadOf ?? null, opens.itemId ?? null, opens.taskId ?? null]);
+      entry.handle ?? null, opens.roomId ?? null, opens.threadOf ?? null, opens.itemId ?? null, opens.taskId ?? null,
+      opens.roomId ? opens.position ?? null : null]);
   return rowCount === 1;
 }
 

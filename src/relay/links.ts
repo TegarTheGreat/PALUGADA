@@ -273,6 +273,8 @@ export interface NoticeOpens {
   threadOf: string | null;
   itemId: string | null;
   taskId: string | null;
+  /** The place in the room of the message the notice tells of, which the room opens around (STATUS 2.218). */
+  position: number | null;
 }
 
 /**
@@ -288,13 +290,17 @@ export async function openNotice(handle: string, by: Linker): Promise<NoticeOpen
   return withControlPlane(async (tx) => {
     const { rows: [row] } = await tx.query<{
       company_id: string | null; room_id: string | null; thread_of: string | null; item_id: string | null; task_id: string | null; principal: string;
+      position: string | null;
     }>(
-      `SELECT o.company_id, o.room_id, o.thread_of, o.item_id, o.task_id, l.principal
+      `SELECT o.company_id, o.room_id, o.thread_of, o.item_id, o.task_id, o.position, l.principal
          FROM relay_outbox o JOIN relay_links l ON l.id = o.link_id WHERE o.handle = $1`,
       [handle]);
     if (!row || row.company_id === null || row.principal !== by.principal || (by.companyId !== null && row.company_id !== by.companyId)) {
       throw unknown();
     }
-    return { companyId: row.company_id, roomId: row.room_id, threadOf: row.thread_of, itemId: row.item_id, taskId: row.task_id };
+    return {
+      companyId: row.company_id, roomId: row.room_id, threadOf: row.thread_of, itemId: row.item_id, taskId: row.task_id,
+      position: row.position === null ? null : Number(row.position),
+    };
   });
 }

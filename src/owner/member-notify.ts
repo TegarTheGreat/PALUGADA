@@ -72,6 +72,11 @@ export interface NoticeTarget {
   companyId: string;
   roomId?: string | null;
   threadOf?: string | null;
+  /**
+   * The place in the room of the message a notice about words begins with,
+   * so the room opens around it, marked, as a search hit does (STATUS 2.218).
+   */
+  position?: number | null;
   itemId?: string | null;
   taskId?: string | null;
 }
@@ -81,8 +86,9 @@ export type NoticeLinkFor = (target: NoticeTarget) => string | null;
 /**
  * A notice's link, made from the deployment's link to a task: the same
  * public address, opened on a room and a thread, an item or a task instead
- * (`?company=&room=&thread=`, which the console reads). None when the
- * deployment has no public address.
+ * (`?company=&room=&thread=`, which the console reads), and at the message
+ * a notice about words begins with (`&at=`, its place in the room). None
+ * when the deployment has no public address.
  */
 export function noticeLinks(taskLink: ((task: { companyId: string; taskId: string }) => string | null) | undefined): NoticeLinkFor | undefined {
   if (!taskLink) return undefined;
@@ -94,6 +100,7 @@ export function noticeLinks(taskLink: ((task: { companyId: string; taskId: strin
     link.searchParams.set('company', target.companyId);
     if (target.roomId) link.searchParams.set('room', target.roomId);
     if (target.threadOf) link.searchParams.set('thread', target.threadOf);
+    if (target.position) link.searchParams.set('at', String(target.position));
     if (target.itemId) link.searchParams.set('item', target.itemId);
     if (target.taskId) link.searchParams.set('task', target.taskId);
     return link.toString();
@@ -711,10 +718,10 @@ async function deliver(companyId: string, row: DueRow, context: Context): Promis
     await chat.deliverPeopleNotice!({ companyId, text: said.summary.text, url: link, language });
     return { settled: 'sent', day: today };
   }
-  const { roomId, threadOf, itemId, taskId } = subject.target;
+  const { roomId, threadOf, position, itemId, taskId } = subject.target;
   const sent = await relayPeopleNotice(row.channel.slice('relay:'.length), {
     id: row.id, companyId, principal: row.principal, type: subject.type, subjects: subject.subjects, language, link, said,
-    opens: { roomId, threadOf, itemId, taskId },
+    opens: { roomId, threadOf, position, itemId, taskId },
     ...(subject.room ? { room: subject.room } : {}), ...(subject.item ? { item: subject.item } : {}),
     ...(subject.words ? { words: subject.words } : {}),
   }, context.now);
@@ -741,8 +748,9 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
     const { rows: [message] } = await tx.query<{
       room_id: string; thread_of: string | null; author: string; author_name: string | null; body: string | null; deleted: boolean;
       room_kind: string; room_name: string | null; division_id: string | null; read_position: string | null; unseen: boolean;
+      at: string;
     }>(
-      `SELECT m.room_id, m.thread_of, m.author, m.author_name, m.body, m.deleted_at IS NOT NULL AS deleted,
+      `SELECT m.room_id, m.thread_of, m.author, m.author_name, m.body, m.deleted_at IS NOT NULL AS deleted, m.position AS at,
               r.kind AS room_kind, r.name AS room_name, r.division_id,
               (SELECT p.read_position FROM room_places p WHERE p.room_id = m.room_id AND p.principal = $2) AS read_position,
               EXISTS (SELECT 1 FROM room_mentions n JOIN room_messages x ON x.company_id = n.company_id AND x.id = n.message_id
@@ -777,7 +785,7 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
         summary,
         content: excerpt === null ? summary : { text: `${sentence}\n${excerpt}`, data: { ...summary.data, excerpt } },
       },
-      target: { companyId: context.directory.companyId, roomId: message.room_id, threadOf: message.thread_of },
+      target: { companyId: context.directory.companyId, roomId: message.room_id, threadOf: message.thread_of, position: Number(message.at) },
       room: { roomId: message.room_id, threadOf: message.thread_of, position, messageId: message.deleted ? null : id },
     };
   }

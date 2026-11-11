@@ -18,6 +18,7 @@ export function linkFor(target: NoticeTarget): string {
   link.searchParams.set('company', target.companyId);
   if (target.roomId) link.searchParams.set('room', target.roomId);
   if (target.threadOf) link.searchParams.set('thread', target.threadOf);
+  if (target.position) link.searchParams.set('at', String(target.position));
   if (target.itemId) link.searchParams.set('item', target.itemId);
   if (target.taskId) link.searchParams.set('task', target.taskId);
   return link.toString();

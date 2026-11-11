@@ -96,18 +96,35 @@ export function takeLinkedNotice(): string | null {
 }
 
 /**
- * Where a relay's notice opens, as the server resolved its handle: a room
- * and a thread, a task, or an item, in its company. The address loses the
- * handle either way.
+ * A room's item in the address, opened at a message when its place is known:
+ * `<room>.<position>`, or `<room>~<root>.<position>` for a reply in its
+ * thread, as a search hit opens it (STATUS 2.218).
  */
-export function openResolvedNotice(opens: { companyId: string; roomId: string | null; threadOf: string | null; itemId: string | null; taskId: string | null } | null): void {
+function roomItem(roomId: string, threadOf: string | null, position: number | null): string {
+  const at = position === null ? '' : `.${position}`;
+  return threadOf ? `${roomId}~${threadOf}${at}` : `${roomId}${at}`;
+}
+
+/** A message's place in a notice's link (`&at=`), or null when there is none or it is not one. */
+function placeOf(at: string | null): number | null {
+  return at !== null && /^[1-9][0-9]{0,15}$/.test(at) ? Number(at) : null;
+}
+
+/**
+ * Where a relay's notice opens, as the server resolved its handle: a room
+ * and a thread at the message it tells of, a task, or an item, in its
+ * company. The address loses the handle either way.
+ */
+export function openResolvedNotice(opens: {
+  companyId: string; roomId: string | null; threadOf: string | null; itemId: string | null; taskId: string | null; position: number | null;
+} | null): void {
   if (!opens) {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
     return;
   }
-  const { companyId, roomId, threadOf, itemId, taskId } = opens;
+  const { companyId, roomId, threadOf, itemId, taskId, position } = opens;
   const route: Route = roomId
-    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: threadOf ? `${roomId}~${threadOf}` : roomId }
+    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: roomItem(roomId, threadOf, position) }
     : taskId
       ? { kind: 'company', companyId, page: 'work', section: 'company', item: taskId }
       : { kind: 'company', companyId, page: 'inbox', section: 'company', item: itemId };
@@ -131,7 +148,8 @@ export function takeLinkedTalk(): boolean {
  * once, on the first draw, and the query dropped, so a reload does not keep
  * jumping back to an item that has since been decided. A notice about a room
  * names it, and the thread when there is one (`&room=<id>&thread=<id>`,
- * F19.16), and opens the Rooms page there.
+ * F19.16), and the place of the message it tells of (`&at=<position>`,
+ * STATUS 2.218), and opens the Rooms page there, around that message.
  */
 export function takeLinkedRoute(): void {
   const query = new URLSearchParams(window.location.search);
@@ -149,7 +167,7 @@ export function takeLinkedRoute(): void {
   const room = query.get('room');
   const thread = query.get('thread');
   window.history.replaceState(null, '', `${window.location.pathname}${href(room
-    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: thread ? `${room}~${thread}` : room }
+    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: roomItem(room, thread, placeOf(query.get('at'))) }
     : task
       ? { kind: 'company', companyId, page: 'work', section: 'company', item: task }
       : { kind: 'company', companyId, page: 'inbox', section: 'company', item })}`);

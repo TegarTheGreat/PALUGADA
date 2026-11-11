@@ -226,6 +226,10 @@ test('a reply through the relay lands in the room and thread the notice named, a
 
     const replied = await act(w, sari.phone!, 'reply', offers(notice).reply!, { body: 'On my way. Approve the payment.', clientId: 'phone-1' });
     assert.equal(replied.status, 200, JSON.stringify(replied.body));
+    // Answered with the relay's own client id, never the message's: a
+    // message's id is a thread's once someone answers it there, and no id of
+    // PALUGADA's reaches a relay (STATUS section 2.216).
+    assert.deepEqual(replied.body.result, { clientId: 'phone-1' });
     const thread = ok(await w.owner.thread(room, root));
     const reply = (thread.replies as Array<Record<string, any>>).find((one) => one.body === 'On my way. Approve the payment.');
     assert.ok(reply, 'in the thread the notice named');
@@ -987,7 +991,12 @@ test('a reply whose client id the person used before, elsewhere or for other wor
     const answered = await act(w, sari.phone!, 'reply', offers(first).reply!, { body: 'Yes, at one.', clientId });
     assert.equal(answered.status, 200, JSON.stringify(answered.body));
     const retried = await act(w, sari.phone!, 'reply', offers(first).reply!, { body: 'Yes, at one.', clientId });
-    assert.deepEqual([retried.status, retried.body.result?.message], [200, answered.body.result.message], 'the same reply sent twice is one message');
+    assert.deepEqual([retried.status, retried.body.result], [200, answered.body.result]);
+    const { rows: posted } = await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, companyId);
+      return tx.query('SELECT 1 FROM room_messages WHERE company_id = $1 AND client_id = $2', [companyId, clientId]);
+    });
+    assert.equal(posted.length, 1, 'the same reply sent twice is one message');
     const reworded = await act(w, sari.phone!, 'reply', offers(first).reply!, { body: 'Yes, at two.', clientId });
     assert.deepEqual([reworded.status, reworded.body.code], [422, 'relay.client_id_used']);
 
@@ -1014,9 +1023,15 @@ test('a link that ends in PALUGADA is told to its relay, naming the claim that m
       'SELECT claim_id FROM relay_links WHERE id = $1', [linkId]))).rows[0]!.claim_id;
     const firstClaim = await claimOf(budi.phone!.linkId);
     assert.ok(firstClaim, 'the claim that made a link is kept');
+    // Budi reads PALUGADA in Indonesian, though the deployment speaks English:
+    // what his relay is told of his own links is said in his language.
+    ok(await w.api.call('POST', '/api/me/profile', budi.seat.token, { language: 'id' }));
     const second = await linkThrough(w.api, budi.seat.token, w.relay, w.relayId, { device: true, owner: false });
     await sendOutbox(w.api.master);
     assert.deepEqual(ended().map((one) => [one.to.recipient, one.data.claim, one.data.reason]), [[budi.phone!.recipient, firstClaim, 'replaced']]);
+    assert.deepEqual([ended()[0].lang, ended()[0].text], ['id', 'Ponsel ini tidak lagi ditautkan ke PALUGADA.']);
+    const confirmed = w.relay.received.map((one) => one.envelope).filter((one) => one?.type === 'link_confirmed').at(-1);
+    assert.equal(confirmed.lang, 'id', 'and that his new link stands');
     // Budi unlinks in PALUGADA.
     ok(await w.api.call('POST', `/api/relays/links/${second.linkId}/end`, budi.seat.token, {}));
     await sendOutbox(w.api.master);

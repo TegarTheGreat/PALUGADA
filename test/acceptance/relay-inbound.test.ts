@@ -147,6 +147,13 @@ test('an envelope is taken only with the relay\'s signature, fresh, and once', a
     // Signed six minutes ago.
     const stale = await relay.push(api.url, relayId, relay.sign(body, { at: new Date(Date.now() - 360_000) }));
     assert.equal(stale.status, 408);
+    // More signatures than any sender needs, its own good one among them:
+    // taken as unsigned, so a stranger cannot make the route verify without
+    // end before it is throttled (STATUS section 2.216).
+    const crowded = relay.sign(body);
+    const filler = Array.from({ length: 4 }, () => `v1a,${randomBytes(64).toString('base64')}`);
+    const many = await relay.push(api.url, relayId, { ...crowded, signature: [...filler, crowded.signature].join(' ') });
+    assert.deepEqual([many.status, many.body.code], [401, 'relay.signature']);
     assert.equal((await itemState(fixture.companyId, itemId)).status, 'open');
 
     // Signed, fresh: taken, as a decision from a chat.
@@ -489,6 +496,10 @@ test("a run's question is answered from a phone with the person's words or one o
     assert.equal(told.envelope.data.question, 'Which price?');
     const labels = told.envelope.offers.map((offer: { act: string; label: string }) => `${offer.act}:${offer.label}`);
     assert.deepEqual(labels, ['answer:Rp 25.000', 'answer:Rp 30.000', 'answer:Answer']);
+    // An answer longer than any is taken is malformed, not an unknown token,
+    // and spends nothing (STATUS section 2.216).
+    const long = await press(api, relay, relayId, linked, told.envelope.offers[2].token as string, { answer: 'x'.repeat(2_001) });
+    assert.deepEqual([long.status, long.body.code], [422, 'relay.malformed']);
     // The choice is the offer's, whatever the relay says beside it.
     const chosen = told.envelope.offers[1].token as string;
     const answered = await press(api, relay, relayId, linked, chosen, { answer: 'Rp 1' });

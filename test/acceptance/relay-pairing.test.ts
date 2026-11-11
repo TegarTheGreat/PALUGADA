@@ -140,6 +140,9 @@ test('a relay is paired only with the owner\'s fresh code and at least sixteen c
     assert.equal(request.key, identity.kid);
     assert.equal(request.envelope.deployment, identity.deployment);
     assert.equal(request.envelope.key, identity.key);
+    // Where the relay posts back: nowhere it could reach, on a deployment with
+    // no public address, which it is then pulled from (STATUS section 2.216).
+    assert.equal(request.envelope.inbound, null);
     const { rows: [row] } = await withControlPlane((tx) => tx.query<{ pair_request_id: string; paired_at: Date | null }>(
       'SELECT pair_request_id, paired_at FROM relays WHERE id = $1', [relayId]));
     assert.equal(row!.pair_request_id, request.envelope.id, 'the accept is bound to this request');
@@ -568,18 +571,33 @@ test("a relay behind for the rotation's week is still sent its rotation signed b
     assert.deepEqual([again.status, again.body.code], [409, 'relay.rotation_owed']);
     const page = await api.call('GET', '/api/control/relays', token);
     assert.equal(page.body.relays.find((one: { id: string }) => one.id === relayId).rotationOwed, true);
-    // The week passes with the relay down.
-    const later = new Date(Date.now() + 8 * 86_400_000);
-    await forgetPreviousKey(later);
+    // The relay stays down past every attempt any other envelope is given,
+    // and past the fortnight a dead letter is kept: its rotation is never
+    // given up on while it is paired, and is tried again within the hour.
+    const { MAX_ATTEMPTS } = await import('../../src/relay/outbox.ts');
+    const { relayBookkeeping } = await import('../../src/relay/loop.ts');
+    const rotationRows = async () => (await withControlPlane((tx) => tx.query<{ status: string; attempts: number; next_at: Date }>(
+      "SELECT status, attempts, next_at FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated'", [relayId]))).rows;
+    let at = Date.now();
+    for (let pass = 0; pass <= MAX_ATTEMPTS + 1; pass += 1) {
+      at += 2 * 3_600_000;
+      await sendOutbox(api.master, new Date(at));
+    }
+    const [waiting] = await rotationRows();
+    assert.equal(waiting!.status, 'pending', 'a rotation is never given up on while its relay is paired');
+    assert.ok(waiting!.attempts > MAX_ATTEMPTS, `tried ${waiting!.attempts} times`);
+    assert.ok(waiting!.next_at.getTime() <= at + 3_600_000, 'and tried again within the hour');
+    const fortnight = new Date(Date.now() + 15 * 86_400_000);
+    await relayBookkeeping(fortnight);
+    assert.equal((await rotationRows()).length, 1, "the fortnight's bookkeeping keeps it");
+    assert.equal(await forgetPreviousKey(fortnight), false, 'and the key the relay pinned with it');
     down = false;
-    await sendOutbox(api.master, new Date(later.getTime() + 3_600_000));
+    await sendOutbox(api.master, new Date(fortnight.getTime() + 3_600_000));
     const told = relay.received.filter((one) => one.envelope?.type === 'keys_rotated').at(-1)!;
     assert.ok(signedBy(Buffer.from(old.key, 'base64url'), told), 'signed by the key the relay pinned, though its week is over');
-    const { rows: [owed] } = await withControlPlane((tx) => tx.query<{ status: string }>(
-      "SELECT status FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated'", [relayId]));
-    assert.equal(owed!.status, 'delivered');
+    assert.equal((await rotationRows())[0]!.status, 'delivered');
     // Taken: the old key is forgotten, and the next rotation may go.
-    assert.equal(await forgetPreviousKey(later), true);
+    assert.equal(await forgetPreviousKey(fortnight), true);
     const third = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
     assert.equal(third.status, 200, JSON.stringify(third.body));
   } finally {
@@ -651,6 +669,103 @@ test("a paired relay is paired again in place with a key it took out of band, ke
     assert.equal(after!.status, 'active', 'and their link');
     const ack = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
     assert.equal(ack.status, 200, 'its new key is the one taken');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test('a relay paired again in place through a rotation it missed has taken the key it was paired with, and the next rotation may go', async () => {
+  // STATUS section 2.216: pairing again in place is how a relay that can
+  // verify nothing comes back, and its pairing request carries the key.
+  const fixture = await createCompany('relay-rotate-repair');
+  let stranded = false;
+  const relay = await fakeRelay({ answer: (one) => (stranded && one.envelope?.type !== 'pair_request' ? { status: 401 } : undefined) });
+  const api = await consoleWithSettings({ baseEnv: { PALUGADA_APP_URL_PUBLIC: 'https://palugada.example/' } });
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId] });
+    // The relay lost its state, and verifies nothing the deployment sends.
+    stranded = true;
+    const rotated = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
+    assert.equal(rotated.status, 200, JSON.stringify(rotated.body));
+    await sendOutbox(api.master);
+    const page = async () => (await api.call('GET', '/api/control/relays', token)).body.relays.find((one: { id: string }) => one.id === relayId);
+    assert.equal((await page()).rotationOwed, true);
+
+    // Its operator pins the fingerprint the owner reads now, and the owner pairs it again in place.
+    const again = await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: relay.fingerprint.slice(0, 16), companies: [fixture.companyId], proof: { totp: api.code() },
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    stranded = false;
+    const identity = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { key: string };
+    const request = relay.received.filter((one) => one.envelope?.type === 'pair_request').at(-1)!;
+    assert.equal(request.envelope.key, identity.key, 'the pairing request carries the key the relay pins');
+    // Where a relay that posts back finds the deployment: its public address and this relay's door.
+    assert.equal(request.envelope.inbound, `https://palugada.example/api/relay/v1/relays/${relayId}/inbound`);
+    assert.equal((await page()).rotationOwed, false, 'the rotation it missed is owed no more');
+    const { rows: owed } = await withControlPlane((tx) => tx.query(
+      "SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated' AND status <> 'delivered'", [relayId]));
+    assert.equal(owed.length, 0);
+    const next = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
+    assert.equal(next.status, 200, JSON.stringify(next.body));
+    await sendOutbox(api.master);
+    const newest = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { key: string };
+    const rotations = relay.received.filter((one) => one.envelope?.type === 'keys_rotated');
+    assert.equal(rotations.at(-1)!.envelope.key, newest.key, 'and the relay is sent the next one');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test('a relay paired again in place naming fewer companies is told nothing more of those it dropped', async () => {
+  // STATUS section 2.216: pairing again narrows what a relay hears as its
+  // settings do (protocol section 7).
+  const kept = await createCompany('relay-repair-kept');
+  const dropped = await createCompany('relay-repair-dropped');
+  let down = false;
+  const relay = await fakeRelay({ answer: (one) => (down && one.envelope?.type !== 'pair_request' ? { status: 503 } : undefined) });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [kept.companyId, dropped.companyId], share: 'summary', mayPress: true });
+    await linkThrough(api, token, relay, relayId, { device: true });
+    const seat = await seated(api, dropped, token, 'approver');
+    const seatLink = await linkThrough(api, seat.token, relay, relayId, { device: true, owner: false });
+    await sendOutbox(api.master);
+    // Owed while the relay is down: an approval in the company about to be dropped.
+    down = true;
+    await inbox.requestApproval({
+      companyId: dropped.companyId, capabilityName: 'email.send', tier: 2, actionSummary: 'Send the price list',
+      rationale: 'ready', consequenceIfDenied: 'not sent',
+    });
+    await handToRelay(dropped.companyId, relayId);
+    await sendOutbox(api.master);
+    const live = async () => (await withControlPlane((tx) => tx.query(
+      'SELECT 1 FROM relay_offers WHERE relay_id = $1 AND company_id = $2 AND voided_at IS NULL', [relayId, dropped.companyId]))).rows.length;
+    assert.equal(await live(), 2);
+
+    const again = await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: relay.fingerprint.slice(0, 16), companies: [kept.companyId], proof: { totp: api.code() },
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual(again.body.relay.companies, [kept.companyId]);
+    assert.equal(await live(), 0, 'no offer stands in a company the relay no longer hears about');
+    const { rows: owed } = await withControlPlane((tx) => tx.query(
+      "SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND company_id = $2 AND type = 'inbox_item'", [relayId, dropped.companyId]));
+    assert.equal(owed.length, 0, 'what was owed of it is not sent');
+    const { rows: [link] } = await withControlPlane((tx) => tx.query<{ status: string }>(
+      'SELECT status FROM relay_links WHERE id = $1', [seatLink.linkId]));
+    assert.equal(link!.status, 'ended', "and its people's links through the relay end");
+
+    const tried = relay.received.filter((one) => one.envelope?.type === 'inbox_item').length;
+    down = false;
+    await sendOutbox(api.master, new Date(Date.now() + 120_000));
+    assert.equal(relay.received.filter((one) => one.envelope?.type === 'inbox_item').length, tried, 'nothing of the dropped company is sent');
+    const ended = relay.received.map((one) => one.envelope).filter((one) => one?.type === 'link_ended');
+    assert.deepEqual(ended.map((one) => [one.to.recipient, one.data.reason]), [[seatLink.recipient, 'company_dropped']]);
   } finally {
     await api.close();
     await relay.close();

@@ -23,6 +23,7 @@ import {
   addRelay, announceRotation, applyRelaySettings, pairRelay, pairingTerms, pingRelay, planRelaySettings, relaysPage, retryDead, revokeRelay,
 } from '../../relay/relays.ts';
 import { WithStatus, type Route, type RouteContext, type RouteKit } from '../route.ts';
+import { countedAddress } from '../staff.ts';
 
 /** Every route of the relay, and of a person's linked phone. */
 export function relayRoutes(kit: RouteKit): Route[] {
@@ -211,12 +212,17 @@ export function relayRoutes(kit: RouteKit): Route[] {
   ];
 }
 
-/** Who is asking: the connection's address, or behind a proxy the one it vouches for, as sign-in reads it. */
+/**
+ * Who is asking: the connection's address, or behind a proxy the one it
+ * vouches for, counted as sign-in counts it (`countedAddress`): an IPv6
+ * address by its /64, so one machine's many addresses are one stranger to
+ * the route's minute (STATUS 2.216, 2.217).
+ */
 function addressOf(request: IncomingMessage, behindProxy: boolean): string {
   if (behindProxy) {
     const forwarded = request.headers['x-forwarded-for'];
     const last = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '').split(',').at(-1)?.trim();
-    if (last) return last;
+    if (last) return countedAddress(last);
   }
-  return request.socket.remoteAddress ?? 'unknown';
+  return countedAddress(request.socket.remoteAddress ?? 'unknown');
 }

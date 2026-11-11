@@ -276,3 +276,44 @@ GRANT EXECUTE ON FUNCTION app.room_files_kept(uuid) TO palugada_app;
 -- to it as before. The owner's number holds every notice: the owner's day
 -- is what it keeps (G3).
 ALTER TABLE people_notices ADD COLUMN named boolean NOT NULL DEFAULT false;
+
+-- ---------------------------------------------------------------------------
+-- A handle's wrong codes are the handle's, from more than one address (F19.22).
+--
+-- Five wrong codes for a handle locked its seat, and one address may send
+-- five in its quarter hour: anyone who knew a colleague's handle, which
+-- every colleague sees, could keep them out from one machine with five
+-- codes an hour. And the lock answered only for a handle someone held, so a
+-- stranger learned from it which handles were real. The count is now kept
+-- for the handle as typed, held or not, and each address counts at most
+-- three of the ten wrong codes that lock it; the seat's own count goes.
+CREATE TABLE handle_sign_ins (
+  handle       text PRIMARY KEY CHECK (handle ~ '^[a-z][a-z0-9._-]{2,31}$'),
+  -- Wrong codes counted toward the next lock in this quarter hour.
+  counted      smallint NOT NULL DEFAULT 0 CHECK (counted BETWEEN 0 AND 100),
+  -- How many of them each address counted, by a digest of the address and
+  -- never the address: {"<digest>": n}. Emptied with each lock.
+  addresses    jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(addresses) = 'object'),
+  -- When this quarter hour's count is forgotten.
+  window_until timestamptz,
+  -- Locks so far, each twice as long as the last, to an hour.
+  locks        smallint NOT NULL DEFAULT 0 CHECK (locks BETWEEN 0 AND 1000),
+  locked_until timestamptz,
+  -- A row untouched for a day is forgotten, its locks with it.
+  touched_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX handle_sign_ins_touched ON handle_sign_ins (touched_at);
+REVOKE ALL ON handle_sign_ins FROM palugada_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON handle_sign_ins TO palugada_admin;
+ALTER TABLE staff_seats DROP COLUMN sign_in_failures, DROP COLUMN locked_until;
+
+-- A seat given a new authenticator, for a phone lost or replaced: it stays
+-- joined, the same person in the same rooms, and holds no secret until the
+-- person opens the new invite; the old secret is gone at once, so the lost
+-- phone signs nobody in. A joined seat holds a secret, an invite for a new
+-- one, or is ended.
+ALTER TABLE staff_seats
+  DROP CONSTRAINT staff_seats_joined_has_secret,
+  ADD CONSTRAINT staff_seats_joined_has_secret CHECK (
+    (secret_ref IS NULL OR joined_at IS NOT NULL)
+    AND (joined_at IS NULL OR secret_ref IS NOT NULL OR invite_hash IS NOT NULL OR revoked_at IS NOT NULL));

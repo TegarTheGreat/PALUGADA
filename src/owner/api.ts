@@ -797,12 +797,13 @@ export class OwnerApi {
             const proof = proofFrom(body);
             // A member of staff names their handle (F19.22): that seat's
             // secret alone is read, a wrong code counts against that handle
-            // wherever it comes from, and the owner's door is never tried.
+            // wherever it comes from, at most three from this address
+            // (STATUS 2.217), and the owner's door is never tried.
             if (body.handle !== undefined) {
               if (!('totp' in proof)) {
                 throw new PalugadaError('contract.violation', 'a member of staff signs in with their handle and the code their app shows', {});
               }
-              const named = await this.#staff.signInAs(body.handle, proof.totp);
+              const named = await this.#staff.signInAs(body.handle, proof.totp, address);
               this.#signInThrottle.succeeded(address);
               return { token: named.token, expiresAt: named.expiresAt.toISOString(), staff: staffOf(named) };
             }

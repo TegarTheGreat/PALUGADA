@@ -281,13 +281,42 @@ function apartOrThrow(error: unknown): never {
 }
 
 /**
- * Wrong codes for one handle before it is locked, and how long the lock lasts:
- * a minute, doubled at each lock after, to an hour at most. Counted on the
- * seat, so every address and every replica counts towards one lock.
+ * Wrong codes for one handle in a quarter hour before it is locked, and how
+ * long the lock lasts: a minute, doubled at each lock after, to an hour at
+ * most. Counted for the handle as typed, held or not, in the database, so
+ * every replica counts towards one lock and a handle nobody holds is locked
+ * as a held one is (STATUS 2.217).
+ *
+ * One address counts at most `HANDLE_LOCK_EACH_ADDRESS` of them: an address
+ * may send five wrong codes a quarter hour (`SignInThrottle`), and a lock
+ * one address could make alone would let anyone who knows a colleague's
+ * handle keep them out. A lock takes wrong codes from four addresses or more.
  */
-const HANDLE_LOCK_AFTER = 5;
+const HANDLE_LOCK_AFTER = 10;
+const HANDLE_LOCK_EACH_ADDRESS = 3;
+const HANDLE_LOCK_WINDOW_MINUTES = 15;
 const HANDLE_LOCK_FIRST_MINUTES = 1;
 const HANDLE_LOCK_MOST_MINUTES = 60;
+
+/** A handle's count, as the sign-in that holds its row reads it. */
+interface HandleCount {
+  counted: number;
+  addresses: Record<string, number>;
+  window_until: Date | null;
+  locks: number;
+  locked_until: Date | null;
+}
+
+/** An address, as a handle's count keeps it: a digest, never the address. */
+function addressKey(address: string): string {
+  return createHash('sha256').update(`palugada:sign-in:${address}`).digest('hex').slice(0, 32);
+}
+
+/** The refusal while a handle is locked, the same for a handle nobody holds. */
+function handleLocked(until: Date): PalugadaError {
+  return new PalugadaError('auth.handle_locked',
+    `too many wrong codes for this handle: it can be tried again after ${until.toISOString()}`, { until: until.toISOString() });
+}
 
 /**
  * Taken by every write that names a seat or gives it a handle, for the rest
@@ -452,19 +481,24 @@ export class StaffSeats {
    * The invite opened: a secret of this opening's own, for the person's
    * authenticator app. And who they are joining as: the seat, the name the
    * owner gave it and its kind, and the company, which the page names in what
-   * it tells them before they join (F19.22).
+   * it tells them before they join (F19.22). A seat given a new authenticator
+   * (`newAuthenticator`) is `again`, with the handle it keeps, so the page
+   * asks it for nothing it chose already.
    */
   async open(invite: string, label: string): Promise<{
-    offer: string; secret: string; uri: string; qr: string[]; seat: { id: string; name: string; kind: StaffKind; company: string };
+    offer: string; secret: string; uri: string; qr: string[];
+    seat: { id: string; name: string; kind: StaffKind; company: string; handle: string | null; again: boolean };
   }> {
     const seat = await this.#invited(invite);
     const offer = randomBytes(16).toString('base64url');
     const secret = this.#secretFor(seat.id, offer);
     const uri = totpUri(secret, label);
-    const { rows } = await withControlPlane((tx) => tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [seat.companyId]));
+    const { rows } = await withControlPlane((tx) => tx.query<{ company: string; handle: string | null; again: boolean }>(
+      `SELECT c.name AS company, s.handle, s.joined_at IS NOT NULL AS again
+         FROM staff_seats s JOIN companies c ON c.id = s.company_id WHERE s.id = $1`, [seat.id]));
     return {
       offer, secret, uri, qr: qrMatrix(uri).map((row) => row.map((on) => (on ? '1' : '0')).join('')),
-      seat: { id: seat.id, name: seat.name, kind: seat.kind, company: rows[0]?.name ?? '' },
+      seat: { id: seat.id, name: seat.name, kind: seat.kind, company: rows[0]?.company ?? '', handle: rows[0]?.handle ?? null, again: rows[0]?.again ?? false },
     };
   }
 
@@ -498,8 +532,9 @@ export class StaffSeats {
         // Asked again in the transaction that takes it, in its turn, so a
         // look-alike handle taken while the code was being read is not taken twice.
         if (chosen.handle !== undefined) await this.#vetHandle(tx, seat, chosen.handle);
+        // A seat given a new authenticator keeps the day it first joined.
         return tx.query(
-          `UPDATE staff_seats SET secret_ref = $2, joined_at = $3, last_step = $4, last_used_at = $3,
+          `UPDATE staff_seats SET secret_ref = $2, joined_at = coalesce(joined_at, $3), last_step = $4, last_used_at = $3,
                   invite_hash = NULL, invite_expires_at = NULL, handle = coalesce($5, handle), picture = coalesce($6, picture)
             WHERE id = $1 AND invite_hash IS NOT NULL AND revoked_at IS NULL`,
           [seat.id, `db://${name}`, this.#now(), step, chosen.handle ?? null, chosen.picture ?? null]);
@@ -527,7 +562,7 @@ export class StaffSeats {
       id: string; company_id: string; name: string; kind: StaffKind; secret_ref: string;
     }>(
       `SELECT id, company_id, name, kind, secret_ref FROM staff_seats
-        WHERE joined_at IS NOT NULL AND revoked_at IS NULL AND handle IS NULL ORDER BY created_at`));
+        WHERE joined_at IS NOT NULL AND revoked_at IS NULL AND handle IS NULL AND secret_ref IS NOT NULL ORDER BY created_at`));
     for (const row of rows) {
       let secret: Buffer;
       try {
@@ -545,13 +580,14 @@ export class StaffSeats {
 
   /**
    * A seat signing in by its handle and the code its app shows (F19.22): one
-   * secret is resolved, the handle's. Five wrong codes for a handle lock it,
-   * whatever address they came from, for a minute that doubles at each lock
-   * after, to an hour at most; a right code clears the count. A handle
-   * nobody has is refused in the same words as a wrong code.
+   * secret is resolved, the handle's. Ten wrong codes for a handle in a
+   * quarter hour lock it, at most three of them from any one address, for a
+   * minute that doubles at each lock after, to an hour at most; a right code
+   * clears the count. A handle nobody holds is counted and locked the same,
+   * and every answer for it is the answer a held one gives (STATUS 2.217).
    *
    * The lock, the comparison and the count are one transaction that holds
-   * the seat's row, so attempts at one handle are judged one at a time,
+   * the handle's row, so attempts at one handle are judged one at a time,
    * across replicas too. Guesses are not sent one after another: read in one
    * transaction and counted in another, thirty sent at once all read "no
    * wrong codes yet", and all thirty were compared. The secret is read
@@ -559,64 +595,95 @@ export class StaffSeats {
    * holds it. A refusal is returned from inside rather than thrown, since a
    * throw would roll back the count that says somebody tried.
    */
-  async signInAs(handle: unknown, totp: string): Promise<StaffSession> {
+  async signInAs(handle: unknown, totp: string, address = ''): Promise<StaffSession> {
     const wrong = () => new PalugadaError('mfa.code_invalid', 'that code does not sign anyone in by that handle', {});
     const secrets = this.#secrets();
     let named: string;
     try {
       named = handleOf(handle);
     } catch {
+      // No handle can be spelled so: nobody holds it, or ever will.
       throw wrong();
     }
     if (!secrets) throw wrong();
     const { rows } = await withControlPlane((tx) => tx.query<{ id: string; secret_ref: string }>(
-      'SELECT id, secret_ref FROM staff_seats WHERE handle = $1 AND joined_at IS NOT NULL AND revoked_at IS NULL', [named]));
-    const found = rows[0];
-    if (!found) throw wrong();
-    let secret: Buffer;
-    try {
-      secret = decodeBase32(await secrets.resolve(found.secret_ref));
-    } catch {
-      // A secret that cannot be read is not a guess, and is not counted as one.
-      throw wrong();
+      `SELECT id, secret_ref FROM staff_seats
+        WHERE handle = $1 AND joined_at IS NOT NULL AND revoked_at IS NULL AND secret_ref IS NOT NULL`, [named]));
+    const found = rows[0] ?? null;
+    let secret: Buffer | null = null;
+    if (found) {
+      try {
+        secret = decodeBase32(await secrets.resolve(found.secret_ref));
+      } catch {
+        // A secret that cannot be read is not a guess, and is not counted as one.
+        throw wrong();
+      }
     }
     const outcome = await withControlPlane(async (tx): Promise<{ seat: StaffSeat } | { refused: PalugadaError }> => {
+      const now = this.#now();
+      // The handle's row, held or not, so a handle nobody holds is judged as
+      // one somebody does; then held, before anything is compared.
+      await tx.query('INSERT INTO handle_sign_ins (handle, touched_at) VALUES ($1, $2) ON CONFLICT (handle) DO NOTHING', [named, now]);
+      const { rows: [count] } = await tx.query<HandleCount>(
+        'SELECT counted, addresses, window_until, locks, locked_until FROM handle_sign_ins WHERE handle = $1 FOR UPDATE', [named]);
+      // Before the comparison, so a right code waits for the lock as a wrong one does.
+      if (count!.locked_until && count!.locked_until > now) return { refused: handleLocked(count!.locked_until) };
       // The same seat, still holding this handle and this secret, once the
       // attempts before this one are on the record.
-      const { rows: held } = await tx.query<{ id: string; company_id: string; name: string; kind: StaffKind; locked_until: Date | null }>(
-        `SELECT id, company_id, name, kind, locked_until FROM staff_seats
+      const { rows: held } = found === null ? { rows: [] } : await tx.query<{ id: string; company_id: string; name: string; kind: StaffKind }>(
+        `SELECT id, company_id, name, kind FROM staff_seats
           WHERE id = $1 AND handle = $2 AND secret_ref = $3 AND joined_at IS NOT NULL AND revoked_at IS NULL
           FOR UPDATE`,
         [found.id, named, found.secret_ref]);
       const row = held[0];
-      if (!row) return { refused: wrong() };
-      const now = this.#now();
-      // Before the comparison, so a right code waits for the lock as a wrong one does.
-      if (row.locked_until && row.locked_until > now) {
-        return {
-          refused: new PalugadaError('auth.handle_locked',
-            `too many wrong codes for this handle: it can be tried again after ${row.locked_until.toISOString()}`,
-            { until: row.locked_until.toISOString() }),
-        };
-      }
-      const step = this.#matching(secret, totp);
-      if (step === null) {
-        await tx.query(
-          `UPDATE staff_seats
-              SET sign_in_failures = LEAST(sign_in_failures + 1, 10000),
-                  locked_until = CASE WHEN (sign_in_failures + 1) % $2::int = 0
-                    THEN $3::timestamptz + interval '1 minute'
-                      * LEAST($5::int, $4::int * power(2, LEAST(6, (sign_in_failures + 1) / $2::int - 1)))
-                    ELSE locked_until END
-            WHERE id = $1`,
-          [row.id, HANDLE_LOCK_AFTER, now, HANDLE_LOCK_FIRST_MINUTES, HANDLE_LOCK_MOST_MINUTES]);
+      // A handle nobody holds is compared too, with a secret nobody has, so
+      // it is not answered sooner.
+      const step = this.#matching(row && secret ? secret : randomBytes(20), totp);
+      if (!row || step === null) {
+        await this.#countWrong(tx, named, count!, address, now);
         return { refused: wrong() };
       }
       if (!await this.#claimWithin(tx, row.id, step)) return { refused: replayed() };
+      await tx.query('DELETE FROM handle_sign_ins WHERE handle = $1', [named]);
       return { seat: { id: row.id, companyId: row.company_id, name: row.name, kind: row.kind } };
     });
     if ('refused' in outcome) throw outcome.refused;
     return this.#session(outcome.seat);
+  }
+
+  /**
+   * One wrong code for a handle, counted unless its address has counted its
+   * share of this quarter hour's, and the handle locked when the count is
+   * full. Handles nobody has tried for a day are forgotten here too.
+   */
+  async #countWrong(tx: TenantClient, handle: string, count: HandleCount, address: string, now: Date): Promise<void> {
+    const fresh = count.window_until === null || count.window_until <= now;
+    let counted = fresh ? 0 : count.counted;
+    const addresses = fresh ? {} : { ...count.addresses };
+    const key = addressKey(address);
+    const already = addresses[key] ?? 0;
+    if (already < HANDLE_LOCK_EACH_ADDRESS) {
+      counted += 1;
+      addresses[key] = already + 1;
+    }
+    let windowUntil = fresh ? new Date(now.getTime() + HANDLE_LOCK_WINDOW_MINUTES * 60_000) : count.window_until;
+    let locks = count.locks;
+    let lockedUntil: Date | null = null;
+    if (counted >= HANDLE_LOCK_AFTER) {
+      locks = Math.min(locks + 1, 1000);
+      const minutes = Math.min(HANDLE_LOCK_MOST_MINUTES, HANDLE_LOCK_FIRST_MINUTES * 2 ** Math.min(locks - 1, 10));
+      lockedUntil = new Date(now.getTime() + minutes * 60_000);
+      counted = 0;
+      windowUntil = null;
+      for (const one of Object.keys(addresses)) delete addresses[one];
+    }
+    await tx.query(
+      `UPDATE handle_sign_ins SET counted = $2, addresses = $3, window_until = $4, locks = $5, locked_until = $6, touched_at = $7
+        WHERE handle = $1`,
+      [handle, counted, JSON.stringify(addresses), windowUntil, locks, lockedUntil, now]);
+    await tx.query(
+      `DELETE FROM handle_sign_ins
+        WHERE touched_at < $1::timestamptz - interval '1 day' AND (locked_until IS NULL OR locked_until < $1)`, [now]);
   }
 
   /** The seat behind a bearer token, while the session is open and the seat is not revoked. */
@@ -688,6 +755,44 @@ export class StaffSeats {
     }
   }
 
+  /**
+   * The owner gives a seat a new authenticator (STATUS 2.217): a phone lost
+   * or replaced left the person no way back in but ending the seat, which
+   * took them out of every room, their direct conversations too, and freed
+   * their handle. The same seat -- its principal, name, handle, picture,
+   * rooms and direct rooms -- gets a new invite, which the person opens as
+   * they first joined and which asks only for the code of a new app. What
+   * the lost phone could still use ends now: the seat's sessions, its old
+   * secret, its links through a relay and every offer they were sent; and
+   * the lock on its handle, so the person is not kept out by whoever was
+   * guessing. Whether the owner's code was asked is the route's.
+   */
+  async newAuthenticator(companyId: string, seatId: string): Promise<{ seatId: string; invite: string }> {
+    this.#requireMaster();
+    const invite = encodeBase32(randomBytes(20));
+    const now = this.#now();
+    const ended = await withControlPlane(async (tx) => {
+      const { rows: [seat] } = await tx.query<{ handle: string | null }>(
+        'SELECT handle FROM staff_seats WHERE id = $1 AND company_id = $2 AND revoked_at IS NULL', [seatId, companyId]);
+      if (!seat) return null;
+      // The handle's row before the seat's, as a sign-in takes them.
+      if (seat.handle !== null) await tx.query('DELETE FROM handle_sign_ins WHERE handle = $1', [seat.handle]);
+      const { rows } = await tx.query<{ secret_ref: string | null }>(
+        `UPDATE staff_seats s SET invite_hash = $3, invite_expires_at = $4, secret_ref = NULL, last_step = NULL
+           FROM staff_seats was
+          WHERE s.id = $1 AND s.company_id = $2 AND s.revoked_at IS NULL AND was.id = s.id
+          RETURNING was.secret_ref`,
+        [seatId, companyId, hashOf(invite), new Date(now.getTime() + STAFF_INVITE_TTL_MS)]);
+      if (!rows[0]) return null;
+      await tx.query('UPDATE staff_sessions SET ended_at = $2 WHERE seat_id = $1 AND ended_at IS NULL', [seatId, now]);
+      await endLinksOf(tx, `seat:${seatId}`, now);
+      return rows[0];
+    });
+    if (!ended) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
+    if (ended.secret_ref?.startsWith('db://')) await deleteSecret(ended.secret_ref.slice('db://'.length));
+    return { seatId, invite };
+  }
+
   async signOut(token: string): Promise<void> {
     await withControlPlane((tx) => tx.query(
       'UPDATE staff_sessions SET ended_at = $2 WHERE token_hash = $1 AND ended_at IS NULL', [tokenHash(token), this.#now()]));
@@ -731,8 +836,7 @@ export class StaffSeats {
 
   /**
    * A code matched: claimed by the write, so a second presentation of the
-   * same code, or of an older one, changes no row. And the handle's count of
-   * wrong codes starts again.
+   * same code, or of an older one, changes no row.
    */
   async #claim(seatId: string, step: number): Promise<void> {
     if (!await withControlPlane((tx) => this.#claimWithin(tx, seatId, step))) throw replayed();
@@ -741,7 +845,7 @@ export class StaffSeats {
   /** The claim inside a transaction the caller holds; false when the step was used already. */
   async #claimWithin(tx: TenantClient, seatId: string, step: number): Promise<boolean> {
     const { rowCount } = await tx.query(
-      `UPDATE staff_seats SET last_step = $2, last_used_at = $3, sign_in_failures = 0, locked_until = NULL
+      `UPDATE staff_seats SET last_step = $2, last_used_at = $3
         WHERE id = $1 AND revoked_at IS NULL AND (last_step IS NULL OR last_step < $2)`,
       [seatId, step, this.#now()]);
     return rowCount === 1;

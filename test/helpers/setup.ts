@@ -112,6 +112,9 @@ export async function resetData(): Promise<void> {
   // And the deployment's relays and its key to them (STATUS section 2.208): every link, offer,
   // envelope, receipt and refusal hangs from a relay and goes with it.
   await ownerPool().query('TRUNCATE relays, relay_identity CASCADE');
+  // And each handle's wrong codes (STATUS 2.217): kept for the handle as
+  // typed, held or not, so no company's going takes them with it.
+  await ownerPool().query('TRUNCATE handle_sign_ins');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default

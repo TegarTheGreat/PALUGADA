@@ -167,5 +167,27 @@ export function peopleRoutes(kit: RouteKit): Route[] {
         return { seat };
       },
     },
+
+    {
+      // A seat's new authenticator, for a phone lost or replaced (STATUS
+      // 2.217): the same person, signed out everywhere, with an invite that
+      // lets whoever opens it in as them, so it takes the owner's code given
+      // now. The streams the seat holds open end in every process, as its
+      // sessions did.
+      method: 'POST',
+      pattern: '/api/companies/:companyId/staff/:seatId/authenticator',
+      handle: async (context) => {
+        refuseWhoWrites(context.body);
+        const companyId = context.params.companyId!;
+        const seatId = seatIdOf(context.params.seatId!);
+        const was = await kit.staff.seat(companyId, seatId);
+        if (!was) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
+        await kit.requireFactor(context, `give ${was.name} a new authenticator`, true);
+        const made = await kit.staff.newAuthenticator(companyId, seatId);
+        kit.streams.endPrincipal(`seat:${seatId}`);
+        await kit.hub?.ended({ principal: `seat:${seatId}` });
+        return made;
+      },
+    },
   ];
 }

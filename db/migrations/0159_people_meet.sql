@@ -10,6 +10,10 @@
 -- It is not work: nothing here makes a task, reaches a run or writes an
 -- event, and agents neither see a meeting nor attend one. Like every room
 -- table it opens to no transaction that names no reader (0150).
+--
+-- A meeting moved after its reminder is reminded again for its new time,
+-- once: its people are reminded at most twice, however often it moves, so
+-- nobody who may set one spends the people asked's notices for them.
 
 CREATE TABLE room_meetings (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,11 +25,17 @@ CREATE TABLE room_meetings (
   -- The people asked, who must be able to see the room (the guard below).
   attendees    text[] NOT NULL CHECK (app.are_people(attendees) AND cardinality(attendees) BETWEEN 1 AND 50),
   -- Pasted by a person and shown as a plain link; never fetched or unfurled.
-  call_url     text CHECK (call_url ~ '^https://[^[:space:]]+$' AND char_length(call_url) <= 2000),
+  -- Nobody pastes a control character in a link, and none is kept.
+  call_url     text CHECK (call_url ~ '^https://[^[:space:]]+$' AND call_url !~ '[\u0001-\u001f\u007f-\u009f]'
+                           AND char_length(call_url) <= 2000),
   set_by       text NOT NULL CHECK (app.is_person(set_by)),
-  -- When the sweep reminded its people; cleared when the meeting moves, so
-  -- the new time is reminded in its turn.
+  -- When the sweep last reminded its people; cleared when the meeting moves
+  -- while it has been reminded only once, so the new time is reminded in
+  -- its turn.
   reminded_at  timestamptz,
+  -- How often the sweep has reminded them: at most twice, the time it was
+  -- set for and one time it moved to. Counted by the guard alone.
+  reminders    smallint NOT NULL DEFAULT 0 CHECK (reminders BETWEEN 0 AND 2),
   cancelled_at timestamptz,
   cancelled_by text CHECK (cancelled_by IS NULL OR app.is_person(cancelled_by)),
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -34,7 +44,9 @@ CREATE TABLE room_meetings (
   UNIQUE (company_id, message_id),
   FOREIGN KEY (company_id, room_id) REFERENCES rooms (company_id, id) ON DELETE CASCADE,
   FOREIGN KEY (company_id, message_id) REFERENCES room_messages (company_id, id) ON DELETE CASCADE,
-  CONSTRAINT room_meetings_cancel_names_who CHECK ((cancelled_at IS NULL) = (cancelled_by IS NULL))
+  -- Who cancelled it, when a person did; a meeting whose words' time was up
+  -- was cancelled with them by nobody.
+  CONSTRAINT room_meetings_cancel_names_who CHECK (cancelled_by IS NULL OR cancelled_at IS NOT NULL)
 );
 -- What the sweep looks for: meetings not yet reminded and still on.
 CREATE INDEX room_meetings_soon ON room_meetings (company_id, starts_at) WHERE reminded_at IS NULL AND cancelled_at IS NULL;
@@ -66,16 +78,18 @@ REVOKE UPDATE ON room_meetings FROM palugada_app;
 GRANT UPDATE (starts_at, minutes, attendees, call_url, cancelled_at, cancelled_by, reminded_at) ON room_meetings TO palugada_app;
 
 -- What may be set and changed, and by whom. A meeting is set from a person's
--- own words at the top of the room, as theirs, now, unreminded and on. Its
--- room, message and setter never change. Its setter or the owner moves it,
--- changes who is asked, or cancels it, recorded as whoever did; a cancelled
--- meeting stays cancelled. The platform only marks it reminded, and a
--- meeting moved is reminded again for its new time. It starts in the future
--- when it is set or moved, and everyone asked can see the room when they are
--- asked: someone outside a private room is never asked to its meeting. An
--- archive read in on the control plane keeps its meetings as they were, and
--- a transaction of no person and not the platform's is left to row security
--- to refuse.
+-- own words at the top of the room, words that became no work and no
+-- meeting of agents, as theirs, now, unreminded and on. Its room, message
+-- and setter never change. Its setter or the owner moves it, changes who is
+-- asked, or cancels it, recorded as whoever did; a cancelled meeting stays
+-- cancelled, and only its link may go, as it goes with its words. The
+-- platform only marks it reminded, which the guard counts; a meeting moved
+-- after one reminder is reminded again for its new time, and after a second
+-- it is not. It starts in the future when it is set or moved, and everyone
+-- asked can see the room when they are asked: someone outside a private room
+-- is never asked to its meeting. An archive read in on the control plane
+-- keeps its meetings as they were, and a transaction of no person and not
+-- the platform's is left to row security to refuse.
 CREATE FUNCTION app.room_meetings_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -88,8 +102,8 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     SELECT * INTO words FROM room_messages WHERE company_id = NEW.company_id AND id = NEW.message_id;
     IF NOT FOUND OR words.room_id <> NEW.room_id OR words.kind <> 'text' OR words.thread_of IS NOT NULL
-       OR words.deleted_at IS NOT NULL THEN
-      RAISE EXCEPTION 'a meeting is set from words at the top of its own room: its thread is the notes'
+       OR words.deleted_at IS NOT NULL OR words.became IS NOT NULL THEN
+      RAISE EXCEPTION 'a meeting is set from words at the top of its own room that became nothing else: its thread is the notes'
         USING ERRCODE = 'check_violation';
     END IF;
     IF NEW.cancelled_at IS NOT NULL OR NEW.cancelled_by IS NOT NULL THEN
@@ -98,6 +112,7 @@ BEGIN
     NEW.set_by := me;
     NEW.created_at := clock_timestamp();
     NEW.reminded_at := NULL;
+    NEW.reminders := 0;
   ELSE
     IF NEW.id <> OLD.id OR NEW.company_id <> OLD.company_id OR NEW.room_id <> OLD.room_id
        OR NEW.message_id <> OLD.message_id OR NEW.set_by <> OLD.set_by OR NEW.created_at <> OLD.created_at THEN
@@ -109,22 +124,40 @@ BEGIN
          OR NEW.cancelled_by IS DISTINCT FROM OLD.cancelled_by THEN
         RAISE EXCEPTION 'the platform only marks a meeting reminded' USING ERRCODE = 'check_violation';
       END IF;
+      IF NEW.reminded_at IS DISTINCT FROM OLD.reminded_at THEN
+        IF OLD.reminded_at IS NOT NULL OR NEW.reminded_at IS NULL THEN
+          RAISE EXCEPTION 'a meeting is marked reminded once for each time it is reminded of' USING ERRCODE = 'check_violation';
+        END IF;
+        NEW.reminders := OLD.reminders + 1;
+      ELSE
+        NEW.reminders := OLD.reminders;
+      END IF;
       RETURN NEW;
     END IF;
+    NEW.reminders := OLD.reminders;
     IF NEW.reminded_at IS DISTINCT FROM OLD.reminded_at THEN
       RAISE EXCEPTION 'a meeting is marked reminded by the platform' USING ERRCODE = 'check_violation';
     END IF;
-    IF OLD.cancelled_at IS NOT NULL THEN
-      RAISE EXCEPTION 'a cancelled meeting stays cancelled' USING ERRCODE = 'check_violation';
-    END IF;
     IF me IS DISTINCT FROM OLD.set_by AND me IS DISTINCT FROM 'owner' THEN
       RAISE EXCEPTION 'a meeting is changed by whoever set it, or the owner' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF OLD.cancelled_at IS NOT NULL THEN
+      -- Its link may still go, as it goes when its words are removed; nothing
+      -- else changes, not even who cancelled it.
+      IF NEW.call_url IS NOT NULL OR NEW.starts_at <> OLD.starts_at OR NEW.minutes <> OLD.minutes
+         OR NEW.attendees <> OLD.attendees OR NEW.cancelled_at IS DISTINCT FROM OLD.cancelled_at
+         OR NEW.cancelled_by IS DISTINCT FROM OLD.cancelled_by THEN
+        RAISE EXCEPTION 'a cancelled meeting stays cancelled' USING ERRCODE = 'check_violation';
+      END IF;
+      RETURN NEW;
     END IF;
     IF NEW.cancelled_at IS NOT NULL OR NEW.cancelled_by IS NOT NULL THEN
       NEW.cancelled_at := clock_timestamp();
       NEW.cancelled_by := me;
     END IF;
-    IF NEW.starts_at <> OLD.starts_at THEN
+    -- Moved after one reminder, it is reminded again for its new time; after
+    -- a second, it stays reminded, so moving it tells nobody anything more.
+    IF NEW.starts_at <> OLD.starts_at AND OLD.reminders < 2 THEN
       NEW.reminded_at := NULL;
     END IF;
   END IF;
@@ -156,20 +189,22 @@ END $$;
 CREATE TRIGGER room_meetings_after AFTER INSERT OR UPDATE ON room_meetings
   FOR EACH ROW EXECUTE FUNCTION app.room_meetings_after();
 
--- A meeting's words removed by a person are the meeting cancelled, by
--- whoever removed them: its setter, whose words they were, or the owner. A
--- message whose time was up is removed by nobody, and its meeting, long
--- begun by then, reminds nobody all the same (the rooms' sweep looks at the
--- message).
+-- A meeting's words removed are the meeting cancelled, and take its pasted
+-- link with them, as a removal takes everything said (0150): a link often
+-- carries the call's password. Cancelled by whoever removed them -- its
+-- setter, whose words they were, or the owner -- or, when their time was up
+-- under the owner's window, by nobody; one cancelled already keeps who
+-- cancelled it. Either way the sweep reminds nobody of it.
 CREATE FUNCTION app.room_messages_meeting_gone() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
-  UPDATE room_meetings SET cancelled_at = clock_timestamp(), cancelled_by = NEW.deleted_by
-   WHERE company_id = NEW.company_id AND message_id = NEW.id AND cancelled_at IS NULL;
+  UPDATE room_meetings
+     SET call_url = NULL, cancelled_at = coalesce(cancelled_at, clock_timestamp()), cancelled_by = coalesce(cancelled_by, NEW.deleted_by)
+   WHERE company_id = NEW.company_id AND message_id = NEW.id;
   RETURN NULL;
 END $$;
 CREATE TRIGGER room_messages_meeting_gone AFTER UPDATE OF deleted_at ON room_messages
-  FOR EACH ROW WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.deleted_by IS NOT NULL)
+  FOR EACH ROW WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
   EXECUTE FUNCTION app.room_messages_meeting_gone();
 
 -- The people asked are told outside PALUGADA too: a reminder is a people's

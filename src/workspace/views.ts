@@ -259,12 +259,13 @@ export async function messageViews(
         edit: text && !deleted && mine && Date.now() - row.created_at.getTime() < EDIT_WINDOW_MS,
         delete: text && !deleted && (mine || viewer.kind === 'owner'),
         pin: !deleted,
-        giveAsWork: text && !deleted && row.became === null && row.thread_of === null && mayAsk(viewer),
+        // A people's meeting's words are talk, and become no work (STATUS 2.215).
+        giveAsWork: text && !deleted && row.became === null && row.thread_of === null && !meetings.has(row.id) && mayAsk(viewer),
         tell: text && !deleted && row.became === null && row.thread_of !== null && mine && row.via === 'console'
           && steers(rootTask.get(row.thread_of), caller.get(row.thread_of)),
         stop: text && (row.became === 'work' ? steers(row.task_id) : row.became === 'meeting' && steers(row.task_id, row.became_by)),
         // A meeting is called about a message at the top of a room, by the owner or an approver (F19.18).
-        callMeeting: text && !deleted && row.became === null && row.thread_of === null && mayDecide(viewer),
+        callMeeting: text && !deleted && row.became === null && row.thread_of === null && !meetings.has(row.id) && mayDecide(viewer),
         fileAsIssue: text && !deleted && viewer.kind === 'owner' && row.author === 'owner' && row.via === 'console',
         history: viewer.kind === 'owner' && row.edited_at !== null && !deleted,
       },
@@ -286,9 +287,10 @@ export async function peopleMeetingsOf(
   if (messageIds.length === 0) return new Map();
   const { rows } = await tx.query<{
     id: string; message_id: string; starts_at: Date; minutes: number; attendees: string[]; call_url: string | null;
-    set_by: string; cancelled_by: string | null;
+    set_by: string; cancelled: boolean; cancelled_by: string | null;
   }>(
-    `SELECT id, message_id, starts_at, minutes, attendees::text[] AS attendees, call_url, set_by, cancelled_by
+    `SELECT id, message_id, starts_at, minutes, attendees::text[] AS attendees, call_url, set_by,
+            cancelled_at IS NOT NULL AS cancelled, cancelled_by
        FROM room_meetings WHERE message_id = ANY($1::uuid[])`, [messageIds]);
   const me = viewer.person.principal;
   return new Map(rows.map((row) => [row.message_id, {
@@ -298,9 +300,9 @@ export async function peopleMeetingsOf(
     attendees: row.attendees.map((principal) => directory.refOf(principal)),
     callUrl: row.call_url,
     setBy: directory.refOf(row.set_by),
-    cancelled: row.cancelled_by !== null,
+    cancelled: row.cancelled,
     cancelledBy: row.cancelled_by === null ? null : directory.refOf(row.cancelled_by),
-    may: { change: row.cancelled_by === null && (row.set_by === me || viewer.kind === 'owner') },
+    may: { change: !row.cancelled && (row.set_by === me || viewer.kind === 'owner') },
   }]));
 }
 

@@ -8,7 +8,8 @@
  * conversation's people, or anyone of the company for an open room -- and,
  * when someone pastes one, a call link, which is `https://` and is never
  * fetched or unfurled here. Its setter or the owner moves it, changes who is
- * asked, or cancels it.
+ * asked, or cancels it. One message is a people's meeting or work, never
+ * both: a meeting's thread is its notes, and agents neither see nor attend it.
  *
  * It is not work. Nothing here makes a task, reaches a run or writes an
  * event: a meeting is a row beside its message, read and written as the
@@ -68,8 +69,8 @@ function minutesOf(value: unknown): number {
   return value;
 }
 
-/** The people asked: one to fifty of the company's people, each once. */
-async function attendeesOf(companyId: string, value: unknown): Promise<string[]> {
+/** The people asked, as written: one to fifty people, the owner or seats, each once. */
+function attendeesOf(value: unknown): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > ATTENDEES_MOST || !value.every((one) => typeof one === 'string')) {
     throw new PalugadaError('contract.violation', `attendees is a list of 1 to ${ATTENDEES_MOST} people`, { field: 'attendees' });
   }
@@ -78,16 +79,17 @@ async function attendeesOf(companyId: string, value: unknown): Promise<string[]>
     throw new PalugadaError('contract.violation',
       `attendees names people, the owner or a seat ('owner' or 'seat:<id>'), never ${strangers.join(', ')}`, { field: 'attendees' });
   }
-  const people = [...new Set(value as string[])];
-  // A revoked seat, or one of another company, is nobody here to ask.
-  await assertPeopleOf(companyId, people);
-  return people;
+  return [...new Set(value as string[])];
 }
+
+/** A control character, C0 or C1: nobody pastes one in a link, and a NUL cannot even be stored. */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 /**
  * A pasted call link, or none: `https://` and at most 2,000 characters, with
- * no space in it, kept as it was pasted. It is shown as a plain link, opened
- * in a new tab with no opener and no referrer, and never fetched here.
+ * no space and no control character in it, kept as it was pasted. It is
+ * shown as a plain link, opened in a new tab with no opener and no referrer,
+ * and never fetched here.
  */
 function callUrlOf(value: unknown): string | null {
   if (value === undefined || value === null) return null;
@@ -100,7 +102,7 @@ function callUrlOf(value: unknown): string | null {
     parsed = null;
   }
   if (text === null || parsed === null || parsed.protocol !== 'https:' || parsed.hostname === ''
-    || !/^https:\/\/\S+$/.test(text) || text.length > CALL_URL_MOST) {
+    || !/^https:\/\/\S+$/.test(text) || CONTROL.test(text) || text.length > CALL_URL_MOST) {
     throw new PalugadaError('contract.violation',
       `a call link is an https:// address of at most ${CALL_URL_MOST} characters, with no space in it`, { field: 'callUrl' });
   }
@@ -144,7 +146,9 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
   const startsAt = startOf(body.startsAt, now);
   const minutes = minutesOf(body.minutes);
   const callUrl = callUrlOf(body.callUrl);
-  const attendees = await attendeesOf(viewer.companyId, body.attendees);
+  const attendees = attendeesOf(body.attendees);
+  // A revoked seat, or one of another company, is nobody here to ask.
+  await assertPeopleOf(viewer.companyId, attendees);
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -162,6 +166,11 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
     if (message.thread_of !== null) {
       throw new PalugadaError('contract.violation',
         'a meeting is set from a message at the top of a room: its thread is the notes', { messageId });
+    }
+    // Words given as work, or a meeting of agents called about them, have
+    // their thread already: the work's.
+    if (message.became !== null) {
+      throw new PalugadaError('contract.violation', 'that message already became work: a meeting is set from words of its own', { messageId });
     }
     const { rows: already } = await tx.query('SELECT 1 FROM room_meetings WHERE message_id = $1', [messageId]);
     if (already.length > 0) return shown(tx, viewer, directory, messageId);
@@ -181,9 +190,10 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
 
 /**
  * Moves a meeting, changes how long it is, who is asked or its link, or
- * cancels it: its setter's, or the owner's. A meeting moved is reminded
- * again for its new time; a cancelled one stays cancelled, and reminds
- * nobody.
+ * cancels it: its setter's, or the owner's. Only what the change names
+ * changes, so a meeting under way keeps its time while its link is fixed. A
+ * meeting moved after its reminder is reminded again for its new time, once
+ * (0159); a cancelled one stays cancelled, and reminds nobody.
  */
 export async function changePeopleMeeting(
   viewer: Viewer, roomId: string, meetingIdText: string | undefined, body: Record<string, unknown>,
@@ -197,14 +207,15 @@ export async function changePeopleMeeting(
   const startsAt = body.startsAt === undefined ? undefined : startOf(body.startsAt, now);
   const minutes = body.minutes === undefined ? undefined : minutesOf(body.minutes);
   const callUrl = body.callUrl === undefined ? undefined : callUrlOf(body.callUrl);
-  const attendees = body.attendees === undefined ? undefined : await attendeesOf(viewer.companyId, body.attendees);
+  const attendees = body.attendees === undefined ? undefined : attendeesOf(body.attendees);
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
     if (room.archived_at) throw new PalugadaError('room.archived', 'that room is archived', { roomId });
     await takeClock(tx);
-    const { rows } = await tx.query<{ message_id: string; set_by: string; cancelled: boolean; removed: boolean }>(
-      `SELECT g.message_id, g.set_by, g.cancelled_at IS NOT NULL AS cancelled, m.deleted_at IS NOT NULL AS removed
+    const { rows } = await tx.query<{ message_id: string; set_by: string; attendees: string[]; cancelled: boolean; removed: boolean }>(
+      `SELECT g.message_id, g.set_by, g.attendees::text[] AS attendees, g.cancelled_at IS NOT NULL AS cancelled,
+              m.deleted_at IS NOT NULL AS removed
          FROM room_meetings g JOIN room_messages m ON m.company_id = g.company_id AND m.id = g.message_id
         WHERE g.id = $1 AND g.room_id = $2 FOR UPDATE OF g`, [meetingId, roomId]);
     const meeting = rows[0];
@@ -214,6 +225,15 @@ export async function changePeopleMeeting(
     }
     if (meeting.cancelled) throw new PalugadaError('contract.violation', 'that meeting was cancelled', { meetingId });
     if (meeting.removed) throw new PalugadaError('contract.violation', 'the message that set that meeting was removed', { meetingId });
+    // Only those asked anew must be the company's people now: whoever was
+    // asked stays on the list though their seat has gone, as the database
+    // asks only those added whether they can see the room (0159), so a
+    // change made with the whole list, as the console makes it, is not
+    // refused for someone nobody added.
+    if (attendees !== undefined) {
+      const added = attendees.filter((principal) => !meeting.attendees.includes(principal));
+      if (added.length > 0) await assertPeopleOf(viewer.companyId, added);
+    }
     const changes: string[] = [];
     const values: unknown[] = [meetingId];
     const set = (column: string, value: unknown) => {

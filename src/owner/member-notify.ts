@@ -38,6 +38,7 @@ import { TEAM_SQL } from '../inbox/inbox.ts';
 import { relayPeopleNotice, type PeopleNotice, type Said } from '../relay/people.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { redactor } from '../secrets/manager.ts';
+import { REMIND_MINUTES } from '../workspace/cards.ts';
 import { directoryOf, type Directory } from '../workspace/views.ts';
 import { haltSaid } from './halt-said.ts';
 import { askerOf, RETRY_BASE_MS, type OwnerChannel } from './notify.ts';
@@ -444,25 +445,42 @@ async function planWork(
   return planned;
 }
 
+/** The notice a meeting's nth reminder is: one for each reminder and channel, and a meeting is reminded twice at most (0159). */
+function meetingKey(meetingId: string, reminders: number): string {
+  return `meeting:${meetingId}#${reminders}`;
+}
+
+/**
+ * That a reminded meeting is still where its reminder said, as SQL on the
+ * meetings' alias: within ten minutes of the reminder, not moved later since.
+ */
+function stillSoon(g: string): string {
+  return `${g}.starts_at <= ${g}.reminded_at + make_interval(mins => ${REMIND_MINUTES})`;
+}
+
 /**
  * What a people's meeting about to start tells the people asked (F19.26,
  * STATUS section 2.215): once the rooms' sweep has reminded it, a notice for
  * each person asked who may be told and can still see the room, once for
- * each time it is set for and channel, since the channel's link was made. A
- * reminder that the person's quiet hours, or the owner's window, would hold
- * until the meeting has begun is not planned. Read under the delivery
- * reader, which sees who was asked and when, and never the words.
+ * each reminder and channel, since the channel's link was made. A meeting
+ * moved later than its reminder said, once it was reminded twice and so is
+ * reminded no more, tells nobody it starts in ten minutes. A reminder that
+ * the person's quiet hours, or the owner's window, would hold until the
+ * meeting has begun is not planned. Read under the delivery reader, which
+ * sees who was asked and when, and never the words.
  */
 async function planMeetings(
   tx: TenantClient, companyId: string, audience: Audience,
   timing: (principal: string, prefs: Prefs) => { after: Date; day: string }, now: Date,
 ): Promise<number> {
-  const { rows: meetings } = await tx.query<{ id: string; room_id: string; starts_at: Date; attendees: string[]; reminded_at: Date }>(
-    `SELECT id, room_id, starts_at, attendees::text[] AS attendees, reminded_at FROM room_meetings
-      WHERE reminded_at IS NOT NULL AND cancelled_at IS NULL AND starts_at > $1
-      ORDER BY starts_at, id`, [now]);
+  const { rows: meetings } = await tx.query<{
+    id: string; room_id: string; starts_at: Date; attendees: string[]; reminded_at: Date; reminders: number;
+  }>(
+    `SELECT g.id, g.room_id, g.starts_at, g.attendees::text[] AS attendees, g.reminded_at, g.reminders FROM room_meetings g
+      WHERE g.reminded_at IS NOT NULL AND g.cancelled_at IS NULL AND g.starts_at > $1 AND ${stillSoon('g')}
+      ORDER BY g.starts_at, g.id`, [now]);
   if (meetings.length === 0) return 0;
-  const keyOf = (meeting: { id: string; starts_at: Date }) => `meeting:${meeting.id}@${meeting.starts_at.toISOString()}`;
+  const keyOf = (meeting: { id: string; reminders: number }) => meetingKey(meeting.id, meeting.reminders);
   // What is told already is left alone without a write, as for agent work.
   const { rows: told } = await tx.query<{ principal: string; channel: string; window_key: string }>(
     'SELECT principal, channel, window_key FROM people_notices WHERE window_key = ANY($1::text[])', [meetings.map(keyOf)]);
@@ -765,7 +783,9 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
 /**
  * A people's meeting about to start, read as the person reminded: gone when
  * they can no longer see its room or are no longer asked, when it was
- * cancelled, its words removed, moved since this was planned, or begun. It
+ * cancelled, its words removed, moved since this reminder was planned
+ * (reminded again for its new time, or to be, or moved later than a last
+ * reminder said), or begun. It
  * says when and where above `signal`, and the setter's words, as its title,
  * only at `content`; it opens the meeting's thread, its notes. The relay
  * holds the title against a delete on its way, as a notice of words does.
@@ -773,9 +793,11 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
 async function meetingSubject(tx: TenantClient, row: DueRow, as: Person, language: string, context: Context, id: string): Promise<Subject> {
   const { rows: [meeting] } = await tx.query<{
     room_id: string; message_id: string; starts_at: Date; minutes: number; attendees: string[]; cancelled: boolean;
-    body: string | null; deleted: boolean; room_kind: string; room_name: string | null; division_id: string | null;
+    reminders: number; soon: boolean | null; body: string | null; deleted: boolean; room_kind: string; room_name: string | null;
+    division_id: string | null;
   }>(
     `SELECT g.room_id, g.message_id, g.starts_at, g.minutes, g.attendees::text[] AS attendees, g.cancelled_at IS NOT NULL AS cancelled,
+            g.reminders, ${stillSoon('g')} AS soon,
             m.body, m.deleted_at IS NOT NULL AS deleted, r.kind AS room_kind, r.name AS room_name, r.division_id
        FROM room_meetings g
        JOIN room_messages m ON m.company_id = g.company_id AND m.id = g.message_id
@@ -783,7 +805,7 @@ async function meetingSubject(tx: TenantClient, row: DueRow, as: Person, languag
       WHERE g.id = $1`, [id]);
   if (!meeting || meeting.cancelled || meeting.deleted || meeting.starts_at <= context.now
     || !meeting.attendees.includes(as.principal)
-    || row.window_key !== `meeting:${id}@${meeting.starts_at.toISOString()}`) {
+    || meeting.soon !== true || row.window_key !== meetingKey(id, meeting.reminders)) {
     return { state: 'gone' };
   }
   const room = roomLabel({ kind: meeting.room_kind, name: meeting.room_name, division_id: meeting.division_id }, context.names);

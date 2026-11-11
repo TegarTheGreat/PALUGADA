@@ -558,14 +558,15 @@ test('a meeting whose words retention took keeps no link and reminds nobody', as
     await said(budi.in, room, { body: 'Notes: bring the old numbers.', threadOf: words });
     ok(await w.owner.post('/retention', { messageDays: 30 }));
     assert.deepEqual((await purgeExpiredMessages(w.fixture.companyId)).tombstoned, [words]);
-    assert.equal((await meetingRows(w.fixture.companyId))[0]!.call_url, null, 'the pasted link went with the words');
+    const [row] = await meetingRows(w.fixture.companyId);
+    assert.deepEqual([row!.call_url, row!.cancelled_at !== null, row!.cancelled_by], [null, true, null],
+      'the pasted link went with the words, and the meeting with them, cancelled by nobody');
 
     await syncRoomCards(w.fixture.companyId);
     await tell(w.fixture.companyId, w.api.master);
     assert.deepEqual(await remindersIn(w.fixture.companyId), [], 'nothing is said in a thread whose words are gone');
     assert.deepEqual(remindedOf(w.relay!, budi.phone!), []);
-    assert.deepEqual((await noticesOf(w.fixture.companyId, budi.seat.principal)).filter((row) => row.reason === 'meeting'), []);
-    assert.ok((await meetingRows(w.fixture.companyId))[0]!.reminded_at, 'marked all the same, so the sweep stops looking at it');
+    assert.deepEqual((await noticesOf(w.fixture.companyId, budi.seat.principal)).filter((one) => one.reason === 'meeting'), []);
   } finally {
     await w.close();
   }

@@ -24,6 +24,7 @@
 import { roomsOnControlPlane, withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { NOTICE_DAYS } from '../owner/member-notify.ts';
 import { keptPaths, peopleFolderOf, removeRoomFiles, sweepRoomFiles, type PeopleRoots } from '../workspace/files.ts';
+import { sweepImportParts } from '../workspace/import-slack.ts';
 import { takeClock } from '../workspace/rooms.ts';
 
 export interface RetentionPolicy {
@@ -68,6 +69,8 @@ export interface RetentionOutcome {
   messagesPurged: number;
   /** Room files on disk that no message named any more. */
   roomFilesSwept: number;
+  /** Imports whose uploaded parts went: ended, or a week old (STATUS 2.214). */
+  importPartsSwept: number;
 }
 
 export async function retentionFor(companyId: string): Promise<RetentionPolicy> {
@@ -474,7 +477,8 @@ export async function purgeExpiredMessages(companyId: string, now = new Date(), 
  * Prompts are scrubbed before traces are purged so that a trace passing both
  * windows is not read for its text on the way out. Messages go after the
  * work, so a card whose work went in this pass goes in it too; and the room
- * files no message names are swept last.
+ * files no message names are swept last, and the parts of a Slack import
+ * that ended or is a week old with them (STATUS 2.214).
  */
 export async function runRetention(
   companyId: string,
@@ -489,9 +493,10 @@ export async function runRetention(
   const workPurged = await purgeExpiredWork(companyId, now);
   const messages = await purgeExpiredMessages(companyId, now, roots);
   const roomFilesSwept = await sweepRoomFiles(companyId, peopleFolderOf(roots, companyId), now);
+  const importPartsSwept = await sweepImportParts(companyId, peopleFolderOf(roots, companyId), now);
   return {
     promptsScrubbed, journalScrubbed, tracesPurged, eventsPurged, bookkeepingPurged, workPurged,
-    messagesPurged: messages.deleted.length + messages.tombstoned.length, roomFilesSwept,
+    messagesPurged: messages.deleted.length + messages.tombstoned.length, roomFilesSwept, importPartsSwept,
   };
 }
 

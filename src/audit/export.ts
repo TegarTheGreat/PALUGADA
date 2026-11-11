@@ -572,7 +572,7 @@ const SECTIONS: Section[] = [
   {
     name: 'rooms',
     sql: `SELECT id, kind, division_id, name, about, private, direct_key, shows_work, shows_work_since,
-                 created_by, created_at, archived_at, archived_by
+                 created_by, created_at, archived_at, archived_by, external_id
             FROM rooms WHERE company_id = $1 ORDER BY created_at, id`,
     viaControlPlane: true,
   },
@@ -587,7 +587,7 @@ const SECTIONS: Section[] = [
     name: 'room_messages',
     sql: `SELECT id, room_id, position, thread_of, also_in_room, kind, author, author_name, body, notice_code, notice_values,
                  task_id, inbox_item_id, mentions, mentions_room, became, became_by, became_at, via, via_relay,
-                 reply_count, last_reply_position, edited_at, deleted_at, deleted_by, created_at
+                 reply_count, last_reply_position, edited_at, deleted_at, deleted_by, created_at, external_id
             FROM room_messages WHERE company_id = $1 ORDER BY position`,
     viaControlPlane: true,
   },
@@ -622,6 +622,21 @@ const SECTIONS: Section[] = [
             FROM room_files WHERE company_id = $1
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
            ORDER BY created_at, id`,
+    viaControlPlane: true,
+  },
+  // What a Slack export brought (STATUS 2.214): each import's report, and the
+  // old workspace's authors with the private rooms they were in. A room and a
+  // message keep the id they had in Slack (`external_id` above), so importing
+  // the same export into the restored company adds nothing.
+  {
+    name: 'room_imports',
+    sql: `SELECT id, source, status, parts, received, counts, problems, created_at, finished_at, parts_gone_at
+            FROM room_imports WHERE company_id = $1 ORDER BY created_at, id`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_former_people',
+    sql: `SELECT former, name, rooms FROM room_former_people WHERE company_id = $1 ORDER BY former`,
     viaControlPlane: true,
   },
   {

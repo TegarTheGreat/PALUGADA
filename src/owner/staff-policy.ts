@@ -245,9 +245,15 @@ const FIND_STAFF: AreaPolicy = {
 };
 
 // --- import (STATUS 2.214) ---
+// An export is the whole company's history, private channels included, and
+// linking an old author decides which private rooms a seat joins: the owner's.
 const IMPORT_STAFF: AreaPolicy = {
   reads: [],
-  hidden: {},
+  hidden: {
+    '/api/companies/:companyId/room-imports': "the owner's imports of an old workspace's history",
+    '/api/companies/:companyId/room-imports/:importId': "the owner's import",
+    '/api/companies/:companyId/former-people': "linking the old workspace's people is the owner's",
+  },
   talks: [],
   asks: [],
   decides: [],

@@ -125,7 +125,10 @@ export async function ensureCompanyRooms(companyId: string): Promise<void> {
   });
 }
 
-/** The columns a room in the rail is drawn from, over `rooms r` with the reader's member and place rows. */
+/**
+ * The columns a room in the rail is drawn from, over `rooms r` with the reader's member and place rows.
+ * What an import brought from Slack was said long ago, so it is unread for nobody, whenever it came in (STATUS 2.214).
+ */
 const LISTED = `r.id, r.kind, r.division_id, r.private, r.direct_key, r.archived_at IS NOT NULL AS archived,
   CASE r.kind WHEN 'company' THEN (SELECT c.name FROM companies c WHERE c.id = r.company_id)
               WHEN 'division' THEN (SELECT d.name FROM divisions d WHERE d.id = r.division_id)
@@ -137,7 +140,8 @@ const LISTED = `r.id, r.kind, r.division_id, r.private, r.direct_key, r.archived
             OR (p.muted_until IS NOT NULL AND p.muted_until > now()) THEN 0
        ELSE (SELECT count(*)::int FROM room_messages x
               WHERE x.company_id = r.company_id AND x.room_id = r.id AND x.kind = 'text' AND x.position > p.read_position
-                AND x.author <> $1 AND x.deleted_at IS NULL AND (x.thread_of IS NULL OR x.also_in_room)) END AS unread,
+                AND x.author <> $1 AND x.deleted_at IS NULL AND (x.thread_of IS NULL OR x.also_in_room)
+                AND x.via <> 'import') END AS unread,
   (SELECT count(*)::int FROM room_mentions n JOIN room_messages x ON x.company_id = n.company_id AND x.id = n.message_id
     WHERE n.principal = $1 AND n.seen_at IS NULL AND x.room_id = r.id) AS mentions`;
 

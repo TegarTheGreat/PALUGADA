@@ -72,6 +72,8 @@ export async function markRead(viewer: Viewer, roomId: string, input: Record<str
  * counted. Beside them, for the owner, the open items of their inbox as its
  * badge counts them: the team's cards still with an approver left out, and
  * those that reached the owner one entry a day (STATUS 2.204).
+ * What an import brought from Slack is unread for nobody: it was said long
+ * ago, whenever it came in (STATUS 2.214).
  */
 export async function unreadAcross(viewer: Omit<Viewer, 'companyId'> & { companyId: string | null }): Promise<Unread[]> {
   const companies = viewer.kind === 'owner'
@@ -90,7 +92,8 @@ export async function unreadAcross(viewer: Omit<Viewer, 'companyId'> & { company
          SELECT mine.id, mine.kind,
                 (SELECT count(*) FROM room_messages x
                   WHERE x.company_id = $2 AND x.room_id = mine.id AND x.kind = 'text' AND x.position > mine.read_position
-                    AND x.author <> $1 AND x.deleted_at IS NULL AND (x.thread_of IS NULL OR x.also_in_room)) AS n
+                    AND x.author <> $1 AND x.deleted_at IS NULL AND (x.thread_of IS NULL OR x.also_in_room)
+                    AND x.via <> 'import') AS n
            FROM mine
        )
        SELECT (SELECT count(*)::int FROM room_mentions WHERE principal = $1 AND seen_at IS NULL) AS mentions,

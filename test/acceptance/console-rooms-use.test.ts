@@ -218,24 +218,108 @@ test('a room whose newest message is a large picture opens on it, and is read wi
   await backlog(fixture, roomId, numbered('Catatan stok gula aren, kopi, susu, nomor', 30));
   ok(await budi.in.read(roomId, { position: Number(ok(await budi.in.page(roomId)).messages.at(-1).position) }));
   ok(await me.say(roomId, { body: 'Foto rak baru.', files: [{ name: 'rak.png', data: pngOf(2000, 1333) }] }), 'posting the picture');
-  for (const size of [DESKTOP, PHONE]) {
-    if (size === PHONE) {
-      ok(await me.say(roomId, { body: 'Foto rak kedua.', files: [{ name: 'rak-2.png', data: pngOf(2000, 1333) }] }));
+  // The console is closed however the test ends: one left open keeps the file from ever exiting.
+  try {
+    for (const size of [DESKTOP, PHONE]) {
+      if (size === PHONE) {
+        ok(await me.say(roomId, { body: 'Foto rak kedua.', files: [{ name: 'rak-2.png', data: pngOf(2000, 1333) }] }));
+      }
+      const page = await drawn(api, size);
+      try {
+        await staffSignsIn(page, api, budi.handle, budi.code, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+        await page.waitFor(`document.querySelector('[role="log"] [data-files] img')`, 'the picture, drawn');
+        await pause(1_200);
+        const gap = await page.evaluate<number>(GAP);
+        assert.ok(gap <= 4, `${size.width} px: the log stopped ${gap} px short of its newest message once the picture was drawn`);
+        assert.ok(await page.evaluate<boolean>(IN_VIEW(size === PHONE ? 'Foto rak kedua.' : 'Foto rak baru.')), 'the newest message is in view');
+        await readWithin(budi.in, roomId, 2_500, `${size.width} px`);
+      } finally {
+        await page.close();
+      }
     }
-    const page = await drawn(api, size);
-    try {
-      await staffSignsIn(page, api, budi.handle, budi.code, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
-      await page.waitFor(`document.querySelector('[role="log"] [data-files] img')`, 'the picture, drawn');
-      await pause(1_200);
-      const gap = await page.evaluate<number>(GAP);
-      assert.ok(gap <= 4, `${size.width} px: the log stopped ${gap} px short of its newest message once the picture was drawn`);
-      assert.ok(await page.evaluate<boolean>(IN_VIEW(size === PHONE ? 'Foto rak kedua.' : 'Foto rak baru.')), 'the newest message is in view');
-      await readWithin(budi.in, roomId, 2_500, `${size.width} px`);
-    } finally {
-      await page.close();
-    }
+  } finally {
+    await api.close();
   }
-  await api.close();
+});
+
+test('a picture is put on the page in its own box, never with no height between its placeholder and itself', { skip }, async () => {
+  const { fixture, api, owner } = await started({ files: { root: await filesRoot() } });
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  ok(await me.say(roomId, { body: 'Foto rak baru.', files: [{ name: 'rak.png', data: pngOf(2000, 1333) }] }), 'posting a wide picture');
+  ok(await me.say(roomId, { body: 'Foto etalase.', files: [{ name: 'etalase.png', data: pngOf(900, 1600) }] }), 'posting a tall one');
+  try {
+    for (const size of [DESKTOP, PHONE]) {
+      const page = await drawn(api, size);
+      try {
+        // Each picture's height as it is put on the page, before the browser has drawn a frame of it: a picture with no
+        // height there makes what the log holds shrink under a view at its end, and the browser moves the view.
+        await page.beforeLoad(`window.__putAt = [];
+          new MutationObserver((changes) => {
+            for (const change of changes) for (const node of change.addedNodes) {
+              if (node.nodeType !== 1) continue;
+              for (const one of [...(node.matches('[data-files] img') ? [node] : []), ...node.querySelectorAll('[data-files] img')]) {
+                window.__putAt.push(Math.round(one.getBoundingClientRect().height));
+              }
+            }
+          }).observe(document, { childList: true, subtree: true });`);
+        await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+        const pictures = `[...document.querySelectorAll('[role="log"] [data-files] img')]`;
+        await page.waitFor(`${pictures}.length === 2 && ${pictures}.every((one) => one.complete)`, `${size.width} px: the two pictures, drawn`);
+        const putAt = await page.evaluate<number[]>('window.__putAt');
+        assert.equal(putAt.length, 2, `${size.width} px: each picture is put on the page once`);
+        assert.ok(putAt.every((height) => height > 0), `${size.width} px: a picture was put on the page ${JSON.stringify(putAt)} px tall, before its size was known`);
+        const boxes = await page.evaluate<Array<{ width: number; height: number }>>(`${pictures}.map((one) => {
+          const box = one.getBoundingClientRect();
+          return { width: Math.round(box.width), height: Math.round(box.height) };
+        })`);
+        assert.deepEqual(boxes.map((box) => box.height), putAt, `${size.width} px: a picture keeps the box it was put on the page with`);
+        for (const box of boxes) assert.ok(box.width > 0 && box.width <= 320 && box.height <= 240, `${size.width} px: a picture is drawn ${box.width} by ${box.height} px`);
+        const [wide, tall] = boxes as [{ width: number; height: number }, { width: number; height: number }];
+        assert.ok(Math.abs(wide.width / wide.height - 2000 / 1333) < 0.03, `${size.width} px: the wide picture keeps its shape (${wide.width} by ${wide.height})`);
+        assert.ok(Math.abs(tall.width / tall.height - 900 / 1600) < 0.03, `${size.width} px: the tall picture keeps its shape (${tall.width} by ${tall.height})`);
+      } finally {
+        await page.close();
+      }
+    }
+  } finally {
+    await api.close();
+  }
+});
+
+test('a room at its newest stays there when the browser moves the view as what the log holds changes size', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  await backlog(fixture, roomId, numbered('Catatan kasir nomor', 40));
+  const page = await drawn(api, PHONE);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]') && ${IN_VIEW('Catatan kasir nomor 40.')}`, 'the room, at its newest');
+    await pause(600);
+    assert.ok(await page.evaluate<number>(GAP) <= 4, 'the log opens at its end');
+    // What two pictures put in place of their placeholders did on a busy machine: drawn with no height for a moment,
+    // they shrank what the log holds under a view at its end, the browser moved the view up inside what was left, and
+    // the pictures were drawn full size before the browser said the view had moved -- so when it said so, the view
+    // was 383 px short of the end and the person had done nothing to put it there. Here the view is moved and the
+    // newest row grows in one go, so the browser says it in that order every time.
+    await page.evaluate(`(() => {
+      const log = document.querySelector('[role="log"]');
+      const row = [...log.querySelectorAll('[data-message]')].at(-1);
+      log.scrollTop -= 24;
+      row.style.paddingBottom = '200px';
+    })()`);
+    await pause(600);
+    const gap = await page.evaluate<number>(GAP);
+    assert.ok(gap <= 4, `the log stopped ${gap} px short of its newest message, as if the person had scrolled up`);
+    assert.equal(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-jump]'))`), false, 'nor offers a way down: it is at the newest');
+    // Still at its newest, it follows what is said next.
+    await said(me, roomId, 'Kasir tutup jam sembilan.');
+    await page.waitFor(IN_VIEW('Kasir tutup jam sembilan.'), 'the next message, in view');
+  } finally {
+    await page.close();
+    await api.close();
+  }
 });
 
 test('a long room with a few new messages is read once they are seen, though the composer is drawn after them', { skip }, async () => {

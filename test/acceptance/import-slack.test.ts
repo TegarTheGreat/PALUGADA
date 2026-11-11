@@ -60,12 +60,19 @@ interface Entry {
   broken?: boolean;
   /** Its sizes and place in the ZIP64 extra field, as a writer of a large export puts them. */
   zip64?: boolean;
+  /** The size its headers say it unpacks to, when that is not what it does. */
+  says?: number;
+  /** The CRC its headers say, when that is not its bytes'. */
+  crc?: number;
+  /** More names the central directory gives this same entry's bytes. */
+  copies?: string[];
 }
 
 function zipOf(entries: readonly Entry[]): Buffer {
   const out: Buffer[] = [];
   const central: Buffer[] = [];
   let offset = 0;
+  let records = 0;
   for (const entry of entries) {
     const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data, 'utf8');
     let packed = entry.stored ? data : deflateRawSync(data);
@@ -75,49 +82,55 @@ function zipOf(entries: readonly Entry[]): Buffer {
     }
     const name = Buffer.from(entry.name, 'utf8');
     const method = entry.stored ? 0 : 8;
+    const size = entry.says ?? data.length;
+    const crc = entry.crc ?? crc32(data);
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(0x0800, 6);
     local.writeUInt16LE(method, 8);
-    local.writeUInt32LE(crc32(data), 14);
+    local.writeUInt32LE(crc, 14);
     local.writeUInt32LE(packed.length, 18);
-    local.writeUInt32LE(data.length, 22);
+    local.writeUInt32LE(size, 22);
     local.writeUInt16LE(name.length, 26);
     out.push(local, name, packed);
-    const record = Buffer.alloc(46);
-    record.writeUInt32LE(0x02014b50, 0);
-    record.writeUInt16LE(45, 4);
-    record.writeUInt16LE(20, 6);
-    record.writeUInt16LE(0x0800, 8);
-    record.writeUInt16LE(method, 10);
-    record.writeUInt32LE(crc32(data), 16);
-    record.writeUInt32LE(entry.zip64 ? 0xffffffff : packed.length, 20);
-    record.writeUInt32LE(entry.zip64 ? 0xffffffff : data.length, 24);
-    record.writeUInt16LE(name.length, 28);
-    record.writeUInt32LE(entry.zip64 ? 0xffffffff : offset, 42);
-    const extra = Buffer.alloc(entry.zip64 ? 28 : 0);
-    if (entry.zip64) {
-      record.writeUInt16LE(28, 30);
-      extra.writeUInt16LE(0x0001, 0);
-      extra.writeUInt16LE(24, 2);
-      extra.writeBigUInt64LE(BigInt(data.length), 4);
-      extra.writeBigUInt64LE(BigInt(packed.length), 12);
-      extra.writeBigUInt64LE(BigInt(offset), 20);
+    for (const named of [entry.name, ...(entry.copies ?? [])]) {
+      const recordName = Buffer.from(named, 'utf8');
+      const record = Buffer.alloc(46);
+      record.writeUInt32LE(0x02014b50, 0);
+      record.writeUInt16LE(45, 4);
+      record.writeUInt16LE(20, 6);
+      record.writeUInt16LE(0x0800, 8);
+      record.writeUInt16LE(method, 10);
+      record.writeUInt32LE(crc, 16);
+      record.writeUInt32LE(entry.zip64 ? 0xffffffff : packed.length, 20);
+      record.writeUInt32LE(entry.zip64 ? 0xffffffff : size, 24);
+      record.writeUInt16LE(recordName.length, 28);
+      record.writeUInt32LE(entry.zip64 ? 0xffffffff : offset, 42);
+      const extra = Buffer.alloc(entry.zip64 ? 28 : 0);
+      if (entry.zip64) {
+        record.writeUInt16LE(28, 30);
+        extra.writeUInt16LE(0x0001, 0);
+        extra.writeUInt16LE(24, 2);
+        extra.writeBigUInt64LE(BigInt(size), 4);
+        extra.writeBigUInt64LE(BigInt(packed.length), 12);
+        extra.writeBigUInt64LE(BigInt(offset), 20);
+      }
+      central.push(record, recordName, extra);
+      records += 1;
     }
-    central.push(record, name, extra);
     offset += local.length + name.length + packed.length;
   }
   const directory = Buffer.concat(central);
-  const many = entries.length > 0xffff;
+  const many = records > 0xffff;
   if (many) {
     const end64 = Buffer.alloc(56);
     end64.writeUInt32LE(0x06064b50, 0);
     end64.writeBigUInt64LE(44n, 4);
     end64.writeUInt16LE(45, 12);
     end64.writeUInt16LE(45, 14);
-    end64.writeBigUInt64LE(BigInt(entries.length), 24);
-    end64.writeBigUInt64LE(BigInt(entries.length), 32);
+    end64.writeBigUInt64LE(BigInt(records), 24);
+    end64.writeBigUInt64LE(BigInt(records), 32);
     end64.writeBigUInt64LE(BigInt(directory.length), 40);
     end64.writeBigUInt64LE(BigInt(offset), 48);
     const locator = Buffer.alloc(20);
@@ -130,12 +143,21 @@ function zipOf(entries: readonly Entry[]): Buffer {
   }
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(many ? 0xffff : entries.length, 8);
-  end.writeUInt16LE(many ? 0xffff : entries.length, 10);
+  end.writeUInt16LE(many ? 0xffff : records, 8);
+  end.writeUInt16LE(many ? 0xffff : records, 10);
   end.writeUInt32LE(directory.length, 12);
   end.writeUInt32LE(many ? 0xffffffff : offset, 16);
   out.push(end);
   return Buffer.concat(out);
+}
+
+/** The ZIP with its central directory's record `index` pointing at `offset`, as a crafted file points two entries into one. */
+function pointAt(zip: Buffer, index: number, offset: number): Buffer {
+  const out = Buffer.from(zip);
+  let at = out.readUInt32LE(out.length - 22 + 16);
+  for (let n = 0; n < index; n += 1) at += 46 + out.readUInt16LE(at + 28) + out.readUInt16LE(at + 30) + out.readUInt16LE(at + 32);
+  out.writeUInt32LE(offset, at + 42);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +462,164 @@ test('an import raises no unread, mention or Activity, and writes one change per
     assert.deepEqual(feed.rows.map((row) => row.kind), ['room', 'room', 'room', 'room'], 'one change per room, none per message');
     assert.deepEqual(new Set(feed.rows.map((row) => row.room_id)), new Set([...rooms.values()].map((room) => room.id)));
     assert.deepEqual(await planNotices(ws.fixture.companyId), { planned: 0 }, 'and nobody is told of it outside PALUGADA');
+
+    // A later, longer export brings old words into a room where something is
+    // new: what is new stays new, and nothing old is added to it -- for the
+    // owner, who has a message unread there, and for the seat who wrote it.
+    const budi = await seated(ws.fixture, 'Budi', 'member');
+    const budiIn = personIn(ws.api, budi.token, ws.fixture.companyId);
+    const dev = rooms.get('dev')!;
+    ok(await budiIn.join(dev.id));
+    ok(await budiIn.say(dev.id, 'Something new here.'));
+    const unreadOf = async (person: PersonIn) => (await roomsOf(person)).get('dev')!.unread;
+    assert.deepEqual([await unreadOf(ws.owner), await unreadOf(budiIn)], [1, 0]);
+    const older = Array.from({ length: 50 }, (_, n) => ({ type: 'message', user: 'U02BUDI', text: `old ${n}`, ts: `${1709280401 + n}.000100` }));
+    const again = await imported(ws, slackExport({ more: [{ name: 'dev/2024-03-02.json', data: json(older) }] }));
+    assert.equal(again.counts.messages, 50);
+    assert.deepEqual([await unreadOf(ws.owner), await unreadOf(budiIn)], [1, 0], 'fifty old messages are nobody\'s news');
+    const badge = (ok(await ws.api.call('GET', '/api/rooms/unread', ws.owner.token)).unread as Array<{ companyId: string; rooms: number }>)
+      .find((one) => one.companyId === ws.fixture.companyId)!;
+    assert.equal(badge.rooms, 1, 'the one room with something new');
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test('a channel read a slice at a time is the same as one read at once, and people post in between', async () => {
+  const ws = await workspace('slack-slices');
+  try {
+    const budi = await seated(ws.fixture, 'Budi', 'member');
+    const budiIn = personIn(ws.api, budi.token, ws.fixture.companyId);
+    const company = await companyRoomOf(budiIn);
+    const days = [0, 1, 2].map((day) => ({
+      name: `dev/2024-04-0${day + 1}.json`,
+      data: json(Array.from({ length: 900 }, (_, n) => ({ type: 'message', user: n % 2 ? 'U01AYU' : 'U02BUDI', text: `d${day} m${n}`, ts: `${1711929600 + day * 86400 + n}.000100` }))),
+    }));
+    const id = await upload(ws, zipOf(slackExport({ more: days })));
+    const roots = { filesRoot: ws.root };
+    const devMessages = async () => Number((await withControlPlane((tx) => tx.query<{ n: string }>(
+      `SELECT count(*) AS n FROM room_messages m JOIN rooms r ON r.company_id = m.company_id AND r.id = m.room_id
+        WHERE r.company_id = $1 AND r.external_id = 'slack:C02DEV'`, [ws.fixture.companyId]))).rows[0]!.n);
+    let calls = 0;
+    let between = 0;
+    for (;;) {
+      // No time at all: each call writes one step, saves how far it came, and lets go.
+      await readImports(ws.fixture.companyId, roots, { withinMs: 0 });
+      calls += 1;
+      const report = ok(await ws.owner.get(`/room-imports/${id}`)).import;
+      if (report.status !== 'reading') break;
+      assert.ok(calls < 60, 'it comes to an end');
+      const held = await withControlPlane((tx) => tx.query<{ reading_until: Date | null }>(
+        'SELECT reading_until FROM room_imports WHERE company_id = $1 AND id = $2', [ws.fixture.companyId, id]));
+      assert.equal(held.rows[0]!.reading_until, null, 'between slices nobody holds it');
+      const there = await devMessages();
+      if (there > 0 && there < 2701) {
+        ok(await budiIn.say(company, `Between slices, ${there} in.`));
+        between += 1;
+      }
+    }
+    assert.ok(between >= 2, `the channel came in over several slices (${between})`);
+    const report = ok(await ws.owner.get(`/room-imports/${id}`)).import;
+    assert.equal(report.status, 'done', JSON.stringify(report.problems));
+    assert.deepEqual([report.counts.rooms, report.counts.messages, report.counts.replies, report.counts.already, report.counts.reactions],
+      [4, 2709, 2, 0, 4], 'every slice counted once');
+    assert.deepEqual(report.problems, [{ code: 'direct_skipped', count: 2 }]);
+    const dev = (await roomsOf(ws.owner)).get('dev')!;
+    assert.equal(dev.unread, 0);
+    const page = await pageOf(ws.owner, dev.id);
+    assert.equal(page.at(-1).body, 'd2 m899', 'in the order they were said');
+    const feed = await withControlPlane((tx) => tx.query<{ kind: string; room_id: string }>(
+      "SELECT kind, room_id FROM room_feed WHERE company_id = $1 AND room_id = $2 AND kind <> 'member'", [ws.fixture.companyId, dev.id]));
+    assert.deepEqual(feed.rows.map((row) => row.kind), ['room'], 'one change for the room, however many slices');
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test('a person posts while a large channel is imported', async () => {
+  const ws = await workspace('slack-large');
+  try {
+    const budi = await seated(ws.fixture, 'Budi', 'member');
+    const budiIn = personIn(ws.api, budi.token, ws.fixture.companyId);
+    const company = await companyRoomOf(budiIn);
+    const days = Array.from({ length: 4 }, (_, day) => ({
+      name: `dev/2024-05-0${day + 1}.json`,
+      data: json(Array.from({ length: 5000 }, (_, n) => ({ type: 'message', user: 'U01AYU', text: `d${day} m${n}`, ts: `${1714521600 + day * 86400 + n}.000100` }))),
+    }));
+    const id = await upload(ws, zipOf(slackExport({ more: days })));
+    const reading = readImports(ws.fixture.companyId, { filesRoot: ws.root });
+    let failed: unknown = null;
+    reading.catch((error) => { failed = error; });
+    // Once the channel is part way in, a seat says something in another room.
+    for (let waited = 0; ; waited += 1) {
+      const { rows } = await withControlPlane((tx) => tx.query<{ n: string }>(
+        `SELECT count(*) AS n FROM room_messages m JOIN rooms r ON r.company_id = m.company_id AND r.id = m.room_id
+          WHERE r.company_id = $1 AND r.external_id = 'slack:C02DEV'`, [ws.fixture.companyId]));
+      if (Number(rows[0]!.n) > 0) break;
+      assert.equal(failed, null);
+      assert.ok(waited < 3000, 'the channel begins to come in');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    ok(await budiIn.say(company, 'Posting while Slack comes in.'));
+    const still = ok(await ws.owner.get(`/room-imports/${id}`)).import;
+    assert.equal(still.status, 'reading', 'the post did not wait for the channel');
+    assert.ok(still.counts.messages > 0 && still.counts.messages < 20_000, `its counts are saved as it goes (${still.counts.messages})`);
+    await reading;
+    const report = ok(await ws.owner.get(`/room-imports/${id}`)).import;
+    assert.equal(report.status, 'done', JSON.stringify(report.problems));
+    assert.equal(report.counts.messages, 20_009);
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test('words PostgreSQL would refuse are made plain, and a channel that cannot come in is a line of the report', async () => {
+  const ws = await workspace('slack-awkward');
+  try {
+    // Every name a room could have for dev is taken, and all but one for a long name.
+    for (const name of ['dev', 'dev (slack)', ...Array.from({ length: 18 }, (_, n) => `dev (slack ${n + 2})`)]) ok(await ws.owner.makeRoom({ name }));
+    const long = 'a'.repeat(80);
+    for (const name of [long, `${long.slice(0, 70)} (slack)`, ...Array.from({ length: 8 }, (_, n) => `${long.slice(0, 70)} (slack ${n + 2})`)]) {
+      ok(await ws.owner.makeRoom({ name }), name);
+    }
+    const LONG = { id: 'C04LONG', name: long, created: 1700000050, members: ['U01AYU'], purpose: { value: 'A\u0000 long name' } };
+    const users = USERS.map((user) => (user.id === 'U01AYU' ? { ...user, real_name: 'Ayu\u0000 Lestari', profile: { ...user.profile, real_name: 'Ayu\u0000 Lestari' } } : user));
+    const entries = slackExport({
+      more: [
+        {
+          name: 'general/2024-03-08.json',
+          data: json([
+            { type: 'message', user: 'U01AYU', text: 'zero\u0000byte', ts: '1709856000.000100', reactions: [{ name: 'eyes\u0000', users: ['U02BUDI'] }] },
+            { type: 'message', user: 'U01AYU', text: 'Root.', ts: '1709856060.000100', thread_ts: '1709856060.000100' },
+            { type: 'message', user: 'U02BUDI', text: 'A reply.', ts: '1709856120.000100', thread_ts: '1709856060.000100' },
+            { type: 'message', user: 'U03CICI', text: 'A reply to the reply.', ts: '1709856180.000100', thread_ts: '1709856120.000100' },
+          ]),
+        },
+        { name: `${long}/2024-03-08.json`, data: json([{ type: 'message', user: 'U01AYU', text: 'Long way round.', ts: '1709856240.000100' }]) },
+      ],
+    }).map((entry) => entry.name === 'channels.json' ? { ...entry, data: json([...CHANNELS, LONG]) }
+      : entry.name === 'users.json' ? { ...entry, data: json(users) } : entry);
+    const report = await imported(ws, entries);
+    assert.equal(report.status, 'done', JSON.stringify(report.problems));
+    const lines = (report.problems as Array<Record<string, unknown>>).filter((one) => one.code !== 'direct_skipped');
+    assert.deepEqual(lines, [
+      { code: 'renamed', entry: long, name: `${long.slice(0, 69)} (slack)` },
+      { code: 'channel_stopped', entry: 'dev' },
+    ]);
+    const rooms = await roomsOf(ws.owner);
+    for (const name of ['general', 'board', 'ops']) assert.equal(rooms.get(name)?.joined, true, `${name} came in`);
+    const longRoom = rooms.get(`${long.slice(0, 69)} (slack)`)!;
+    assert.equal(ok(await ws.owner.room(longRoom.id)).room.about, 'A long name');
+    assert.equal((await pageOf(ws.owner, longRoom.id))[0].body, 'Long way round.');
+    const general = await pageOf(ws.owner, rooms.get('general')!.id);
+    const zero = general.find((one) => one.body === 'zerobyte');
+    assert.ok(zero, 'the NUL is taken out');
+    assert.deepEqual(zero.author.name, 'Ayu Lestari');
+    assert.deepEqual(zero.reactions.map((one: View) => one.emoji), ['👀']);
+    const root = general.find((one) => one.body === 'Root.');
+    const thread = ok(await ws.owner.thread(rooms.get('general')!.id, root.id));
+    assert.deepEqual(thread.replies.map((one: View) => one.body), ['A reply.', 'A reply to the reply.'], 'a reply to a reply is in its root\'s thread');
+    assert.equal(root.replies.count, 2);
   } finally {
     await ws.api.close();
   }
@@ -606,27 +786,44 @@ test('a part that inflates past its cap is refused', async () => {
   const ws = await workspace('slack-bomb');
   try {
     const before = await tally(ws.fixture.companyId);
-    // Sixteen megabytes of spaces deflate to some sixteen kilobytes: far past two hundred times.
+    // Sixteen megabytes of spaces deflate to some sixteen kilobytes, and its
+    // headers say a thousand bytes: only the cap on what an entry may inflate
+    // to finds it. It is a day of ops, the channel written last, so only
+    // unpacking every entry before writing any keeps the three before it out.
     const bomb = Buffer.concat([Buffer.from('['), Buffer.alloc(16 * 1024 * 1024, 0x20), Buffer.from(']')]);
-    const report = await imported(ws, slackExport({ more: [{ name: 'general/2024-03-07.json', data: bomb }] }));
+    const report = await imported(ws, slackExport({ more: [{ name: 'ops/2024-03-07.json', data: bomb, says: 1000 }] }));
     assert.equal(report.status, 'failed');
-    assert.deepEqual(report.problems, [{ code: 'too_large', entry: 'general/2024-03-07.json' }]);
-    assert.deepEqual(await tally(ws.fixture.companyId), before, 'nothing of it is written');
+    assert.deepEqual(report.problems, [{ code: 'too_large', entry: 'ops/2024-03-07.json' }]);
+    assert.deepEqual(await tally(ws.fixture.companyId), before, 'no room at all is written');
 
     // The reader's own limits, smaller, on one entry and on the export as a whole.
+    const lines = json(Array.from({ length: 200 }, (_, n) => ({ n, said: `line ${n}` })));
     const small = zipOf([
       { name: 'a.json', data: Buffer.alloc(3000, 0x61), stored: true },
-      { name: 'b.json', data: json(Array.from({ length: 200 }, (_, n) => ({ n, said: `line ${n}` }))) },
-      { name: 'c.json', data: json(Array.from({ length: 200 }, (_, n) => ({ n, said: `line ${n}` }))) },
+      { name: 'b.json', data: lines },
+      { name: 'c.json', data: lines },
     ]);
-    const source = { size: small.length, read: async (at: number, length: number) => small.subarray(at, at + length) };
+    const sourceOf = (zip: Buffer) => ({ size: zip.length, read: async (at: number, length: number) => zip.subarray(at, at + length) });
     const tooLarge = (error: unknown) => isPalugadaError(error, 'import.too_large');
-    const one = await openZip(source, { entryBytes: 2000 });
+    const notRead = (error: unknown) => isPalugadaError(error, 'import.zip');
+    const one = await openZip(sourceOf(small), { entryBytes: 2000 });
     await assert.rejects(one.read(one.entries[0]!), tooLarge, 'a stored entry past what one entry may be');
-    const all = await openZip(source, { totalBytes: 8000 });
+    const all = await openZip(sourceOf(small), { totalBytes: 8000 });
     await all.read(all.entries[1]!);
     await all.read(all.entries[1]!);
     await assert.rejects(all.read(all.entries[2]!), tooLarge, 'past what the whole export may unpack to');
+
+    // What an entry that fails its check unpacked to counts as much as one that passes.
+    const wrong = zipOf([{ name: 'a.json', data: lines, crc: 1 }, { name: 'b.json', data: lines }]);
+    const counted = await openZip(sourceOf(wrong), { totalBytes: Buffer.byteLength(lines) + 1000 });
+    await assert.rejects(counted.read(counted.entries[0]!), notRead, 'its bytes are not the ones it was packed from');
+    await assert.rejects(counted.read(counted.entries[1]!), tooLarge, 'the damaged entry was unpacked, and counted');
+
+    // Nor are one entry's bytes read twice under two names, or one entry's read inside another's.
+    await assert.rejects(openZip(sourceOf(zipOf([{ name: 'general/2024-03-01.json', data: lines, copies: ['general/2024-03-02.json'] }]))),
+      notRead, 'two names for one place');
+    await assert.rejects(openZip(sourceOf(pointAt(zipOf([{ name: 'a.json', data: lines }, { name: 'b.json', data: lines }]), 1, 40))),
+      notRead, "an entry inside another's bytes");
   } finally {
     await ws.api.close();
   }
@@ -818,6 +1015,15 @@ test("a Slack import travels with the company's archive, and importing it again 
     }, 'with the private rooms she was in, restored here, and no seat of the other deployment');
     const general = (await roomsOf(there.owner)).get('general')!;
     assert.equal((await pageOf(there.owner, general.id))[0].author.name, 'Ayu Lestari');
+
+    // Nothing restored is new to anyone: no unread, no mention and no Activity.
+    const badge = (ok(await ws.api.call('GET', '/api/rooms/unread', ws.owner.token)).unread as Array<{
+      companyId: string; mentions: number; direct: number; rooms: number;
+    }>).find((one) => one.companyId === restored.companyId)!;
+    assert.deepEqual([badge.mentions, badge.direct, badge.rooms], [0, 0, 0]);
+    assert.ok([...(await roomsOf(there.owner)).values()].every((room) => room.unread === 0 && room.mentions === 0));
+    const activity = ok(await there.owner.activity()).items as Array<{ kind: string }>;
+    assert.deepEqual(activity.filter((item) => ['mention', 'reply', 'card'].includes(item.kind)), []);
 
     const before = await tally(restored.companyId);
     const again = await imported(there, zip);

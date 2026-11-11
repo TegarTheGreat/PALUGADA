@@ -511,7 +511,7 @@ Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
 | `408` | `{ "ok": false, "code": "relay.stale" }` | signed more than 300 seconds from now |
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
 | `410` | `{ "ok": false, "code": "relay.link_ended" }` | the link has ended |
-| `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's own rule (such as `approval.own_instigation`: four eyes) |
+| `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's or the rooms' own rule (such as `approval.own_instigation`: four eyes; or `message.client_id_used`, `room.too_fast` and `room.not_member` for a reply) |
 | `400`, `500` | `{ "error", "code" }`, without `ok` | the deployment failed for a reason that is no answer to the envelope: nothing it asked for was done, and the same envelope, sent again under its id, is taken afresh |
 | `429` | `{ "ok": false, "code": "relay.throttled" }` | too many |
 
@@ -546,7 +546,12 @@ others sent with it.
 
 `{ token, body, clientId, device_sig? }`: words in reply to a notice about a
 room, `body` 1 to 4,000 characters and `clientId` 1 to 64, by which a reply
-sent twice is one message. Only while the owner allows replies through the
+sent twice is one message. A `clientId` is unique for the person within the
+room the token names, not across rooms: sent again to the same thread, it is
+answered with the message it first made, whatever `body` says; the same one
+in another room is a new message there; and in another thread of the same
+room it is refused (`message.client_id_used`), so a relay makes a new one
+for every reply it did not send before. Only while the owner allows replies through the
 relay (`relay.post_off`), and only with a `reply` token sent to this person
 through this relay, unspent and unexpired (`relay.press_unknown`,
 `relay.press_spent`). It lands in the room and thread the token names, and

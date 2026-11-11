@@ -966,6 +966,7 @@ export const NOT_FOR_THE_ASSISTANT_UNDER: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/room-imports': 'an import is the owner\'s',
   '/api/companies/:companyId/former-people': 'linking people is the owner\'s',
   '/api/me/': 'a person\'s own profile',
+  '/api/companies/:companyId/me/': 'a person\'s own attention: what they have read and been told of is theirs to mark',
   '/api/relays/': 'a person\'s own phone',
   '/api/control/relays': 'pairing a relay takes the owner\'s device',
   '/api/control/relay-identity/': 'the deployment\'s key is the owner\'s',

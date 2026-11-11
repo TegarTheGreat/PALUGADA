@@ -150,3 +150,15 @@ test("a file is attached from the composer, from a phone's camera too, and only 
   }
   assert.doesNotMatch(drawn, /window\.open|target="_blank"|<iframe|<object|<embed/, 'a file is never opened in the console\'s origin');
 });
+
+test('a weekly meeting names its week isolated, so a right-to-left sentence does not turn it round', async () => {
+  // "2026-W46" inside an Arabic sentence is reordered by the bidirectional
+  // algorithm and broken at its hyphen unless it is isolated (STATUS 2.218):
+  // the card's title isolates the week (U+2066 to U+2069) and joins it with a
+  // hyphen that does not break.
+  const card = (await workspace()).get('workspace/MeetingCard.tsx') ?? '';
+  const isolated = card.match(/const week = [^\n]*/)?.[0] ?? '';
+  assert.match(isolated, /\\u2066\$\{meeting\.week[^}]*\}\\u2069/, 'the week is not isolated where the title is made');
+  assert.match(isolated, /\\u2011/, 'the week can break at its hyphen');
+  assert.match(card, /t\('Weekly operating meeting, \{week\}', \{ week \}\)/, 'the title is not made from the isolated week');
+});

@@ -216,7 +216,8 @@ test('on a phone a long press opens what may be done with a message, and only wh
     // narrow line, and none would leave a screen reader, or a window with no touch, no way in.
     const buttons = await page.evaluate<string[]>(`[...${ROW('Tolong cek kas pagi ini.')}.querySelectorAll('.message-actions button')]
       .filter((one) => one.getBoundingClientRect().width > 0).map((one) => one.getAttribute('aria-label'))`);
-    assert.deepEqual(buttons, ['More actions'], 'a message on a phone has its buttons beside it');
+    // Named for whose message it acts on, so a screen reader moving through a room hears whose each is (STATUS 2.218).
+    assert.deepEqual(buttons, ['More actions on the message from Owner'], 'a message on a phone has its buttons beside it');
 
     // A tap is not a press: nothing opens.
     await page.evaluate(HOLD('Tolong cek kas pagi ini.', 80));
@@ -582,7 +583,9 @@ test('a reply pressed in Activity opens the thread it is in, where it is seen, a
     await page.waitFor(`document.querySelector('.activity-row[data-unseen]')`, 'the reply in Activity, not yet seen');
     await page.evaluate(`document.querySelector('.activity-row[data-unseen]').click()`);
     await page.waitFor(`document.querySelector('[data-pane="thread"]')?.innerText.includes('Saya, jam tujuh.')`, 'the thread the reply is in');
-    assert.equal(await page.evaluate<string>('location.hash'), `#/c/${fixture.companyId}/rooms?item=${roomId}~${rootId}`);
+    // The thread, opened at the reply itself (STATUS 2.218).
+    const reply = ok(await me.thread(roomId, rootId)).replies[0] as { position: number };
+    assert.equal(await page.evaluate<string>('location.hash'), `#/c/${fixture.companyId}/rooms?item=${roomId}~${rootId}.${reply.position}`);
     await page.waitFor(`!document.querySelector('[data-badge="rooms"]')`, 'the badge gone once the thread is read', 20_000);
     const items = ok(await me.activity()).items as Array<{ messageId?: string; seen?: boolean }>;
     assert.equal(items.find((item) => item.messageId === replyId)?.seen, true, 'the reply is seen');
@@ -914,7 +917,7 @@ test('a meeting refused at the day\'s limit says why in its dialog, and loses ne
 /** A picture one pixel square, which a browser draws. */
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
-test("a small picture said in a room is drawn, any other file is saved, and the rail's search opens a message in its thread", { skip }, async () => {
+test("a small picture said in a room is drawn, any other file is saved, and the rail's search opens a message where it was said", { skip }, async () => {
   const { mkdtemp } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -938,8 +941,9 @@ test("a small picture said in a room is drawn, any other file is saved, and the 
     await page.press('Enter');
     await page.waitFor(`document.querySelector('[data-hit]')?.innerText.includes('Kopi Gayo datang Senin.')`, 'what was found');
     assert.match(await page.evaluate<string>('location.hash'), /item=search$/, 'the search is in the address');
+    // Opened where it was said: the room around it, marked (STATUS 2.218).
     await page.evaluate(`document.querySelector('[data-hit]').click()`);
-    await page.waitFor(`document.querySelector('[data-pane="thread"]')?.innerText.includes('Kopi Gayo datang Senin.')`, 'the message, opened in its thread');
+    await page.waitFor(`document.querySelector('[role="log"] [data-message][data-focused]')?.innerText.includes('Kopi Gayo datang Senin.')`, 'the message, marked in its room');
   } finally {
     await page.close();
     await api.close();

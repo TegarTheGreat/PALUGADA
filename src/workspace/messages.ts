@@ -86,11 +86,38 @@ async function whoCanSee(tx: TenantClient, room: RoomRecord, directory: Director
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Whether the words hold the mention's token: `@owner`, a seat's `@handle`, or `@Name` for a seat with none. */
+/**
+ * Where a token ends: before anything that could carry a handle on. A handle
+ * may hold a dot (STATUS 2.209), so `@budi.setiawan` does not end `@budi`,
+ * while `@budi.` at the end of a sentence does.
+ */
+const TOKEN_END = '(?![\\w-]|\\.[\\w-])';
+
+/** What is typed to mention a person: `owner`, a seat's handle, or the name of a seat with none. */
+function tokenOf(someone: { principal: string; handle: string | null; name: string | null } | undefined): string | null {
+  if (!someone) return null;
+  return someone.principal === 'owner' ? 'owner' : someone.handle ?? someone.name ?? null;
+}
+
+/**
+ * Whether the words hold the mention's token: `@owner`, a seat's `@handle`,
+ * or `@Name` for a seat with none, as a word of its own, in any case. Where
+ * it is written only as the start of someone else's longer token -- `@Sari`
+ * inside `@Sari Wulandari` -- it names the longer one's person instead.
+ * The console finds mentions the same way (`writtenMentions`, STATUS 2.218).
+ */
 function written(body: string, principal: string, directory: Directory): boolean {
-  const token = principal === 'owner' ? 'owner' : directory.get(principal)?.handle ?? directory.get(principal)?.name ?? null;
+  const token = tokenOf(principal === 'owner' ? { principal, handle: null, name: null } : directory.get(principal));
   if (!token) return false;
-  return new RegExp(`(^|[^\\w@])@${escaped(token)}(?![\\w-])`, 'iu').test(body);
+  const longer = directory.live().flatMap((someone) => {
+    const other = tokenOf(someone);
+    return someone.principal !== principal && other && other.length > token.length && other.toLowerCase().startsWith(token.toLowerCase()) ? [other] : [];
+  });
+  for (const found of body.matchAll(new RegExp(`(^|[^\\w@])@${escaped(token)}${TOKEN_END}`, 'giu'))) {
+    const at = found.index + found[1]!.length;
+    if (!longer.some((other) => new RegExp(`^@${escaped(other)}${TOKEN_END}`, 'iu').test(body.slice(at)))) return true;
+  }
+  return false;
 }
 
 /** The people a post or an edit asks to mention: a list of at most fifty principals, or none. */
@@ -414,11 +441,14 @@ export async function messagePage(viewer: Viewer, roomId: string, query: URLSear
       `SELECT EXISTS (SELECT 1 FROM room_messages m WHERE ${shownHere} AND m.position < $2) AS before,
               EXISTS (SELECT 1 FROM room_messages m WHERE ${shownHere} AND m.position > $3) AS after`,
       [roomId, first ?? 0, last ?? Number.MAX_SAFE_INTEGER]);
-    const { rows: place } = await tx.query<{ read_position: string }>(
-      'SELECT read_position FROM room_places WHERE room_id = $1 AND principal = $2', [roomId, viewer.person.principal]);
+    // A mark is a member's: someone reading a room they are not in -- an open room found, linked or searched --
+    // keeps none, which is said as none rather than as the room's start, so their console opens it at its newest
+    // with nothing called new (STATUS 2.218). A place left behind by someone who left the room is not theirs to read.
+    const { rows: place } = room.member ? await tx.query<{ read_position: string }>(
+      'SELECT read_position FROM room_places WHERE room_id = $1 AND principal = $2', [roomId, viewer.person.principal]) : { rows: [] };
     return {
       messages: await messageViews(tx, viewer, directory, rows),
-      readPosition: Number(place[0]?.read_position ?? 0),
+      readPosition: room.member ? Number(place[0]?.read_position ?? 0) : null,
       hasBefore: first !== null && edges[0]!.before,
       hasAfter: last !== null && edges[0]!.after,
     };

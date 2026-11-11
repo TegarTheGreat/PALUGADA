@@ -6,9 +6,12 @@
  *
  * Three panes on a wide screen -- the rail, the room, and a thread beside
  * it -- after the inbox's list and detail. Between a tablet's width and a
- * desktop's the thread takes the room's place; on a phone the Rooms tab is
- * the rail, a room is the whole screen with its composer above the
- * keyboard and no tab bar, and a thread is a sheet over the room.
+ * desktop's the thread takes the room's place, and where even the rail and a
+ * room do not fit side by side (a tablet held upright, beside the shell's
+ * navigation) an open room takes the rail's, with a way back to it; on a
+ * phone the Rooms tab is the rail, a room is the whole screen with its
+ * composer above the keyboard and no tab bar, and a thread is a sheet over
+ * the room.
  *
  * What is open is in the address (`?item=<room>`, `<room>~<message>` for a
  * thread, or `activity`, `browse`, `search`, and for the owner `ceo` and
@@ -81,6 +84,8 @@ function openOf(item: string | null, owner: boolean): Open {
 const RAIL_PX = 264;
 const THREAD_PX = 400;
 const ROOM_LEAST_PX = 420;
+/** The least a room is ever drawn in beside anything, the rail included (`.rooms-main` in app.css). */
+const ROOM_NARROWEST_PX = 320;
 
 /**
  * How a thread is drawn beside its room, from the width the Rooms page itself
@@ -95,6 +100,16 @@ function panesFor(width: number): 'three' | 'two' | 'alone' {
   return 'alone';
 }
 
+/**
+ * Whether the rail and an open room fit side by side. Where they do not -- a
+ * tablet held upright, whose window also holds the shell's navigation -- the
+ * room is drawn alone with a way back to the rail, as on a phone, rather than
+ * pushed past the screen's edge (STATUS 2.218).
+ */
+function railFits(width: number): boolean {
+  return width >= RAIL_PX + ROOM_NARROWEST_PX;
+}
+
 /** How often the rail is read again while the room stream is not heard: refused for five tabs open already, or down. */
 const RAIL_EVERY_MS = 30_000;
 
@@ -105,7 +120,10 @@ export function Rooms({ ctx, route }: PageProps) {
   const phone = useMediaQuery('(max-width: 48em)') ?? false;
   // The page's own width decides the panes; before it is measured, the window's stands in for it.
   const page = useElementSize();
-  const panes = panesFor(page.width > 0 ? page.width : window.innerWidth);
+  const width = page.width > 0 ? page.width : window.innerWidth;
+  const panes = panesFor(width);
+  // One pane at a time: on a phone, and wherever the rail and a room do not fit side by side.
+  const single = phone || !railFits(width);
   const open = openOf(route.item, owner);
   const [tick, setTick] = useState(0);
   // What Ask the team is open for: a message, or nothing yet; null while it is closed.
@@ -147,12 +165,13 @@ export function Rooms({ ctx, route }: PageProps) {
   // The same room read again keeps its place on screen; another room starts empty.
   const shownRoom = room.data && room.data.id === roomId ? room.data : null;
 
-  // A desktop opens on the company room; a phone opens on the rail, which is the Rooms tab.
+  // A desktop opens on the company room; a phone, or a page too narrow for the rail and a room side by side, opens
+  // on the rail -- the Rooms tab -- and stays there when the person goes back to it.
   useEffect(() => {
-    if (phone || open.kind !== 'none' || !rooms.data) return;
+    if (single || open.kind !== 'none' || !rooms.data) return;
     const company = rooms.data.find((one) => one.kind === 'company');
     if (company) select(company.id, true);
-  }, [phone, open.kind, rooms.data]);
+  }, [single, open.kind, rooms.data]);
 
   // A room or a thread open on a phone has the whole screen: no shell header, no tabs, the keyboard allowed for.
   const immersive = phone && open.kind !== 'none';
@@ -173,9 +192,9 @@ export function Rooms({ ctx, route }: PageProps) {
       .then(() => changed(), (failure: unknown) => notifications.show({ color: 'red', message: explain(failure) }));
   }, [companyId, changed]);
 
-  // The room last open, which a search opened from the rail looks in first (STATUS 2.218).
-  const [lastRoom, setLastRoom] = useState<string | null>(null);
-  useEffect(() => { if (roomId) setLastRoom(roomId); }, [roomId]);
+  // The room last open, which a search opened from the rail looks in first, joined or not (STATUS 2.218).
+  const [lastRoom, setLastRoom] = useState<RoomListItem | null>(null);
+  useEffect(() => { if (shownRoom) setLastRoom(shownRoom); }, [shownRoom]);
 
   const scope = useMemo<Scope | null>(() => (me ? {
     ctx,
@@ -224,9 +243,11 @@ export function Rooms({ ctx, route }: PageProps) {
   if (!scope) return null;
   const attention = ctx.unread.find((one) => one.companyId === companyId)?.mentions ?? 0;
   const threadOpen = open.kind === 'room' && open.threadId !== null;
-  // Which panes are drawn: a phone shows one, with a thread as a sheet over the room; otherwise as the page's width
-  // allows a thread beside its room (panesFor).
-  const showRail = phone ? open.kind === 'none' : !threadOpen || panes === 'three';
+  // Which panes are drawn: a phone shows one, with a thread as a sheet over the room; a page too narrow for the rail
+  // beside a room shows the rail or what is open; otherwise as the page's width allows a thread beside its room
+  // (panesFor).
+  const showRail = single ? open.kind === 'none' : !threadOpen || panes === 'three';
+  const back = single ? () => select(null) : null;
   const showMain = open.kind !== 'none' && (phone || !threadOpen || panes !== 'alone');
   // While the company has no topic room, the owner is offered their Slack workspace's (STATUS 2.214): above the
   // company room on a wide screen, and above the rail on a phone, which opens on the rail.
@@ -257,30 +278,30 @@ export function Rooms({ ctx, route }: PageProps) {
           <Box className="rooms-main" data-pane="room" component="section">
             {open.kind === 'room' && inviting && !phone && shownRoom?.kind === 'company' && <SlackInvite companyId={companyId} imported={changed} />}
             {open.kind === 'room' && (
-              <RoomPane key={open.roomId} roomId={open.roomId} at={open.at} threadOpen={threadOpen} back={() => select(null)} addPeople={(principals) => setWriting(principals)} />
+              <RoomPane key={open.roomId} roomId={open.roomId} at={open.at} threadOpen={threadOpen} back={back} addPeople={(principals) => setWriting(principals)} />
             )}
             {open.kind === 'activity' && (
               <>
-                <PaneHead back={phone ? () => select(null) : null} title={t('Activity')} />
+                <PaneHead back={back} title={t('Activity')} />
                 <Activity rooms={rooms.data ?? []} open={(id) => select(id)} />
               </>
             )}
             {open.kind === 'search' && (
               <>
-                <PaneHead back={phone ? () => select(null) : null} title={t('Search messages')} />
+                <PaneHead back={back} title={t('Search messages')} />
                 <SearchPanel query={query} setQuery={setQuery} rooms={rooms.data ?? []} from={lastRoom}
                   open={(hit) => select(itemAt({ roomId: hit.roomId, threadOf: hit.threadOf, position: hit.position }))} />
               </>
             )}
             {open.kind === 'browse' && (
               <>
-                <PaneHead back={phone ? () => select(null) : null} title={t('Browse rooms')} />
+                <PaneHead back={back} title={t('Browse rooms')} />
                 <Browse open={(id) => select(id)} />
               </>
             )}
             {(open.kind === 'ceo' || open.kind === 'palugada') && (
               <>
-                <PaneHead back={phone ? () => select(null) : null} title={<AssistantTitle company={open.kind === 'ceo' ? ctx.company : null} />} />
+                <PaneHead back={back} title={<AssistantTitle company={open.kind === 'ceo' ? ctx.company : null} />} />
                 <Box className="assistant-inline">
                   <AssistantThread key={open.kind} company={open.kind === 'ceo' ? ctx.company : null} />
                 </Box>
@@ -302,7 +323,7 @@ export function Rooms({ ctx, route }: PageProps) {
   );
 }
 
-/** The top of the main pane: on a phone, the way back to the rail. */
+/** The top of the main pane: where the rail is not beside it, the way back to the rail. */
 function PaneHead({ back, title, children }: { back: (() => void) | null; title: ReactNode; children?: ReactNode }) {
   return (
     <Group className="pane-head" justify="space-between" wrap="nowrap" px={{ base: 'xs', sm: 'md' }} py="xs">
@@ -322,7 +343,8 @@ function RoomPane({ roomId, at, threadOpen, back, addPeople }: {
   at: number | null;
   /** A thread is open beside or over the room: Esc closes it rather than marking the room read. */
   threadOpen: boolean;
-  back: () => void;
+  /** The way back to the rail, where the room is drawn in its place; none where the rail is beside it. */
+  back: (() => void) | null;
   addPeople: (people: string[]) => void;
 }) {
   const scope = useScope();
@@ -397,7 +419,7 @@ function RoomPane({ roomId, at, threadOpen, back, addPeople }: {
   const quietNow = room ? quiet(room) : false;
   return (
     <>
-      <PaneHead back={scope.phone ? back : null} title={
+      <PaneHead back={back} title={
         <Box style={{ minWidth: 0 }}>
           <Group gap={6} wrap="nowrap">
             {room && room.kind !== 'direct' && (room.private ? <IconLock size={16} /> : <IconHash size={16} />)}

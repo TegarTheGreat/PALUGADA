@@ -8,9 +8,10 @@
  * reply (STATUS 2.218). The words of a hit are a person's, shown as text.
  *
  * A search looks in the room that was open first, as a person in a room
- * usually means, and can look in every room; it narrows to one person too,
- * chosen or typed as Slack's are: `in:#room` and `from:@handle` (or
- * `from:@owner`) in the words (STATUS 2.218).
+ * usually means -- one they have not joined too -- and can look in every
+ * room; it narrows to one person too, chosen or typed as Slack's are:
+ * `in:#room` and `from:@handle` (or `from:@owner`) in the words. A person
+ * named with no words lists everything they said (STATUS 2.218).
  *
  * Nothing is kept in the browser: the words searched for live in the page's
  * memory, and go with it.
@@ -50,8 +51,8 @@ export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
   query: string;
   setQuery: (query: string) => void;
   rooms: RoomListItem[];
-  /** The room that was open when the search began, where it looks first. */
-  from: string | null;
+  /** The room that was open when the search began, where it looks first: one the person has not joined, too. */
+  from: RoomListItem | null;
   /** Opens a hit where it was said. */
   open: (hit: SearchHit) => void;
 }) {
@@ -59,7 +60,7 @@ export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
   const [typed, setTyped] = useState(query);
   const [files, setFiles] = useState(false);
   // Where to look and who said it; '' is every room, and anyone.
-  const [inRoom, setInRoom] = useState(lastRoom ?? '');
+  const [inRoom, setInRoom] = useState(lastRoom?.id ?? '');
   const [byPerson, setByPerson] = useState('');
   const EVERY = 'every';
   const ANYONE = 'anyone';
@@ -68,8 +69,11 @@ export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => { setTyped(query); }, [query]);
+  // The rooms it may look in: those the person is in, and the one the search began in, joined or not.
+  const known = lastRoom && !rooms.some((one) => one.id === lastRoom.id) ? [...rooms, lastRoom] : rooms;
+  const choices = known.filter((one) => one.joined || one.id === lastRoom?.id);
   // Filters typed in the words are the choices drawn too, so the two never disagree.
-  const asked = narrowed(query, rooms, scope.people, scope.me);
+  const asked = narrowed(query, known, scope.people, scope.me);
   useEffect(() => {
     if (asked.roomId !== undefined) setInRoom(asked.roomId);
     if (asked.from !== undefined) setByPerson(asked.from);
@@ -79,7 +83,8 @@ export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
 
   const page = async (from: number | null) => {
     const text = asked.words;
-    if (text.length < 2) {
+    // Two letters at least; or none, with a person named, for everything they said.
+    if (text.length < 2 && !(text === '' && person)) {
       setHits(null);
       return;
     }
@@ -99,7 +104,7 @@ export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
   };
   useEffect(() => { void page(null); }, [query, files, room, person, scope.companyId]);
 
-  const roomOf = (id: string) => rooms.find((room) => room.id === id);
+  const roomOf = (id: string) => known.find((room) => room.id === id);
   return (
     <Stack gap="sm" p={{ base: 'xs', sm: 'md' }} className="search-panel" style={{ overflowY: 'auto', flex: 1 }}>
       <form onSubmit={(event) => { event.preventDefault(); setQuery(typed.trim()); }}>
@@ -116,7 +121,7 @@ export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
       </form>
       <Group gap="xs" wrap="wrap" align="flex-end">
         <Select size="xs" data-search-room aria-label={t('Where to look')} value={room || EVERY} allowDeselect={false} style={{ flex: '1 1 160px', minWidth: 0 }}
-          data={[{ value: EVERY, label: t('Every room') }, ...rooms.filter((one) => one.joined).map((one) => ({ value: one.id, label: roomName(one, scope.me) }))]}
+          data={[{ value: EVERY, label: t('Every room') }, ...choices.map((one) => ({ value: one.id, label: roomName(one, scope.me) }))]}
           onChange={(value) => {
             setInRoom(value && value !== EVERY ? value : '');
             if (asked.roomId !== undefined) setQuery(query.replace(/(^|\s)in:\S+/giu, ' ').trim());

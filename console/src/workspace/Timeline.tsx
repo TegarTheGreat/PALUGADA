@@ -204,6 +204,9 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   const lastSeen = useRef(0);
   const opening = useRef(0);
   const loadingNewer = useRef(false);
+  // While "Jump to newest" reads the newest page and until it is drawn: what is drawn is about to be replaced, so a
+  // scroll heard meanwhile says nothing of where the person is, and a later page read now would land in the gap.
+  const jumping = useRef(false);
   const held = useRef({ messages, hasAfter });
   held.current = { messages, hasAfter };
 
@@ -221,22 +224,25 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
       } else {
         page = await api('GET', `/api/companies/${companyId}/rooms/${roomId}/messages?limit=${PAGE}`);
         const first = page.messages[0];
+        const kept = page.readPosition;
         // More is new than the newest page holds: the page around the mark, so the first new message is drawn.
-        if (first && page.hasBefore && first.position > page.readPosition + 1) {
-          page = await api('GET', `/api/companies/${companyId}/rooms/${roomId}/messages?around=${page.readPosition + 1}&limit=${PAGE}`);
+        if (kept !== null && first && page.hasBefore && first.position > kept + 1) {
+          page = await api('GET', `/api/companies/${companyId}/rooms/${roomId}/messages?around=${kept + 1}&limit=${PAGE}`);
         }
+        // Someone not in the room keeps no mark there, so nothing in it is new to them: it opens at its newest.
         const mark = page.readPosition;
-        land = page.messages.some((one) => one.position > mark && counted(one, me)) ? { kind: 'new' } : { kind: 'end' };
+        land = mark !== null && page.messages.some((one) => one.position > mark && counted(one, me)) ? { kind: 'new' } : { kind: 'end' };
       }
       if (mine !== opening.current) return;
       const mark = page.readPosition;
       landing.current = land;
       anchor.current = null;
       atBottom.current = land.kind === 'end';
+      jumping.current = false;
       setMessages(page.messages);
-      setReadPosition(mark);
+      setReadPosition(mark ?? 0);
       setNewFrom(mark);
-      setUnreadAtOpen(page.messages.filter((one) => one.position > mark && counted(one, me)).length);
+      setUnreadAtOpen(mark === null ? 0 : page.messages.filter((one) => one.position > mark && counted(one, me)).length);
       setUnreadMore(false);
       setHasBefore(page.hasBefore);
       setHasAfter(page.hasAfter);
@@ -272,8 +278,10 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
     try {
       if (detached && now.length > 0) {
         const page: MessagePage = await api('GET', `/api/companies/${companyId}/rooms/${roomId}/messages?after=${now[0]!.position - 1}&limit=100`);
+        // The newest page replaced what this was read from while it was asked for: it would fill a gap that is gone.
+        if (jumping.current || !held.current.hasAfter) return;
         setMessages((drawn) => merged(drawn, page.messages));
-        setReadPosition((mark) => Math.max(mark, page.readPosition));
+        setReadPosition((mark) => Math.max(mark, page.readPosition ?? 0));
         setHasAfter(page.hasAfter);
         return;
       }
@@ -295,7 +303,7 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
         setMessages((drawn) => merged(drawn, page.messages));
         if (!last) setHasBefore(page.hasBefore);
       }
-      setReadPosition((mark) => Math.max(mark, page.readPosition));
+      setReadPosition((mark) => Math.max(mark, page.readPosition ?? 0));
       setError(null);
     } catch (failure) {
       setError(explain(failure));
@@ -336,11 +344,13 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   // Later messages, as the person reaches the end of what is drawn.
   const loadNewer = useCallback(async () => {
     const last = held.current.messages.at(-1);
-    if (!last || loadingNewer.current) return;
+    if (!last || loadingNewer.current || jumping.current) return;
     loadingNewer.current = true;
     setNewer(true);
     try {
       const page: MessagePage = await api('GET', `/api/companies/${companyId}/rooms/${roomId}/messages?after=${last.position}&limit=${PAGE}`);
+      // The newest page was drawn instead while this was asked for (jump): what it read belongs to a gap that is gone.
+      if (jumping.current || !held.current.hasAfter) return;
       setMessages((drawn) => merged(drawn, page.messages));
       setHasAfter(page.hasAfter);
     } catch (failure) {
@@ -377,7 +387,7 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   // Where the person is: at the newest or not, and which message is at the top of the view.
   const place = useCallback(() => {
     const log = scroller.current;
-    if (!log) return;
+    if (!log || jumping.current) return;
     const gap = log.scrollHeight - log.scrollTop - log.clientHeight;
     const own = ownTop.current !== null && Math.abs(log.scrollTop - ownTop.current) < 2;
     if (own && atBottom.current && gap >= NEAR_END) {
@@ -449,6 +459,7 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
     const land = landing.current;
     if (!log || !land || !loaded) return;
     landing.current = null;
+    jumping.current = false;
     if (land.kind === 'end') {
       atBottom.current = true;
       scrollLog(log, log.scrollHeight);
@@ -489,23 +500,30 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   // New messages drawn are held as well, before they are painted.
   useLayoutEffect(() => { if (!landing.current) hold(); }, [messages, pending.length, hold]);
 
-  // Down to the newest: the newest page when what is drawn does not reach it.
+  // Down to the newest: the newest page when what is drawn does not reach it. That page is landed on once it is drawn,
+  // by the landing above, and not before: a scroll made now would go to the end of what is about to be replaced, and
+  // its event, heard before the new page is drawn, would say the person had left the newest.
   const jump = useCallback(async () => {
+    setFar(false);
     if (held.current.hasAfter) {
+      if (jumping.current) return;
+      jumping.current = true;
       try {
         const page: MessagePage = await api('GET', `/api/companies/${companyId}/rooms/${roomId}/messages?limit=${PAGE}`);
+        if (!jumping.current) return;
+        landing.current = { kind: 'end' };
         atBottom.current = true;
         setMessages(page.messages);
         setHasBefore(page.hasBefore);
         setHasAfter(false);
-        setReadPosition((mark) => Math.max(mark, page.readPosition));
+        setReadPosition((mark) => Math.max(mark, page.readPosition ?? 0));
       } catch (failure) {
+        jumping.current = false;
         setError(explain(failure));
-        return;
       }
+      return;
     }
     atBottom.current = true;
-    setFar(false);
     const log = scroller.current;
     if (log) scrollLog(log, log.scrollHeight);
   }, [companyId, roomId]);
@@ -542,17 +560,20 @@ export function Timeline({ roomId, at, pending, retry, editing, setEditing, show
   const lineAt = firstNew < 0 || (firstNew === 0 && hasBefore) ? null
     : messages.slice(firstNew).find((one) => counted(one, me)) ?? null;
   const waiting = unreadAtOpen > 0 && lineAt !== null && readPosition < newestKnown;
-  const newCount: Record<string, string> = unreadMore ? { count: `${count(ROOM_UNREAD_MOST)}+` } : {};
+  // "99+" isolated (U+2066 to U+2069), so a right-to-left sentence does not read it as "+99".
+  const newCount: Record<string, string> = unreadMore ? { count: `\u2066${count(ROOM_UNREAD_MOST)}+\u2069` } : {};
 
   const pins = scope.room?.pins ?? [];
   return (
     <Box className="rooms-timeline">
       {waiting && (
         <Group className="unread-bar" data-unread-bar justify="space-between" wrap="nowrap" gap="xs" px={{ base: 'xs', sm: 'md' }} py={4}>
-          <Text size="xs" fw={600} truncate>
+          <Text size="xs" fw={600} truncate style={{ minWidth: 0, flex: '1 1 auto' }}>
             {tp('{count} new message since {time}', '{count} new messages since {time}', unreadAtOpen, { time: time(lineAt.createdAt), ...newCount })}
           </Text>
-          <Button size="compact-xs" variant="subtle" data-mark-read onClick={readAll}>{t('Mark as read')}</Button>
+          {/* The button gives way as the words do, so a long label on a phone is cut short rather than cut off. */}
+          <Button size="compact-xs" variant="subtle" data-mark-read onClick={readAll} style={{ flex: '0 1 auto', minWidth: 0, maxWidth: '50%' }}
+            styles={{ inner: { minWidth: 0 }, label: { display: 'block', minWidth: 0, textOverflow: 'ellipsis' } }} title={t('Mark as read')}>{t('Mark as read')}</Button>
         </Group>
       )}
       <div

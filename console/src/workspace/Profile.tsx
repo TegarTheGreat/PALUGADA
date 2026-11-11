@@ -16,7 +16,7 @@ import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { LANGUAGES, t } from '../i18n.ts';
 import { PEOPLE_PICTURES, peoplePicture, personPicture } from '../images.ts';
-import { HANDLE } from '../pages/Join.tsx';
+import { HANDLE } from '../handles.ts';
 import { PhoneLinks } from './LinkPhone.tsx';
 import { askBrowser, browserPermission, type BrowserPermission } from './notifyInTab.ts';
 

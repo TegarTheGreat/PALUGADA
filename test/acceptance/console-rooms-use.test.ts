@@ -450,7 +450,7 @@ test('a handle with a dot names only its person, not the one whose handle begins
     await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
     assert.deepEqual(await sentWith('@budi.setiawan tolong cek stok gayo'), [setiawan.principal], '@budi.setiawan names Budi Setiawan alone');
     assert.deepEqual(ok(await budi.in.activity()).items, [], 'Budi Santoso is told nothing');
-    assert.deepEqual(await sentWith('Sudah dicek oleh @budi.'), [budi.principal], 'a handle that ends a sentence names its person');
+    assert.deepEqual(await sentWith('Sudah dicek oleh @budi. Terima kasih.'), [budi.principal], 'a handle that ends a sentence names its person');
     await pause(500);
     assert.equal(await page.evaluate<boolean>(`document.body.innerText.includes('you named was not told') || document.body.innerText.includes('you named were not told')`), false,
       'the console asked only for the people the words name, so nobody is said back as not told');
@@ -738,7 +738,10 @@ test('search looks in the open room first, and narrows to a person, by the picke
     await page.type('gayo from:@owner in:#promo');
     await page.press('Enter');
     await page.waitFor(`${hits}.length === 1 && ${hits}[0].includes('Promo kopi gayo')`, 'what the owner said in promo');
-    // A person named alone, with no words, is everything they said, as Slack's from: is.
+    // A person named alone, with no words, is everything they said, as Slack's from: is: in every room again.
+    await page.evaluate(`document.querySelector('[data-search-room]').click()`);
+    await page.waitFor(`[...document.querySelectorAll('[role="option"]')].some((one) => one.innerText.includes('Every room'))`, 'the room choice, again');
+    await page.evaluate(`[...document.querySelectorAll('[role="option"]')].find((one) => one.innerText.includes('Every room')).click()`);
     await page.evaluate(`(() => { const box = document.querySelector('.search-panel input[aria-label="Search messages"]'); box.focus(); box.select(); })()`);
     await page.type('from:@budi');
     await page.press('Enter');

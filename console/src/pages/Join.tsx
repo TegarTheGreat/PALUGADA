@@ -19,6 +19,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { api, ApiError, explain } from '../api.ts';
 import { isLanguage, language, setLanguage, t } from '../i18n.ts';
+import { HANDLE } from '../handles.ts';
 import { personPicture } from '../images.ts';
 import { kindAbout, kindLabel, LanguagePicker, PicturePicker, QuietHours } from '../workspace/Profile.tsx';
 import { QrCode } from './Claim.tsx';
@@ -36,11 +37,6 @@ interface Offer {
   seat: { id: string; name: string; kind: 'viewer' | 'member' | 'approver'; company: string };
 }
 
-/**
- * A handle as 0149 shapes it: what the field accepts before the server is asked whether it can be used. The
- * profile checks a handle changed there by it too (STATUS 2.218).
- */
-export const HANDLE = /^[a-z][a-z0-9._-]{2,31}$/;
 
 export function Join({ code, onSignedIn }: {
   code: string;

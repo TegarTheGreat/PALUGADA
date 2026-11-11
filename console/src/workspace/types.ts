@@ -86,8 +86,8 @@ export type MessageView = {
          callMeeting: boolean; fileAsIssue: boolean; history: boolean };
 };
 
-/** A page of a room, with the reader's own mark. */
-export type MessagePage = { messages: MessageView[]; readPosition: number; hasBefore: boolean; hasAfter: boolean };
+/** A page of a room, with the reader's own mark: none (null) for someone not in the room, who keeps no mark there. */
+export type MessagePage = { messages: MessageView[]; readPosition: number | null; hasBefore: boolean; hasAfter: boolean };
 
 /** A thread: its root and replies; work threads also carry the work's last line, redacted. */
 export type ThreadView = { root: MessageView; replies: MessageView[]; following: boolean; progress: string | null };

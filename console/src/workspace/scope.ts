@@ -105,21 +105,41 @@ export function linkTo(companyId: string, message: { roomId: string; threadOf: s
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * The people the words name, found as the server finds them (STATUS 2.206):
- * everyone of the company whose token -- `@owner`, a seat's `@handle`, or
- * `@Name` for a seat with no handle yet -- is written in the words, as a word
- * of its own and in any case. A handle typed in full mentions its person as
- * one chosen from the list does, in a message and in an edit (STATUS 2.218).
- * A seat named by a name that is also someone's handle is left to the handle.
+ * Where a token ends: before anything that could carry a handle on. A handle
+ * may hold a dot, so `@budi.setiawan` does not end `@budi`, while `@budi.` at
+ * the end of a sentence does.
  */
-export function writtenMentions(body: string, people: PersonRef[]): string[] {
+const TOKEN_END = '(?![\\w-]|\\.[\\w-])';
+
+/**
+ * The people the words name, found as the server finds them (STATUS 2.206,
+ * 2.218): everyone of the company whose token -- `@owner`, a seat's
+ * `@handle`, or `@Name` for a seat with no handle yet -- is written in the
+ * words, as a word of its own and in any case. A handle typed in full
+ * mentions its person as one chosen from the list does, in a message and in
+ * an edit. A token written only as the start of someone else's longer one --
+ * `@budi` inside `@budi.setiawan`, `@Sari` inside `@Sari Wulandari` -- names
+ * the longer one's person alone. A seat named by a name that is also
+ * someone's handle is left to the handle, unless the seat was picked from the
+ * list (`picked`).
+ */
+export function writtenMentions(body: string, people: PersonRef[], picked: readonly string[] = []): string[] {
   const handles = new Set(people.flatMap((person) => (person.handle ? [person.handle.toLowerCase()] : [])));
-  return people.filter((person) => {
+  const tokens = people.flatMap((person) => {
     const token = person.principal === 'owner' ? 'owner' : person.handle ?? person.name;
-    if (!token) return false;
-    if (person.principal !== 'owner' && !person.handle && handles.has(token.toLowerCase())) return false;
-    return new RegExp(`(^|[^\\w@])@${escaped(token)}(?![\\w-])`, 'iu').test(body);
-  }).map((person) => person.principal);
+    return token ? [{ principal: person.principal, token }] : [];
+  });
+  return tokens.filter(({ principal, token }) => {
+    const person = people.find((one) => one.principal === principal)!;
+    if (principal !== 'owner' && !person.handle && handles.has(token.toLowerCase()) && !picked.includes(principal)) return false;
+    const longer = tokens.filter((other) => other.principal !== principal && other.token.length > token.length
+      && other.token.toLowerCase().startsWith(token.toLowerCase()));
+    for (const found of body.matchAll(new RegExp(`(^|[^\\w@])@${escaped(token)}${TOKEN_END}`, 'giu'))) {
+      const at = (found.index ?? 0) + found[1]!.length;
+      if (!longer.some((other) => new RegExp(`^@${escaped(other.token)}${TOKEN_END}`, 'iu').test(body.slice(at)))) return true;
+    }
+    return false;
+  }).map(({ principal }) => principal);
 }
 
 /** A room's name in the rail and its header: a direct room is the other people in it. */

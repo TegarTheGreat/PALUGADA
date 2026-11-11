@@ -199,10 +199,19 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
       notifications.show({ color: 'red', message: explain(failure) });
     }
   };
-  // A picture pasted is attached, as a screenshot is in every chat; pasted words stay words.
+  // A picture pasted is attached, as a screenshot is in every chat, and so is a file copied in a file manager, which
+  // puts the file's name or path on the clipboard beside it. Pasted words stay words, even with a picture copied
+  // along with them from a page.
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const pasted = [...event.clipboardData.files];
-    if (pasted.length === 0 || event.clipboardData.getData('text/plain')) return;
+    if (pasted.length === 0) return;
+    const names = event.clipboardData.getData('text/plain').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const named = (line: string) => {
+      let plain = line;
+      try { plain = decodeURIComponent(line); } catch { /* a line that is not encoded is read as it is */ }
+      return pasted.some((file) => plain === file.name || plain.endsWith(`/${file.name}`) || plain.endsWith(`\\${file.name}`));
+    };
+    if (!names.every(named)) return;
     event.preventDefault();
     void attach(pasted);
   };
@@ -258,8 +267,9 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
       && !window.confirm(tp('Notify {count} person?', 'Notify {count} people?', others))) return;
     send({
       body,
-      // The people the words name, typed in full or chosen from the list; one written and taken out is not mentioned.
-      mentions: [...new Set([...writtenMentions(body, scope.people), ...chosen.filter((one) => body.includes(one.token)).map((one) => one.principal)])],
+      // The people the words name, typed in full or chosen from the list; one written and taken out is not mentioned,
+      // and nor is one whose token is only the start of another's, as the server reads them.
+      mentions: writtenMentions(body, scope.people, chosen.map((one) => one.principal)),
       mentionsRoom: everyone,
       alsoInRoom: threadOf !== null && alsoInRoom,
       tell: mode === 'tell',

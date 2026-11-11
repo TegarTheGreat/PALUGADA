@@ -35,10 +35,10 @@ const EXCERPT = 200;
 /** How many of a room's files its details list, newest first. */
 export const ROOM_FILES_LISTED = 50;
 
-/** What a search is for: the words, taken literally, and what narrows them. */
+/** What a search is for: the words, taken literally, and what narrows them. No pattern: everything a person said. */
 interface Asked {
   text: string;
-  pattern: string;
+  pattern: string | null;
   roomId: string | null;
   from: string | null;
   files: boolean;
@@ -60,13 +60,16 @@ function askedOf(query: URLSearchParams): Asked {
   if (from !== null && from !== '' && !isPerson(from) && !/^former:[a-z]{2,16}:[A-Za-z0-9._-]{1,64}$/.test(from)) {
     throw new PalugadaError('contract.violation', 'from is a person: owner, or seat:<id>', { field: 'from' });
   }
+  // A person named with no words is everything they said, as Slack's `from:` alone lists it (STATUS 2.218); a room
+  // alone is the room itself, read where it is, and needs no search.
+  const words = from !== null && from !== '' && (query.get('q') ?? '').trim() === '' ? { text: '', pattern: null } : wordsOf(query);
   const before = query.get('before');
   const position = before === null || before === '' ? null : Number(before);
   if (position !== null && (!Number.isSafeInteger(position) || position < 0)) {
     throw new PalugadaError('contract.violation', 'before is a position a search answered with', { field: 'before' });
   }
   return {
-    ...wordsOf(query),
+    ...words,
     roomId: room === null || room === '' ? null : roomIdOf(room),
     from: from === null || from === '' ? null : from,
     files: query.get('files') === '1',
@@ -102,10 +105,10 @@ async function found(tx: TenantClient, asked: Asked, limit: number): Promise<Hit
        FROM room_messages m
        LEFT JOIN LATERAL (
          SELECT one.id, one.name, one.mime, one.bytes, one.path FROM room_files one
-          WHERE $2 AND one.company_id = m.company_id AND one.message_id = m.id AND one.name ILIKE $1
+          WHERE $2 AND $1::text IS NOT NULL AND one.company_id = m.company_id AND one.message_id = m.id AND one.name ILIKE $1
           ORDER BY one.created_at, one.id LIMIT 1) f ON true
       WHERE m.kind = 'text' AND m.deleted_at IS NULL
-        AND (m.body ILIKE $1 OR f.id IS NOT NULL)
+        AND ($1::text IS NULL OR m.body ILIKE $1 OR f.id IS NOT NULL)
         AND ($3::uuid IS NULL OR m.room_id = $3)
         AND ($4::text IS NULL OR m.author = $4)
         AND ($5::bigint IS NULL OR m.position < $5)

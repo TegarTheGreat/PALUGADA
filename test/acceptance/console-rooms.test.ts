@@ -548,6 +548,9 @@ test('giving work in a direct room says the words become company work', { skip }
   try {
     await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${direct}`);
     await page.waitFor(`${ROW('Tolong siapkan laporan stok minggu ini.')}`, 'the conversation');
+    // The header is drawn from the room's own read, which is asked beside its messages and may
+    // answer tens of milliseconds after them: read at once, the header is sometimes not there yet.
+    await page.waitFor(`document.querySelector('[data-pane="room"] .room-disclosure')`, 'the header that says who can read it');
     const header = await page.evaluate<string>(`document.querySelector('[data-pane="room"]').innerText`);
     assert.match(header, /Direct messages are part of the company's records/, 'the conversation says who can read it');
     await page.evaluate(`${ROW('Tolong siapkan laporan stok minggu ini.')}.querySelector('[data-actions]').click()`);

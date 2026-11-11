@@ -1,6 +1,9 @@
 /**
- * The boundary between the people's workspace and everything else (F19; the
- * workspace plan, invariants I1, I8, I10 and I11).
+ * The boundary between the people's workspace and everything else (F19.3,
+ * F19.4, F19.12; STATUS 2.202 and 2.203): no agent reads or writes a room or
+ * a room file, nothing in the workspace or the relay calls a model, no
+ * person's words reach a model through the owner's assistant, and the
+ * console keeps nothing in the browser.
  *
  * The database holds most of it: a room table answers only a transaction that
  * names a reader, and only `src/db/tenant.ts` names one (people-rls.test.ts).
@@ -9,8 +12,8 @@
  * to a model. So the source is read for each of those here.
  *
  * Each scan has a floor: a scan that finds nothing is broken, not clean. A
- * floor is raised by the set that first gives its scan something to find, and
- * never lowered.
+ * floor is raised by the change that first gives its scan something to find,
+ * and never lowered.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,7 +33,7 @@ async function sources(directory: string): Promise<Map<string, string>> {
     try {
       entries = await readdir(at, { withFileTypes: true });
     } catch {
-      return; // A folder a later set makes (src/relay/) is simply not there yet.
+      return; // A folder that is not there holds nothing to scan.
     }
     for (const entry of entries) {
       const path = join(at, entry.name);
@@ -95,7 +98,7 @@ test("only the people's code opens a room transaction, and only tenant.ts names 
   assert.ok(calls >= HELPER_CALLS_AT_LEAST, `the people's code calls the helpers ${calls} times, fewer than ${HELPER_CALLS_AT_LEAST}`);
 });
 
-/** The room tables, as the migrations make them: a table a later set adds is held at once. */
+/** The room tables, as the migrations make them: a table a later migration adds is held at once. */
 async function roomTables(): Promise<string[]> {
   const tables = new Set<string>();
   for (const name of await readdir(join(ROOT, 'db', 'migrations'))) {
@@ -190,7 +193,7 @@ test('nothing in the workspace or the relay imports a model client', async () =>
 });
 
 /**
- * A reaction is a person's, and is never read as a decision (I4). Outside the
+ * A reaction is a person's, and is never read as a decision (F19.6, F19.7). Outside the
  * workspace only the control plane's copy of a company -- its export, its
  * restore, its retention -- touches the table, and none of them decides.
  */

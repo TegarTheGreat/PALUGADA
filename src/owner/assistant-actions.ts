@@ -953,9 +953,9 @@ export const UNREADABLE: readonly string[] = [
 /**
  * POST routes the assistant neither proposes nor calls, by the prefix of a
  * whole area, and why: the people's workspace and the relay (F19.3, F19.19).
- * An area's routes are written by the set that builds it, after this list,
- * so the area is kept from the assistant here, once, rather than route by
- * route as each arrives.
+ * An area keeps the assistant out of every route written under its prefix,
+ * then and later, so a route added to the area is kept from the assistant
+ * here, once, rather than route by route as each arrives (STATUS 2.203).
  */
 export const NOT_FOR_THE_ASSISTANT_UNDER: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/rooms': 'words in a room are a person\'s own, and only that person says them',

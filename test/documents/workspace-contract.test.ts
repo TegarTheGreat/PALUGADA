@@ -1,6 +1,6 @@
 /**
  * What the workspace's routes answer with, as the server writes it and as the
- * console reads it (the workspace plan, §7.3).
+ * console reads it (F19; STATUS 2.203).
  *
  * The rooms' server and the rooms' console are built side by side, against
  * `src/workspace/contract.ts` and its mirror `console/src/workspace/types.ts`.

@@ -1,5 +1,5 @@
 /**
- * What the people's workspace routes answer with (F19; the workspace plan).
+ * What the people's workspace routes answer with (F19; STATUS 2.203).
  *
  * The rooms' server and the rooms' console are built side by side against
  * these shapes, so they are written down before either: plain types, no

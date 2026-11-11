@@ -119,9 +119,10 @@ const UNREACHABLE: Record<string, string> = {
   // Entry points.
   runWorker: 'entry: the worker as a process, for a deployment that wants one',
 
-  // F19: the people's workspace, laid as ground before the sets that use it
-  // (STATUS sections 2.202 to 2.215, one for each set named here). Each set
-  // strikes its own line when it wires the helper up.
+  // F19: the people's workspace lists nothing now. Its helpers were laid as
+  // ground (STATUS 2.202 and 2.203) before the code that calls them, and each
+  // was listed here, with the STATUS section that would call it, until that
+  // section's code did.
 };
 
 async function walk(directory: string): Promise<string[]> {

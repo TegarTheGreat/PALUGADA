@@ -662,7 +662,8 @@ test("a member's words in a room change nothing until pressed, and told to the w
 test("outside words given as work reach the run and the guardian as outside words, never as the owner's request", async () => {
   // The owner pressing a relay's or an import's message made work created by
   // the owner, which the run's briefing and the guardian both read as the
-  // owner's own request (STATUS 2.217, F19.9; I5).
+  // owner's own request. Nobody's words are read as the owner's but the
+  // owner's own, typed in the console (STATUS 2.217, F19.9).
   const { Guardian } = await import('../../src/broker/guardian.ts');
   const { RecordingLlmClient } = await import('../../src/llm/client.ts');
   const { fixture, api, owner } = await workspace('doors-outside-told');

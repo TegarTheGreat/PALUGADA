@@ -6761,8 +6761,8 @@ export class OwnerApi {
     // so a route that reads people's words answers it with a refusal even if
     // nobody listed it among the routes the assistant may not read. Work the
     // handler starts and leaves running inherits the scope too, so such work
-    // leaves room cards and people's notices to the sweep or the worker, or
-    // opens them inside `assistantDispatch.exit(...)` where that is meant.
+    // leaves room cards and people's notices to the worker's sweeps, which run
+    // outside it (STATUS 2.203).
     const answer = await assistantDispatch.run(true, () =>
       this.#acting.run(session, () => match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams })));
     if (answer instanceof WithStatus) {

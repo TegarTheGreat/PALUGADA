@@ -1,6 +1,6 @@
 /**
  * What the people's workspace routes answer with, as the console reads it
- * (F19; the workspace plan).
+ * (F19; STATUS 2.203).
  *
  * The same shapes as `src/workspace/contract.ts`, written again because the
  * console is built from its own folder and cannot import from the server's.

@@ -11,8 +11,8 @@
  * And what a seat may post is a ladder (F19.2): any seat talks, a member also
  * asks for work, an approver also decides. Each POST a seat may make is on
  * exactly one of those three lists, and each list is held to its shape here,
- * so a set that adds a route cannot widen what a seat does by putting it on
- * the wrong one.
+ * so a change that adds a route cannot widen what a seat does by putting it
+ * on the wrong one.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

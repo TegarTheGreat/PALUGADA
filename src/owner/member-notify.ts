@@ -655,7 +655,7 @@ export async function dispatchPeopleNotices(
   return report;
 }
 
-/** A notice not yet tried, or one whose last try failed and whose wait is over: 30 seconds, then a minute, then two. */
+/** A notice not yet tried, or one whose last try failed and whose wait is over: three tries in all, the second 30 seconds after the first and the third a minute after that. */
 function retryDue(now: string): string {
   return `attempts = 0 OR (last_error IS NOT NULL AND attempts < ${NOTICE_ATTEMPTS}
             AND last_attempt_at <= ${now}::timestamptz - make_interval(secs => ${RETRY_BASE_MS / 1000} * power(2, attempts - 1)))`;

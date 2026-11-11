@@ -441,9 +441,10 @@ test('a listing is sorted, folders first, and says when it is cut', async () => 
 });
 
 /**
- * Room files are people's words (F19.4, invariant I1 of the workspace plan):
- * no agent capability and not the owner's Files page may reach them, and all
- * of those read a company's folder (`companyRoot`). So a company's room files
+ * Room files are people's words (F19.3, F19.4; STATUS 2.212): no agent reads
+ * or writes a room or a room file, so no agent capability and not the owner's
+ * Files page may reach them, and all of those read a company's folder
+ * (`companyRoot`). So a company's room files
  * are kept beside its folder, or under a root of their own, and a root of
  * their own that is the files root itself, or inside a company's folder there,
  * is refused when the API starts rather than taken.

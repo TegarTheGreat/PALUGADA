@@ -1,20 +1,21 @@
 /**
  * What a route of the owner API is, and what a route module is handed to
- * build its routes with (F19; the workspace plan).
+ * build its routes with (F19; STATUS 2.203).
  *
  * The owner API's own routes live in `api.ts`. The people's workspace adds
  * routes area by area -- rooms, people, the conversation's money, the relay,
  * meetings, search, imports -- each in its own module under `routes/`, so a
- * set that builds an area writes its own file rather than another hunk of one
- * eight-thousand-line file every other set is also writing. A module exports
+ * change to one area writes that area's file rather than another hunk of one
+ * eight-thousand-line file every other area is also written in. A module exports
  * one function that takes a `RouteKit` and returns its routes; `#buildRoutes`
  * spreads each beside the API's own, and the route tests read both
  * (`test/helpers/route-sources.ts`).
  *
  * `RouteKit` is what such a module may reach of the API: the second factor,
  * the sessions and seats, the deployment's options and settings, the files'
- * roots, the open streams and the live hub. It is frozen here; a set that
- * needs more widens it and `#kit()` together, and says so where it is merged.
+ * roots, the open streams and the live hub. It is all a module may reach: a
+ * module that needs more widens it and `#kit()` together, in one change, and
+ * its STATUS section says so.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
@@ -291,7 +292,7 @@ export interface RouteKit {
   readonly requireFactor: (context: RouteContext, purpose: string, fresh?: boolean) => Promise<void>;
   readonly sessions: OwnerSessions;
   readonly staff: StaffSeats;
-  /** The API's options: the registry, the assistant, the channels, and what a later set adds. */
+  /** The API's options: the registry, the assistant, the channels, the files' roots, and the rest `OwnerApiOptions` holds. */
   readonly options: Readonly<OwnerApiOptions>;
   /** The deployment's settings; refused on a deployment built without console settings. */
   readonly deploymentSettings: () => DeploymentSettings;

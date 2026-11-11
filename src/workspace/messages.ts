@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MessagePage, MessageView, ThreadView } from './contract.ts';
-import { attachFiles, filesToAttach, keptPaths, removeRoomFiles } from './files.ts';
+import { attachFiles, filesToAttach, keptPaths, removeRoomFiles, stageFiles, unstage } from './files.ts';
 import { isPerson } from './principal.ts';
 import { assertMember, ensureCompanyMember, takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
 import {
@@ -55,13 +55,15 @@ export async function messageIn(tx: TenantClient, roomId: string, messageId: str
  */
 const recent = new Map<string, number[]>();
 
-function slowDown(viewer: Viewer, now = Date.now()): void {
+function slowDown(viewer: Viewer, options: { counted?: boolean } = {}, now = Date.now()): void {
   const key = `${viewer.companyId}:${viewer.person.principal}`;
   const kept = (recent.get(key) ?? []).filter((at) => now - at < 60_000);
   if (kept.length >= MESSAGES_PER_MINUTE) {
     recent.set(key, kept);
     throw new PalugadaError('room.too_fast', `slow down: at most ${MESSAGES_PER_MINUTE} messages a minute`, { perMinute: MESSAGES_PER_MINUTE });
   }
+  // Asked before a post's files are read: not yet a post, so not counted.
+  if (options.counted === false) return;
   kept.push(now);
   recent.set(key, kept);
   // Forgotten once quiet, so the map holds only who wrote in the last minute.
@@ -113,6 +115,8 @@ export async function postMessage(
   viewer: Viewer, roomId: string, input: Record<string, unknown>, options: { peopleFolder?: string | null } = {},
 ): Promise<Posted> {
   const body = typeof input.body === 'string' ? input.body : '';
+  // A person already writing too fast is told so before up to 32 MB of their files is read.
+  if (input.files !== undefined && input.files !== null) slowDown(viewer, { counted: false });
   const files = filesToAttach(input.files);
   if ((body.trim().length < 1 && files.length === 0) || body.length > BODY_MAX) {
     throw new PalugadaError('contract.violation', `a message says something, in at most ${BODY_MAX} characters`, { field: 'body' });
@@ -139,6 +143,12 @@ export async function postMessage(
   }
   const directory = await directoryOf(viewer.companyId);
   const relay = viewer.relayId ? { relayId: viewer.relayId } : undefined;
+  // The files' bytes are written before the transaction, which holds the
+  // company's room clock from its first write: no room of the company waits
+  // on the disk. Inside it they are only linked into the room, and their
+  // staged names go once the post is done, whatever became of it.
+  const folder = options.peopleFolder ?? null;
+  const staged = await stageFiles(folder, files);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
     if (room.archived_at) throw new PalugadaError('room.archived', 'that room is archived', { roomId });
@@ -174,10 +184,10 @@ export async function postMessage(
        VALUES ($1, $2, $3, $4, $5, 'text', $6, $7, $8, $9, $10, $11, $12, 0)`,
       [id, viewer.companyId, room.id, threadOf, alsoInRoom, viewer.person.principal, body, kept, everyone,
         relay ? 'relay' : 'console', relay?.relayId ?? null, clientId]);
-    await attachFiles(tx, viewer.companyId, room.id, id, files, options.peopleFolder ?? null);
+    await attachFiles(tx, viewer.companyId, room.id, id, staged, folder);
     const { rows } = await tx.query<MessageRow>(`SELECT ${MESSAGE_COLUMNS} FROM room_messages m WHERE m.id = $1`, [id]);
     return { message: (await messageViews(tx, viewer, directory, rows))[0]!, mentionsDropped: dropped };
-  }, relay);
+  }, relay).finally(() => unstage(folder, staged));
 }
 
 /** One message as the console draws it, read again after a change. */

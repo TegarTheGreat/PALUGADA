@@ -233,7 +233,8 @@ export async function messageViews(
       card,
       reactions: reacted.filter((one) => one.message_id === row.id).map((one) => ({ emoji: one.emoji, count: one.n, mine: one.mine })),
       replies: row.reply_count > 0 ? { count: row.reply_count, lastAt: reply ? reply.at.toISOString() : null } : null,
-      files: files.filter((one) => one.message_id === row.id).map((one): FileView => ({
+      // A removed message keeps no file, and is answered with none (STATUS 2.212).
+      files: deleted ? [] : files.filter((one) => one.message_id === row.id).map((one): FileView => ({
         id: one.id, name: one.name, mime: one.mime, bytes: Number(one.bytes),
         inline: drawnInline(one.mime, Number(one.bytes), one.kept),
       })),

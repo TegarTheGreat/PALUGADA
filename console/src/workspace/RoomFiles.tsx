@@ -50,9 +50,11 @@ function Picture({ roomId, file }: { roomId: string; file: FileView }) {
   }, [scope.companyId, roomId, file.id]);
   if (failed) return <Saved roomId={roomId} file={file} />;
   return (
-    <UnstyledButton className="room-picture" aria-label={t('Save {name}', { name: file.name })} onClick={() => { if (read) save(read); }}>
+    <UnstyledButton className="room-picture" aria-label={t('Save {name}', { name: file.name })} onClick={() => { if (read) save(read); }}
+      style={{ maxWidth: '100%', minWidth: 0 }}>
       {read && read.inline
-        ? <Image src={`data:${read.mime};base64,${read.data}`} alt={file.name} radius="sm" mah={240} maw={320} fit="contain" />
+        ? <Image src={`data:${read.mime};base64,${read.data}`} alt={file.name} radius="sm" mah={240} fit="contain"
+          style={{ maxWidth: 'min(320px, 100%)' }} />
         : <Box w={160} h={96} className="room-picture-loading" />}
     </UnstyledButton>
   );
@@ -73,8 +75,10 @@ export function Saved({ roomId, file }: { roomId: string; file: FileView }) {
       setSaving(false);
     }
   };
+  // As wide as the message at most, however long the name: the name is cut
+  // short and the button stays on the screen, a phone's too (F19.16).
   return (
-    <Group gap={8} wrap="nowrap" className="room-file" data-file={file.id}>
+    <Group gap={8} wrap="nowrap" className="room-file" data-file={file.id} style={{ maxWidth: '100%', minWidth: 0 }}>
       <IconFile size={18} />
       <Box style={{ minWidth: 0, flex: 1 }}>
         <Text size="sm" truncate dir="auto">{file.name}</Text>
@@ -93,7 +97,7 @@ export function RoomFiles({ roomId, files, removed }: { roomId: string; files: F
   // A removed message keeps no file: its names are not shown either.
   if (removed) return null;
   return (
-    <Group gap={8} mt={4} align="flex-start" wrap="wrap" data-files>
+    <Group gap={8} mt={4} align="flex-start" wrap="wrap" w="100%" data-files>
       {files.map((file) => (file.inline
         ? <Picture key={file.id} roomId={roomId} file={file} />
         : <Saved key={file.id} roomId={roomId} file={file} />))}

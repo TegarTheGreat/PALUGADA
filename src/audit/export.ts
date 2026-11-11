@@ -609,9 +609,12 @@ const SECTIONS: Section[] = [
   {
     // A file travels as its name, its kind and its size, as a chat message's
     // does: the archive carries no file, and where its bytes were stays here.
+    // Only a file of words still said: a removed message keeps none (STATUS 2.212).
     name: 'room_files',
     sql: `SELECT id, message_id, name, mime, bytes, sha256, created_at
-            FROM room_files WHERE company_id = $1 ORDER BY created_at, id`,
+            FROM room_files WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
+           ORDER BY created_at, id`,
     viaControlPlane: true,
   },
   {
@@ -702,6 +705,17 @@ async function streamSection(
   return total;
 }
 
+/**
+ * Writes a company's archive, every section as of one moment.
+ *
+ * A company is used while its archive is taken, and each section is read
+ * after the one before: read as it was at each read, a reaction would name a
+ * message posted after the messages were read, a member a room made after the
+ * rooms were, and the archive could not be restored. So the tenant
+ * transaction reads one moment of the database (`oneMoment`), and the
+ * control-plane sections -- the governance log and the rooms -- are read in
+ * one control-plane transaction given the same moment.
+ */
 export async function exportCompany(
   companyId: string,
   write: ArchiveWriter,
@@ -713,36 +727,35 @@ export async function exportCompany(
     ]);
     const slug = rows[0]?.slug;
     if (!slug) throw new Error(`company ${companyId} not found, or not visible in this scope`);
+    const { rows: exported } = await tx.query<{ moment: string }>('SELECT pg_export_snapshot() AS moment');
 
-    const counts: Record<string, number> = {};
+    return withControlPlane(async (admin) => {
+      const counts: Record<string, number> = {};
 
-    for (const section of SECTIONS) {
-      if (section.viaControlPlane) {
-        counts[section.name] = await withControlPlane((admin) =>
-          streamSection(admin, section.name, section.sql, write, [companyId]),
-        );
-        continue;
+      for (const section of SECTIONS) {
+        counts[section.name] = section.viaControlPlane
+          ? await streamSection(admin, section.name, section.sql, write, [companyId])
+          : await streamSection(tx, section.name, section.sql, write);
       }
-      counts[section.name] = await streamSection(tx, section.name, section.sql, write);
-    }
 
-    counts.llm_traces = await streamSection(
-      tx,
-      'llm_traces',
-      options.includePrompts ? TRACES_WITH_PROMPTS : TRACES_WITHOUT_PROMPTS,
-      write,
-    );
+      counts.llm_traces = await streamSection(
+        tx,
+        'llm_traces',
+        options.includePrompts ? TRACES_WITH_PROMPTS : TRACES_WITHOUT_PROMPTS,
+        write,
+      );
 
-    return {
-      companyId,
-      companySlug: slug,
-      // Stamped by the caller's clock rather than the database's, so an
-      // archive says when it was taken rather than when a row was written.
-      exportedAt: new Date().toISOString(),
-      counts,
-      leftOut: { ...LEFT_OUT },
-    };
-  });
+      return {
+        companyId,
+        companySlug: slug,
+        // Stamped by the caller's clock rather than the database's, so an
+        // archive says when it was taken rather than when a row was written.
+        exportedAt: new Date().toISOString(),
+        counts,
+        leftOut: { ...LEFT_OUT },
+      };
+    }, { moment: exported[0]!.moment });
+  }, { oneMoment: true });
 }
 
 /**

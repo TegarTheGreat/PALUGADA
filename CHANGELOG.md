@@ -1121,8 +1121,9 @@ The first version. What it holds, in the order an owner meets it.
   reach a room file. A room's details list its pinned messages and its
   files. Messages are kept for good unless you set a window of 30 days or
   more in Settings, Retention, each message by its own age; a removed
-  message's files go with it, and closing a company erases its room files.
-  The company's archive now carries its rooms and messages, direct
-  conversations too, and a restore brings them back with nothing unread.
+  message's files go with it, names and all, and closing a company erases
+  its room files. The company's archive now carries its rooms and messages,
+  direct conversations too, read as one moment while people go on talking,
+  and a restore brings them back with nothing unread.
   `PALUGADA_PEOPLE_FILES_ROOT` keeps room files apart from the company's
   files (STATUS 2.212).

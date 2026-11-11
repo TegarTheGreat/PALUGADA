@@ -88,6 +88,13 @@ interface ImportSection {
    */
   idsFirst?: boolean;
   /**
+   * References a row cannot stand without: a row naming one the archive does
+   * not carry is left out, rather than written pointing at nothing, which
+   * the column would refuse and with it the whole restore. An archive is
+   * taken in one moment, so this guards one written by hand or cut short.
+   */
+  required?: string[];
+  /**
    * A room table (0150): written after `roomsOnControlPlane` says a restore
    * is under way, so its triggers keep the archive's dates and owe nobody a
    * mention, a follow, a count or a change for any row (STATUS 2.212).
@@ -336,15 +343,20 @@ const SECTIONS: ImportSection[] = [
     name: 'room_messages',
     table: 'room_messages',
     references: ['room_id', 'thread_of', 'task_id', 'inbox_item_id'],
+    required: ['room_id', 'thread_of'],
     drop: ['reply_count', 'last_reply_position'],
     remapJson: ['notice_values'],
     room: true,
   },
-  { name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], room: true },
-  { name: 'room_reactions', table: 'room_reactions', references: ['message_id'], room: true },
-  { name: 'room_pins', table: 'room_pins', references: ['room_id', 'message_id'], room: true },
-  { name: 'room_files', table: 'room_files', references: ['message_id'], room: true },
-  { name: 'room_members', table: 'room_members', references: ['room_id'], room: true },
+  {
+    name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], required: ['message_id'], room: true,
+  },
+  { name: 'room_reactions', table: 'room_reactions', references: ['message_id'], required: ['message_id'], room: true },
+  {
+    name: 'room_pins', table: 'room_pins', references: ['room_id', 'message_id'], required: ['room_id', 'message_id'], room: true,
+  },
+  { name: 'room_files', table: 'room_files', references: ['message_id'], required: ['message_id'], room: true },
+  { name: 'room_members', table: 'room_members', references: ['room_id'], required: ['room_id'], room: true },
 
   // F1.5's configuration, restored last because it references divisions and
   // needs nothing itself. `config_versions` above carries what a policy *was*;
@@ -834,6 +846,12 @@ async function importSection(
 
   let written = 0;
   for (const row of rows) {
+    // In the archive's order, so a reply after its message: a row left out
+    // takes its id from the map, and whatever names it is left out in turn.
+    if ((section.required ?? []).some((column) => typeof row[column] === 'string' && !remap.has(row[column] as string))) {
+      if (typeof row.id === 'string') remap.delete(row.id);
+      continue;
+    }
     const values: Record<string, unknown> = { ...row };
 
     for (const column of section.drop ?? []) delete values[column];

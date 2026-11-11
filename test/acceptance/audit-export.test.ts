@@ -1193,10 +1193,23 @@ test('an archive taken while people talk names nothing it does not carry, and re
     const lateReplies = rows('room_messages').filter((row) => row.thread_of === talked.morning);
     assert.deepEqual(lateReplies, [], 'what was said after the archive began is not in it');
 
-    const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
-    const back = await withControlPlane((tx) => tx.query<{ n: number }>(
-      'SELECT count(*)::int AS n FROM room_messages WHERE company_id = $1', [restored.companyId]));
-    assert.equal(back.rows[0]!.n, messages.size, 'and the restore brings back every message it carries');
+    // An archive cut short or written by hand may still name what it does
+    // not carry: such a row is left out, and the rest is restored.
+    const { randomUUID } = await import('node:crypto');
+    const nowhere = randomUUID();
+    const strays: ArchiveLine[] = [
+      { section: 'room_messages', row: { ...rows('room_messages')[0]!, id: randomUUID(), room_id: nowhere, thread_of: null } },
+      { section: 'room_reactions', row: { message_id: nowhere, principal: 'owner', emoji: '🙈', created_at: new Date().toISOString() } },
+      { section: 'room_members', row: { ...rows('room_members')[0]!, room_id: nowhere } },
+    ];
+    const restored = await importCompany([...lines, ...strays], { slug: `${fixture.slug}-restored` });
+    const back = await withControlPlane((tx) => tx.query<{ messages: number; reactions: number; members: number }>(
+      `SELECT (SELECT count(*) FROM room_messages WHERE company_id = $1)::int AS messages,
+              (SELECT count(*) FROM room_reactions WHERE company_id = $1)::int AS reactions,
+              (SELECT count(*) FROM room_members WHERE company_id = $1)::int AS members`, [restored.companyId]));
+    assert.deepEqual(back.rows[0], {
+      messages: messages.size, reactions: rows('room_reactions').length, members: rows('room_members').length,
+    }, 'the restore brings back every row the archive carries, and nothing that names what it does not');
   } finally {
     await talked.api.close();
   }

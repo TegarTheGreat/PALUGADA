@@ -23,6 +23,7 @@
  */
 import { roomsOnControlPlane, withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { keptPaths, peopleFolderOf, removeRoomFiles, sweepRoomFiles, type PeopleRoots } from '../workspace/files.ts';
+import { takeClock } from '../workspace/rooms.ts';
 
 export interface RetentionPolicy {
   eventDays: number;
@@ -406,6 +407,11 @@ const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
  * `tombstoned`, in the same transaction.
  */
 async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date | null): Promise<PurgedMessages> {
+  // The company's clock before anything is chosen, as every room write takes
+  // it first (0150): a reply posted to an old message, or a removal, is then
+  // either committed and read here or waits for this pass, and is never
+  // decided about before it lands.
+  await takeClock(tx);
   const spent = `(m.created_at < $2 OR (m.kind = ANY($3::text[]) AND m.task_id IS NULL AND m.inbox_item_id IS NULL))`;
   const { rows: replies } = await tx.query<{ id: string }>(
     `SELECT m.id FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NOT NULL AND ${spent}`,

@@ -17,16 +17,19 @@
  * and passed on, as a stranger's would not be (src/chats/attachments.ts),
  * and never opens as a document in the console's origin.
  *
- * Bytes follow their rows. They are written inside the transaction that
- * writes the message, so a post that fails keeps none it could name; a
- * delete or a purge takes the path from the row as it commits and removes
- * the bytes after. What a crash between the two leaves -- a post that wrote
+ * Bytes follow their rows. A post writes them before its transaction, under
+ * `incoming/`, since the transaction holds the company's room clock from its
+ * first write (0150) and every room of the company would wait on the disk;
+ * inside it they are linked into their room as their rows are written, so a
+ * post that fails keeps none it could name, and the staged names go after.
+ * A delete or a purge takes the path from the row as it commits and removes
+ * the bytes after. What a crash leaves -- a staged file, a post that linked
  * and did not commit, a delete that committed and did not remove -- no row
  * names, and the sweep in the retention stage removes it (`sweepRoomFiles`).
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readdir, rm, unlink } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readdir, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { base64Bytes, displayName, sniffReceived } from '../chats/attachments.ts';
 import { withControlPlane, withPeople, type TenantClient } from '../db/tenant.ts';
@@ -171,31 +174,32 @@ async function folderAt(folder: string, parts: readonly string[], make: boolean)
   return here;
 }
 
+/** A post's file, written under `incoming/` by the id its row will have, before the post's transaction. */
+export interface Staged {
+  id: string;
+  file: Attaching;
+}
+
 /**
- * Writes a post's files: their rows, then their bytes, inside the post's
- * transaction, which a person's insert is held to their own message by
- * (0150). A write that fails removes what it wrote, and the transaction
- * fails with it.
+ * Writes a post's files under the people folder's `incoming/`, before the
+ * post's transaction begins, each created and never replaced (`O_EXCL`,
+ * `O_NOFOLLOW`). A write that fails removes what was written. The caller
+ * removes the staged names once the post is done (`unstage`), whatever
+ * became of it.
  */
-export async function attachFiles(
-  tx: TenantClient, companyId: string, roomId: string, messageId: string, files: readonly Attaching[], folder: string | null,
-): Promise<void> {
-  if (files.length === 0) return;
+export async function stageFiles(folder: string | null, files: readonly Attaching[]): Promise<Staged[]> {
+  if (files.length === 0) return [];
   if (folder === null) {
     throw new PalugadaError('contract.violation', 'this deployment keeps no files: PALUGADA_FILES_ROOT is not set', { field: 'files' });
   }
-  const written: string[] = [];
+  const staged: Staged[] = [];
   try {
-    const here = (await folderAt(folder, ['rooms', roomId], true))!;
+    const incoming = (await folderAt(folder, ['incoming'], true))!;
     for (const file of files) {
-      const id = randomUUID();
-      const path = `rooms/${roomId}/${id}.${file.ext}`;
-      await tx.query(
-        `INSERT INTO room_files (id, company_id, message_id, name, mime, bytes, sha256, path)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [id, companyId, messageId, file.name, file.mime, file.bytes.length, file.sha256, path]);
-      const handle = await open(join(here, `${id}.${file.ext}`), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-      written.push(path);
+      const one = { id: randomUUID(), file };
+      const handle = await open(join(incoming, `${one.id}.${file.ext}`),
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      staged.push(one);
       try {
         await handle.writeFile(file.bytes);
       } finally {
@@ -203,7 +207,47 @@ export async function attachFiles(
       }
     }
   } catch (failure) {
-    await removeRoomFiles(folder, written);
+    await unstage(folder, staged);
+    throw failure;
+  }
+  return staged;
+}
+
+/** Removes a post's staged names; what was linked into its room stays under its room's name. */
+export async function unstage(folder: string | null, staged: readonly Staged[]): Promise<void> {
+  if (folder === null) return;
+  for (const one of staged) await unlink(join(folder, 'incoming', `${one.id}.${one.file.ext}`)).catch(() => undefined);
+}
+
+/**
+ * Keeps a post's staged files with its message: their rows, then each file's
+ * bytes linked into its room under its own id, inside the post's
+ * transaction, which a person's insert is held to their own message by
+ * (0150). A link is never made over a file already there. One that fails
+ * removes what was linked, and the transaction fails with it.
+ */
+export async function attachFiles(
+  tx: TenantClient, companyId: string, roomId: string, messageId: string, staged: readonly Staged[], folder: string | null,
+): Promise<void> {
+  if (staged.length === 0) return;
+  if (folder === null) {
+    throw new PalugadaError('contract.violation', 'this deployment keeps no files: PALUGADA_FILES_ROOT is not set', { field: 'files' });
+  }
+  const linked: string[] = [];
+  try {
+    const incoming = (await folderAt(folder, ['incoming'], true))!;
+    const here = (await folderAt(folder, ['rooms', roomId], true))!;
+    for (const { id, file } of staged) {
+      const path = `rooms/${roomId}/${id}.${file.ext}`;
+      await tx.query(
+        `INSERT INTO room_files (id, company_id, message_id, name, mime, bytes, sha256, path)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, companyId, messageId, file.name, file.mime, file.bytes.length, file.sha256, path]);
+      await link(join(incoming, `${id}.${file.ext}`), join(here, `${id}.${file.ext}`));
+      linked.push(path);
+    }
+  } catch (failure) {
+    await removeRoomFiles(folder, linked);
     throw failure;
   }
 }
@@ -292,18 +336,29 @@ export function peopleFolderOf(roots: PeopleRoots, companyId: string): string | 
  */
 export async function sweepRoomFiles(companyId: string, folder: string | null, now = new Date()): Promise<number> {
   if (folder === null) return 0;
+  let removed = 0;
+  const stale = async (at: string) => {
+    const found = await lstat(at).catch(() => null);
+    return found !== null && !found.isDirectory() && now.getTime() - found.mtimeMs >= SWEEP_GRACE_MS;
+  };
+  // A staged file is never a kept one: once its post is done it is a name too many.
+  const incoming = await folderAt(folder, ['incoming'], false).catch(() => null);
+  if (incoming !== null) {
+    for (const file of await readdir(incoming)) {
+      if (!(await stale(join(incoming, file)))) continue;
+      await unlink(join(incoming, file)).catch(() => undefined);
+      removed += 1;
+    }
+  }
   const rooms = await folderAt(folder, ['rooms'], false).catch(() => null);
-  if (rooms === null) return 0;
+  if (rooms === null) return removed;
   const named = new Set(await withControlPlane(async (tx) => (await tx.query<{ path: string }>(
     'SELECT path FROM room_files WHERE company_id = $1 AND path IS NOT NULL', [companyId])).rows.map((row) => row.path)));
-  let removed = 0;
   for (const room of await readdir(rooms, { withFileTypes: true })) {
     if (!room.isDirectory()) continue;
     for (const file of await readdir(join(rooms, room.name), { withFileTypes: true })) {
       const path = `rooms/${room.name}/${file.name}`;
-      if (named.has(path)) continue;
-      const found = await lstat(join(rooms, room.name, file.name)).catch(() => null);
-      if (!found || found.isDirectory() || now.getTime() - found.mtimeMs < SWEEP_GRACE_MS) continue;
+      if (named.has(path) || !(await stale(join(rooms, room.name, file.name)))) continue;
       await unlink(join(rooms, room.name, file.name)).catch(() => undefined);
       removed += 1;
     }

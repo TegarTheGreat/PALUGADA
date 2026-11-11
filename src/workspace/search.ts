@@ -7,10 +7,16 @@
  * private room the reader is not in, a direct conversation that is not theirs
  * -- the owner's included -- and another company are never searched, whatever
  * is typed. What is typed is taken as it is (`likePattern`): `50%` finds fifty
- * per cent and `A_B` an underscore. The words are matched in the database by
- * the trigram index on what is still said (0150); there is no model, no
- * vector and no stemming here, and the general search (`/api/search`), which
- * the owner's assistant may read, never reaches a message.
+ * per cent and `A_B` an underscore. The words are matched in the database,
+ * on what is still said; there is no model, no vector and no stemming here,
+ * and the general search (`/api/search`), which the owner's assistant may
+ * read, never reaches a message.
+ *
+ * Row security keeps PostgreSQL from using 0150's trigram indexes for it:
+ * `ILIKE` is not leakproof, so the planner never puts it before the room
+ * rules, and a search reads what the reader may see newest first until it
+ * has a page. A word found often is found at once; one found nowhere reads
+ * the whole company (STATUS 2.212).
  */
 import { withControlPlane, withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';

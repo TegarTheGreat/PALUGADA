@@ -12,7 +12,8 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
@@ -280,9 +281,11 @@ test('deleting a message removes its files, and a delete cut off before the byte
     await withPeople(fixture.companyId, { principal: 'owner', name: null }, (tx) => tx.query(
       'UPDATE room_messages SET deleted_at = now() WHERE id = $1', [second.id]));
     assert.equal((await filesUnder(folder)).length, 2, 'the bytes are still there');
+    // A post whose process stopped after it wrote its files, before it took them into the room.
+    await writeFile(join(folder, 'incoming', `${randomUUID()}.png`), PNG);
     // A file just written, perhaps by a post not yet committed, is left for a later sweep.
     await runRetention(fixture.companyId, new Date(), { filesRoot: root });
-    assert.equal((await filesUnder(folder)).length, 2);
+    assert.equal((await filesUnder(folder)).length, 3);
     await runRetention(fixture.companyId, new Date(Date.now() + 2 * 60 * 60 * 1000), { filesRoot: root });
     assert.deepEqual(await filesUnder(folder), [`rooms/${room}/${kept.files[0]!.id}.pdf`], 'what no row names is swept; what a live message carries stays');
     assert.ok((await stat(join(folder, `rooms/${room}/${kept.files[0]!.id}.pdf`))).isFile());

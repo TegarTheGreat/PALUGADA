@@ -52,3 +52,29 @@ END $$;
 CREATE TRIGGER room_messages_after_delete AFTER DELETE ON room_messages
   REFERENCING OLD TABLE AS gone
   FOR EACH STATEMENT EXECUTE FUNCTION app.room_messages_after_delete();
+
+-- A removed message keeps no file (F19.4: a removal takes the words and the
+-- files at once): neither its bytes, which its rows let go as it is removed
+-- (0150), nor the rows themselves, whose name, kind and size were answered to
+-- everyone who could see the room, pinned or not, and carried in the archive.
+-- Whoever removes it -- its author, the owner, or retention, whose tombstone
+-- this is too -- the rows go in the same statement.
+CREATE FUNCTION app.room_message_files_go() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  DELETE FROM room_files WHERE company_id = NEW.company_id AND message_id = NEW.id;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER room_message_files_go AFTER UPDATE OF deleted_at ON room_messages
+  FOR EACH ROW WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
+  EXECUTE FUNCTION app.room_message_files_go();
+
+-- And the rows a message already removed still has. Row security is lifted
+-- for the statement and restored, as 0109 does, because a migration runs as
+-- the tables' owner and both force it (0150).
+ALTER TABLE room_files NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE room_messages NO FORCE ROW LEVEL SECURITY;
+DELETE FROM room_files f USING room_messages m
+ WHERE m.company_id = f.company_id AND m.id = f.message_id AND m.deleted_at IS NOT NULL;
+ALTER TABLE room_messages FORCE ROW LEVEL SECURITY;
+ALTER TABLE room_files FORCE ROW LEVEL SECURITY;

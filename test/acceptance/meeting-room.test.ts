@@ -858,3 +858,65 @@ test('a meeting is told and stopped from its thread: by the owner, and by the se
     await api.close();
   }
 });
+
+/**
+ * The meeting and people's phones (STATUS 2.213, F19.13). A question the
+ * meeting puts to an owner who joined it is the owner's item, told at once
+ * on the owner's channels -- a phone linked through a relay among them --
+ * whatever the owner's hours, because it waits only as long as the owner
+ * gave it. Nothing of the meeting is a person's notice: its card is the
+ * platform's, quiet, and its questions are the owner's alone, so a seat with
+ * a phone is told nothing of it.
+ */
+test("a joined meeting's question reaches the owner's phone at once, and a seat's phone is told nothing of the meeting", async () => {
+  const { fakeRelay } = await import('../helpers/fake-relay.ts');
+  const { handToRelay, linkThrough, pairThrough, sendOutbox } = await import('../helpers/relay.ts');
+  const { noticesOf, tell, toldTo } = await import('../helpers/notices.ts');
+  const { fixture, api, owner } = await workspace('meet-relay');
+  const relay = await fakeRelay();
+  try {
+    await meetsToday(fixture);
+    const relayId = await pairThrough(api, owner.token, relay, { companies: [fixture.companyId], share: 'content', mayPress: true });
+    const ownerPhone = await linkThrough(api, owner.token, relay, relayId, { device: true, owner: true });
+    const sari = await seated(fixture, 'Sari', 'approver', { handle: 'sari' });
+    await companyRoomOf(personIn(api, sari.token, fixture.companyId));
+    const sariPhone = await linkThrough(api, sari.token, relay, relayId, { device: true, owner: false });
+    ok(await owner.post('/rhythm', { ownerJoins: true, joinMinutes: 15 }));
+    await companyRoomOf(owner);
+
+    // The owner is away: what waits for their hours is not told now.
+    await ownerAway();
+    const meeting = await runningMeeting(fixture);
+    await syncRoomCards(fixture.companyId);
+    const question = await asked(fixture, meeting, {
+      question: 'Shall we raise prices by 5% from next month?', options: ['Yes, 5%', 'No, keep them'], waitMinutes: 15,
+    });
+    const ordinary = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'price the coffee' }, createdBy: 'owner', reserveTokens: 100,
+    });
+    await transition(fixture.companyId, ordinary.id, 'running');
+    const waiting = await asked(fixture, ordinary.id, { question: 'Which supplier for the beans?' });
+    await syncRoomCards(fixture.companyId);
+
+    // The notify stage, now: the meeting's question goes to the owner's phone, the ordinary one waits.
+    const handed = await handToRelay(fixture.companyId, relayId, { now: new Date() });
+    assert.equal(handed.delivered, 1, 'one item handed to the relay now');
+    await sendOutbox(api.master);
+    const items = toldTo(relay, ownerPhone).filter((one) => one.type === 'inbox_item');
+    assert.equal(items.length, 1);
+    assert.equal(items[0].data.question, 'Shall we raise prices by 5% from next month?');
+    const sent = await withControlPlane((tx) => tx.query<{ inbox_item_id: string }>(
+      'SELECT inbox_item_id FROM owner_notifications WHERE company_id = $1 AND delivered_at IS NOT NULL', [fixture.companyId]));
+    assert.deepEqual(sent.rows.map((row) => row.inbox_item_id), [question], 'the meeting\'s question, and not the one that waits');
+    assert.notEqual(question, waiting);
+
+    // A seat with a phone hears nothing of the meeting: not its card, not its question.
+    await tell(fixture.companyId, api.master);
+    assert.deepEqual(toldTo(relay, sariPhone), []);
+    assert.deepEqual(await noticesOf(fixture.companyId, sari.principal), []);
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});

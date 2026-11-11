@@ -588,6 +588,11 @@ test('the application role may write what the platform writes, and no more (F12,
     room_files: { table: ['SELECT', 'INSERT'] },
     room_mentions: { table: ['SELECT', 'INSERT'], columns: ['seen_at'] },
     room_follows: { table: ['SELECT', 'INSERT'], columns: ['following', 'updated_at'] },
+    // A Slack import and the authors it brought (STATUS section 2.214): the
+    // control plane's alone, since a former person's private rooms are the
+    // owner's to know and nothing of an import is a seat's.
+    room_imports: { table: [] },
+    room_former_people: { table: [] },
     // People's notices (STATUS section 2.213): the planner writes and purges
     // them, and a send settles them; nothing else of a row changes.
     people_notices: {

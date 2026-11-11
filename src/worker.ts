@@ -98,6 +98,7 @@ import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './g
 import type { OtlpExporter } from './reporting/otlp.ts';
 import { pollMailboxes, type MailOptions } from './chats/mail.ts';
 import { syncRoomCards } from './workspace/cards.ts';
+import { readImports } from './workspace/import-slack.ts';
 import type { SecretManager } from './secrets/manager.ts';
 
 export interface WorkerOptions {
@@ -812,6 +813,12 @@ export class Worker {
       // take it goes to the owner at once, and should go on this tick.
       await this.#stage(report, 'escalate', async () => {
         report.escalated += await inbox.handEscalations(company);
+      });
+
+      // F19.23: a Slack export whose parts have all arrived, read into rooms
+      // (STATUS 2.214). Before the cards, which then find its rooms there.
+      await this.#stage(report, 'imports', async () => {
+        await readImports(company, this.#options.erasure ?? {});
       });
 
       // F19.5, F19.16: the rooms' cards, drawn from what the stages above

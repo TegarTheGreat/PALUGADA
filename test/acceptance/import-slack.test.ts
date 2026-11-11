@@ -17,8 +17,10 @@ import { deflateRawSync, crc32 } from 'node:zlib';
 import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
+import { importCompany } from '../../src/audit/import.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane } from '../../src/db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withPeople } from '../../src/db/tenant.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { codeCompute } from '../../src/capabilities/compute.ts';
@@ -702,7 +704,8 @@ test('only the owner imports, part by part, in order', async () => {
     // A part sent again, after a connection dropped, is the same part.
     const again = ok(await ws.owner.post(`/room-imports/${made.id}/parts`, { index: 0, base64: 'YWJjZA==' })).import;
     assert.equal(again.received, 1);
-    refusedWith(await ws.owner.get(`/room-imports/${'0'.repeat(8)}-0000-4000-8000-000000000000`), 404, 'contract.violation');
+    refusedWith(await ws.owner.get(`/room-imports/${'0'.repeat(8)}-0000-4000-8000-000000000000`), 400, 'contract.violation',
+      'no such import in this company');
   } finally {
     await ws.api.close();
   }
@@ -775,6 +778,64 @@ test('an imported message given as work is outside words', async () => {
     });
     assert.equal(rows.task.created_by, 'owner', 'the owner pressed');
     assert.deepEqual(rows.outside, [{ capability: 'an imported message' }], "an old workspace's words are never the owner's own");
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test("a Slack import travels with the company's archive, and importing it again there adds nothing", async () => {
+  const ws = await workspace('slack-archive');
+  try {
+    const budi = await seated(ws.fixture, 'Budi', 'member');
+    const zip = slackExport();
+    assert.equal((await imported(ws, zip)).status, 'done');
+    ok(await ws.owner.post('/former-people/link', { former: 'former:slack:U01AYU', seatId: budi.id, confirm: true }));
+    const lines: ArchiveLine[] = [];
+    await exportCompany(ws.fixture.companyId, (line) => { lines.push(line); });
+    const restored = await importCompany(lines, { slug: `${ws.fixture.slug}-restored` });
+    const there: Workspace = {
+      ...ws,
+      fixture: { ...ws.fixture, companyId: restored.companyId },
+      owner: personIn(ws.api, ws.owner.token, restored.companyId),
+      folder: peopleFilesFolder({ root: ws.root }, restored.companyId)!,
+    };
+    const reports = ok(await there.owner.get('/room-imports')).imports as Array<{ status: string; counts: { messages: number } }>;
+    assert.deepEqual(reports.map((one) => [one.status, one.counts.messages]), [['done', 9]], "the import's report travels");
+    const formers = ok(await there.owner.get('/former-people')).people as Array<{ former: string; name: string; seat: unknown; rooms: number }>;
+    assert.deepEqual(formers.find((one) => one.former === 'former:slack:U01AYU'), {
+      former: 'former:slack:U01AYU', name: 'Ayu Lestari', seat: null, linkedAt: null, rooms: 2,
+    }, 'with the private rooms she was in, restored here, and no seat of the other deployment');
+    const general = (await roomsOf(there.owner)).get('general')!;
+    assert.equal((await pageOf(there.owner, general.id))[0].author.name, 'Ayu Lestari');
+
+    const before = await tally(restored.companyId);
+    const again = await imported(there, zip);
+    assert.equal(again.status, 'done');
+    assert.deepEqual([again.counts.rooms, again.counts.messages, again.counts.reactions], [0, 0, 0]);
+    assert.deepEqual(await tally(restored.companyId), before, 'every room and message is known by where it came from');
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test('only an import says where a room or a message came from, and it never changes', async () => {
+  const ws = await workspace('slack-external');
+  try {
+    const companyId = ws.fixture.companyId;
+    const room = await companyRoomOf(ws.owner);
+    const owner = { principal: 'owner', name: null };
+    // Nobody squats a channel's id, which would keep the import from finding its room.
+    await assert.rejects(withPeople(companyId, owner, (tx) => tx.query(
+      `INSERT INTO rooms (id, company_id, kind, name, created_by, external_id)
+       VALUES (gen_random_uuid(), $1, 'topic', 'general', 'owner', 'slack:C01GEN')`, [companyId])), /only an import/);
+    await assert.rejects(withPeople(companyId, owner, (tx) => tx.query(
+      `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, external_id)
+       VALUES (gen_random_uuid(), $1, $2, 'text', 'owner', 'Morning!', 'slack:1709280060.000200')`, [companyId, room])), /only an import/);
+    assert.equal((await imported(ws, slackExport())).status, 'done');
+    await assert.rejects(withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, companyId, { importing: true });
+      await tx.query("UPDATE rooms SET external_id = 'slack:C99' WHERE company_id = $1 AND external_id = 'slack:C01GEN'", [companyId]);
+    }), /never changes/);
   } finally {
     await ws.api.close();
   }

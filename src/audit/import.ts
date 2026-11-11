@@ -357,6 +357,11 @@ const SECTIONS: ImportSection[] = [
   },
   { name: 'room_files', table: 'room_files', references: ['message_id'], required: ['message_id'], room: true },
   { name: 'room_members', table: 'room_members', references: ['room_id'], required: ['room_id'], room: true },
+  // A Slack import's report, and the old workspace's authors (STATUS 2.214),
+  // with the private rooms they were in mapped to the rooms restored here.
+  // Who they were linked to is a seat of the other deployment, and is not.
+  { name: 'room_imports', table: 'room_imports', references: [], room: true },
+  { name: 'room_former_people', table: 'room_former_people', references: [], remapJson: ['rooms'], room: true },
 
   // F1.5's configuration, restored last because it references divisions and
   // needs nothing itself. `config_versions` above carries what a policy *was*;

@@ -63,15 +63,28 @@ export interface Someone {
 export class Directory {
   readonly companyId: string;
   readonly #people: Map<string, Someone>;
+  /** Authors an import brought, by the seat each was linked to (STATUS 2.214). */
+  readonly #linked: Map<string, string>;
 
-  constructor(companyId: string, people: Map<string, Someone>) {
+  constructor(companyId: string, people: Map<string, Someone>, linked: Map<string, string> = new Map()) {
     this.companyId = companyId;
     this.#people = people;
+    this.#linked = linked;
+  }
+
+  /**
+   * The name an imported author is drawn under: the name of the seat the
+   * owner linked them to, or else the one the import kept (F19.23).
+   */
+  formerName(principal: string, snapshot: string | null): string {
+    const seat = this.#linked.get(principal);
+    return (seat ? this.#people.get(seat)?.name : null) ?? snapshot ?? principal;
   }
 
   /** A person as a room draws them; `snapshot` is the name a row kept, which wins for what was said under it. */
   refOf(principal: string, snapshot?: string | null): PersonRef {
     if (principal === 'owner') return { principal, name: null, handle: null, picture: null };
+    if (principal.startsWith('former:')) return { principal, name: this.formerName(principal, snapshot ?? null), handle: null, picture: null };
     const known = this.#people.get(principal);
     return {
       principal,
@@ -94,17 +107,23 @@ export class Directory {
 
 /** The company's people, the owner first. */
 export async function directoryOf(companyId: string): Promise<Directory> {
-  const { rows } = await withControlPlane((tx) => tx.query<{
-    id: string; name: string; handle: string | null; picture: string | null; kind: StaffKind; live: boolean;
-  }>(
-    `SELECT id, name, handle, picture, kind, joined_at IS NOT NULL AND revoked_at IS NULL AS live
-       FROM staff_seats WHERE company_id = $1 ORDER BY name, id`,
-    [companyId]));
+  const { rows, linked } = await withControlPlane(async (tx) => {
+    const { rows: seats } = await tx.query<{
+      id: string; name: string; handle: string | null; picture: string | null; kind: StaffKind; live: boolean;
+    }>(
+      `SELECT id, name, handle, picture, kind, joined_at IS NOT NULL AND revoked_at IS NULL AS live
+         FROM staff_seats WHERE company_id = $1 ORDER BY name, id`,
+      [companyId]);
+    // Who an imported author became, which the owner set by linking them (STATUS 2.214).
+    const { rows: formers } = await tx.query<{ former: string; seat_id: string }>(
+      'SELECT former, seat_id FROM room_former_people WHERE company_id = $1 AND seat_id IS NOT NULL', [companyId]);
+    return { rows: seats, linked: new Map(formers.map((one) => [one.former, `seat:${one.seat_id}`])) };
+  });
   const people = new Map<string, Someone>([['owner', { principal: 'owner', name: null, handle: null, picture: null, kind: 'owner', live: true }]]);
   for (const row of rows) {
     people.set(`seat:${row.id}`, { principal: `seat:${row.id}`, name: row.name, handle: row.handle, picture: row.picture, kind: row.kind, live: row.live });
   }
-  return new Directory(companyId, people);
+  return new Directory(companyId, people, linked);
 }
 
 /** The columns of a message the views read. */
@@ -230,7 +249,7 @@ export async function messageViews(
       alsoInRoom: row.also_in_room,
       kind: row.kind,
       author: row.author === 'platform' ? { principal: 'platform' }
-        : row.author.startsWith('former:') ? { principal: row.author, former: true, name: row.author_name ?? row.author }
+        : row.author.startsWith('former:') ? { principal: row.author, former: true, name: directory.formerName(row.author, row.author_name) }
           : directory.refOf(row.author, row.author_name),
       body: row.body,
       notice: row.kind === 'notice' && row.notice_code ? { code: row.notice_code, values: row.notice_values ?? {} } : null,

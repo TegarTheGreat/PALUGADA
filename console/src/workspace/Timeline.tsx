@@ -40,8 +40,11 @@ export interface Pending {
   alsoInRoom: boolean;
   threadOf: string | null;
   failed: boolean;
-  /** What to do once it is kept: ask the team about it, call a meeting about it, or tell it to the thread's work. */
-  then: 'ask' | 'meeting' | 'tell' | null;
+  /**
+   * What to do once it is kept: ask the team about it, call a meeting about it, tell it to the thread's work, or set
+   * a people's meeting from it (STATUS 2.215).
+   */
+  then: 'ask' | 'meeting' | 'tell' | 'set_meeting' | null;
   /** The files that go with it, held in this tab's memory until it is kept. */
   files?: Attached[];
 }

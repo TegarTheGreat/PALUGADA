@@ -7,8 +7,9 @@
  * where it chooses. Telling the work is never sent by Enter: it is pressed.
  * A slash command only opens what it names, and only for someone who may
  * use it: a viewer's `/task` is kept as typed, and the composer says who
- * may ask. What is not sent yet stays with the room in this tab's memory,
- * and is gone with the tab.
+ * may ask. `/meet` and `/rapat` set a people's meeting (STATUS 2.215), which
+ * anyone who may write here may. What is not sent yet stays with the room in
+ * this tab's memory, and is gone with the tab.
  *
  * Up to five files go with a message, 24 MB together (STATUS 2.212): chosen
  * from the device, or on a phone taken with its camera. They are read into
@@ -22,7 +23,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowUp, IconCamera, IconMoodSmile, IconPaperclip, IconSparkles, IconUsersGroup, IconX } from '@tabler/icons-react';
+import {
+  IconArrowUp, IconCalendarEvent, IconCamera, IconMoodSmile, IconPaperclip, IconSparkles, IconUsersGroup, IconX,
+} from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { readForUpload } from '../files.ts';
 import { count, fileSize } from '../format.ts';
@@ -62,7 +65,7 @@ export interface Sent {
   files: Attached[];
 }
 
-export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet, editLast, tellable = false, disabled = false }: {
+export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet, setMeeting, editLast, tellable = false, disabled = false }: {
   roomId: string;
   threadOf?: string | null;
   placeholder: string;
@@ -74,6 +77,11 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
    * the meeting opens on the message, so cancelling it leaves them in the room.
    */
   meet?: (body: string) => void;
+  /**
+   * Set a people's meeting (STATUS 2.215): words typed are posted as the person's own, then the dialog that gives
+   * them a time and the people asked opens on the message; with none, it opens empty.
+   */
+  setMeeting?: (body: string) => void;
   /** ↑ in an empty composer: edit your last message. */
   editLast?: () => void;
   /** A thread of work the reader may tell (F19.6). */
@@ -172,6 +180,13 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
         return;
       }
       ask(command[2]?.trim() ?? '');
+      setValue('');
+      return;
+    }
+    // A people's meeting is talk, so every person who may write here may set one.
+    const meeting = /^\/(meet|rapat)(?:\s+([\s\S]*))?$/.exec(body);
+    if (meeting && setMeeting && threadOf === null) {
+      setMeeting(meeting[2]?.trim() ?? '');
       setValue('');
       return;
     }
@@ -312,8 +327,21 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
             <IconMoodSmile size={18} />
           </ActionIcon>
         } />
+        {/* Setting a people's meeting (section 2.215): anyone's, at the top of a room, pressed and never sent by a key.
+            Words typed become its title and agenda; with none, the dialog asks for them. */}
+        {setMeeting && threadOf === null && (
+          <Tooltip label={t('Set a meeting')}>
+            <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Set a meeting')} data-set-meeting-button disabled={disabled} onClick={() => {
+              const body = value.trim();
+              setValue('');
+              setMeeting(body);
+            }}>
+              <IconCalendarEvent size={18} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
-            the top of a room, pressed and never sent by a key. Setting a people's meeting (section 2.215) goes here too. */}
+            the top of a room, pressed and never sent by a key. */}
         {meet && threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver') && (
           <Tooltip label={t('Call a meeting about this')}>
             <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {

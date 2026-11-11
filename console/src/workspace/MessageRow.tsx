@@ -21,8 +21,8 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconCopy, IconDots, IconFileDescription, IconHistory, IconMessageReply, IconMoodSmile, IconPencil, IconPin, IconPinnedOff,
-  IconPlayerStop, IconSparkles, IconTrash, IconUsersGroup,
+  IconCalendarEvent, IconCopy, IconDots, IconFileDescription, IconHistory, IconMessageReply, IconMoodSmile, IconPencil, IconPin,
+  IconPinnedOff, IconPlayerStop, IconSparkles, IconTrash, IconUsersGroup,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { Prose, type Mention } from '../components/Prose.tsx';
@@ -32,6 +32,7 @@ import { ApprovalCard } from './ApprovalCard.tsx';
 import { EmojiPicker } from './EmojiPicker.tsx';
 import { QUICK_REACTIONS } from './emoji.ts';
 import { MeetingCard } from './MeetingCard.tsx';
+import { MeetingPanel } from './MeetingPanel.tsx';
 import { NoticeRow } from './NoticeRow.tsx';
 import { QuestionCard } from './QuestionCard.tsx';
 import { RoomFiles } from './RoomFiles.tsx';
@@ -145,6 +146,10 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
   };
 
   const text = message.kind === 'text' && !message.deleted;
+  // A people's meeting is set from one's own words at the top of a room one is in and may write in (STATUS 2.215).
+  const room = scope.room?.id === message.roomId ? scope.room : null;
+  const setsMeeting = text && message.author.principal === scope.me && message.threadOf === null && message.peopleMeeting === null
+    && room !== null && room.joined && !room.archived;
   const actions: Action[] = [
     ...(!inThread && message.threadOf === null ? [{ id: 'reply', label: t('Reply in thread'), icon: <IconMessageReply size={16} />, run: () => scope.openThread(message.id) }] : []),
     ...(text ? [{ id: 'react', label: t('React'), icon: <IconMoodSmile size={16} />, run: () => setReacting(true) }] : []),
@@ -156,9 +161,10 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
     ...(message.may.stop && scope.kind !== 'owner' ? [{ id: 'stop', label: t('Stop the work'), icon: <IconPlayerStop size={16} />, run: () => void stop(), color: 'red' }] : []),
     ...(message.may.fileAsIssue ? [{ id: 'issue', label: t('File as an issue'), icon: <IconFileDescription size={16} />, run: () => void fileAsIssue() }] : []),
     ...(message.may.history ? [{ id: 'history', label: t('What it said before'), icon: <IconHistory size={16} />, run: () => void showHistory() }] : []),
-    // A meeting of the company's agents called about this message (section 2.211); a people's meeting set from it
-    // (section 2.215) is added here.
+    // A meeting of the company's agents called about this message (section 2.211), and a people's meeting set from
+    // it (section 2.215).
     ...(message.may.callMeeting ? [{ id: 'meeting', label: t('Call a meeting about this'), icon: <IconUsersGroup size={16} />, run: () => scope.callMeeting(message) }] : []),
+    ...(setsMeeting ? [{ id: 'set-meeting', label: t('Set a meeting about this'), icon: <IconCalendarEvent size={16} />, run: () => scope.setMeeting(message.roomId, message) }] : []),
     ...(message.may.delete ? [{ id: 'delete', label: t('Delete'), icon: <IconTrash size={16} />, run: () => setDeleting(true), color: 'red' }] : []),
   ];
 
@@ -241,7 +247,8 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             </Box>
           ) : null}
           <RoomFiles roomId={message.roomId} files={message.files} removed={message.deleted} />
-          {/* A people's meeting set from this message (section 2.215) is drawn here. */}
+          {/* A people's meeting set from this message (section 2.215): when, who is asked, and its call link. */}
+          {message.peopleMeeting && !message.deleted && <MeetingPanel meeting={message.peopleMeeting} message={message} />}
           {message.card && (message.card.kind === 'work'
             ? <WorkState card={message.card} message={message} />
             : message.card.kind === 'question' ? <QuestionCard card={message.card} />

@@ -2,12 +2,13 @@
  * What asks for the person's attention, newest first (F19.10): where they
  * were mentioned, replies in threads they follow, cards about work they
  * asked for, questions put to them, the team's cards an approver may
- * decide, and work they asked for that ended this week. Read from the
+ * decide, work they asked for that ended this week, and a meeting of people
+ * they were asked to about to start (STATUS 2.215). Read from the
  * server; an approver is told of a team card by the item alone, never of
  * a room they cannot see.
  */
 import { Box, Group, Loader, Stack, Text, UnstyledButton } from '@mantine/core';
-import { IconAt, IconCheck, IconInbox, IconMessageCircle, IconMessageQuestion, IconSparkles } from '@tabler/icons-react';
+import { IconAt, IconCalendarEvent, IconCheck, IconInbox, IconMessageCircle, IconMessageQuestion, IconSparkles } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import { api } from '../api.ts';
 import { relative, statusLabel } from '../format.ts';
@@ -58,6 +59,8 @@ export function Activity({ rooms, open }: { rooms: RoomListItem[]; open: (item: 
               return line(`${index}`, <IconMessageCircle size={18} />, t('A reply in a thread you follow, in {room}', { room: where(item.roomId) }), item.at, () => open(placeOf(item)), !item.seen);
             case 'card':
               return line(`${index}`, <IconSparkles size={18} />, t('Work you asked for needs you, in {room}', { room: where(item.roomId) }), item.at, () => open(placeOf(item)), !item.seen);
+            case 'meeting':
+              return line(`${index}`, <IconCalendarEvent size={18} />, t('A meeting starts soon, in {room}', { room: where(item.roomId) }), item.at, () => open(placeOf(item)), !item.seen);
             case 'question':
               return line(`${index}`, <IconMessageQuestion size={18} />, t('A question for you'), item.at, () => scope.ctx.open('inbox', { item: item.itemId }), true);
             case 'team_item':

@@ -971,3 +971,40 @@ test('on a phone a file with a long name is still saved from its own button, on 
     await api.close();
   }
 });
+
+test('/meet sets a meeting of people from the words typed, drawn under them with its call link opened apart', { skip }, async () => {
+  // A people's meeting (F19.26, STATUS 2.215): its words are posted first, as
+  // the person's own, and the dialog gives them a time and the people asked;
+  // the meeting is drawn under them, and its link opens in a new tab that
+  // knows neither the console nor where it came from.
+  const { fixture, api, owner } = await started();
+  const roomId = await companyRoomOf(personIn(api, owner, fixture.companyId));
+  const DIALOG = `document.querySelector('[data-set-meeting]')`;
+  const words = 'Rota for Friday: who opens, who closes.';
+  const page = await drawn(api, DESKTOP);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
+    await page.evaluate(`document.querySelector('[data-composer]').focus()`);
+    await page.type(`/rapat ${words}`);
+    await page.press('Enter');
+    await page.waitFor(`${ROW(words)}?.getAttribute('data-message')?.length === 36`, 'the words, posted as the owner\'s');
+    await page.waitFor(DIALOG, 'the dialog that sets a meeting');
+    assert.equal(await page.evaluate<number>(`${DIALOG}.querySelectorAll('textarea').length`), 0, 'the words are the message, not asked for again');
+    await page.evaluate(`${DIALOG}.querySelector('[data-call-link]').focus()`);
+    await page.type('https://meet.example/rota');
+    await page.waitFor(`!document.querySelector('[data-set]').disabled`, 'Set, once the meeting is whole');
+    await page.evaluate(`document.querySelector('[data-set]').click()`);
+    await page.waitFor(`!${DIALOG} && ${ROW(words)}?.querySelector('[data-people-meeting] [data-join-call]')`, 'the meeting under its words');
+    const link = await page.evaluate<{ href: string; target: string; rel: string }>(
+      `(() => { const a = ${ROW(words)}.querySelector('[data-join-call]'); return { href: a.getAttribute('href'), target: a.target, rel: a.rel }; })()`);
+    assert.deepEqual(link, { href: 'https://meet.example/rota', target: '_blank', rel: 'noopener noreferrer' });
+    const sent = (await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.kind === 'text');
+    assert.deepEqual(sent.map((one) => one.body), [words], 'the words were posted once, without the command');
+    const meeting = (sent[0] as unknown as { peopleMeeting: { callUrl: string; attendees: Array<{ principal: string }>; minutes: number } }).peopleMeeting;
+    assert.deepEqual([meeting.callUrl, meeting.attendees.map((one) => one.principal), meeting.minutes], ['https://meet.example/rota', ['owner'], 30]);
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});

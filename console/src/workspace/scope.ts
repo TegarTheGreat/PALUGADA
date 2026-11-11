@@ -2,8 +2,8 @@
  * What every part of the Rooms page shares while a company's rooms are open
  * (STATUS 2.207): who is reading and what they may do, the room on screen,
  * the company's people, and how to open a thread, ask the team about a
- * message or call a meeting about one (STATUS 2.211). Held in memory by the
- * page, never in the browser's storage.
+ * message, call a meeting about one (STATUS 2.211) or set a people's meeting
+ * (STATUS 2.215). Held in memory by the page, never in the browser's storage.
  *
  * Also the few ways a person is said and written, kept in one place so a
  * message, the mention picker and a room's members never disagree: the
@@ -39,6 +39,13 @@ export interface Scope {
    * meeting never loses them.
    */
   callMeeting: (message: MessageView) => void;
+  /**
+   * Set a people's meeting (STATUS 2.215) from a message already kept, or change the one it carries; with no
+   * message (`/meet` alone) the dialog opens empty, and what is written in it is posted to the room as the
+   * person's words before the meeting is set. Words from the composer are posted first, as "Ask the team" posts
+   * them, so cancelling the dialog never loses them.
+   */
+  setMeeting: (roomId: string, message: MessageView | null) => void;
   /** Something changed that the rail and the room should read again. */
   changed: () => void;
   /** Counts the changes: what reads the room reads again when it moves. */

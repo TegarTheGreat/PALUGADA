@@ -1082,11 +1082,19 @@ test('the application role cannot delete a message, nor change its author, room,
     await refused(() => withPeople(fixture.companyId, who, (tx) => tx.query('DELETE FROM room_messages WHERE id = $1', [hers])),
       '42501', DENIED, `${who.principal} deleting`);
     for (const [column, value] of [['author', 'owner'], ['room_id', division], ['kind', 'notice'], ['position', 1],
-      ['created_at', new Date(0)], ['via', 'relay'], ['mentions', ['owner']]] as const) {
+      ['created_at', new Date(0)], ['via', 'relay']] as const) {
       await refused(() => withPeople(fixture.companyId, who, (tx) => tx.query(
         `UPDATE room_messages SET ${column} = $2 WHERE id = $1`, [hers, value])), '42501', DENIED, `${who.principal} changing ${column}`);
     }
+    // Whom a message names changes only with its words, in its author's edit (STATUS 2.218): alone, the guard refuses it.
+    await refused(() => withPeople(fixture.companyId, who, (tx) => tx.query(
+      'UPDATE room_messages SET mentions = $2 WHERE id = $1', [hers, ['owner']])), '23514', /names change only with its words/,
+    `${who.principal} changing mentions alone`);
   }
+  // And with words, only by its author: the owner may not rewrite whom a seat named.
+  await refused(() => withPeople(fixture.companyId, OWNER, (tx) => tx.query(
+    "UPDATE room_messages SET body = 'Keep this, @owner.', mentions = $2 WHERE id = $1", [hers, ['owner']])), '42501', /only its author edits/,
+  'the owner editing what a seat named');
   await refused(() => withRoomPlatform(fixture.companyId, (tx) => tx.query('DELETE FROM room_messages WHERE id = $1', [hers])),
     '42501', DENIED, 'the platform deleting');
   const kept = await withControlPlane((tx) => tx.query<{ body: string; author: string }>(

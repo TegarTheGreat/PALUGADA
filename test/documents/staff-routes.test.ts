@@ -64,7 +64,8 @@ test('every POST a seat may make is on exactly one list: talk, ask or decide; an
 
 test('a seat talks only in rooms, about itself, and to its own phone', () => {
   const elsewhere = STAFF_TALKS.filter((pattern) =>
-    !/^\/api\/(companies\/:companyId\/(rooms|direct-rooms)(\/|$)|me\/|relays\/links(\/|$))/.test(pattern));
+    // `companies/:companyId/me/` is the person's own place in the company's rooms: their marks and mentions (STATUS 2.218).
+    !/^\/api\/(companies\/:companyId\/(rooms|direct-rooms|me)(\/|$)|me\/|relays\/links(\/|$))/.test(pattern));
   assert.deepEqual(elsewhere, [], 'what any seat may post is its own words, its own place in rooms, its own profile and phone');
 });
 

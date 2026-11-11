@@ -91,8 +91,16 @@ export async function relayPass(options: RelayPassOptions): Promise<RelayPassRep
   report.takenBack = await takeBackStale(now);
   // What a replica that stopped left half taken is given back (STATUS section 2.216).
   await takeBackAbandoned(now);
+  // Every paired relay, and a relay an erasure ended that is still owed the
+  // word to forget the erased company: it is sent that, and only that
+  // (STATUS 2.216, 2.217), and never pulled from.
   const relays = await withControlPlane(async (tx) => (await tx.query<RelayRow>(
-    `SELECT * FROM relays WHERE status = 'paired' AND (paused_until IS NULL OR paused_until <= $1) ORDER BY created_at`, [now])).rows);
+    `SELECT * FROM relays r
+      WHERE (r.status = 'paired'
+             OR (r.status = 'revoked' AND EXISTS (
+                   SELECT 1 FROM relay_outbox o WHERE o.relay_id = r.id AND o.type = 'company_forgotten' AND o.status = 'pending')))
+        AND (r.paused_until IS NULL OR r.paused_until <= $1)
+      ORDER BY r.created_at`, [now])).rows);
   report.relays = relays.length;
   if (relays.length === 0) return report;
 
@@ -103,7 +111,7 @@ export async function relayPass(options: RelayPassOptions): Promise<RelayPassRep
   const queue = [...relays];
   const serve = async (): Promise<void> => {
     for (let relay = queue.shift(); relay; relay = queue.shift()) {
-      if (relay.mode === 'pull' && relay.inbox_url) {
+      if (relay.status === 'paired' && relay.mode === 'pull' && relay.inbox_url) {
         const pull = startPull(relay, signing, now, options);
         if (pull) pulls.push(pull);
       }

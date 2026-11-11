@@ -641,13 +641,25 @@ export async function revokeRelay(relayId: string, now = new Date()): Promise<vo
   });
 }
 
-/** The same, in a transaction that already holds the relay's row (`relayRow(tx, id, true)`). */
-export async function revokeRelayWithin(tx: TenantClient, relay: RelayRow, now: Date): Promise<void> {
+/**
+ * The same, in a transaction that already holds the relay's row
+ * (`relayRow(tx, id, true)`). A relay ended because the company it heard
+ * about was erased (`forgetCompanyOnRelays`) keeps what tells it to forget
+ * a company, `company_forgotten`, and the relay loop still sends it that
+ * and nothing else (STATUS 2.216, 2.217): it was ended for having nothing
+ * left to hear, not for being distrusted, and it is the relay most sure to
+ * hold the erased company's words. A relay the owner revokes is sent
+ * nothing more at all.
+ */
+export async function revokeRelayWithin(tx: TenantClient, relay: RelayRow, now: Date, options: { forgetting?: boolean } = {}): Promise<void> {
   if (relay.status === 'revoked') return;
   const relayId = relay.id;
   await tx.query(`UPDATE relays SET status = 'revoked', revoked_at = $2, pulling_until = NULL WHERE id = $1`, [relayId, now]);
   await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE relay_id = $1 AND voided_at IS NULL', [relayId, now]);
-  await tx.query(`DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'sending', 'dead')`, [relayId]);
+  await tx.query(
+    `DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'sending', 'dead')
+        AND NOT ($2 AND type = 'company_forgotten')`,
+    [relayId, options.forgetting === true]);
   await tx.query(`UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE relay_id = $1 AND status <> 'ended'`, [relayId, now]);
 }
 
@@ -676,14 +688,15 @@ export async function holdRelaysOf(tx: TenantClient, companyId: string): Promise
  * about it no more, in the erasure's own transaction and before its rows
  * go, on the relays' rows the erasure already holds (`holdRelaysOf`). A
  * paired relay that heard about that company alone has nothing left to
- * hear and is ended, as if the owner had revoked it: a paired relay names
- * at least one company (0155).
+ * hear and is ended, as if the owner had revoked it -- a paired relay names
+ * at least one company (0155) -- except that it is still sent the
+ * `company_forgotten` written for it before the erasure began.
  */
 export async function forgetCompanyOnRelays(tx: TenantClient, held: readonly RelayRow[], companyId: string, now: Date): Promise<void> {
   for (const relay of held) {
     if (!relay.companies.includes(companyId)) continue;
     const left = relay.companies.filter((one) => one !== companyId);
-    if (relay.status === 'paired' && !relay.all_companies && left.length === 0) await revokeRelayWithin(tx, relay, now);
+    if (relay.status === 'paired' && !relay.all_companies && left.length === 0) await revokeRelayWithin(tx, relay, now, { forgetting: true });
     await tx.query('UPDATE relays SET companies = $2 WHERE id = $1', [relay.id, left]);
   }
 }

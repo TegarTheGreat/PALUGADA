@@ -13,6 +13,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { deflateRawSync, crc32 } from 'node:zlib';
 import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -33,11 +34,17 @@ import { planNotices } from '../../src/owner/member-notify.ts';
 import { peopleFilesFolder } from '../../src/owner/route.ts';
 import { runRetention } from '../../src/retention/retention.ts';
 import { Worker } from '../../src/worker.ts';
+import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { readImports } from '../../src/workspace/import-slack.ts';
 import { openZip } from '../../src/workspace/zip.ts';
+import { fakeRelay, type FakeRelay } from '../helpers/fake-relay.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { noticesOf, tell, toldTo } from '../helpers/notices.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
-import { companyRoomOf, ok, personIn, refusedWith, seated, type Console, type PersonIn } from '../helpers/rooms.ts';
+import { linkThrough, pairThrough, type Linked } from '../helpers/relay.ts';
+import {
+  companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn, type Seat,
+} from '../helpers/rooms.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -1076,6 +1083,337 @@ test('a channel whose name a room here has comes in beside it, and an archived c
     assert.equal(named('dev')?.joined, true, "the owner's own room keeps its name");
     assert.equal((await pageOf(ws.owner, named('dev (slack)')!.id))[0].body, 'Build is green.');
     assert.equal(named('old-dev')?.archived, true, 'an archived channel arrives archived');
+  } finally {
+    await ws.api.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Joined with people's meetings (STATUS 2.215), when the two sections were
+// merged: a meeting is set in an imported room as in any other, from a
+// person's own words here and for people who can see the room, and nothing
+// the old workspace said is a meeting or reminds anyone.
+
+const MINUTE = 60_000;
+const DAY = 86_400_000;
+/** A time this many minutes from now, as the console sends it. */
+const inMinutes = (minutes: number) => new Date(Date.now() + minutes * MINUTE).toISOString();
+const setMeeting = (person: PersonIn, roomId: string, body: Record<string, unknown>) => person.post(`/rooms/${roomId}/people-meetings`, body);
+const changeMeeting = (person: PersonIn, roomId: string, meetingId: string, body: Record<string, unknown>) =>
+  person.post(`/rooms/${roomId}/people-meetings/${meetingId}`, body);
+
+/** A relay paired for the company at `content`, and a phone linked for each seat, as people's notices reach them (STATUS 2.213). */
+async function phonesFor(ws: Workspace, seats: readonly Seat[]): Promise<{ relay: FakeRelay; phone: Map<string, Linked> }> {
+  const relay = await fakeRelay();
+  const relayId = await pairThrough(ws.api, ws.owner.token, relay, { companies: [ws.fixture.companyId], share: 'content' });
+  const phone = new Map<string, Linked>();
+  for (const seat of seats) {
+    await companyRoomOf(personIn(ws.api, seat.token, ws.fixture.companyId));
+    phone.set(seat.principal, await linkThrough(ws.api, seat.token, relay, relayId, { device: true, owner: false }));
+  }
+  return { relay, phone };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const remindedOf = (relay: FakeRelay, linked: Linked): any[] => toldTo(relay, linked).filter((one) => one.type === 'meeting_soon');
+
+/** The meetings' rows of a company, read on the control plane. */
+async function meetingRows(companyId: string) {
+  return withControlPlane(async (tx) => (await tx.query<{
+    id: string; room_id: string; message_id: string; attendees: string[]; call_url: string | null;
+    reminded_at: Date | null; cancelled_at: Date | null; cancelled_by: string | null;
+  }>(
+    `SELECT id, room_id, message_id, attendees::text[] AS attendees, call_url, reminded_at, cancelled_at, cancelled_by
+       FROM room_meetings WHERE company_id = $1 ORDER BY created_at, id`, [companyId])).rows);
+}
+
+/** The threads the rooms' sweep wrote a meeting's reminder in. */
+async function remindedThreads(companyId: string): Promise<string[]> {
+  return withControlPlane(async (tx) => (await tx.query<{ thread_of: string }>(
+    `SELECT thread_of FROM room_messages
+      WHERE company_id = $1 AND kind = 'notice' AND notice_code = 'meeting_soon' ORDER BY position`, [companyId])).rows
+    .map((row) => row.thread_of));
+}
+
+type ActivityItem = { kind: string; roomId?: string; threadOf?: string | null };
+
+test("an imported room's history raises no meeting reminder, and nothing it said is anyone's meeting", async () => {
+  const ws = await workspace('slack-no-meeting');
+  const budi = await seated(ws.fixture, 'Budi', 'member', { handle: 'budi' });
+  const budiIn = personIn(ws.api, budi.token, ws.fixture.companyId);
+  const { relay, phone } = await phonesFor(ws, [budi]);
+  try {
+    // How a Slack workspace met, said in an old channel: the commands typed
+    // as words, a reminder Slackbot set, and a huddle with its people.
+    const OLD = { id: 'C09OLD', name: 'old-standups', created: 1600000000, is_archived: true, members: ['U02BUDI'], purpose: { value: '' } };
+    const met = [
+      { type: 'message', user: 'U01AYU', text: '/meet tomorrow at ten with <@U02BUDI>', ts: '1709625600.000100' },
+      { type: 'message', user: 'U02BUDI', text: '/rapat besok jam sepuluh', ts: '1709625660.000100' },
+      { type: 'message', subtype: 'reminder_add', user: 'U01AYU', text: 'set up a reminder "standup" in this channel at 9AM every weekday', ts: '1709625720.000100' },
+      {
+        type: 'message', subtype: 'huddle_thread', user: 'U01AYU', text: '', ts: '1709625780.000100',
+        room: { id: 'R01HUD', date_start: 1709625780, date_end: 1709627580, participants: ['U01AYU', 'U02BUDI'] },
+      },
+    ];
+    const entries = slackExport({
+      more: [
+        { name: 'general/2024-03-05.json', data: json(met) },
+        { name: 'old-standups/2020-09-13.json', data: json([{ type: 'message', user: 'U02BUDI', text: '/meet daily at nine', ts: '1599991200.000100' }]) },
+      ],
+    }).map((entry) => (entry.name === 'channels.json' ? { ...entry, data: json([...CHANNELS, OLD]) } : entry));
+    const report = await imported(ws, entries);
+    assert.equal(report.status, 'done', JSON.stringify(report.problems));
+    ok(await ws.owner.post('/former-people/link', { former: 'former:slack:U02BUDI', seatId: budi.id, confirm: true }));
+
+    // The worker's rooms stage and notify stage, as after any import: nothing is a meeting, nothing is due.
+    await syncRoomCards(ws.fixture.companyId);
+    await tell(ws.fixture.companyId, ws.api.master);
+    assert.deepEqual(await meetingRows(ws.fixture.companyId), [], 'no meeting came from Slack');
+    assert.deepEqual(await remindedThreads(ws.fixture.companyId), [], 'and no reminder');
+    assert.deepEqual(remindedOf(relay, phone.get(budi.principal)!), []);
+    assert.deepEqual(toldTo(relay, phone.get(budi.principal)!), [], 'his phone is told nothing of the old workspace');
+    assert.deepEqual((await noticesOf(ws.fixture.companyId, budi.principal)).filter((row) => row.reason === 'meeting'), []);
+    for (const person of [ws.owner, budiIn]) {
+      const activity = ok(await person.activity()).items as ActivityItem[];
+      assert.deepEqual(activity.filter((item) => item.kind === 'meeting'), [], 'and nobody\'s Activity says a meeting starts');
+    }
+
+    // A meeting is set from one's own words here: not from what Slack kept,
+    // even by the seat the old author is linked to, which draws the words
+    // under his name and does not make them his.
+    const rooms = await roomsOf(ws.owner, true);
+    const general = rooms.get('general')!;
+    // A link joins the private rooms its person was in; an open one is a press away.
+    ok(await budiIn.join(general.id));
+    const page = await pageOf(budiIn, general.id);
+    const typed = page.find((one) => one.body === '/rapat besok jam sepuluh');
+    assert.equal(typed.author.name, 'Budi', 'drawn under his seat\'s name');
+    for (const [who, person] of [['the linked seat', budiIn], ['the owner', ws.owner]] as const) {
+      refusedWith(await setMeeting(person, general.id, { messageId: typed.id, startsAt: inMinutes(60), minutes: 30, attendees: ['owner'] }),
+        403, 'message.not_yours', who);
+    }
+    // An old author is no one to ask: the seat they were linked to is.
+    const mine = await said(ws.owner, general.id, 'Standups move to the rooms.');
+    refusedWith(await setMeeting(ws.owner, general.id, {
+      messageId: mine, startsAt: inMinutes(60), minutes: 15, attendees: ['owner', 'former:slack:U01AYU'],
+    }), 400, 'contract.violation', 'a former person');
+    // And an archived channel, which arrives archived, holds no meeting.
+    const archived = rooms.get('old-standups')!;
+    assert.equal(archived.archived, true);
+    const old = (await pageOf(ws.owner, archived.id))[0];
+    refusedWith(await setMeeting(ws.owner, archived.id, { messageId: old.id, startsAt: inMinutes(60), minutes: 15, attendees: ['owner'] }),
+      409, 'room.archived');
+    assert.deepEqual(await meetingRows(ws.fixture.companyId), []);
+  } finally {
+    await ws.api.close();
+    await relay.close();
+  }
+});
+
+test("a people's meeting in an imported private room asks its linked people, reminds them, and an unlink takes the reminder back", async () => {
+  const ws = await workspace('slack-meet');
+  const cici = await seated(ws.fixture, 'Cici', 'member', { handle: 'cici' });
+  const dewi = await seated(ws.fixture, 'Dewi', 'member', { handle: 'dewi' });
+  const ciciIn = personIn(ws.api, cici.token, ws.fixture.companyId);
+  const { relay, phone } = await phonesFor(ws, [cici, dewi]);
+  try {
+    assert.equal((await imported(ws, slackExport())).status, 'done');
+    ok(await ws.owner.post('/former-people/link', { former: 'former:slack:U03CICI', seatId: cici.id, confirm: true }));
+    const board = (await roomsOf(ws.owner)).get('board')!;
+    assert.equal(board.private, true);
+    assert.equal((await roomsOf(ciciIn)).get('board')?.joined, true, 'the link gave Cici the board she was on');
+
+    const agenda = await said(ws.owner, board.id, 'Board prep before the vote.');
+    // Who may be asked is who can see the room: Dewi was never on the board.
+    refusedWith(await setMeeting(ws.owner, board.id, {
+      messageId: agenda, startsAt: inMinutes(8), minutes: 30, attendees: ['owner', dewi.principal],
+    }), 400, 'people_meeting.cannot_see');
+    const soon = ok(await setMeeting(ws.owner, board.id, {
+      messageId: agenda, startsAt: inMinutes(8), minutes: 30, attendees: ['owner', cici.principal], callUrl: 'https://meet.example/board',
+    })).meeting;
+    assert.deepEqual(soon.attendees.map((one: { principal: string; name: string | null }) => [one.principal, one.name]),
+      [['owner', null], [cici.principal, 'Cici']]);
+    const laterWords = await said(ws.owner, board.id, 'Budget follow-up.');
+    const later = ok(await setMeeting(ws.owner, board.id, {
+      messageId: laterWords, startsAt: inMinutes(45), minutes: 30, attendees: ['owner', cici.principal],
+    })).meeting;
+
+    // A later, longer export read meanwhile adds its old words and leaves the meetings as they were.
+    const again = await imported(ws, slackExport({
+      more: [{ name: 'board/2024-03-02.json', data: json([{ type: 'message', user: 'U03CICI', text: 'Minutes are in the drive.', ts: '1709366500.000100' }]) }],
+    }));
+    assert.equal(again.counts.messages, 1);
+    const kept = await meetingRows(ws.fixture.companyId);
+    assert.deepEqual(kept.map((row) => [row.message_id, row.reminded_at, row.cancelled_at]), [[agenda, null, null], [laterWords, null, null]]);
+
+    // Ten minutes before: the reminder is in the meeting's thread in the imported room, in Cici's Activity, and on her phone.
+    await syncRoomCards(ws.fixture.companyId);
+    assert.deepEqual(await remindedThreads(ws.fixture.companyId), [agenda]);
+    const activity = ok(await ciciIn.activity()).items as ActivityItem[];
+    assert.deepEqual(activity.filter((item) => item.kind === 'meeting').map((item) => [item.roomId, item.threadOf]), [[board.id, agenda]]);
+    await tell(ws.fixture.companyId, ws.api.master);
+    const told = remindedOf(relay, phone.get(cici.principal)!);
+    assert.equal(told.length, 1);
+    assert.equal(told[0].text.split('\n')[0], 'A meeting starts in ten minutes in board.');
+    assert.equal(told[0].data.title, 'Board prep before the vote.');
+    assert.equal(JSON.stringify(told[0]).includes('meet.example'), false, 'and never its link');
+    assert.deepEqual(remindedOf(relay, phone.get(dewi.principal)!), [], 'Dewi was not asked');
+
+    // Unlinked, Cici leaves the board the link gave her: she stays among the
+    // people asked, as whoever was asked does, and is reminded of nothing in
+    // a room she cannot see.
+    ok(await ws.owner.post('/former-people/unlink', { former: 'former:slack:U03CICI' }));
+    assert.equal((await roomsOf(ciciIn, true)).has('board'), false);
+    ok(await changeMeeting(ws.owner, board.id, String(later.id), { startsAt: inMinutes(9) }));
+    await syncRoomCards(ws.fixture.companyId);
+    assert.deepEqual(await remindedThreads(ws.fixture.companyId), [agenda, laterWords], 'the owner is still reminded');
+    await tell(ws.fixture.companyId, ws.api.master);
+    assert.equal(remindedOf(relay, phone.get(cici.principal)!).length, 1, 'no second reminder reaches her phone');
+    assert.deepEqual((await noticesOf(ws.fixture.companyId, cici.principal)).filter((row) => row.reason === 'meeting').map((row) => row.subject),
+      [`meeting:${soon.id}`], 'nothing is planned for the meeting of a room she left');
+    assert.deepEqual((ok(await ciciIn.activity()).items as ActivityItem[]).filter((item) => item.kind === 'meeting'), [],
+      'and leaving the room took what it owed her');
+    assert.ok((await meetingRows(ws.fixture.companyId)).find((row) => row.id === later.id)!.attendees.includes(cici.principal));
+  } finally {
+    await ws.api.close();
+    await relay.close();
+  }
+});
+
+test("a people's meeting in an imported room travels with the archive, beside the import and its people", async () => {
+  const ws = await workspace('slack-meet-archive');
+  try {
+    const cici = await seated(ws.fixture, 'Cici', 'member');
+    const zip = slackExport();
+    assert.equal((await imported(ws, zip)).status, 'done');
+    ok(await ws.owner.post('/former-people/link', { former: 'former:slack:U03CICI', seatId: cici.id, confirm: true }));
+    const board = (await roomsOf(ws.owner)).get('board')!;
+    const agenda = await said(ws.owner, board.id, 'Board prep before the vote.');
+    const startsAt = inMinutes(60 * 24 * 3);
+    ok(await setMeeting(ws.owner, board.id, {
+      messageId: agenda, startsAt, minutes: 45, attendees: ['owner', cici.principal], callUrl: 'https://meet.example/board',
+    }));
+
+    const lines: ArchiveLine[] = [];
+    await exportCompany(ws.fixture.companyId, (line) => { lines.push(line); });
+    const sections = new Set(lines.map((line) => line.section));
+    for (const name of ['room_imports', 'room_former_people', 'room_meetings']) assert.ok(sections.has(name), `${name} is in the archive`);
+    const restored = await importCompany(lines, { slug: `${ws.fixture.slug}-restored` });
+    const there: Workspace = {
+      ...ws,
+      fixture: { ...ws.fixture, companyId: restored.companyId },
+      owner: personIn(ws.api, ws.owner.token, restored.companyId),
+      folder: peopleFilesFolder({ root: ws.root }, restored.companyId)!,
+    };
+
+    // The meeting comes back on its words, in the restored board, which the
+    // import's people are mapped to as well.
+    const boardThere = (await roomsOf(there.owner)).get('board')!;
+    assert.notEqual(boardThere.id, board.id);
+    const words = (await pageOf(there.owner, boardThere.id)).find((one) => one.body === 'Board prep before the vote.');
+    assert.deepEqual(
+      [words.peopleMeeting?.startsAt, words.peopleMeeting?.minutes, words.peopleMeeting?.callUrl, words.peopleMeeting?.cancelled,
+        words.peopleMeeting?.attendees.map((one: { principal: string }) => one.principal)],
+      [startsAt, 45, 'https://meet.example/board', false, ['owner', cici.principal]]);
+    const [meeting] = await meetingRows(restored.companyId);
+    assert.deepEqual([meeting!.room_id, meeting!.message_id], [boardThere.id, words.id]);
+    const restoredOf = await withControlPlane(async (tx) => ({
+      formers: (await tx.query<{ former: string; rooms: string[]; seat_id: string | null }>(
+        'SELECT former, rooms::text[] AS rooms, seat_id FROM room_former_people WHERE company_id = $1 ORDER BY former', [restored.companyId])).rows,
+      board: (await tx.query<{ external_id: string | null }>('SELECT external_id FROM rooms WHERE id = $1', [boardThere.id])).rows[0]!,
+      imports: (await tx.query<{ status: string }>('SELECT status FROM room_imports WHERE company_id = $1', [restored.companyId])).rows,
+    }));
+    assert.equal(restoredOf.board.external_id, 'slack:G01BRD');
+    assert.deepEqual(restoredOf.imports, [{ status: 'done' }]);
+    const ciciThen = restoredOf.formers.find((one) => one.former === 'former:slack:U03CICI')!;
+    assert.deepEqual([ciciThen.rooms, ciciThen.seat_id], [[boardThere.id], null], 'her private room is the restored one, and no link');
+
+    // Importing the same export there adds nothing, and the meeting is as it was.
+    const before = await tally(restored.companyId);
+    const again = await imported(there, zip);
+    assert.deepEqual([again.status, again.counts.rooms, again.counts.messages], ['done', 0, 0]);
+    assert.deepEqual(await tally(restored.companyId), before);
+    assert.deepEqual(await meetingRows(restored.companyId), [meeting]);
+  } finally {
+    await ws.api.close();
+  }
+});
+
+test("a retention pass takes an import's old words by their own age and its unread parts after a week, and a people's meeting with its words", async () => {
+  const ws = await workspace('slack-meet-keep');
+  try {
+    const roots = { filesRoot: ws.root };
+    const budi = await seated(ws.fixture, 'Budi', 'member');
+    const budiIn = personIn(ws.api, budi.token, ws.fixture.companyId);
+    assert.equal((await imported(ws, slackExport())).status, 'done');
+    const formers = (await tally(ws.fixture.companyId)).room_former_people;
+    const general = (await roomsOf(ws.owner)).get('general')!;
+    ok(await budiIn.join(general.id));
+
+    // Today's words in the imported room, a meeting about them, and a note in its thread.
+    const today = await said(ws.owner, general.id, 'Moving day plan.');
+    const kept = ok(await setMeeting(ws.owner, general.id, {
+      messageId: today, startsAt: inMinutes(60 * 24 * 3), minutes: 30, attendees: ['owner', budi.principal], callUrl: 'https://meet.example/move',
+    })).meeting;
+    await said(budiIn, general.id, { body: 'Notes: boxes by Friday.', threadOf: today });
+    // The owner's words of forty days ago, written on the control plane,
+    // which alone writes a message in the past: one with notes under it and
+    // one without, each a meeting.
+    const noted = randomUUID();
+    const alone = randomUUID();
+    await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, ws.fixture.companyId);
+      for (const [id, body] of [[noted, 'The old plan, once more.'], [alone, 'The plan before that.']] as const) {
+        await tx.query(
+          `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, position, created_at)
+           VALUES ($1, $2, $3, 'text', 'owner', $4, 0, now() - interval '40 days')`,
+          [id, ws.fixture.companyId, general.id, body]);
+      }
+    });
+    const withNotes = ok(await setMeeting(ws.owner, general.id, {
+      messageId: noted, startsAt: inMinutes(60 * 24 * 2), minutes: 30, attendees: ['owner', budi.principal],
+      callUrl: 'https://meet.example/old?pwd=s3cret',
+    })).meeting;
+    ok(await setMeeting(ws.owner, general.id, { messageId: alone, startsAt: inMinutes(60 * 24 * 2), minutes: 30, attendees: ['owner'] }));
+    await said(budiIn, general.id, { body: 'Notes: same as last time.', threadOf: noted });
+    // And an import that never finished, its first part kept.
+    const unfinished = ok(await ws.owner.post('/room-imports', { source: 'slack', parts: 2 })).import;
+    ok(await ws.owner.post(`/room-imports/${unfinished.id}/parts`, { index: 0, base64: Buffer.from('half an export').toString('base64') }));
+
+    // The owner keeps messages thirty days, and the retention stage runs a week and a day later.
+    ok(await ws.owner.post('/retention', { messageDays: 30 }));
+    const outcome = await runRetention(ws.fixture.companyId, new Date(Date.now() + 8 * DAY), roots);
+    assert.ok(outcome.importPartsSwept >= 1);
+
+    // The unread parts went, and the import says why; the report of the one that was read stays.
+    assert.ok(await gone(join(ws.folder, 'imports', String(unfinished.id))));
+    const reports = ok(await ws.owner.get('/room-imports')).imports as Array<{ id: string; status: string; problems: Array<{ code: string }> }>;
+    assert.deepEqual(reports.map((one) => one.status).sort(), ['done', 'failed']);
+    assert.deepEqual(reports.find((one) => one.id === unfinished.id)!.problems, [{ code: 'parts_expired' }]);
+
+    // What Slack said in 2024 is past the window by its own age, and goes as
+    // every message does; the rooms, and the old workspace's people, stay.
+    const left = await withControlPlane((tx) => tx.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM room_messages WHERE company_id = $1 AND via = 'import'", [ws.fixture.companyId]));
+    assert.equal(left.rows[0]!.n, 0);
+    assert.deepEqual([...(await roomsOf(ws.owner)).keys()].sort(), ['board', 'dev', 'general', 'ops']);
+    assert.equal((await tally(ws.fixture.companyId)).room_former_people, formers);
+
+    // Today's meeting is untouched. The old one with notes keeps no words
+    // and no link, cancelled by nobody; the one with none went with its words.
+    const rows = await meetingRows(ws.fixture.companyId);
+    assert.deepEqual(rows.map((row) => row.message_id), [today, noted]);
+    assert.deepEqual([rows[0]!.call_url, rows[0]!.cancelled_at], ['https://meet.example/move', null]);
+    assert.deepEqual([rows[1]!.id, rows[1]!.call_url, rows[1]!.cancelled_at !== null, rows[1]!.cancelled_by], [withNotes.id, null, true, null]);
+    const page = await pageOf(ws.owner, general.id);
+    assert.equal(page.find((one) => one.id === noted)?.peopleMeeting, null, 'a tombstone names no meeting');
+    assert.equal(page.find((one) => one.id === today)?.peopleMeeting?.callUrl, 'https://meet.example/move');
+
+    // And today's meeting, in the imported room that kept nothing of Slack's, still reminds its people.
+    ok(await changeMeeting(ws.owner, general.id, String(kept.id), { startsAt: inMinutes(8) }));
+    await syncRoomCards(ws.fixture.companyId);
+    assert.deepEqual(await remindedThreads(ws.fixture.companyId), [today]);
+    assert.ok((ok(await budiIn.activity()).items as ActivityItem[]).some((item) => item.kind === 'meeting' && item.threadOf === today));
   } finally {
     await ws.api.close();
   }

@@ -1680,8 +1680,10 @@ you to erase (UU 27/2022 on personal data).
    divisions held. Then what it kept on disk: its directory under the files
    root (`PALUGADA_FILES_ROOT`), with the drafts, pictures and recordings its
    roles made, and its folder in the charter repository, whose removal is
-   committed there. **This deployment**, **Erased companies** keeps one
-   line: its name, when it was closed and erased, and how much went.
+   committed there. Just before, every relay that may hold anything of it
+   is told to forget the company. **This deployment**, **Erased companies**
+   keeps one line: its name, when it was closed and erased, and how much
+   went.
 6. If erasing it fails, it is listed on the same page under **Not erased
    yet**, with what went wrong and when it is tried next. It is tried again
    a minute later, then less often each time, up to every six hours; the
@@ -1695,8 +1697,11 @@ What erasing cannot reach: backups taken before the day, until they age out
 (see [Backups](operations.md#backups)); the charter repository's history,
 whose earlier commits still hold every charter the company had; files under
 a files root the deployment is no longer started with; what the model
-provider and the vendors were sent while it worked; and your own chat
-history on Telegram or WhatsApp.
+provider and the vendors were sent while it worked; your own chat
+history on Telegram or WhatsApp; and what a relay already passed on to
+people's phones -- an ntfy topic, a lock screen, a relay's log -- which no
+relay can take back (a relay keeps nothing itself past fourteen days; see
+[Telling your staff's phones](../phones.md)).
 
 To take a company's charters out of the repository's history as well,
 rewrite it yourself once the company is erased, for example with

@@ -23,8 +23,9 @@ import { PalugadaError } from '../errors.ts';
 import { pingSaid } from '../owner/relay-said.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type { MasterKey } from '../settings/store.ts';
-import { envelopeBody, envelopeHeaders, envelopeId, narrowedEnvelope, SHARE_LEVELS, type Share } from './envelope.ts';
+import { companyRef, envelopeBody, envelopeHeaders, envelopeId, lowerShare, narrowedEnvelope, SHARE_LEVELS, type Share } from './envelope.ts';
 import { signingKeys, type DeploymentIdentity } from './identity.ts';
+import { endLinks } from './links.ts';
 import { tokenHash } from './offers.ts';
 import { enqueue } from './outbox.ts';
 import { fingerprint, freshTimestamp, verifyV1a } from './signature.ts';
@@ -60,6 +61,11 @@ export interface RelayRow {
   last_error: string | null;
   created_at: Date;
   paired_at: Date | null;
+  /** Each company's own ceiling under the relay's share, by company id (STATUS section 2.216). */
+  company_shares: Record<string, Share>;
+  /** The relay's own key it rotated away from, accepted beside the new one until `previous_until`. */
+  previous_key: Buffer | null;
+  previous_until: Date | null;
 }
 
 /**
@@ -78,6 +84,19 @@ export async function relayRow(tx: TenantClient, relayId: string, lock = false):
   return rows[0] ?? null;
 }
 
+/**
+ * What a relay is told of one company at most: the relay's share, or the
+ * company's own where the owner set one lower (STATUS section 2.216).
+ */
+export function companyShare(relay: Pick<RelayRow, 'share' | 'company_shares'>, companyId: string | null): Share {
+  return lowerShare(relay.share, companyId === null ? null : relay.company_shares[companyId] ?? null);
+}
+
+/** What one person is told of one company through a relay: the lowest of the relay's, the company's and the person's own (F19.19). */
+export function shareFor(relay: Pick<RelayRow, 'share' | 'company_shares'>, companyId: string, linkShare: Share | null): Share {
+  return lowerShare(companyShare(relay, companyId), linkShare);
+}
+
 /** Whether a relay may hear about a company: one it named, or every company. */
 export function covers(relay: Pick<RelayRow, 'companies' | 'all_companies'>, companyId: string): boolean {
   return relay.all_companies || relay.companies.includes(companyId);
@@ -93,6 +112,7 @@ export function relayView(row: RelayRow) {
     status: row.status,
     mode: row.mode,
     share: row.share,
+    companyShares: row.company_shares,
     companies: row.companies,
     allCompanies: row.all_companies,
     mayPress: row.may_press,
@@ -199,9 +219,30 @@ function onTheRelaysHost(base: URL, value: unknown, field: string): string {
 export async function addRelay(given: unknown, options: { fetch?: typeof fetch } = {}): Promise<ReturnType<typeof relayView>> {
   const base = relayAddress(given);
   const url = base.toString().replace(/\/$/, '');
+  const { key, versions, name, envelopes, inbox, features } = await readDocument(base, options.fetch);
+
+  const row = await withControlPlane(async (tx) => {
+    const { rows: live } = await tx.query('SELECT 1 FROM relays WHERE public_key = $1 AND status <> \'revoked\'', [key]);
+    if (live.length > 0) {
+      throw new PalugadaError('contract.violation', 'that relay is already here: pair it, or revoke it first', { url });
+    }
+    const { rows } = await tx.query<RelayRow>(
+      `INSERT INTO relays (name, url, envelopes_url, inbox_url, public_key, fingerprint, versions, features, mode, salt)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [name, url, envelopes, inbox, key, fingerprint(key), versions, features, inbox ? 'pull' : 'push', randomBytes(32)]);
+    return rows[0]!;
+  });
+  return relayView(row);
+}
+
+/** A relay's well-known document, read and checked: its key, its name, where it is sent to and pulled from. */
+async function readDocument(base: URL, given?: typeof fetch): Promise<{
+  key: Buffer; versions: number[]; name: string; envelopes: string; inbox: string | null; features: string[];
+}> {
+  const url = base.toString().replace(/\/$/, '');
   let document: Record<string, unknown>;
   try {
-    const response = await (options.fetch ?? globalThis.fetch)(`${url}/.well-known/palugada-relay`, {
+    const response = await (given ?? globalThis.fetch)(`${url}/.well-known/palugada-relay`, {
       signal: AbortSignal.timeout(RELAY_ANSWER_MS), redirect: 'error', headers: { accept: 'application/json' },
     });
     if (!response.ok) throw new Error(`it answered ${response.status}`);
@@ -222,25 +263,15 @@ export async function addRelay(given: unknown, options: { fetch?: typeof fetch }
   const features = Array.isArray(document.features)
     ? document.features.filter((one): one is string => typeof one === 'string').slice(0, 20).map((one) => one.slice(0, 40))
     : [];
-
-  const row = await withControlPlane(async (tx) => {
-    const { rows: live } = await tx.query('SELECT 1 FROM relays WHERE public_key = $1 AND status <> \'revoked\'', [key]);
-    if (live.length > 0) {
-      throw new PalugadaError('contract.violation', 'that relay is already here: pair it, or revoke it first', { url });
-    }
-    const { rows } = await tx.query<RelayRow>(
-      `INSERT INTO relays (name, url, envelopes_url, inbox_url, public_key, fingerprint, versions, features, mode, salt)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [name, url, envelopes, inbox, key, fingerprint(key), versions, features, inbox ? 'pull' : 'push', randomBytes(32)]);
-    return rows[0]!;
-  });
-  return relayView(row);
+  return { key, versions, name, envelopes, inbox, features };
 }
 
 /** What the owner gave to pair a relay with, checked before a factor is spent on it. */
 export interface PairingTerms {
   typed: string;
   companies: string[] | 'all';
+  /** For a relay already paired: the key its document gives now, which the accept must be signed with and is pinned in place. */
+  key: Buffer | null;
 }
 
 /**
@@ -255,17 +286,23 @@ export async function pairingTerms(relayId: string, body: Record<string, unknown
       'type at least the first sixteen characters of the fingerprint the relay\'s operator shows you', { typed: typed.length });
   }
   const relay = await withControlPlane((tx) => relayRow(tx, relayId));
-  // A relay waiting to be paired, or one that answered that it forgot this
-  // deployment, which is paired again with its settings as they were.
-  if (!relay || !(relay.status === 'pending' || (relay.status === 'paired' && relay.paused_until !== null))) {
+  // A relay waiting to be paired; or one already paired, which is paired
+  // again in place with its settings, its salt and its people's links as
+  // they were: one that answered that it forgot this deployment, one that
+  // can verify nothing the deployment sends, or one whose key changed. A
+  // paired relay's document is read again, and its key now is the one the
+  // owner compares (STATUS section 2.216).
+  if (!relay || !(relay.status === 'pending' || relay.status === 'paired')) {
     throw new PalugadaError('contract.violation', relay ? `that relay is ${relay.status}, not waiting to be paired` : 'there is no such relay', { relayId });
   }
-  const shown = Buffer.from(relay.fingerprint.slice(0, typed.length));
-  const given = Buffer.from(typed.slice(0, relay.fingerprint.length));
-  if (typed.length > relay.fingerprint.length || shown.length !== given.length || !timingSafeEqual(shown, given)) {
+  const key = relay.status === 'paired' ? (await readDocument(new URL(relay.url))).key : null;
+  const pinned = key ? fingerprint(key) : relay.fingerprint;
+  const shown = Buffer.from(pinned.slice(0, typed.length));
+  const given = Buffer.from(typed.slice(0, pinned.length));
+  if (typed.length > pinned.length || shown.length !== given.length || !timingSafeEqual(shown, given)) {
     throw new PalugadaError('relay.fingerprint', 'that is not the fingerprint of the key this relay gave', {});
   }
-  return { typed, companies: await namedCompanies(body.companies, false) };
+  return { typed, companies: await namedCompanies(body.companies, false), key };
 }
 
 /**
@@ -298,15 +335,20 @@ export async function pairRelay(
   relayId: string,
   terms: PairingTerms,
   master: MasterKey | null,
-  options: { fetch?: typeof fetch; now?: Date } = {},
+  options: { fetch?: typeof fetch; now?: Date; publicUrl?: string | null } = {},
 ): Promise<ReturnType<typeof relayView>> {
   const now = options.now ?? new Date();
   const { identity, keys } = await signingKeys(master, [], now);
   const relay = (await withControlPlane((tx) => relayRow(tx, relayId)))!;
   const requestId = randomUUID();
+  const key = identity.publicKey.toString('base64url');
   const request = {
     v: 1, id: requestId, type: 'pair_request', at: now.toISOString(), deployment: identity.deployment, relay: relayId,
-    key: identity.publicKey.toString('base64url'), kid: identity.kid, fingerprint: identity.fingerprint, versions: [1], name: 'PALUGADA',
+    key, kid: identity.kid, fingerprint: identity.fingerprint, versions: [1], name: 'PALUGADA',
+    // Where a relay that posts back reaches this deployment; null for one
+    // with no public address, which its relays are pulled from instead. A
+    // relay learns it from nowhere else (STATUS section 2.216).
+    inbound: inboundAddress(options.publicUrl ?? null, relayId),
   };
   const body = envelopeBody(request);
   await withControlPlane((tx) => tx.query('UPDATE relays SET pair_request_id = $2 WHERE id = $1', [relayId, requestId]));
@@ -325,7 +367,8 @@ export async function pairRelay(
   if (answer.status !== 200) throw refuse(`it answered ${answer.status}`);
   const id = answer.headers.get('webhook-id') ?? '';
   const timestamp = answer.headers.get('webhook-timestamp') ?? '';
-  if (!verifyV1a(answer.headers.get('webhook-signature') ?? '', [relay.public_key], id, timestamp, answer.text)) {
+  const accepting = terms.key ?? relay.public_key;
+  if (!verifyV1a(answer.headers.get('webhook-signature') ?? '', [accepting], id, timestamp, answer.text)) {
     throw refuse('its accept is not signed by the key whose fingerprint you compared');
   }
   if (!freshTimestamp(timestamp, now.getTime())) throw refuse('its accept is not signed now');
@@ -340,20 +383,50 @@ export async function pairRelay(
   }
 
   const row = await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of a relay takes it.
+    const held = await relayRow(tx, relayId, true);
+    if (held && !held.public_key.equals(accepting)) {
+      const { rows: taken } = await tx.query(`SELECT 1 FROM relays WHERE public_key = $1 AND status <> 'revoked' AND id <> $2`, [accepting, relayId]);
+      if (taken.length > 0) throw refuse('another relay here has that key');
+    }
+    // A key pinned again in place replaces the one before, and any it was
+    // rotating away from: the owner compared this one.
     const { rows } = await tx.query<RelayRow>(
       `UPDATE relays SET status = 'paired', paired_at = $2, companies = $3, all_companies = $4, last_ok_at = $2, last_error = NULL,
-              paused_until = NULL, failures = 0
-        WHERE id = $1 AND (status = 'pending' OR (status = 'paired' AND paused_until IS NOT NULL)) AND pair_request_id = $5 RETURNING *`,
-      [relayId, now, terms.companies === 'all' ? [] : terms.companies, terms.companies === 'all', requestId]);
+              paused_until = NULL, failures = 0, public_key = $6, fingerprint = $7,
+              previous_key = CASE WHEN public_key = $6 THEN previous_key END,
+              previous_until = CASE WHEN public_key = $6 THEN previous_until END
+        WHERE id = $1 AND status IN ('pending', 'paired') AND pair_request_id = $5 RETURNING *`,
+      [relayId, now, terms.companies === 'all' ? [] : terms.companies, terms.companies === 'all', requestId, accepting, fingerprint(accepting)]);
     if (!rows[0]) throw refuse('it was paired or revoked meanwhile');
+    // The relay pinned the key this request carried: a rotation to that key
+    // it never took is owed no more, and would only be refused, since it
+    // names as the key it replaces one the relay no longer holds. Without
+    // this a relay paired again through a rotation it missed would be owed
+    // that rotation for as long as it is paired, and no rotation could
+    // follow (STATUS section 2.216).
+    await tx.query(
+      `DELETE FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated' AND status IN ('pending', 'sending', 'dead')
+          AND (body::jsonb->>'key') = $2`,
+      [relayId, key]);
+    // Paired again with fewer companies, it hears nothing more of the rest.
+    await holdToSettings(tx, rows[0], now);
     return rows[0];
   });
   return relayView(row);
 }
 
+/** The address a relay posts to, under the deployment's public address; null without one. */
+function inboundAddress(publicUrl: string | null, relayId: string): string | null {
+  if (!publicUrl) return null;
+  return `${publicUrl.replace(/\/+$/, '')}/api/relay/v1/relays/${relayId}/inbound`;
+}
+
 /** What a change of a relay's settings would set. */
 export interface RelayChanges {
   share?: Share;
+  /** Each company's own share, or null to tell it what the relay is told. */
+  companyShares?: Record<string, Share | null>;
   companies?: string[];
   allCompanies?: boolean;
   mayPress?: boolean;
@@ -382,6 +455,17 @@ export async function planRelaySettings(relayId: string, body: Record<string, un
     if (named === 'all') changes.allCompanies = true;
     else changes.companies = named;
   }
+  if (body.companyShares !== undefined) {
+    const given = body.companyShares;
+    if (given === null || typeof given !== 'object' || Array.isArray(given) || Object.keys(given).length > 500
+        || !Object.values(given).every((one) => one === null || (SHARE_LEVELS as readonly unknown[]).includes(one))) {
+      throw new PalugadaError('contract.violation',
+        `companyShares names companies by id, each with a share level (${SHARE_LEVELS.join(', ')}) or null`, { field: 'companyShares' });
+    }
+    const named = Object.keys(given);
+    if (named.length > 0) await namedCompanies(named, false);
+    changes.companyShares = given as Record<string, Share | null>;
+  }
   for (const field of ['allCompanies', 'mayPress', 'mayPost'] as const) {
     if (body[field] === undefined) continue;
     if (typeof body[field] !== 'boolean') throw new PalugadaError('contract.violation', `${field} is true or false`, { field });
@@ -397,7 +481,13 @@ export async function planRelaySettings(relayId: string, body: Record<string, un
   if (relay.status === 'paired' && !all && companies.length === 0) {
     throw new PalugadaError('relay.companies', 'a paired relay hears about at least one company, or every company', {});
   }
-  const loosens = (changes.share !== undefined && SHARE_LEVELS.indexOf(changes.share) > SHARE_LEVELS.indexOf(relay.share))
+  // A company's own share widens when what it is told rises: its share
+  // raised or taken off, or the relay's raised above it.
+  const shares = { share: changes.share ?? relay.share, company_shares: nextShares(relay.company_shares, changes.companyShares) };
+  const widened = [...new Set([...Object.keys(relay.company_shares), ...Object.keys(changes.companyShares ?? {})])]
+    .some((one) => SHARE_LEVELS.indexOf(companyShare(shares, one)) > SHARE_LEVELS.indexOf(companyShare(relay, one)));
+  const loosens = widened
+    || (changes.share !== undefined && SHARE_LEVELS.indexOf(changes.share) > SHARE_LEVELS.indexOf(relay.share))
     || (changes.allCompanies === true && !relay.all_companies)
     || (!relay.all_companies && !all && companies.some((one) => !relay.companies.includes(one)))
     || (changes.mayPress === true && !relay.may_press)
@@ -405,62 +495,108 @@ export async function planRelaySettings(relayId: string, body: Record<string, un
   return { loosens, changes };
 }
 
+/** A relay's companies' own shares after a change: each given set, each null taken off. */
+function nextShares(before: Record<string, Share>, given: Record<string, Share | null> | undefined): Record<string, Share> {
+  const next: Record<string, Share> = { ...before };
+  for (const [company, share] of Object.entries(given ?? {})) {
+    if (share === null) delete next[company];
+    else next[company] = share;
+  }
+  return next;
+}
+
 /**
  * Sets a relay's settings, and voids what they no longer allow: offers to
  * press once presses are off or the share falls to `signal`, offers to reply
  * once replies are off, and in a company the relay no longer hears about,
- * every offer and every envelope not yet sent. An envelope not yet sent is
- * made again at the new share, without the offers now void, rather than sent
- * at the old one or dropped: the owner was told through this relay as far as
- * the ledger knows, and a notice owed while the relay was down or behind is
- * still owed at the share the owner chose now.
+ * every offer, every envelope not yet sent and its people's links. An
+ * envelope not yet sent is made again at the new share, without the offers
+ * now void, rather than sent at the old one or dropped: the owner was told
+ * through this relay as far as the ledger knows, and a notice owed while the
+ * relay was down or behind is still owed at the share the owner chose now.
  */
-export async function applyRelaySettings(relayId: string, changes: RelayChanges): Promise<ReturnType<typeof relayView>> {
+export async function applyRelaySettings(relayId: string, changes: RelayChanges, now = new Date()): Promise<ReturnType<typeof relayView>> {
   return withControlPlane(async (tx) => {
     const before = await relayRow(tx, relayId, true);
     if (!before || before.status === 'revoked') throw new PalugadaError('contract.violation', 'there is no such relay', { relayId });
     const all = changes.allCompanies ?? before.all_companies;
     const { rows } = await tx.query<RelayRow>(
-      `UPDATE relays SET share = $2, companies = $3, all_companies = $4, may_press = $5, may_post = $6, mode = $7
+      `UPDATE relays SET share = $2, companies = $3, all_companies = $4, may_press = $5, may_post = $6, mode = $7, company_shares = $8
         WHERE id = $1 RETURNING *`,
       [relayId, changes.share ?? before.share, all ? [] : changes.companies ?? before.companies, all,
-        changes.mayPress ?? before.may_press, changes.mayPost ?? before.may_post, changes.mode ?? before.mode]);
+        changes.mayPress ?? before.may_press, changes.mayPost ?? before.may_post, changes.mode ?? before.mode,
+        JSON.stringify(nextShares(before.company_shares, changes.companyShares))]);
     const after = rows[0]!;
-    const acts: string[] = [];
-    if (!after.may_press || after.share === 'signal') acts.push('approve', 'deny', 'answer');
-    if (!after.may_post || after.share === 'signal') acts.push('reply');
-    if (acts.length > 0) {
-      await tx.query(
-        'UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL AND act = ANY($2::text[])', [relayId, acts]);
-    }
-    if (!after.all_companies) {
-      await tx.query(
-        'UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL AND NOT (company_id = ANY($2::uuid[]))',
-        [relayId, after.companies]);
-      await tx.query(
-        `DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'dead')
-           AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))`,
-        [relayId, after.companies]);
-    }
-    await narrowOwed(tx, relayId, after.share);
+    await holdToSettings(tx, after, now);
     return relayView(after);
   });
 }
 
 /**
- * Makes again, at `share`, every envelope a relay is owed and has not had
- * that tells more than `share` or carries an offer now void. A choice of a
- * run's question is a button only at `content`, where its words are told.
+ * Voids, in the caller's transaction, whatever a relay's settings as they
+ * now stand no longer allow, the caller holding the relay's row: offers to
+ * press once presses are off or the share is `signal`, offers to reply once
+ * replies are off, and in a company it no longer hears about every offer,
+ * every envelope not yet sent, and the links of that company's people, each
+ * told to the relay as ended so it forgets their devices. What is still owed
+ * is made again at what its company may be told now. A change of settings
+ * and a pairing again in place with fewer companies both narrow so (STATUS
+ * section 2.216), so a relay hears nothing more of a company the owner took
+ * it off, whichever way the owner did.
  */
-async function narrowOwed(tx: TenantClient, relayId: string, share: Share): Promise<void> {
-  const above = SHARE_LEVELS.slice(SHARE_LEVELS.indexOf(share) + 1);
-  const { rows: owed } = await tx.query<{ id: string; body: string }>(
-    `SELECT id, body FROM relay_outbox
+async function holdToSettings(tx: TenantClient, after: RelayRow, now: Date): Promise<void> {
+  const acts: string[] = [];
+  if (!after.may_press || after.share === 'signal') acts.push('approve', 'deny', 'answer');
+  if (!after.may_post || after.share === 'signal') acts.push('reply');
+  if (acts.length > 0) {
+    await tx.query(
+      'UPDATE relay_offers SET voided_at = $3 WHERE relay_id = $1 AND voided_at IS NULL AND act = ANY($2::text[])', [after.id, acts, now]);
+  }
+  // A company told only that something happened is offered nothing to
+  // press or reply with, as a relay at `signal` is not.
+  const quiet = Object.keys(after.company_shares).filter((company) => companyShare(after, company) === 'signal');
+  if (quiet.length > 0) {
+    await tx.query(
+      `UPDATE relay_offers SET voided_at = $3
+        WHERE relay_id = $1 AND voided_at IS NULL AND company_id = ANY($2::uuid[]) AND act IN ('approve', 'deny', 'answer', 'reply')`,
+      [after.id, quiet, now]);
+  }
+  if (!after.all_companies) {
+    await tx.query(
+      'UPDATE relay_offers SET voided_at = $3 WHERE relay_id = $1 AND voided_at IS NULL AND NOT (company_id = ANY($2::uuid[]))',
+      [after.id, after.companies, now]);
+    await tx.query(
+      `DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'dead')
+         AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))`,
+      [after.id, after.companies]);
+    // A seat's link hears about its own company alone: through a relay that
+    // no longer hears about it, the link would be told nothing and could do
+    // nothing, while the relay kept its device for no one.
+    const { rows: unheard } = await tx.query<{ id: string }>(
+      `SELECT id FROM relay_links WHERE relay_id = $1 AND status <> 'ended'
+          AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))
+          FOR UPDATE`,
+      [after.id, after.companies]);
+    await endLinks(tx, unheard.map((one) => one.id), now, 'company_dropped');
+  }
+  await narrowOwed(tx, after);
+}
+
+/**
+ * Makes again, at what its company may now be told, every envelope a relay
+ * is owed and has not had that tells more than that or carries an offer now
+ * void. A choice of a run's question is a button only at `content`, where
+ * its words are told.
+ */
+async function narrowOwed(tx: TenantClient, relay: RelayRow): Promise<void> {
+  const { rows: owed } = await tx.query<{ id: string; body: string; company_id: string | null }>(
+    `SELECT id, body, company_id FROM relay_outbox
       WHERE relay_id = $1 AND status IN ('pending', 'dead')
-        AND ((body::jsonb->>'share') = ANY($2::text[]) OR jsonb_array_length(coalesce(body::jsonb->'offers', '[]'::jsonb)) > 0)
+        AND ((body::jsonb->>'share') IN ('summary', 'content') OR jsonb_array_length(coalesce(body::jsonb->'offers', '[]'::jsonb)) > 0)
       ORDER BY created_at, id`,
-    [relayId, above]);
+    [relay.id]);
   for (const row of owed) {
+    const share = companyShare(relay, row.company_id);
     const envelope = JSON.parse(row.body) as Record<string, unknown>;
     const offers = Array.isArray(envelope.offers) ? envelope.offers as Array<{ token: string }> : [];
     const { rows: standing } = await tx.query<{ token_hash: string; choice: boolean }>(
@@ -530,6 +666,7 @@ export async function retryDead(relayId: string): Promise<{ retried: number }> {
 /** Every relay that is not revoked, with the health of its outbox and its dead letters: the owner's page. */
 export async function relaysPage(): Promise<Array<ReturnType<typeof relayView> & {
   links: number;
+  rotationOwed: boolean;
   outbox: Record<'pending' | 'sending' | 'delivered' | 'dead', number>;
   dead: Array<{ id: string; type: string; attempts: number; lastError: FailureView | null; createdAt: string }>;
 }>> {
@@ -544,11 +681,16 @@ export async function relaysPage(): Promise<Array<ReturnType<typeof relayView> &
           ORDER BY created_at DESC LIMIT 20`, [relay.id]);
       const { rows: [links] } = await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM relay_links WHERE relay_id = $1 AND status = 'active'`, [relay.id]);
+      const { rows: [rotation] } = await tx.query<{ owed: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated' AND status IN ('pending', 'sending', 'dead')) AS owed`,
+        [relay.id]);
       const outbox = { pending: 0, sending: 0, delivered: 0, dead: 0 };
       for (const count of counts) outbox[count.status] = count.n;
       page.push({
         ...relayView(relay),
         links: links!.n,
+        // Not yet taken the deployment's new key: a rotation waits for it (STATUS section 2.216).
+        rotationOwed: relay.status === 'paired' && rotation!.owed,
         outbox,
         dead: dead.map((row) => ({ id: row.id, type: row.type, attempts: row.attempts, lastError: failureView(row.last_error), createdAt: row.created_at.toISOString() })),
       });
@@ -587,5 +729,47 @@ export async function announceRotation(identity: DeploymentIdentity, now = new D
       }, now);
     }
     return rows.length;
+  });
+}
+
+/**
+ * A company about to be erased (STATUS section 2.216): every relay that
+ * hears about it, or was ever sent anything of it, is told to forget it, in
+ * an envelope that names the company only by the reference that relay knows
+ * it by (`company_forgotten`). It is owed by no link and of no company, so
+ * the erasure that follows, whose cascade takes every envelope of the
+ * company and every link of its seats, leaves it to be sent: the relays
+ * drop what they hold of the company and its people's phones, and show
+ * nothing of it sent later. Its id is made from the company, so an erasure
+ * tried again owes it once. Written before the erasure's own transaction, so
+ * that transaction takes no relay's row while it holds the company's.
+ */
+export async function forgetCompanyAtRelays(companyId: string, now = new Date()): Promise<number> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT r.id FROM relays r
+        WHERE r.status = 'paired'
+          AND (r.all_companies OR $1 = ANY(r.companies) OR EXISTS (SELECT 1 FROM relay_outbox o WHERE o.relay_id = r.id AND o.company_id = $1))
+        ORDER BY r.id`,
+      [companyId]);
+    if (rows.length === 0) return 0;
+    const { rows: [control] } = await tx.query<{ deployment: string }>('SELECT deployment_id::text AS deployment FROM platform_control');
+    let told = 0;
+    // In the order of their ids, as every transaction that touches more than one relay takes them.
+    for (const one of rows) {
+      const relay = (await relayRow(tx, one.id, true))!;
+      const id = envelopeId({ deployment: control!.deployment, relay: relay.id, link: null, type: 'company_forgotten', subject: companyId });
+      const wrote = await enqueue(tx, {
+        id, relayId: relay.id, linkId: null, companyId: null, type: 'company_forgotten', subjects: [],
+        body: envelopeBody({
+          v: 1, id, type: 'company_forgotten', at: now.toISOString(), deployment: control!.deployment, relay: relay.id,
+          company: { ref: companyRef(relay.salt, companyId) }, data: {},
+        }),
+      }, now);
+      // A company's share goes with it.
+      await tx.query('UPDATE relays SET company_shares = company_shares - $2 WHERE id = $1', [relay.id, companyId]);
+      if (wrote) told += 1;
+    }
+    return told;
   });
 }

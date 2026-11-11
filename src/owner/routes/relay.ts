@@ -17,8 +17,8 @@ import type { IncomingMessage } from 'node:http';
 import { PalugadaError } from '../../errors.ts';
 import { principalOf } from '../../workspace/principal.ts';
 import { ensureIdentity, identityView, rotateIdentity } from '../../relay/identity.ts';
-import { INBOUND_MAX_BYTES, MinuteThrottle, receiveFromRelay } from '../../relay/inbound.ts';
-import { assertLinkable, endLink, linksOf, offerLink, type Linker } from '../../relay/links.ts';
+import { INBOUND_MAX_BYTES, MinuteThrottle, receiveFromRelay, signedByAPairedRelay } from '../../relay/inbound.ts';
+import { assertLinkable, endLink, linksOf, offerLink, openNotice, type Linker } from '../../relay/links.ts';
 import {
   addRelay, announceRotation, applyRelaySettings, pairRelay, pairingTerms, pingRelay, planRelaySettings, relaysPage, retryDead, revokeRelay,
 } from '../../relay/relays.ts';
@@ -58,17 +58,27 @@ export function relayRoutes(kit: RouteKit): Route[] {
       raw: true,
       maxBodyBytes: INBOUND_MAX_BYTES,
       handle: async ({ request, params, raw }) => {
-        if (!perAddress.admit(addressOf(request, kit.options.behindProxy === true)) || !perRoute.admit('route')) {
-          return new WithStatus(429, { ok: false, code: 'relay.throttled' });
-        }
         const header = (name: string) => {
           const value = request.headers[name];
           return Array.isArray(value) ? value.join(' ') : value ?? '';
         };
-        const answer = await receiveFromRelay(params.relayId!, {
-          id: header('webhook-id'), timestamp: header('webhook-timestamp'), signature: header('webhook-signature'), body: raw,
-        });
-        return new WithStatus(answer.status, answer.body);
+        const envelope = { id: header('webhook-id'), timestamp: header('webhook-timestamp'), signature: header('webhook-signature'), body: raw };
+        // A push a relay paired here signed, now, goes to that relay's own
+        // sixty a minute; only the rest are counted against an address and
+        // the route, so strangers who fill the route lock out strangers, not
+        // a paired relay (STATUS section 2.216). The signature is checked
+        // against keys this process holds, with nothing read.
+        if (!await signedByAPairedRelay(params.relayId!, envelope)) {
+          const address = addressOf(request, kit.options.behindProxy === true);
+          if (!perAddress.admit(address)) {
+            return new WithStatus(429, { ok: false, code: 'relay.throttled' }, { 'retry-after': String(perAddress.retryAfter(address)) });
+          }
+          if (!perRoute.admit('route')) {
+            return new WithStatus(429, { ok: false, code: 'relay.throttled' }, { 'retry-after': String(perRoute.retryAfter('route')) });
+          }
+        }
+        const answer = await receiveFromRelay(params.relayId!, envelope);
+        return new WithStatus(answer.status, answer.body, answer.retryAfter ? { 'retry-after': String(answer.retryAfter) } : {});
       },
     },
 
@@ -97,7 +107,10 @@ export function relayRoutes(kit: RouteKit): Route[] {
       handle: async (context) => {
         const terms = await pairingTerms(context.params.relayId!, context.body);
         await kit.requireFactor(context, 'pair a relay', true);
-        const relay = await pairRelay(context.params.relayId!, terms, master());
+        // The pairing request tells a relay that posts back where this
+        // deployment is: its public address, when it has one.
+        const publicUrl = kit.options.deploymentSettings?.baseEnv.PALUGADA_APP_URL_PUBLIC ?? null;
+        const relay = await pairRelay(context.params.relayId!, terms, master(), { publicUrl });
         // The worker's channels are made when the process starts: a soft
         // start puts this relay among them.
         return { relay, ...kit.applySettings() };
@@ -173,6 +186,15 @@ export function relayRoutes(kit: RouteKit): Route[] {
         if (who.principal === 'owner') await kit.requireFactor(context, 'link a phone', true);
         return offerLink(who, relayId, context.body.share);
       },
+    },
+
+    {
+      // What a notice's link opens: the link a relay is sent names only a
+      // handle, and this answers what it is about, to the person it was for
+      // and nobody else (STATUS section 2.216).
+      method: 'GET',
+      pattern: '/api/relays/notices/:handle',
+      handle: async (context) => openNotice(context.params.handle!, linker(context)),
     },
 
     {

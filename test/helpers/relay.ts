@@ -105,3 +105,14 @@ export async function sendOutbox(master: MasterKey, now = new Date()) {
 export function tomorrow(): Date {
   return new Date(Date.now() + 48 * 60 * 60_000);
 }
+
+/**
+ * What a notice's link opens, as the console asks for it once the person it
+ * was for has signed in: the link names a handle and nothing else (STATUS
+ * section 2.216).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function opens(api: Console, token: string, link: unknown): Promise<{ status: number; body: any }> {
+  const handle = new URL(String(link)).searchParams.get('notice') ?? '';
+  return api.call('GET', `/api/relays/notices/${handle}`, token);
+}

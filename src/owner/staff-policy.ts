@@ -199,6 +199,17 @@ const RELAY_STAFF: AreaPolicy = {
   decides: [],
 };
 
+// --- relay, ready for a commercial relay (STATUS 2.216) ---
+// A seat opens a notice its phone was sent: the link names only a handle,
+// which answers what it is about to that seat alone.
+const RELAY_LINKS_STAFF: AreaPolicy = {
+  reads: ['/api/relays/notices/:handle'],
+  hidden: {},
+  talks: [],
+  asks: [],
+  decides: [],
+};
+
 // --- people (STATUS 2.209) ---
 // Every person reads and sets their own profile, whatever their kind: their
 // handle, picture, language and quiet hours. Seating people, naming them and
@@ -278,7 +289,7 @@ const MEET_STAFF: AreaPolicy = {
 // --- end of the areas ---
 
 const AREAS: readonly AreaPolicy[] = [
-  ROOM_STAFF, TALK_STAFF, RELAY_STAFF, PEOPLE_STAFF, MEETING_STAFF, FIND_STAFF, IMPORT_STAFF, MEET_STAFF,
+  ROOM_STAFF, TALK_STAFF, RELAY_STAFF, PEOPLE_STAFF, MEETING_STAFF, FIND_STAFF, IMPORT_STAFF, MEET_STAFF, RELAY_LINKS_STAFF,
 ];
 
 /** Reads a seat may make: its own company's pages, the console's needs, and each area's. */

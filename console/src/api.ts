@@ -255,6 +255,8 @@ const EXPLAINED: Record<string, string> = {
   'relay.owner_device': N('Link your phone with a device key before presses or replies from it count.'),
   'relay.accept': N('The relay did not accept this pairing: check that it is the relay whose fingerprint you compared.'),
   'relay.not_paired': N('That relay is not paired to tell you about this company.'),
+  'relay.rotation_owed': N('A paired relay has not yet taken the last new key. Wait until it has, or revoke it, before making another.'),
+  'relay.notice_unknown': N('That notice is not yours, or is too old to open.'),
   'import.zip': N('That file is not a Slack export PALUGADA can read.'),
   'import.part_missing': N('A part of the export has not arrived yet.'),
   'import.too_large': N('That export unpacks to more than PALUGADA reads at once.'),

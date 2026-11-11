@@ -1196,3 +1196,16 @@ The first version. What it holds, in the order an owner meets it.
   has ended, however far ahead it was set. A meeting is not work: no agent
   sees it, its words are never given as work, nothing is spent, and it
   travels with the company's export (STATUS 2.215).
+- A relay can now be run by someone else. A notice's link names no company,
+  room or item, only a handle that opens for the person it was for once they
+  sign in; you can tell a relay less about one company than the rest; a
+  relay must drop what it was told after fourteen days, and an erased
+  company is forgotten at every relay. A key rotation waits for every relay,
+  however long it is away, and is tried hourly until it has it; a relay can
+  change its own key, and one that lost track is paired again in place,
+  keeping everyone's links and taking the new key, while a company left out
+  of that pairing is told nothing more there. A relay learns from its
+  pairing where to post back. Each phone's key shows its fingerprint to
+  compare with the relay's app. The reference relay keeps what it owes
+  across a restart, prints no words unless asked, and takes acts only on
+  its own machine's loopback port (STATUS 2.216).

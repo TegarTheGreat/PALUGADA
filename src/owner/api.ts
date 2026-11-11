@@ -7248,7 +7248,7 @@ export class OwnerApi {
         params: match.params,
         query: url.searchParams,
       }));
-      if (answer instanceof WithStatus) send(res, answer.status, answer.body);
+      if (answer instanceof WithStatus) send(res, answer.status, answer.body, answer.headers);
       else if (answer instanceof EventStream) {
         await this.#stream(req, res, answer, {
           token: session?.token ?? staff?.token ?? null,
@@ -7502,6 +7502,8 @@ const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
   'relay.owner_device': 409,
   'relay.accept': 400,
   'relay.not_paired': 400,
+  'relay.rotation_owed': 409,
+  'relay.notice_unknown': 404,
   'import.zip': 400,
   'import.part_missing': 409,
   'import.too_large': 400,
@@ -8262,8 +8264,9 @@ function sendPage(res: ServerResponse, page: HtmlPage): void {
     + `<h1 style="font-size: 1.4rem">${escapeHtml(page.title)}</h1><p>${escapeHtml(page.text)}</p></body></html>`);
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+function send(res: ServerResponse, status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): void {
   res.writeHead(status, {
+    ...headers,
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
   });

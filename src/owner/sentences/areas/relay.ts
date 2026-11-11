@@ -20,6 +20,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Ringkasan harian untuk {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Pesan uji dari PALUGADA: relay ini sudah dipasangkan dan menerima kabar dari deployment ini.',
     'This phone is linked to PALUGADA.': 'Ponsel ini sudah ditautkan ke PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Ponsel ini tidak lagi ditautkan ke PALUGADA.',
   },
   ms: {
     'Something urgent needs you in PALUGADA.': 'Ada perkara mendesak yang menanti anda dalam PALUGADA.',
@@ -30,6 +31,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Ringkasan harian untuk {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Ujian daripada PALUGADA: relay ini telah digandingkan dan menerima berita daripada pemasangan ini.',
     'This phone is linked to PALUGADA.': 'Telefon ini telah dipautkan kepada PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Telefon ini tidak lagi dipautkan kepada PALUGADA.',
   },
   jv: {
     'Something urgent needs you in PALUGADA.': 'Wonten prakawis mendesak ingkang nengga panjenengan ing PALUGADA.',
@@ -40,6 +42,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Ringkesan saben dinten kangge {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Uji saking PALUGADA: relay punika sampun dipungandhengaken lan nampi pawartos saking pamasangan punika.',
     'This phone is linked to PALUGADA.': 'HP punika sampun dipuntautaken dhateng PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'HP punika sampun mboten dipuntautaken dhateng PALUGADA malih.',
   },
   su: {
     'Something urgent needs you in PALUGADA.': 'Aya hal anu ngadesek anu ngantosan anjeun di PALUGADA.',
@@ -50,6 +53,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Kasimpulan harian pikeun {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Uji ti PALUGADA: relay ieu parantos digandengkeun sareng nampi wartos ti pamasangan ieu.',
     'This phone is linked to PALUGADA.': 'HP ieu parantos ditautkeun ka PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'HP ieu parantos teu ditautkeun deui ka PALUGADA.',
   },
   tl: {
     'Something urgent needs you in PALUGADA.': 'May apurahang bagay na naghihintay sa iyo sa PALUGADA.',
@@ -60,6 +64,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Pang-araw-araw na buod para sa {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Test mula sa PALUGADA: naka-pair ang relay na ito at naririnig nito ang deployment na ito.',
     'This phone is linked to PALUGADA.': 'Naka-link na ang phone na ito sa PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Hindi na naka-link ang phone na ito sa PALUGADA.',
   },
   vi: {
     'Something urgent needs you in PALUGADA.': 'Có việc khẩn đang chờ bạn trong PALUGADA.',
@@ -70,6 +75,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Tóm tắt hằng ngày cho {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Tin thử từ PALUGADA: relay này đã được ghép nối và nhận được tin từ hệ thống này.',
     'This phone is linked to PALUGADA.': 'Điện thoại này đã được liên kết với PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Điện thoại này không còn liên kết với PALUGADA.',
   },
   th: {
     'Something urgent needs you in PALUGADA.': 'มีเรื่องด่วนรอคุณอยู่ใน PALUGADA',
@@ -80,6 +86,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'สรุปประจำวันของ {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'ข้อความทดสอบจาก PALUGADA รีเลย์นี้จับคู่แล้วและได้รับข้อมูลจากระบบนี้',
     'This phone is linked to PALUGADA.': 'โทรศัพท์เครื่องนี้ลิงก์กับ PALUGADA แล้ว',
+    'This phone is no longer linked to PALUGADA.': 'โทรศัพท์เครื่องนี้ไม่ได้ลิงก์กับ PALUGADA อีกต่อไปแล้ว',
   },
   zh: {
     'Something urgent needs you in PALUGADA.': 'PALUGADA 中有紧急事项需要您处理。',
@@ -90,6 +97,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': '{company} 的每日摘要',
     'A test from PALUGADA: this relay is paired and hears this deployment.': '来自 PALUGADA 的测试：此中继已配对，并能收到本部署的消息。',
     'This phone is linked to PALUGADA.': '此手机已关联到 PALUGADA。',
+    'This phone is no longer linked to PALUGADA.': '此手机已不再关联到 PALUGADA。',
   },
   ja: {
     'Something urgent needs you in PALUGADA.': 'PALUGADA に緊急の用件があります。',
@@ -100,6 +108,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': '{company} の日次まとめ',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'PALUGADA からのテストです。このリレーはペアリング済みで、このインスタンスからの通知を受け取れます。',
     'This phone is linked to PALUGADA.': 'このスマートフォンは PALUGADA にリンクされました。',
+    'This phone is no longer linked to PALUGADA.': 'このスマートフォンと PALUGADA のリンクは解除されました。',
   },
   ko: {
     'Something urgent needs you in PALUGADA.': 'PALUGADA에 급한 일이 있어요.',
@@ -110,6 +119,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': '{company} 일일 요약',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'PALUGADA 테스트 알림이에요. 이 릴레이는 페어링되었고 이 인스턴스의 소식을 받고 있어요.',
     'This phone is linked to PALUGADA.': '이 휴대폰이 PALUGADA에 연결됐어요.',
+    'This phone is no longer linked to PALUGADA.': '이 휴대폰과 PALUGADA의 연결이 해제됐어요.',
   },
   hi: {
     'Something urgent needs you in PALUGADA.': 'PALUGADA में कुछ ज़रूरी आपका इंतज़ार कर रहा है।',
@@ -120,6 +130,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': '{company} का रोज़ का सारांश',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'PALUGADA से टेस्ट: यह रिले पेयर हो चुका है और इस डिप्लॉयमेंट की ख़बरें पा रहा है।',
     'This phone is linked to PALUGADA.': 'यह फ़ोन PALUGADA से लिंक हो गया है।',
+    'This phone is no longer linked to PALUGADA.': 'यह फ़ोन अब PALUGADA से लिंक नहीं है।',
   },
   ar: {
     'Something urgent needs you in PALUGADA.': 'أمر عاجل بانتظارك في PALUGADA.',
@@ -130,6 +141,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'الملخص اليومي لشركة {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'رسالة اختبار من PALUGADA: هذا المُرحِّل مقترن ويتلقى رسائل هذه المنصة.',
     'This phone is linked to PALUGADA.': 'تم ربط هذا الهاتف بـ PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'لم يعد هذا الهاتف مرتبطًا بـ PALUGADA.',
   },
   es: {
     'Something urgent needs you in PALUGADA.': 'Hay algo urgente que le espera en PALUGADA.',
@@ -140,6 +152,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Resumen diario de {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Prueba de PALUGADA: este relé está vinculado y recibe los avisos de esta instancia.',
     'This phone is linked to PALUGADA.': 'Este teléfono está vinculado a PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Este teléfono ya no está vinculado a PALUGADA.',
   },
   'pt-BR': {
     'Something urgent needs you in PALUGADA.': 'Há algo urgente esperando por você no PALUGADA.',
@@ -150,6 +163,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Resumo diário de {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Teste do PALUGADA: este relay está pareado e recebe os avisos desta instância.',
     'This phone is linked to PALUGADA.': 'Este celular está vinculado ao PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Este celular não está mais vinculado ao PALUGADA.',
   },
   fr: {
     'Something urgent needs you in PALUGADA.': 'Une chose urgente vous attend dans PALUGADA.',
@@ -160,6 +174,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Résumé quotidien pour {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Test de PALUGADA : ce relais est appairé et reçoit les messages de cette instance.',
     'This phone is linked to PALUGADA.': 'Ce téléphone est lié à PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Ce téléphone n’est plus lié à PALUGADA.',
   },
   de: {
     'Something urgent needs you in PALUGADA.': 'In PALUGADA wartet etwas Dringendes auf Sie.',
@@ -170,6 +185,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Tägliche Zusammenfassung für {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Ein Test von PALUGADA: Dieses Relay ist gekoppelt und erhält Nachrichten dieser Instanz.',
     'This phone is linked to PALUGADA.': 'Dieses Handy ist mit PALUGADA verknüpft.',
+    'This phone is no longer linked to PALUGADA.': 'Dieses Handy ist nicht mehr mit PALUGADA verknüpft.',
   },
   nl: {
     'Something urgent needs you in PALUGADA.': 'Er wacht iets dringends op je in PALUGADA.',
@@ -180,6 +196,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Dagelijks overzicht voor {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Een test van PALUGADA: deze relay is gekoppeld en ontvangt berichten van deze installatie.',
     'This phone is linked to PALUGADA.': 'Deze telefoon is gekoppeld aan PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Deze telefoon is niet meer gekoppeld aan PALUGADA.',
   },
   it: {
     'Something urgent needs you in PALUGADA.': "C'è qualcosa di urgente che ti aspetta in PALUGADA.",
@@ -190,6 +207,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': "Riepilogo giornaliero per l'azienda {company}",
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Un test da PALUGADA: questo relay è associato e riceve i messaggi di questa istanza.',
     'This phone is linked to PALUGADA.': 'Questo telefono è collegato a PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Questo telefono non è più collegato a PALUGADA.',
   },
   tr: {
     'Something urgent needs you in PALUGADA.': "PALUGADA'da sizi bekleyen acil bir şey var.",
@@ -200,6 +218,7 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': '{company} şirketi için günlük özet',
     'A test from PALUGADA: this relay is paired and hears this deployment.': "PALUGADA'dan bir test: bu aktarıcı eşleştirildi ve bu kurulumdan haber alıyor.",
     'This phone is linked to PALUGADA.': "Bu telefon PALUGADA'ya bağlandı.",
+    'This phone is no longer linked to PALUGADA.': "Bu telefon artık PALUGADA'ya bağlı değil.",
   },
   ru: {
     'Something urgent needs you in PALUGADA.': 'В PALUGADA вас ждёт что-то срочное.',
@@ -210,5 +229,6 @@ export const RELAY: SentenceArea = {
     'Daily digest for {company}': 'Ежедневная сводка по компании {company}',
     'A test from PALUGADA: this relay is paired and hears this deployment.': 'Тест от PALUGADA: этот ретранслятор привязан и получает сообщения этой установки.',
     'This phone is linked to PALUGADA.': 'Этот телефон привязан к PALUGADA.',
+    'This phone is no longer linked to PALUGADA.': 'Этот телефон больше не привязан к PALUGADA.',
   },
 };

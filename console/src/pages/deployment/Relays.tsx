@@ -12,7 +12,7 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Badge, Button, Checkbox, Code, Group, MultiSelect, Paper, SegmentedControl, Stack, Switch, Table, Text, TextInput,
+  Alert, Badge, Button, Checkbox, Code, Group, MultiSelect, Paper, SegmentedControl, Select, Stack, Switch, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBroadcast, IconKey, IconPlus, IconRefresh, IconSend } from '@tabler/icons-react';
@@ -35,6 +35,8 @@ interface RelayView {
   status: 'pending' | 'paired';
   mode: 'push' | 'pull';
   share: Share;
+  /** Each company's own share, where the owner set one below the relay's (STATUS section 2.216). */
+  companyShares: Record<string, Share>;
   companies: string[];
   allCompanies: boolean;
   mayPress: boolean;
@@ -46,6 +48,8 @@ interface RelayView {
   createdAt: string;
   pairedAt: string | null;
   links: number;
+  /** Not yet taken the deployment's new key: another waits until it has. */
+  rotationOwed: boolean;
   outbox: { pending: number; sending: number; delivered: number; dead: number };
   dead: Array<{ id: string; type: string; attempts: number; lastError: Failure | null; createdAt: string }>;
 }
@@ -162,6 +166,9 @@ export function RelaySettings() {
 
 function RelayCard({ relay, companies, reload }: { relay: RelayView; companies: Array<{ id: string; name: string }>; reload: () => void }) {
   const named = (ids: string[]) => ids.map((id) => companies.find((one) => one.id === id)?.name ?? id).join(', ');
+  // A paired relay is paired again in place, keeping its people's links:
+  // when it can verify nothing this deployment sends, or its key changed.
+  const [repairing, setRepairing] = useState(false);
   return (
     <Paper withBorder radius="lg" p="lg">
       <Stack gap="md">
@@ -191,6 +198,16 @@ function RelayCard({ relay, companies, reload }: { relay: RelayView; companies: 
               <Text size="sm">
                 {relay.allCompanies ? t('Hears about every company, later ones too.') : t('Hears about: {companies}', { companies: named(relay.companies) })}
               </Text>
+              {relay.rotationOwed && (
+                <Alert color="orange" variant="light">{t('This relay has not yet taken this deployment\'s new key. Another new key waits until it has.')}</Alert>
+              )}
+              {repairing
+                ? <PairForm relay={relay} companies={companies} reload={() => { setRepairing(false); reload(); }} again />
+                : (
+                  <Group justify="flex-end">
+                    <Button size="xs" variant="subtle" onClick={() => setRepairing(true)}>{t('Pair again')}</Button>
+                  </Group>
+                )}
               <RelayControls relay={relay} companies={companies} reload={reload} />
               <Outbox relay={relay} reload={reload} />
               <LinkPhone relayId={relay.id} relayName={relay.name} />
@@ -206,11 +223,13 @@ function RelayCard({ relay, companies, reload }: { relay: RelayView; companies: 
 }
 
 /** Pairing: what the operator showed, typed; the companies, named; a code given now. */
-function PairForm({ relay, companies, reload }: { relay: RelayView; companies: Array<{ id: string; name: string }>; reload: () => void }) {
+function PairForm({ relay, companies, reload, again = false }: {
+  relay: RelayView; companies: Array<{ id: string; name: string }>; reload: () => void; again?: boolean;
+}) {
   const requireFactor = useFactor();
   const [fingerprint, setFingerprint] = useState('');
-  const [chosen, setChosen] = useState<string[]>([]);
-  const [all, setAll] = useState(false);
+  const [chosen, setChosen] = useState<string[]>(again ? relay.companies : []);
+  const [all, setAll] = useState(again && relay.allCompanies);
   const [error, setError] = useState<string | null>(null);
   const typed = fingerprint.replace(/[\s-]/g, '');
   const pair = async () => {
@@ -228,6 +247,7 @@ function PairForm({ relay, companies, reload }: { relay: RelayView; companies: A
   };
   return (
     <Stack gap="sm">
+      {again && <Text size="sm">{t('Pair it again with the fingerprint its operator shows now. Its people\'s links and its settings stay as they are.')}</Text>}
       <Text size="sm">{t('Ask the relay\'s operator for its fingerprint, and type at least the first sixteen characters. Pair only if they match.')}</Text>
       <TextInput label={t('The fingerprint the operator shows')} ff="monospace" value={fingerprint} onChange={(event) => setFingerprint(event.currentTarget.value)}
         description={t('{count} of 16 characters', { count: typed.length })} />
@@ -254,14 +274,21 @@ function RelayControls({ relay, companies, reload }: { relay: RelayView; compani
   const [pulled, setPulled] = useState(relay.mode === 'pull');
   const [chosen, setChosen] = useState<string[]>(relay.companies);
   const [all, setAll] = useState(relay.allCompanies);
+  const [shares, setShares] = useState<Record<string, Share>>(relay.companyShares);
   const mode = pulled ? 'pull' : 'push';
+  const heard = all ? companies : companies.filter((one) => chosen.includes(one.id));
+  const sharesChanged = [...new Set([...Object.keys(shares), ...Object.keys(relay.companyShares)])]
+    .some((one) => shares[one] !== relay.companyShares[one]);
   const changed = share !== relay.share || mayPress !== relay.mayPress || mayPost !== relay.mayPost || mode !== relay.mode
-    || all !== relay.allCompanies
+    || all !== relay.allCompanies || sharesChanged
     || (!all && (chosen.length !== relay.companies.length || chosen.some((one) => !relay.companies.includes(one))));
   const save = async () => {
+    // Each company's own share as it is now, and null for one taken off.
+    const companyShares = Object.fromEntries([...new Set([...Object.keys(shares), ...Object.keys(relay.companyShares)])]
+      .map((one) => [one, shares[one] ?? null]));
     try {
       const done = await requireFactor(t('Change what {name} is told', { name: relay.name }), (proof) => api('POST', `/api/control/relays/${relay.id}/settings`, {
-        share, mayPress, mayPost, mode, allCompanies: all, ...(all ? {} : { companies: chosen }), proof,
+        share, mayPress, mayPost, mode, allCompanies: all, ...(all ? {} : { companies: chosen }), companyShares, proof,
       }));
       if (done) reload();
     } catch (failure) {
@@ -281,6 +308,26 @@ function RelayControls({ relay, companies, reload }: { relay: RelayView; compani
       <MultiSelect label={t('Companies it may hear about')} data={companies.map((one) => ({ value: one.id, label: one.name }))}
         value={chosen} onChange={setChosen} disabled={all} searchable />
       <Checkbox label={t('Every company, later ones too')} checked={all} onChange={(event) => setAll(event.currentTarget.checked)} />
+      {heard.length > 0 && (
+        <Stack gap={4}>
+          <Text size="sm" fw={500}>{t('What each company\'s notices may say')}</Text>
+          <Text size="xs" c="dimmed">{t('A company is told no more than the relay is, nor more than each person chose.')}</Text>
+          {heard.map((company) => (
+            <Group key={company.id} justify="space-between" wrap="wrap" gap="xs">
+              <Text size="sm">{company.name}</Text>
+              <Select size="xs" allowDeselect={false} w={220} value={shares[company.id] ?? 'relay'}
+                data={[{ value: 'relay', label: t('As the relay is told') },
+                  ...(['signal', 'summary', 'content'] as const).map((value) => ({ value, label: t(SHARE_LABEL[value]) }))]}
+                onChange={(value) => setShares((now) => {
+                  const next = { ...now };
+                  if (!value || value === 'relay') delete next[company.id];
+                  else next[company.id] = value as Share;
+                  return next;
+                })} />
+            </Group>
+          ))}
+        </Stack>
+      )}
       <Switch checked={mayPress} onChange={(event) => setMayPress(event.currentTarget.checked)}
         label={t('Presses: approve and deny at tier 2 and below, and answer questions, from a phone linked with its own key')} />
       <Switch checked={mayPost} onChange={(event) => setMayPost(event.currentTarget.checked)}

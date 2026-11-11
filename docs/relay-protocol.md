@@ -4,8 +4,10 @@ This is the protocol a relay speaks with a PALUGADA deployment: what the
 deployment sends it, what it may send back, and how each side proves who it
 is. It is written for whoever builds a relay -- a phone app's backend, a
 bridge to a push service, the reference relay in `scripts/relay-reference.ts`
--- and it is the whole of what PALUGADA expects. Requirements: PRD F19.19 and
-F19.20; how it was built: `docs/STATUS.md` section 2.208.
+-- and it is the whole of what PALUGADA expects: a relay built from this text
+alone, checked against the test vectors in section 13, interoperates.
+Requirements: PRD F19.19 and F19.20; how it was built: `docs/STATUS.md`
+sections 2.208, 2.213 and 2.216.
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as RFC 2119 uses them.
 
@@ -18,14 +20,21 @@ a small set of acts, each of which redeems a token that came with a notice to
 that same person.
 
 **v1 is a notifier, not a mirror.** A relay is never sent a room list, a
-history, a membership, or another person's items; a room appears to it, if at
-all, only as an opaque id inside a link. Reading, scrolling back and choosing
-what to open happen in PALUGADA itself, which every notice links to. A mirror
-can be added inside v1 later, because v1 only ever adds (section 11).
+history, a membership, or another person's items. A room appears to it only
+in a person's own notice about it: not at all at `signal`, and from `summary`
+by its name and who wrote there, by name and handle, which is what the relay
+shows that person. No company, room, thread, item, task or message id ever
+reaches a relay, in an envelope or in an answer: a notice's link names a
+handle made for that notice alone (section 6), and a reply is answered with
+the relay's own `clientId` (section 9.3),
+which PALUGADA resolves only for the person it was for, once they have signed
+in. Reading, scrolling back and choosing what to open happen in PALUGADA
+itself, which every notice links to. A mirror can be added inside v1 later,
+because v1 only ever adds (section 11).
 
 **Never sent:** secrets, file bytes (a link at most), prompts, transcripts,
-what customers wrote, room lists, history, membership, or another person's
-items.
+what customers wrote, room lists, history, membership, another person's
+items, or the id of a company, room, thread, item, task or message.
 
 **Never accepted:** an assignment, an instruction, anything at tier 3, a
 standing approval ("yes for a while"), a schedule, a meeting, a room or a
@@ -38,7 +47,7 @@ any of them, and a type PALUGADA does not know is refused.
 |---|---|
 | Deployment | An Ed25519 key pair. The deployment publishes the public key; its private seed is sealed under the deployment's master key and never leaves it. The deployment is named by its `deployment` id, a UUID. |
 | Relay | Its own Ed25519 key pair, published in its well-known document (section 4) and pinned by the deployment when the owner adds the relay. |
-| Device | Optional: an Ed25519 key a person's phone makes and gives when it links. When a link has one, every act for that link MUST carry the device's signature (section 8). |
+| Device | Optional: an Ed25519 key a person's phone makes and gives when it links. When a link has one, every act for that link MUST carry the device's signature (section 8). The relay hands it over, so it guards against a relay key stolen after the link was made, not against the relay's operator (section 8). |
 | Person | Never on the wire by name (section 2.2). |
 
 ### 2.1 Key formats
@@ -67,14 +76,28 @@ The HMAC is keyed with the salt's 32 bytes and taken over the UTF-8 bytes of
 the text; `base32` is that of section 2.1 (RFC 4648, upper case, no padding).
 
 So a relay sees the same person as the same recipient every time, and two
-relays cannot join what each knows.
+relays cannot join what each knows by a person or a company: each sees
+different pseudonyms, and no envelope carries the id they are made from
+(links name handles, section 6). Two relays can tell they serve the same
+deployment, since every envelope names it, and nothing more from what
+PALUGADA sends them.
 
-### 2.3 Rotating the deployment's key
+### 2.3 Rotating keys
 
-The owner may give the deployment a new key. For seven days after, every
-envelope carries two signatures, the new key's and the old one's, and every
-paired relay is sent a `keys_rotated` envelope that both sign. A relay MUST
-take the new key only from a `keys_rotated` that
+**The deployment's key.** The owner may give the deployment a new key. For
+seven days after, every envelope carries two signatures, the new key's and
+the old one's, and every paired relay is sent a `keys_rotated` envelope that
+both sign. The deployment keeps the old key, and signs each `keys_rotated`
+with it, until every paired relay has taken its rotation, however long that
+is: a relay that was down for the week is still sent a rotation it can
+verify with the key it pinned. A `keys_rotated` is never given up on while
+its relay is paired: it is tried again with the backoff of section 7, at
+most an hour apart, until the relay answers it `2xx`, and is never purged
+unsent. A relay paired again in place (section 5) is sent the deployment's
+current key in its `pair_request`, so a rotation to that key it missed is
+owed to it no more. A second rotation is refused while any paired relay has
+not taken the first. A relay MUST take the new key only
+from a `keys_rotated` that
 
 - verifies with the key it pinned now -- not a key rotated out and still in
   its week, which whoever rotated it away from may hold;
@@ -86,6 +109,23 @@ It then pins the new key and keeps accepting the one it replaces until the
 after. A rotation signed by the old key alone is refused: otherwise whoever
 kept the old key could, in its week, announce a key of their own and be
 pinned for good.
+
+**A relay that can verify nothing.** A relay that holds no key that verifies
+what the deployment sends -- it missed a rotation, or lost its state --
+answers `401` to every envelope, which PALUGADA tries again with backoff and
+then shows the owner as given up, its rotation apart, which is tried hourly
+for as long as it is paired. Its operator pins the deployment's current
+fingerprint, which the owner reads in the console, and the owner pairs the
+relay again in place (section 5): the same relay id and salt, so every
+person keeps their pseudonym and their link.
+
+**The relay's own key.** A relay rotates its key by sending
+`relay_key_rotated` (section 9.3), which the key PALUGADA pinned now and the
+new key both sign, naming the pinned key as `previous.key`. PALUGADA takes
+the old key beside the new one until the `until` it names, never more than
+seven days on, and the new one alone after. A relay whose key leaked, or
+that lost it, is paired again in place by the owner instead, with the
+fingerprint of its new key typed as at pairing.
 
 ### 2.4 The deployment's identity
 
@@ -149,7 +189,10 @@ A receiver takes a message when any one of its signatures verifies with a key
 it holds for the sender. It MUST refuse a message none of whose signatures
 verifies, and one signed more than 300 seconds from its own clock, either
 way. A receiver MUST NOT take an HMAC (`v1`) signature in place
-of a `v1a` one.
+of a `v1a` one. A sender MUST NOT put more than four signatures in one
+header; PALUGADA takes a header with more as unsigned, without checking
+any of them, and a relay SHOULD do the same, so a stranger cannot make it
+verify signatures without end.
 
 ## 5. Discovery and pairing
 
@@ -172,14 +215,19 @@ of a `v1a` one.
 
    `envelopes` and `inbox` MUST share the scheme, host and port of the
    address the owner gave. `inbox` is optional; without it the relay is
-   pushed to and posts back (push mode). PALUGADA pins `key` and shows its
-   fingerprint.
+   pushed to and posts back (push mode), to the address the `pair_request`
+   names as `inbound` (step 4). A deployment with no public address names
+   none (`null`), and a relay paired with it MUST offer an `inbox` to be
+   pulled from, since it has nowhere to post. PALUGADA pins `key` and shows
+   its fingerprint.
 3. The relay's operator shows the owner the relay's fingerprint. The owner
    types at least its first 16 characters, names the companies the relay may
    hear about (or chooses every company, later ones too, deliberately), and
    proves a second factor given now.
-4. PALUGADA posts a `pair_request` (section 6) to `envelopes`, signed with
-   its key. The relay MUST answer `200` with the body
+4. PALUGADA posts a `pair_request` (section 6.3) to `envelopes`, signed with
+   its key. It carries the deployment's key, which the relay pins, and
+   `inbound`, the address the relay posts to (section 9). The relay MUST
+   answer `200` with the body
 
    ```json
    { "pair_accept": { "request": "<the request's id>", "deployment": "<its deployment>", "relay": "<its relay>", "at": "<ISO 8601>" } }
@@ -196,7 +244,23 @@ of a `v1a` one.
 
 A relay SHOULD pin the deployment by the fingerprint its operator was given,
 and refuse a `pair_request` whose key does not match it. Once paired, it
-SHOULD refuse any other `pair_request` until its operator resets it by hand.
+SHOULD refuse any other `pair_request` until its operator resets it by hand,
+except one from the same `deployment` naming the same `relay` id, under a
+fingerprint its operator pinned anew: that is the deployment pairing it again
+in place, and the relay keeps its links and devices.
+
+**Pairing again in place.** The owner may pair a relay that is already
+paired again, keeping its id, its salt, its settings and every person's
+link: for a relay that can verify nothing the deployment sends (section 2.3),
+or one whose key changed other than by `relay_key_rotated`. PALUGADA reads
+its well-known document again, the owner types the fingerprint of the key it
+gives now as at pairing, with a second factor given now, and PALUGADA sends a
+`pair_request` whose accept must be signed by that key. The new key is pinned
+from then; the one before is no longer taken. The companies the owner names
+then replace the ones before: a company left out is narrowed away as a
+change of settings narrows it (section 7), its offers void, what was owed
+of it not sent, and its people's links ended (`link_ended`, reason
+`company_dropped`).
 
 **Revocation** is immediate: everything the relay signs is answered `401`,
 its offers are void, what it was owed and not yet sent is dropped, and every
@@ -223,19 +287,25 @@ Each envelope is one canonical JSON object, `POST`ed alone to the relay's
 | `urgency` | for a person | `interrupt`, `normal` or `quiet` |
 | `lang` | for text | the language `text` is in, as a BCP 47 tag |
 | `text` | for a person | a sentence in that language, for a relay that renders nothing itself |
-| `link` | for a person | where it opens in PALUGADA, or `null`; it carries `?company=&item=`, `&task=`, or `&room=&thread=` |
+| `link` | for a person | where it opens in PALUGADA, or `null` when the deployment has no public address: the deployment's address and `?notice=<handle>`, nothing else. The handle is 32 base64url characters made for this one envelope; PALUGADA resolves it to what the notice is about only for the person it was for, once they have signed in, and only while it keeps the envelope, fourteen days. A relay MUST NOT take anything from the handle but the link |
 | `data` | per type | what the share level allows, below |
 | `offers` | `inbox_item`, `room_activity` | `[{ "token", "act", "label" }]`: what the person may press or send back (sections 8 and 9) |
 
+A relay MUST refuse an envelope whose `deployment` is not the deployment it
+is paired with, or whose `relay` is not the id that deployment gave it
+(`403`), so an envelope signed for one pairing cannot be carried to another.
 A relay MUST ignore a field it does not know, and SHOULD ignore an envelope
 type it does not know.
 
 ### 6.1 Share levels
 
-What a person is told is the lower of the relay's level and their own:
+What a person is told is the lowest of three levels: the relay's, the
+level the owner set for that company on that relay (none unless set, and
+never above the relay's), and the person's own:
 
 - `signal`: that something happened, how urgent, and where it opens. No
-  company name, no title, nothing to press.
+  company name, no title, nothing to press but a notice about a room's read
+  mark and mute.
 - `summary`: adds the company's name, the title (with any secret in it
   redacted), and the buttons the person may press.
 - `content`: adds what the item says: the action, the question and its
@@ -263,8 +333,12 @@ it starts; and the title its setter wrote only at `content`.
 #### `pair_request`
 
 Sent once, at pairing (section 5), and never through the outbox.
-`{ v, id, type, at, deployment, relay, key, kid, fingerprint, versions, name }`.
-`id` is fresh for each pairing attempt.
+`{ v, id, type, at, deployment, relay, key, kid, fingerprint, versions, name, inbound }`,
+each at the top level. `id` is fresh for each pairing attempt. `key` is the
+deployment's current key, which the relay pins. `inbound` is the address
+the relay posts what it sends to (section 9), the deployment's public
+address followed by `/api/relay/v1/relays/<relay id>/inbound`, or `null`
+when the deployment has none, in which case the relay is pulled from.
 
 #### `ping`
 
@@ -278,12 +352,20 @@ A link stands (section 8). `to` names the person; `data` is
 #### `keys_rotated`
 
 The deployment's key changed (section 2.3). `{ key, kid, fingerprint, previous: { key, kid, until } }`,
-signed with both keys. A relay takes it only when the key it pinned now and
-`key` both verify it, and `previous.key` is the key it pinned now.
+each at the top level of the envelope beside `v`, `id` and the rest, not in
+`data`. It is signed with both keys, and a relay takes it only when the key
+it pinned now and `key` both verify it, and `previous.key` is the key it
+pinned now.
 
 #### `inbox_item`
 
-Something in the owner's inbox. `data` is `{ kind, tier }` at `signal`; adds
+Something in the owner's inbox, or put to a seat (below). `data.kind` is
+what it is: `approval`, a decision; `escalation`, a question a run asked or
+a matter handed up; `incident`, something that went wrong;
+`budget_alert`, money running out; and `sop_candidate`, `skill_candidate`
+or `fact_candidate`, something the company learned for the owner to keep or
+drop. A relay SHOULD show a kind it does not know as a plain notice. `data`
+is `{ kind, tier }` at `signal`; adds
 `title` at `summary`; adds `summary`, `ifDenied`, `expiresAt` and, for a
 question a run asked, `question`, `options` and `asker`, at `content`.
 `offers` carries what may be pressed:
@@ -296,7 +378,8 @@ question a run asked, `question`, `options` and `asker`, at `content`.
   nothing, at every share level.
 
 Offers are made only at `summary` and above, only when the owner turned
-presses on for the relay, and only to a link that has a device key.
+presses on for the relay, and, for the owner's link, only one that has a
+device key; a seat's link is offered them with or without one.
 
 #### `inbox_closed`
 
@@ -365,6 +448,42 @@ opens the meeting's thread. `urgency` is `normal`, and `offers` is always
 empty. The meeting's call link is never sent: the person opens it from the
 thread.
 
+#### `link_ended`
+
+A person's link through this relay ended in PALUGADA: they linked another
+device through the same relay (`replaced`), they or the owner unlinked it
+(`unlinked`), their seat ended (`seat_ended`), the relay itself sent
+`link_end` (`relay`), or the owner took their company off the relay
+(`company_dropped`). A relay MUST treat a reason it does not know as it
+treats the rest. `to` names the person; `data` is
+`{ "claim": "<the link_claim envelope's id that made the link>", "reason" }`,
+`claim` `null` for a link made before PALUGADA kept it; `text` says the phone
+is no longer linked. A relay MUST forget the device key that link was made
+with, and SHOULD tell that device. Sent after anything of the link still on
+its way, and never to a revoked relay, which is told nothing.
+
+#### `company_forgotten`
+
+A company the relay was told of is being erased. `company` is `{ "ref" }`
+alone and `data` is `{}`; there is no `to`. A relay MUST drop everything it
+holds that names that `ref`, MUST show nothing it is sent later that names it,
+and MUST forget each person whose link heard about that company alone (a
+seat's link names one company in its `link_confirmed`), since their links end
+with the company. Erasing a company in PALUGADA cannot reach what a relay
+already handed to a push service or a phone (section 10).
+
+#### `act_result`
+
+What PALUGADA answered an envelope it pulled from the relay's inbox (section
+9), so a relay in pull mode learns what a relay that posts learns from the
+answer to its request. `data` is
+`{ "ref": "<the pulled envelope's webhook-id>", "status": <the HTTP status a push would have been answered>, "answer": { … } }`,
+`answer` the body of that answer exactly (section 9.2). There is no `to`.
+Sent once for each pulled envelope whose signature verified, the same `ref`
+sent again answered again with the same id, so a relay drops the repeat.
+Not sent for an envelope the relay's minute or another replica held back:
+that one is taken at a later pull.
+
 ## 7. The outbox and delivery
 
 - **The id is fixed.** An envelope's id is a UUID made from the SHA-256 of
@@ -379,23 +498,38 @@ thread.
   id it already has.
 - **Anything else is tried again** under the same id, after 30 seconds, then
   1, 2, 4, 8, 16 and 32 minutes. After eight attempts the envelope is given
-  up and shown to the owner, who may send it again.
+  up and shown to the owner, who may send it again. A `keys_rotated` is the
+  exception: it is never given up while its relay is paired, and is tried
+  again at most an hour apart until the relay takes it (section 2.3).
 - **A send cut off** -- the deployment stopped before it learned the answer --
   is sent again after ten minutes, under the same id.
 - **Order** is kept for each person: a later envelope for one link waits
   behind an earlier one still owed, and behind one being sent, by this
   process or another.
 - **What is owed follows the owner's settings.** An envelope not yet sent
-  when the owner narrows what a relay is told is made again at the new
-  share, without the offers no longer allowed, under the same id; one for a
-  company the relay no longer hears about is not sent. A notice of an item
-  that closed before it was sent is not sent at all, and nor is its
-  `inbox_closed`.
+  when the owner narrows what a relay is told, or what one company's notices
+  may say there (section 6.1), is made again at the new share, without the
+  offers no longer allowed, under the same id; one for a company the relay
+  no longer hears about is not sent, whether the owner narrowed its
+  companies in its settings or paired it again in place naming fewer, and
+  the links of that company's people through it end, each told to the relay
+  as `link_ended`. A notice of an item that closed before
+  it was sent is not sent at all, and nor is its `inbox_closed`.
+- **Who may see is asked again as it is sent.** A `room_activity` or
+  `meeting_soon` whose person can no longer see its room -- taken out of a
+  private room, or their seat ended -- is not sent, then or from the dead
+  letters, and is dropped with its offers.
 - **A message deleted is not sent.** A `room_activity` owed for words deleted
   since, or taken when their time was up, is never sent, whenever it was
   owed or tried, and is dropped; a relay that had it, was being sent it, or
   was tried with it, is sent `room_activity_retracted`. So is a
-  `meeting_soon` whose title was those words.
+  `meeting_soon` whose title was those words. The deployment's own copy of
+  the envelope keeps only its address (`v`, `id`, `type`, `at`,
+  `deployment`, `relay`, `to`) from that moment.
+- **What was sent is forgotten after fourteen days.** The deployment keeps a
+  delivered or given-up envelope for fourteen days and then deletes it, so a
+  retraction reaches only what was sent in the last fourteen days. A relay
+  therefore drops content on its own after that (section 10).
 - Each send has five seconds. Sending runs in a loop of its own, never in the
   path of a request or of the work, and runs while the owner has stopped
   everything.
@@ -413,9 +547,23 @@ No link, nothing is sent on that person's behalf.
 3. PALUGADA answers with the person's recipient and the companies the link
    hears about, by reference, and sends `link_confirmed`.
 4. A link ends by `link_end` from the relay, by the person or the owner in
-   PALUGADA, or when the seat or the relay is revoked.
+   PALUGADA, when the person links again through the same relay, or when the
+   seat or the relay is revoked. Each of these but the relay's revocation is
+   told to the relay as `link_ended` (section 6.3), naming the claim that
+   made the link and why it ended.
 
 A code is good at the relay it was offered through and no other, and once.
+
+**One link per person per relay.** A person has at most one active link
+through a relay, and it holds at most one device key. Linking again through
+the same relay -- a new phone, or the same phone after a reinstall -- ends
+the earlier link, voids its offers, and sends `link_ended` with reason
+`replaced`. A relay that serves a person on several devices fans its
+notices out to that person's own devices itself; only the device whose key
+the link holds can sign an act, and the others only show what they are
+sent. The recipient stays the same across links, so a relay tells one link
+from the next by the `claim` its `link_claim` carried (`link_confirmed` and
+`link_ended` both name it).
 
 **The device form.** When a link has a device key, every act for it MUST
 carry `device_sig`: the device's Ed25519 signature, in base64url without
@@ -440,18 +588,40 @@ made with the same device key ends nothing now. A relay MUST therefore send
 an act as soon as the person makes it, and a device SHOULD keep its clock
 right.
 
+Each device signature is taken once. The same signature sent again under
+another envelope id is refused (`relay.device_replayed`), so an act a relay
+kept cannot be sent twice; the same envelope sent again under its own id is
+answered as it was (section 9.1, step 3).
+
 **The owner's link needs a device key to act.** Without one the owner is still
 told, but no offer to press is made, and nothing sent for that link counts
-except `link_end` (`relay.owner_device`). A stolen relay key can therefore
-neither decide nor write in the owner's name.
+except `link_end` (`relay.owner_device`). A relay key stolen after the owner
+linked can therefore neither decide nor write in the owner's name.
+
+**What a device key proves, and what it does not.** PALUGADA takes the
+device key from the relay's signed `link_claim`; nothing in the claim is
+signed by the device itself. The key therefore guards against a relay key
+stolen *after* the link was made, and against a relay that kept an act to
+send later, but not against the relay's operator at the moment of linking,
+who could put a key of its own there. To let the person check, PALUGADA
+shows the fingerprint of the link's device key where the person sees their
+link -- the first 24 characters of the base32 of the SHA-256 of the raw key,
+as for a relay's key (section 2.1) -- and a relay's app SHOULD show the same
+fingerprint on the phone, so the person can compare the two. A relay whose
+app makes the device keys on the phone, and never sends their private
+halves anywhere, is the only kind for which the device key protects the
+person against the relay.
 
 ## 9. What a relay sends
 
-**Push.** `POST /api/relay/v1/relays/<relay id>/inbound` on the deployment, one
+**Push.** `POST /api/relay/v1/relays/<relay id>/inbound` on the deployment,
+at the address its `pair_request` named as `inbound` (section 6.3), one
 envelope a request, at most 64 KiB, signed with the relay's key in the headers
-of section 4. It is throttled before anything is read: sixty requests a minute
-from one address and six hundred for the route as a whole, then, once the
-signature has verified, sixty a minute for the relay.
+of section 4. A request that verifies, now, with the key of a relay paired
+here counts against that relay's sixty a minute and nothing else. Any other
+is throttled before anything is read: sixty requests a minute from one
+address and six hundred for the route as a whole. Strangers who fill the
+route therefore shut out strangers, never a paired relay.
 
 **Pull**, for a deployment the relay cannot reach. The deployment asks
 
@@ -460,9 +630,13 @@ GET <inbox>?after=<cursor>&wait=25
 ```
 
 with `webhook-id`, `webhook-timestamp` and `webhook-signature` signed by the
-deployment over the request line, `GET <path>?<query>`, as it appears. The
-relay MUST answer only a request that verifies with the deployment's key, and
-answers, as soon as it has something or after `wait` seconds,
+deployment over the request line, `GET <path>?<query>` as it appears, a line
+feed, and the relay's id at the deployment (the `relay` of every envelope it
+is sent): `GET <path>?<query>\n<relay id>`. The relay MUST answer only a
+request that verifies with the deployment's key over its own id, so a pull
+another relay was sent cannot be replayed at it to read its inbox, and SHOULD
+refuse a pull whose `webhook-id` it has answered before (`409`). It answers, as
+soon as it has something or after `wait` seconds,
 
 ```json
 { "envelopes": [ { "id": "…", "timestamp": "…", "signature": "v1a,…", "body": "<canonical JSON>" } ], "cursor": "<opaque>" }
@@ -474,7 +648,22 @@ deployment takes none of an answer with more, and stops reading one at its
 8 MiB. A relay with more waiting answers fewer, and the rest at the next pull.
 The deployment waits for an answer for `wait` seconds and ten more. Each
 envelope is taken exactly as if it were pushed, the relay's sixty a minute
-included, and the next pull names the new cursor.
+and its 300 seconds included, and the next pull names the new cursor.
+
+A relay therefore signs each envelope when it answers the pull, not when the
+person acted: an act that waited in the inbox longer than five minutes
+would otherwise be refused as stale. The device's own signature still
+carries the moment the person acted (section 8), so a relay cannot hold an
+act back for long by signing it late. What PALUGADA answered each pulled
+envelope comes back to the relay as an `act_result` (section 6.3), which a
+relay that pushes reads from the answer to its request.
+
+A relay MUST keep its inbox and the cursors it has given across restarts,
+and MUST answer a cursor it does not know -- one from before it lost its
+state, or one it never gave -- from the oldest envelope it holds, never
+with nothing: the deployment keeps its cursor across the relay's restarts,
+and a relay that answered an unknown cursor with nothing would lose every
+act made since.
 
 The cursor belongs to the relay and says nothing about one envelope, so the
 deployment moves it only once it is done with the whole answer. When the
@@ -488,11 +677,14 @@ keep an envelope until a later cursor is named.
 ### 9.1 The checks, in order
 
 1. The relay exists and is paired; otherwise `401`.
-2. The signature verifies with the relay's pinned key (`401`), within 300
-   seconds (`408`). Nothing is written for an unknown relay or a bad
-   signature; it is only counted.
-3. The envelope id is new. A repeat is answered as the first one was; a new
-   one counts against the relay's sixty a minute (`429`).
+2. The signature verifies with the relay's pinned key (`401`), or, until the
+   moment PALUGADA answered a `relay_key_rotated` with, the key it rotated
+   from; within 300 seconds (`408`, carrying the deployment's `now`).
+   Nothing is written for an unknown relay or a bad signature; it is only
+   counted.
+3. The envelope id is new. A repeat is answered as the first one was; one
+   still being taken is answered `409 relay.in_progress`; a new one counts
+   against the relay's sixty a minute (`429`).
 4. The person: the link a token or a recipient names is this relay's and
    active (`410` when it ended), and its company is one the relay hears
    about.
@@ -500,30 +692,57 @@ keep an envelope until a later cursor is named.
    link without one, only `link_end`.
 6. The type.
 
-Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`.
+Every inbound body is `{ "v": 1, "type": "…", "at": "<ISO 8601>", … }`; one
+whose `v` is not `1`, or that has none, is refused (`relay.unknown_version`)
+before anything else is read of it.
 
 ### 9.2 Answers
 
 | Status | Body | When |
 |---|---|---|
 | `200` | `{ "ok": true, "result": … }` | taken; a press also carries `text`, "Decided through" the relay's name, in the person's language |
-| `401` | `{ "ok": false, "code" }` | unknown or revoked relay, bad signature |
-| `408` | `{ "ok": false, "code": "relay.stale" }` | signed more than 300 seconds from now |
+| `401` | `{ "ok": false, "code" }` | `relay.unknown`: an unknown or revoked relay; `relay.signature`: a signature that does not verify with the key pinned |
+| `408` | `{ "ok": false, "code": "relay.stale", "tolerance": 300, "now" }` | signed more than 300 seconds from the deployment's `now` |
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
 | `410` | `{ "ok": false, "code": "relay.link_ended" }` | the link has ended |
 | `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's own rule (such as `approval.own_instigation`: four eyes) |
+| `409` | `{ "ok": false, "code": "relay.in_progress" }` | the same envelope is still being taken, by this request's twin or a replica that stopped: send it again under the same id after a few seconds, and it is answered as it was answered, or, once two minutes have passed with nothing settled, taken afresh with whatever the first attempt spent given back |
 | `400`, `500` | `{ "error", "code" }`, without `ok` | the deployment failed for a reason that is no answer to the envelope: nothing it asked for was done, and the same envelope, sent again under its id, is taken afresh |
-| `429` | `{ "ok": false, "code": "relay.throttled" }` | too many |
+| `429` | `{ "ok": false, "code": "relay.throttled" }` | too many: the answer carries `Retry-After`, the whole seconds until there is room, and a relay sends nothing more to the deployment until then |
 
 A press refused at tier 3 also carries `text`, saying that tier 3 is decided
 in the app, in the person's language.
 
-The `422` codes: `relay.unknown_type`, `relay.press_off`, `relay.press_unknown`,
-`relay.press_spent`, `relay.press_tier3`, `relay.device_sig`,
+The `422` codes: `relay.unknown_type`, `relay.unknown_version` (a body
+whose `v` is not `1`, or that has none), `relay.press_off`,
+`relay.press_unknown`, `relay.press_spent`, `relay.press_tier3`,
+`relay.device_sig` (no device signature, or one that does not verify),
+`relay.device_stale` (a device signature that verifies, over an `at` more
+than 300 seconds from the deployment's clock; the answer carries the
+deployment's `now`, so the relay can tell the person their phone's clock is
+wrong or that the act waited too long), `relay.device_replayed` (a device
+signature PALUGADA already took, under another envelope id),
 `relay.owner_device`, `relay.not_member`, `relay.seat_changed`,
-`relay.post_off`, `relay.link_unknown`, and `relay.malformed` for a body
-holding text PALUGADA cannot keep (the NUL character, `\u0000`, anywhere in a
-name or a value). An answer never repeats what an item says.
+`relay.post_off`, `relay.link_unknown`, `relay.client_id_used` (a reply's
+`clientId` the person used before for other words or another room or
+thread), `relay.key_unproven` (a `relay_key_rotated` not signed by both
+keys, or naming another key as the one it replaces, section 9.3), and
+`relay.malformed` for a body PALUGADA cannot take as it stands: text it
+cannot keep (the NUL character, `\u0000`, anywhere in a name or a value), a
+press's `answer` over 2,000 characters, a reply's `body` empty or over
+4,000 characters or its `clientId` outside 1 to 64 characters, a mute's
+`until` that is not a time within thirty days nor `null`, or a
+`relay_key_rotated` whose `key` is not 32 bytes or whose `until` is not a
+time. A token that is no string, or longer than 200 characters, is
+`relay.press_unknown`. A refusal by
+the room itself is answered with the room's own code (such as
+`room.not_member` when the person has left it). An answer never repeats
+what an item says.
+
+A relay that is answered `429` waits the `Retry-After` it was given, then at
+least 30 seconds more for each further `429` in a row, doubling up to ten
+minutes, before it sends again; an act a person made then waits with it,
+and lapses once its device signature is five minutes old.
 
 ### 9.3 Types
 
@@ -545,15 +764,22 @@ others sent with it.
 #### `reply`
 
 `{ token, body, clientId, device_sig? }`: words in reply to a notice about a
-room, `body` 1 to 4,000 characters and `clientId` 1 to 64, by which a reply
-sent twice is one message. Only while the owner allows replies through the
+room, `body` 1 to 4,000 characters and `clientId` 1 to 64 characters, by
+which a reply sent twice is one message. A `clientId` MUST be unique for that
+person for all time -- a fresh UUID for each reply the person writes, never a
+device's id or a counter that starts again -- and the same reply sent again
+MUST carry the same one. A `clientId` the person used before is taken as
+that reply sent again only for the same words, room and thread; anything else
+is refused (`relay.client_id_used`) rather than answered with the earlier
+message. Only while the owner allows replies through the
 relay (`relay.post_off`), and only with a `reply` token sent to this person
 through this relay, unspent and unexpired (`relay.press_unknown`,
 `relay.press_spent`). It lands in the room and thread the token names, and
 no other, whatever else the body says: a plain message from that person,
 marked as come through the relay. It is never work, never an instruction to
 work, and never the owner's words given as work; the person must still be in
-the room. Answered with `{ message }`, the message's id.
+the room. Answered with `{ clientId }`, the reply's own: never the
+message's id, which would name a thread once someone answered it there.
 
 #### `read`
 
@@ -585,21 +811,60 @@ Its offers end with it.
 
 `{ ids }`: informational; the relay saw these envelopes.
 
+#### `relay_key_rotated`
+
+`{ key, previous: { key, until } }`: the relay has a new key of its own
+(section 2.3). `key` is the new public key, `previous.key` the key PALUGADA
+pinned now, and `until` the time, ISO 8601, until which the relay may still
+sign with the old one. The envelope MUST carry two `v1a` signatures, one by
+the key pinned now and one by `key`, so the relay is shown to hold the new
+key. PALUGADA takes it only so: signed by the old key alone it is refused
+(`relay.key_unproven`), as is one whose `previous.key` is not the key pinned
+now, or a key another relay here holds. Answered with `{ fingerprint, until }`,
+the new key's fingerprint and the moment, never more than seven days on,
+until which PALUGADA takes the old key beside it.
+
 ## 10. Content a relay holds
 
-A relay MUST drop the content of an envelope a retraction names
-(`inbox_closed`, `room_activity_retracted`), and SHOULD keep content no
-longer than fourteen days. A
-topic on a public ntfy server is readable by anyone who knows its name: a
-relay that forwards to ntfy SHOULD use a self-hosted or token-protected ntfy
-for any share above `signal`.
+An envelope's **address** is its `v`, `id`, `type`, `at`, `deployment`,
+`relay` and `to`; everything else -- `company`, `text`, `link`, `data`,
+`offers` and any field added later -- is its **content**.
+
+- A relay MUST drop the content of an envelope a retraction names
+  (`inbox_closed`, `room_activity_retracted`) as soon as it is told, and
+  everything that names a company it is told is forgotten
+  (`company_forgotten`).
+- A relay MUST drop every envelope's content no later than fourteen days
+  after its `at`, and MUST NOT show or forward the content of an envelope
+  already older than that when it arrives. PALUGADA deletes what it sent
+  fourteen days after sending it (section 7), so it cannot retract anything
+  later than that: the fortnight is the relay's to keep, not a courtesy.
+- A relay MAY keep an envelope's address longer, to drop a repeat by its id.
+
+A retraction reaches only what the relay holds. Content a relay has already
+handed to a push service, shown on a lock screen, or written to a log is
+beyond it, and beyond PALUGADA. A relay SHOULD therefore hand a push service
+as little as it can -- at most what the share allows, and only for as long as
+the notice is useful, by an expiring push where the service has one -- and
+SHOULD NOT write content to its logs. A topic on a public ntfy server is
+readable by anyone who knows its name: a relay that forwards to ntfy SHOULD
+use a self-hosted or token-protected ntfy for any share above `signal`.
 
 ## 11. Versioning
 
-- `v` is an integer, and paths carry `/v1/`.
+- `v` is an integer, and paths carry `/v1/`. Every envelope, outbound and
+  inbound, carries `"v": 1`; PALUGADA refuses an inbound body whose `v` is
+  anything else, or missing (`relay.unknown_version`), and a relay SHOULD
+  ignore an outbound envelope whose `v` it does not speak.
 - Within v1, fields and types are only ever added. Both sides ignore fields
   they do not know; a relay ignores outbound types it does not know;
-  PALUGADA refuses inbound types it does not know.
+  PALUGADA refuses inbound types it does not know (`relay.unknown_type`).
+  The outbound types of v1 are those of section 6.3, and none is ever taken
+  away.
+- What a device signs is fixed for v1: the fields of section 8, under the
+  prefix `palugada-device/v1`. A field a device must also sign takes a new
+  prefix (`palugada-device/v2`), offered at pairing in `versions`, never a
+  change to what `palugada-device/v1` covers.
 - `versions` is exchanged at pairing, and both sides speak the highest they
   share.
 - A v2, when there is one, is served beside v1 for at least six months.
@@ -607,15 +872,53 @@ for any share above `signal`.
 ## 12. The reference relay
 
 `scripts/relay-reference.ts`, run with `npm run relay:reference`, is a relay
-in one file of Node with no dependencies. It pins the deployment by the
-fingerprint it is given (`--deployment-fingerprint`, required), takes no
-second pairing until its state file is deleted, is pulled from, verifies every
-envelope, takes a new key only as section 2.3 says, prints it, drops retracted content, and forwards `text` and `link`
-to ntfy (`RELAY_NTFY_URL`, `RELAY_NTFY_TOKEN`) at priority 5 for `interrupt`,
-3 for `normal` and 2 for `quiet`. Its commands `link <code>`,
-`press <token> [answer]`, `reply <token> <text>`, `read <token>` and
-`mute <token> [hours]` act as a phone's app would, with a device key for each link; the relay takes them only from the
-machine it runs on, and refuses one a proxy in front of it forwarded.
+in one file of Node with no dependencies, written apart from PALUGADA's own
+code so that it is a second implementation of this document rather than a
+copy of the first.
+
+- **Pairing.** It pins the deployment by the fingerprint it is given
+  (`--deployment-fingerprint`, required), and takes no other pairing until its
+  state file is deleted, except the same deployment pairing it again
+  (section 5) under a fingerprint its operator gave it anew. It takes a new
+  deployment key only as section 2.3 says, and prints its fingerprint.
+- **Pull.** It is pulled from, so it works where the deployment cannot be
+  reached. It answers only a pull signed for its own id, refuses a pull id
+  it has answered (`409`), signs each envelope as it answers, and answers a
+  cursor it does not know from the oldest envelope it holds.
+- **State.** Its keys, the pairing, its inbox and cursors, the tokens it was
+  sent (as their hashes), the envelope ids it has seen and the companies it
+  was told to forget are kept in its state file (`--state`, by default
+  `relay-state.json`), written whole each time through a file beside it and
+  a rename, so a restart loses nothing a pull still needs.
+- **Content.** It verifies every envelope, drops what a retraction names,
+  forgets a company it is told to forget, and drops every envelope's content
+  fourteen days after its `at` (hourly, and on arrival). It forwards `text`
+  and `link` to ntfy (`RELAY_NTFY_URL`, one topic per recipient, with
+  `RELAY_NTFY_TOKEN` as a bearer token when set) at priority 5 for
+  `interrupt`, 3 for `normal` and 2 for `quiet`. It prints what it is told
+  only as far as `signal` -- the type, the recipient and the commands for its
+  offers -- unless `--print-content` is given, since whatever keeps its
+  output keeps what it prints.
+- **Acts.** Its commands `link <code>`, `press <token> [answer]`,
+  `reply <token> <text>`, `read <token>`, `mute <token> [hours]` and
+  `rotate-key` act as a phone's app would. They are taken on a listener of
+  their own, bound to this machine's loopback (`--local-port`, by default
+  one above `--port`), never on the public one, so no proxy in front of the
+  relay can reach them. It makes a device key for each link and signs every
+  act with it; those keys live in its state file beside its own, so a link
+  made through the reference relay is only as safe as that file (section 8),
+  and it prints each link's device fingerprint for the person to compare
+  with the one PALUGADA shows.
+
+What the reference relay leaves to a production relay: an app on the
+person's phone that makes the device key there and never sends it away;
+push through the phone's own service (APNs, FCM) with expiring messages
+rather than ntfy; several deployments and many people on one relay, each
+deployment's state apart; a database rather than one state file, with its
+inbox kept across replicas; its own throttle in front of the public
+listener; monitoring of its pull and push; and rotating its own key on a
+schedule (`relay_key_rotated`), with the old key's private half destroyed
+once the week is out.
 
 ## 13. Test vectors
 
@@ -640,7 +943,18 @@ message give the same signature in any library.
   link its id is made from.
 - `meetingSoon`: a person's `meeting_soon` at `summary`, the same way.
 - `reply`: a reply's words, and the fields, bytes and signature of the
-  `device` key's signature on it.
+  `device` key's signature on it; its `clientId` is a fresh UUID, as
+  section 9.3 asks.
+- `linkEnded`, `companyForgotten` and `actResult`: one of each type, its
+  canonical body, its `v1a` signature with `key` at `timestamp`, and the link
+  and subject its id is made from.
+- `relayKeyRotated`: a relay's old and new seeds, the keys and fingerprints
+  they make, the `relay_key_rotated` it sends, and its `webhook-signature`
+  with both keys, the old one first.
+
+Every `link` in the vectors names a notice by its handle alone
+(`?notice=` and 32 base64url characters, section 6), never a company, room,
+thread, item or task.
 
 <!-- test vectors -->
 
@@ -718,7 +1032,7 @@ message give the same signature in any library.
       "urgency": "normal",
       "lang": "id",
       "text": "Perlu persetujuan: Kirim email ke 40 pelanggan",
-      "link": "https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&item=6f1c2a9e-3b4d-4c5e-9f6a-7b8c9d0e1f2a",
+      "link": "https://palugada.example/?notice=AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
       "data": {
         "kind": "approval",
         "tier": 2,
@@ -737,10 +1051,10 @@ message give the same signature in any library.
         }
       ]
     },
-    "canonical": "{\"at\":\"2026-11-08T12:00:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"kind\":\"approval\",\"tier\":2,\"title\":\"Kirim email ke 40 pelanggan\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"417d0861-875d-8842-8499-1d3577efc40a\",\"lang\":\"id\",\"link\":\"https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&item=6f1c2a9e-3b4d-4c5e-9f6a-7b8c9d0e1f2a\",\"offers\":[{\"act\":\"approve\",\"label\":\"Setujui\",\"token\":\"pt_AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\"},{\"act\":\"deny\",\"label\":\"Tolak\",\"token\":\"pt_AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI\"}],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Perlu persetujuan: Kirim email ke 40 pelanggan\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"inbox_item\",\"urgency\":\"normal\",\"v\":1}",
+    "canonical": "{\"at\":\"2026-11-08T12:00:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"kind\":\"approval\",\"tier\":2,\"title\":\"Kirim email ke 40 pelanggan\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"417d0861-875d-8842-8499-1d3577efc40a\",\"lang\":\"id\",\"link\":\"https://palugada.example/?notice=AAECAwQFBgcICQoLDA0ODxAREhMUFRYX\",\"offers\":[{\"act\":\"approve\",\"label\":\"Setujui\",\"token\":\"pt_AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\"},{\"act\":\"deny\",\"label\":\"Tolak\",\"token\":\"pt_AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI\"}],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Perlu persetujuan: Kirim email ke 40 pelanggan\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"inbox_item\",\"urgency\":\"normal\",\"v\":1}",
     "id": "417d0861-875d-8842-8499-1d3577efc40a",
     "timestamp": "1794139200",
-    "signature": "v1a,DRkwtZhcUbpULe3AS5nrnv53Vp036fD/QbjpQuDaolI2p4xizrRJoDxvm7ws5rAzR3qMHK3ln6ZaSBln4aYwCQ=="
+    "signature": "v1a,1krw3U+D5lOXt/kvKaYJOZVxT6Np2dUcwBNzY60mSyWlSnT9xrP+vH3vrlvOCZGqkQdUBlC5cHxpmE2SEqK1BA=="
   },
   "envelopeId": {
     "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
@@ -775,8 +1089,8 @@ message give the same signature in any library.
   "pull": {
     "id": "pull_3f2e1d0c-9b8a-4766-8554-433221100fed",
     "timestamp": "1794139200",
-    "request": "GET /v1/inbox?after=7&wait=25",
-    "signature": "v1a,Id5MCxe3xgUVSAOrGcRpRe9fMiHX+blrxpKQ7HgIMRsf+czjusYKeUdDrMqX+PRyFcLqHnhQew1XETwKA20vDA=="
+    "request": "GET /v1/inbox?after=7&wait=25\n9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+    "signature": "v1a,gdxZImQq2F4odj8OKU8B3EJ1X1w+aOJH9ZENR/ECOBbxisY7gr4g4Ipqw0cA8DaaqmrovanDNM57BbYganE/CA=="
   },
   "roomActivity": {
     "value": {
@@ -797,7 +1111,7 @@ message give the same signature in any library.
       "urgency": "normal",
       "lang": "id",
       "text": "Budi (@budi) menyebut Anda di Toko Kopi.",
-      "link": "https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
+      "link": "https://palugada.example/?notice=GBkaGxwdHh8gISIjJCUmJygpKissLS4v",
       "data": {
         "reasons": [
           "mention"
@@ -829,10 +1143,10 @@ message give the same signature in any library.
         }
       ]
     },
-    "canonical": "{\"at\":\"2026-11-08T12:05:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"authors\":[{\"handle\":\"budi\",\"name\":\"Budi\"}],\"count\":1,\"reasons\":[\"mention\"],\"room\":\"Toko Kopi\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"d95716a2-8d50-8b44-8048-04d19062eebc\",\"lang\":\"id\",\"link\":\"https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b\",\"offers\":[{\"act\":\"reply\",\"label\":\"Balas\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\"},{\"act\":\"read\",\"label\":\"Tandai dibaca\",\"token\":\"pt_BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ\"},{\"act\":\"mute\",\"label\":\"Bisukan\",\"token\":\"pt_BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU\"}],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Budi (@budi) menyebut Anda di Toko Kopi.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"room_activity\",\"urgency\":\"normal\",\"v\":1}",
+    "canonical": "{\"at\":\"2026-11-08T12:05:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"authors\":[{\"handle\":\"budi\",\"name\":\"Budi\"}],\"count\":1,\"reasons\":[\"mention\"],\"room\":\"Toko Kopi\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"d95716a2-8d50-8b44-8048-04d19062eebc\",\"lang\":\"id\",\"link\":\"https://palugada.example/?notice=GBkaGxwdHh8gISIjJCUmJygpKissLS4v\",\"offers\":[{\"act\":\"reply\",\"label\":\"Balas\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\"},{\"act\":\"read\",\"label\":\"Tandai dibaca\",\"token\":\"pt_BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ\"},{\"act\":\"mute\",\"label\":\"Bisukan\",\"token\":\"pt_BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU\"}],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Budi (@budi) menyebut Anda di Toko Kopi.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"room_activity\",\"urgency\":\"normal\",\"v\":1}",
     "id": "d95716a2-8d50-8b44-8048-04d19062eebc",
     "timestamp": "1794139500",
-    "signature": "v1a,iKG7CVooymy4BV+k0FoJfHVls4J7tm/tYjrkWvrXNWshYYBXQlO4nvhpN7ACWDH/Oynd7idfmJ9OHgpAz7ZTBg==",
+    "signature": "v1a,alCkVYoZ0D9SPsiNwfQmwue72tNqvin4M/Hdxdf0dj2ijitHj5Ru2x64m0luEV6LF+pReGmwfCo2KG6Ctrk9Ag==",
     "subject": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
     "link": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
   },
@@ -846,10 +1160,10 @@ message give the same signature in any library.
       "token": "pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
       "at": "2026-11-08T12:06:00.000Z",
       "sha256": "d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808",
-      "clientId": "phone-7f3a"
+      "clientId": "4f0e6a52-9c1b-4d7e-8a3f-2b6c9d1e0f57"
     },
-    "message": "palugada-device/v1\n{\"at\":\"2026-11-08T12:06:00.000Z\",\"clientId\":\"phone-7f3a\",\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"sha256\":\"d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\",\"type\":\"reply\"}",
-    "signature": "7ZSwpy11tNhzYk8f8ao8hCqJ1D8vW8mfXjgGTH74SDhkhQ4Wk1qX9D0sosTsRerPJcTGOFnGrRBmi2-50PalAQ"
+    "message": "palugada-device/v1\n{\"at\":\"2026-11-08T12:06:00.000Z\",\"clientId\":\"4f0e6a52-9c1b-4d7e-8a3f-2b6c9d1e0f57\",\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"sha256\":\"d3026048dedc11ee3e713418cfebcb45e2519eebaa3f34d1c70f6da0adb1d808\",\"token\":\"pt_AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM\",\"type\":\"reply\"}",
+    "signature": "0iewhXuOgJ6S6U8Zl0d4zMTMuVZzw2HjBQ21DwP0FgJdP1DjTqSDo0N4Q7CYmVaJF6Nn5MjzcXZXoFfr6MEgAg"
   },
   "meetingSoon": {
     "value": {
@@ -870,7 +1184,7 @@ message give the same signature in any library.
       "urgency": "normal",
       "lang": "id",
       "text": "Rapat dimulai sepuluh menit lagi di Dapur.",
-      "link": "https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e&thread=4d5e6f7a-8b9c-4d0e-8f1a-2b3c4d5e6f7a",
+      "link": "https://palugada.example/?notice=MDEyMzQ1Njc4OTo7PD0-P0BBQkNERUZH",
       "data": {
         "room": "Dapur",
         "startsAt": "2026-11-08T14:00:00.000Z",
@@ -878,12 +1192,106 @@ message give the same signature in any library.
       },
       "offers": []
     },
-    "canonical": "{\"at\":\"2026-11-08T13:50:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"minutes\":30,\"room\":\"Dapur\",\"startsAt\":\"2026-11-08T14:00:00.000Z\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"a9246138-de3d-84ce-909a-3c6a7335a2e9\",\"lang\":\"id\",\"link\":\"https://palugada.example/?company=1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f&room=2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e&thread=4d5e6f7a-8b9c-4d0e-8f1a-2b3c4d5e6f7a\",\"offers\":[],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Rapat dimulai sepuluh menit lagi di Dapur.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"meeting_soon\",\"urgency\":\"normal\",\"v\":1}",
+    "canonical": "{\"at\":\"2026-11-08T13:50:00.000Z\",\"company\":{\"name\":\"Toko Kopi\",\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{\"minutes\":30,\"room\":\"Dapur\",\"startsAt\":\"2026-11-08T14:00:00.000Z\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"a9246138-de3d-84ce-909a-3c6a7335a2e9\",\"lang\":\"id\",\"link\":\"https://palugada.example/?notice=MDEyMzQ1Njc4OTo7PD0-P0BBQkNERUZH\",\"offers\":[],\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"share\":\"summary\",\"text\":\"Rapat dimulai sepuluh menit lagi di Dapur.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"meeting_soon\",\"urgency\":\"normal\",\"v\":1}",
     "id": "a9246138-de3d-84ce-909a-3c6a7335a2e9",
     "timestamp": "1794145800",
-    "signature": "v1a,3Zpvtwt9Rj8e1IpwGY1q/lj6atNtYnCl8x4wjxjJgpVn7bcbocLfvCWpxt7VNGRQbeDIDBjfcBcCCqfUMBwSCw==",
+    "signature": "v1a,/DFjp8+8gHxbRy1o5vBpxpzK5KaDGkkmAzo6w/45m/weEYWl6SfVhaxVC6nt0ZdZmxptzgfYuE1R2ul4+apJBQ==",
     "subject": "8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d",
     "link": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
+  },
+  "linkEnded": {
+    "value": {
+      "v": 1,
+      "type": "link_ended",
+      "at": "2026-11-09T08:00:00.000Z",
+      "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
+      "relay": "9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+      "to": {
+        "recipient": "DUO7HGJ6ZVY3R2L2UMWI6IR3IM"
+      },
+      "lang": "id",
+      "text": "Ponsel ini tidak lagi ditautkan ke PALUGADA.",
+      "data": {
+        "claim": "in_2f6a1b9c-0d3e-4f5a-8b7c-6d5e4f3a2b1c",
+        "reason": "replaced"
+      },
+      "id": "21f591e9-9465-8898-b675-799d87adb7f6"
+    },
+    "canonical": "{\"at\":\"2026-11-09T08:00:00.000Z\",\"data\":{\"claim\":\"in_2f6a1b9c-0d3e-4f5a-8b7c-6d5e4f3a2b1c\",\"reason\":\"replaced\"},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"21f591e9-9465-8898-b675-799d87adb7f6\",\"lang\":\"id\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"text\":\"Ponsel ini tidak lagi ditautkan ke PALUGADA.\",\"to\":{\"recipient\":\"DUO7HGJ6ZVY3R2L2UMWI6IR3IM\"},\"type\":\"link_ended\",\"v\":1}",
+    "id": "21f591e9-9465-8898-b675-799d87adb7f6",
+    "timestamp": "1794211200",
+    "signature": "v1a,/q5OhlNR93c4+MBz63O5MEjEB4Qe2zsf/75rO1N36RGc0R7wRWQ0EWzzb+uGHuXOvt3N10pAHPQh3aXuNF5GAw==",
+    "subject": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d",
+    "link": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d"
+  },
+  "companyForgotten": {
+    "value": {
+      "v": 1,
+      "type": "company_forgotten",
+      "at": "2026-11-09T09:00:00.000Z",
+      "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
+      "relay": "9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+      "company": {
+        "ref": "co_SCS6VUU5FYH6FLKQ"
+      },
+      "data": {},
+      "id": "3480cbf2-d898-8045-b897-cc081ebb8975"
+    },
+    "canonical": "{\"at\":\"2026-11-09T09:00:00.000Z\",\"company\":{\"ref\":\"co_SCS6VUU5FYH6FLKQ\"},\"data\":{},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"3480cbf2-d898-8045-b897-cc081ebb8975\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"type\":\"company_forgotten\",\"v\":1}",
+    "id": "3480cbf2-d898-8045-b897-cc081ebb8975",
+    "timestamp": "1794214800",
+    "signature": "v1a,wdK9BN6DGXAr5oW1LDJ/9OL0JAtEQOz+HT/GWo81nFpJYrvqETQZS3+4v9XsD+NgSwf478zMWkfRcqI+2LWUBg==",
+    "subject": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+    "link": null
+  },
+  "actResult": {
+    "value": {
+      "v": 1,
+      "type": "act_result",
+      "at": "2026-11-08T12:02:00.000Z",
+      "deployment": "0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d",
+      "relay": "9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a",
+      "data": {
+        "ref": "in_7c6b5a49-3827-4615-9504-f3e2d1c0b9a8",
+        "status": 200,
+        "answer": {
+          "ok": true,
+          "result": {
+            "act": "approve"
+          },
+          "text": "Diputuskan lewat Relay Toko."
+        }
+      },
+      "id": "1861b606-a9b4-8dcc-9034-1bb2f4e300c1"
+    },
+    "canonical": "{\"at\":\"2026-11-08T12:02:00.000Z\",\"data\":{\"answer\":{\"ok\":true,\"result\":{\"act\":\"approve\"},\"text\":\"Diputuskan lewat Relay Toko.\"},\"ref\":\"in_7c6b5a49-3827-4615-9504-f3e2d1c0b9a8\",\"status\":200},\"deployment\":\"0b5e4c1d-7a2f-4e6b-9c3d-2f1e0a9b8c7d\",\"id\":\"1861b606-a9b4-8dcc-9034-1bb2f4e300c1\",\"relay\":\"9d2e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a\",\"type\":\"act_result\",\"v\":1}",
+    "id": "1861b606-a9b4-8dcc-9034-1bb2f4e300c1",
+    "timestamp": "1794139320",
+    "signature": "v1a,9LIbWxOJMNbCASqb6FGvgwxEbm/UdKlbigFeonSVBlr77+NTfXHUDrHX8j+o447f2P9PGktaU5TIa9BPieGTAA==",
+    "subject": "in_7c6b5a49-3827-4615-9504-f3e2d1c0b9a8",
+    "link": null
+  },
+  "relayKeyRotated": {
+    "previousSeed": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "previousKey": "LGoolcSz_OiTymYmwVydCNz0qaGz99Qtk0bo3UIDr9E",
+    "previousFingerprint": "VSQW3IRUXLBJ5LOKRN2JTSNI",
+    "seed": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "key": "KYdIeQCHlfe8zbUuUyNRO7koBCsBvI7S2_T63g9oz7c",
+    "fingerprint": "MEDC2ESCRTACYF4UHEKYVCFP",
+    "value": {
+      "v": 1,
+      "type": "relay_key_rotated",
+      "at": "2026-11-10T10:00:00.000Z",
+      "key": "KYdIeQCHlfe8zbUuUyNRO7koBCsBvI7S2_T63g9oz7c",
+      "previous": {
+        "key": "LGoolcSz_OiTymYmwVydCNz0qaGz99Qtk0bo3UIDr9E",
+        "until": "2026-11-17T10:00:00.000Z"
+      }
+    },
+    "canonical": "{\"at\":\"2026-11-10T10:00:00.000Z\",\"key\":\"KYdIeQCHlfe8zbUuUyNRO7koBCsBvI7S2_T63g9oz7c\",\"previous\":{\"key\":\"LGoolcSz_OiTymYmwVydCNz0qaGz99Qtk0bo3UIDr9E\",\"until\":\"2026-11-17T10:00:00.000Z\"},\"type\":\"relay_key_rotated\",\"v\":1}",
+    "id": "in_9a8b7c6d-5e4f-4321-8fed-cba987654321",
+    "timestamp": "1794304800",
+    "signature": "v1a,w6sy8OiT64L3h1C35T7Vjm7QkGcPo/4xOv94ag5k0stkz35uZNCDKKPTkn18qsN7GiYqciLuKBYLTnDpeGdQBA== v1a,6JpphOD2s71pNW9cjoDcFTam0zx21LN5ahzEI4dfNOYj++Ey1COX4rIEUu9t2vHGzMzhF4E/8Mhl6pv+gxbVCg=="
   }
 }
 ```

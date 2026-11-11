@@ -34,7 +34,7 @@ import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { fakeRelay, type FakeRelay } from '../helpers/fake-relay.ts';
-import { linkThrough, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
+import { linkThrough, opens, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
 import { noticesOf, tell, toldTo } from '../helpers/notices.ts';
 import { companyRoomOf, ok, personIn, said, seated, type Console, type PersonIn, type Seat } from '../helpers/rooms.ts';
 import { migrate } from '../../scripts/migrate.ts';
@@ -458,10 +458,10 @@ test('an approver who cannot see the room is told of the approval without its ro
     const [toRina] = toldTo(w.relay, rina.phone!);
     const [toJoko] = toldTo(w.relay, joko.phone!);
     assert.equal(toRina.text, 'An approval waits for you.');
-    assert.doesNotMatch(String(toRina.link), /room=/, 'nor does its link name the room');
+    assert.equal((await opens(w.api, rina.seat.token, toRina.link)).body.roomId, null, 'nor does its link open the room');
     assert.doesNotMatch(JSON.stringify(toRina), /Launch plans/);
     assert.equal(toJoko.text, 'An approval waits for you in Launch plans.');
-    assert.match(String(toJoko.link), new RegExp(`room=${room}`));
+    assert.equal((await opens(w.api, joko.seat.token, toJoko.link)).body.roomId, room);
   } finally {
     await w.close();
   }

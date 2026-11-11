@@ -29,7 +29,7 @@ import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, tp, useLanguage, type Language } from './i18n.ts';
-import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
+import { go, openResolvedNotice, takeLinkedNotice, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import type { SearchHit as RoomHit } from './workspace/types.ts';
 import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
@@ -305,6 +305,21 @@ function Console({ device, staff, recovered, signOut }: {
   useEffect(() => {
     if (base.data && route.kind === 'company' && !routed && route.companyId !== arriving) go({ kind: 'home' }, { replace: true });
   }, [base.data, route, routed, arriving]);
+
+  // Opened from a relay's notice: its link names only a handle, which the
+  // server answers with where it opens now that its person has signed in
+  // (STATUS section 2.216); to anyone else it opens nothing, and says so.
+  useEffect(() => {
+    const handle = takeLinkedNotice();
+    if (!handle) return;
+    api('GET', `/api/relays/notices/${encodeURIComponent(handle)}`).then(
+      (opens: Parameters<typeof openResolvedNotice>[0]) => openResolvedNotice(opens),
+      (failure: unknown) => {
+        openResolvedNotice(null);
+        notifications.show({ color: 'red', message: explain(failure) });
+      },
+    );
+  }, []);
 
   // Opened from a card in Telegram that the chat could not apply: the
   // conversation it came from, with the card waiting in it.

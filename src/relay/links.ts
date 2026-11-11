@@ -15,16 +15,26 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import { linkedSaid } from '../owner/relay-said.ts';
+import { linkedSaid, unlinkedSaid } from '../owner/relay-said.ts';
 import { qrMatrix } from '../owner/qr.ts';
 import { companyRef, envelopeBody, envelopeId, recipientId, SHARE_LEVELS, type Share } from './envelope.ts';
 import { enqueue } from './outbox.ts';
 import { covers, relayRow, type RelayRow } from './relays.ts';
+import { fingerprint } from './signature.ts';
 
 /** How long a link code may be claimed. */
 export const LINK_CODE_MINUTES = 10;
 
 const CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+/**
+ * The language a person reads PALUGADA in: their own where they chose one,
+ * the deployment's otherwise. What a relay is told of a person's own link is
+ * said in it, as a press's answer is (`src/relay/inbound.ts`). A fragment
+ * of SQL, the principal given by the placeholder named.
+ */
+const LANGUAGE_OF = (placeholder: string) =>
+  `coalesce((SELECT language FROM principal_prefs WHERE principal = ${placeholder}), console_language)`;
 
 /** A link code as kept: its hash under the relay it was offered through, so a code is good at one relay only. */
 export function codeHash(relayId: string, code: string): string {
@@ -108,21 +118,19 @@ export async function claimLink(
   const link = rows[0];
   if (!link) return null;
   const recipient = recipientId(relay.salt, link.principal);
-  // One active link per person per relay: a phone linked again replaces the old one.
+  // One active link per person per relay: a phone linked again replaces the
+  // old one, and the relay is told which device's link that was.
   const { rows: replaced } = await tx.query<{ id: string }>(
-    `UPDATE relay_links SET status = 'ended', ended_at = $3 WHERE relay_id = $1 AND principal = $2 AND status = 'active' RETURNING id`,
-    [relay.id, link.principal, now]);
-  if (replaced.length > 0) {
-    await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE link_id = ANY($1::uuid[]) AND voided_at IS NULL', [replaced.map((one) => one.id), now]);
-  }
+    `SELECT id FROM relay_links WHERE relay_id = $1 AND principal = $2 AND status = 'active' FOR UPDATE`, [relay.id, link.principal]);
+  await endLinks(tx, replaced.map((one) => one.id), now, 'replaced');
   await tx.query(
-    `UPDATE relay_links SET status = 'active', recipient_id = $2, label = $3, device_key = $4, claimed_at = $5, code_hash = NULL
+    `UPDATE relay_links SET status = 'active', recipient_id = $2, label = $3, device_key = $4, claimed_at = $5, code_hash = NULL, claim_id = $6
       WHERE id = $1`,
-    [link.id, recipient, claim.label, claim.deviceKey, now]);
+    [link.id, recipient, claim.label, claim.deviceKey, now, claim.claimId]);
 
   const companies = await companiesHeard(tx, relay, link.company_id);
   const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
-    'SELECT deployment_id::text AS deployment, console_language AS language FROM platform_control');
+    `SELECT deployment_id::text AS deployment, ${LANGUAGE_OF('$1')} AS language FROM platform_control`, [link.principal]);
   const language = control!.language;
   const id = envelopeId({ deployment: control!.deployment, relay: relay.id, link: link.id, type: 'link_confirmed', subject: link.id });
   await enqueue(tx, {
@@ -146,14 +154,45 @@ async function companiesHeard(tx: TenantClient, relay: RelayRow, companyId: stri
 }
 
 /**
- * Ends links, and voids their offers and drops what they were owed and not
- * yet sent. The caller holds the row of every relay the links are through.
+ * Why a link ended, as its relay is told: another device linked in its
+ * place, the person or the owner unlinked it in PALUGADA, the seat ended,
+ * the relay ended it itself, or the owner took the seat's company off the
+ * relay (STATUS section 2.216).
  */
-export async function endLinks(tx: TenantClient, linkIds: readonly string[], now = new Date()): Promise<void> {
+export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay' | 'company_dropped';
+
+/**
+ * Ends links, and voids their offers and drops what they were owed and not
+ * yet sent. Each that was active is told to its relay as `link_ended`, naming
+ * the claim that made it and why (STATUS section 2.216), so a relay app
+ * forgets that device rather than learn of it from a refusal; it waits behind
+ * whatever of the link is still being sent. The caller holds the row of every
+ * relay the links are through.
+ */
+export async function endLinks(tx: TenantClient, linkIds: readonly string[], now: Date, why: LinkEnding): Promise<void> {
   if (linkIds.length === 0) return;
-  await tx.query(`UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE id = ANY($1::uuid[]) AND status <> 'ended'`, [linkIds, now]);
+  const { rows: ended } = await tx.query<{
+    id: string; relay_id: string; principal: string; recipient_id: string | null; claim_id: string | null; company_id: string | null;
+  }>(
+    `UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE id = ANY($1::uuid[]) AND status <> 'ended'
+      RETURNING id, relay_id, principal, recipient_id, claim_id, company_id`,
+    [linkIds, now]);
   await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE link_id = ANY($1::uuid[]) AND voided_at IS NULL', [linkIds, now]);
   await tx.query(`DELETE FROM relay_outbox WHERE link_id = ANY($1::uuid[]) AND status IN ('pending', 'dead')`, [linkIds]);
+  const told = ended.filter((one) => one.recipient_id !== null);
+  for (const link of told) {
+    const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
+      `SELECT deployment_id::text AS deployment, ${LANGUAGE_OF('$1')} AS language FROM platform_control`, [link.principal]);
+    const id = envelopeId({ deployment: control!.deployment, relay: link.relay_id, link: link.id, type: 'link_ended', subject: link.id });
+    await enqueue(tx, {
+      id, relayId: link.relay_id, linkId: link.id, companyId: link.company_id, type: 'link_ended', subjects: [`link:${link.id}`],
+      body: envelopeBody({
+        v: 1, id, type: 'link_ended', at: now.toISOString(), deployment: control!.deployment, relay: link.relay_id,
+        to: { recipient: link.recipient_id }, lang: control!.language ?? 'en', text: unlinkedSaid(control!.language),
+        data: { claim: link.claim_id, reason: why },
+      }),
+    }, now);
+  }
 }
 
 /**
@@ -170,7 +209,7 @@ export async function endLink(linkId: string, by: Linker): Promise<void> {
     if (!rows[0] || (by.principal !== 'owner' && rows[0].principal !== by.principal)) {
       throw new PalugadaError('contract.violation', 'there is no such link of yours', { linkId });
     }
-    await endLinks(tx, [linkId]);
+    await endLinks(tx, [linkId], new Date(), 'unlinked');
   });
 }
 
@@ -183,7 +222,7 @@ export async function endLinksOf(tx: TenantClient, principal: string, now = new 
   for (const one of relays) await relayRow(tx, one.relay_id, true);
   const { rows } = await tx.query<{ id: string }>(
     `SELECT id FROM relay_links WHERE principal = $1 AND status <> 'ended' FOR UPDATE`, [principal]);
-  await endLinks(tx, rows.map((row) => row.id), now);
+  await endLinks(tx, rows.map((row) => row.id), now, 'seat_ended');
   return rows.length;
 }
 
@@ -193,15 +232,18 @@ export async function endLinksOf(tx: TenantClient, principal: string, now = new 
  * else; the owner sees every link of their own, the owner's page the rest.
  */
 export async function linksOf(linker: Linker, now = new Date()): Promise<{
-  links: Array<{ id: string; relayId: string; relay: string; label: string | null; status: string; share: Share | null; device: boolean; createdAt: string; claimedAt: string | null }>;
+  links: Array<{
+    id: string; relayId: string; relay: string; label: string | null; status: string; share: Share | null; device: boolean;
+    deviceFingerprint: string | null; createdAt: string; claimedAt: string | null;
+  }>;
   relays: Array<{ id: string; name: string }>;
 }> {
   return withControlPlane(async (tx) => {
     const { rows: links } = await tx.query<{
       id: string; relay_id: string; name: string; label: string | null; status: string; share: Share | null;
-      device: boolean; created_at: Date; claimed_at: Date | null;
+      device: boolean; device_key: Buffer | null; created_at: Date; claimed_at: Date | null;
     }>(
-      `SELECT l.id, l.relay_id, r.name, l.label, l.status, l.share, l.device_key IS NOT NULL AS device, l.created_at, l.claimed_at
+      `SELECT l.id, l.relay_id, r.name, l.label, l.status, l.share, l.device_key IS NOT NULL AS device, l.device_key, l.created_at, l.claimed_at
          FROM relay_links l JOIN relays r ON r.id = l.relay_id
         WHERE l.principal = $1 AND r.status = 'paired'
           AND (l.status = 'active' OR (l.status = 'offered' AND l.code_expires_at > $2))
@@ -212,10 +254,47 @@ export async function linksOf(linker: Linker, now = new Date()): Promise<{
     return {
       links: links.map((row) => ({
         id: row.id, relayId: row.relay_id, relay: row.name, label: row.label, status: row.status, share: row.share,
-        device: row.device, createdAt: row.created_at.toISOString(), claimedAt: row.claimed_at?.toISOString() ?? null,
+        // The device key is the relay's word for what the phone made (STATUS
+        // section 2.216): its fingerprint is shown so the person can compare
+        // it with what their phone shows.
+        device: row.device, deviceFingerprint: row.device_key ? fingerprint(row.device_key) : null,
+        createdAt: row.created_at.toISOString(), claimedAt: row.claimed_at?.toISOString() ?? null,
       })),
       relays: relays.filter((relay) => linker.companyId === null || covers(relay, linker.companyId))
         .map((relay) => ({ id: relay.id, name: relay.name })),
     };
+  });
+}
+
+/** What a notice's link opens in the console: a company, and a room and a thread, an item or a task. */
+export interface NoticeOpens {
+  companyId: string;
+  roomId: string | null;
+  threadOf: string | null;
+  itemId: string | null;
+  taskId: string | null;
+}
+
+/**
+ * What a notice's link opens, asked by the console once its person has
+ * signed in (STATUS section 2.216). A link names only a handle made for one
+ * notice; it opens for the person the notice was for and for nobody else,
+ * the owner included, and only while its envelope is kept, a fortnight, as
+ * long as a relay may keep what it said.
+ */
+export async function openNotice(handle: string, by: Linker): Promise<NoticeOpens> {
+  const unknown = () => new PalugadaError('relay.notice_unknown', 'that notice is not yours, or is too old to open', {});
+  if (!/^[A-Za-z0-9_-]{32}$/.test(handle)) throw unknown();
+  return withControlPlane(async (tx) => {
+    const { rows: [row] } = await tx.query<{
+      company_id: string | null; room_id: string | null; thread_of: string | null; item_id: string | null; task_id: string | null; principal: string;
+    }>(
+      `SELECT o.company_id, o.room_id, o.thread_of, o.item_id, o.task_id, l.principal
+         FROM relay_outbox o JOIN relay_links l ON l.id = o.link_id WHERE o.handle = $1`,
+      [handle]);
+    if (!row || row.company_id === null || row.principal !== by.principal || (by.companyId !== null && row.company_id !== by.companyId)) {
+      throw unknown();
+    }
+    return { companyId: row.company_id, roomId: row.room_id, threadOf: row.thread_of, itemId: row.item_id, taskId: row.task_id };
   });
 }

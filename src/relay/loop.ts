@@ -20,8 +20,8 @@ import { withControlPlane } from '../db/tenant.ts';
 import type { MasterKey } from '../settings/store.ts';
 import { envelopeHeaders } from './envelope.ts';
 import { forgetPreviousKey, signingKeys } from './identity.ts';
-import { receiveFromRelay, relayHasRoom } from './inbound.ts';
-import { sendDue, takeBackStale } from './outbox.ts';
+import { receiveFromRelay, relayHasRoom, takeBackAbandoned, type InboundAnswer } from './inbound.ts';
+import { answerPulled, sendDue, takeBackStale } from './outbox.ts';
 import { boundedText, settled, type RelayRow } from './relays.ts';
 
 /** How long one pass may spend sending. */
@@ -30,8 +30,15 @@ export const PASS_BUDGET_MS = 20_000;
 export const RELAYS_IN_FLIGHT = 4;
 /** How long the deployment's long poll asks a relay to hold the answer. */
 export const PULL_WAIT_SECONDS = 25;
-/** How long a lease to pull one relay lasts: the long poll and a margin. */
-const PULL_LEASE_SECONDS = 40;
+/**
+ * How long a lease to pull one relay lasts past the moment it is taken or
+ * renewed: the long poll's wait, its ten seconds' margin, and time to take
+ * what it answered. It is renewed once the answer is in and as the answer is
+ * taken, and only the process that holds it moves the cursor.
+ */
+const PULL_LEASE_SECONDS = PULL_WAIT_SECONDS + 40;
+/** How many envelopes of one answer are taken between two renewals of the lease. */
+const LEASE_EVERY = 20;
 /** The most envelopes a relay may answer one pull with (docs/relay-protocol.md, section 9). */
 const PULL_MOST = 100;
 /**
@@ -40,7 +47,12 @@ const PULL_MOST = 100;
  * a relay streaming without end could make the deployment hold.
  */
 const PULL_MOST_BYTES = 8 * 1024 * 1024;
-/** How long an offer spent, void or past its time is kept, so a late press is told why rather than that it is unknown. */
+/**
+ * How long an offer spent, void or past its time is kept, so a late press is
+ * told why rather than that it is unknown: counted from when it was spent,
+ * voided or expired, whichever was first. An offer spent before its spending
+ * was kept (STATUS section 2.216) counts from its expiry.
+ */
 const SPENT_OFFER_DAYS = 4;
 /** How long a receipt, a refusal, a dead letter or a delivered envelope is kept. */
 export const KEPT_DAYS = 14;
@@ -77,13 +89,15 @@ export async function relayPass(options: RelayPassOptions): Promise<RelayPassRep
   const now = options.now ?? new Date();
   const report: RelayPassReport = { relays: 0, delivered: 0, failed: 0, dead: 0, pulled: 0, takenBack: 0 };
   report.takenBack = await takeBackStale(now);
+  // What a replica that stopped left half taken is given back (STATUS section 2.216).
+  await takeBackAbandoned(now);
   const relays = await withControlPlane(async (tx) => (await tx.query<RelayRow>(
     `SELECT * FROM relays WHERE status = 'paired' AND (paused_until IS NULL OR paused_until <= $1) ORDER BY created_at`, [now])).rows);
   report.relays = relays.length;
   if (relays.length === 0) return report;
 
-  const { identity, keys } = await signingKeys(options.master(), options.previousMasters?.() ?? [], now);
-  const signing = { keys, kid: identity.kid };
+  const { identity, keys, rotation } = await signingKeys(options.master(), options.previousMasters?.() ?? [], now);
+  const signing = { keys, kid: identity.kid, rotation };
   const deadline = Date.now() + PASS_BUDGET_MS;
   const pulls: Array<Promise<number>> = [];
   const queue = [...relays];
@@ -129,16 +143,22 @@ function startPull(
   const pull = (async () => {
     try {
       // The lease, so replicas never poll one relay twice; taken on the row,
-      // so no connection is held through the wait.
+      // so no connection is held through the wait. It is this process's by
+      // a holder id of its own and runs from when the pull starts, on the
+      // clock, not from the pass's moment: a poll that outlives it cannot
+      // release a lease another replica took since, nor move the cursor
+      // (STATUS section 2.216).
+      const holder = randomUUID();
       const leased = await withControlPlane(async (tx) => (await tx.query(
-        `UPDATE relays SET pulling_until = $2::timestamptz + make_interval(secs => $3)
+        `UPDATE relays SET pulling_until = $2::timestamptz + make_interval(secs => $3), pulling_by = $4
           WHERE id = $1 AND status = 'paired' AND (pulling_until IS NULL OR pulling_until <= $2)`,
-        [relay.id, now, PULL_LEASE_SECONDS])).rowCount === 1);
+        [relay.id, new Date(), PULL_LEASE_SECONDS, holder])).rowCount === 1);
       if (!leased) return 0;
       try {
-        return await pullOnce(relay, signing, now, options);
+        return await pullOnce(relay, signing, now, options, holder);
       } finally {
-        await withControlPlane((tx) => tx.query('UPDATE relays SET pulling_until = NULL WHERE id = $1', [relay.id]));
+        await withControlPlane((tx) => tx.query(
+          'UPDATE relays SET pulling_until = NULL, pulling_by = NULL WHERE id = $1 AND pulling_by = $2', [relay.id, holder]));
       }
     } catch (error) {
       // Said, and tried again at the next pass: a relay's inbox that fails
@@ -153,27 +173,50 @@ function startPull(
   return pull;
 }
 
+/** Renews this process's lease on a relay's pull; answers whether it still holds it. */
+async function renewLease(relayId: string, holder: string): Promise<boolean> {
+  return withControlPlane(async (tx) => (await tx.query(
+    `UPDATE relays SET pulling_until = $3::timestamptz + make_interval(secs => $4) WHERE id = $1 AND pulling_by = $2`,
+    [relayId, holder, new Date(), PULL_LEASE_SECONDS])).rowCount === 1);
+}
+
+/**
+ * Whether the deployment is done with an envelope it pulled: taken, or
+ * refused for good. Not when the relay's minute is full, nor while the same
+ * envelope is still being taken by another replica: the cursor then stays,
+ * and the next pull names it again (STATUS section 2.216).
+ */
+function doneWith(answer: InboundAnswer): boolean {
+  return answer.status !== 429 && !(answer.status === 409 && answer.body.code === 'relay.in_progress');
+}
+
 /**
  * One long poll: `GET <inbox>?after=<cursor>&wait=<seconds>`, signed by the
- * deployment over the request line, answered with the envelopes since the
- * cursor. Each is taken exactly as a push is, the relay's sixty a minute
- * included. The cursor is the relay's and says nothing of a single envelope,
- * so it moves only when the deployment is done with the whole answer: when the
- * minute fills, the rest stay at the relay, and the next pull names the same
- * cursor and is answered what was taken again, as repeats. Answers how many
- * envelopes the deployment is done with, taken or refused for good.
+ * deployment over the request line and the relay it is for, answered with
+ * the envelopes since the cursor. Each is taken exactly as a push is, the
+ * relay's sixty a minute included, and what it was answered is sent back to
+ * the relay as an `act_result`, as a push learns it from its answer. The
+ * cursor is the relay's and says nothing of a single envelope, so it moves
+ * only when the deployment is done with the whole answer: when the minute
+ * fills, or an envelope is still being taken elsewhere, the rest stay at the
+ * relay, and the next pull names the same cursor and is answered what was
+ * taken again, as repeats. Only the process that holds the lease moves it.
+ * Answers how many envelopes the deployment is done with.
  */
 async function pullOnce(
   relay: RelayRow,
   signing: { keys: readonly KeyObject[]; kid: string },
   now: Date,
   options: RelayPassOptions,
+  holder: string,
 ): Promise<number> {
   const wait = options.pullWaitSeconds ?? PULL_WAIT_SECONDS;
   const url = new URL(relay.inbox_url!);
   if (relay.inbound_cursor !== null) url.searchParams.set('after', relay.inbound_cursor);
   url.searchParams.set('wait', String(wait));
-  const requestLine = `GET ${url.pathname}${url.search}`;
+  // The relay it is for is signed too, so a pull one paired relay is sent
+  // cannot be replayed at another to read its inbox (STATUS section 2.216).
+  const requestLine = `GET ${url.pathname}${url.search}\n${relay.id}`;
   const id = `pull_${randomUUID()}`;
   const headers = envelopeHeaders(signing.keys, signing.kid, id, requestLine, now);
   delete headers['content-type'];
@@ -197,18 +240,25 @@ async function pullOnce(
   if (envelopes.length > PULL_MOST) {
     throw new Error(`the relay's inbox answered ${envelopes.length} envelopes, more than ${PULL_MOST} at once; none was taken`);
   }
+  // The answer is in: taken only while this process still holds the lease.
+  if (!await renewLease(relay.id, holder)) return 0;
   let done = 0;
   for (const one of envelopes) {
+    if (done > 0 && done % LEASE_EVERY === 0 && !await renewLease(relay.id, holder)) return done;
     const envelope = one as { id?: unknown; timestamp?: unknown; signature?: unknown; body?: unknown };
+    const id = String(envelope.id ?? '');
     const taken = await receiveFromRelay(relay.id, {
-      id: String(envelope.id ?? ''), timestamp: String(envelope.timestamp ?? ''),
-      signature: String(envelope.signature ?? ''), body: String(envelope.body ?? ''),
+      id, timestamp: String(envelope.timestamp ?? ''), signature: String(envelope.signature ?? ''), body: String(envelope.body ?? ''),
     }, options.now ?? new Date());
-    if (taken.status === 429) return done;
+    if (!doneWith(taken)) return done;
+    // A relay that pulls learns what it was answered as a push does. Nothing
+    // is written for an envelope its relay did not sign, as for a push.
+    if (taken.status !== 401) await answerPulled(relay.id, id, taken, options.now ?? new Date());
     done += 1;
   }
   if (typeof answer.cursor === 'string' && answer.cursor.length <= 200) {
-    await withControlPlane((tx) => tx.query('UPDATE relays SET inbound_cursor = $2 WHERE id = $1', [relay.id, answer.cursor]));
+    await withControlPlane((tx) => tx.query(
+      'UPDATE relays SET inbound_cursor = $2 WHERE id = $1 AND pulling_by = $3', [relay.id, answer.cursor, holder]));
   }
   return done;
 }
@@ -217,9 +267,11 @@ async function pullOnce(
  * The deployment's relay bookkeeping, once a day: receipts, refusals,
  * delivered envelopes and dead letters older than fourteen days; offers spent,
  * void or expired four days ago; codes nobody claimed; and the key rotated
- * out, once its week is over. It reaches every relay at once, so it skips a
- * row another transaction holds rather than wait for it: what it skips is
- * purged the next day.
+ * out, once its week is over and every paired relay has taken the rotation.
+ * A rotation still owed is never a dead letter (`ROTATION_RETRY_SECONDS`),
+ * so it is not purged before its relay has it. It reaches every relay at
+ * once, so it skips a row another transaction holds rather than wait for it:
+ * what it skips is purged the next day.
  */
 export async function relayBookkeeping(now = new Date()): Promise<{ receipts: number; refusals: number; outbox: number; offers: number; codes: number }> {
   const purged = await withControlPlane(async (tx) => {
@@ -235,9 +287,11 @@ export async function relayBookkeeping(now = new Date()): Promise<{ receipts: nu
     const offers = (await tx.query(
       `DELETE FROM relay_offers WHERE token_hash IN (
          SELECT token_hash FROM relay_offers
-          WHERE coalesce(voided_at, CASE WHEN uses >= max_uses OR expires_at <= $1 THEN least(expires_at, $1) END)
+          WHERE least(voided_at, spent_at, CASE WHEN uses >= max_uses OR expires_at <= $1 THEN expires_at END)
                 < $1::timestamptz - make_interval(days => $2)
             FOR UPDATE SKIP LOCKED)`, [now, SPENT_OFFER_DAYS])).rowCount ?? 0;
+    // A device's signature is refused once its moment is over anyway: kept a day, for a replay to meet.
+    await tx.query(`DELETE FROM relay_device_acts WHERE at < $1::timestamptz - interval '1 day'`, [now]);
     const codes = (await tx.query(
       `DELETE FROM relay_links WHERE id IN (
          SELECT id FROM relay_links WHERE status = 'offered' AND code_expires_at < $1::timestamptz - interval '1 day'

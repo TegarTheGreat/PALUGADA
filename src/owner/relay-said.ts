@@ -58,3 +58,8 @@ export function pingSaid(language: string | null): string {
 export function linkedSaid(language: string | null): string {
   return say(language, 'This phone is linked to PALUGADA.');
 }
+
+/** A phone's link ended in PALUGADA (STATUS section 2.216). */
+export function unlinkedSaid(language: string | null): string {
+  return say(language, 'This phone is no longer linked to PALUGADA.');
+}

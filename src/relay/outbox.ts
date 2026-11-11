@@ -9,12 +9,15 @@
  * already had it, delivers the row; anything else is tried again later under
  * the same id, after 30 seconds, then a minute, two, and so on, and after
  * eight attempts the row is dead and shown to the owner with a way to try
- * again. A row a process took and never finished with is taken back after
- * ten minutes, under the same id. Order is kept per relay and link.
+ * again -- except a rotation of the deployment's key, which is tried hourly
+ * for as long as its relay is paired. A row a process took and never
+ * finished with is taken back after ten minutes, under the same id. Order is
+ * kept per relay and link.
  */
 import type { KeyObject } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
-import { envelopeHeaders } from './envelope.ts';
+import { envelopeBody, envelopeHeaders, envelopeId } from './envelope.ts';
+import { tokenHash } from './offers.ts';
 
 /** Rows claimed for one relay in one pass. */
 export const CLAIM_BATCH = 50;
@@ -28,6 +31,15 @@ export const RETRY_BASE_SECONDS = 30;
 export const MAX_ATTEMPTS = 8;
 /** How long a row may sit claimed before it is taken back: its process died. */
 export const STALE_SENDING_MINUTES = 10;
+/**
+ * The longest a rotation of the deployment's key waits between attempts. A
+ * `keys_rotated` is never given up on while its relay is paired: until the
+ * relay has it, the old key is kept and no other rotation may follow, so it
+ * is tried again hourly however long the relay is away, rather than dead
+ * after eight attempts and purged with the dead letters (STATUS section
+ * 2.216).
+ */
+export const ROTATION_RETRY_SECONDS = 3_600;
 
 /**
  * What this process counted, for the metrics scraper (`src/reporting/metrics.ts`):
@@ -47,6 +59,14 @@ export function countRefusal(reason: string): void {
   RELAY_COUNTS.refused.set(reason, (RELAY_COUNTS.refused.get(reason) ?? 0) + 1);
 }
 
+/** Where a notice opens in PALUGADA, kept beside its envelope and never in it (STATUS section 2.216). */
+export interface Opens {
+  roomId?: string | null | undefined;
+  threadOf?: string | null | undefined;
+  itemId?: string | null | undefined;
+  taskId?: string | null | undefined;
+}
+
 export interface OutboxEntry {
   id: string;
   relayId: string;
@@ -55,6 +75,9 @@ export interface OutboxEntry {
   type: string;
   subjects: string[];
   body: string;
+  /** What the envelope's link opens, by the handle in it: read only by the console, for the person it was for. */
+  opens?: Opens;
+  handle?: string | null;
 }
 
 /**
@@ -63,12 +86,39 @@ export interface OutboxEntry {
  * call wrote it.
  */
 export async function enqueue(tx: TenantClient, entry: OutboxEntry, now = new Date()): Promise<boolean> {
+  const opens = entry.opens ?? {};
   const { rowCount } = await tx.query(
-    `INSERT INTO relay_outbox (id, relay_id, link_id, company_id, type, subjects, body, next_at, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+    `INSERT INTO relay_outbox (id, relay_id, link_id, company_id, type, subjects, body, next_at, created_at,
+                               handle, room_id, thread_of, item_id, task_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (id) DO NOTHING`,
-    [entry.id, entry.relayId, entry.linkId, entry.companyId, entry.type, entry.subjects, entry.body, now]);
+    [entry.id, entry.relayId, entry.linkId, entry.companyId, entry.type, entry.subjects, entry.body, now,
+      entry.handle ?? null, opens.roomId ?? null, opens.threadOf ?? null, opens.itemId ?? null, opens.taskId ?? null]);
   return rowCount === 1;
+}
+
+/**
+ * What an envelope the deployment pulled from a relay was answered, owed
+ * back to that relay as an `act_result` naming it (STATUS section 2.216): a
+ * relay that is pulled from learns what a pushing relay learns from the
+ * answer to its request -- a press decided or refused and why, a reply's
+ * message, an act that lapsed waiting. Its id is made from the envelope it
+ * answers, so a pull answered again owes it once.
+ */
+export async function answerPulled(relayId: string, ref: string, answer: { status: number; body: Record<string, unknown> }, now = new Date()): Promise<void> {
+  await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its outbox takes it.
+    await tx.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relayId]);
+    const { rows: [control] } = await tx.query<{ deployment: string }>('SELECT deployment_id::text AS deployment FROM platform_control');
+    const id = envelopeId({ deployment: control!.deployment, relay: relayId, link: null, type: 'act_result', subject: ref });
+    await enqueue(tx, {
+      id, relayId, linkId: null, companyId: null, type: 'act_result', subjects: [],
+      body: envelopeBody({
+        v: 1, id, type: 'act_result', at: now.toISOString(), deployment: control!.deployment, relay: relayId,
+        data: { ref, status: answer.status, answer: answer.body },
+      }),
+    }, now);
+  });
 }
 
 /** Rows a process took more than ten minutes ago and never settled: owed again, under the same id. */
@@ -89,10 +139,18 @@ export async function takeBackStale(now = new Date()): Promise<number> {
 
 interface Claimed {
   id: string;
+  type: string;
   link_id: string | null;
   body: string;
   attempts: number;
   created_at: Date;
+}
+
+/** The keys envelopes are signed with now, and those a rotation is signed with while the key it replaces is kept. */
+export interface Signing {
+  keys: readonly KeyObject[];
+  kid: string;
+  rotation?: readonly KeyObject[];
 }
 
 export interface Destination {
@@ -125,22 +183,65 @@ const REMOVED_WORDS = `(o.type = 'room_activity' OR o.type = 'meeting_soon') AND
                       WHERE m.company_id = o.company_id AND m.id = substr(s.subject, 9)::uuid AND m.deleted_at IS NULL))`;
 
 /**
+ * A person's notices about a room, owed now, that the person may no longer
+ * see the room of: taken out of a private room or a direct one since the
+ * notice was written (STATUS section 2.216). The same question
+ * `app.room_visible_to` asks, put on the control plane, which names no
+ * reader. Dropped as the loop is about to send, with their tokens, so a
+ * notice owed when its person left, or put back from the dead letters days
+ * later, tells them nothing more about the room.
+ */
+async function dropUnseen(tx: TenantClient, relayId: string, now: Date): Promise<number> {
+  const { rows } = await tx.query<{ body: string }>(
+    `DELETE FROM relay_outbox o USING relay_links l
+      WHERE o.relay_id = $1 AND o.status = 'pending' AND o.next_at <= $2
+        AND (o.type = 'room_activity' OR o.type = 'meeting_soon') AND o.room_id IS NOT NULL
+        AND l.id = o.link_id
+        AND NOT EXISTS (
+          SELECT 1 FROM rooms r
+           WHERE r.company_id = o.company_id AND r.id = o.room_id
+             AND (r.kind IN ('company', 'division')
+                  OR (r.kind = 'topic' AND (NOT r.private OR l.principal = 'owner'))
+                  OR EXISTS (SELECT 1 FROM room_access a
+                              WHERE a.company_id = o.company_id AND a.room_id = o.room_id AND a.principal = l.principal)))
+      RETURNING o.body`,
+    [relayId, now]);
+  const tokens = rows.flatMap((row) => ((JSON.parse(row.body) as { offers?: Array<{ token: string }> }).offers ?? [])
+    .map((offer) => tokenHash(String(offer.token))));
+  if (tokens.length > 0) {
+    await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE token_hash = ANY($1::text[]) AND voided_at IS NULL', [tokens, now]);
+  }
+  for (let one = 0; one < rows.length; one += 1) countDelivery('gone');
+  return rows.length;
+}
+
+/**
  * Sends what is due to one relay, signed now with the keys given. A row
  * whose link has an earlier row still owed and not yet due, or one being sent
  * by this process or another, waits behind it, and one link's rows go one at
  * a time, so a relay sees one person's envelopes in the order they were
  * made; up to four links are sent at once. A notice of words removed since
- * is never taken.
+ * is never taken, and one about a room its person may no longer see is
+ * dropped.
  */
 export async function sendDue(
   relay: Destination,
-  signing: { keys: readonly KeyObject[]; kid: string },
+  signing: Signing,
   options: { now?: Date; deadline?: number; fetch?: typeof fetch } = {},
 ): Promise<SendReport> {
   const now = options.now ?? new Date();
   const send = options.fetch ?? globalThis.fetch;
   const report: SendReport = { delivered: 0, failed: 0, dead: 0, gone: false };
-  const claimed = await withControlPlane(async (tx) => (await tx.query<Claimed>(
+  const claimed = await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its outbox takes it. It is
+    // also what keeps the order across replicas: a second claim waits here
+    // until the first has committed, and its own statement then sees the
+    // first one's rows as being sent and holds each link's later rows behind
+    // them, where without it both would read them as still owed and due
+    // (STATUS section 2.216).
+    await tx.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relay.id]);
+    await dropUnseen(tx, relay.id, now);
+    return (await tx.query<Claimed>(
     `UPDATE relay_outbox SET status = 'sending', claimed_at = $2
       WHERE id IN (
         SELECT o.id FROM relay_outbox o
@@ -154,8 +255,9 @@ export async function sendDue(
          ORDER BY o.created_at, o.id
          LIMIT $3
            FOR UPDATE SKIP LOCKED)
-      RETURNING id, link_id, body, attempts, created_at`,
-    [relay.id, now, CLAIM_BATCH])).rows);
+      RETURNING id, type, link_id, body, attempts, created_at`,
+    [relay.id, now, CLAIM_BATCH])).rows;
+  });
   if (claimed.length === 0) return report;
 
   // One queue per link, in the order the rows were made.
@@ -224,7 +326,7 @@ function failureOf(status: number, error: unknown): string {
 async function sendOne(
   relay: Destination,
   row: Claimed,
-  signing: { keys: readonly KeyObject[]; kid: string },
+  signing: Signing,
   now: Date,
   send: typeof fetch,
 ): Promise<'delivered' | 'failed' | 'dead' | 'gone'> {
@@ -235,7 +337,7 @@ async function sendOne(
     // holds an envelope to five minutes of it.
     const response = await send(relay.envelopesUrl, {
       method: 'POST',
-      headers: envelopeHeaders(signing.keys, signing.kid, row.id, row.body, now),
+      headers: envelopeHeaders(row.type === 'keys_rotated' && signing.rotation ? signing.rotation : signing.keys, signing.kid, row.id, row.body, now),
       body: row.body,
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       redirect: 'error',
@@ -274,15 +376,17 @@ async function sendOne(
     return 'delivered';
   }
   const attempts = row.attempts + 1;
-  const dead = attempts >= MAX_ATTEMPTS;
+  const rotation = row.type === 'keys_rotated';
+  const dead = !rotation && attempts >= MAX_ATTEMPTS;
+  const wait = RETRY_BASE_SECONDS * 2 ** Math.min(attempts - 1, 30);
   await withControlPlane(async (tx) => {
     await tx.query('UPDATE relays SET failures = failures + 1, last_error = $2 WHERE id = $1', [relay.id, failure]);
     await tx.query(
       `UPDATE relay_outbox
           SET status = $3, attempts = $2::int, claimed_at = NULL, last_error = $4,
-              next_at = $5::timestamptz + make_interval(secs => $6::int * power(2, $2::int - 1))
+              next_at = $5::timestamptz + make_interval(secs => $6::double precision)
         WHERE id = $1`,
-      [row.id, attempts, dead ? 'dead' : 'pending', failure, now, RETRY_BASE_SECONDS]);
+      [row.id, attempts, dead ? 'dead' : 'pending', failure, now, rotation ? Math.min(wait, ROTATION_RETRY_SECONDS) : wait]);
   });
   countDelivery(dead ? 'dead' : 'failed');
   return dead ? 'dead' : 'failed';

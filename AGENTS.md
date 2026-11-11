@@ -37,17 +37,36 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
+| `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub (`hub.ts`, the room stream's one reader per company), search, files; `principal.ts` is who a person is |
+| `src/workspace/import-slack.ts` | the Slack import: an export uploaded in parts under the people folder's `imports/`, read by the worker into rooms in importing mode, and the old workspace's people linked to seats; `src/workspace/zip.ts` reads the ZIP, ZIP64 included, under a cap on everything it unpacks |
+| `src/workspace/limits.ts` | how much one person may write in the rooms a minute, and what a reaction may be; the company's room files limit is `src/workspace/files.ts` |
+| `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
+| `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
+| `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
+| `src/owner/staff.ts` | the staff the owner seats, of three kinds (viewer, member, approver): their invites, names kept apart, handles, sign-in by handle and its lock, a new authenticator; `src/owner/staff-policy.ts` is what each kind may read and post, a fenced block per area; `src/owner/profile.ts` is a person's own profile |
+| `src/owner/conversation-money.ts` | what the owner's conversations may spend: each CEO turn reserved and held in a row before the call, the sweep of holds a crash left, PALUGADA's own monthly allowance |
+| `src/owner/confusables.ts` | the look-alike letters people's names and handles are compared on, generated from Unicode's data by `scripts/confusables.ts` |
+| `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
+| `src/relay/` | relay protocol v1: the deployment's identity, canonical JSON and signatures, pairing, links, offers, the outbox and its loop, what a relay sends back, and a person's own notices as envelopes (`people.ts`) |
+| `docs/relay-protocol.md` | the relay protocol, for whoever builds a relay, with its test vectors; `scripts/relay-reference.ts` is the reference relay (`npm run relay:reference`) |
+| `src/owner/member-notify.ts` | people's notices: who is told of what and when, planned under the delivery reader and read again as the person before it is sent; the sentences are `src/owner/people-said.ts` |
+| `src/workspace/people-meetings.ts` | people's meetings: a person's own message given a time, the people asked and a pasted call link; the rooms' sweep (`src/workspace/cards.ts`) reminds the people asked, and people's notices tell their phones |
+| `console/src/workspace/MeetingPanel.tsx` | a people's meeting drawn under its message, with its call link; `console/src/workspace/SetMeeting.tsx` is the dialog that sets or changes one |
+| `docs/phones.md` | how the owner puts people's notices on their staff's phones: the reference relay, a private ntfy, one topic a person, Link a phone |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
 | `src/templates/` | what a company starts from: `founding.ts`, the CEO and nothing else; `work.ts`, what every role is built from. A team is the CEO's to build, and `test/helpers/standard-team.ts` is the full company the tests that need one use |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
-| `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem and a role's picture |
+| `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
+| `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`), a person's profile (`Profile.tsx`), the room stream every page listens to, one per tab (`useRoomStream.ts`), and the Slack importer with the old workspace's people (`ImportSlack.tsx`) |
+| `console/public/` | the console's icons, manifest and pictures, the twelve people's pictures in `console/public/avatars/people/`; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
+| `console/src/pages/deployment/` and `console/src/pages/settings/` | sections of **This deployment** and of a company's **Settings** kept in files of their own: the relays (`Relays.tsx`) and the room files' limit (`RoomFiles.tsx`) |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
 | `test/acceptance/` | behaviour, one file per area of the specification, against a real database |
-| `test/documents/` | tests about the source and the documents: routes, translations, requirements, this file |
+| `test/documents/` | tests about the source and the documents: routes, translations, requirements, the settings page, this file |
 | `test/helpers/` | fixtures and the per-test reset |
 
 ## Setting up
@@ -67,6 +86,11 @@ npm run db:migrate
 (`npm run console:build`); it stops and says so when it is not. CI runs
 `npm run test:coverage`, the same suite with coverage, whose report names the
 functions no test calls.
+
+Room files are kept in `<PALUGADA_FILES_ROOT>/<companyId>.people/`, beside
+each company's own folder, or under `PALUGADA_PEOPLE_FILES_ROOT` when it is
+set, which must not be inside a company's folder of `PALUGADA_FILES_ROOT`:
+the deployment refuses to start with one there.
 
 `npm run setup` is for running PALUGADA, not for working on it. The suite
 connects with the development URLs and reads nothing from `.env`, while
@@ -99,14 +123,75 @@ Each of these is a test, and each exists because the mistake was made once.
   it ran. `test/acceptance/process.test.ts`.
 - **Every tenant table has row level security, forced, with a policy.**
   `test/acceptance/tenant-isolation.test.ts`.
+- **Room tables are opened only to a transaction that names its reader**,
+  as `withPeople`, `withDelivery` and `withRoomPlatform` do; no code on an
+  agent's path names a room table, and only `src/db/tenant.ts` sets
+  `app.reader` or `app.principal`. An agent's transaction (`withTenant`)
+  names no reader, so it sees and writes nothing in a room table, even in
+  its own company; a person sees only the rooms they may see, whatever the
+  query, and is told nothing about anyone else's.
+  `test/acceptance/people-rls.test.ts`,
+  `test/documents/people-boundary.test.ts`.
+- **Room activity writes no `events` row.** People's words, even a private
+  room's name or that it exists, stay out of the work's journal, which every
+  seat and the context builder read: only a door that turns a message into
+  work writes an event, and it names a private or direct room only as
+  `room: 'private'`. `test/acceptance/rooms-write-no-events.test.ts`,
+  `test/acceptance/room-doors.test.ts`.
+- **No agent capability reaches a room file.** Room files live beside the
+  company's files, never under them, under their own id with the kind their
+  bytes show; only a small picture is drawn, and everything else is saved.
+  `test/acceptance/room-files.test.ts`. So do the parts of a Slack export
+  waiting to be read, which go when the import ends and after seven days in
+  any case. `test/acceptance/import-slack.test.ts`.
+- **No route that reads people's words is readable by the assistant.** Every
+  GET of a people's route module is under `UNREADABLE_UNDER`, both of the
+  assistant's gates ask `unreadable()`, and the people's helpers throw inside
+  the assistant's dispatch. `test/documents/people-boundary.test.ts`.
 - **References between tenant tables carry the company**: composite keys on
   `(company_id, id)`, so a row cannot point into another company.
+  `test/acceptance/tenant-isolation.test.ts`.
 - **The application role has only the grants it needs** (migration 0047).
   Owner actions run on the control plane through `withControlPlane`; agent
-  work runs through `withTenant`.
+  work runs through `withTenant`. `test/acceptance/tenant-isolation.test.ts`
+  lists what the role may write, table by table.
 - **Every API route is pressed from the console**, written as
   `api('METHOD', '/api/...')` with the path spelled out.
   `test/documents/console-routes.test.ts`.
+- **Routes live in `src/owner/api.ts` and the modules of `src/owner/routes/`**,
+  the route tests read both through `test/helpers/route-sources.ts`, and no
+  two routes of one method match the same path.
+  `test/documents/console-routes.test.ts`.
+- **Every POST a seat may make is on one list: talk, ask or decide**, in
+  its area's block of `src/owner/staff-policy.ts`.
+  `test/documents/staff-routes.test.ts`.
+- **Every place that carries outside words into derived work carries staff
+  words too**: a call that passes `carriesOutside`, or reads
+  `carriesOutsideFrom`, passes `carriesStaff` or `carriesStaffFrom`, so a
+  member of staff's words held at tier 2 in one task are held in the work
+  made from it. `test/documents/provenance-sites.test.ts`.
+- **The relay protocol is one document and the code that speaks it.** Every
+  envelope type in `src/relay/` is described in `docs/relay-protocol.md`, the
+  document describes none the code does not know, and its test vectors
+  verify. A type is only ever added within v1: the test records every type,
+  and one leaves its lists only with a v2. What the document binds a relay
+  to that the code depends on -- dropping content at the fortnight the
+  deployment keeps what it sent (`KEPT_DAYS`) -- is held to the code there
+  too. `test/documents/relay-protocol.test.ts`.
+- **A relay is sent no company, room, thread, item or task id.** A notice's
+  link names a handle made for that one notice (`opaqueLink`), and what it
+  opens is kept beside the envelope in the outbox and told by the owner API
+  only to the person it was for. An envelope that opens something passes it
+  as `opens` when it is enqueued, never in its link or its data.
+  `test/acceptance/relay-links.test.ts`.
+- **A person's notice is never an inbox item, and never words a link's share
+  does not allow.** People's notices are planned only under the delivery
+  reader, which sees no words, and read again as the person told before they
+  are sent; the owner hears people only when they turned it on.
+  `test/acceptance/people-notify.test.ts`.
+- **The workspace's shapes are written twice and held together**:
+  `src/workspace/contract.ts` and `console/src/workspace/types.ts`, type by
+  type and field by field. `test/documents/workspace-contract.test.ts`.
 - **Every sentence the console shows goes through `t()`** and has a
   translation in every dictionary in `console/src/locales/` (Indonesian in
   `console/src/locales/id.ts`, and one file for each other language). Write
@@ -114,20 +199,45 @@ Each of these is a test, and each exists because the mistake was made once.
   plural form the language has. `test/documents/console-i18n.test.ts` names
   anything missing, left in English, or short of a form. What the server says
   to the owner (`src/owner/say.ts`) has one dictionary per language in
-  `src/owner/sentences/`, held the same way.
+  `src/owner/sentences/`, held the same way, and is said from a file directly
+  in `src/owner/`, the only level `test/acceptance/owner-channels.test.ts`
+  reads. The people's workspace keeps its sentences by feature, in
+  `console/src/locales/areas/` and `src/owner/sentences/areas/`.
 - **Nothing is drawn from the letters of a name.** A company, a role and the
   owner are pictures (`console/src/images.ts`), and every image the console
   names ships in `console/public`. `test/documents/console-images.test.ts`.
 - **The console stores nothing in the browser.** The session lives in memory;
-  preferences live in the owner API.
+  preferences live in the owner API, and no service worker is registered.
+  `test/documents/console-page.test.ts`,
+  `test/documents/people-boundary.test.ts`.
 - **The console fits a phone.** Drawn in Chromium at 390 pixels, the work,
-  the money and the overview have nothing wider than the screen, nothing
-  that scrolls sideways, no badge cut and no figure broken.
-  `test/acceptance/console-phone.test.ts`, which skips where no Chromium is
+  the money, the overview, the rooms' rail and an open room have nothing
+  wider than the screen, nothing that scrolls sideways, no badge cut and no
+  figure broken; an open room is the whole screen, its composer above the
+  keyboard. `test/acceptance/console-phone.test.ts` and
+  `test/acceptance/console-rooms.test.ts`, which skip where no Chromium is
   installed; `PALUGADA_CHROMIUM` names one.
+- **A decision is pressed, and pressed the same way everywhere.** The inbox
+  and a room's approval card draw `console/src/components/DecisionButtons.tsx`:
+  Approve is an outline after a plain Deny, and nothing approves, decides,
+  asks for work or sends it from the keyboard. What an agent wrote is drawn
+  in a room with `Prose`, never as raw text.
+  `test/documents/console-page.test.ts`,
+  `test/documents/console-workspace.test.ts`.
 - **Every column of an exported table is exported**, or listed with a reason
-  in `test/acceptance/audit-export.test.ts`.
-- **Every requirement in the PRD appears in `docs/STATUS.md`.**
+  in `test/acceptance/audit-export.test.ts`. A change that adds a column to
+  an exported table exports it, or lists it there, in the same commit.
+- **Every requirement in the PRD appears in `docs/STATUS.md`**, and a
+  requirement a section says it built is not graded not built in the table.
+  `test/documents/requirement-coverage.test.ts`.
+- **Every variable the code reads from the environment is named in
+  `docs/configuration.md`**, in full and with its effect.
+  `test/documents/configuration.test.ts`.
+- **A comment cites only what the repository holds.** The people's workspace
+  was designed in a document kept outside it; a comment states the rule
+  itself, with its PRD id (`F19.x`) or the STATUS section that records it,
+  never that document, its numbered rules or the sets it was built in.
+  `test/documents/self-knowledge.test.ts`.
 - **A version is one number everywhere**: `package.json`, its lockfile and
   the newest section of `CHANGELOG.md`. A change an owner or an operator
   would notice adds its line to that section; releasing it is
@@ -136,7 +246,8 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Nothing in `src/` is exported and reachable only from tests.**
   `test/documents/reachability.test.ts` keeps an inventory.
 - **Tests run one file at a time** (`--test-concurrency=1`): they share one
-  database and each file resets it.
+  database and each file resets it. `test/documents/self-knowledge.test.ts`
+  holds `npm test` and `npm run test:coverage` to it.
 - **A test that changes deployment-wide state** (`platform_control`) resets it
   in `test/helpers/setup.ts`, or every later file inherits it.
 - **A transaction runs its queries one at a time.** No `Promise.all` over one

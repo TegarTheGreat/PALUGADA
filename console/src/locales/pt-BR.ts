@@ -70,6 +70,7 @@
  * given to that label here.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. No Meta for Developers, crie um app com WhatsApp, adicione o número da sua empresa e crie um usuário do sistema com um token permanente que possa enviar mensagens por ele.",
@@ -187,7 +188,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Um gatilho não conseguiu ler o segredo, então os eventos não estão chegando",
   "A trigger refused a caller without its token": "Um gatilho recusou uma chamada sem o token",
   "A user auth token from Sentry's settings.": "Um token de usuário (User Auth Token), das configurações do Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Um leitor acompanha o trabalho da empresa. Um aprovador também aprova ou recusa o que espera no nível 2 ou abaixo. Nível 3, configurações, chaves e dispositivos continuam com você.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Um jeito de pensar para trabalhar, tirado de alguém cuja forma de liderar é de conhecimento público.",
   "A way to work": "Um jeito de trabalhar",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Um painel semanal se lê melhor com {fewest} a {most} números, e este tem {lines}: tire os que ninguém usa para agir.",
@@ -1182,7 +1182,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Ela tentou dividir o trabalho em mais subtarefas do que uma tarefa pode ter. Faça de novo como um trabalho menor.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Ela foi repassada de cargo em cargo mais vezes do que um trabalho pode ser, então parou em vez de continuar sendo repassada. Faça de novo, dizendo na sua anotação quem deve fazê-la.",
   "It will not run again. The work it already made stays, with what that work produced.": "Ele não será executado de novo. O trabalho que já criou permanece, com o que esse trabalho produziu.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Ele funciona uma única vez, por uma semana, e só aparece agora. Ao abri-lo, a pessoa precisará adicionar o PALUGADA ao próprio app autenticador.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Ela gravou algo em um sistema externo e leu de volta, e o que leu não bateu. Confira o lugar onde ela gravou antes de fazer de novo: a gravação pode ter acontecido.",
   "Its address": "Endereço",
   "Its arguments": "Argumentos",
@@ -1884,7 +1883,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Gasto hoje",
   "Spent today: {amount}": "Gasto hoje: {amount}",
   "Split into too many sub-tasks": "Dividida em subtarefas demais",
-  "Staff who can follow this company, and approve what is small.": "Colaboradores que podem acompanhar esta empresa e aprovar coisas pequenas.",
   "Stage": "Fase",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2932,6 +2930,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} de {count} metas comprometidas avaliadas neste trimestre foram cumpridas.",
   "Numbers for {quarter}": "Números de {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Contados a partir das notas escritas ao fim de cada período, como o planejamento trimestral as lê: servem ao próximo plano, e nenhum pagamento ou confiança depende delas.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('pt-BR'),
 };
 
 /**
@@ -2966,4 +2966,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('pt-BR'),
 ];

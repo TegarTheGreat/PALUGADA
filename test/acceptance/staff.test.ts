@@ -14,8 +14,9 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withPeople, withRoomPlatform, withTenant, type Person } from '../../src/db/tenant.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
@@ -53,7 +54,7 @@ async function seat(api: Console, owner: string, fixture: Fixture, name: string,
   return { seatId: String(made.body.seatId), invite, token: String(joined.body.token), code, staff: joined.body.staff };
 }
 
-test('a viewer joins with their own authenticator, reads their company, and changes nothing', async () => {
+test('a viewer joins with their own authenticator, reads their company, and changes no work', async () => {
   const fixture = await createCompany('staff-viewer');
   const other = await createCompany('staff-other');
   const api = await consoleWithSettings();
@@ -71,8 +72,11 @@ test('a viewer joins with their own authenticator, reads their company, and chan
     assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/inbox`, rina.token)).status, 200);
     assert.equal((await api.call('GET', `/api/companies/${other.companyId}/work`, rina.token)).status, 403, 'nor another company');
 
+    // A viewer talks and keeps its own profile (F19.8), and changes no work: it
+    // neither gives work nor tells a task anything.
     const forbidden: Array<[string, string]> = [
       ['POST', `/api/companies/${fixture.companyId}/assign`],
+      ['POST', `/api/companies/${fixture.companyId}/tasks/${randomUUID()}/instruct`],
       ['GET', `/api/companies/${fixture.companyId}/export`],
       ['GET', `/api/companies/${fixture.companyId}/conversation`],
       ['GET', '/api/control/settings'],
@@ -197,6 +201,102 @@ test('revoking a seat ends its sessions at once, and the owner sees who is seate
     // An invite not yet used is withdrawn with its seat.
     await api.call('POST', `/api/companies/${fixture.companyId}/staff/${pending.body.seatId}/revoke`, owner, {});
     assert.equal((await api.call('POST', '/api/auth/join', '', { code: pending.body.invite })).status, 401);
+  } finally {
+    await api.close();
+  }
+});
+
+test('revoking a seat leaves no handle and no setting of it', async () => {
+  const fixture = await createCompany('staff-revoke-rooms');
+  const api = await consoleWithSettings();
+  try {
+    const owner = await api.signIn();
+    const rina = await seat(api, owner, fixture, 'Rina', 'viewer');
+    const sari = await seat(api, owner, fixture, 'Sari', 'approver');
+    const people: Record<'owner' | 'rina' | 'sari', Person> = {
+      owner: { principal: 'owner', name: null },
+      rina: { principal: `seat:${rina.seatId}`, name: 'Rina' },
+      sari: { principal: `seat:${sari.seatId}`, name: 'Sari' },
+    };
+    // What each of them chose for themselves: a handle, and their own settings.
+    await withControlPlane(async (tx) => {
+      for (const [who, seatId] of [['rina', rina.seatId], ['sari', sari.seatId]] as const) {
+        await tx.query('UPDATE staff_seats SET handle = $2 WHERE id = $1', [seatId, who]);
+        await tx.query("INSERT INTO principal_prefs (principal, company_id, language) VALUES ($1, $2, 'id')",
+          [`seat:${seatId}`, fixture.companyId]);
+      }
+    });
+
+    // Rina is in the company's room, a private room with Sari, and a direct
+    // room with the owner, and is owed a mention and follows a thread there.
+    const company = randomUUID();
+    await withRoomPlatform(fixture.companyId, (tx) => tx.query(
+      "INSERT INTO rooms (id, company_id, kind, created_by, shows_work) VALUES ($1, $2, 'company', 'platform', 'asked_here')",
+      [company, fixture.companyId]));
+    for (const person of Object.values(people)) {
+      await withPeople(fixture.companyId, person, (tx) => tx.query(
+        'INSERT INTO room_members (company_id, room_id, principal, name, added_by) VALUES ($1, $2, $3, $4, $3)',
+        [fixture.companyId, company, person.principal, person.name]));
+    }
+    const payroll = randomUUID();
+    const direct = randomUUID();
+    await withPeople(fixture.companyId, people.owner, async (tx) => {
+      await tx.query(
+        "INSERT INTO rooms (id, company_id, kind, name, private, created_by) VALUES ($1, $2, 'topic', 'payroll', true, 'owner')",
+        [payroll, fixture.companyId]);
+      await tx.query(
+        "INSERT INTO rooms (id, company_id, kind, private, direct_key, created_by) VALUES ($1, $2, 'direct', true, $3, 'owner')",
+        [direct, fixture.companyId, [people.owner.principal, people.rina.principal].sort().join(',')]);
+      for (const [room, person] of [[payroll, people.owner], [payroll, people.rina], [payroll, people.sari],
+        [direct, people.owner], [direct, people.rina]] as const) {
+        await tx.query('INSERT INTO room_members (company_id, room_id, principal, name, added_by) VALUES ($1, $2, $3, $4, $5)',
+          [fixture.companyId, room, person.principal, person.name, 'owner']);
+      }
+      await tx.query(
+        `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, mentions)
+         VALUES ($1, $2, $3, 'text', 'owner', '@rina the March run, please', $4)`,
+        [randomUUID(), fixture.companyId, payroll, [people.rina.principal]]);
+    });
+
+    const whatRinaHas = () => withControlPlane(async (tx) => {
+      const principal = people.rina.principal;
+      const count = async (sql: string) => Number((await tx.query<{ n: string }>(sql, [fixture.companyId, principal])).rows[0]!.n);
+      return {
+        handle: (await tx.query<{ handle: string | null }>('SELECT handle FROM staff_seats WHERE id = $1', [rina.seatId])).rows[0]!.handle,
+        prefs: (await tx.query('SELECT 1 FROM principal_prefs WHERE principal = $1', [principal])).rowCount,
+        present: await count('SELECT count(*) AS n FROM room_members WHERE company_id = $1 AND principal = $2 AND left_at IS NULL'),
+        access: await count('SELECT count(*) AS n FROM room_access WHERE company_id = $1 AND principal = $2'),
+        follows: await count('SELECT count(*) AS n FROM room_follows WHERE company_id = $1 AND principal = $2'),
+        mentions: await count('SELECT count(*) AS n FROM room_mentions WHERE company_id = $1 AND principal = $2 AND seen_at IS NULL'),
+      };
+    });
+    assert.deepEqual(await whatRinaHas(), { handle: 'rina', prefs: 1, present: 3, access: 2, follows: 1, mentions: 1 });
+
+    const revoked = await api.call('POST', `/api/companies/${fixture.companyId}/staff/${rina.seatId}/revoke`, owner, {});
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    assert.deepEqual(await whatRinaHas(), { handle: null, prefs: 0, present: 0, access: 0, follows: 0, mentions: 0 },
+      'no handle, no setting, no room, and nothing owed to her');
+
+    const left = await withControlPlane((tx) => tx.query<{ room_id: string; left_by: string }>(
+      'SELECT room_id, left_by FROM room_members WHERE company_id = $1 AND principal = $2 ORDER BY room_id',
+      [fixture.companyId, people.rina.principal]));
+    assert.deepEqual(left.rows.map((row) => [row.room_id, row.left_by]),
+      [company, payroll, direct].sort().map((room) => [room, 'platform']),
+      'she left every room, the direct one too, and the record says the platform took her out');
+    const stayed = await withControlPlane((tx) => tx.query<{ principal: string; n: string }>(
+      `SELECT principal, count(*) FILTER (WHERE left_at IS NULL)::text AS n FROM room_members
+        WHERE company_id = $1 AND principal <> $2 GROUP BY principal ORDER BY principal`,
+      [fixture.companyId, people.rina.principal]));
+    assert.deepEqual(stayed.rows.map((row) => [row.principal, row.n]),
+      [['owner', '3'], [people.sari.principal, '2']], 'everyone else is where they were');
+    const kept = await withControlPlane((tx) => tx.query<{ handle: string | null; prefs: boolean }>(
+      `SELECT s.handle, EXISTS (SELECT 1 FROM principal_prefs p WHERE p.principal = 'seat:' || s.id) AS prefs
+         FROM staff_seats s WHERE s.id = $1`, [sari.seatId]));
+    assert.deepEqual(kept.rows[0], { handle: 'sari', prefs: true }, 'and Sari keeps her own');
+
+    // Her handle is free for whoever is seated next.
+    await withControlPlane((tx) => tx.query(
+      "INSERT INTO staff_seats (company_id, name, kind, handle) VALUES ($1, 'Rina Wulandari', 'viewer', 'rina')", [fixture.companyId]));
   } finally {
     await api.close();
   }

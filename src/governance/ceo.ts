@@ -160,9 +160,10 @@ export async function appointCeo(
 }
 
 /**
- * The CEO's own rhythm not yet started -- the weekly operating meeting and
- * the quarterly planning (src/engine/meeting.ts, quarter.ts) -- moved to the
- * role appointed, with its division and the account that funds it.
+ * The CEO's own rhythm not yet started -- the weekly operating meeting, a
+ * meeting called from a room (STATUS 2.211) and the quarterly planning
+ * (src/engine/meeting.ts, quarter.ts) -- moved to the role appointed, with
+ * its division and the account that funds it.
  *
  * Each is made once for its week or quarter, and its sweep makes no other
  * while one with the key exists: left with the role that stood down, the
@@ -185,7 +186,7 @@ async function handCeoWorkWithin(tx: TenantClient, companyId: string, from: stri
     `SELECT t.id, t.project_id, t.budget_account_id, t.tokens_reserved::text AS tokens_reserved FROM tasks t
       WHERE t.company_id = $1 AND t.role_id = $2 AND t.parent_task_id IS NULL
         AND t.status IN ('pending', 'waiting_window')
-        AND (t.idempotency_key LIKE 'meeting:%' OR t.idempotency_key LIKE 'quarter:%')
+        AND (t.idempotency_key LIKE 'meeting:%' OR t.idempotency_key LIKE 'room-meeting:%' OR t.idempotency_key LIKE 'quarter:%')
         AND NOT EXISTS (SELECT 1 FROM task_steps s WHERE s.company_id = t.company_id AND s.task_id = t.id)
       ORDER BY t.id
       FOR UPDATE OF t`,

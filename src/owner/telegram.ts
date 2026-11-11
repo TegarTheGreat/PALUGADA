@@ -50,7 +50,7 @@ import { deploymentLanguages } from '../domain/language.ts';
 import type { Heard } from '../capabilities/listen.ts';
 import type { ChatPartner } from './assistant.ts';
 import type {
-  ClosedItem, DeliveryResult, DoneNotice, NotifiableItem, OwnerChannel, RetractOutcome,
+  ClosedItem, DeliveryResult, DoneNotice, NotifiableItem, OwnerChannel, PeopleNoticeText, RetractOutcome,
 } from './notify.ts';
 
 export interface TelegramOptions {
@@ -413,6 +413,22 @@ export class TelegramChannel implements OwnerChannel {
       ...(notice.url
         ? { reply_markup: { inline_keyboard: [[{ text: say(notice.language, 'Open in PALUGADA'), url: notice.url }]] } }
         : {}),
+    }));
+    return sent.message_id ? { ref: String(sent.message_id) } : {};
+  }
+
+  /**
+   * A colleague wrote to the owner or mentioned them (STATUS section 2.213),
+   * for an owner who chose to hear people outside the inbox: who and where,
+   * and the link on a line of its own, as plain text with no buttons -- a
+   * notice is never a card, and nothing in it is decided here.
+   */
+  async deliverPeopleNotice(notice: PeopleNoticeText): Promise<DeliveryResult> {
+    const sent = await this.#inTopic(notice.companyId, (thread) => this.#call<{ message_id?: number }>('sendMessage', {
+      chat_id: this.#options.chatId,
+      ...threaded(thread),
+      text: notice.url ? `${notice.text}\n${notice.url}` : notice.text,
+      link_preview_options: { is_disabled: true },
     }));
     return sent.message_id ? { ref: String(sent.message_id) } : {};
   }

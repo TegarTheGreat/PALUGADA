@@ -169,6 +169,10 @@ test('every table holding tenant data is protected', async () => {
     // owner's chat, like the Telegram topics, and no agent's business.
     'whatsapp_receipts',
     'whatsapp_sent',
+    // Each handle's wrong sign-in codes (STATUS 2.217): kept for the handle
+    // as typed, held by a seat or by nobody, so it names no company; the
+    // control plane's, and the application role has no grant.
+    'handle_sign_ins',
   ]);
 
   const rows = await withControlPlane(async (tx) => {
@@ -566,6 +570,79 @@ test('the application role may write what the platform writes, and no more (F12,
     [`has_table_privilege(${app}, 'chat_channels', 'UPDATE')`, 'or letting a channel answer on its own'],
   ] as const) {
     assert.equal(await may(check), false, why);
+  }
+
+  // The people's rooms (0150): each table opens to the application role
+  // only what the people's helpers write, and the rest is the triggers'.
+  const ROOM_GRANTS: Record<string, { table: string[]; columns?: string[] }> = {
+    rooms: { table: ['SELECT', 'INSERT'], columns: ['name', 'about', 'archived_at', 'archived_by', 'shows_work'] },
+    room_members: { table: ['SELECT', 'INSERT'], columns: ['name', 'role', 'left_at', 'left_by'] },
+    room_places: { table: ['SELECT'], columns: ['read_position', 'notify', 'muted_until'] },
+    room_access: { table: ['SELECT'] },
+    room_feed: { table: ['SELECT'] },
+    room_clock: { table: ['SELECT'] },
+    room_messages: {
+      table: ['SELECT', 'INSERT'],
+      // `mentions` changes with an edit's words (STATUS 2.218), which the guard holds.
+      columns: ['body', 'edited_at', 'deleted_at', 'deleted_by', 'task_id', 'inbox_item_id', 'notice_values', 'became',
+        'became_by', 'became_at', 'mentions'],
+    },
+    room_message_revisions: { table: ['SELECT'] },
+    room_reactions: { table: ['SELECT', 'INSERT', 'DELETE'] },
+    room_pins: { table: ['SELECT', 'INSERT', 'DELETE'] },
+    room_files: { table: ['SELECT', 'INSERT'] },
+    room_mentions: { table: ['SELECT', 'INSERT'], columns: ['seen_at'] },
+    room_follows: { table: ['SELECT', 'INSERT'], columns: ['following', 'updated_at'] },
+    // A Slack import and the authors it brought (STATUS section 2.214): the
+    // control plane's alone, since a former person's private rooms are the
+    // owner's to know and nothing of an import is a seat's.
+    room_imports: { table: [] },
+    room_former_people: { table: [] },
+    // People's notices (STATUS section 2.213): the planner writes and purges
+    // them, and a send settles them; nothing else of a row changes.
+    people_notices: {
+      table: ['SELECT', 'INSERT', 'DELETE'],
+      columns: ['count', 'position', 'day', 'notify_after', 'attempts', 'last_attempt_at', 'delivered_at', 'settled_as', 'last_error'],
+    },
+    // People's meetings (STATUS section 2.215): a person sets, moves and
+    // cancels one, and the rooms' sweep marks it reminded; nothing is removed
+    // but with its message or its room.
+    room_meetings: {
+      table: ['SELECT', 'INSERT'],
+      columns: ['starts_at', 'minutes', 'attendees', 'call_url', 'cancelled_at', 'cancelled_by', 'reminded_at'],
+    },
+  };
+  for (const [table, granted] of Object.entries(ROOM_GRANTS)) {
+    for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
+      assert.equal(await may(`has_table_privilege(${app}, '${table}', '${privilege}')`), granted.table.includes(privilege),
+        `${table}: ${privilege}`);
+    }
+    const { rows: columns } = await withControlPlane((tx) => tx.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`, [table]));
+    const updatable: string[] = [];
+    for (const { column_name: column } of columns) {
+      if (await may(`has_column_privilege(${app}, '${table}', '${column}', 'UPDATE')`)) updatable.push(column);
+    }
+    assert.deepEqual(updatable.sort(), [...(granted.columns ?? [])].sort(), `${table}: the columns it may change`);
+  }
+  for (const fn of ['app.advance_card_cursor(uuid, timestamptz)', 'app.touch_room_card(uuid, uuid, uuid)', 'app.may_see(uuid, uuid, text)',
+    'app.take_notice_cursor(uuid)', 'app.advance_notice_cursor(uuid, bigint)']) {
+    assert.equal(await may(`has_function_privilege(${app}, '${fn}', 'EXECUTE')`), true, fn);
+  }
+  assert.equal(await may(`has_function_privilege(${app}, 'app.next_room_position(uuid)', 'EXECUTE')`), false,
+    'a position is taken by a write, never by hand');
+  // Who may see a room, asked about anyone, is the triggers' alone; the
+  // application asks app.may_see, which answers a person only about themselves.
+  assert.equal(await may(`has_function_privilege(${app}, 'app.room_visible_to(uuid, uuid, text)', 'EXECUTE')`), false,
+    'whether someone else may see a room is not the application\'s to ask');
+  // A person's own settings and a seat's handle are the control plane's (0149).
+  for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
+    assert.equal(await may(`has_table_privilege(${app}, 'principal_prefs', '${privilege}')`), false, `principal_prefs: ${privilege}`);
+  }
+  // A conversation's turn holds its reservation in a row it writes and deletes, and never changes (STATUS 2.205).
+  for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
+    assert.equal(await may(`has_table_privilege(${app}, 'conversation_holds', '${privilege}')`), ['SELECT', 'INSERT', 'DELETE'].includes(privilege),
+      `conversation_holds: ${privilege}`);
   }
 
   // And a table added later does not inherit a delete nobody decided on.

@@ -1,0 +1,12 @@
+-- Staff work may be allowed for a while (F19.9; STATUS section 2.204).
+--
+-- Work a member of staff began or steered never uses the yes the owner gave
+-- for a while for their own work (0083): a seat's words are not the owner's,
+-- and a grant made for the owner's mail would otherwise send whatever a
+-- seat asked for. The owner may still allow one capability to one role for
+-- a while for staff work as well, deciding a card that work raised, with a
+-- second factor given then; this says that a grant does.
+--
+-- Not exported, as standing approvals are not: a restored company's owner
+-- gives their own.
+ALTER TABLE standing_approvals ADD COLUMN covers_staff boolean NOT NULL DEFAULT false;

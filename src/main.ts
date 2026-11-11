@@ -115,6 +115,8 @@ import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
+import { relayChannels } from './relay/channel.ts';
+import { RelayLoop } from './relay/loop.ts';
 import { metricsText } from './reporting/metrics.ts';
 import { guardProcess } from './process-guard.ts';
 import { Browsers } from './browser/browsers.ts';
@@ -761,6 +763,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       filesRoot = null;
     }
   }
+  // Where room files are kept instead of beside each company's folder (STATUS
+  // 2.212). Only with a files root: a deployment that keeps no files keeps no
+  // room files either, and says so rather than ignoring the setting.
+  const peopleRoot = filesRoot ? env.PALUGADA_PEOPLE_FILES_ROOT || null : null;
+  if (!filesRoot && env.PALUGADA_PEOPLE_FILES_ROOT) {
+    notes.push('PALUGADA_PEOPLE_FILES_ROOT is set and PALUGADA_FILES_ROOT is not: no room files are kept until it is');
+  }
   // Searching and reading pages, through the providers the owner chose.
   const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot, prices);
   // Figures worked out in Python, in a container that reaches no network:
@@ -1066,6 +1075,14 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
   const { channels, notes: channelNotes } = await channelsFrom(env, (reference) => secrets.resolve(reference));
   notes.push(...channelNotes);
+  // One channel for each relay the owner paired (STATUS section 2.208). A
+  // relay paired later is taken up by the soft start pairing asks for, and on
+  // every other replica by the settings version pairing moves.
+  try {
+    channels.push(...await relayChannels());
+  } catch (failure) {
+    notes.push(`the paired relays could not be read, so none is told anything until the next start: ${(failure as Error).message}`);
+  }
 
   // The worker stops by an abort signal rather than a method, which is what
   // lets one `stop()` here reach both halves.
@@ -1093,8 +1110,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // exactly like one with nothing to do.
     log,
     // What a company keeps outside its rows, so an erasure removes that
-    // too (0096): its directory in the files root, its charter's folder.
-    erasure: { filesRoot, charters: charterRepository },
+    // too (0096): its directory in the files root, its room files, its
+    // charter's folder; and where retention sweeps the room files.
+    erasure: { filesRoot, peopleRoot, charters: charterRepository },
     // Customers' mailboxes, read in the tick by whichever worker takes each.
     mail: { secrets, ...(mailCa ? { ca: mailCa } : {}), ...(filesRoot ? { filesRoot } : {}) },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
@@ -1140,8 +1158,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     mfa,
     charters: charterRepository,
     ...(browsers ? { browsers } : {}),
-    // The folder the owner hands files into and takes them out of.
-    ...(filesRoot ? { files: { root: filesRoot } } : {}),
+    // The folder the owner hands files into and takes them out of, and where room files are kept.
+    ...(filesRoot ? { files: { root: filesRoot, ...(peopleRoot ? { peopleRoot } : {}) } } : {}),
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that
@@ -1172,6 +1190,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // The owner's assistant thinks with the deployment's own model; with none
     // chosen yet, it says so and points at where to choose one.
     assistant: { llm: llm && usesTools(llm) ? llm : null, voice: toolBindings.voice },
+    // A meeting called from a room needs a model to be held, as the weekly one does.
+    holdsMeetings: llm !== null && llm !== undefined,
     deploymentSettings: {
       baseEnv,
       env,
@@ -1189,6 +1209,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       return { ok: database === 'ok' && ok, database, version: VERSION, worker: said };
     },
     ...(scrapeToken ? { metrics: { token: scrapeToken, text: () => metricsText({ worker }) } } : {}),
+    // The live hub LISTENs here, or on the application's own URL; it is
+    // begun by the first stream and closed with the API (STATUS 2.210).
+    ...(env.PALUGADA_LISTEN_DATABASE_URL ? { listenUrl: env.PALUGADA_LISTEN_DATABASE_URL } : {}),
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 
@@ -1202,6 +1225,11 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // Started last, so a console that failed to bind does not leave a worker
   // running with nobody able to stop it.
   const running = worker.start();
+  // The relay loop, beside the worker and never a stage of its tick: a slow
+  // relay, or a long poll held open, holds up nothing the worker does. It
+  // signs with the deployment's key, opened under the master key.
+  const relayLoop = new RelayLoop({ master: () => master(true), previousMasters: () => previousKeys, log });
+  relayLoop.start();
 
   // Settings changed on another replica: this one is running on the old ones
   // until it starts again, so it does. Checked every half minute, which is as
@@ -1283,6 +1311,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       // grace as a run, rather than cut off halfway.
       const closed = api.close(graceMs);
       shutdown.abort();
+      const relaysStopped = relayLoop.stop();
       // A run in flight gets a moment to finish, and then gives its task back
       // -- well inside the minute a supervisor waits before it kills (the
       // systemd unit's TimeoutStopSec, compose's stop_grace_period). Killed
@@ -1302,6 +1331,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
           // A charter sync halfway through its files would leave the record
           // of what it wrote behind them.
           Promise.race([charterRepository.settled(), graceOver]),
+          // A send in flight finishes within its own five seconds; a long
+          // poll is cut at the grace, and its lease lapses by itself.
+          Promise.race([relaysStopped, graceOver]),
         ]);
       } finally {
         clearTimeout(grace);

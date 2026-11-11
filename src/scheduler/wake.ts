@@ -45,6 +45,12 @@ export interface EnqueueWake {
   detail?: string;
   priority?: number;
   wakeAt?: Date;
+  /**
+   * Who handed the work over, for an assignment: the owner unless a member of
+   * staff pressed for it (F19.9), so the record of the wake does not put a
+   * seat's request in the owner's name.
+   */
+  assignedBy?: 'owner' | 'staff';
 }
 
 export interface EnqueuedWake {
@@ -125,7 +131,7 @@ export async function enqueueWake(input: EnqueueWake): Promise<EnqueuedWake> {
     await appendEvent(tx, {
       companyId: input.companyId,
       type: 'wake.queued',
-      actor: input.reason === 'assignment' ? 'owner' : 'system',
+      actor: input.reason === 'assignment' ? input.assignedBy ?? 'owner' : 'system',
       payload: { roleId: input.roleId, reason: input.reason, wakeAt: wakeAt.toISOString() },
     });
     return { id: rows[0]!.id, coalesced: false };
@@ -299,9 +305,11 @@ export async function drainWakes(
  *
  * The same holds for a to-do a seat is given when an issue is solved (F18.5,
  * src/engine/triage.ts): the one seat it names is handed it now. Who asked is
- * the caller's to say -- the owner, or the event of the to-do being filed --
- * since an agent's to-do recorded as the owner's request would be quoted
- * back as the owner's own words (src/broker/guardian.ts).
+ * the caller's to say -- the owner, a member of staff, or the event of the
+ * to-do being filed -- since an agent's to-do recorded as the owner's request
+ * would be quoted back as the owner's own words (src/broker/guardian.ts), and
+ * so would a seat's. The wake says a member of staff handed it over when one
+ * did.
  */
 export async function assignTask(
   input: CreateTaskInput & { detail?: string },
@@ -317,6 +325,7 @@ export async function assignTask(
     roleId: input.roleId,
     reason: 'assignment',
     detail: input.detail ?? `${input.createdBy} assigned task ${task.id}`,
+    assignedBy: input.createdBy === 'staff' ? 'staff' : 'owner',
   });
 
   return { task, wakeId: wake.id };

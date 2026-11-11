@@ -20,7 +20,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { TERMINAL_STATUSES, isTerminal, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.ts';
+import { DEFAULT_TASK_RESERVE_TOKENS, assertStaffWorkHeld, getTask, outsideContentIn, staffWordsIn } from './tasks.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
@@ -35,6 +35,107 @@ export const INSTRUCTION_MAX = 2_000;
  * this, cancel and do it again with one note.
  */
 export const INSTRUCTIONS_PER_TASK = 10;
+
+/**
+ * Who said something to a task: the owner, or a member of staff by their
+ * seat (F19.9). Required wherever words reach a task, so a caller that does
+ * not say whose they are does not compile, rather than recording the
+ * owner's authority by default. `composedBy` is the owner's words as the
+ * CEO or the assistant composed them in the owner's conversation.
+ */
+export type Author =
+  | { readonly kind: 'owner'; readonly composedBy?: 'ceo' | 'assistant' }
+  | { readonly kind: 'seat'; readonly seatId: string; readonly name: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The author as given, checked: a caller that is not type-checked, or that
+ * built one from a request, cannot make an author by leaving something out.
+ */
+function authorOf(by: unknown): Author {
+  const author = (by ?? {}) as Record<string, unknown>;
+  if (author.kind === 'owner') {
+    if (author.composedBy === undefined) return { kind: 'owner' };
+    if (author.composedBy === 'ceo' || author.composedBy === 'assistant') return { kind: 'owner', composedBy: author.composedBy };
+  } else if (author.kind === 'seat' && typeof author.seatId === 'string' && UUID.test(author.seatId)
+    && typeof author.name === 'string' && author.name.trim().length >= 1 && author.name.length <= 120) {
+    return { kind: 'seat', seatId: author.seatId, name: author.name };
+  }
+  throw new PalugadaError('contract.violation',
+    'words told to a task say who said them: the owner, or a seat by its id and the name the owner gave it', { field: 'by' });
+}
+
+/**
+ * Who an event about a task's words was written by, as every reader of the
+ * owner's events already reads it: the owner, or `staff` with the seat named
+ * in the payload (0110). One place, so the record of whose words they were
+ * cannot be written two ways.
+ */
+export function recordedAs(by: Author): { actor: 'owner' | 'staff'; payload: Record<string, unknown> } {
+  if (by.kind === 'seat') return { actor: 'staff', payload: { staff: { seatId: by.seatId, name: by.name } } };
+  return { actor: 'owner', payload: by.composedBy ? { composedBy: by.composedBy } : {} };
+}
+
+/** Both records of an instruction: the owner's, and a seat's own (F19.9). Every reader reads both. */
+const INSTRUCTION_TYPES: readonly string[] = ['owner.instructed', 'staff.instructed'];
+
+/**
+ * The record an instruction to a task makes, by who gave it: the owner's is
+ * `owner.instructed`, and a seat's is its own `staff.instructed`, actor
+ * `staff`, with the seat named in it (F19.9). Before it (STATUS 2.202) a seat's was
+ * written as `owner.instructed` with the actor `staff`; every reader takes both records
+ * and reads that one as the seat's too, so no instruction given before is
+ * lost or read as the owner's.
+ */
+export function instructionRecord(by: Author, payload: Record<string, unknown>): {
+  type: 'owner.instructed' | 'staff.instructed'; actor: 'owner' | 'staff'; payload: Record<string, unknown>;
+} {
+  const as = recordedAs(by);
+  return { type: by.kind === 'seat' ? 'staff.instructed' : 'owner.instructed', actor: as.actor, payload: { ...payload, ...as.payload } };
+}
+
+/** How a member of staff's words entered a task, as `content.staff_said` records it. */
+export type StaffSaidHow = 'began' | 'instructed' | 'answered' | 'quoted' | 'meeting';
+
+/**
+ * The mark that a member of staff's words are in a task (F19.9), written in
+ * the transaction that records the words themselves: what `staffWordsIn`
+ * reads, and what derived work carries on. The words are not in it, only
+ * who said them and how, so every reader of the task's events may read it.
+ */
+export async function recordStaffSaid(
+  tx: TenantClient,
+  at: { companyId: string; projectId?: string | undefined; taskId: string },
+  by: { seatId: string; name: string },
+  how: StaffSaidHow,
+): Promise<void> {
+  await appendEvent(tx, {
+    companyId: at.companyId,
+    ...(at.projectId ? { projectId: at.projectId } : {}),
+    taskId: at.taskId,
+    type: 'content.staff_said',
+    actor: 'staff',
+    payload: { seatId: by.seatId, name: by.name, how },
+  });
+}
+
+/**
+ * Who told a task something, as `instructionsFor` reads its record: the
+ * owner (as the CEO or the assistant composed it, when one did), or a seat.
+ */
+function authorFrom(row: { type: string; actor: string; payload: Record<string, unknown> }): Author {
+  const staff = row.payload.staff as { seatId?: unknown; name?: unknown } | undefined;
+  if (row.type === 'staff.instructed' || row.actor === 'staff') {
+    return {
+      kind: 'seat',
+      seatId: typeof staff?.seatId === 'string' ? staff.seatId : '',
+      name: typeof staff?.name === 'string' && staff.name.trim() ? staff.name : 'a member of staff',
+    };
+  }
+  const composedBy = row.payload.composedBy;
+  return composedBy === 'ceo' || composedBy === 'assistant' ? { kind: 'owner', composedBy } : { kind: 'owner' };
+}
 
 /**
  * Releases what a set of cancelled tasks had reserved.
@@ -95,11 +196,18 @@ export async function cancelTask(
   companyId: string,
   taskId: string,
   reason?: string | null,
-  by: 'owner' | 'system' = 'owner',
+  by: 'owner' | 'system' | (Author & { kind: 'seat' }) = 'owner',
 ): Promise<number> {
   const root = await taskHere(companyId, taskId);
   if (isTerminal(root.status)) {
     throw new PalugadaError('contract.violation', `task ${taskId} is already ${root.status}`, { taskId });
+  }
+  // A member of staff stops only work it asked for (a room's door checks
+  // that), and the stop is the seat's: recorded under its name, never as
+  // the owner's cancel (F19.9).
+  if (typeof by === 'object') {
+    const seat = authorOf(by) as Author & { kind: 'seat' };
+    return cancelTree(companyId, taskId, reason, seat, 'staff_cancel', false);
   }
   return cancelTree(companyId, taskId, reason, by, by === 'owner' ? 'owner_cancel' : 'work_taken_up', false);
 }
@@ -122,7 +230,7 @@ async function cancelTree(
   companyId: string,
   taskId: string,
   reason: string | null | undefined,
-  by: 'owner' | 'system',
+  by: 'owner' | 'system' | (Author & { kind: 'seat' }),
   haltReason: HaltReason,
   stopped: boolean,
 ): Promise<number> {
@@ -160,8 +268,9 @@ async function cancelTree(
         projectId: row.project_id,
         taskId: row.id,
         type: 'task.cancelled',
-        actor: by,
+        ...(typeof by === 'object' ? recordedAs(by) : { actor: by }),
         payload: {
+          ...(typeof by === 'object' ? recordedAs(by).payload : {}),
           haltReason,
           ...(row.id === taskId ? {} : { under: taskId }),
           ...(why ? { reason: why } : {}),
@@ -204,7 +313,12 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
   // event, a brief written after reading an email -- so what the first one
   // carried, it carries: pressing "do it again" on a send the owner refused
   // must not send it unasked.
-  const carried = await withTenant(companyId, (tx) => outsideContentIn(tx, taskId));
+  const { carried, staff } = await withTenant(companyId, async (tx) => ({
+    carried: await outsideContentIn(tx, taskId),
+    // F19.9: the same for a member of staff's words. Running staff work again
+    // is the owner's press, but the work is still the seat's request.
+    staff: await staffWordsIn(tx, taskId),
+  }));
   const carries = carried === null ? undefined
     : { capability: 'the task it reruns', from: carried, rerunOf: taskId };
   const already = await withTenant(companyId, (tx) =>
@@ -228,21 +342,21 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     createdBy: 'owner',
     idempotencyKey: key,
     carriesOutside: carries,
+    carriesStaff: staff.length > 0 ? { from: 'rerun', staff } : undefined,
     priority: previous.priority,
     detail: `the owner asked for task ${taskId} again`,
   });
   const handling = await withTenant(companyId, async (tx) => {
+    // Running work again is the owner's alone, so the note is the owner's.
     await appendEvent(tx, {
       companyId,
       projectId: task.projectId,
       taskId: task.id,
-      type: 'owner.instructed',
-      actor: 'owner',
-      payload: {
+      ...instructionRecord({ kind: 'owner' }, {
         text,
         rerunOf: taskId,
         previous: { status: previous.status, haltReason: previous.haltReason },
-      },
+      }),
     });
     await appendEvent(tx, {
       companyId,
@@ -783,7 +897,41 @@ export async function continueAllHalted(companyId: string, accountId: string): P
  * decides: the grants, the tier and the budget are what they were. Work that
  * has ended is done again with a note instead.
  */
-export async function instructTask(companyId: string, taskId: string, instruction: string): Promise<void> {
+export async function instructTask(
+  companyId: string, taskId: string, instruction: string, by: Author, where?: InstructedWhere,
+): Promise<void> {
+  await withTenant(companyId, (tx) => instructTaskWithin(tx, companyId, taskId, instruction, by, where));
+}
+
+/**
+ * Where a member of staff's instruction was given, as `staff.instructed`
+ * records it: a room's "Tell the work", an answer in the inbox, a meeting.
+ * A room is named by its id only when everyone may see it; a private or
+ * direct one is `room: 'private'`, since every seat reads a task's events.
+ */
+export interface InstructedWhere {
+  via: 'room' | 'inbox' | 'meeting';
+  roomId?: string;
+  messageId?: string;
+  room?: 'private';
+}
+
+/**
+ * The same, in the caller's transaction, for a caller whose instruction must
+ * be recorded with what it wrote beside it or not at all. `by` says whose
+ * words they are: a member of staff's are recorded as theirs, never as the
+ * owner's, and are refused while the broker does not hold staff work
+ * (`staff.not_ready`).
+ */
+export async function instructTaskWithin(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string,
+  instruction: string,
+  by: Author,
+  where?: InstructedWhere,
+): Promise<void> {
+  const author = authorOf(by);
   const text = String(instruction ?? '').trim();
   if (!text) {
     throw new PalugadaError('contract.violation', 'say something to tell the task', { field: 'text' });
@@ -791,7 +939,11 @@ export async function instructTask(companyId: string, taskId: string, instructio
   if (text.length > INSTRUCTION_MAX) {
     throw new PalugadaError('contract.violation', `an instruction is at most ${INSTRUCTION_MAX} characters`, { field: 'text' });
   }
-  const task = await taskHere(companyId, taskId);
+  if (author.kind === 'seat') await assertStaffWorkHeld('an instruction from a member of staff');
+  const task = await getTask(tx, taskId);
+  if (!task) {
+    throw new PalugadaError('contract.violation', 'no such task in this company', { taskId });
+  }
   if (isTerminal(task.status)) {
     throw new PalugadaError(
       'contract.violation',
@@ -799,44 +951,65 @@ export async function instructTask(companyId: string, taskId: string, instructio
       { taskId },
     );
   }
-  await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'owner.instructed'",
-      [taskId],
+  const { rows } = await tx.query<{ n: number }>(
+    'SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = ANY($2::text[])',
+    [taskId, INSTRUCTION_TYPES],
+  );
+  if ((rows[0]?.n ?? 0) >= INSTRUCTIONS_PER_TASK) {
+    throw new PalugadaError(
+      'contract.violation',
+      `this task has had ${INSTRUCTIONS_PER_TASK} instructions; cancel it and do it again with one note instead`,
+      { taskId },
     );
-    if ((rows[0]?.n ?? 0) >= INSTRUCTIONS_PER_TASK) {
-      throw new PalugadaError(
-        'contract.violation',
-        `this task has had ${INSTRUCTIONS_PER_TASK} instructions; cancel it and do it again with one note instead`,
-        { taskId },
-      );
-    }
-    await appendEvent(tx, {
-      companyId,
-      projectId: task.projectId,
-      taskId,
-      type: 'owner.instructed',
-      actor: 'owner',
-      payload: { text },
-    });
+  }
+  const place = author.kind === 'seat' && where ? {
+    via: where.via,
+    ...(where.room === 'private' ? { room: 'private' } : {
+      ...(where.roomId ? { roomId: where.roomId } : {}),
+      ...(where.messageId ? { messageId: where.messageId } : {}),
+    }),
+  } : {};
+  await appendEvent(tx, {
+    companyId,
+    projectId: task.projectId,
+    taskId,
+    ...instructionRecord(author, { text, ...place }),
   });
+  if (author.kind === 'seat') {
+    // The topic of a meeting a seat called is marked as the meeting it
+    // began, and so counted once among its asks (STATUS 2.211).
+    await recordStaffSaid(tx, { companyId, projectId: task.projectId, taskId }, author, where?.via === 'meeting' ? 'meeting' : 'instructed');
+  }
 }
 
-/** What the owner has told a task, oldest first, for the run that reads it. */
-export async function instructionsFor(
-  tx: TenantClient,
-  taskId: string,
-): Promise<Array<{ text: string; rerunOf: string | null; previous: { status: TaskStatus; haltReason: string | null } | null }>> {
-  const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
-    `SELECT payload FROM events WHERE task_id = $1 AND type = 'owner.instructed'
+/** One thing a task was told, as the run reads it. */
+export interface Instruction {
+  text: string;
+  at: Date;
+  /** Whose words: the owner's (through the CEO or the assistant, when one composed them), or a seat's. */
+  by: Author;
+  rerunOf: string | null;
+  previous: { status: TaskStatus; haltReason: string | null } | null;
+}
+
+/**
+ * What a task was told, oldest first, for the run that reads it: both records
+ * of an instruction, each by its author (F19.9). An instruction written before
+ * `staff.instructed` existed with the actor `staff` is the seat's.
+ */
+export async function instructionsFor(tx: TenantClient, taskId: string): Promise<Instruction[]> {
+  const { rows } = await tx.query<{ type: string; actor: string; occurred_at: Date; payload: Record<string, unknown> }>(
+    `SELECT type, actor, occurred_at, payload FROM events WHERE task_id = $1 AND type = ANY($2::text[])
       ORDER BY occurred_at, id`,
-    [taskId],
+    [taskId, INSTRUCTION_TYPES],
   );
-  return rows.map(({ payload }) => ({
-    text: typeof payload.text === 'string' ? payload.text : '',
-    rerunOf: typeof payload.rerunOf === 'string' ? payload.rerunOf : null,
-    previous: payload.previous && typeof payload.previous === 'object'
-      ? payload.previous as { status: TaskStatus; haltReason: string | null }
+  return rows.map((row) => ({
+    text: typeof row.payload.text === 'string' ? row.payload.text : '',
+    at: row.occurred_at,
+    by: authorFrom(row),
+    rerunOf: typeof row.payload.rerunOf === 'string' ? row.payload.rerunOf : null,
+    previous: row.payload.previous && typeof row.payload.previous === 'object'
+      ? row.payload.previous as { status: TaskStatus; haltReason: string | null }
       : null,
   }));
 }
@@ -856,9 +1029,9 @@ export async function earlierAttempts(tx: TenantClient, taskId: string): Promise
   while (chain.length < LINEAGE_MAX) {
     const { rows } = await tx.query<{ rerun_of: string | null }>(
       `SELECT payload->>'rerunOf' AS rerun_of FROM events
-        WHERE task_id = $1 AND type = 'owner.instructed' AND payload ? 'rerunOf'
+        WHERE task_id = $1 AND type = ANY($2::text[]) AND payload ? 'rerunOf'
         ORDER BY occurred_at, id LIMIT 1`,
-      [current],
+      [current, INSTRUCTION_TYPES],
     );
     const previous = rows[0]?.rerun_of;
     if (!previous || previous === taskId || chain.includes(previous)) break;

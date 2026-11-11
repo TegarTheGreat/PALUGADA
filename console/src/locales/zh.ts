@@ -72,6 +72,7 @@
  * the "other" sentence is written to read right for 1 as well.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. 在 Meta for Developers 中创建一个带 WhatsApp 的应用，添加您的企业号码，再创建一个系统用户（System user），为其生成有权以该号码发送消息的永久令牌。",
@@ -189,7 +190,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "某个触发器无法读取其密钥，因此收不到事件",
   "A trigger refused a caller without its token": "触发器拒绝了未携带令牌的调用方",
   "A user auth token from Sentry's settings.": "Sentry 设置中的用户认证令牌（User Auth Token）。",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "查看者可以关注公司的工作。审批人还可以批准或拒绝等级 2 及以下的待处理事项。等级 3、设置、密钥和设备仍由您掌管。",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "一种工作思维方式，取自某位领导风格有公开记录可查的人物。",
   "A way to work": "工作方法",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "每周计分卡在有 {fewest} 到 {most} 个数字时最好读，这一张有 {lines} 个：请去掉没有人据此行动的那些。",
@@ -1184,7 +1184,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "它试图把工作拆分成超过单个任务上限的子任务。请缩小工作范围后重新执行。",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "它在角色之间转交的次数超过了单项工作的上限，因此停了下来，没有继续转交。请重新执行，并在备注中说明应由谁来做。",
   "It will not run again. The work it already made stays, with what that work produced.": "它不会再运行。已产生的工作及其成果会保留。",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "此链接只能使用一次，有效期一周，且仅在此时显示。打开后，对方需要将 PALUGADA 添加到自己的身份验证器应用中。",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "它向外部写入了内容并读回核对，但读到的内容不一致。重新执行前，请先检查它写入的位置：写入可能已经生效。",
   "Its address": "其地址",
   "Its arguments": "调用参数",
@@ -1886,7 +1885,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "今日已支出",
   "Spent today: {amount}": "今日已支出：{amount}",
   "Split into too many sub-tasks": "拆分出的子任务过多",
-  "Staff who can follow this company, and approve what is small.": "可以关注本公司、并批准小事项的成员。",
   "Stage": "阶段",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2934,6 +2932,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "本季度已评分的 {count} 个必达目标中有 {passed} 个通过。",
   "Numbers for {quarter}": "{quarter} 的数字",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}。按每个周期结束时写下的评分计算，与季度规划读取的一致：它们为下一个计划提供参考，任何付款或信任都不以它们为依据。",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('zh'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2951,4 +2951,5 @@ export const KEPT: readonly string[] = [
   "Telegram",
   "WhatsApp",
   "ntfy",
+  ...areaKept('zh'),
 ];

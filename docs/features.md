@@ -7,9 +7,11 @@ grades each requirement of the specification as built, partial or not built.
 
 ## The guarantees
 
-### One human, one inbox
+### One owner, one inbox
 
-PALUGADA is not a chat workspace or a multi-agent conversation. The owner's
+PALUGADA is not a multi-agent conversation: agents never talk in its rooms.
+The owner may seat people beside them, who talk with the owner in each
+company's rooms and ask for work there (below), but the owner's
 whole job is a queue of decisions, and every card carries what a decision
 needs: what the agent wants to do, which goal it serves (mission → objective →
 key result), how reversible it is, what it costs, what happens if it is
@@ -212,8 +214,17 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
     upload helps only a role given them. The files are the deployment's
     volume and not part of the export archive: back the volume up with the
     database. A staff seat is shown none of it.
+  - **Rooms**: the company's room, a room for each division, topic rooms
+    open or private, and direct conversations of two to eight people, where
+    the owner and the staff they seat talk, with threads, mentions,
+    reactions, pins, files, search, Activity and people's meetings, live on
+    one stream a tab. A message becomes work only when a person presses
+    **Ask the team** on it, with the money reserved first; agents appear
+    only as cards drawn from the work. See
+    [the guide's page](guide/workspace.md).
   - **Money** and **History**, and one **Settings** page for the rest:
-    company, languages, safeguards, skills, bundles, devices and security.
+    company, languages, safeguards, skills, bundles, devices, people and
+    security.
 - Everything is picked from the company's own shape, never typed in as ids.
 - Push for incidents and tier 3 approvals. Telegram buttons for the decisions
   a chat is allowed to make, and those buttons are removed once the item is
@@ -330,9 +341,11 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   server the owner connects, with presets for several.
 - Every agent CLI runs with the platform's tools alone: no shell, files or web
   of its own, so a role cannot run a build or a test suite.
-- A person has no work of their own yet. A staff seat is a viewer or an
-  approver: it reads and answers the inbox, and a question to a person goes to
-  the owner and comes back as text.
+- A staff seat is a viewer, a member or an approver. A viewer reads and
+  talks; a member also asks for work from a message and answers a question
+  put to it; an approver also decides what waits at tier 2 and below. A
+  role may be given to a member or an approver: its work is put to them as a
+  question, and what they answer is what it produced. It has no tools.
 
 **PALUGADA develops PALUGADA**
 - [`AGENTS.md`](../AGENTS.md) is the guide for changing this repository, read by

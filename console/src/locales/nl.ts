@@ -87,6 +87,7 @@
  * Trigger, Tickets, incident, budget, persona).
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Maak in Meta for Developers een app met WhatsApp, voeg je zakelijke nummer toe en maak een systeemgebruiker met een permanent token dat namens dat nummer mag versturen.",
@@ -204,7 +205,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Een trigger kon zijn geheim niet lezen, dus er komen geen gebeurtenissen binnen",
   "A trigger refused a caller without its token": "Een trigger heeft een aanroep zonder token geweigerd",
   "A user auth token from Sentry's settings.": "Een user auth token uit de instellingen van Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Een lezer volgt het werk van het bedrijf. Een goedkeurder keurt daarnaast goed of wijst af wat op niveau 2 of lager wacht. Niveau 3, instellingen, sleutels en apparaten blijven van jou.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Een denkwijze om in te werken, ontleend aan iemand wiens manier van leidinggeven publiek gedocumenteerd is.",
   "A way to work": "Een werkwijze",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Een wekelijkse scorecard leest het best met {fewest} tot {most} getallen, en deze heeft er {lines}: haal de getallen weg waar niemand iets mee doet.",
@@ -1199,7 +1199,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Ze probeerde haar werk op te splitsen in meer subtaken dan één taak mag hebben. Voer de taak opnieuw uit als een kleinere klus.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Ze is vaker van rol naar rol doorgegeven dan bij één klus mag, dus ze is gestopt in plaats van nog verder te worden doorgegeven. Voer de taak opnieuw uit en zet in je notitie wie het moet doen.",
   "It will not run again. The work it already made stays, with what that work produced.": "Het schema loopt niet meer. Het werk dat het al maakte blijft, met wat dat werk opleverde.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Hij werkt één keer, een week lang, en wordt alleen nu getoond. Wie hem opent, wordt gevraagd PALUGADA aan de eigen authenticator-app toe te voegen.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Ze schreef iets naar buiten en las het terug, en wat ze las kwam niet overeen. Kijk op de plek waar ze naartoe schreef voordat je de taak opnieuw uitvoert: de schrijfactie kan al gebeurd zijn.",
   "Its address": "Adres",
   "Its arguments": "Argumenten",
@@ -1901,7 +1900,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Vandaag uitgegeven",
   "Spent today: {amount}": "Vandaag uitgegeven: {amount}",
   "Split into too many sub-tasks": "In te veel subtaken opgesplitst",
-  "Staff who can follow this company, and approve what is small.": "Medewerkers die dit bedrijf kunnen volgen en kleine dingen kunnen goedkeuren.",
   "Stage": "Fase",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2949,6 +2947,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} van {count} toegezegde doelen die dit kwartaal zijn beoordeeld, gehaald.",
   "Numbers for {quarter}": "Cijfers voor {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Geteld uit de beoordelingen die aan het eind van elke periode zijn geschreven, zoals de kwartaalplanning ze leest: ze dienen het volgende plan, en geen betaling of vertrouwen hangt ervan af.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('nl'),
 };
 
 /** Sentences written as they are in English on purpose: names, and words Dutch writes the same way. */
@@ -2994,4 +2994,5 @@ export const KEPT: readonly string[] = [
   "ntfy",
   "via Telegram",
   "{count} incident",
+  ...areaKept('nl'),
 ];

@@ -10,7 +10,7 @@
  * The shell is keyed by the language, so choosing another redraws everything
  * in it (console/src/i18n.ts). The session lives above the key and survives.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
   NavLink, Paper, ScrollArea, SimpleGrid, Stack, Text, TextInput, Tooltip, UnstyledButton,
@@ -21,16 +21,24 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconBook2, IconCoin, IconCompass, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
+  IconBook2, IconCoin, IconCompass, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessageCircle, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
+  IconUserCircle,
 } from '@tabler/icons-react';
-import { api, explain, setToken, whenSignedOut } from './api.ts';
+import { ApiError, api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
-import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
-import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
+import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, tp, useLanguage, type Language } from './i18n.ts';
+import { go, openResolvedNotice, takeLinkedNotice, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
-import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
+import type { SearchHit as RoomHit } from './workspace/types.ts';
+import { itemAt } from './workspace/scope.ts';
+import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
+import { ChooseHandle, kindLabel, ProfileDrawer, useProfile, type Profile } from './workspace/Profile.tsx';
+import type { Unread } from './workspace/types.ts';
+import { badgeOf, useUnread } from './workspace/unread.ts';
+import { useTabNotices } from './workspace/notifyInTab.ts';
+import { useRoomPulse, whenRoomStreamReopens } from './workspace/useRoomStream.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { Onboarding } from './pages/Onboarding.tsx';
@@ -40,6 +48,7 @@ import { Onboarding } from './pages/Onboarding.tsx';
 // gzipped that the sign-in page fetched and never used.
 const DeploymentSettings = lazy(() => import('./pages/Deployment.tsx').then((module) => ({ default: module.DeploymentSettings })));
 const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({ default: module.Decisions })));
+const Rooms = lazy(() => import('./pages/Rooms.tsx').then((module) => ({ default: module.Rooms })));
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Plan = lazy(() => import('./pages/Plan.tsx').then((module) => ({ default: module.Plan })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
@@ -63,6 +72,7 @@ import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
 /** `about` is said under each page's name, so nobody has to open one to learn what it is for. */
 const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
   { id: 'inbox', label: N('Inbox'), about: N('What waits for your decision'), icon: IconInbox, group: 'decide' },
+  { id: 'rooms', label: N('Rooms'), about: N('Talk with your team, and ask for work where you talk'), icon: IconMessageCircle, group: 'company' },
   { id: 'overview', label: N('Overview'), about: N('How the company is doing'), icon: IconLayoutDashboard, group: 'company' },
   { id: 'plan', label: N('Plan'), about: N('The vision, and the plan that serves it'), icon: IconCompass, group: 'company' },
   { id: 'work', label: N('Work'), about: N('What the team is doing now'), icon: IconActivity, group: 'company' },
@@ -75,6 +85,14 @@ const PAGES: Array<{ id: CompanyPage; label: string; about: string; icon: typeof
   { id: 'history', label: N('History'), about: N('Everything that happened'), icon: IconHistory, group: 'company' },
   { id: 'settings', label: N('Settings'), about: N('Hours, languages and security'), icon: IconSettings, group: 'setup' },
 ];
+
+/**
+ * The pages drawn edge to edge and the whole height of the screen, rather
+ * than in the padded column every other page sits in: the rooms, whose
+ * composer is pinned to the foot (STATUS 2.207). Kept apart from `PAGES`,
+ * whose one-line form the page test reads.
+ */
+const FULL_PAGES: ReadonlySet<CompanyPage> = new Set(['rooms']);
 
 export function App() {
   const [device, setDevice] = useState<string | null>(null);
@@ -91,6 +109,14 @@ export function App() {
   useEffect(() => { setDirection(direction()); }, [lang, setDirection]);
   useEffect(() => { takeLinkedRoute(); }, []);
   useEffect(() => whenSignedOut(() => setDevice(null)), []);
+  // The server ends a member of staff's streams when the owner changes what
+  // they may do; once the stream is back, who they are is read again, and the
+  // console draws the controls of their new kind without a reload (STATUS 2.210).
+  useEffect(() => whenRoomStreamReopens(() => {
+    void api('GET', '/api/me').then((me: { staff: Staff | null }) => {
+      setStaff((now) => (now && me.staff && now.kind === me.staff.kind && now.name === me.staff.name ? now : me.staff));
+    }, () => undefined);
+  }), []);
 
   if (!device) {
     return <SignIn key={lang} onSignedIn={(session) => {
@@ -132,6 +158,15 @@ export interface ConsoleContext {
   talk: (draft?: string) => void;
   /** A staff seat signed in (0110), or null for the owner: a page leaves out what is the owner's. */
   staff: Staff | null;
+  /** The person signed in, as their profile says (F19.2): a seat's principal, handle and picture. */
+  me: Profile | null;
+  openProfile: () => void;
+  /** What waits in each company, as `/api/rooms/unread` last said (F19.10). */
+  unread: Unread[];
+  /** Read the waiting counts again now: a room was read, or a message sent. */
+  refreshUnread: () => void;
+  /** On a phone, an open room has the whole screen: no shell header, no tab bar (F19.16). */
+  setImmersive: (on: boolean) => void;
 }
 
 export interface PageProps {
@@ -184,6 +219,12 @@ function Console({ device, staff, recovered, signOut }: {
   const [tourNew, setTourNew] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
   const spotted = (name: TourSpot) => (spot === name ? ' tour-spot' : '');
+  // The person signed in, as they set themselves (F19.2, F19.22): a seat's
+  // language, handle and picture, and the profile drawer everyone keeps.
+  const me = useProfile();
+  const [profiling, setProfiling] = useState(false);
+  // A room open on a phone, which has the whole screen (Rooms.tsx).
+  const [immersive, setImmersive] = useState(false);
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages, money]: [
@@ -216,10 +257,14 @@ function Console({ device, staff, recovered, signOut }: {
     void api('POST', '/api/control/tour', { finished: true }).catch(() => undefined);
   }, []);
 
-  // The deployment's choice wins over the browser's once the owner is in.
+  // The deployment's choice wins over the browser's once the owner is in. A
+  // member of staff reads in the language they chose, when they chose one
+  // (F19.22), and the deployment's otherwise; theirs is waited for, so the
+  // console is not drawn in one and then the other.
   useEffect(() => {
     const chosen = base.data?.languages.console;
-    if (isLanguage(chosen) && chosen !== language()) setLanguage(chosen);
+    const wanted = staff ? (me.data ? (isLanguage(me.data.language) ? me.data.language : chosen) : null) : chosen;
+    if (isLanguage(wanted) && wanted !== language()) setLanguage(wanted);
     // No choice yet: the console has been drawn in the browser's language, and
     // the deployment has never been told. Everything the server writes for the
     // owner -- the CEO's first words, a push, a card -- and every agent that has
@@ -233,7 +278,7 @@ function Console({ device, staff, recovered, signOut }: {
     // console as a language does when it changes.
     const money = base.data?.money;
     if (money) setMoneyDisplay(money.currency && money.rate ? { currency: money.currency, rate: money.rate } : null);
-  }, [base.data]);
+  }, [base.data, me.data]);
 
   const companies = base.data?.companies ?? [];
   const stopAll = base.data?.stopAll ?? false;
@@ -242,6 +287,13 @@ function Console({ device, staff, recovered, signOut }: {
   const routed = route.kind === 'company' ? companies.find((one) => one.id === route.companyId) ?? null : null;
   useEffect(() => { if (routed) setLastCompany(routed.id); }, [routed]);
   const company = routed ?? companies.find((one) => one.id === lastCompany) ?? companies[0] ?? null;
+
+  // The company in view's room stream, held by the shell so a tab holds it once on every page (STATUS 2.210): its
+  // changes read the badges again at once, and a hidden tab tells its person of a direct message or a mention.
+  const attention = useRoomPulse(company?.id ?? null, (frame) => 'room' in frame && frame.kind !== 'reaction' && frame.kind !== 'pin');
+  useTabNotices(company?.id ?? null, me.data ? { principal: me.data.principal, notifyInTab: me.data.notifyInTab } : null);
+  // What waits in each company: the Rooms badge, the company menu's, the tab's title, and the owner's inbox count.
+  const unread = useUnread(attention.pulse);
 
   // A company just started or restored is in the address before the list read again has it: until it does, it
   // is not taken for one that no longer exists.
@@ -254,6 +306,21 @@ function Console({ device, staff, recovered, signOut }: {
   useEffect(() => {
     if (base.data && route.kind === 'company' && !routed && route.companyId !== arriving) go({ kind: 'home' }, { replace: true });
   }, [base.data, route, routed, arriving]);
+
+  // Opened from a relay's notice: its link names only a handle, which the
+  // server answers with where it opens now that its person has signed in
+  // (STATUS section 2.216); to anyone else it opens nothing, and says so.
+  useEffect(() => {
+    const handle = takeLinkedNotice();
+    if (!handle) return;
+    api('GET', `/api/relays/notices/${encodeURIComponent(handle)}`).then(
+      (opens: Parameters<typeof openResolvedNotice>[0]) => openResolvedNotice(opens),
+      (failure: unknown) => {
+        openResolvedNotice(null);
+        notifications.show({ color: 'red', message: explain(failure) });
+      },
+    );
+  }, []);
 
   // Opened from a card in Telegram that the chat could not apply: the
   // conversation it came from, with the card waiting in it.
@@ -277,6 +344,14 @@ function Console({ device, staff, recovered, signOut }: {
     setMore(false);
     go({ kind: 'company', companyId: target, page, section: options.section ?? 'company', item: options.item ?? null });
   }, [company]);
+  // A member of staff lands on the rooms, where their work with the company is; the owner keeps their own page.
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !staff || !base.data) return;
+    landed.current = true;
+    if (route.kind === 'home') go({ kind: 'company', companyId: staff.companyId, page: 'rooms', section: 'company', item: null }, { replace: true });
+  }, [base.data]);
+
   // To a company just started or restored: its overview, once the list is read again.
   const arrive = (id: string) => {
     setArriving(id);
@@ -298,7 +373,31 @@ function Console({ device, staff, recovered, signOut }: {
       setTalking(company);
     },
     staff,
-  } : null), [company, companies, open, refreshCompanies, staff]);
+    me: me.data,
+    openProfile: () => setProfiling(true),
+    unread: unread.data ?? [],
+    refreshUnread: unread.reload,
+    setImmersive,
+  } : null), [company, companies, open, refreshCompanies, staff, me.data, unread.data, unread.reload]);
+
+  // The owner's inbox count is the server's, read with the rooms' (F19.10): it no longer waits for the inbox to
+  // be opened. The inbox still says it at once when it is.
+  useEffect(() => {
+    if (!owner || !unread.data) return;
+    setOpenCount((current) => {
+      const next = { ...current };
+      for (const one of unread.data!) if (one.openCount !== null) next[one.companyId] = one.openCount;
+      return next;
+    });
+  }, [unread.data]);
+  // What is addressed to the person, everywhere they are: in the tab's title, and on an installed app's icon.
+  const waiting = (unread.data ?? []).reduce((total, one) => total + badgeOf(one), 0);
+  useEffect(() => {
+    document.title = waiting > 0 ? `(${waiting}) PALUGADA` : 'PALUGADA';
+    const app = navigator as Navigator & { setAppBadge?: (count?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (waiting > 0) void app.setAppBadge?.(waiting).catch(() => undefined);
+    else void app.clearAppBadge?.().catch(() => undefined);
+  }, [waiting]);
 
   // F10.7. Two controls, because they are two decisions: "stop" raises a flag
   // the engine reads at every step, so work stops cleanly and resumes when the
@@ -332,7 +431,13 @@ function Console({ device, staff, recovered, signOut }: {
 
   const pickLanguage = async (code: Language) => {
     try {
-      await chooseLanguage(code);
+      // The deployment's language is the owner's; a member of staff's is their own.
+      // Read again, so the profile drawer opens with the choice made here.
+      if (staff) {
+        await api('POST', '/api/me/profile', { language: code });
+        me.reload();
+        setLanguage(code);
+      } else await chooseLanguage(code);
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
     }
@@ -387,6 +492,47 @@ function Console({ device, staff, recovered, signOut }: {
     }, 250);
     return () => clearTimeout(timer);
   }, [query]);
+  // What people said that matches (STATUS 2.212), asked of the rooms' own
+  // search, which runs as the person: every company's for the owner, the
+  // seat's own company's for a member of staff. Never through `/api/search`,
+  // which the owner's assistant may read.
+  const [said, setSaid] = useState<Array<{ companyId: string; company: string; hits: RoomHit[] }>>([]);
+  // Each search counts towards the person's searches a minute (STATUS 2.217):
+  // past them the palette says so, rather than look as if nothing matched.
+  const [saidRefused, setSaidRefused] = useState<string | null>(null);
+  useEffect(() => {
+    const text = query.trim();
+    const seatCompany = staff?.companyId ?? null;
+    if (text.length < 2 || (!owner && !seatCompany)) {
+      setSaid([]);
+      setSaidRefused(null);
+      return;
+    }
+    const words = `q=${encodeURIComponent(text)}`;
+    const timer = setTimeout(() => {
+      (owner
+        ? api('GET', `/api/room-search?${words}`).then((answer: { found: Array<{ companyId: string; company: string; hits: RoomHit[] }> }) => answer.found)
+        : api('GET', `/api/companies/${seatCompany}/room-search?${words}`)
+          .then((answer: { hits: RoomHit[] }) => [{ companyId: seatCompany!, company: '', hits: answer.hits.slice(0, 8) }]))
+        .then((found) => {
+          setSaid(found);
+          setSaidRefused(null);
+        }, (failure: unknown) => {
+          setSaid([]);
+          setSaidRefused(failure instanceof ApiError && failure.code === 'workspace.too_fast' ? explain(failure) : null);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const refusedActions: SpotlightActionData[] = saidRefused ? [{ id: 'said-refused', label: saidRefused, disabled: true }] : [];
+  const saidActions: SpotlightActionData[] = said.flatMap((one) => one.hits.map((hit) => ({
+    id: `said-${hit.messageId}`,
+    label: hit.excerpt,
+    description: [hit.author.principal === 'owner' ? t('Owner') : hit.author.name ?? '', one.company].filter(Boolean).join(' · '),
+    leftSection: <Avatar size={18} radius="xl" src={personPicture(hit.author.principal, hit.author.picture)} alt="" />,
+    // Opened where it was said: the room around it, marked, or its thread at it when it is a reply (STATUS 2.218).
+    onClick: () => open('rooms', { companyId: one.companyId, item: itemAt({ roomId: hit.roomId, threadOf: hit.threadOf, position: hit.position }) }),
+  })));
   const HIT_LABEL: Record<SearchHit['kind'], string> = { task: t('Task'), decision: t('Decision'), memory: t('Memory') };
   const foundActions: SpotlightActionData[] = found.map((hit) => ({
     id: `found-${hit.kind}-${hit.id}`,
@@ -404,6 +550,7 @@ function Console({ device, staff, recovered, signOut }: {
 
   const setup: SetupReport = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
+  const roomsCount = company ? badgeOf((unread.data ?? []).find((one) => one.companyId === company.id)) : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
   /**
@@ -419,7 +566,10 @@ function Console({ device, staff, recovered, signOut }: {
         label={t(page.label)}
         {...(inline ? { description: t(page.about) } : { py: 7 })}
         leftSection={<page.icon size={18} stroke={1.7} />}
-        rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
+        rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge>
+          : page.id === 'rooms' && roomsCount > 0
+            ? <Badge data-badge="rooms" size="sm" color="red" circle aria-label={tp('{count} message for you', '{count} messages for you', roomsCount)}>{roomsCount}</Badge>
+            : null}
         active={active === page.id}
         onClick={() => open(page.id)}
         className={`nav-link${spotted(page.id as TourSpot)}`}
@@ -496,7 +646,10 @@ function Console({ device, staff, recovered, signOut }: {
       navbar={{ width: 264, breakpoint: 'sm', collapsed: { mobile: true } }}
       // The phone's own header and tab bar exist only on a phone: collapsed
       // rather than absent, they still sat just past the bottom of the screen.
-      {...(mobile ? { header: { height: 56 }, footer: { height: 64 } } : {})}
+      // A room open on a phone has neither: it is the whole screen, with its
+      // own way back (Rooms.tsx).
+      {...(mobile && !immersive ? { header: { height: 56 }, footer: { height: 64 } } : {})}
+      data-immersive={(mobile && immersive) || undefined}
       padding={0}
     >
       <Spotlight
@@ -505,7 +658,8 @@ function Console({ device, staff, recovered, signOut }: {
         // The pages and commands that match, then what the search found --
         // which matched on the server, perhaps in a result the title does
         // not show, so it is not filtered again here.
-        actions={[...spotlightActions.filter(matches), ...(foundActions.length > 0 ? [{ group: t('Found'), actions: foundActions }] : [])]}
+        actions={[...spotlightActions.filter(matches), ...(foundActions.length > 0 ? [{ group: t('Found'), actions: foundActions }] : []),
+          ...(saidActions.length + refusedActions.length > 0 ? [{ group: t('Messages'), actions: [...saidActions, ...refusedActions] }] : [])]}
         filter={(_, actions) => actions}
         nothingFound={t('Nothing matches')}
         highlightQuery
@@ -513,11 +667,11 @@ function Console({ device, staff, recovered, signOut }: {
         shortcut={['mod + K', '/']}
       />
 
-      {mobile && <AppShell.Header px="md">
+      {mobile && !immersive && <AppShell.Header px="md">
         <Group h="100%" justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
             <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={30} height={30} />
-            <CompanyMenu companies={companies} company={company} openCount={openCount} compact
+            <CompanyMenu companies={companies} company={company} openCount={openCount} unread={unread.data ?? []} compact
               pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           </Group>
           <Group gap={6} wrap="nowrap">
@@ -553,7 +707,7 @@ function Console({ device, staff, recovered, signOut }: {
               <ActionIcon variant="subtle" color="gray" onClick={() => spotlight.open()} aria-label={t('Search')}><IconSearch size={18} /></ActionIcon>
             </Tooltip>
           </Group>
-          <CompanyMenu companies={companies} company={company} openCount={openCount}
+          <CompanyMenu companies={companies} company={company} openCount={openCount} unread={unread.data ?? []}
             pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           {owner && <Menu position="bottom-start" width="target" shadow="md">
             <Menu.Target>
@@ -629,16 +783,20 @@ function Console({ device, staff, recovered, signOut }: {
             <Menu.Target>
               <UnstyledButton w="100%" px={6} py={4} style={{ borderRadius: 'var(--mantine-radius-md)' }}>
                 <Group gap="sm" wrap="nowrap">
-                  <Avatar radius="xl" size={32} src={OWNER_PICTURE} alt="" />
+                  <Avatar radius="xl" size={32} src={staff ? personPicture(me.data?.principal ?? 'seat:', me.data?.picture) : OWNER_PICTURE} alt="" />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <Text size="sm" fw={600}>{staff ? staff.name : t('Owner')}</Text>
-                    <Text size="xs" c="dimmed" truncate>{staff ? (staff.kind === 'approver' ? t('Approver') : t('Viewer')) : device}</Text>
+                    <Text size="sm" fw={600} truncate>{staff ? staff.name : t('Owner')}</Text>
+                    <Text size="xs" c="dimmed" truncate>
+                      {staff ? `${kindLabel(staff.kind)}${me.data?.handle ? ` · @${me.data.handle}` : ''}` : device}
+                    </Text>
                   </div>
                   <IconDots size={16} />
                 </Group>
               </UnstyledButton>
             </Menu.Target>
             <Menu.Dropdown>
+              <Menu.Item leftSection={<IconUserCircle size={16} />} onClick={() => setProfiling(true)}>{t('Your profile')}</Menu.Item>
+              <Menu.Divider />
               {languageMenu}
               <Menu.Divider />
               <Menu.Item leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />} onClick={toggleColorScheme}>
@@ -682,7 +840,12 @@ function Console({ device, staff, recovered, signOut }: {
             </Group>
           </Box>
         )}
-        <Box className="app-content" px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
+        <Box
+          className="app-content"
+          {...(route.kind === 'company' && context && FULL_PAGES.has(route.page)
+            ? { 'data-layout': 'full', px: 0, py: 0 }
+            : { px: { base: 'md', sm: 'xl' }, py: { base: 'md', sm: 'xl' } })}
+        >
           <Suspense fallback={<Center py="xl"><Loader size="sm" /></Center>}>
           {!base.data ? null : route.kind === 'deployment' ? (
             <DeploymentSettings section={route.section} />
@@ -702,13 +865,14 @@ function Console({ device, staff, recovered, signOut }: {
         </Box>
       </AppShell.Main>
 
-      {mobile && <AppShell.Footer>
+      {mobile && !immersive && <AppShell.Footer>
         <Group h="100%" gap={0} wrap="nowrap">
+          {/* The owner's day starts at Home; a member of staff's in the rooms. Money is in More (F19.16). */}
           {[
-            { id: 'home', label: t('Home'), icon: IconHome, press: () => go({ kind: 'home' }) },
+            ...(owner ? [{ id: 'home', label: t('Home'), icon: IconHome, press: () => go({ kind: 'home' }), badge: 0 }] : []),
+            { id: 'rooms', label: t('Rooms'), icon: IconMessageCircle, press: () => open('rooms'), badge: roomsCount },
             { id: 'inbox', label: t('Inbox'), icon: IconInbox, press: () => open('inbox'), badge: inboxCount },
-            { id: 'work', label: t('Work'), icon: IconActivity, press: () => open('work') },
-            { id: 'money', label: t('Money'), icon: IconCoin, press: () => open('money') },
+            { id: 'work', label: t('Work'), icon: IconActivity, press: () => open('work'), badge: 0 },
           ].map((tab) => (
             <UnstyledButton key={tab.id} className="bottom-tab" data-active={active === tab.id || undefined} onClick={tab.press}>
               <Box pos="relative">
@@ -718,16 +882,18 @@ function Console({ device, staff, recovered, signOut }: {
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'plan', 'customers', 'books', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'plan', 'customers', 'books', 'browser', 'money', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
         </Group>
       </AppShell.Footer>}
 
-      <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
+      {/* As tall as what it lists, rather than the whole screen. */}
+      <Drawer opened={more} onClose={() => setMore(false)} position="bottom" title={company?.name} radius="lg"
+        styles={{ content: { flex: '0 0 auto', height: 'auto', maxHeight: '85dvh' } }}>
         <Stack gap={4} pb="md">
-          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
+          {PAGES.filter((page) => !['inbox', 'rooms', 'work'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map((page) => navLink(page, true))}
           {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
             onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />}
           <Divider my="xs" />
@@ -735,9 +901,13 @@ function Console({ device, staff, recovered, signOut }: {
             <NavLink key={one.code} label={one.name} leftSection={<IconLanguage size={18} />} active={one.code === language()} onClick={() => void pickLanguage(one.code)} />
           ))}
           <NavLink label={colorScheme === 'dark' ? t('Light theme') : t('Dark theme')} leftSection={<IconMoon size={18} />} onClick={toggleColorScheme} />
+          <NavLink label={t('Your profile')} leftSection={<IconUserCircle size={18} />} onClick={() => { setMore(false); setProfiling(true); }} />
           <NavLink label={t('Sign out')} leftSection={<IconLogout size={18} />} onClick={() => void signOut()} />
         </Stack>
       </Drawer>
+
+      <ProfileDrawer opened={profiling} onClose={() => setProfiling(false)} profile={me.data} changed={() => me.reload()} />
+      {staff && me.data && <ChooseHandle profile={me.data} chosen={() => me.reload()} />}
 
       <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null} setup={setup} reloadSetup={base.reload}
         started={(id) => { arrive(id); setGreeting(id); }} />
@@ -794,6 +964,7 @@ function Console({ device, staff, recovered, signOut }: {
 function CompanyPageView({ ctx, route }: PageProps) {
   switch (route.page) {
     case 'inbox': return <Decisions ctx={ctx} route={route} />;
+    case 'rooms': return <Rooms ctx={ctx} route={route} />;
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'plan': return <Plan ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
@@ -809,11 +980,13 @@ function CompanyPageView({ ctx, route }: PageProps) {
 }
 
 function CompanyMenu({
-  companies, company, openCount, pick, start, compact = false,
+  companies, company, openCount, unread, pick, start, compact = false,
 }: {
   companies: Company[];
   company: Company | null;
   openCount: Record<string, number>;
+  /** What waits for the person in each company's rooms: its badge beside the inbox's. */
+  unread: Unread[];
   pick: (id: string) => void;
   /** Null for a staff seat, which starts no company. */
   start: (() => void) | null;
@@ -843,7 +1016,16 @@ function CompanyMenu({
           <Menu.Item
             key={one.id}
             leftSection={<Avatar size={22} radius="sm" src={companyEmblem(one)} alt="" />}
-            rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
+            rightSection={(
+              <Group gap={4} wrap="nowrap">
+                {badgeOf(unread.find((waiting) => waiting.companyId === one.id)) > 0 && (
+                  <Badge size="xs" color="blue" circle aria-label={tp('{count} message for you', '{count} messages for you', badgeOf(unread.find((waiting) => waiting.companyId === one.id)))}>
+                    {badgeOf(unread.find((waiting) => waiting.companyId === one.id))}
+                  </Badge>
+                )}
+                {openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
+              </Group>
+            )}
             onClick={() => pick(one.id)}
           >
             {one.name}

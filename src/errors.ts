@@ -116,6 +116,11 @@ export type ErrorCode =
   | 'owner.claimed'
   /** A staff seat asked for what is the owner's (0110). */
   | 'staff.forbidden'
+  /**
+   * Work a member of staff began or steered, asked for before the broker
+   * holds such work (F19.9, `STAFF_WORDS_HELD`): refused, not made.
+   */
+  | 'staff.not_ready'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'
@@ -189,6 +194,66 @@ export type ErrorCode =
    * give one call another call's answer.
    */
   | 'journal.divergence'
+  // --- the people's workspace (F19) ---
+  /**
+   * The refusals of the people's workspace, written here before the parts
+   * that throw them are built, so none of those parts edits this union: their
+   * statuses are `PEOPLE_REFUSALS` in src/owner/api.ts and their sentences the
+   * console's `EXPLAINED`, and workspace-contract.test.ts holds the three
+   * together. Section 2.202, which throws `staff.not_ready` first, declares
+   * it beside `staff.forbidden` as well: a union may name a member twice, and
+   * each block stays whole.
+   */
+  | 'room.not_visible'
+  | 'room.archived'
+  | 'room.not_member'
+  | 'room.too_fast'
+  | 'room.too_many_people'
+  | 'room.direct_fixed'
+  | 'room.company_room_stays'
+  | 'room.not_creator'
+  | 'room.pins_full'
+  | 'mention.room_not_yours'
+  | 'message.not_yours'
+  | 'message.edit_window'
+  | 'message.not_the_owners'
+  | 'message.files'
+  | 'file.not_kept'
+  | 'staff.ask_limit'
+  | 'staff.not_ready'
+  | 'approval.own_instigation'
+  | 'name.reserved'
+  | 'name.taken'
+  | 'name.owner_sets'
+  | 'handle.unusable'
+  | 'auth.handle_locked'
+  | 'meeting.too_many'
+  | 'meeting.outside_window'
+  | 'meeting.no_model'
+  | 'people_meeting.past'
+  | 'people_meeting.cannot_see'
+  | 'stream.too_many'
+  | 'relay.unreachable'
+  | 'relay.fingerprint'
+  | 'relay.fingerprint_short'
+  | 'relay.other_host'
+  | 'relay.companies'
+  | 'relay.owner_device'
+  | 'relay.accept'
+  | 'relay.not_paired'
+  | 'relay.rotation_owed'
+  | 'relay.notice_unknown'
+  | 'import.zip'
+  | 'import.part_missing'
+  | 'import.too_large'
+  | 'import.former_linked'
+  // What one person may do, and how much the rooms keep (STATUS 2.217).
+  | 'workspace.too_fast'
+  | 'reaction.not_emoji'
+  | 'reaction.too_many'
+  | 'room.files_full'
+  | 'message.client_id_used'
+  // --- end of the people's workspace ---
   | 'tenant.context_missing'
   /** Section 12: the metrics endpoint was asked for and none is configured. */
   | 'metrics.off'

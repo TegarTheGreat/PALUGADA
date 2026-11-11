@@ -83,6 +83,7 @@
  * PALUGADA is feminine, as المنصة is («PALUGADA متصلة»).
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. إنشاء تطبيق يتضمن WhatsApp في Meta for Developers، وإضافة رقم نشاطك التجاري، وإنشاء مستخدم نظام (system user) برمز مميز دائم يُسمح له بالإرسال من هذا الرقم.",
@@ -200,7 +201,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "تعذّر على مُشغِّل قراءة سره، لذا لا تصل الأحداث",
   "A trigger refused a caller without its token": "رفض مُشغِّلٌ طلبًا لا يحمل رمزه المميز",
   "A user auth token from Sentry's settings.": "رمز مصادقة مستخدم (user auth token) من إعدادات Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "المُشاهِد يتابع عمل الشركة. والمُوافِق يوافق أيضًا على ما ينتظر في المستوى 2 وما دونه أو يرفضه. ويبقى المستوى 3 والإعدادات والمفاتيح والأجهزة بيدك.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "طريقة تفكير يُعمل بها، مأخوذة من شخصية أسلوبها في القيادة موثّق علنًا.",
   "A way to work": "طريقة عمل",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "تُقرأ بطاقة الأداء الأسبوعية على أفضل وجه بين {fewest} و{most} أرقام، وفي هذه {lines}: احذف ما لا يتصرف أحد بناءً عليه.",
@@ -1195,7 +1195,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "حاولت تقسيم عملها إلى مهام فرعية أكثر مما يُسمح به لمهمة واحدة. يمكنك إعادة تنفيذها كعمل أصغر.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "سُلّمت من دور إلى دور مراتٍ أكثر مما يُسمح به لعمل واحد، فتوقفت بدل الاستمرار في تمريرها. يمكنك إعادة تنفيذها وذكر من ينبغي أن يؤديها في الملاحظة.",
   "It will not run again. The work it already made stays, with what that work produced.": "لن يعمل مرة أخرى. يبقى العمل الذي أنشأه بالفعل، مع ما أنتجه ذلك العمل.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "يعمل مرة واحدة، لمدة أسبوع، ولا يُعرض إلا الآن. وعند فتحه يُطلب إضافة PALUGADA إلى تطبيق المصادقة لدى من يفتحه.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "كتبت شيئًا في الخارج ثم قرأته للتحقق، ولم يطابق ما قرأته ما كتبته. قبل إعادة تنفيذها، يُرجى التحقق من المكان الذي كتبت فيه: فربما تمت الكتابة فعلًا.",
   "Its address": "عنوانه",
   "Its arguments": "معاملاته",
@@ -1897,7 +1896,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "المُنفَق اليوم",
   "Spent today: {amount}": "المُنفَق اليوم: {amount}",
   "Split into too many sub-tasks": "قُسّمت إلى مهام فرعية كثيرة جدًا",
-  "Staff who can follow this company, and approve what is small.": "موظفون يمكنهم متابعة هذه الشركة، والموافقة على الأمور الصغيرة.",
   "Stage": "المرحلة",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2945,6 +2943,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": { "zero": "نجح {passed} من {count} هدف ملتزم به قُيّم هذا الربع.", "two": "نجح {passed} من {count} هدفين ملتزم بهما قُيّما هذا الربع.", "few": "نجح {passed} من {count} أهداف ملتزم بها قُيّمت هذا الربع.", "many": "نجح {passed} من {count} هدفًا ملتزمًا به قُيّم هذا الربع.", "other": "نجح {passed} من {count} هدف ملتزم به قُيّم هذا الربع." },
   "Numbers for {quarter}": "أرقام {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. محسوبة من التقييمات المكتوبة عند انتهاء كل فترة، كما يقرؤها التخطيط الربعي: هي مادة للخطة التالية، ولا يُبنى عليها أي دفع أو ثقة.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ar'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2963,4 +2963,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('ar'),
 ];

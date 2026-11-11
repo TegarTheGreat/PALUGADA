@@ -7,6 +7,8 @@
  * Herramientas, Escucha» for the screens it points at. WhatsApp cuts a reply
  * button's title at 20 characters and a list row's at 24, so those stay short.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Incidente: {title}',
   'Done: {goal}': 'Terminada: {goal}',
@@ -564,4 +566,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'A quién servimos y qué nos hace diferentes',
   'Where we will be in three years': 'Dónde estaremos en tres años',
   'Our promise': 'Nuestra promesa',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('es'),
 };

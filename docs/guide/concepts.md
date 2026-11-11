@@ -13,13 +13,17 @@ holding that authenticator is what makes you the owner. One deployment can
 run many companies, and you own all of them.
 
 You can seat other people beside you, each for one company, under
-**Settings**, **People**. A **viewer** follows the company's work; an
-**approver** also approves or denies what waits at tier 2 and below. You
-make an invite with your device and send them the link; opening it, they
-add PALUGADA to their own authenticator app and sign in with its codes.
-Their code is never yours: tier 3, settings, keys, devices and anything
-that loosens a control stay yours, and **End the seat** signs them out at
-once.
+**Settings**, **People**, as one of three kinds. A **viewer** follows the
+company's work and talks in its rooms; a **member** also asks for work from a
+message, tells or stops the work it asked for, and answers a question put to
+it; an **approver** also approves or denies what waits at tier 2 and below.
+You name each person, and make each an invite; opening it, they choose a
+**handle** (how colleagues mention them) and add PALUGADA to their own
+authenticator app. They sign in with their handle and its codes, and your
+sign-in never tries theirs. Their code is never yours: tier 3, settings,
+keys, devices, export and anything that loosens a control stay yours, a
+colleague's words are never read as yours, and **End the seat** signs them
+out at once. [Rooms and people](workspace.md) is the whole of it.
 
 Two rules run through the whole console. Anything that tightens a control (a
 stop, a freeze, a lower ceiling, a kill switch) takes only your session,
@@ -388,6 +392,19 @@ drafts can be decided at once with **Choose several**; tier 3 actions,
 questions and incidents are always decided one at a time. Decided items move
 to **History** with your note, and your notes are searched too.
 
+## Rooms
+
+Each company has rooms where you and the people you seat talk: one room for
+the whole company, one for each division, topic rooms open or private, and
+direct conversations of two to eight people, with threads, mentions,
+reactions, pins, files and search. Agents are never in a room. The work they
+do shows there as cards drawn from the work itself -- a task under the
+message that asked for it, a question, an approval, a meeting -- and a
+message becomes work only when a person presses **Ask the team** on it, with
+the money reserved first. A member of staff's words reach a run as a
+colleague's, never as yours, and work they asked for is decided by someone
+who did not ask for it. [Rooms and people](workspace.md) has the rest.
+
 ## Goals and measures
 
 Goals form a ladder: a mission, objectives under it, key results under those.
@@ -647,4 +664,9 @@ console into.
   stays.
 - **Download as JSON** under **Settings**, **Company**, **Export** writes
   the whole company to one file that can be restored on another deployment,
-  with every reference remapped. Credentials travel as references only.
+  with every reference remapped. Credentials travel as references only. It
+  carries every room's messages, private rooms and direct conversations
+  included, and the names of their files but not the files themselves
+  ([Rooms and people](workspace.md#what-the-export-carries)).
+- Messages in the rooms are kept for good unless you set a window of 30 to
+  3,650 days under **Retention**; each goes by its own age.

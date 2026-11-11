@@ -8,6 +8,8 @@
  * draws them: 「このインスタンス > モデル」. Sentences are polite です・ます;
  * buttons are short labels, within WhatsApp's twenty characters.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'インシデント：{title}',
   'Done: {goal}': '完了：{goal}',
@@ -561,4 +563,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': '私たちが仕える人と、私たちの違い',
   'Where we will be in three years': '3年後の私たち',
   'Our promise': '私たちの約束',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ja'),
 };

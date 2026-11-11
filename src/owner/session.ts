@@ -139,29 +139,45 @@ export class OwnerSessions {
    */
   async verify(token: string | undefined): Promise<OwnerSession | null> {
     if (!token) return null;
-    return withControlPlane(async (tx) => {
-      const { rows } = await tx.query<{
-        issued_at: Date; expires_at: Date; proved_at: Date | null; authenticator_id: string; kind: FactorKind; label: string;
-      }>(
-        `SELECT s.issued_at, s.expires_at, s.proved_at, a.id AS authenticator_id, a.kind, a.label
-           FROM owner_sessions s
-           JOIN owner_authenticators a ON a.id = s.authenticator_id
-          WHERE s.token_hash = $1
-            AND s.ended_at IS NULL
-            AND s.expires_at > $2
-            AND a.revoked_at IS NULL`,
-        [hashToken(token), this.#now()],
-      );
-      const row = rows[0];
-      if (!row) return null;
-      return {
-        token,
+    const hash = hashToken(token);
+    const live = (await this.liveByHash([hash])).get(hash);
+    return live ? { token, ...live } : null;
+  }
+
+  /**
+   * The live sessions among these token hashes (SHA-256, hex, as
+   * `owner_sessions` keeps them), in one read, by hash: the live hub asks this
+   * of every stream the owner holds open, every twenty-five seconds, from the
+   * hashes its stream registry files them under, so it keeps no token. A
+   * session ended where no process heard of it -- signed out on a replica
+   * that went down before it could say so, or a device revoked by hand --
+   * stops hearing the company (F19.11, STATUS section 2.210). A session that
+   * is over, or whose device is revoked, is not in the answer.
+   */
+  async liveByHash(hashes: readonly string[]): Promise<Map<string, Omit<OwnerSession, 'token'>>> {
+    const found = new Map<string, Omit<OwnerSession, 'token'>>();
+    if (hashes.length === 0) return found;
+    const { rows } = await withControlPlane((tx) => tx.query<{
+      token_hash: string; issued_at: Date; expires_at: Date; proved_at: Date | null; authenticator_id: string; kind: FactorKind; label: string;
+    }>(
+      `SELECT s.token_hash, s.issued_at, s.expires_at, s.proved_at, a.id AS authenticator_id, a.kind, a.label
+         FROM owner_sessions s
+         JOIN owner_authenticators a ON a.id = s.authenticator_id
+        WHERE s.token_hash = ANY($1::text[])
+          AND s.ended_at IS NULL
+          AND s.expires_at > $2
+          AND a.revoked_at IS NULL`,
+      [[...new Set(hashes)], this.#now()],
+    ));
+    for (const row of rows) {
+      found.set(row.token_hash, {
         factor: { authenticatorId: row.authenticator_id, kind: row.kind, label: row.label },
         issuedAt: row.issued_at,
         expiresAt: row.expires_at,
         provedAt: row.proved_at,
-      };
-    });
+      });
+    }
+    return found;
   }
 
   /**

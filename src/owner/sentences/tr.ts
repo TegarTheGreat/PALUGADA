@@ -9,6 +9,8 @@
  * written apart ("{name} ile"). WhatsApp cuts a reply button's title at 20
  * characters and a list row's at 24, so those stay short.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Aksaklık: {title}',
   'Done: {goal}': 'Tamamlandı: {goal}',
@@ -566,4 +568,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'Kime hizmet ediyoruz ve bizi farklı kılan ne',
   'Where we will be in three years': 'Üç yıl sonra nerede olacağız',
   'Our promise': 'Sözümüz',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('tr'),
 };

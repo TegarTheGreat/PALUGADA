@@ -484,7 +484,7 @@ channel: set PALUGADA_TELEGRAM_TOKEN and PALUGADA_TELEGRAM_CHAT (F10.9)`
 among the boot lines. Also, outside **Your hours** only incidents come
 through, and push carries only incidents and tier 3 approvals.
 
-**Fix.** [Set up push or Telegram](how-to.md#push-notifications-telegram-and-whatsapp).
+**Fix.** [Set up push or Telegram](how-to.md#push-notifications-telegram-whatsapp-and-email).
 
 ## Console messages
 

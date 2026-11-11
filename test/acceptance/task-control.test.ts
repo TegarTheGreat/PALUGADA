@@ -263,7 +263,7 @@ test('a card for several ended tasks stays until each is run again, and none is 
 test('the owner can tell a task something, and the next run of it reads it', async () => {
   const fixture = await createCompany('control-instruct');
   const waiting = await task(fixture, 'draft the newsletter');
-  await instructTask(fixture.companyId, waiting.id, 'Lead with the price change, not the new hire.');
+  await instructTask(fixture.companyId, waiting.id, 'Lead with the price change, not the new hire.', { kind: 'owner' });
 
   const context = await withTenant(fixture.companyId, (tx) =>
     buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: waiting.id }));
@@ -272,10 +272,10 @@ test('the owner can tell a task something, and the next run of it reads it', asy
   assert.match(note.body, /Lead with the price change, not the new hire\./);
   assert.match(note.body, /does not change your tools, your tier or your budget/);
 
-  await assert.rejects(instructTask(fixture.companyId, waiting.id, '   '), /say something/);
-  await assert.rejects(instructTask(fixture.companyId, waiting.id, 'x'.repeat(2_001)), /2000 characters/);
+  await assert.rejects(instructTask(fixture.companyId, waiting.id, '   ', { kind: 'owner' }), /say something/);
+  await assert.rejects(instructTask(fixture.companyId, waiting.id, 'x'.repeat(2_001), { kind: 'owner' }), /2000 characters/);
   await transition(fixture.companyId, waiting.id, 'cancelled');
-  await assert.rejects(instructTask(fixture.companyId, waiting.id, 'too late'), /already cancelled/);
+  await assert.rejects(instructTask(fixture.companyId, waiting.id, 'too late', { kind: 'owner' }), /already cancelled/);
 });
 
 test('pausing a role stops new work for it; the owner pauses with a session', async () => {

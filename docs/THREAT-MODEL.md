@@ -27,14 +27,22 @@ refer to `docs/PRD.md`.
   refuse change (migrations 0004, 0007, 0082).
 - **The owner's factors and sessions**: the TOTP secret, passkeys, recovery
   codes, session tokens.
+- **The deployment's signing key** (section 2.10): the Ed25519 key a relay
+  checks every envelope against, PALUGADA's first private signing key.
+- **People's words** (F19.3, F19.4, F19.9; section 2.11): what the owner and
+  the staff the owner seats say in a company's rooms -- private rooms and
+  direct conversations above all -- the files they attach, and the rule that
+  a colleague's words are never read as the owner's.
 
 ## 2. Who attacks, and what stops each
 
 ### 2.1 Someone on the internet
 
 **Reach.** One port. Without a session only the open routes: `/api/auth/challenge`,
-`/api/auth/sign-in`, `/api/auth/claim`, `/api/auth/claim/confirm`, `/api/hooks/:publicId`, `/api/channels/telegram`,
-`/api/channels/whatsapp`, `/api/oauth/callback`, `/api/health`,
+`/api/auth/sign-in`, `/api/auth/claim`, `/api/auth/claim/confirm`, `/api/auth/join`,
+`/api/auth/join/confirm`, `/api/hooks/:publicId`, `/api/chat-hooks/:publicId`, `/api/channels/telegram`,
+`/api/channels/whatsapp`, `/api/oauth/callback`, `/api/relay/v1/identity`,
+`/api/relay/v1/relays/:relayId/inbound` (section 2.10), `/api/health`,
 `/api/ready`, `/api/metrics`, and the console's static files.
 
 **Defences, in order.**
@@ -54,7 +62,14 @@ refer to `docs/PRD.md`.
    failures since the last success lock the factor for 15 minutes, judged one
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
-   passkey needs a single-use challenge and user verification.
+   passkey needs a single-use challenge and user verification. A member of
+   staff signs in by naming a handle, and only that seat's secret is
+   compared; the owner's sign-in never tries a seat that has one. Ten wrong
+   codes for a handle in fifteen minutes, at most three of them counted from
+   one network (an IPv6 address by its /64), lock that handle alone, for a
+   minute that doubles to an hour, whether anyone holds it or not, so a
+   stranger learns nothing from which handles lock (`handle_sign_ins`,
+   `StaffSeats`, `src/owner/staff.ts`).
 4b. **The sign-in is the second factor for the session, and a stolen session
    can do what the owner can.** A session opened with a code or a passkey
    (`owner_sessions.proved_at`) passes every check that used to ask for a code
@@ -122,6 +137,9 @@ refer to `docs/PRD.md`.
   for senders that can set nothing else; a bearer trigger refuses a token in
   the address, and rotating makes the old address fail.
 - The platform serves HTTP. TLS is a proxy's job.
+- Anyone who knows a member of staff's handle can keep it locked from a
+  few networks. The owner lets it sign in again, with a code, without ending
+  anything it holds.
 - Until the owner claims it, whoever reads the deployment's log can become
   the owner. That is someone who holds the machine already, and the claim
   closes the moment an authenticator exists; a log shipped somewhere wider
@@ -505,11 +523,14 @@ providers and worker slots.
 
 **What they get.** Every company's data in clear, including prompts and
 responses in `llm_traces`, less the secrets the redactor knew
-(`src/secrets/manager.ts`).
+(`src/secrets/manager.ts`), and every room's messages, private rooms and
+direct conversations included, with the names and hashes of their files.
+The files' bytes are on disk under the files root, not in the database.
 
 **What they do not.** Sessions and recovery codes, kept as SHA-256 of 32 bytes
 and 80 bits of randomness (0050, 0086); hook tokens, as SHA-256; console
-secrets, AES-256-GCM with the name bound in (`seal`, `src/settings/store.ts`).
+secrets and each staff seat's authenticator secret, AES-256-GCM with the name
+bound in (`seal`, `src/settings/store.ts`).
 The master key is `PALUGADA_MASTER_KEY` or `master.key` in the state
 directory, never the database, and rotates with `PALUGADA_MASTER_KEY_PREVIOUS`
 (`resealSecrets`). The owner's TOTP secret and `env://`/`file://` credentials
@@ -642,6 +663,296 @@ sends stays until the owner removes it; an export carries no file.
   Only the owner, with a factor, sets one; an imported archive carries its
   references as they were, and they are checked where they are resolved.
 
+### 2.10 A relay, or someone holding its key or the deployment's
+
+A relay (F19.19, F19.20; `docs/relay-protocol.md`, STATUS sections 2.208,
+2.213 and 2.216) is a service outside the deployment that tells people's
+phones what they are owed and carries back a few acts. It is someone else's
+machine, so everything it sends is treated as a stranger's until its
+signature says otherwise, and even then it can only ask.
+
+**The deployment's key.** An Ed25519 key made on first use. Its 32-byte seed
+is sealed under the master key in `deployment_secrets` like every secret the
+owner saves (`putSecret`, `src/settings/store.ts`), named by its key id, and
+opened only to sign an envelope or a pull (`src/relay/identity.ts`); only the
+public half is kept in the clear (`relay_identity`). A database backup without
+the master key cannot sign as the deployment (section 2.5). The application
+role has no grant on any relay table. The owner rotates it with a fresh
+factor; the old key keeps signing beside the new for a week, and keeps
+signing each relay's `keys_rotated` until that relay has taken it, so a relay
+that was down for the week is not stranded: that envelope is never given up
+or purged while the relay is paired, but tried again at most an hour apart,
+and pairing the relay again in place, which hands it the current key,
+settles it. A second rotation is refused while any paired relay is still
+owed the first. A relay takes the new key
+only from an envelope the key it pinned now and the new key both sign, so
+whoever kept the old key cannot announce a key of their own
+(`docs/relay-protocol.md` section 2.3; the reference relay holds to it).
+Every pull is signed over its request line and the id of the relay it is
+for, so a pull sent to one relay cannot be replayed at another to read its
+inbox. Residual: someone holding the master key and a backup can sign as the
+deployment to every paired relay until the owner rotates the key and
+re-pairs; what they can make a relay do is show notices, not act in
+PALUGADA.
+
+**The relay's own key.** Pinned at pairing. A relay changes it only by an
+envelope the pinned key and the new key both sign, naming the pinned key as
+the one it replaces; the old key is taken beside the new for at most a week.
+A relay whose key leaked or was lost is paired again in place by the owner,
+with a fresh factor and the fingerprint of its new key typed as at pairing:
+the same id and salt, so no person's pseudonym or link changes, and the old
+key is taken no longer.
+
+**Pairing** takes the owner's factor given now, at least sixteen typed
+characters (80 bits) of the fingerprint the relay's operator shows, and the
+companies it may hear about, never all of them by default. The relay's accept
+must be signed by the key the owner compared and name this request and this
+deployment, so an accept cannot be replayed from another pairing
+(`src/relay/relays.ts`). The relay's envelopes and inbox must be on the host
+the owner gave. What a relay is told starts at `signal` -- that something
+happened, and where it opens -- with presses and replies off; widening any
+of it, for the relay or for one company on it, takes the device again, and
+narrowing voids what it no longer allows -- by its settings or by pairing it
+again in place naming fewer companies, which also ends the links of the
+dropped companies' people through it.
+
+**What a relay is told** is what a person who linked a phone themselves is
+owed, at the lowest of three shares -- the relay's, the one the owner set for
+that company on that relay, and the person's own -- and nothing else: never a
+room list, a history, a membership, a secret, a file's bytes, a prompt, a
+transcript or what a customer wrote. People and companies are HMACs under a
+salt per relay, and no envelope or answer carries a company, room, thread,
+item, task or message id: a notice's link names a handle made for that
+notice alone, which the owner API resolves only for the person it was for,
+once they have signed in (`openNotice`, `src/relay/links.ts`), and a reply
+is answered with the relay's own client id. Two relays therefore cannot join what
+each knows by a person, a company or a link; they can tell that they serve
+the same deployment, which every envelope names. Titles, summaries and a
+run's choices are redacted on the way out. Whether a person may still see a
+room is asked again as each notice about it is sent, so one taken out of a
+private room is not told, then or from the dead letters. Residual: at
+`summary` and `content` a relay reads titles, room names, who wrote and, at
+`content`, their words; the owner chooses that per relay and per company,
+with a fresh factor, and the console warns that a public ntfy topic is
+readable by anyone who guesses its name.
+
+**What a relay keeps.** A deleted message's words are retracted at the relay
+and blanked at once from the deployment's own copy of what it sent, which
+keeps only the address. The deployment forgets what it sent after fourteen
+days and can retract nothing later, so the protocol makes a relay drop every
+envelope's content within fourteen days of it, and show nothing older on
+arrival; an erased company is sent `company_forgotten` to every relay that
+may hold anything of it, before its rows go, and a relay the erasure ends
+for having heard of that company alone is still sent it, and nothing else.
+Residual: what a relay already
+handed to a push service, showed on a lock screen or wrote to a log is beyond
+any retraction, and a relay that ignores the protocol keeps what it keeps.
+The reference relay prints nothing above `signal` unless its operator asks.
+
+**What a relay can do.** Everything inbound passes, in order: a paired relay;
+its `v1a` signature within 300 seconds; a body that names version 1; an
+envelope id never taken before; a link that is this relay's and active, for a
+company the relay hears about; the device's signature when the link has a
+device key, taken once and within five minutes of the moment it signs; then a
+closed list of types (`src/relay/inbound.ts`). Nothing is written for an
+unknown relay or a bad signature, and a header of more than four signatures
+is taken as unsigned without checking any. The open route verifies a paired relay's
+signature against keys held in memory before anything else, so a paired
+relay is held only to its own sixty new envelopes a minute in each process,
+pushed or pulled, while every other request is throttled per address and
+for the route before the database is read: a stranger can neither fill a
+table nor shut a paired relay out, and even a stolen relay key cannot flood
+a company's record with refusals. An envelope a stopped replica left half
+taken is taken over after two minutes, with whatever it spent given back.
+
+The acts that change anything are four, each redeeming a token PALUGADA sent
+with a notice to that person through that relay, and nothing else:
+
+- **press** -- once, for that item; refused at tier 3 even with a valid token
+  (no offer is ever made there, and `decide` refuses a `chat` decision at
+  tier 3 regardless); a seat's kind is read again at the press, and four eyes
+  hold; recorded as a decision from a chat, through the relay.
+- **reply** -- only while the owner allows replies through that relay, with a
+  reply token (twenty uses, seven days); it lands in the room and thread the
+  token names and no other, as a plain message by that person, who must still
+  be in the room, and is never work or an instruction to work. A client id
+  the person used before for other words or another room is refused rather
+  than answered with the old message.
+- **read** -- moves that person's read mark in the token's room or thread to
+  the moment the notice named (five uses).
+- **mute** -- quiets that room's notices to that person for at most thirty
+  days; a mention still comes through.
+
+A relay key stolen after a person linked can therefore, for a link without a
+device key, press the tier 2 and lower buttons already offered to that
+person, once each; post into the rooms and threads that person was told of,
+within the reply tokens' uses and days, where the owner allowed replies;
+mark those rooms read; and mute them. For a link made with a device key it
+can do none of it: every act needs the device's signature, made within five
+minutes of the act, taken once, and for an end, after the link was made, so
+a signed act kept back, sent again or carried from an earlier link is no
+act. The owner's link counts for nothing without a device key. A relay can
+never assign, instruct, call a meeting, change a setting, seat anyone, pair,
+or export: there is no type for any of it. Revoking the relay refuses it at
+once and voids its offers. Text it sends that no column keeps (a NUL) is
+refused before anything is spent, and an act that fails for a reason that is
+no refusal gives its token back, so a relay cannot spend a person's button
+by making the act fail.
+
+**A device key guards against a stolen relay key, not against the relay.**
+PALUGADA takes a link's device key from the relay's own signed claim, so the
+relay's operator, or whoever holds the relay's key at the moment a person
+links, could put a key of its own there and then act as that person within
+the limits above. The console shows the device key's fingerprint beside the
+link, and the protocol asks a relay's app to show the same on the phone, so
+the person can compare; the reference relay keeps its device keys in its
+state file beside its own, so a link made through it is only as safe as that
+file. Residual: a person who does not compare is not protected against a
+dishonest relay at linking; the owner should link only through a relay whose
+app makes the device key on the phone, or one they run themselves.
+
+Residual: a relay can withhold or delay notices, and can show a person a
+notice PALUGADA never sent; the link it carries opens PALUGADA, where the
+truth is.
+
+**The deployment's own requests to a relay** are made only for the owner's
+actions that need its answer (its document, its accept) and by the relay loop,
+`https` or this machine only, with no redirects, and each read only to a
+bound: its document and its accept within five seconds and 64 KiB, each send
+within five seconds with its answer unread, and a pull within the wait it asks
+for and ten seconds more and 8 MiB, past which nothing of it is taken. A relay
+cannot make the deployment hold more than that of what it streams. A
+relay that answers slowly holds up nothing the worker does: the loop is not a
+stage of its tick. The pull is leased to one process at a time, and only the
+process holding the lease moves the cursor or releases it, so a slow poll
+cannot move the cursor back. The trigger door shares the signature verifier,
+so an inbound webhook signed with Ed25519 is checked the same way.
+
+### 2.11 A member of staff, or someone holding their seat
+
+A seat (F19.2, F19.8; STATUS sections 2.202, 2.204, 2.206, 2.209 and 2.217)
+is a person the owner seated for one company: someone the owner trusts with
+part of the company, who may still be dishonest, careless, or not the person
+holding their phone or their session. Each seat has its own authenticator,
+sealed, a handle that is its own in the deployment, and one of three kinds,
+read afresh from its row on every request.
+
+**What each kind can do.**
+
+- A **viewer** reads the company's work as the staff policy allows, and talks:
+  it writes in the rooms it can see, makes rooms, opens direct
+  conversations, sets meetings with people, attaches files to its messages
+  and links its own phone.
+- A **member** also asks for work from a message (**Ask the team**), tells or
+  stops the work it asked for, and answers a run's question put to it. It may
+  hold a role that is a person.
+- An **approver** also decides what waits at tier 2 and below, answers a
+  question put to nobody, calls a meeting of the agents about a message, calls
+  a whole room with `@room`, and chooses what work a division's room shows.
+
+Every POST a seat may make is on exactly one of three lists, talk, ask and
+decide, kept by area (`staffMay`, `src/owner/staff-policy.ts`); a route on
+none of them is the owner's alone.
+
+**Defences, in order.**
+
+1. **Only what its kind allows.** Seating people, every setting, the channels
+   the owner is reached on, relays, export, import and closing, approvals for
+   a while, the conversation with the CEO and with PALUGADA, the company's
+   browser and its files, the message window and the room files' limit are
+   on no seat's list. A seat never decides tier 3, whatever code it holds
+   (`decide`, `src/inbox/inbox.ts`), and nothing reaches tier 3 from a room
+   but a link to the owner's inbox. A kind lowered holds on the seat's next
+   request, and voids the offers its phone was sent.
+2. **Only the rooms it may see.** Room tables are tenant tables whose
+   restrictive policies answer a person's transaction only for the rooms
+   that person may see: the company's, the divisions', open topic rooms, and
+   the private rooms and direct conversations they are in (0150, `withPeople`,
+   `src/db/tenant.ts`). The rule is the database's, so a search, a file, a
+   thread, a pin, a notice, a meeting's people and the room stream's frames
+   meet it however they are asked, and a stream or a notice is read again as
+   the person before it goes.
+3. **Only as itself.** Who writes is taken from the session, never a body
+   (`principalOf`, `src/workspace/principal.ts`; a body naming `author`,
+   `as`, `by`, `principal` or `via` is refused); the database forces the
+   author's name, the time and where the words came from. The owner names
+   every seat, and a name or handle that reads as another person's, the
+   owner's, PALUGADA's, the CEO's, the system's or a role's, in look-alike
+   letters too, is refused (`src/owner/confusables.ts`). The console draws
+   the owner's chip and a seat's from the principal, never from a name.
+4. **Its words are never the owner's.** A seat's request, instruction and
+   answer reach a run in the seat's name inside a colleague's fence that
+   grants nothing (`wrapColleague`, `src/context/builder.ts`), and the mark
+   that staff words are in the work follows every piece of work made from
+   it (`staffWordsIn`, `carriesStaff`, `src/engine/tasks.ts`). Such work never
+   uses the owner's approvals for a while, schedules' approvals or a
+   capability's own check; each action at tier 2 and above is a card that
+   names who asked, sent to another approver first and to the owner after a
+   day (`src/broker/broker.ts`); and no seat whose words are in the work
+   decides it, words added after the card included (`approval.own_instigation`,
+   `decide`).
+5. **Words become work only by a press.** A message is work, an instruction,
+   an answer or a decision only through a button that calls the same door
+   the console's other pages call (`src/workspace/doors.ts`); a mention, a
+   reaction or the words "approve this payment" start nothing, and a
+   reaction on a card is refused by the database. A seat tells and stops only
+   the work it asked for.
+6. **Spending is counted.** A member's asks for work are counted from the
+   work, never the rooms, under a lock, to its asks a day (20 unless the owner
+   sets another, at most 200; `staff.ask_limit`), and every ask reserves its
+   money from the role's budget before it starts, as any work does. Every
+   write of the rooms is held to a number a minute a person
+   (`src/workspace/limits.ts`), and a company's room files to a limit the
+   owner sets (10 GB unless set).
+7. **A file is a stranger's.** A room file is stored under its own id with
+   the kind its bytes show, beside the company's folder and never in it, so
+   no agent capability and not the owner's Files page reaches it
+   (`src/workspace/files.ts`). Only a small picture is drawn; everything
+   else, an SVG or a page included, is saved under its name and never opened
+   in the console's origin.
+8. **No model reads it.** No agent's transaction names a room reader, so an
+   agent reads and writes nothing in a room table, even in its own company.
+   The owner's assistant and the CEO's conversation are kept from every route
+   that reads people's words (`UNREADABLE_UNDER`,
+   `src/owner/assistant-actions.ts`), and the people's helpers refuse inside
+   the assistant's dispatch (`assistantDispatch`, `src/db/tenant.ts`).
+9. **Another seat's question stays theirs.** A question a run put to one seat,
+   and that seat's words to it, are shown to another seat only as "A question
+   for Budi"; the work's briefing, transcript and trace are refused them
+   (`hideOthersQuestions`, `src/owner/views.ts`; `seatMayReadTask`).
+10. **Ending a seat ends it.** **End the seat** ends its sessions and the
+   streams they hold within thirty seconds on every replica, takes it out of
+   every room, ends its phone's links and voids their offers, and frees its
+   handle (`StaffSeats.revoke`, `src/owner/staff.ts`). A new authenticator
+   does the same to the sessions and the phone without taking the person out
+   of their rooms.
+
+**Someone holding the seat.** A stolen phone with the seat's authenticator,
+or an open session, is that seat, at its kind, until the owner ends the seat
+or gives it a new authenticator. A seat has no recovery codes, so its
+authenticator is the only way in. A relay link to a seat's phone is held as
+section 2.10 says: a press is read against the seat now, never at tier 3.
+
+**Residual risk.**
+
+- Below tier 2, staff work is held by the colleague fence alone, which is a
+  prompt (F19.9). A member can ask a role for drafts and reads within what the
+  role is granted and steer it there.
+- Four eyes is per seat. Two seats who agree -- one asks, the other approves
+  -- pass a tier 2 action between them; the owner reads it in the history,
+  and the team's cards reach the owner only when no other approver decided
+  within the day.
+- A member's asks spend from the role's and the company's budgets, up to
+  their ceilings; there is no budget per seat.
+- Whatever a seat can see, it can copy out of PALUGADA: a screenshot is out of
+  reach, and so are a file saved from a room and opened on someone's own
+  machine.
+- The owner can read every private room, and the owner's export holds every
+  direct conversation; the staff are told so when they join, and the owner's
+  reading of a private room is not shown to its members.
+- Colleagues can tell from the badges how busy rooms are, though not what was
+  said or where.
+
 ## 3. Out of scope, or not defended
 
 - Chromium itself. Its sandbox is on unless the operator turns it off
@@ -709,3 +1020,20 @@ All under `test/acceptance/` unless named.
 | The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
 | A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |
+| The relay: a sealed identity showing only its public half; pairing with a fresh factor, sixteen typed characters and a bound accept; a document read to a bound; widening takes the device; revocation at once; a rotation kept until every relay took it; a relay's own key rotated only by both keys; pairing again in place | `relay-pairing.test.ts` |
+| The relay: canonical signed envelopes; share levels, each company's under the relay's; no button at tier 3 or on an incident; a run's choices redacted; each person's order across replicas; a slow relay holds up no tick | `relay-delivery.test.ts`, `test/documents/relay-protocol.test.ts` |
+| The relay: signature, freshness, version, once, nothing written for a stranger, a paired relay never shut out by strangers; a press once, never at tier 3, the device's signature at its own moment and for its own link, the owner's link inert without one, a seat read again, four eyes; text no column keeps refused, a failed act given back, a stopped replica's act taken over; a pull read to a bound, signed for its relay, leased to one process, its answers sent back | `relay-inbound.test.ts` |
+| The relay and people: a reply only in the token's room and thread, never work; a stolen relay key cannot post, mark read or mute for a link with a device key; a device signature taken once; a client id not reused; who may see asked again as a notice is sent; deleted words withdrawn at the relay and blanked from the outbox; an erased company forgotten at every relay; a link's end told to its relay | `relay-people.test.ts` |
+| The relay is sent no company, room, thread, item or task id, and a notice's link opens only for the person it was for | `relay-links.test.ts` |
+| A second implementation of the protocol that pins the deployment by fingerprint, takes a new key only from the pinned key and the new one, keeps its inbox across a restart, prints nothing above signal unless asked, drops content at its fortnight, and takes acts only on loopback | `relay-reference.test.ts` |
+| A seat's kinds: every POST a seat may make on one list, a viewer asking for nothing, an approver deciding the inbox's and a meeting's alone, nothing of the owner's on any list | `test/documents/staff-routes.test.ts`, `staff.test.ts` |
+| A seat never decides tier 3; a kind changed holds at once; ending a seat ends its sessions, streams, rooms, links and handle | `staff.test.ts`, `members.test.ts`, `room-stream.test.ts`, `live.test.ts`, `relay-pairing.test.ts` |
+| Signing in by handle: one seat's secret compared, the owner's door never trying a handle's seat, a lock per handle no one network fills, a new authenticator | `staff-sign-in.test.ts` |
+| Names and handles kept apart: look-alikes, reserved words and roles refused, in a batch too | `staff-names.test.ts` |
+| Rooms by the database: an agent reads and writes nothing in a room table; a person sees only the rooms they may see and writes only as themselves; a read mark is no receipt | `people-rls.test.ts`, `rooms.test.ts`, `room-search.test.ts`, `room-stream.test.ts` |
+| A colleague's words never the owner's: fenced, marked through derived work, held at tier 2 for another approver, four eyes, no standing approval unless the owner gave one for staff work | `staff-words.test.ts`, `staff-provenance.test.ts`, `test/documents/provenance-sites.test.ts` |
+| Words become work only by a press; a reaction decides nothing; asks a day counted from the work; a seat tells and stops only its own work | `room-doors.test.ts`, `room-cards.test.ts` |
+| Every write of the rooms held to a minute; a company's room files held to a limit | `room-limits.test.ts` |
+| Room files: beside the company's folder and never under it, stored by id with the kind their bytes show, only small pictures drawn | `room-files.test.ts`, `owner-files.test.ts` |
+| No person's words reach a model: no room table on an agent's path, every read of people's words kept from the assistant, the helpers refusing inside its dispatch | `test/documents/people-boundary.test.ts`, `assistant.test.ts` |
+| Room activity writes nothing to the work's journal | `rooms-write-no-events.test.ts` |

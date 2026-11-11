@@ -55,7 +55,7 @@ import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cos
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
-import { outsideContentIn } from '../engine/tasks.ts';
+import { outsideContentIn, seatsOf, staffWordsIn, type StaffWord } from '../engine/tasks.ts';
 import { Ajv, type ValidateFunction } from 'ajv';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Capability, CapabilityContext, CapabilityRegistry } from './registry.ts';
@@ -65,6 +65,16 @@ import { assertScopesCover } from '../secrets/scopes.ts';
 import { HookPipeline } from '../engine/hooks.ts';
 import { givePlaceBack, takePlace, type PlaceHolder } from './in-flight.ts';
 import type { Guardian } from './guardian.ts';
+
+/**
+ * Whether the broker holds work a member of staff began or steered (F19.9):
+ * at tier 2 and above it asks a person who did not ask for it, and never
+ * uses what the owner allowed for the owner's own work. Until it did, no
+ * staff work could be made at all (`staff.not_ready`), since the owner's
+ * standing approvals would have let a seat's request through as if it were
+ * the owner's. It does (STATUS section 2.204): below, wherever `staff` is.
+ */
+export const STAFF_WORDS_HELD: boolean = true;
 
 export interface InvokeContext {
   companyId: string;
@@ -614,6 +624,16 @@ export class CapabilityBroker {
     const outside = tier >= 2
       ? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))
       : null;
+    // F19.9: the same for a member of staff's words. Work a seat began or
+    // steered -- or work made from such work -- asks a person at tier 2 and
+    // above, never on the strength of what the owner allowed for their own
+    // work: no yes for the schedule, none for a while unless the owner gave
+    // one that covers staff work, and no capability's own check. Below tier 2
+    // the colleague's fence the run is told the words inside is the guard.
+    const staff: StaffWord[] = tier >= 2
+      ? await withTenant(ctx.companyId, (tx) => staffWordsIn(tx, ctx.taskId))
+      : [];
+    const held = staff.length > 0;
     // F5.7: a place among the calls the grant allows at once, taken before
     // anything is recorded, charged or judged -- a call that waited and
     // found none did not happen, and is tried again later: judged first, each
@@ -669,7 +689,7 @@ export class CapabilityBroker {
       }
     }
     const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null
-      || guardianAsks !== null;
+      || guardianAsks !== null || held;
     const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
     if (needsOwner) {
       grantedApproval = await holding(() => withTenant(ctx.companyId, (tx) =>
@@ -700,9 +720,13 @@ export class CapabilityBroker {
       // To the owner, about the work in front of them: the task's id and the
       // capability's code were the platform's words (§2.3 item 7), and the
       // card names the action and links the work.
+      const named = [...new Set(staff.map((word) => word.name))];
       const said = approvalReasonSaid(reading, {
         tier, interrupted, chain, ...(checked ? { checked } : {}),
-        asked: policy.effect === 'require_approval' ? { by: 'policy', policies: policy.matched.map((m) => m.slug) }
+        // Who asked, at tier 3 too, where the tier is why (F19.9).
+        ...(held ? { staff: named } : {}),
+        asked: held && !requiresOwnerApproval(tier) ? { by: 'staff' }
+          : policy.effect === 'require_approval' ? { by: 'policy', policies: policy.matched.map((m) => m.slug) }
           : outside && !requiresOwnerApproval(tier) ? { by: 'outside', begun: outside === 'begun' }
             : guardianAsks !== null
               ? guardianAllowedBefore ? { by: 'guardian', allowedBefore: true } : { by: 'guardian', allowedBefore: false, reason: guardianAsks }
@@ -719,6 +743,9 @@ export class CapabilityBroker {
         rationale: said.rationale,
         consequenceIfDenied: said.consequence,
         estimatedCostCents: capability.estimatedCostCents ?? 0,
+        // The seats whose words are in the work: none of them decides it,
+        // and another approver hears of it before the owner (F19.9).
+        ...(held ? { instigators: seatsOf(staff) } : {}),
         // F10.2 asks an approval item to say why. The plan is most of the
         // answer, so it travels with the item rather than being a click away.
         payload: {
@@ -727,7 +754,12 @@ export class CapabilityBroker {
           goalAncestry: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
           // Why the owner is asked, which decides whether they may answer for
           // a while (0083): the tier itself, content from outside, or a policy.
-          reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : guardianAsks !== null ? 'guardian' : 'policy',
+          // `staff`: a member of staff's words are in the work, which only a yes
+          // the owner gave for staff work answers for a while (F19.9). Work that
+          // also read outside content is asked about every time, as any is.
+          reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : held ? 'staff' : guardianAsks !== null ? 'guardian' : 'policy',
+          // Who asked, by the names the owner gave them, for the card to say.
+          ...(held ? { staff: named } : {}),
           ...(checked ? { checked } : {}),
         },
       });
@@ -752,7 +784,7 @@ export class CapabilityBroker {
     // the owner approved was not shaped by what was read. Counted as used,
     // and the record says which yes it ran on.
     let forSchedule: { id: string; grantedByItem: string; scheduleId: string } | null = null;
-    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier)) {
+    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && !held) {
       forSchedule = await holding(() => withTenant(ctx.companyId, async (tx) => {
         const found = await inbox.useScheduleApproval(tx, ctx.taskId, name, fingerprint!);
         if (found) {
@@ -768,11 +800,15 @@ export class CapabilityBroker {
         return found;
       }));
     }
+    // Staff work's own card is answered for a while only by a yes the owner
+    // gave for staff work too (`covers_staff`, F19.9), and only where the work
+    // read nothing from outside, as any yes for a while.
     let standing: { id: string; grantedByItem: string } | null = null;
-    if (needsOwner && !grantedApproval && !forSchedule && !requiresOwnerApproval(tier) && policy.effect === 'require_approval'
+    if (needsOwner && !grantedApproval && !forSchedule && !requiresOwnerApproval(tier)
+        && (policy.effect === 'require_approval' || held)
         && (outside ?? await holding(() => withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId)))) === null) {
       standing = await holding(() => withTenant(ctx.companyId, async (tx) => {
-        const found = await inbox.useStanding(tx, ctx.roleId, name);
+        const found = await inbox.useStanding(tx, ctx.roleId, name, { staff: held });
         if (found) {
           await appendEvent(tx, {
             companyId: ctx.companyId,
@@ -792,7 +828,7 @@ export class CapabilityBroker {
     // what the capability knows of its effect; it is recorded either way.
     let cleared: { record: unknown } | null = null;
     if (needsOwner && !grantedApproval && !standing && !forSchedule && capability.clearsOutside && tier === 2
-        && policy.effect !== 'require_approval' && guardianAsks === null && outside !== null) {
+        && policy.effect !== 'require_approval' && guardianAsks === null && outside !== null && !held) {
       const verdict = await holding(() => capability.clearsOutside!(input as never, {
         companyId: ctx.companyId, divisionId: ctx.divisionId, taskId: ctx.taskId, idempotencyKey: ctx.idempotencyKey,
         signal: ctx.signal ?? new AbortController().signal,

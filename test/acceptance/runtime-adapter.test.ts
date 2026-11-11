@@ -403,7 +403,7 @@ test('what the pack was built with reaches the runtime: the language, the owner\
   await setRoleSchemas(fixture, fixture.roleId, { output: { type: 'object', required: ['summary'], properties: { summary: { type: 'string' } } } });
   await setCompanyLanguages(fixture.companyId, { work: 'id', talk: 'id' });
   const task = await newTask(fixture);
-  await instructTask(fixture.companyId, task.id, 'Lead with the price change, not the new hire.');
+  await instructTask(fixture.companyId, task.id, 'Lead with the price change, not the new hire.', { kind: 'owner' });
   await withTenant(fixture.companyId, async (tx) => {
     await tx.query(
       `INSERT INTO task_steps (company_id, task_id, step_index, name, kind, status,

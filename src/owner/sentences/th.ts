@@ -10,6 +10,8 @@
  * a space, not a full stop. Telegram and WhatsApp buttons stay short: WhatsApp
  * cuts a button at 20 characters and a list row at 24.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'เหตุขัดข้อง: {title}',
   'Done: {goal}': 'เสร็จแล้ว: {goal}',
@@ -568,4 +570,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': 'เรารับใช้ใครและอะไรทำให้เราแตกต่าง',
   'Where we will be in three years': 'เราจะอยู่ที่ไหนในอีกสามปี',
   'Our promise': 'คำมั่นสัญญาของเรา',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('th'),
 };

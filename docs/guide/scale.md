@@ -11,11 +11,14 @@ audits of the platform found and what is still open.
   no user accounts and no single sign-on. Whoever holds the owner's enrolled
   authenticator is the owner, with the whole of the owner's power. The
   owner can seat other people for one company each, under **Settings**,
-  **People**: a viewer follows the company's work, and an approver also
-  approves or denies what waits at tier 2 and below. A seat has its own
-  authenticator, kept apart from the owner's, so its code never counts as
-  the owner's; tier 3, settings, keys, devices and every loosening stay the
-  owner's, and the record names the person who decided. If several people
+  **People**, up to thirty at once: a viewer follows the company's work and
+  talks in its rooms, a member also asks for work and answers what is put to
+  it, and an approver also approves or denies what waits at tier 2 and
+  below. Each signs in with a handle that is theirs in the whole deployment
+  and an authenticator of their own, kept apart from the owner's, so their
+  code never counts as the owner's and the owner's sign-in never tries
+  theirs; tier 3, settings, keys, devices, export and every loosening stay
+  the owner's, and the record names the person who decided. If several people
   are each accountable for their own companies, give each of them a
   deployment of their own rather than sharing the owner's authenticator.
 - **Companies are isolated in the database.** Row-level security is forced
@@ -41,7 +44,7 @@ tools; a hosted model's fast or standard tier, or a capable local model.
 - The monthly ceiling on **Money** for each company. USD 200 is the default.
 - Telegram, WhatsApp or push, so the inbox reaches you. Each needs the console
   reachable over HTTPS from your phone
-  ([how-to](how-to.md#push-notifications-telegram-and-whatsapp)).
+  ([how-to](how-to.md#push-notifications-telegram-whatsapp-and-email)).
 - The company's languages, if its customers or you work in something other
   than the default.
 - A price list (`PALUGADA_MODEL_PRICES`) if your model is not priced by
@@ -77,7 +80,12 @@ worker processes.
 - Triggers for events other services send, handoffs between roles, and
   schedules for recurring work (for now created through the owner API; see
   [how-to](how-to.md#schedule-recurring-work)).
-- Retention windows that match what you are obliged to keep.
+- Retention windows that match what you are obliged to keep, the rooms'
+  message window among them.
+- If you seat people: a relay for their phones ([phones](../phones.md)), and
+  the files root in your backups with the database, since the files people
+  attach to messages are kept on disk there
+  ([operations](operations.md#backups)).
 - Monitoring on `GET /api/health`, metrics scraped from `GET /api/metrics`
   with alerts on them ([operations](operations.md#metrics)), and the JSON
   log lines collected somewhere you will read them.
@@ -107,6 +115,11 @@ than one worker can run.
 - PostgreSQL on its own host, with connections for about twenty a process,
   and the storage and backups a growing event log needs.
 - The Docker runtime for work that should have no network at all.
+- HTTP/2 at the proxy, since every console tab holds a stream open, and,
+  behind a pooler that does not keep `LISTEN` (PgBouncer in transaction
+  mode), `PALUGADA_LISTEN_DATABASE_URL` as a direct connection, so every
+  process hears the rooms change
+  ([operations](operations.md#https-in-front-of-it)).
 
 **Configure.** Everything under medium, and: `PALUGADA_WORKER_ID` only if you
 can keep it unique per process; division budget accounts, so one division
@@ -151,12 +164,13 @@ expects are not there. Be clear about both before you commit.
 - Retention as the only thing that deletes, recording what it removed.
 
 **What it does not have yet.**
-- Single sign-on, or roles for people beyond the two staff seats. Tier 3
-  has one human approver, the owner; the second pair of eyes on an action
-  is a reviewer role, which is an agent. A staff seat cannot use the
-  Telegram or WhatsApp chats yet: they are the owner's.
-- A metrics endpoint or tracing. There are JSON log lines and a health
-  check.
+- Single sign-on, guest seats, or kinds of seat beyond viewer, member and
+  approver. Tier 3 has one human approver, the owner; the second pair of
+  eyes on an action is a reviewer role, which is an agent, or, for work a
+  member of staff asked for, another approver. A staff seat cannot use the
+  Telegram or WhatsApp chats: they are the owner's. Staff are told on their
+  phones only through a relay the owner pairs ([phones](../phones.md)), and
+  a seat has no recovery codes: the owner gives it a new authenticator.
 - A connector catalogue or an OAuth flow for connecting accounts.
   Integrations are the built-in capabilities, vendor files and allow-listed
   MCP servers you bind.
@@ -166,7 +180,10 @@ expects are not there. Be clear about both before you commit.
   from one address hold that address back for fifteen minutes, but ten wrong
   codes from any mix of addresses lock codes for fifteen minutes, for you as
   well. A passkey is not locked by wrong codes, so add one, and limit who can
-  reach the console.
+  reach the console. A member of staff's handle is locked on its own: ten
+  wrong codes for it in fifteen minutes, at most three of them counted from
+  one network, lock that handle alone, for a minute and then longer, and
+  the owner can let it sign in again.
 - Platforms other than Linux, and an image with agent CLIs in it.
 - Proof against the vendors themselves: push, Telegram, the model APIs and
   MCP servers are exercised against local servers. The

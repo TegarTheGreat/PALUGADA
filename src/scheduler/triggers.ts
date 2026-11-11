@@ -40,6 +40,7 @@ import { assertGoalOpen } from '../domain/goals.ts';
 import { createRootTask } from '../engine/tasks.ts';
 import type { SecretManager } from '../secrets/manager.ts';
 import { enqueueWake } from './wake.ts';
+import { freshTimestamp, verifyStandardWebhook } from '../relay/signature.ts';
 
 /** How a delivery proves where it came from (0056). */
 export const TRIGGER_SCHEMES = ['bearer', 'url', 'github', 'stripe', 'slack', 'standard'] as const;
@@ -111,15 +112,6 @@ export type HookAnswer =
 
 /** The most of an event a run is given; past it, the text is cut and says so. */
 const EVENT_MAX_CHARS = 20_000;
-
-/**
- * How far a signed time may be from this clock, either way.
- *
- * Five minutes is what Stripe, Slack and Standard Webhooks each recommend:
- * wide enough for a sender's clock and a queue, narrow enough that a captured
- * delivery is useless by the time anyone could do anything with it.
- */
-const SIGNATURE_TOLERANCE_SECONDS = 300;
 
 /**
  * Where a bearer caller puts its delivery id.
@@ -369,9 +361,15 @@ function hmac(key: Buffer | string, ...parts: Array<string | Buffer>): Buffer {
 /** What a delivery proved: why it is refused, or the delivery id its proof covers. */
 type Verdict = { refused: null; deliveryId: string | null } | { refused: string };
 
+/**
+ * How far a signed time may be from this clock, either way: five minutes
+ * (`SIGNATURE_TOLERANCE_SECONDS`), what Stripe, Slack and Standard Webhooks
+ * each recommend -- wide enough for a sender's clock and a queue, narrow
+ * enough that a captured delivery is useless by the time anyone could do
+ * anything with it. One rule with the relay's.
+ */
 function fresh(seconds: string | null): boolean {
-  if (!seconds || !/^\d{1,12}$/.test(seconds)) return false;
-  return Math.abs(Date.now() / 1000 - Number(seconds)) <= SIGNATURE_TOLERANCE_SECONDS;
+  return freshTimestamp(seconds);
 }
 
 /**
@@ -417,21 +415,15 @@ function verify(scheme: TriggerScheme, secret: string, delivery: HookDelivery): 
       : { refused: 'wrong signature' };
   }
   if (scheme === 'standard') {
-    // Svix sends the same three under its own prefix.
-    const id = header(headers, 'webhook-id') ?? header(headers, 'svix-id');
-    const time = header(headers, 'webhook-timestamp') ?? header(headers, 'svix-timestamp');
-    const offered = header(headers, 'webhook-signature') ?? header(headers, 'svix-signature');
-    if (!offered || !id) return { refused: 'no signature' };
-    if (!fresh(time)) return { refused: 'stale signature' };
-    // The secret is `whsec_` and the key in base64, as the senders hand it out.
-    const key = secret.startsWith('whsec_') ? Buffer.from(secret.slice(6), 'base64') : Buffer.from(secret);
-    const expected = Buffer.from(hmac(key, `${id}.${time}.`, raw).toString('base64'));
-    // "v1,<base64> v1,<base64>" -- one per secret while a secret rolls.
-    const matched = offered.split(' ').some((part) => {
-      const comma = part.indexOf(',');
-      return comma > 0 && part.slice(0, comma) === 'v1' && same(Buffer.from(part.slice(comma + 1)), expected);
-    });
-    return matched ? { refused: null, deliveryId: id } : { refused: 'wrong signature' };
+    // Svix sends the same three under its own prefix. The verifier is the
+    // relay's (src/relay/signature.ts): `v1` with a `whsec_` secret, and
+    // `v1a`, Ed25519, with the sender's `whpk_` public key.
+    return verifyStandardWebhook({
+      id: header(headers, 'webhook-id') ?? header(headers, 'svix-id'),
+      timestamp: header(headers, 'webhook-timestamp') ?? header(headers, 'svix-timestamp'),
+      signature: header(headers, 'webhook-signature') ?? header(headers, 'svix-signature'),
+      payload: raw,
+    }, secret);
   }
   // A token in the address is taken only by a door made for it: a bearer
   // token that turns up there has been in a URL, where proxies keep them.

@@ -12,6 +12,7 @@
  * act.
  */
 import { withTenant } from '../db/tenant.ts';
+import { TEAM_SQL } from '../inbox/inbox.ts';
 import { costBreakdown } from './cost.ts';
 
 export interface DailyDigest {
@@ -78,7 +79,15 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
          (SELECT count(*)::text FROM tasks, bounds
            WHERE status = 'halted'
              AND finished_at >= bounds.from_at AND finished_at < bounds.to_at) AS halted,
-         (SELECT count(*)::text FROM inbox_items WHERE status = 'open') AS open_items,
+         -- What waits for the owner as the inbox's badge counts it (STATUS
+         -- sections 2.204 and 2.213): each card of their own, and the team's
+         -- cards one entry for each day they reached the owner; those still
+         -- with another approver are not the owner's yet.
+         (SELECT (count(*) FILTER (WHERE NOT ${TEAM_SQL})
+                  + count(DISTINCT (i.escalated_at AT TIME ZONE coalesce(c.timezone, 'UTC'))::date)
+                      FILTER (WHERE ${TEAM_SQL} AND i.escalated_at IS NOT NULL))::text
+            FROM inbox_items i JOIN companies c ON c.id = i.company_id
+           WHERE i.status = 'open') AS open_items,
          (SELECT count(*)::text FROM inbox_items
            WHERE status = 'open' AND kind = 'incident') AS open_incidents,
          (SELECT count(*)::text FROM agent_runs, bounds

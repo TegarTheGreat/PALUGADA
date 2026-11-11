@@ -7,20 +7,21 @@
  * Each is a section of the settings page (SettingsHub), not a page of its
  * own: an owner changes these rarely and should find them all in one place.
  */
-import { Alert, Anchor, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Code, CopyButton, Grid, Group, Modal, NumberInput, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
-import { LANGUAGES, isLanguage, language, locale, t } from '../i18n.ts';
+import { centsFrom, count, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
+import { LANGUAGES, isLanguage, language, locale, t, tp } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext } from '../App.tsx';
 import type { Digest, Languages } from '../types.ts';
 import { LoadFailed, Loading, Section, StatusBadge } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { OfficeHoursForm, dayName, type Hours } from '../components/OfficeHours.tsx';
 import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
+import { RoomFilesLimit } from './settings/RoomFiles.tsx';
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 const zoneOptions = ZONES.map((zone) => ({ value: zone, label: zone }));
@@ -30,7 +31,10 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
   const view = useLoad(async () => {
     const [window_, retention, office, digest]: [
       { timezone: string; startHour: number; endHour: number },
-      { policy: { eventDays: number; traceDays: number; promptDays: number }; log: Array<{ action: string; rowsAffected: number; throughAt: string }> },
+      {
+        policy: { eventDays: number; traceDays: number; promptDays: number; messageDays: number | null };
+        log: Array<{ action: string; rowsAffected: number; throughAt: string }>;
+      },
       { hours: Hours | null },
       Digest,
     ] = await Promise.all([
@@ -122,6 +126,7 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/retention`, values)}
         />
+        <MessageWindow companyId={companyId} days={retention.policy.messageDays} saved={view.reload} />
         {retention.log.length > 0 && (
           <Table mt="md" verticalSpacing={6}>
             <Table.Tbody>
@@ -136,6 +141,8 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
           </Table>
         )}
       </Section>
+
+      <RoomFilesLimit companyId={companyId} />
 
       <Section title={t('Alert thresholds')} description={t('When the company tells you something is going wrong, before it becomes an incident.')}>
         <ActionForm
@@ -183,8 +190,87 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
 /**
  * The weekly operating meeting (F18.6, 0140): the day and hour the CEO holds
  * it, on the company's clock, or that it is not held. Its record is the
- * meeting's task, which the last one's line opens.
+ * meeting's task, which the last one's line opens. And whether the owner
+ * attends every week, and how long each of its questions waits for them
+ * (F19.17): the server refuses attending while the meeting's hour is outside
+ * the owner's own hours, and the console says why in the server's words.
  */
+/**
+ * How long people's messages are kept (F19.15; STATUS 2.212): for good, which
+ * is how a company starts, or a month to ten years, each message by its own
+ * age. Empty keeps them. A window shorter than before, or one where there was
+ * none, removes what is older for good at the next pass and cannot be taken
+ * back, so the owner is asked first and told how many messages it takes
+ * (STATUS 2.218); a number outside the bounds is said, never changed.
+ */
+const MESSAGE_DAYS = { least: 30, most: 3650 } as const;
+
+function MessageWindow({ companyId, days, saved }: { companyId: string; days: number | null; saved: () => void }) {
+  const [value, setValue] = useState<string | number>(days ?? '');
+  const [saving, setSaving] = useState(false);
+  const [asking, setAsking] = useState<{ days: number; past: number } | null>(null);
+  const wanted = value === '' ? null : Number(value);
+  const wrong = wanted !== null && (!Number.isInteger(wanted) || wanted < MESSAGE_DAYS.least || wanted > MESSAGE_DAYS.most);
+  const shortens = wanted !== null && (days === null || wanted < days);
+  const save = async (confirmed: boolean) => {
+    if (wrong) return;
+    setSaving(true);
+    try {
+      if (shortens && !confirmed && wanted !== null) {
+        const answer: { messagesPast: number } = await api('GET', `/api/companies/${companyId}/retention?messageDays=${wanted}`);
+        setAsking({ days: wanted, past: answer.messagesPast });
+        return;
+      }
+      await api('POST', `/api/companies/${companyId}/retention`, { messageDays: wanted });
+      setAsking(null);
+      notifications.show({ color: 'teal', message: wanted === null ? t('Messages are kept for good.') : t('Saved.') });
+      saved();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Group align="flex-start" mt="md" gap="sm" wrap="wrap">
+      <NumberInput
+        label={t('Messages, days')}
+        description={t('Empty keeps what people say in the rooms for good. A window is 30 days at least; each message goes by its own age.')}
+        placeholder={t('Kept for good')}
+        value={value}
+        onChange={setValue}
+        min={MESSAGE_DAYS.least}
+        max={MESSAGE_DAYS.most}
+        clampBehavior="none"
+        allowDecimal={false}
+        allowNegative={false}
+        error={wrong ? t('From {least} to {most} days, or empty to keep them for good.', { least: MESSAGE_DAYS.least, most: count(MESSAGE_DAYS.most) }) : undefined}
+        data-message-days
+        style={{ flex: 1, minWidth: 220 }}
+      />
+      <Button variant="light" mt={{ base: 0, sm: 46 }} loading={saving} data-save-message-days disabled={wrong || wanted === days}
+        onClick={() => void save(false)}>{t('Save')}</Button>
+      <Modal opened={asking !== null} onClose={() => setAsking(null)} title={t('Remove older messages for good?')} centered>
+        {asking && (
+          <Stack gap="md">
+            <Text size="sm">
+              {tp('{count} message older than {days} days is removed for good at the next pass, in every room, direct messages too. It cannot be undone.',
+                '{count} messages older than {days} days are removed for good at the next pass, in every room, direct messages too. It cannot be undone.',
+                asking.past, { days: count(asking.days) })}
+            </Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setAsking(null)}>{t('Cancel')}</Button>
+              <Button color="red" loading={saving} data-confirm-message-days onClick={() => void save(true)}>
+                {t('Keep {days} days', { days: count(asking.days) })}
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+    </Group>
+  );
+}
+
 function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest['lastMeeting'] }) {
   const { companyId, company } = ctx;
   return (
@@ -198,14 +284,23 @@ function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest
               // Monday first, as the week the meeting is counted in starts.
               options: [1, 2, 3, 4, 5, 6, 0].map((day) => ({ value: String(day), label: dayName(day) })),
             },
-            { name: 'hour', label: t('Hour'), type: 'number', required: true, initial: company.rhythm.hour },
+            { name: 'hour', label: t('Hour'), type: 'number', required: true, initial: company.rhythm.hour, min: 0, max: 23 },
             {
               name: 'enabled', label: t('Held'), type: 'select', required: true, initial: company.rhythm.enabled ? 'on' : 'off',
               options: [{ value: 'on', label: t('On') }, { value: 'off', label: t('Off') }],
             },
+            {
+              name: 'ownerJoins', label: t('You attend'), type: 'select', required: true, initial: company.rhythm.ownerJoins ? 'on' : 'off',
+              options: [{ value: 'on', label: t('Every week') }, { value: 'off', label: t('Only when you press Join') }],
+            },
+            {
+              name: 'joinMinutes', label: t('Minutes each question waits for you'), type: 'number', required: true,
+              initial: company.rhythm.joinMinutes, min: 5, max: 120,
+            },
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/rhythm`, {
             weekday: Number(values.weekday), hour: Number(values.hour), enabled: values.enabled === 'on',
+            ownerJoins: values.ownerJoins === 'on', joinMinutes: Number(values.joinMinutes),
           })}
           done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
         />

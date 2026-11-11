@@ -104,6 +104,17 @@ export async function resetData(): Promise<void> {
   // And the lines erased companies left (0088), which name companies no
   // later file made.
   await ownerPool().query('TRUNCATE company_erasures');
+  // And each person's own settings (0149). A seat's go with its company in
+  // the TRUNCATE above; the owner's belong to no company, and a language or
+  // quiet hours one file chose would be every later file's owner's. The
+  // rooms (0150) all hang from a company and are gone with it.
+  await ownerPool().query('TRUNCATE principal_prefs');
+  // And the deployment's relays and its key to them (STATUS section 2.208): every link, offer,
+  // envelope, receipt and refusal hangs from a relay and goes with it.
+  await ownerPool().query('TRUNCATE relays, relay_identity CASCADE');
+  // And each handle's wrong codes (STATUS 2.217): kept for the handle as
+  // typed, held or not, so no company's going takes them with it.
+  await ownerPool().query('TRUNCATE handle_sign_ins');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default
@@ -152,7 +163,10 @@ export async function resetData(): Promise<void> {
               tour_finished_at = NULL,
               -- And the currency the owner reads money in (0106).
               display_currency = NULL,
-              display_rate = NULL`,
+              display_rate = NULL,
+              -- And what PALUGADA's own assistant may spend in a month
+              -- (0149), back to its default of USD 20.
+              assistant_month_cents = 2000`,
     );
   });
 }

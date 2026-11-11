@@ -16,7 +16,7 @@ import { IconAlertTriangle, IconArrowRight, IconChecklist, IconLinkOff, IconPlus
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { go, type CompanyPage } from '../router.ts';
-import type { Company, Digest, InboxItem, SetupReport, Spend, WorkGroup, WorkItem } from '../types.ts';
+import type { Company, Digest, InboxItem, SetupReport, Spend, TeamEntry, WorkGroup, WorkItem } from '../types.ts';
 import { money, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import { EmptyState, KindBadge, LiveIndicator, Loading, LoadFailed, Section, StatusBadge, TierBadge } from '../components/ui.tsx';
@@ -27,6 +27,8 @@ import { companyEmblem, rolePicture } from '../images.ts';
 interface CompanyState {
   company: Company;
   inbox: InboxItem[];
+  /** The team's days that reached the owner (F19.9): each counts once, as the inbox's badge counts it. */
+  teamDays: number;
   digest: Digest;
   running: WorkItem[];
   delivered: WorkItem[];
@@ -95,8 +97,8 @@ export function Home({
   checklist: () => void;
 }) {
   const view = useLoad(async () => Promise.all(companies.map(async (company): Promise<CompanyState> => {
-    const [{ items }, digest, work, done, spend]: [
-      { items: InboxItem[] }, Digest, { items: WorkItem[]; counts: Record<WorkGroup, number> }, { items: WorkItem[] }, Spend,
+    const [{ items, team }, digest, work, done, spend]: [
+      { items: InboxItem[]; team?: TeamEntry[] }, Digest, { items: WorkItem[]; counts: Record<WorkGroup, number> }, { items: WorkItem[] }, Spend,
     ] = await Promise.all([
       api('GET', `/api/companies/${company.id}/inbox`),
       api('GET', `/api/companies/${company.id}/digest`),
@@ -104,7 +106,7 @@ export function Home({
       api('GET', `/api/companies/${company.id}/work?group=done&limit=4`),
       api('GET', `/api/companies/${company.id}/spend`),
     ]);
-    return { company, inbox: items, digest, running: work.items, delivered: done.items, counts: work.counts, spend };
+    return { company, inbox: items, teamDays: (team ?? []).filter((entry) => entry.day !== null).length, digest, running: work.items, delivered: done.items, counts: work.counts, spend };
   })), [companies.map((company) => company.id).join(',')], { every: 20_000 });
 
   // Only the first letter is raised, as a sentence starts: Portuguese and
@@ -271,13 +273,14 @@ export function Home({
 }
 
 function CompanyCard({ state, open }: { state: CompanyState; open: (page: CompanyPage, item?: string | null) => void }) {
-  const { company, inbox, digest, counts, spend } = state;
+  const { company, inbox, teamDays, digest, counts, spend } = state;
+  const needsYou = inbox.length + teamDays;
   const used = spend.limitCents > 0 ? Math.min(100, (spend.spentCents / spend.limitCents) * 100) : 0;
   const health = company.frozen
     ? { label: t('Frozen'), color: 'gray' }
     : spend.pausedAt ? { label: t('Spending paused'), color: 'red' }
       : digest.openIncidents > 0 ? { label: t('Incident open'), color: 'red' }
-        : inbox.length > 0 ? { label: t('Waiting on you'), color: 'orange' }
+        : needsYou > 0 ? { label: t('Waiting on you'), color: 'orange' }
           : { label: t('Running smoothly'), color: 'teal' };
 
   return (
@@ -296,7 +299,7 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
       </UnstyledButton>
       {company.headline && <Headline headline={company.headline} onClick={() => open('team')} />}
       <SimpleGrid cols={3} spacing="xs">
-        <Figure label={t('Needs you')} value={inbox.length} alert={inbox.length > 0} onClick={() => open('inbox')} />
+        <Figure label={t('Needs you')} value={needsYou} alert={needsYou > 0} onClick={() => open('inbox')} />
         <Figure label={t('Running')} value={counts.active} onClick={() => open('work')} />
         <Figure label={t('Done today')} value={digest.tasksCompleted} onClick={() => open('work')} />
       </SimpleGrid>

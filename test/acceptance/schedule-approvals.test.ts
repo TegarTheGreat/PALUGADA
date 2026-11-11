@@ -245,7 +245,7 @@ test('never for tier 3, never for work no schedule made, never by a seat, never 
   await assert.rejects(send(broker, fixture, run.id), refused('approval.required'));
   const [card] = await openApprovals(fixture);
   await assert.rejects(inbox.decide(fixture.companyId, card!.id, 'approve', '', {
-    ...owner, proof: device.proof(), forSchedule: true, seat: { id: '00000000-0000-4000-8000-000000000001', name: 'Rina' },
+    ...owner, proof: device.proof(), forSchedule: true, seat: { id: '00000000-0000-4000-8000-000000000001', name: 'Rina', kind: 'approver' },
   } as never), refused('staff.forbidden', /loosens a control, which is the owner's to do/));
   await assert.rejects(inbox.decide(fixture.companyId, card!.id, 'deny', '', { ...owner, proof: device.proof(), forSchedule: true }),
     refused('contract.violation', /only a yes/));

@@ -81,6 +81,7 @@
  * written to read right for 1 as well.
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Meta for Developers で WhatsApp を使うアプリを作成し、ビジネス用の電話番号を追加したうえで、その番号から送信できる永続トークンを持つシステムユーザー（System user）を作成します。",
@@ -198,7 +199,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "トリガーがシークレットを読み取れないため、イベントが届いていません",
   "A trigger refused a caller without its token": "トリガーがトークンのない呼び出しを拒否しました",
   "A user auth token from Sentry's settings.": "Sentry の設定で発行するユーザー認証トークン（User Auth Token）。",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "閲覧者は会社の仕事を確認できます。承認者はさらに、ティア 2 以下で待っている項目を承認または却下できます。ティア 3、設定、キー、デバイスはあなたが管理します。",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "リーダーシップのあり方が公に記録されている人物から取り入れた、仕事に臨む考え方。",
   "A way to work": "仕事の進め方",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "週次スコアカードは {fewest}〜{most} 個の数字が最も読みやすく、これは {lines} 個です：誰も行動に移さないものを外してください。",
@@ -1193,7 +1193,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "1 つのタスクに許される数より多くのサブタスクに、仕事を分けようとしました。もっと小さな仕事として、もう一度実行してください。",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "1 つの仕事に許される回数を超えて、ロールからロールへと引き継がれたため、引き継ぎを続けずに停止しました。誰が行うべきかをメモに書いて、もう一度実行してください。",
   "It will not run again. The work it already made stays, with what that work produced.": "今後は実行されません。すでに作成された作業とその成果は残ります。",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "このリンクは 1 週間有効で、使えるのは 1 回だけです。表示されるのは今だけです。開くと、相手自身の認証アプリに PALUGADA を追加するよう求められます。",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "外部に書き込んだ内容を読み戻したところ、一致しませんでした。書き込み自体はすでに行われているかもしれないので、もう一度実行する前に書き込み先を確認してください。",
   "Its address": "アドレス",
   "Its arguments": "引数",
@@ -1895,7 +1894,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "今日の支出",
   "Spent today: {amount}": "今日の支出：{amount}",
   "Split into too many sub-tasks": "サブタスクへの分割が多すぎます",
-  "Staff who can follow this company, and approve what is small.": "この会社の仕事を確認し、小さな事項を承認できるスタッフ。",
   "Stage": "ステージ",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2943,6 +2941,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "今四半期に評点がついた必達目標 {count} 件のうち {passed} 件が達成。",
   "Numbers for {quarter}": "{quarter} の数字",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}。各期間の終わりに書かれた評点から、四半期計画が読むとおりに数えています。次の計画の材料であり、支払いや信頼がこれで決まることはありません。",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ja'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2961,4 +2961,5 @@ export const KEPT: readonly string[] = [
   "URL",
   "WhatsApp",
   "ntfy",
+  ...areaKept('ja'),
 ];

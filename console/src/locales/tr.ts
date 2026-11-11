@@ -112,6 +112,7 @@
  *                           Dinleme, Anlamla arama
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Meta for Developers'ta WhatsApp içeren bir uygulama oluşturun, işletme numaranızı ekleyin ve bu numara adına mesaj gönderebilen, kalıcı token'ı olan bir sistem kullanıcısı (system user) oluşturun.",
@@ -229,7 +230,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Bir tetikleyici gizli değerini okuyamadı, bu yüzden olaylar gelmiyor",
   "A trigger refused a caller without its token": "Bir tetikleyici, token içermeyen bir çağrıyı reddetti",
   "A user auth token from Sentry's settings.": "Sentry ayarlarından alınan bir kullanıcı token'ı (User Auth Token).",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Görüntüleyen, şirketin işlerini takip eder. Onaylayan ayrıca 2. seviye ve altında bekleyenleri onaylar ya da reddeder. 3. seviye, ayarlar, anahtarlar ve cihazlar sizde kalır.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Liderlik tarzı herkesçe bilinen birinden alınmış, çalışırken benimsenecek bir düşünme biçimi.",
   "A way to work": "Bir çalışma biçimi",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Haftalık karne {fewest} ile {most} sayı arasında en iyi okunur ve bunda {lines} var: kimsenin harekete geçmediklerini çıkarın.",
@@ -1224,7 +1224,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "İşini, bir görevin sahip olabileceğinden daha fazla alt göreve bölmeye çalıştı. Daha küçük bir iş olarak yeniden yapın.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Bir işin devredilebileceğinden daha çok kez rolden role devredildi; bu yüzden devredilmeye devam etmek yerine durdu. Yeniden yapın ve notunuzda bu işi kimin yapması gerektiğini belirtin.",
   "It will not run again. The work it already made stays, with what that work produced.": "Bir daha çalışmaz. Şimdiye kadar oluşturduğu işler ve ürettikleri kalır.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Yalnızca bir kez, bir hafta boyunca çalışır ve yalnızca şimdi gösterilir. Açıldığında kişiden, PALUGADA'yı kendi kimlik doğrulama uygulamasına eklemesi istenir.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Dışarıya bir şey yazdı ve geri okudu, okuduğu şey eşleşmedi. Yeniden yapmadan önce yazdığı yeri kontrol edin: yazma işlemi gerçekleşmiş olabilir.",
   "Its address": "Adresi",
   "Its arguments": "Argümanları",
@@ -1926,7 +1925,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Bugün harcanan",
   "Spent today: {amount}": "Bugün harcanan: {amount}",
   "Split into too many sub-tasks": "Çok fazla alt göreve bölündü",
-  "Staff who can follow this company, and approve what is small.": "Bu şirketi takip edebilen ve küçük işleri onaylayabilen çalışanlar.",
   "Stage": "Aşama",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2974,6 +2972,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "Bu çeyrek puanlanan {count} taahhütlü hedeften {passed} tanesi geçti.",
   "Numbers for {quarter}": "{quarter} rakamları",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Her dönem bittiğinde yazılan puanlardan, çeyrek planlamanın okuduğu gibi sayıldı: bir sonraki planı besler; hiçbir ödeme ya da güven bunlara bağlı değildir.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('tr'),
 };
 
 /**
@@ -3003,4 +3003,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('tr'),
 ];

@@ -42,7 +42,31 @@ export interface ExportSummary {
   companySlug: string;
   exportedAt: string;
   counts: Record<string, number>;
+  /**
+   * What the archive leaves out on purpose, by table, and why: said in the
+   * archive itself, so whoever reads it knows these are not missing.
+   */
+  leftOut: Record<string, string>;
 }
+
+/**
+ * The rooms' tables that are a person's place and attention, or delivery's
+ * bookkeeping, rather than the company's record (STATUS 2.212): where each
+ * person read to, what is owed to whom, what changed for an open room to
+ * catch up on. A restore makes each person a fresh place at the end of every
+ * room instead, so nothing restored is new to anyone.
+ */
+const LEFT_OUT: Readonly<Record<string, string>> = {
+  room_places: "a person's own place in a room -- where they read to, how loudly it tells them -- not the company's record",
+  room_access: "who may see a private room, kept by the database from the room's members, which the archive carries",
+  room_mentions: "attention a person was owed, not the company's record",
+  room_follows: "the threads a person follows, their own attention",
+  room_feed: 'what changed, for an open room to catch up on: delivery bookkeeping',
+  room_clock: "the rooms' order, which a restore takes again from the messages' order",
+  // STATUS 2.213: a notice is planned from the feed, which a restore writes
+  // nothing of per message, so a restored company is told nothing again.
+  people_notices: 'what each person was told outside PALUGADA, and when: delivery bookkeeping, kept a month',
+};
 
 /**
  * Sections in dependency order, so an archive can be read back top to bottom.
@@ -57,24 +81,37 @@ interface Section {
   /**
    * Read through the control plane instead of the tenant scope.
    *
-   * Only for `governance_log`, which the application role is deliberately not
+   * For `governance_log`, which the application role is deliberately not
    * granted: a record of who changed the rules is an owner artefact, not
    * working material for the agents those rules constrain. Keeping that
    * withholding intact means the export cannot read it through the ordinary
    * path, so it reads it with an explicit company predicate instead -- the
-   * predicate doing the work row-level security does everywhere else.
+   * predicate doing the work row-level security does everywhere else. And
+   * for the rooms' tables, which open to no transaction that names no
+   * reader (0150), so no agent's reads them either.
    */
   viaControlPlane?: boolean;
+  /**
+   * Its rows are matched to the company's messages by hash, never by a
+   * nested loop. Until the planner has seen a company's rows -- a company
+   * restored or imported from Slack a moment ago -- it takes the company for
+   * one row and looked every reaction's message up among all the company's
+   * messages, which is the square of the history (STATUS 2.217).
+   */
+  hashed?: true;
 }
 
 const SECTIONS: Section[] = [
   {
     name: 'company',
     // With the measure the owner chose as its headline (0142), which the
-    // import maps once the measures are restored, and the month its fiscal
-    // year starts in (0144).
+    // import maps once the measures are restored, the month its fiscal
+    // year starts in (0144), whether the owner attends its weekly meeting
+    // and for how long a question there waits (0156), and how much its room
+    // files may take (STATUS 2.217).
     sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
-                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month
+                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month,
+                 meeting_owner_joins, meeting_join_minutes, room_files_megabytes
             FROM companies`,
   },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at, work_language FROM projects ORDER BY created_at' },
@@ -214,11 +251,13 @@ const SECTIONS: Section[] = [
     // Issues and to-dos (0139): what an issue is about, its list, its root
     // cause, the card it came from and its source; a to-do's issue, seat and
     // date. An issue is written before the to-dos filed with it, so the
-    // reference a to-do holds finds it on the way back in.
+    // reference a to-do holds finds it on the way back in. `instigators`
+    // (0148): the seats whose words were in the work that filed it, the mark
+    // that the work it becomes is staff work.
     name: 'tickets',
     sql: `SELECT id, project_id, kind, division_id, title, body, status, priority, opened_by, opened_by_task_id, outside,
                  working_task_id, closed_reason, goal_id, metric_id, horizon, root_cause, from_inbox_item_id,
-                 solves_ticket_id, assignee_role_id, due_on, source_key, created_at, updated_at, closed_at
+                 solves_ticket_id, assignee_role_id, due_on, source_key, instigators, created_at, updated_at, closed_at
             FROM tickets ORDER BY created_at, solves_ticket_id IS NOT NULL, id`,
   },
   {
@@ -352,7 +391,7 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, memory_type, scope_type, scope_id, body, confidence, source,
                  shared, source_event_id, valid_from, superseded_by, approval_state,
                  approved_at, fact_kind, embedding, embedding_model, created_at,
-                 outside, source_task_id, reinforced_count, last_reinforced_at
+                 outside, source_task_id, reinforced_count, last_reinforced_at, staff
             FROM memories ORDER BY created_at`,
   },
   {
@@ -374,12 +413,16 @@ const SECTIONS: Section[] = [
     // so an archive holding one could not be restored; `payload` because it is
     // what an answer acts on -- the memory an SOP candidate is, the schedule
     // an escalation is about -- and an item without it is a question whose
-    // answer does nothing.
+    // answer does nothing. `instigators` (0148) because it is the mark that
+    // a seat's words are in the work the card asks about: without it a
+    // restored card would be the owner's own work, decided like it.
+    // `on_expiry` (0156) because a meeting's question that goes on without
+    // an answer must not come back as one that cancels its meeting.
     sql: `SELECT id, task_id, kind, status, title, action_summary, rationale, tier,
                  estimated_cost_cents, consequence_if_denied, capability_name,
                  expires_at, decision, decided_at, decided_via, owner_note,
                  closed_reason, notify_after, payload, action_fingerprint,
-                 consumed_at, snoozed_until, created_at
+                 consumed_at, snoozed_until, instigators, on_expiry, created_at
             FROM inbox_items ORDER BY created_at`,
   },
   {
@@ -524,9 +567,103 @@ const SECTIONS: Section[] = [
             FROM gateway_devices ORDER BY created_at`,
   },
   {
+    // With how long its people's messages are kept (F19.15).
     name: 'retention_policies',
-    sql: `SELECT id, event_days, trace_days, prompt_days, created_at
+    sql: `SELECT id, event_days, trace_days, prompt_days, message_days, created_at
             FROM retention_policies WHERE company_id IS NOT NULL`,
+  },
+  // The rooms (F19, STATUS 2.212): what the company's people said, a private
+  // room's and a direct conversation's too, since the owner's export is the
+  // whole company. On the control plane with the company named, since a room
+  // table opens to no transaction that names no reader (0150). Each person's
+  // place and attention and the delivery's bookkeeping are not here
+  // (`LEFT_OUT`). Messages in their order, which a restore keeps.
+  {
+    name: 'rooms',
+    sql: `SELECT id, kind, division_id, name, about, private, direct_key, shows_work, shows_work_since,
+                 created_by, created_at, archived_at, archived_by, external_id
+            FROM rooms WHERE company_id = $1 ORDER BY created_at, id`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_members',
+    sql: `SELECT room_id, principal, name, role, added_by, joined_at, left_at, left_by
+            FROM room_members WHERE company_id = $1 ORDER BY joined_at, room_id, principal`,
+    viaControlPlane: true,
+  },
+  {
+    // Every column but the browser's retry key.
+    name: 'room_messages',
+    sql: `SELECT id, room_id, position, thread_of, also_in_room, kind, author, author_name, body, notice_code, notice_values,
+                 task_id, inbox_item_id, mentions, mentions_room, became, became_by, became_at, via, via_relay,
+                 reply_count, last_reply_position, edited_at, deleted_at, deleted_by, created_at, external_id
+            FROM room_messages WHERE company_id = $1 ORDER BY position`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_message_revisions',
+    sql: `SELECT id, message_id, body, replaced_at
+            FROM room_message_revisions WHERE company_id = $1 ORDER BY replaced_at, id`,
+    viaControlPlane: true,
+  },
+  {
+    // A removed message's reactions stay on its row and are no one's any more:
+    // only those on words still said travel, which a restore can put back.
+    name: 'room_reactions',
+    sql: `SELECT message_id, principal, emoji, created_at
+            FROM room_reactions WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND kind = 'text' AND deleted_at IS NULL)
+           ORDER BY created_at, message_id, principal, emoji`,
+    viaControlPlane: true,
+    hashed: true,
+  },
+  {
+    name: 'room_pins',
+    sql: `SELECT room_id, message_id, pinned_by, pinned_at
+            FROM room_pins WHERE company_id = $1 ORDER BY pinned_at, message_id`,
+    viaControlPlane: true,
+  },
+  {
+    // A file travels as its name, its kind and its size, as a chat message's
+    // does: the archive carries no file, and where its bytes were stays here.
+    // Only a file of words still said: a removed message keeps none (STATUS 2.212).
+    name: 'room_files',
+    sql: `SELECT id, message_id, name, mime, bytes, sha256, created_at
+            FROM room_files WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
+           ORDER BY created_at, id`,
+    viaControlPlane: true,
+    hashed: true,
+  },
+  // What a Slack export brought (STATUS 2.214): each import's report, and the
+  // old workspace's authors with the private rooms they were in. A room and a
+  // message keep the id they had in Slack (`external_id` above), so importing
+  // the same export into the restored company adds nothing.
+  {
+    name: 'room_imports',
+    sql: `SELECT id, source, status, parts, received, counts, problems, created_at, finished_at, parts_gone_at
+            FROM room_imports WHERE company_id = $1 ORDER BY created_at, id`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_former_people',
+    sql: `SELECT former, name, rooms FROM room_former_people WHERE company_id = $1 ORDER BY former`,
+    viaControlPlane: true,
+  },
+  {
+    // People's meetings (STATUS 2.215): when, for how long, who was asked, the
+    // link pasted, who set and who cancelled each, and whether and how often
+    // its reminder went. Its title and agenda are its message, above; a
+    // meeting whose message was removed is no meeting any more, and stays
+    // behind with it.
+    name: 'room_meetings',
+    sql: `SELECT id, room_id, message_id, starts_at, minutes, attendees, call_url, set_by, reminded_at, reminders, cancelled_at,
+                 cancelled_by, created_at
+            FROM room_meetings WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
+           ORDER BY created_at, id`,
+    viaControlPlane: true,
+    hashed: true,
   },
   {
     name: 'batch_windows',
@@ -575,7 +712,15 @@ export const EXPORT_SECTION_NAMES: readonly string[] = [
   'llm_traces',
 ];
 
-/** Rows are fetched in pages so a long history does not arrive all at once. */
+/**
+ * Rows are fetched in pages so a long history does not arrive all at once,
+ * from one cursor a section: the query runs once and each page continues
+ * where the last stopped. Paged by `OFFSET`, each page ran the section's
+ * query again and skipped every row before it, which is the square of the
+ * section's size -- a company with ninety thousand messages and their
+ * reactions ran past the statement timeout before its archive was written
+ * (STATUS 2.217).
+ */
 const PAGE_SIZE = 500;
 /** PostgreSQL's `date` (pg_type.oid 1082). */
 const DATE_TYPE = 1082;
@@ -586,15 +731,21 @@ async function streamSection(
   sql: string,
   write: ArchiveWriter,
   params: unknown[] = [],
+  hashed = false,
 ): Promise<number> {
-  let offset = 0;
   let total = 0;
 
+  // The plan is made as the cursor is declared, so the setting is lifted again at once.
+  if (hashed) {
+    const { rows: setting } = await tx.query<{ was: string }>(
+      "SELECT current_setting('enable_nestloop') AS was, set_config('enable_nestloop', 'off', true)");
+    await tx.query(`DECLARE archive_section NO SCROLL CURSOR FOR ${sql}`, params);
+    await tx.query("SELECT set_config('enable_nestloop', $1, true)", [setting[0]!.was]);
+  } else {
+    await tx.query(`DECLARE archive_section NO SCROLL CURSOR FOR ${sql}`, params);
+  }
   for (;;) {
-    const { rows, fields } = await tx.query<Record<string, unknown>>(
-      `${sql} LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
-      params,
-    );
+    const { rows, fields } = await tx.query<Record<string, unknown>>(`FETCH ${PAGE_SIZE} FROM archive_section`);
     // A date column is a day, and is written as one. The driver reads it as midnight where this process runs,
     // which as an instant is the day before east of UTC: an archive written in Jakarta restored every letter,
     // invoice and entry a day early. Its local day is the day the database holds.
@@ -610,12 +761,23 @@ async function streamSection(
       total += 1;
     }
     if (rows.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
   }
+  await tx.query('CLOSE archive_section');
 
   return total;
 }
 
+/**
+ * Writes a company's archive, every section as of one moment.
+ *
+ * A company is used while its archive is taken, and each section is read
+ * after the one before: read as it was at each read, a reaction would name a
+ * message posted after the messages were read, a member a room made after the
+ * rooms were, and the archive could not be restored. So the tenant
+ * transaction reads one moment of the database (`oneMoment`), and the
+ * control-plane sections -- the governance log and the rooms -- are read in
+ * one control-plane transaction given the same moment.
+ */
 export async function exportCompany(
   companyId: string,
   write: ArchiveWriter,
@@ -627,35 +789,35 @@ export async function exportCompany(
     ]);
     const slug = rows[0]?.slug;
     if (!slug) throw new Error(`company ${companyId} not found, or not visible in this scope`);
+    const { rows: exported } = await tx.query<{ moment: string }>('SELECT pg_export_snapshot() AS moment');
 
-    const counts: Record<string, number> = {};
+    return withControlPlane(async (admin) => {
+      const counts: Record<string, number> = {};
 
-    for (const section of SECTIONS) {
-      if (section.viaControlPlane) {
-        counts[section.name] = await withControlPlane((admin) =>
-          streamSection(admin, section.name, section.sql, write, [companyId]),
-        );
-        continue;
+      for (const section of SECTIONS) {
+        counts[section.name] = section.viaControlPlane
+          ? await streamSection(admin, section.name, section.sql, write, [companyId], section.hashed === true)
+          : await streamSection(tx, section.name, section.sql, write);
       }
-      counts[section.name] = await streamSection(tx, section.name, section.sql, write);
-    }
 
-    counts.llm_traces = await streamSection(
-      tx,
-      'llm_traces',
-      options.includePrompts ? TRACES_WITH_PROMPTS : TRACES_WITHOUT_PROMPTS,
-      write,
-    );
+      counts.llm_traces = await streamSection(
+        tx,
+        'llm_traces',
+        options.includePrompts ? TRACES_WITH_PROMPTS : TRACES_WITHOUT_PROMPTS,
+        write,
+      );
 
-    return {
-      companyId,
-      companySlug: slug,
-      // Stamped by the caller's clock rather than the database's, so an
-      // archive says when it was taken rather than when a row was written.
-      exportedAt: new Date().toISOString(),
-      counts,
-    };
-  });
+      return {
+        companyId,
+        companySlug: slug,
+        // Stamped by the caller's clock rather than the database's, so an
+        // archive says when it was taken rather than when a row was written.
+        exportedAt: new Date().toISOString(),
+        counts,
+        leftOut: { ...LEFT_OUT },
+      };
+    }, { moment: exported[0]!.moment });
+  }, { oneMoment: true });
 }
 
 /**

@@ -36,12 +36,14 @@
  */
 import { randomUUID } from 'node:crypto';
 import { isStage } from '../domain/stage.ts';
-import { withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
 import { PAUSED_TITLE } from '../governance/spend-guard.ts';
 import { slugTaken } from '../templates/company.ts';
+import { ROOM_FILES_MEGABYTES } from '../workspace/files.ts';
+import { keptReaction } from '../workspace/limits.ts';
 import type { ArchiveLine } from './export.ts';
 
 interface ImportSection {
@@ -87,6 +89,31 @@ interface ImportSection {
    * a row not there yet.
    */
   idsFirst?: boolean;
+  /**
+   * References a row cannot stand without: a row naming one the archive does
+   * not carry is left out, rather than written pointing at nothing, which
+   * the column would refuse and with it the whole restore. An archive is
+   * taken in one moment, so this guards one written by hand or cut short.
+   */
+  required?: string[];
+  /**
+   * A room table (0150): written after `roomsOnControlPlane` says a restore
+   * is under way, so its triggers keep the archive's dates and owe nobody a
+   * mention, a follow, a count or a change for any row (STATUS 2.212).
+   * Its rows are written many to a statement (STATUS 2.217).
+   */
+  room?: true;
+  /**
+   * The messages: each takes its place from the new company's clock in the
+   * archive's order, all of them in one step (STATUS 2.217).
+   */
+  positions?: true;
+  /**
+   * A row the database would refuse whole, and the restore with it, that an
+   * archive from before the rule may still carry: left out, and anything
+   * naming it with it (STATUS 2.217).
+   */
+  keep?: (row: Record<string, unknown>) => boolean;
 }
 
 /**
@@ -292,6 +319,10 @@ const SECTIONS: ImportSection[] = [
   { name: 'charters', table: 'charters', references: [] },
   {
     // After everything its payload can name: memories, skills, schedules.
+    // `instigators` comes back as it was, as the tickets' does: the seats it
+    // names are the other deployment's and are not mapped to anything here,
+    // as a former seat's are not, and what it carries is that a seat's words
+    // are in the work, which a restore must not make the owner's (0148).
     name: 'inbox_items',
     table: 'inbox_items',
     references: ['task_id'],
@@ -311,6 +342,52 @@ const SECTIONS: ImportSection[] = [
     remapJoined: ['source_key'],
     idsFirst: true,
   },
+
+  // The rooms (STATUS 2.212), after the work and the cards their cards name:
+  // the rooms, then the messages in the order they were said, which takes
+  // their positions from this company's clock in that order, with what hangs
+  // from them; the members last, so each person's place is made at the end
+  // of every room and nothing restored is new to anyone. A seat named in
+  // them is the other deployment's and stays as it was, under the name it
+  // had, as a former seat is drawn. A thread's count is counted again once
+  // every message is in (`roomsCounted`), and a message's own count and last
+  // reply are not taken from the archive.
+  { name: 'rooms', table: 'rooms', references: ['division_id'], room: true },
+  {
+    name: 'room_messages',
+    table: 'room_messages',
+    references: ['room_id', 'thread_of', 'task_id', 'inbox_item_id'],
+    required: ['room_id', 'thread_of'],
+    drop: ['reply_count', 'last_reply_position'],
+    remapJson: ['notice_values'],
+    room: true,
+    positions: true,
+  },
+  {
+    name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], required: ['message_id'], room: true,
+  },
+  {
+    // An archive taken before a reaction was held to one emoji (STATUS 2.217) may
+    // carry words as one: left out, rather than refused with the restore.
+    name: 'room_reactions', table: 'room_reactions', references: ['message_id'], required: ['message_id'], room: true,
+    keep: (row) => keptReaction(row.emoji, row.principal),
+  },
+  {
+    name: 'room_pins', table: 'room_pins', references: ['room_id', 'message_id'], required: ['room_id', 'message_id'], room: true,
+  },
+  { name: 'room_files', table: 'room_files', references: ['message_id'], required: ['message_id'], room: true },
+  // People's meetings (STATUS 2.215), on their messages, as they were: who
+  // was asked and who set them are the other deployment's people, named as
+  // they were, as a message's author is.
+  {
+    name: 'room_meetings', table: 'room_meetings', references: ['room_id', 'message_id'], required: ['room_id', 'message_id'], room: true,
+  },
+  { name: 'room_members', table: 'room_members', references: ['room_id'], required: ['room_id'], room: true },
+  // A Slack import's report, and the old workspace's authors (STATUS 2.214),
+  // with the private rooms they were in mapped to the rooms restored here.
+  // Who they were linked to is a seat of the other deployment, and is not.
+  { name: 'room_imports', table: 'room_imports', references: [], room: true },
+  { name: 'room_former_people', table: 'room_former_people', references: [], remapJson: ['rooms'], room: true },
 
   // F1.5's configuration, restored last because it references divisions and
   // needs nothing itself. `config_versions` above carries what a policy *was*;
@@ -498,6 +575,7 @@ export async function importCompany(
   );
   escalationSetFromHistory(bySection);
   goalsParentsFirst(bySection);
+  importsEndedOnRestore(bySection, new Date().toISOString());
 
   // One transaction, on the control plane, for the whole company.
   //
@@ -519,8 +597,9 @@ export async function importCompany(
       ({ rows } = await tx.query<{ id: string }>(
         // A restored company is not a new one: its first hour (0109) is over.
         `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at,
-                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11) RETURNING id`,
+                                meeting_weekday, meeting_hour, meeting_enabled, fiscal_year_start_month,
+                                meeting_owner_joins, meeting_join_minutes, room_files_megabytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from
@@ -539,6 +618,14 @@ export async function importCompany(
           // Where its fiscal year starts (0144); an archive from before it
           // has none, and gets January, a calendar year.
           wholeIn(source!.fiscal_year_start_month, 1, 12) ?? 1,
+          // Whether the owner attends the weekly meeting, and how long its
+          // questions wait for them (0156); an archive from before it has
+          // neither, and the owner does not attend until they say so.
+          source!.meeting_owner_joins === true,
+          wholeIn(source!.meeting_join_minutes, 5, 120) ?? 20,
+          // How much its room files may take (STATUS 2.217); an archive from before
+          // it has none, and gets the ten gigabytes every company starts with.
+          wholeIn(source!.room_files_megabytes, ROOM_FILES_MEGABYTES.least, ROOM_FILES_MEGABYTES.most) ?? ROOM_FILES_MEGABYTES.first,
         ],
       ));
     } catch (error) {
@@ -559,11 +646,17 @@ export async function importCompany(
       }
     }
 
+    let rooms = false;
     for (const section of SECTIONS) {
       const sectionRows = bySection.get(section.name) ?? [];
       if (sectionRows.length === 0) continue;
+      if (section.room && !rooms) {
+        await roomsOnControlPlane(tx, companyId, { importing: true });
+        rooms = true;
+      }
       counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
     }
+    if (rooms) await roomsCounted(tx, companyId);
 
     // The headline the owner chose (0142), once its measure is here: the
     // company row was written before any measure, and the key needs one. An
@@ -593,6 +686,35 @@ export async function importCompany(
 }
 
 /**
+ * The rooms of a restore, finished once every message is in: each thread
+ * counts its replies from what came back, in one statement, since the
+ * triggers counted none while importing; then the import is over, and every
+ * room is touched once, which writes one change per room for a stream that
+ * has the company open and nothing per message. Nothing restored raises an
+ * unread, a mention or Activity: the triggers wrote none, and each member's
+ * place was made at the end of the room.
+ */
+async function roomsCounted(tx: TenantClient, companyId: string): Promise<void> {
+  // Not as a nested loop: the planner knows nothing yet of a company this
+  // transaction made, takes it for one row, and ran the grouped count again
+  // for every thread, which a restore of twenty thousand threads ran past the
+  // statement timeout and rolled back whole (STATUS 2.217). Joined by hash,
+  // the replies are counted once. The setting is this statement's alone.
+  const { rows: setting } = await tx.query<{ was: string }>("SELECT current_setting('enable_nestloop') AS was");
+  await tx.query("SELECT set_config('enable_nestloop', 'off', true)");
+  await tx.query(
+    `UPDATE room_messages m
+        SET reply_count = counted.n, last_reply_position = counted.last
+       FROM (SELECT thread_of, count(*)::int AS n, max(position) AS last
+               FROM room_messages WHERE company_id = $1 AND thread_of IS NOT NULL GROUP BY thread_of) counted
+      WHERE m.company_id = $1 AND m.id = counted.thread_of`,
+    [companyId]);
+  await tx.query("SELECT set_config('enable_nestloop', $1, true)", [setting[0]!.was]);
+  await roomsOnControlPlane(tx, companyId);
+  await tx.query('UPDATE rooms SET name = name WHERE company_id = $1', [companyId]);
+}
+
+/**
  * Whether the owner said who hears first about each division (0133), for an
  * archive written before the column existed: read as the migration read a
  * deployment's own divisions -- a role or a time held, or the event the
@@ -613,6 +735,40 @@ function escalationSetFromHistory(bySection: Map<string, Array<Record<string, un
     ...row,
     escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
       || (typeof row.id === 'string' && said.has(row.id)),
+  }));
+}
+
+/** How many lines an import's report holds, as the table holds them (STATUS 2.214). */
+const IMPORT_PROBLEMS_MOST = 200;
+
+/**
+ * A Slack import that had not ended when the archive was taken, still
+ * receiving its parts or waiting to be read (STATUS 2.214), comes back ended:
+ * its parts stayed on the deployment the archive came from, and an archive
+ * carries none. Restored as it was, it would take the rest of its parts here
+ * and then fail when read, its counts emptied. It comes back failed, as one
+ * whose parts were gone when it was read does -- that line first, then what
+ * it had reported, within what the table holds -- with its parts gone and
+ * what it had counted kept, so it takes no part and nothing reads it. Rows
+ * are replaced, not changed.
+ */
+function importsEndedOnRestore(bySection: Map<string, Array<Record<string, unknown>>>, at: string): void {
+  const imports = bySection.get('room_imports');
+  if (!imports) return;
+  bySection.set('room_imports', imports.map((row) => {
+    if (row.status !== 'receiving' && row.status !== 'reading') return row;
+    const said = Array.isArray(row.problems) ? row.problems as Array<{ code?: unknown; count?: unknown }> : [];
+    const counted = said.at(-1)?.code === 'more';
+    const lines = counted ? said.slice(0, -1) : said;
+    const kept = lines.slice(0, IMPORT_PROBLEMS_MOST - 2);
+    const more = (counted ? Number(said.at(-1)!.count ?? 0) : 0) + lines.length - kept.length;
+    return {
+      ...row,
+      status: 'failed',
+      finished_at: at,
+      parts_gone_at: row.parts_gone_at ?? at,
+      problems: [{ code: 'part_missing' }, ...kept, ...(more > 0 ? [{ code: 'more', count: more }] : [])],
+    };
   }));
 }
 
@@ -771,8 +927,18 @@ async function importSection(
 
   const json = await jsonColumnsFor(tx, section.table);
 
-  let written = 0;
+  const kept: Array<Record<string, unknown>> = [];
   for (const row of rows) {
+    // In the archive's order, so a reply after its message: a row left out
+    // has its id taken out of the map, and whatever names it is left out in turn.
+    if ((section.required ?? []).some((column) => typeof row[column] === 'string' && !remap.has(row[column] as string))) {
+      if (typeof row.id === 'string') remap.delete(row.id);
+      continue;
+    }
+    if (section.keep && !section.keep(row)) {
+      if (typeof row.id === 'string') remap.delete(row.id);
+      continue;
+    }
     const values: Record<string, unknown> = { ...row };
 
     for (const column of section.drop ?? []) delete values[column];
@@ -809,19 +975,64 @@ async function importSection(
     }
 
     values.company_id = companyId;
-
-    const columns = Object.keys(values);
-    const placeholders = columns.map((_column, index) => `$${index + 1}`);
-    const { rowCount } = await tx.query(
-      `INSERT INTO ${section.table} (${columns.map(quote).join(', ')})
-       VALUES (${placeholders.join(', ')})
-       ON CONFLICT DO NOTHING`,
-      columns.map((column) => normalise(values[column], json.has(column))),
-    );
-    written += rowCount ?? 0;
+    kept.push(values);
   }
 
+  if (section.positions && kept.length > 0) {
+    // Every message's place from the new company's clock, in the archive's
+    // order, taken in one step rather than one update of the clock a message
+    // (STATUS 2.217): the room triggers keep a position taken so.
+    const { rows: taken } = await tx.query<{ first: string }>('SELECT app.take_room_positions($1, $2) AS first', [companyId, kept.length]);
+    const first = Number(taken[0]!.first);
+    kept.forEach((values, index) => { values.position = first + index; });
+  }
+
+  let written = 0;
+  if (!section.room) {
+    for (const values of kept) written += await insertRows(tx, section.table, [values], json);
+    return written;
+  }
+  // A room section can be a company's whole history, so its rows go many to
+  // a statement, each run of rows with the same columns together: one round
+  // trip a row was most of a large restore's time. A statement's rows are
+  // written in their order, and each row's triggers see the rows before it.
+  let run: Array<Record<string, unknown>> = [];
+  let shape = '';
+  for (const values of kept) {
+    const columns = Object.keys(values).join(',');
+    const most = Math.max(1, Math.min(ROWS_A_STATEMENT, Math.floor(PARAMETERS_A_STATEMENT / Object.keys(values).length)));
+    if (run.length > 0 && (columns !== shape || run.length >= most)) {
+      written += await insertRows(tx, section.table, run, json);
+      run = [];
+    }
+    shape = columns;
+    run.push(values);
+  }
+  if (run.length > 0) written += await insertRows(tx, section.table, run, json);
   return written;
+}
+
+/** The most rows one statement of a room section writes, and the most values: PostgreSQL takes 65,535 parameters. */
+const ROWS_A_STATEMENT = 500;
+const PARAMETERS_A_STATEMENT = 60_000;
+
+/** Rows that share their columns, in one statement; answers how many were written. */
+async function insertRows(
+  tx: Pick<TenantClient, 'query'>, table: string, rows: ReadonlyArray<Record<string, unknown>>, json: Set<string>,
+): Promise<number> {
+  const columns = Object.keys(rows[0]!);
+  const values: unknown[] = [];
+  const tuples = rows.map((row) => `(${columns.map((column) => {
+    values.push(normalise(row[column], json.has(column)));
+    return `$${values.length}`;
+  }).join(', ')})`);
+  const { rowCount } = await tx.query(
+    `INSERT INTO ${table} (${columns.map(quote).join(', ')})
+     VALUES ${tuples.join(', ')}
+     ON CONFLICT DO NOTHING`,
+    values,
+  );
+  return rowCount ?? 0;
 }
 
 /** Identifiers come from this module's own section list, never from an archive. */

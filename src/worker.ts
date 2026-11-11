@@ -80,8 +80,11 @@ import {
   type OwnerChannel,
   type NotifiableItem,
 } from './owner/notify.ts';
+import { dispatchPeopleNotices, noticeLinks, planNotices } from './owner/member-notify.ts';
+import { retractRemoved } from './relay/people.ts';
 import { buildDailyDigest } from './reporting/digest.ts';
 import { renderDailyDigest } from './owner/digest-said.ts';
+import { releaseStaleHolds } from './owner/conversation-money.ts';
 import { deploymentLanguages } from './domain/language.ts';
 import { moneyDisplay } from './domain/money-display.ts';
 import {
@@ -94,6 +97,8 @@ import { sleep } from './timers.ts';
 import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
 import type { OtlpExporter } from './reporting/otlp.ts';
 import { pollMailboxes, type MailOptions } from './chats/mail.ts';
+import { syncRoomCards } from './workspace/cards.ts';
+import { readImports } from './workspace/import-slack.ts';
 import type { SecretManager } from './secrets/manager.ts';
 
 export interface WorkerOptions {
@@ -403,6 +408,8 @@ export class Worker {
   readonly #retainedAt = new Map<string, number>();
   /** When this worker last looked for what dead workers left running. */
   #sweptAt: number | null = null;
+  /** When this worker last released the conversations' holds that dead processes left. See the holds stage. */
+  #heldAt: number | null = null;
   /** Whether this worker has removed what earlier erasures left on disk. See the erasure stage. */
   #erasuresFinished = false;
   /** The companies whose work waiting for a model key this process has called back, once each. See the recovered stage. */
@@ -575,6 +582,21 @@ export class Worker {
       await this.#stage(report, 'heartbeats', async () => {
         report.scheduled += (await scheduleHeartbeats(company, now)).length;
       });
+    }
+
+    // What a turn of the owner's conversation with a CEO reserved, and its
+    // process died before it was spent or let go (F19.12, STATUS 2.205): a
+    // hold older than any live turn goes back to the account it was taken
+    // from. At most once a minute, like the leftovers: one indexed delete a
+    // company that finds nothing.
+    if (this.#heldAt === null || now.getTime() - this.#heldAt >= SWEEP_EVERY_MS) {
+      this.#heldAt = now.getTime();
+      for (const company of companies) {
+        await this.#stage(report, 'holds', async () => {
+          const released = await releaseStaleHolds(company, now);
+          if (released > 0) this.#options.log?.({ level: 'warn', event: 'holds.released', companyId: company, released });
+        });
+      }
     }
 
     // Schedules scan across tenants on the control plane, so this is one call
@@ -757,9 +779,10 @@ export class Worker {
         // the owner after its grace (src/engine/ended.ts).
         report.ended += await reportEndedBadly(company, now);
 
-        // A question for a person who has not answered in a day is brought to
-        // the owner; before the notify stage, which then carries it.
-        await inbox.escalateQuestions(company, now);
+        // A question for a person who has not answered in a day, and a card
+        // from staff work no other approver decided in a day (F19.9), are
+        // brought to the owner; before the notify stage, which then carries them.
+        await inbox.escalateTeamItems(company, now);
 
         // F6.3: a completed task's output is what starts its successor, and
         // the engine is what starts it -- not the finishing agent naming who
@@ -792,6 +815,21 @@ export class Worker {
         report.escalated += await inbox.handEscalations(company);
       });
 
+      // F19.23: a Slack export whose parts have all arrived, read into rooms
+      // (STATUS 2.214). Before the cards, which then find its rooms there.
+      // Ten seconds a tick at most, from where the last tick stopped: a large
+      // export is read over many ticks rather than holding up every company's.
+      await this.#stage(report, 'imports', async () => {
+        await readImports(company, this.#options.erasure ?? {}, { withinMs: 10_000 });
+      });
+
+      // F19.5, F19.16: the rooms' cards, drawn from what the stages above
+      // moved -- a question raised, an approval decided, work finished --
+      // and before the owner is notified, so a card and its notice agree.
+      await this.#stage(report, 'rooms', async () => {
+        await syncRoomCards(company);
+      });
+
       // F10.5, F10.9. After `watch`, because that stage is what raises the
       // incidents and budget alerts this one delivers -- notifying before
       // them would tell the owner about this tick's news on the next tick.
@@ -813,7 +851,8 @@ export class Worker {
       const last = this.#retainedAt.get(company);
       if (last === undefined || now.getTime() - last >= interval) {
         await this.#stage(report, 'retention', async () => {
-          await runRetention(company, now);
+          // The roots an erasure removes from are where room files are swept too (STATUS 2.212).
+          await runRetention(company, now, this.#options.erasure ?? {});
           // Recorded after the sweep rather than before it: a sweep that threw
           // has not happened, and marking it done would mean waiting the whole
           // interval before trying again.
@@ -1188,6 +1227,9 @@ export class Worker {
     if (channels.length === 0) return;
 
     await this.#stage(report, 'notify', async () => {
+      // What a channel's answers depend on, read again: a relay narrowed or
+      // revoked since the last tick is that relay's answer from this one.
+      for (const channel of channels) await channel.prepare?.();
       for (const channel of channels) {
         const options = {
           now,
@@ -1254,6 +1296,22 @@ export class Worker {
         now,
         ...(this.#options.ownerTaskLinkFor ? { linkFor: this.#options.ownerTaskLinkFor } : {}),
       })).delivered;
+
+      // People's notices (F19.13; STATUS section 2.213): what each person who
+      // linked a phone is owed, planned from the rooms' feed and the work
+      // that is theirs, then sent. Here rather than in a stage of its own: it
+      // is the same failure if it throws, nobody hears from the platform, and
+      // it comes after the rooms' cards were drawn so a card and its notice
+      // agree. The owner's chats carry the owner's, when the owner chose to
+      // hear people at all. First, what a relay holds of words removed with
+      // nothing told -- a retention purge, a delete whose own retraction
+      // never ran -- is taken back.
+      const peopleLink = noticeLinks(this.#options.ownerTaskLinkFor);
+      await retractRemoved(company, now);
+      await planNotices(company, { now, chats: channels });
+      report.notified += (await dispatchPeopleNotices(company, {
+        now, chats: channels, ...(peopleLink ? { linkFor: peopleLink } : {}),
+      })).sent;
     });
   }
 

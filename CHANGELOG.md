@@ -1020,3 +1020,247 @@ The first version. What it holds, in the order an owner meets it.
   channel testing wrote as a list of most of the nineteen, so a later report
   of one test does not replace it. The rings are read from the goals and
   never stored (STATUS 2.197).
+
+### The workspace (F19)
+
+- The ground for rooms where you and the staff you seat talk to each other
+  and ask the company for work. Upgrading gives every company its own room
+  and a room per division, nobody in them yet and nothing showing them yet.
+  The database holds the rooms to people: no agent can read or write a word
+  in them, even in its own company, each person sees only the rooms they
+  may, and only people write, each as themselves. An archive keeps the mark
+  that a member of staff's words are in a piece of work. A seat can now be a
+  member, between a viewer and an approver. Work, instructions and answers
+  record which member of staff gave them rather than putting them in your
+  name, though no member of staff can ask for work or instruct it until it
+  is held apart from yours. In the inbox a viewer answers nothing, a member
+  answers only a question put to them and decides nothing, and nobody but
+  you answers what you alone are asked. Revoking a seat also takes the
+  person out of every room and frees their handle (STATUS 2.202).
+- Signing out, signing out everywhere, ending a seat, revoking an
+  authenticator or making new recovery codes now ends the live views those
+  sessions had open at once, rather than when the tab was closed. Your
+  assistant and the CEO can neither read nor write anything people say to
+  each other: every room, profile, relay and import route is closed to them
+  by its address, and refused inside their conversation whatever its
+  address (STATUS 2.203).
+- A member of staff's words are never read as yours. A run is told what a
+  seat said in the seat's name, as a colleague's request that approves
+  nothing; work a seat asked for or steered never goes on a yes you gave for
+  your own work, and every action of it at tier 2 or above is a card that
+  names who asked, which another approver sees first and you a day later
+  (at once if nobody else can decide it), folded into one entry and one
+  notice a day. Nobody decides a card about work their words are in. The
+  mark follows the work into reruns, follow-ups, tickets and to-dos, triage,
+  handed escalations and the weekly, quarterly and monthly reviews. You may
+  allow one action to one role for a while for staff work too, with a code
+  given then, and another seat cannot read a question put to someone else
+  (STATUS 2.204).
+- Talking to a company's CEO is now paid for before each turn, from the
+  CEO's own budget. While everything is stopped, the company is frozen or
+  its spending is paused at the ceiling, or its budget has no room, the CEO
+  answers with one line from the platform and no model is called; the inbox
+  works as before. A reservation a crash interrupted is given back within
+  the hour, and only the newest part of a long conversation is sent each
+  turn. PALUGADA's own assistant stops at a monthly allowance, USD 20 until
+  you change it under This deployment, Model (STATUS 2.205).
+- People: you name everyone you seat, and a name that looks like a
+  colleague's, yours, PALUGADA's, the CEO's or a role's is refused, in
+  look-alike letters too. Seat a member, who asks for work and answers what
+  is put to them, or up to thirty people at once with one code, and change
+  what each may do (letting someone do more takes your code). Staff choose
+  a handle, a picture, their language and quiet hours as they join, sign in
+  with their handle and code, and are locked out of a handle after five
+  wrong codes; everyone has a profile in the menu (STATUS 2.209).
+- The rooms' server: you and your staff can make topic rooms, open or
+  private, and direct conversations of two to eight people, talk in threads,
+  mention one another, react, pin, edit within a day and take words back,
+  and see what is unread and what is addressed to you. A message becomes
+  work only when someone who may ask presses for it, with the money held
+  first and the message marked in the same step; a reply becomes an
+  instruction only when whoever asked for the work tells it, and a member of
+  staff stops only work they asked for, recorded under their name. Your own
+  words typed here are your work; a member of staff's are always staff work.
+  The company's work appears in rooms only as cards that hold no words, and
+  a tier 3 approval there is a link to your inbox. Nothing people say in
+  rooms is written into the work's record (STATUS 2.206).
+- A relay can tell your phone what PALUGADA has for you. Under This
+  deployment, Relays, add one by its address and pair it by typing at least
+  sixteen characters of the fingerprint its operator shows, naming the
+  companies it may hear about, with a code given then. It is told only that
+  something happened until you let it say more, and only an incident or a
+  tier 3 approval asks your phone to ring. Link your phone there with a code
+  or a QR; with presses turned on, a phone that linked with its own key can
+  approve or deny at tier 2 and below and answer questions, once per button,
+  recorded as a decision from a chat. A relay can never assign, instruct,
+  call a meeting or change a setting. Every envelope is signed with this
+  deployment's own key, sealed like your other secrets, which you can give a
+  new one. `npm run relay:reference` starts a small relay that forwards to
+  ntfy, and `docs/relay-protocol.md` is the protocol for anyone building one
+  (STATUS 2.208).
+- Rooms in the console: the first page of every company, and where a member
+  of staff lands. Talk in rooms, threads and direct conversations, mention
+  people with @ (never an agent: "Ask the team" asks for work), marked where
+  they are named, react, pin, edit and remove; Activity opens the thread a
+  reply or a card is in, and archiving a room is asked about first. Your
+  conversations with the CEO and PALUGADA sit among the direct messages.
+  "Ask the team", or /task, turns a message into work in a drawer
+  that says whose budget holds the money, the work's state and result appear
+  under the message as it moves, and a work's thread can tell it something.
+  Approvals in a room use the inbox's own buttons, and tier 3 sends you to
+  the inbox. The Rooms badge counts what is addressed to you, on the tab's
+  title too. On a phone, Rooms is a tab, a room fills the screen above the
+  keyboard, a thread is a sheet, and a long press or a message's one button
+  opens what you may do with it; Money moves into More (STATUS 2.207).
+- Rooms are live: a colleague's words, a card moving and the badges change
+  on screen as they happen, on one connection per tab that also carries
+  the company's work, and a tab that comes back hears what it missed. A
+  hidden tab can tell you of a direct message or a mention, once you allow
+  it under Your profile, Notify me in this browser. Signing out or ending a
+  seat ends its views on every replica, and within thirty seconds at most;
+  a member of staff's console shows what they may do as soon as you change
+  it. A sixth tab of one company reads every few seconds instead. Serve
+  the console over HTTP/2 if you keep many tabs open, of one company or
+  several, and set `PALUGADA_LISTEN_DATABASE_URL` if your database URL goes
+  through PgBouncer (STATUS 2.210).
+- Agent meetings in rooms: the CEO's weekly meeting is one quiet card in
+  the company room, with its record when it ends. You may attend it, every
+  week under Settings or once by pressing Join; its questions then come to
+  you at once and wait as many minutes as you said, and when they pass the
+  meeting goes on without your answer, which is never taken as a yes. A
+  one-way door is still a tier 3 decision in your inbox. You or an approver
+  can call a meeting about a message in a room, or about words in the
+  composer, which are posted as yours first: the CEO holds it against the
+  same scorecard, priorities, to-dos and issues, with money held first, at
+  most three a day, and a member of staff's topic reaches it as theirs
+  (STATUS 2.211).
+- Find and keep what the rooms say. A search box at the top of the rooms,
+  and ⌘K, find messages in the rooms each person may see, and for you in
+  every company at once, never a direct conversation you are not in; the
+  general search your assistant reads still finds no message. A message
+  carries up to five files, 24 MB together, from a phone's camera too; a
+  small picture is drawn and everything else is saved, and no agent can
+  reach a room file. A room's details list its pinned messages and its
+  files. Messages are kept for good unless you set a window of 30 days or
+  more in Settings, Retention, each message by its own age; a removed
+  message's files go with it, names and all, and closing a company erases
+  its room files. The company's archive now carries its rooms and messages,
+  direct conversations too, read as one moment while people go on talking,
+  and a restore brings them back with nothing unread.
+  `PALUGADA_PEOPLE_FILES_ROOT` keeps room files apart from the company's
+  files (STATUS 2.212).
+- Your staff are told on their phones what is theirs: a direct message, a
+  mention, a reply in a thread they follow, a question put to them, an
+  approval they may decide, and work they asked for that ended -- once a room
+  every ten minutes, no more than their notices a day, never in their quiet
+  hours, and only about rooms they can still see. A notice says who and
+  where, and the words only when you let the relay carry them. Each person
+  links a phone in their profile, and `docs/phones.md` says how to set up
+  the reference relay with a private ntfy. From a notice a phone can reply
+  into that room as that person, when you allow replies, mark it read or
+  mute the room; a reply never becomes work, and a deleted message, or one
+  retention removes, is withdrawn from the phone. You hear people only once
+  you turn it on, inside your window, never as an inbox item, and the daily
+  digest counts the team's cards as your badge does. The record of what each
+  person was told is kept a month (STATUS 2.213).
+- Bring a Slack workspace's history in. In Settings, People, choose the ZIP
+  Slack's export gives you, up to 1 GB: each channel becomes a room, a
+  private one staying private with you and the seats its people are linked
+  to, with its threads and reactions, and its people as authors you can link
+  to the seats you have here, after seeing which private rooms each link
+  would open; unlinking takes those back. Files come as their names, and
+  direct conversations are counted and left out. Nothing imported is new to
+  anyone, even from a later, longer export, and importing the same export
+  again adds nothing. It is read a day and a thousand messages at a time,
+  so your people keep posting while a large channel comes in and the report
+  counts as it goes; a damaged part, or a channel that cannot come in, is
+  reported line by line, and an export that unpacks past what PALUGADA
+  reads is refused. If you keep messages for a number of days, what was said
+  in Slack before them goes at the next retention pass, as every message
+  does. The upload is kept beside the company's files, where no agent
+  reaches it, until it is read, and a week at most; a company restored from
+  an archive taken while an import was still arriving or waiting to be read
+  shows it as failed, its parts having stayed behind (STATUS 2.214).
+- People meet people: anyone in a room sets a meeting from their own words
+  there, with the Meeting button or `/meet` (`/rapat`), giving it a time, a
+  length, the people asked -- only people who can see the room -- and a call
+  link pasted in, which PALUGADA never opens. The words are its title and
+  agenda and its thread is the notes. The people asked are reminded ten
+  minutes before it starts, in its thread, in their Activity and on a
+  linked phone, and only while they can still see the room: once, and once
+  more if it moves, never more. Whoever set it, or you, can move it, fix its
+  link or its people while it is under way, or cancel it; a cancelled
+  meeting reminds nobody, and removing its words cancels it and takes the
+  link with them, as archiving its room cancels it unless it has begun. If
+  you keep messages for a number of days, a meeting's words stay until it
+  has ended, however far ahead it was set. A meeting is not work: no agent
+  sees it, its words are never given as work, nothing is spent, and it
+  travels with the company's export (STATUS 2.215).
+- A relay can now be run by someone else. A notice's link names no company,
+  room or item, only a handle that opens for the person it was for once they
+  sign in; you can tell a relay less about one company than the rest; a
+  relay must drop what it was told after fourteen days, and an erased
+  company is forgotten at every relay, one that heard only of it and ends
+  with it too. A key rotation waits for every relay, however long it is
+  away, and is tried hourly until it has it; a relay can change its own key,
+  and one that lost track is paired again in place, keeping everyone's links
+  and taking the new key, while a company left out of that pairing is told
+  nothing more there. A relay learns from its pairing where to post back.
+  Each phone's key shows its fingerprint to compare with the relay's app.
+  The reference relay keeps what it owes across a restart, prints no words
+  unless asked, and takes acts only on its own machine's loopback port
+  (STATUS 2.216).
+- The workspace holds a long history and keeps each person to their share:
+  setting a message window on a company with years of talk takes it in short
+  turns while people keep posting, and its archive restores whole; every
+  write in the rooms is held to a number a minute a person, a reaction is
+  one emoji, and the company's room files to a limit you set in Settings.
+  A colleague's words keep their name through what the company learns, a
+  seat is told of a direct message or its name past its daily number, a
+  stranger cannot lock a seat out by its handle, not even from many
+  addresses of one network, and People lets someone a lock kept out sign in
+  again without signing them out, and gives someone whose phone was lost a
+  new authenticator, keeping their rooms and conversations (STATUS 2.217).
+- Rooms open where you left off: at your read mark, under a line that says
+  how many messages are new, with a way down to the newest, and they are
+  read only as far as you have seen; a picture loading or the composer being
+  drawn no longer leaves a room short of its newest message, or unread, and
+  "Jump to newest" lands there; a room you have not joined opens at its
+  newest. A message found, pinned, named in Activity or linked, or told of
+  in a notice on your phone or in your chat, opens its room around it, and
+  "Copy link" gives any message's link. A handle typed in full mentions its
+  person as one picked from the list does, in an edit too, which also takes
+  back the mention of anyone the words no longer name; `@budi.setiawan`
+  names Budi Setiawan and not `@budi`. Activity says who wrote and what.
+  Paste a screenshot or a copied file, or drop a file on the composer, to
+  attach it, and a phone's large photo is made small enough to be shown in
+  the room. Search looks in the open room first and narrows to a person, by
+  choice or by `in:#room` and `from:@handle`, which alone lists all they
+  said. "Mark all read" in the rail clears everything that waits. On a phone
+  the words have the composer's whole width, with its buttons beneath; a
+  thread beside a room no longer crushes it on a laptop, and the rail no
+  longer pushes it off an upright tablet's screen; Esc, Ctrl+K and Alt+↑/↓
+  keep to the keyboard from the composer, and Enter saves an edit.
+  Shortening how long messages are kept asks first and says how many go
+  (STATUS 2.218).
+- The documents describe the workspace. The README says you seat a team who
+  talk in rooms and ask for work there, and the guide has a page on rooms
+  and the people you seat: the three kinds of seat, handles and signing in,
+  profiles, phones, importing from Slack, meetings, how long messages are
+  kept, what the export carries and what agents never see. Back up the files
+  root, and `PALUGADA_PEOPLE_FILES_ROOT` when you set one, with the database
+  and at the same moment: the files people attach to messages are kept
+  there, not in the database, and a dump restored alone brings them back as
+  names. The threat model has a section on a member of staff, and
+  docs/configuration.md names every variable the platform reads, among them
+  `PALUGADA_CONSOLE_ORIGIN`, `PALUGADA_HOST`, `PALUGADA_PORT` and
+  `PALUGADA_WORKER_ID` (STATUS 2.219).
+- A room whose newest messages are pictures opens on them on a phone,
+  every time: a picture is put on the page in a box of its own shape once
+  its size is read, never with no height, and a room at its newest stays
+  there while what it shows changes size. The rooms' card sweep commits a
+  busy division's work five hundred cards at a time, so a post waits for
+  one turn of it at most rather than the whole pass. The relay protocol
+  says its licence is not set yet, and the status document names what is
+  left to you: how long staff stay signed in, phones told without a relay,
+  the licence and a release, and people's own pictures (STATUS 2.220).

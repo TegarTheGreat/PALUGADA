@@ -27,6 +27,29 @@ export interface Page {
   waitFor(expression: string, what: string, timeoutMs?: number): Promise<void>;
   /** Types into whatever has the focus, one key at a time, as a person does. */
   type(text: string): Promise<void>;
+  /**
+   * Presses one named key (`Enter`, `ArrowUp`, `Escape`) with the modifiers
+   * held, as a keyboard sends it: what the page does with it is the page's.
+   */
+  press(key: string, modifiers?: { shift?: boolean; alt?: boolean; ctrl?: boolean; meta?: boolean }): Promise<void>;
+  /** Draws the page at another size, as a window resized or a phone turned. */
+  viewport(size: { width: number; height: number }): Promise<void>;
+  /** Runs `source` in every document this page loads from now on, before the page's own scripts. */
+  beforeLoad(source: string): Promise<void>;
+  /**
+   * Presses the first element the selector finds with the mouse, at its
+   * middle, as a person's hand does: the browser moves, presses and lets go,
+   * and the page's own timing between them is what a person meets. An
+   * element's `click()` from a script runs its handler at once instead,
+   * which can hide a race a real press shows.
+   */
+  click(selector: string): Promise<void>;
+  /**
+   * Another tab of the same browser, at the same size: it shares the
+   * browser's connections to each origin, as a person's tabs do.
+   */
+  tab(): Promise<Page>;
+  /** Closes the page; the first page of a browser closes the browser with it. */
   close(): Promise<void>;
 }
 
@@ -62,12 +85,12 @@ export async function openPage(
   // stops the browser: a failure that left it running would keep the test
   // file alive after its tests ended, and CI waits six hours for that.
   let socket: WebSocket;
+  let port = '';
   try {
     // The port it chose, which it writes into its profile once it listens. A
     // first start on a fresh machine builds its font cache first, which takes
     // a while (cf. LAUNCH_WAIT_MS in src/browser/cdp.ts).
     const deadline = Date.now() + 60_000;
-    let port = '';
     while (!port && Date.now() < deadline && process_.exitCode === null) {
       port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8').catch(() => '')).split('\n')[0] ?? '';
       if (!port) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -82,16 +105,39 @@ export async function openPage(
       if (!page) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (!page) throw new Error(`${executable} listed no page to drive`);
-    socket = new WebSocket(page.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => {
-      socket.addEventListener('open', resolve, { once: true });
-      socket.addEventListener('error', reject, { once: true });
-    });
+    socket = await connected(page.webSocketDebuggerUrl);
   } catch (error) {
     await stop();
     throw error;
   }
 
+  // Another tab: a target of its own in the same browser, driven over its own socket.
+  const tab = async (): Promise<Page> => {
+    const made = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json() as { id: string; webSocketDebuggerUrl: string };
+    return drive(await connected(made.webSocketDebuggerUrl), viewport, tab, async () => {
+      await fetch(`http://127.0.0.1:${port}/json/close/${made.id}`).catch(() => undefined);
+    });
+  };
+  return drive(socket, viewport, tab, stop);
+}
+
+/** A socket to one target, open. */
+async function connected(url: string): Promise<WebSocket> {
+  const socket = new WebSocket(url);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', reject, { once: true });
+  });
+  return socket;
+}
+
+/** A page driven over its target's socket; `closed` is what closing it also ends. */
+async function drive(
+  socket: WebSocket,
+  viewport: { width: number; height: number },
+  tab: () => Promise<Page>,
+  closed: () => Promise<void>,
+): Promise<Page> {
   let sent = 0;
   const waiting = new Map<number, (message: { result?: unknown; error?: { message: string } }) => void>();
   socket.addEventListener('message', (event) => {
@@ -145,9 +191,47 @@ export async function openPage(
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key });
       }
     },
+    press: async (key, modifiers = {}) => {
+      // The key code and the text a keyboard sends with each named key;
+      // without them Chromium delivers an event no text field acts on.
+      const known: Record<string, { code: number; text?: string }> = {
+        Enter: { code: 13, text: '\r' }, Escape: { code: 27 }, Backspace: { code: 8 }, Tab: { code: 9 },
+        ArrowUp: { code: 38 }, ArrowDown: { code: 40 }, ArrowLeft: { code: 37 }, ArrowRight: { code: 39 },
+      };
+      // A single letter is its own key, as a shortcut such as Ctrl+K sends it.
+      const letter: { code: number; text?: string } | undefined = /^[a-z]$/.test(key) ? { code: key.toUpperCase().charCodeAt(0) } : undefined;
+      const sent = known[key] ?? letter;
+      if (!sent) throw new Error(`press() knows no key called ${key}`);
+      const held = (modifiers.alt ? 1 : 0) | (modifiers.ctrl ? 2 : 0) | (modifiers.meta ? 4 : 0) | (modifiers.shift ? 8 : 0);
+      const code = letter ? `Key${key.toUpperCase()}` : key;
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown', key, code, windowsVirtualKeyCode: sent.code, modifiers: held,
+        ...(sent.text ? { text: sent.text, unmodifiedText: sent.text } : {}),
+      });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: sent.code, modifiers: held });
+    },
+    viewport: async (size) => {
+      await send('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 1, mobile: true });
+    },
+    beforeLoad: async (source) => {
+      await send('Page.addScriptToEvaluateOnNewDocument', { source });
+    },
+    click: async (selector) => {
+      const at = await evaluate<{ x: number; y: number } | null>(`(() => {
+        const one = document.querySelector(${JSON.stringify(selector)});
+        if (!one) return null;
+        const box = one.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      })()`);
+      if (!at) throw new Error(`click() found nothing at ${selector}`);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', buttons: 1, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', buttons: 0, clickCount: 1 });
+    },
+    tab,
     close: async () => {
       socket.close();
-      await stop();
+      await closed();
     },
   };
 }

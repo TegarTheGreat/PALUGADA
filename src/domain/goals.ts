@@ -635,16 +635,17 @@ export async function applyGoalChangeWithin(
     paused.triggers = triggers.rows.length;
     // Nobody is woken about a goal that is done: the follow-ups waiting under
     // it (`task.follow_up`) and the outcome and review looks, the weekly
-    // meeting and the quarterly planning the platform made for the CEO
-    // (src/engine/outcomes.ts, goal-review.ts, meeting.ts, quarter.ts), and
-    // the to-dos handed to their seats (triage.ts), are cancelled, which
-    // releases what they held. Only what has not started: running work is
-    // left to finish.
+    // meeting, a meeting called from a room and the quarterly planning the
+    // platform made for the CEO (src/engine/outcomes.ts, goal-review.ts,
+    // meeting.ts, quarter.ts), and the to-dos handed to their seats
+    // (triage.ts), are cancelled, which releases what they held. Only what
+    // has not started: running work is left to finish.
     const waiting = await tx.query<{ id: string; todo: string | null }>(
       `${under} SELECT id, CASE WHEN idempotency_key LIKE 'todo:%' THEN substr(idempotency_key, 6) END AS todo FROM tasks
                  WHERE company_id = $2 AND status = 'pending'
                    AND (idempotency_key LIKE 'followup:%' OR idempotency_key LIKE 'outcome:%' OR idempotency_key LIKE 'review:%'
-                        OR idempotency_key LIKE 'meeting:%' OR idempotency_key LIKE 'quarter:%' OR idempotency_key LIKE 'todo:%')
+                        OR idempotency_key LIKE 'meeting:%' OR idempotency_key LIKE 'room-meeting:%'
+                        OR idempotency_key LIKE 'quarter:%' OR idempotency_key LIKE 'todo:%')
                    AND goal_id IN (SELECT id FROM under)
                  ORDER BY id`,
       [input.goalId, input.companyId]);

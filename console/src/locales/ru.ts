@@ -90,6 +90,7 @@
  * PALUGADA is feminine (платформа): «PALUGADA подключена».
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. В Meta for Developers создайте приложение с WhatsApp, добавьте номер своей компании и создайте системного пользователя (system user) с постоянным токеном, которому разрешено отправлять сообщения с этого номера.",
@@ -207,7 +208,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Триггер не смог прочитать свой секрет, поэтому события не поступают",
   "A trigger refused a caller without its token": "Триггер отклонил вызов без своего токена",
   "A user auth token from Sentry's settings.": "Токен пользователя (User Auth Token) из настроек Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Наблюдатель следит за работой компании. Согласующий также одобряет или отклоняет то, что ждёт на уровне 2 и ниже. Уровень 3, настройки, ключи и устройства остаются за вами.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Образ мышления для работы, взятый у человека, чей стиль руководства известен публично.",
   "A way to work": "Способ работы",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Еженедельную сводку удобнее всего читать, когда в ней от {fewest} до {most} чисел, а в этой их {lines}: уберите те, по которым никто не действует.",
@@ -1202,7 +1202,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Она попыталась разбить свою работу на большее число подзадач, чем допускается для одной задачи. Повторите её как работу меньшего объёма.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Её передавали от роли к роли больше раз, чем допускается для одной работы, поэтому она остановилась, а не стала передаваться дальше. Повторите задачу и укажите в заметке, кто должен её выполнить.",
   "It will not run again. The work it already made stays, with what that work produced.": "Оно больше не запустится. Уже созданная работа остаётся вместе с её результатами.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Она работает один раз, в течение недели, и показывается только сейчас. При открытии человека попросят добавить PALUGADA в своё приложение-аутентификатор.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Она записала что-то во внешнюю систему и прочитала обратно, но прочитанное не совпало. Прежде чем повторять, проверьте место, куда она писала: запись могла пройти.",
   "Its address": "Адрес",
   "Its arguments": "Аргументы",
@@ -1904,7 +1903,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Потрачено сегодня",
   "Spent today: {amount}": "Потрачено сегодня: {amount}",
   "Split into too many sub-tasks": "Разбита на слишком много подзадач",
-  "Staff who can follow this company, and approve what is small.": "Сотрудники, которые могут следить за этой компанией и одобрять мелкие вопросы.",
   "Stage": "Этап",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2952,6 +2950,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": { "few": "Пройдено {passed} из {count} обязательных целей, оценённых в этом квартале.", "many": "Пройдено {passed} из {count} обязательных целей, оценённых в этом квартале.", "other": "Пройдено {passed} из {count} обязательной цели, оценённой в этом квартале." },
   "Numbers for {quarter}": "Цифры за {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Подсчитано по оценкам, записанным в конце каждого периода, так, как их читает квартальное планирование: они служат следующему плану, и никакие выплаты или доверие от них не зависят.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ru'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2972,4 +2972,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('ru'),
 ];

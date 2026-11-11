@@ -103,6 +103,7 @@
  * and a noun after a number is not doubled: "{count} tugas".
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Wonten ing Meta for Developers, damel aplikasi mawi WhatsApp, tambahaken nomer usaha panjenengan, lajeng damel system user kanthi token permanen ingkang angsal ngintun kangge nomer punika.",
@@ -220,7 +221,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Pamicu mboten saged maos wadosipun, pramila kadadosan mboten dumugi",
   "A trigger refused a caller without its token": "Pamicu nolak pamanggil ingkang mboten mbekta tokenipun",
   "A user auth token from Sentry's settings.": "User auth token saking setelan Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Pamirsa ngetutaken pakaryan perusahaan. Panyetuju ugi nyetujoni utawi nolak ingkang ngentosi ing tingkat 2 mangandhap. Tingkat 3, setelan, kunci, lan piranti tetep dados wewenang panjenengan.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Cara mikir kangge nyambut damel, dipunpendhet saking tokoh ingkang cara mimpinipun kacathet ing ngakathah.",
   "A way to work": "Cara nyambut damel",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Scorecard saben minggu paling gampang diwaca kanthi {fewest} nganti {most} angka, lan iki duwe {lines}: buwang sing ora tau ditindakake.",
@@ -1215,7 +1215,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Tugas punika nyobi mecah pakaryanipun dados subtugas langkung kathah tinimbang ingkang kenging dipungadhahi setunggal tugas. Tindakaken malih minangka pakaryan ingkang langkung alit.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Tugas punika dipunpasrahaken saking peran dhateng peran langkung asring tinimbang ingkang dipunparengaken kangge setunggal pakaryan, mila kendel tinimbang dipunpasrahaken terus. Tindakaken malih, lan serataken ing cathetan panjenengan sinten ingkang kedah nindakaken.",
   "It will not run again. The work it already made stays, with what that work produced.": "Boten badhe mlampah malih. Padamelan ingkang sampun dipundamel tetep wonten, sesarengan kaliyan asilipun.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Pranala punika namung lumampah sapisan, salami seminggu, lan namung dipuntampilaken sapunika. Menawi dipunbikak, ingkang nampi dipunsuwun nambahaken PALUGADA dhateng aplikasi autentikatoripun piyambak.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Tugas punika nyerat setunggal bab ing njawi lajeng maos malih, lan ingkang kawaos mboten cocog. Pirsani papan ingkang dipunserati saderengipun panjenengan nindakaken malih: seratan punika saged ugi sampun kelampahan.",
   "Its address": "Alamatipun",
   "Its arguments": "Argumenipun",
@@ -1917,7 +1916,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Kaginakaken dinten punika",
   "Spent today: {amount}": "Kaginakaken dinten punika: {amount}",
   "Split into too many sub-tasks": "Dipunpecah dados subtugas ingkang kakathahen",
-  "Staff who can follow this company, and approve what is small.": "Staf ingkang saged ngetutaken perusahaan punika, lan nyetujoni prekawis ingkang alit.",
   "Stage": "Tataran",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2965,6 +2963,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} saking {count} ancas wajib ingkang dipunbiji triwulan punika lulus.",
   "Numbers for {quarter}": "Angka kangge {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Dipunetang saking biji ingkang dipunserat nalika saben periode rampung, kados ingkang dipunwaos perencanaan triwulanan: angka punika dados bahan rencana salajengipun, lan boten wonten bayaran utawi kapitadosan ingkang dipuntemtokaken dening angka punika.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('jv'),
 };
 
 /**
@@ -3001,4 +3001,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('jv'),
 ];

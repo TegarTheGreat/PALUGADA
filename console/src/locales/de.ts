@@ -86,6 +86,7 @@
  * (Name, Status, Team, Mission, Persona, Token, Skills, Passkey, Worker).
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Erstellen Sie in Meta for Developers eine App mit WhatsApp, fügen Sie Ihre Geschäftsnummer hinzu und legen Sie einen Systemnutzer mit einem dauerhaften Token an, der für diese Nummer senden darf.",
@@ -203,7 +204,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Ein Auslöser konnte sein Geheimnis nicht lesen, daher kommen keine Ereignisse an",
   "A trigger refused a caller without its token": "Ein Auslöser hat einen Aufruf ohne sein Token abgewiesen",
   "A user auth token from Sentry's settings.": "Ein User Auth Token aus den Einstellungen von Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Ein Beobachter verfolgt die Arbeit des Unternehmens. Ein Freigeber genehmigt oder lehnt außerdem ab, was auf Stufe 2 oder darunter wartet. Stufe 3, Einstellungen, Schlüssel und Geräte bleiben bei Ihnen.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Eine Denkweise für die Arbeit, übernommen von jemandem, dessen Führungsstil öffentlich dokumentiert ist.",
   "A way to work": "Eine Arbeitsweise",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Eine Wochen-Scorecard liest sich am besten mit {fewest} bis {most} Zahlen, und diese hat {lines}: Nehmen Sie die heraus, auf die niemand reagiert.",
@@ -1198,7 +1198,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Die Aufgabe wollte ihre Arbeit in mehr Teilaufgaben aufteilen, als eine einzelne Aufgabe haben darf. Führen Sie sie noch einmal als kleinere Aufgabe aus.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Die Aufgabe wurde öfter von Rolle zu Rolle weitergereicht, als es für eine einzelne Arbeit zulässig ist, und hat deshalb angehalten, statt die Arbeit immer weiterzugeben. Führen Sie sie noch einmal aus und schreiben Sie in Ihre Notiz, wer sie erledigen soll.",
   "It will not run again. The work it already made stays, with what that work produced.": "Er läuft nicht mehr. Die Arbeit, die er schon angelegt hat, bleibt, mit dem, was sie hervorgebracht hat.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Er funktioniert einmal, eine Woche lang, und wird nur jetzt angezeigt. Beim Öffnen wird die Person gebeten, PALUGADA zu ihrer eigenen Authentifikator-App hinzuzufügen.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Die Aufgabe hat etwas nach außen geschrieben und es zurückgelesen, und das Gelesene stimmte nicht überein. Sehen Sie dort nach, wohin sie geschrieben hat, bevor Sie sie noch einmal ausführen: Der Schreibvorgang ist vielleicht schon erfolgt.",
   "Its address": "Seine Adresse",
   "Its arguments": "Seine Argumente",
@@ -1900,7 +1899,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Heute ausgegeben",
   "Spent today: {amount}": "Heute ausgegeben: {amount}",
   "Split into too many sub-tasks": "In zu viele Teilaufgaben aufgeteilt",
-  "Staff who can follow this company, and approve what is small.": "Mitarbeiter, die dieses Unternehmen verfolgen und kleinere Dinge genehmigen können.",
   "Stage": "Phase",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2948,6 +2946,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} von {count} in diesem Quartal bewerteten verbindlichen Zielen erreicht.",
   "Numbers for {quarter}": "Zahlen für {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Gezählt aus den Bewertungen, die am Ende jedes Zeitraums geschrieben wurden, so wie die Quartalsplanung sie liest: Sie dienen dem nächsten Plan, und keine Zahlung und kein Vertrauen hängt an ihnen.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('de'),
 };
 
 /** Sentences written as they are in English on purpose: names, and words German writes the same way. */
@@ -2984,4 +2984,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "Worker {worker}",
   "ntfy",
+  ...areaKept('de'),
 ];

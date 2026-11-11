@@ -23,6 +23,10 @@ export async function consoleWithSettings(options: {
   files?: ConstructorParameters<typeof OwnerApi>[0]['files'];
   /** The runtimes the deployment employs, for a test that moves a role between them. */
   runtimes?: ConstructorParameters<typeof OwnerApi>[0]['runtimes'];
+  /** Read the caller's address from X-Forwarded-For, for a test that signs in from several. */
+  behindProxy?: boolean;
+  /** Whether the deployment has a model to hold an agent meeting with, for a test that calls one from a room. */
+  holdsMeetings?: boolean;
 } = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
@@ -46,6 +50,8 @@ export async function consoleWithSettings(options: {
     ...(options.deploymentNotes ? { deploymentNotes: options.deploymentNotes } : {}),
     ...(options.files ? { files: options.files } : {}),
     ...(options.runtimes ? { runtimes: options.runtimes } : {}),
+    ...(options.holdsMeetings ? { holdsMeetings: true } : {}),
+    ...(options.behindProxy ? { behindProxy: true } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,

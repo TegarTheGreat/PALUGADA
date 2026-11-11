@@ -1,0 +1,13 @@
+-- A reply through a relay finds the person's earlier client id by an index
+-- (F19.20; STATUS sections 2.216 and 2.217).
+--
+-- A relay's reply carries a client id that is the person's for all time:
+-- one they used before is taken as that reply sent again only for the same
+-- words, room and thread, and refused anywhere else. That is asked of every
+-- message the person wrote, in any room, by company, author and client id.
+-- The rooms' own retry key is the room's now (STATUS 2.217), so this
+-- question had no index left that leads with the person, and each reply
+-- read every message of the company that carries a client id. This index
+-- answers it alone; it is not unique, since the same id may be a message in
+-- two rooms.
+CREATE INDEX room_messages_client_ids ON room_messages (company_id, author, client_id) WHERE client_id IS NOT NULL;

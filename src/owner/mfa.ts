@@ -613,12 +613,14 @@ export class OwnerMfa {
    * session token's is. Returned once, to be written down; nothing can show
    * them again. The old set is revoked in the same transaction, so a sheet
    * the owner threw away stops working the moment the new one exists, and
-   * the sessions it signed in end with it.
+   * the sessions it signed in end with it. Answers the codes, and the old
+   * set's authenticators, so the caller can end what those sessions hold
+   * open in its own process: their live streams.
    */
-  async issueRecoveryCodes(): Promise<string[]> {
+  async issueRecoveryCodes(): Promise<{ codes: string[]; ended: string[] }> {
     const codes = Array.from({ length: RECOVERY_CODES }, () =>
       encodeBase32(randomBytes(10)).toLowerCase().replace(/(.{4})(?!$)/g, '$1-'));
-    await withControlPlane(async (tx) => {
+    const ended = await withControlPlane(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext('palugada:owner-mfa'))");
       const { rows: old } = await tx.query<{ id: string }>(
         `UPDATE owner_authenticators SET revoked_at = now()
@@ -633,8 +635,9 @@ export class OwnerMfa {
         await tx.query('INSERT INTO owner_recovery_codes (code_hash, authenticator_id) VALUES ($1, $2)',
           [recoveryHash(code), rows[0]!.id]);
       }
+      return old.map((row) => row.id);
     });
-    return codes;
+    return { codes, ended };
   }
 
   /** How many codes of the live set are left, or null when the owner has none. */

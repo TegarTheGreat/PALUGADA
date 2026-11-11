@@ -7,6 +7,8 @@
  * is the console (控制台), so that "apply it in the app" does not read as
  * 应用 twice. Screens are named as the console draws them: “本部署 > 模型”.
  */
+import { areaSentences } from './areas/index.ts';
+
 export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': '异常：{title}',
   'Done: {goal}': '已完成：{goal}',
@@ -564,4 +566,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Who we serve and what makes us different': '我们服务谁，以及我们的不同之处',
   'Where we will be in three years': '三年后我们将在哪里',
   'Our promise': '我们的承诺',
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('zh'),
 };

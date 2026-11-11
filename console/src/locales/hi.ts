@@ -56,6 +56,7 @@
  *   Making pictures चित्र बनाना · Web search वेब खोज · Meaning अर्थ से खोज
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Meta for Developers में WhatsApp वाला एक ऐप बनाएँ, अपना बिज़नेस नंबर जोड़ें, और एक system user बनाएँ जिसके पास स्थायी टोकन हो और जो उस नंबर से संदेश भेज सके।",
@@ -173,7 +174,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "एक ट्रिगर अपना सीक्रेट नहीं पढ़ सका, इसलिए इवेंट नहीं आ रहे",
   "A trigger refused a caller without its token": "एक ट्रिगर ने बिना टोकन वाले कॉलर को अस्वीकार किया",
   "A user auth token from Sentry's settings.": "Sentry की सेटिंग्स से एक user auth token।",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "दर्शक कंपनी का काम देखते हैं। स्वीकृतकर्ता स्तर 2 या उससे नीचे इंतज़ार कर रहे आइटम स्वीकृत या अस्वीकार भी करते हैं। स्तर 3, सेटिंग्स, कुंजियाँ और डिवाइस आपके पास रहते हैं।",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "काम करने की एक सोच, किसी ऐसे व्यक्ति से ली गई जिसके नेतृत्व का तरीका सार्वजनिक रूप से दर्ज है।",
   "A way to work": "काम करने का तरीका",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "साप्ताहिक स्कोरकार्ड {fewest} से {most} संख्याओं के साथ सबसे अच्छा पढ़ा जाता है, और इसमें {lines} हैं: वे हटा दें जिन पर कोई कार्रवाई नहीं करता।",
@@ -1168,7 +1168,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "इसने अपना काम उससे ज़्यादा उप-कार्यों में बाँटने की कोशिश की जितने एक कार्य के हो सकते हैं। इसे छोटे काम के रूप में फिर से करें।",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "इसे एक भूमिका से दूसरी भूमिका को उससे ज़्यादा बार सौंपा गया जितनी बार किसी एक काम को सौंपा जा सकता है, इसलिए यह आगे सौंपते रहने के बजाय रुक गया। इसे फिर से करें, और अपने नोट में बताएँ कि इसे कौन करे।",
   "It will not run again. The work it already made stays, with what that work produced.": "यह फिर नहीं चलेगा। जो काम इसने पहले बनाया वह रहेगा, और उस काम ने जो बनाया वह भी।",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "यह एक ही बार, एक हफ़्ते तक काम करता है, और सिर्फ़ अभी दिखाया जा रहा है। इसे खोलने पर उनसे अपने ऑथेंटिकेटर ऐप में PALUGADA जोड़ने को कहा जाएगा।",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "इसने बाहर कुछ लिखा और उसे वापस पढ़ा, और जो पढ़ा वह मेल नहीं खाया। इसे फिर से करने से पहले वह जगह देखें जहाँ इसने लिखा था: हो सकता है लिखना हो चुका हो।",
   "Its address": "इसका पता",
   "Its arguments": "इसके आर्ग्युमेंट",
@@ -1870,7 +1869,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "आज का खर्च",
   "Spent today: {amount}": "आज का खर्च: {amount}",
   "Split into too many sub-tasks": "बहुत सारे उप-कार्यों में बँट गया",
-  "Staff who can follow this company, and approve what is small.": "स्टाफ़, जो इस कंपनी का काम देख सकते हैं और छोटी चीज़ें स्वीकृत कर सकते हैं।",
   "Stage": "चरण",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2918,6 +2916,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "इस तिमाही आँके गए {count} पक्के लक्ष्यों में से {passed} पास हुए।",
   "Numbers for {quarter}": "{quarter} के आँकड़े",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}। हर अवधि के ख़त्म होने पर लिखे गए अंकों से गिना गया, जैसे तिमाही योजना उन्हें पढ़ती है: ये अगली योजना के लिए हैं, और कोई भुगतान या भरोसा इन पर नहीं टिका है।",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('hi'),
 };
 
 /**
@@ -2941,4 +2941,5 @@ export const KEPT: readonly string[] = [
   "URL",
   "WhatsApp",
   "ntfy",
+  ...areaKept('hi'),
 ];

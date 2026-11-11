@@ -110,6 +110,7 @@
  *                          Nghe, Ngữ nghĩa
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Trong Meta for Developers, tạo một ứng dụng có WhatsApp, thêm số điện thoại doanh nghiệp của bạn, rồi tạo một system user có token vĩnh viễn được phép gửi tin thay cho số đó.",
@@ -227,7 +228,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Một trình kích hoạt không đọc được bí mật của nó, nên sự kiện không đến được",
   "A trigger refused a caller without its token": "Trình kích hoạt đã từ chối một bên gọi không có token",
   "A user auth token from Sentry's settings.": "Token xác thực người dùng (user auth token) lấy từ phần cài đặt của Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Người xem theo dõi công việc của công ty. Người phê duyệt còn phê duyệt hoặc từ chối những gì đang chờ ở cấp 2 trở xuống. Cấp 3, cài đặt, khóa và thiết bị vẫn thuộc về bạn.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Một cách tư duy để làm việc, lấy từ một người có phong cách lãnh đạo được ghi nhận công khai.",
   "A way to work": "Một cách làm việc",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Bảng điểm hằng tuần dễ đọc nhất với {fewest} đến {most} con số, và bảng này có {lines}: hãy bỏ những con số không ai hành động theo.",
@@ -1222,7 +1222,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Nhiệm vụ đã cố chia việc thành nhiều nhiệm vụ con hơn mức một nhiệm vụ được phép có. Hãy làm lại với một phần việc nhỏ hơn.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Nhiệm vụ đã bị chuyển từ vai trò này sang vai trò khác nhiều lần hơn mức cho phép với một phần việc, nên nó dừng lại thay vì tiếp tục chuyển đi. Hãy làm lại, và ghi rõ trong ghi chú ai nên làm việc này.",
   "It will not run again. The work it already made stays, with what that work produced.": "Lịch này sẽ không chạy nữa. Công việc đã tạo vẫn còn, cùng với kết quả của nó.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Liên kết chỉ dùng được một lần, trong một tuần, và chỉ hiển thị lúc này. Khi mở, người nhận sẽ được yêu cầu thêm PALUGADA vào ứng dụng xác thực của chính mình.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Nhiệm vụ đã ghi dữ liệu ra bên ngoài rồi đọc lại, và kết quả đọc được không khớp. Hãy kiểm tra nơi nó đã ghi trước khi làm lại: việc ghi có thể đã diễn ra.",
   "Its address": "Địa chỉ",
   "Its arguments": "Tham số",
@@ -1924,7 +1923,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Đã chi hôm nay",
   "Spent today: {amount}": "Đã chi hôm nay: {amount}",
   "Split into too many sub-tasks": "Bị chia thành quá nhiều nhiệm vụ con",
-  "Staff who can follow this company, and approve what is small.": "Nhân viên có thể theo dõi công ty này và phê duyệt những việc nhỏ.",
   "Stage": "Giai đoạn",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2972,6 +2970,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} trên {count} mục tiêu cam kết được chấm điểm trong quý này đã đạt.",
   "Numbers for {quarter}": "Số liệu của {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Đếm từ các điểm được ghi khi mỗi kỳ kết thúc, như kế hoạch quý đọc chúng: chúng là cơ sở cho kế hoạch tiếp theo, và không khoản trả hay mức tin cậy nào dựa vào chúng.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('vi'),
 };
 
 /** Sentences written as they are in English on purpose: names only. */
@@ -2993,4 +2993,5 @@ export const KEPT: readonly string[] = [
   "WhatsApp",
   "ntfy",
   "payments",
+  ...areaKept('vi'),
 ];

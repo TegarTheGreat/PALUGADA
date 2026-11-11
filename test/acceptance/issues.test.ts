@@ -21,6 +21,8 @@ import { connectionString } from '../../src/config.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
+import { appendEvent } from '../../src/audit/event-log.ts';
+import { buildContext } from '../../src/context/builder.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
@@ -244,6 +246,63 @@ test('solving an issue closes it, opens owned to-dos due in seven days, keeps th
     assert.equal(page.body.todos.find((one: { id: string }) => one.id === todoId).assigneeRoleId, builderId);
   } finally {
     await api.close();
+  }
+});
+
+test("a solved issue's lesson names the colleagues whose words were in the work that filed it and the work that solved it", async () => {
+  // A member of staff's words are never read as the owner's (F19.9): the
+  // lesson an issue teaches says what the issue said and what solved it, so
+  // it carries the seats whose words were in either (STATUS 2.217).
+  const fixture = await withCeo('issues-staff-lesson');
+  const seat = (name: string) => withControlPlane(async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO staff_seats (company_id, name, kind, secret_ref, joined_at) VALUES ($1, $2, 'member', $3, now()) RETURNING id`,
+    [fixture.companyId, name, `db://staff-totp-${name.toLowerCase()}`])).rows[0]!.id);
+  const budi = await seat('Budi');
+  const siti = await seat('Siti');
+  const spoke = (taskId: string, seatId: string, name: string) => withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, taskId, type: 'content.staff_said', actor: 'system',
+    payload: { seatId, name, how: 'began', from: 'room' },
+  }));
+  const lessonOf = async (title: string) => (await withTenant(fixture.companyId, (tx) => tx.query<{ staff: Array<{ seatId: string; name: string }> }>(
+    "SELECT staff FROM memories WHERE fact_kind = 'decision' AND body LIKE $1", [`Issue: ${title}%`]))).rows[0]?.staff;
+
+  // Filed by work Budi asked for, and solved by the owner: what the issue says is still partly Budi's.
+  const filing = await newTask(fixture, 'look at the refunds');
+  await spoke(filing.id, budi, 'Budi');
+  const refunds = await withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'Refunds go out twice',
+    sourceKey: 'test:refunds', openedBy: 'agent', openedByTaskId: filing.id, outside: false,
+  }));
+  await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: refunds.ticket.id, rootCause: 'Each refund is entered by hand twice.',
+    decision: 'Refunds are entered once, by the bank file.', solvedBy: 'owner', outside: false, todos: [{ title: 'Load the bank file' }],
+  }));
+  assert.deepEqual(await lessonOf('Refunds go out twice'), [{ seatId: budi, name: 'Budi' }], 'the issue was filed from Budi\'s words');
+
+  // Filed by the owner, and solved by work Siti spoke to.
+  const late = await withTenant(fixture.companyId, (tx) => fileIssue(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, title: 'Deliveries arrive late',
+    sourceKey: 'test:late', openedBy: 'owner', outside: false,
+  }));
+  const solving = await newTask(fixture, 'solve the late deliveries');
+  await spoke(solving.id, siti, 'Siti');
+  await transition(fixture.companyId, solving.id, 'running');
+  await withTenant(fixture.companyId, (tx) => solveIssue(tx, {
+    companyId: fixture.companyId, issueId: late.ticket.id, rootCause: 'The courier is booked after noon.',
+    decision: 'Book the courier every morning.', solvedBy: 'agent', taskId: solving.id, outside: false,
+    todos: [{ title: 'Book the courier at nine' }],
+  }));
+  assert.deepEqual(await lessonOf('Deliveries arrive late'), [{ seatId: siti, name: 'Siti' }], 'the work that solved it carried Siti\'s words');
+
+  // The owner's own work later is told both lessons fenced as the colleagues' words, never as known facts.
+  const owners = await newTask(fixture, 'plan the refunds and the deliveries');
+  const pack = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: owners.id }));
+  for (const [title, name] of [['Refunds go out twice', 'Budi'], ['Deliveries arrive late', 'Siti']] as const) {
+    const fact = pack.sections.find((section) => section.body.includes(title));
+    assert.ok(fact, `the run is told ${title}`);
+    assert.match(fact.body, new RegExp(`^<<<COLLEAGUE>>> from="${name} \\(staff\\)"`), `${title} is fenced as ${name}'s words`);
+    assert.deepEqual(fact.staff?.map((word) => word.name), [name]);
   }
 });
 

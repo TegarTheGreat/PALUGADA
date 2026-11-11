@@ -282,8 +282,11 @@ is the way in.
 The page says **Welcome back** and asks for the six-digit code from your
 authenticator app. Type it and press **Sign in**. A few things to know:
 
-- There is no user name. PALUGADA has one human, and holding the enrolled
-  authenticator is what makes you the owner.
+- There is no user name. PALUGADA has one owner, and holding the enrolled
+  authenticator is what makes you the owner. The people you seat later sign
+  in on the same page with **I'm a member of staff**, their handle and a code
+  of their own ([Rooms and people](workspace.md)); their codes never open
+  your door.
 - The session lives in this browser tab only and lasts up to eight hours.
   Closing the tab signs you out. Nothing is stored in the browser.
 - Ten wrong codes in a row lock codes for fifteen minutes, and five from one

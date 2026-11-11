@@ -105,6 +105,7 @@
  * and a noun after a number is not doubled: "{count} tugasan".
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Di Meta for Developers, buat apl dengan WhatsApp, tambah nombor perniagaan anda, kemudian buat system user dengan token kekal yang dibenarkan menghantar bagi nombor itu.",
@@ -222,7 +223,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Pencetus tidak dapat membaca rahsianya, jadi peristiwa tidak diterima",
   "A trigger refused a caller without its token": "Pencetus menolak pemanggil yang tiada tokennya",
   "A user auth token from Sentry's settings.": "User auth token daripada tetapan Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Pemerhati mengikuti kerja syarikat. Pelulus juga meluluskan atau menolak apa yang menunggu pada tahap 2 dan ke bawah. Tahap 3, tetapan, kunci dan peranti kekal di tangan anda.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Cara berfikir untuk bekerja, diambil daripada tokoh yang cara kepimpinannya tercatat secara terbuka.",
   "A way to work": "Cara bekerja",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Kad skor mingguan paling mudah dibaca dengan {fewest} hingga {most} angka, dan yang ini ada {lines}: buang yang tiada siapa bertindak atasnya.",
@@ -1217,7 +1217,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Ia cuba memecahkan kerjanya kepada lebih banyak subtugasan daripada yang dibenarkan bagi satu tugasan. Buat semula sebagai kerja yang lebih kecil.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "Ia diserahkan dari peranan ke peranan lebih banyak kali daripada yang dibenarkan bagi satu kerja, jadi ia berhenti dan tidak terus menyerahkannya. Buat semula, dan nyatakan dalam nota anda siapa yang patut melakukannya.",
   "It will not run again. The work it already made stays, with what that work produced.": "Ia tidak akan berjalan lagi. Kerja yang telah dibuatnya kekal, bersama hasilnya.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Pautan ini hanya berfungsi sekali, selama seminggu, dan hanya dipaparkan sekarang. Apabila dibuka, penerima akan diminta menambah PALUGADA pada apl pengesahnya sendiri.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Ia menulis sesuatu di luar dan membacanya semula, dan apa yang dibacanya tidak sepadan. Semak tempat ia menulis itu sebelum anda buat semula: penulisan itu mungkin sudah berlaku.",
   "Its address": "Alamatnya",
   "Its arguments": "Argumennya",
@@ -1919,7 +1918,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Dibelanjakan hari ini",
   "Spent today: {amount}": "Dibelanjakan hari ini: {amount}",
   "Split into too many sub-tasks": "Dipecahkan kepada terlalu banyak subtugasan",
-  "Staff who can follow this company, and approve what is small.": "Kakitangan yang boleh mengikuti syarikat ini, dan meluluskan perkara kecil.",
   "Stage": "Peringkat",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2967,6 +2965,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} daripada {count} matlamat wajib yang dinilai suku tahun ini lulus.",
   "Numbers for {quarter}": "Angka bagi {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Dikira daripada penilaian yang ditulis apabila setiap tempoh berakhir, seperti yang dibaca oleh perancangan suku tahunan: ia menjadi bahan rancangan seterusnya, dan tiada bayaran atau kepercayaan yang ditentukan olehnya.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('ms'),
 };
 
 /**
@@ -3001,4 +3001,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('ms'),
 ];

@@ -128,11 +128,16 @@ export function megabytes(bytes: number): string {
   return new Intl.NumberFormat(locale(), { maximumFractionDigits: 1, roundingMode: 'ceil' }).format(bytes / 1_048_576);
 }
 
-export function relative(iso: string | null | undefined): string {
+/**
+ * How far off a moment is, "in 15 min." or "3 days ago". `long` spells the
+ * unit out ("in 15 minutes"), for a sentence that ends on it: the short
+ * form's own full stop would be followed by the sentence's.
+ */
+export function relative(iso: string | null | undefined, style: 'short' | 'long' = 'short'): string {
   if (!iso) return '—';
   let delta = (new Date(iso).getTime() - Date.now()) / 1000;
   if (Math.abs(delta) < 45) return delta > 0 ? t('in a moment') : t('just now');
-  const format = new Intl.RelativeTimeFormat(locale(), { numeric: 'always', style: 'short' });
+  const format = new Intl.RelativeTimeFormat(locale(), { numeric: 'always', style });
   for (const [size, unit] of UNITS) {
     if (Math.abs(delta) < size) return format.format(Math.round(delta), unit);
     delta /= size;
@@ -390,6 +395,17 @@ const EVENT_SENTENCES: Record<string, string> = {
   'policy.created': N('Policy added'),
   'policy.updated': N('Policy changed'),
   'policy.deleted': N('Policy removed'),
+  // The people's workspace (F19): the events written when a person's words
+  // become work, and what follows from them.
+  'staff.instructed': N('A member of staff told the work something'),
+  'content.staff_said': N('A member of staff\'s words are in this work'),
+  'task.given_in_room': N('Given as work in a room'),
+  'security.own_instigation_refused': N('A member of staff tried to decide work they asked for'),
+  'inbox.team_item_escalated': N('Nobody else on the team decided it, so it went to the owner'),
+  'meeting.owner_joined': N('The owner joined the meeting'),
+  'meeting.went_on': N('The meeting went on without an answer'),
+  'meeting.called': N('A meeting was called from a room'),
+  'security.relay_refused': N('A relay was refused'),
 };
 
 export function eventSentence(type: string): string {
@@ -519,6 +535,7 @@ const RETENTION_ACTIONS: Record<string, string> = {
   journal_scrubbed: N('Old model replies cleared from finished work'),
   bookkeeping_purged: N('Old bookkeeping removed'),
   work_purged: N('Old finished work removed'),
+  messages_purged: N('Old messages removed from the rooms'),
 };
 
 export function retentionSaid(action: string): string {
@@ -570,6 +587,8 @@ const HALT_REASONS: Record<string, string> = {
   approval_expired: N('Your approval was not given in time'),
   owner_stop: N('Stopped by you'),
   owner_cancel: N('Cancelled by you'),
+  // A seat's stop of work it asked for in a room (F19.9): the seat's, never the owner's.
+  staff_cancel: N('Cancelled by a member of staff who asked for it'),
   // The platform's stop of a coordinator whose work was taken up (`stopHandling`).
   work_taken_up: N('Stopped: its work was taken up another way'),
   company_frozen: N('The company is frozen'),
@@ -605,6 +624,7 @@ const HALT_EXPLAINED: Record<string, string> = {
   approval_expired: N('Your approval was not given in time, so it did not go ahead. Do it again if it is still wanted.'),
   owner_stop: N('You stopped it.'),
   owner_cancel: N('You cancelled it, or the work it was started for.'),
+  staff_cancel: N('A member of staff who asked for this work in a room cancelled it, or the work it was started for. Its timeline says who.'),
   work_taken_up: N('The work it was handed was run again, went on, or was answered on its card, so the platform stopped it rather than have it done twice.'),
   company_frozen: N('The company was frozen while it worked. Unfreeze it under Settings, then do it again.'),
   journal_divergence: N('Run again from its record, one of its steps did not match what was recorded, so it stopped rather than guess. Do it again as a new task.'),
@@ -633,6 +653,21 @@ export function eventDetail(payload: Record<string, unknown>): string | null {
   if (typeof reason === 'string' && reason !== 'not_done') return haltReason(reason);
   const said = payload.detail ?? payload.error;
   return typeof said === 'string' ? said : null;
+}
+
+/**
+ * Who told the work something, on its timeline (F19.9): an instruction, an
+ * answer or a decision a member of staff gave says whose it was, and the
+ * owner's words composed in their conversation say through whom. The words
+ * themselves are not shown here: a seat reads the timeline too, and they
+ * are the task's to read.
+ */
+export function eventAuthor(payload: Record<string, unknown>): string | null {
+  const staff = payload.staff as { name?: unknown } | undefined;
+  if (staff && typeof staff.name === 'string' && staff.name.trim() !== '') return t('From {name}, a member of staff', { name: staff.name });
+  if (payload.composedBy === 'ceo') return t('From you, through the CEO');
+  if (payload.composedBy === 'assistant') return t('From you, through the assistant');
+  return null;
 }
 
 /** Why a task waits, as the owner would say it (`WaitReason` in src/engine/tasks.ts). */

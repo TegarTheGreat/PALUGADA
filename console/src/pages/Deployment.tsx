@@ -11,10 +11,11 @@
 import {
   Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, FileInput, Grid, Group, NavLink, Paper, PasswordInput, Radio,
   Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput,
+  NumberInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
+  IconApi, IconBell, IconBrain, IconBroadcast, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
   IconPhoto, IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
   IconWorldSearch,
 } from '@tabler/icons-react';
@@ -22,11 +23,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { dateTime, relative } from '../format.ts';
+import { centsFrom, currencyAffix, dateTime, money, numberSeparators, relative, typedFrom } from '../format.ts';
 import { N, locale, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
 import { recordingSupported, useRecorder } from '../recorder.ts';
+import { RelaySettings } from './deployment/Relays.tsx';
 
 const TIERS = ['fast', 'standard', 'deep'] as const;
 type Tier = (typeof TIERS)[number];
@@ -79,6 +81,7 @@ const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
   { id: 'erasures', label: N('Erased companies'), hint: N('Companies you closed, erased here when their days were over: when, and how much of each went.'), icon: IconTrash },
+  { id: 'relays', label: N('Relays'), hint: N('Services that tell people\'s phones what PALUGADA has for them: pair one, choose what it is told, and link your phone.'), icon: IconBroadcast },
 ];
 
 const GROUPS: Array<{ id: ProviderEntry['group']; label: string }> = [
@@ -117,13 +120,14 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           </Paper>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 9 }}>
-          {current.id === 'model' && <ModelSettings />}
+          {current.id === 'model' && <ModelSettings allowance />}
           {current.id === 'agents' && <AgentSettings />}
           {current.id === 'tools' && <ToolSettings />}
           {current.id === 'channels' && <ChannelSettings />}
           {current.id === 'services' && <ServiceSettings />}
           {current.id === 'mcp' && <McpSettings />}
           {current.id === 'erasures' && <ErasureList />}
+          {current.id === 'relays' && <RelaySettings />}
         </Grid.Col>
       </Grid>
     </Stack>
@@ -200,8 +204,12 @@ function ErasureList() {
   );
 }
 
-/** The model every role runs on: chosen here, and by the first run (Onboarding.tsx) when there is none. */
-export function ModelSettings() {
+/**
+ * The model every role runs on: chosen here, and by the first run
+ * (Onboarding.tsx) when there is none. Here it also shows what PALUGADA's own
+ * conversation may spend; the first run is about the model alone.
+ */
+export function ModelSettings({ allowance = false }: { allowance?: boolean }) {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;
@@ -209,6 +217,7 @@ export function ModelSettings() {
     <Stack gap="lg">
       <ModelForm view={view.data} reload={view.reload} />
       {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} sync={view.data.priceSync} reload={view.reload} />}
+      {allowance && <AssistantAllowance />}
     </Stack>
   );
 }
@@ -313,6 +322,62 @@ function ModelPrices({ prices, sync, reload }: { prices: SettingsView['prices'];
           <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(priced(row, 'input'))) || !Number.isFinite(Number(priced(row, 'output'))))}
             onClick={() => void save()}>{t('Save prices')}</Button>
         </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+/**
+ * What PALUGADA's own conversation may spend each month (F19.12). It belongs
+ * to no company, so no company's budget holds it, and this is its only limit:
+ * a turn that would pass it is not asked. Raising it takes the factor, like
+ * everything else that loosens a control; lowering it, or 0, which switches
+ * the conversation off, does not.
+ */
+function AssistantAllowance() {
+  const requireFactor = useFactor();
+  const view = useLoad(async (): Promise<{ monthCents: number; spentThisMonthCents: number }> =>
+    api('GET', '/api/control/assistant-allowance'), []);
+  const [value, setValue] = useState<number | string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (view.data) setValue(typedFrom(view.data.monthCents));
+  }, [view.data]);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={2} />;
+  const allowed = view.data.monthCents;
+  const save = async () => {
+    const monthCents = centsFrom(value);
+    setError(null);
+    setBusy(true);
+    try {
+      if (monthCents > allowed) {
+        const done = await requireFactor(t('Raise what PALUGADA\'s own conversation may spend'), (proof) =>
+          api('POST', '/api/control/assistant-allowance', { monthCents, proof }));
+        if (!done) return;
+      } else {
+        await api('POST', '/api/control/assistant-allowance', { monthCents });
+      }
+      notifications.show({ color: 'teal', message: t('Allowance set.') });
+      view.reload();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title={t('PALUGADA\'s own conversation')}
+      description={t('What talking with PALUGADA may spend each month. It belongs to no company, so no budget holds it: a question that would pass this waits for next month or a higher allowance, and 0 switches the conversation off. A company\'s CEO is paid from that company\'s budget.')}>
+      <Stack gap="xs">
+        <Text size="sm" c="dimmed">{t('{spent} spent this month.', { spent: money(view.data.spentThisMonthCents) })}</Text>
+        <Group align="flex-end" gap="xs" wrap="nowrap">
+          <NumberInput label={t('Each month')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} {...numberSeparators()} style={{ flex: 1 }} />
+          {/* An empty field is no amount: read as 0, it would switch the conversation off. */}
+          <Button loading={busy} disabled={String(value).trim() === ''} onClick={() => void save()}>{t('Set')}</Button>
+        </Group>
+        {error && <Alert color="red" variant="light">{error}</Alert>}
       </Stack>
     </Section>
   );

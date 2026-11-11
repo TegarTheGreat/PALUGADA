@@ -107,6 +107,7 @@
  * PALUGADA is masculine ("PALUGADA è collegato").
  */
 import type { Dictionary } from './types.ts';
+import { areaKept, areaSentences } from './areas/index.ts';
 
 export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. In Meta for Developers, crea un'app con WhatsApp, aggiungi il numero aziendale e crea un utente di sistema (system user) con un token permanente autorizzato a inviare messaggi da quel numero.",
@@ -224,7 +225,6 @@ export const DICTIONARY: Dictionary = {
   "A trigger could not read its secret, so events are not arriving": "Un trigger non riesce a leggere il suo segreto, quindi gli eventi non arrivano",
   "A trigger refused a caller without its token": "Un trigger ha rifiutato una chiamata priva del suo token",
   "A user auth token from Sentry's settings.": "Un token utente (User Auth Token) dalle impostazioni di Sentry.",
-  "A viewer follows the company's work. An approver also approves or denies what waits at tier 2 and below. Tier 3, settings, keys and devices stay yours.": "Un visualizzatore segue il lavoro dell'azienda. Un approvatore approva o rifiuta anche ciò che attende al livello 2 o inferiore. Livello 3, impostazioni, chiavi e dispositivi restano a te.",
   "A way of thinking to work in, taken from someone whose way of leading is on the public record.": "Un modo di pensare con cui lavorare, preso da qualcuno il cui stile di leadership è di pubblico dominio.",
   "A way to work": "Un modo di lavorare",
   "A weekly scorecard reads best with {fewest} to {most} numbers, and this one has {lines}: take off the ones nobody acts on.": "Una scorecard settimanale si legge meglio con {fewest}-{most} numeri, e questa ne ha {lines}: togli quelli su cui nessuno agisce.",
@@ -1219,7 +1219,6 @@ export const DICTIONARY: Dictionary = {
   "It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.": "Ha cercato di suddividere il suo lavoro in più sottoattività di quante ne possa avere un'attività. Rifalla come un lavoro più piccolo.",
   "It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.": "È passata da un ruolo all'altro più volte di quanto sia consentito a un singolo lavoro, quindi si è fermata invece di continuare a passare di mano. Rifalla, scrivendo nella tua nota chi deve farla.",
   "It will not run again. The work it already made stays, with what that work produced.": "Non verrà più eseguita. Il lavoro che ha già creato resta, con ciò che ha prodotto.",
-  "It works once, for a week, and is shown only now. Opening it asks them to add PALUGADA to their own authenticator app.": "Funziona una sola volta, per una settimana, ed è mostrato solo ora. Aprendolo, alla persona verrà chiesto di aggiungere PALUGADA alla propria app di autenticazione.",
   "It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.": "Ha scritto qualcosa all'esterno e l'ha riletto, e ciò che ha letto non corrispondeva. Controlla il punto in cui ha scritto prima di rifarla: la scrittura potrebbe essere avvenuta.",
   "Its address": "Il suo indirizzo",
   "Its arguments": "I suoi argomenti",
@@ -1921,7 +1920,6 @@ export const DICTIONARY: Dictionary = {
   "Spent today": "Speso oggi",
   "Spent today: {amount}": "Speso oggi: {amount}",
   "Split into too many sub-tasks": "Suddivisa in troppe sottoattività",
-  "Staff who can follow this company, and approve what is small.": "Membri dello staff che possono seguire questa azienda e approvare le cose di poco conto.",
   "Stage": "Fase",
   "Standard Webhooks": "Standard Webhooks",
   "Standard Webhooks (Svix, Resend, Clerk)": "Standard Webhooks (Svix, Resend, Clerk)",
@@ -2969,6 +2967,8 @@ export const DICTIONARY: Dictionary = {
   "{passed} of {count} committed goals graded this quarter passed.": "{passed} su {count} obiettivi vincolanti valutati questo trimestre superati.",
   "Numbers for {quarter}": "Numeri di {quarter}",
   "{period}. Counted from the grades written as each period ended, as quarterly planning reads them: they inform the next plan, and nothing pays or trusts by them.": "{period}. Contati dai voti scritti alla fine di ogni periodo, come li legge la pianificazione trimestrale: servono al prossimo piano, e nessun pagamento né fiducia dipende da essi.",
+  // The people's workspace keeps its sentences by feature, in areas/.
+  ...areaSentences('it'),
 };
 
 /**
@@ -3002,4 +3002,5 @@ export const KEPT: readonly string[] = [
   "Verify token",
   "WhatsApp",
   "ntfy",
+  ...areaKept('it'),
 ];

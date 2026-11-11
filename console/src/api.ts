@@ -78,41 +78,91 @@ export interface LiveEvent {
   at: string;
 }
 
+/** What a caller of `live` may be told besides each event. */
+export interface LiveOptions {
+  /**
+   * A stream the server will not serve: asked with its status and code, and
+   * when it answers true the stream is not tried again (the room stream on a
+   * server that has none: its caller falls back). Otherwise it is asked for
+   * again, a little later each time, as a dropped stream is.
+   */
+  refused?: (status: number, code: string | undefined) => boolean;
+  /** The stream opened again after the server ended it: what it ended for may have changed who the person is. */
+  reopened?: () => void;
+  /**
+   * Whether the stream is being heard: true once its first bytes arrive,
+   * false when it drops or fails and is asked for again. A stream answered
+   * but held back -- a proxy that buffers it -- is never heard, so its caller
+   * goes on reading on its own clock.
+   */
+  hearing?: (yes: boolean) => void;
+}
+
 /**
  * Listens to a live stream of events (`text/event-stream`) until `signal`
  * aborts. Read with fetch rather than an EventSource, which cannot carry the
  * session's token; a dropped stream is opened again, a little later each
  * time, and signing out ends it.
+ *
+ * The last `id:` the stream sent is kept in memory, never in the browser's
+ * storage, and sent back as `Last-Event-ID` when the stream is opened again,
+ * so a room stream picks up where it left off (STATUS 2.210).
  */
-export async function live(method: 'GET', path: string, heard: (event: LiveEvent) => void, signal: AbortSignal): Promise<void> {
+export async function live<T = LiveEvent>(
+  method: 'GET', path: string, heard: (event: T) => void, signal: AbortSignal, options: LiveOptions = {},
+): Promise<void> {
   let wait = 1_000;
+  let lastId: string | null = null;
+  let opened = false;
+  let flowing = false;
   while (!signal.aborted && token) {
     try {
-      const response = await fetch(path, { method, headers: { authorization: `Bearer ${token}` }, signal });
+      const response = await fetch(path, {
+        method,
+        headers: { authorization: `Bearer ${token}`, ...(lastId === null ? {} : { 'last-event-id': lastId }) },
+        signal,
+      });
       if (response.status === 401) {
         token = null;
         onSignedOut?.();
         return;
       }
-      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok || !response.body) {
+        const answer = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (options.refused?.(response.status, typeof answer.code === 'string' ? answer.code : undefined)) return;
+        throw new Error(`HTTP ${response.status}`);
+      }
       wait = 1_000;
+      if (opened) options.reopened?.();
+      opened = true;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (!flowing) {
+          flowing = true;
+          options.hearing?.(true);
+        }
         buffer += decoder.decode(value, { stream: true });
         let end: number;
         while ((end = buffer.indexOf('\n\n')) >= 0) {
           const message = buffer.slice(0, end);
           buffer = buffer.slice(end + 2);
-          const data = message.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n');
-          if (data) heard(JSON.parse(data) as LiveEvent);
+          const lines = message.split('\n');
+          const id = lines.find((line) => line.startsWith('id: '));
+          if (id) lastId = id.slice(4);
+          const data = lines.filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n');
+          if (data) heard(JSON.parse(data) as T);
         }
       }
     } catch {
       if (signal.aborted) return;
+    }
+    if (flowing) {
+      flowing = false;
+      options.hearing?.(false);
     }
     await new Promise<void>((resolve) => {
       const later = window.setTimeout(resolve, wait);
@@ -166,6 +216,56 @@ const EXPLAINED: Record<string, string> = {
   'goal.required': N('Pick the goal this work serves.'),
   'schedule.still_running': N('This schedule\'s last run has not ended yet. Open it, or run the schedule again once it has.'),
   'company.slug_taken': N('Another company already has this short name. Choose a different one.'),
+  // The people's workspace (F19): every refusal it answers with, written before
+  // the features that throw them, as the owner API's statuses are.
+  'room.not_visible': N('That room is not one you can see.'),
+  'room.archived': N('That room is archived.'),
+  'room.not_member': N('Join the room first.'),
+  'room.too_fast': N('Slow down: too many messages in a minute.'),
+  'room.too_many_people': N('A direct message is for two to eight people.'),
+  'room.direct_fixed': N('The people of a direct conversation are fixed. Start a new one to add someone.'),
+  'room.company_room_stays': N('Everyone stays in the company room.'),
+  'room.not_creator': N('Only the room\'s creator, an admin or the owner can change that.'),
+  'room.pins_full': N('A room holds fifty pins. Unpin one first.'),
+  'mention.room_not_yours': N('Only the owner and approvers can notify the whole room.'),
+  'message.not_yours': N('Only its author can change that message.'),
+  'message.edit_window': N('A message can be edited for a day after it is sent.'),
+  'message.not_the_owners': N('Only the owner\'s own words typed here can be filed as an issue.'),
+  'message.files': N('A message carries up to five files, 24 MB in all.'),
+  'file.not_kept': N('That file is no longer kept.'),
+  'staff.ask_limit': N('You have asked for today\'s share of work. It opens again tomorrow.'),
+  'staff.not_ready': N('Work asked by staff is not switched on here yet.'),
+  'approval.own_instigation': N('Your words are in this work, so someone else decides its actions.'),
+  'name.reserved': N('That name belongs to someone or something else here. Choose another.'),
+  'name.taken': N('Someone here has a name that looks like that. Choose another.'),
+  'name.owner_sets': N('The owner sets names. Ask them to change yours.'),
+  'handle.unusable': N('That handle cannot be used. Choose another.'),
+  'auth.handle_locked': N('Too many wrong codes for that handle. Wait a while, then try again.'),
+  'meeting.too_many': N('Three meetings have been called today. Call the next one tomorrow.'),
+  'meeting.outside_window': N('The meeting hour is outside your hours, so its questions would wait for nobody. Move the meeting or your hours first.'),
+  'meeting.no_model': N('No model is set up, so there is no one to hold the meeting.'),
+  'people_meeting.past': N('A meeting starts in the future.'),
+  'people_meeting.cannot_see': N('Everyone asked must be able to see the room.'),
+  'stream.too_many': N('Too many windows are open. Close one and try again.'),
+  'relay.unreachable': N('The relay did not answer at that address.'),
+  'relay.fingerprint': N('That is not the relay\'s fingerprint.'),
+  'relay.fingerprint_short': N('Type at least the first sixteen characters of the fingerprint.'),
+  'relay.other_host': N('The relay\'s addresses must be on the host you entered.'),
+  'relay.companies': N('Name the companies this relay may hear about.'),
+  'relay.owner_device': N('Link your phone with a device key before presses or replies from it count.'),
+  'relay.accept': N('The relay did not accept this pairing: check that it is the relay whose fingerprint you compared.'),
+  'relay.not_paired': N('That relay is not paired to tell you about this company.'),
+  'relay.rotation_owed': N('A paired relay has not yet taken the last new key. Wait until it has, or revoke it, before making another.'),
+  'relay.notice_unknown': N('That notice is not yours, or is too old to open.'),
+  'import.zip': N('That file is not a Slack export PALUGADA can read.'),
+  'import.part_missing': N('A part of the export has not arrived yet.'),
+  'import.too_large': N('That export unpacks to more than PALUGADA reads at once.'),
+  'import.former_linked': N('That person is already linked to a seat.'),
+  'workspace.too_fast': N('You are doing that too often. Wait a minute, then try again.'),
+  'reaction.not_emoji': N('A reaction is one emoji.'),
+  'reaction.too_many': N('You have put ten reactions on this message. Take one back first.'),
+  'room.files_full': N('This company\'s room files have reached their limit. The owner can raise it in Settings, or remove some files.'),
+  'message.client_id_used': N('That message was already sent elsewhere. Send it again as a new message.'),
 };
 
 /** What went wrong, in words for the owner. */

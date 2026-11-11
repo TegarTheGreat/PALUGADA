@@ -24,6 +24,8 @@ import { withControlPlane } from '../db/tenant.ts';
 import { adminPool, appPool } from '../db/pool.ts';
 import { SILENT_AFTER_SECONDS } from '../engine/checkout.ts';
 import type { WorkerCounts } from '../worker.ts';
+import { RELAY_COUNTS } from '../relay/outbox.ts';
+import { HUB_COUNTS } from '../workspace/hub.ts';
 
 type Labels = Record<string, string>;
 
@@ -53,7 +55,9 @@ export async function metricsText(source: MetricsSource): Promise<string> {
     loopDelay = monitorEventLoopDelay({ resolution: 20 });
     loopDelay.enable();
   }
-  return render([...processMetrics(), ...poolMetrics(), ...workerMetrics(source.worker), ...await deploymentMetrics()]);
+  return render([
+    ...processMetrics(), ...poolMetrics(), ...workerMetrics(source.worker), ...relayMetrics(), ...roomStreamMetrics(), ...await deploymentMetrics(),
+  ]);
 }
 
 function processMetrics(): Family[] {
@@ -128,6 +132,49 @@ function workerMetrics(source: MetricsSource['worker']): Family[] {
 }
 
 /**
+ * What this process sent relays and refused from them (STATUS section 2.208),
+ * counted as it happened: an inbound envelope nobody signed is counted here
+ * and written nowhere, so this is where a flood of them shows.
+ */
+function relayMetrics(): Family[] {
+  return [
+    {
+      name: 'palugada_relay_deliveries_total', type: 'counter',
+      help: 'Envelopes this process sent to relays since it started, by how each send ended.',
+      samples: [...RELAY_COUNTS.deliveries].map(([outcome, value]) => ({ labels: { outcome }, value })),
+    },
+    {
+      name: 'palugada_relay_refused_total', type: 'counter',
+      help: 'Envelopes from relays this process refused since it started, by why.',
+      samples: [...RELAY_COUNTS.refused].map(([reason, value]) => ({ labels: { reason }, value })),
+    },
+  ];
+}
+
+/**
+ * The live hub of this process (STATUS section 2.210): the room streams it
+ * holds open, and how often it read the rooms' feed and the journal for them.
+ * The reads are counted per company, not per stream, so the totals grow with
+ * how often the rooms change and how many companies are watched, never with
+ * how many tabs watch one: what an operator checks the hub's cost by.
+ */
+function roomStreamMetrics(): Family[] {
+  return [
+    gauge('palugada_room_streams', 'Room streams this process holds open: about one per console tab.', HUB_COUNTS.streams),
+    {
+      name: 'palugada_room_feed_reads_total', type: 'counter',
+      help: 'Reads of the rooms\' feed this process has made since it started, one per company per change or per five seconds.',
+      samples: [{ value: HUB_COUNTS.feedReads }],
+    },
+    {
+      name: 'palugada_room_work_reads_total', type: 'counter',
+      help: 'Reads of the journal for the room streams\' work frames since this process started, one per watched company per second.',
+      samples: [{ value: HUB_COUNTS.workReads }],
+    },
+  ];
+}
+
+/**
  * Everything read from the database, on the control plane: the numbers are
  * about every company, and no one company's scope could read them.
  */
@@ -168,6 +215,18 @@ async function deploymentMetrics(): Promise<Family[]> {
          FROM inbox_items i JOIN companies c ON c.id = i.company_id
         WHERE i.status = 'open'
         GROUP BY c.slug, i.kind`,
+    );
+    // The people's workspace (F19), counted without a word of it: the
+    // owner and each kind of seat, and how many messages each company's
+    // people have written.
+    const people = await tx.query<{ kind: string; count: string }>(
+      `SELECT 'owner' AS kind, 1 AS count
+       UNION ALL
+       SELECT kind, count(*) FROM staff_seats WHERE joined_at IS NOT NULL AND revoked_at IS NULL GROUP BY kind`,
+    );
+    const messages = await tx.query<{ slug: string; count: string }>(
+      `SELECT c.slug, count(*) AS count FROM room_messages m JOIN companies c ON c.id = m.company_id
+        WHERE m.kind = 'text' GROUP BY c.slug`,
     );
     const budgets = await tx.query<{
       slug: string; money_spent: string; money_max: string; tokens_spent: string; tokens_max: string;
@@ -214,6 +273,16 @@ async function deploymentMetrics(): Promise<Family[]> {
         name: 'palugada_inbox_open', type: 'gauge',
         help: 'Items waiting for the owner, by company and kind.',
         samples: inbox.rows.map((row) => ({ labels: { company: row.slug, kind: row.kind }, value: Number(row.count) })),
+      },
+      {
+        name: 'palugada_people', type: 'gauge', help: 'People of the workspace: the owner, and seats by kind.',
+        samples: people.rows.map((row) => ({ labels: { kind: row.kind }, value: Number(row.count) })),
+      },
+      {
+        // How many are kept now, which a purge or an erasure lowers: a gauge.
+        name: 'palugada_room_messages', type: 'gauge',
+        help: 'Messages people have written in rooms and that are kept, by company (no words, only how many).',
+        samples: messages.rows.map((row) => ({ labels: { company: row.slug }, value: Number(row.count) })),
       },
       {
         name: 'palugada_budget_spent_cents', type: 'gauge',

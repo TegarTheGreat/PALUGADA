@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 
-export const COMPANY_PAGES = ['inbox', 'overview', 'plan', 'work', 'customers', 'books', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
+export const COMPANY_PAGES = ['inbox', 'rooms', 'overview', 'plan', 'work', 'customers', 'books', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
 export type CompanyPage = (typeof COMPANY_PAGES)[number];
 
 /** The item that opens Work on the issues list rather than on a task: the Plan page links there. */
@@ -20,7 +20,7 @@ export const ISSUES_ITEM = 'issues';
 export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'people', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-export const DEPLOYMENT_SECTIONS = ['model', 'agents', 'tools', 'channels', 'services', 'mcp', 'erasures'] as const;
+export const DEPLOYMENT_SECTIONS = ['model', 'agents', 'tools', 'channels', 'services', 'mcp', 'erasures', 'relays'] as const;
 export type DeploymentSection = (typeof DEPLOYMENT_SECTIONS)[number];
 
 export type Route =
@@ -80,6 +80,59 @@ export function useRoute(): Route {
 let talkLinked = false;
 
 /**
+ * A relay's notice the console was opened from: its link names only a
+ * handle (`?notice=<handle>`, STATUS section 2.216), which the server
+ * resolves once the person it was for has signed in. Kept here, in memory,
+ * and in the address until then, so the console stores nothing in the
+ * browser and a reload before signing in still opens it.
+ */
+let noticeLinked: string | null = null;
+
+/** The handle of a relay's notice the console was opened from, once; null when there is none. */
+export function takeLinkedNotice(): string | null {
+  const handle = noticeLinked;
+  noticeLinked = null;
+  return handle;
+}
+
+/**
+ * A room's item in the address, opened at a message when its place is known:
+ * `<room>.<position>`, or `<room>~<root>.<position>` for a reply in its
+ * thread, as a search hit opens it (STATUS 2.218).
+ */
+function roomItem(roomId: string, threadOf: string | null, position: number | null): string {
+  const at = position === null ? '' : `.${position}`;
+  return threadOf ? `${roomId}~${threadOf}${at}` : `${roomId}${at}`;
+}
+
+/** A message's place in a notice's link (`&at=`), or null when there is none or it is not one. */
+function placeOf(at: string | null): number | null {
+  return at !== null && /^[1-9][0-9]{0,15}$/.test(at) ? Number(at) : null;
+}
+
+/**
+ * Where a relay's notice opens, as the server resolved its handle: a room
+ * and a thread at the message it tells of, a task, or an item, in its
+ * company. The address loses the handle either way.
+ */
+export function openResolvedNotice(opens: {
+  companyId: string; roomId: string | null; threadOf: string | null; itemId: string | null; taskId: string | null; position: number | null;
+} | null): void {
+  if (!opens) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+    return;
+  }
+  const { companyId, roomId, threadOf, itemId, taskId, position } = opens;
+  const route: Route = roomId
+    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: roomItem(roomId, threadOf, position) }
+    : taskId
+      ? { kind: 'company', companyId, page: 'work', section: 'company', item: taskId }
+      : { kind: 'company', companyId, page: 'inbox', section: 'company', item: itemId };
+  window.history.replaceState(null, '', `${window.location.pathname}${href(route)}`);
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
+/**
  * Whether the conversation should open: a card in Telegram that the chat
  * may not apply links to `?company=<id>&talk=1`, or `?talk=1` for
  * PALUGADA's own. Answered once, so the drawer does not reopen.
@@ -93,10 +146,15 @@ export function takeLinkedTalk(): boolean {
 /**
  * A notification's link: `/?company=<id>&item=<id>`. Turned into a route
  * once, on the first draw, and the query dropped, so a reload does not keep
- * jumping back to an item that has since been decided.
+ * jumping back to an item that has since been decided. A notice about a room
+ * names it, and the thread when there is one (`&room=<id>&thread=<id>`,
+ * F19.16), and the place of the message it tells of (`&at=<position>`,
+ * STATUS 2.218), and opens the Rooms page there, around that message.
  */
 export function takeLinkedRoute(): void {
   const query = new URLSearchParams(window.location.search);
+  const notice = query.get('notice');
+  if (notice) noticeLinked = notice;
   const companyId = query.get('company');
   if (query.get('talk') === '1') {
     talkLinked = true;
@@ -106,7 +164,11 @@ export function takeLinkedRoute(): void {
   const item = query.get('item');
   // A notice that work finished links to the task, in the company's work (0059).
   const task = query.get('task');
-  window.history.replaceState(null, '', `${window.location.pathname}${href(task
-    ? { kind: 'company', companyId, page: 'work', section: 'company', item: task }
-    : { kind: 'company', companyId, page: 'inbox', section: 'company', item })}`);
+  const room = query.get('room');
+  const thread = query.get('thread');
+  window.history.replaceState(null, '', `${window.location.pathname}${href(room
+    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: roomItem(room, thread, placeOf(query.get('at'))) }
+    : task
+      ? { kind: 'company', companyId, page: 'work', section: 'company', item: task }
+      : { kind: 'company', companyId, page: 'inbox', section: 'company', item })}`);
 }

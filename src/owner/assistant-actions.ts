@@ -890,6 +890,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/join/confirm': 'the same invite, confirmed with that person\'s own authenticator',
   '/api/companies/:companyId/staff': 'letting another person in is the owner\'s, with their device and by their own hand',
   '/api/companies/:companyId/staff/:seatId/revoke': 'who is seated is the owner\'s to change, on the People page',
+  '/api/companies/:companyId/room-files/limit': 'how much people\'s room files may take decides whose posts are refused, and is set by the owner in Settings beside what they take now',
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
@@ -948,3 +949,58 @@ export const UNREADABLE: readonly string[] = [
   '/api/companies/:companyId/conversation',
   '/api/companies/:companyId/browser/tabs/:tabId',
 ];
+
+/**
+ * POST routes the assistant neither proposes nor calls, by the prefix of a
+ * whole area, and why: the people's workspace and the relay (F19.3, F19.19).
+ * An area keeps the assistant out of every route written under its prefix,
+ * then and later, so a route added to the area is kept from the assistant
+ * here, once, rather than route by route as each arrives (STATUS 2.203).
+ */
+export const NOT_FOR_THE_ASSISTANT_UNDER: Readonly<Record<string, string>> = {
+  '/api/companies/:companyId/rooms': 'words in a room are a person\'s own, and only that person says them',
+  '/api/companies/:companyId/direct-rooms': 'words in a room are a person\'s own, and only that person says them',
+  '/api/companies/:companyId/meetings/': 'joining a meeting is the owner pressing it',
+  '/api/companies/:companyId/staff/': 'who is seated, and as what, is the owner\'s own hand',
+  '/api/companies/:companyId/staff-batch': 'who is seated, and as what, is the owner\'s own hand',
+  '/api/companies/:companyId/room-imports': 'an import is the owner\'s',
+  '/api/companies/:companyId/former-people': 'linking people is the owner\'s',
+  '/api/me/': 'a person\'s own profile',
+  '/api/companies/:companyId/me/': 'a person\'s own attention: what they have read and been told of is theirs to mark',
+  '/api/relays/': 'a person\'s own phone',
+  '/api/control/relays': 'pairing a relay takes the owner\'s device',
+  '/api/control/relay-identity/': 'the deployment\'s key is the owner\'s',
+  '/api/relay/v1/': 'a relay\'s own door',
+  '/api/control/assistant-allowance': 'the assistant does not set its own allowance',
+};
+
+/**
+ * GET routes the assistant does not read, by prefix: everything that carries
+ * a person's words -- rooms, threads, people, a person's own attention and
+ * profile, the searches over messages, the relay's links, an import -- so no
+ * person's words reach a model through the assistant (F19.3). A route an area
+ * adds under one of these is closed from the moment it is written.
+ */
+export const UNREADABLE_UNDER: readonly string[] = [
+  '/api/companies/:companyId/rooms',
+  '/api/companies/:companyId/people',
+  '/api/companies/:companyId/room-search',
+  '/api/companies/:companyId/room-stream',
+  '/api/companies/:companyId/me/',
+  '/api/rooms/',
+  '/api/me/',
+  '/api/room-search',
+  '/api/relays/',
+  '/api/control/relays',
+  '/api/companies/:companyId/room-imports',
+  '/api/companies/:companyId/former-people',
+];
+
+/**
+ * Whether the assistant may not read a GET route, by its pattern: asked by
+ * both of its gates, the routes its prompt lists and the read it makes, so a
+ * path it makes up is refused as surely as one it was shown.
+ */
+export function unreadable(pattern: string): boolean {
+  return UNREADABLE.includes(pattern) || UNREADABLE_UNDER.some((prefix) => pattern.startsWith(prefix));
+}

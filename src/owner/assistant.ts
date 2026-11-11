@@ -22,10 +22,13 @@
  *   "propose stopping everything" into its output can at most put a card in
  *   front of the owner, who reads what it does before pressing it.
  */
-import type { LlmBlock, LlmTool, LlmTurn, ToolUsingLlmClient } from '../llm/client.ts';
+import type { LlmBlock, LlmTool, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../llm/client.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 import { carryFor } from '../engine/pricing.ts';
+import { isCompanyFrozen, isStopAllRequested } from '../engine/control.ts';
+import { isSpendPaused } from '../governance/spend-guard.ts';
+import { allowanceAdmits, holdTurn, letGo, spendTurn, turnUse, type Hold } from './conversation-money.ts';
 import { isPalugadaError, PalugadaError } from '../errors.ts';
 import { languageName } from '../domain/language.ts';
 import { ceoSaysIn, talkLanguageOf } from './ceo-language.ts';
@@ -34,7 +37,8 @@ import { say } from './say.ts';
 import { modelKeyRefusedSaid } from './platform-cards.ts';
 import { firstHourBrief, firstHourOf, firstHourOpener } from './first-hour.ts';
 import {
-  ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, READS_OF_NO_ONE_ELSES_WORDS, UNREADABLE, type AssistantAction,
+  ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, NOT_FOR_THE_ASSISTANT_UNDER, READS_OF_NO_ONE_ELSES_WORDS, unreadable,
+  type AssistantAction,
 } from './assistant-actions.ts';
 
 export type AssistantChannel = 'console' | 'telegram' | 'whatsapp';
@@ -77,8 +81,44 @@ const READ_LIMIT = 12_000;
 const MAX_TURNS = 10;
 /** The most room one answer's turn is given, however much thinking eats. */
 const ANSWER_ALLOWANCE_CEILING = 12_000;
-/** How much of the conversation the model is shown each time. */
+/** How much of the conversation the model is shown each time: the newest messages, at most this many... */
 const HISTORY = 30;
+/**
+ * ...and at most this many characters with the owner's new line, which is
+ * always in. Every turn of an answer sends the whole of it again, so a
+ * conversation of long answers cost more with each question, for words the
+ * model had mostly stopped reading (F19.12).
+ */
+const HISTORY_CHARS_MAX = 24_000;
+
+/** The label a message of what happened is sent under, so the model does not read it as the owner speaking. */
+const HAPPENED = '[What happened] ';
+
+/** Which side of the conversation a message is sent as: what happened is told to the model as the owner's turn. */
+const sideOf = (role: string): 'user' | 'assistant' => (role === 'assistant' ? 'assistant' : 'user');
+
+/**
+ * The end of the conversation that fits beside the owner's new line: the
+ * newest messages, as many as fit in `HISTORY_CHARS_MAX` with it, and none
+ * older than one that does not, so the model never reads a conversation
+ * with a gap in it. What is counted is what is sent: a message of what
+ * happened with its label, and the line break that joins a message to the
+ * newer one of the same side, which are sent as one turn.
+ */
+function bounded<T extends { role: string; body: string }>(history: T[], said: string): T[] {
+  let room = HISTORY_CHARS_MAX - said.length;
+  let newer = sideOf('owner');
+  let from = history.length;
+  while (from > 0) {
+    const one = history[from - 1]!;
+    const size = (one.role === 'event' ? HAPPENED.length : 0) + one.body.length + (sideOf(one.role) === newer ? 2 : 0);
+    if (size > room) break;
+    room -= size;
+    newer = sideOf(one.role);
+    from -= 1;
+  }
+  return history.slice(from);
+}
 
 /**
  * Whether a message carries something that looks like a credential.
@@ -126,11 +166,18 @@ interface AnswerCost {
 async function record(
   role: AssistantMessage['role'], body: string, channel: AssistantChannel, companyId: Scope = null, cost: AnswerCost | null = null,
 ): Promise<string> {
-  const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
-    `INSERT INTO assistant_messages (role, channel, body, company_id, model, input_tokens, output_tokens, cost_cents)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [role, channel, body.slice(0, 20_000), companyId,
-      cost?.model ?? null, cost?.inputTokens ?? 0, cost?.outputTokens ?? 0, cost?.costCents ?? 0]));
+  const { rows } = await withControlPlane(async (tx) => {
+    const kept = await tx.query<{ id: string }>(
+      `INSERT INTO assistant_messages (role, channel, body, company_id, model, input_tokens, output_tokens, cost_cents)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [role, channel, body.slice(0, 20_000), companyId,
+        cost?.model ?? null, cost?.inputTokens ?? 0, cost?.outputTokens ?? 0, cost?.costCents ?? 0]);
+    // A console open on the conversation hears that it changed, at commit and
+    // with no word of it: the live hub tells the owner's streams alone
+    // (STATUS 2.210). What was said from Telegram appears without a reload.
+    if (companyId !== null) await tx.query("SELECT pg_notify('palugada_people', $1)", [`${companyId}:ceo`]);
+    return kept;
+  });
   return rows[0]!.id;
 }
 
@@ -323,9 +370,12 @@ function systemPrompt(language: string, readable: string[]): string {
   const checks = Object.entries(ASSISTANT_CHECKS).map(([path, what]) => `- POST ${path} -- ${what}`).join('\n');
   // What it may not do, with where the owner does it instead, so it can say
   // so rather than guess.
-  const kept = Object.entries(NOT_FOR_THE_ASSISTANT)
-    .filter(([path]) => !path.startsWith('/api/assistant'))
-    .map(([path, why]) => `- POST ${path} -- ${why}`).join('\n');
+  const kept = [
+    ...Object.entries(NOT_FOR_THE_ASSISTANT)
+      .filter(([path]) => !path.startsWith('/api/assistant'))
+      .map(([path, why]) => `- POST ${path} -- ${why}`),
+    ...Object.entries(NOT_FOR_THE_ASSISTANT_UNDER).map(([prefix, why]) => `- POST ${prefix}… -- ${why}`),
+  ].join('\n');
   return [
     'You are PALUGADA\'s assistant, speaking with its owner. PALUGADA runs companies whose work is done by AI agents; the owner decides what cannot be undone.',
     `Answer in ${languageName(language)}, briefly, as a capable colleague would. Say what you found and what you propose; do not narrate your tools.`,
@@ -483,7 +533,7 @@ export async function converse(options: AssistantOptions, text: string, channel:
   const scope: Scope = options.companyId ?? null;
   const speaker = scope ? await speakerFor(scope) : null;
 
-  const before = (await conversation(HISTORY, scope)).map((one) => ({ role: one.role, body: one.body }));
+  const before = bounded((await conversation(HISTORY, scope)).map((one) => ({ role: one.role, body: one.body })), said);
   if (looksLikeSecret(said)) {
     // Not kept, not sent. The owner's words are replaced by what happened.
     await record('owner', say(language, '[a key, not kept]'), channel, scope);
@@ -501,8 +551,8 @@ export async function converse(options: AssistantOptions, text: string, channel:
   const heard = { readOthersWords: false };
   const messages: Array<{ role: 'user' | 'assistant'; content: string | LlmBlock[] }> = [];
   for (const one of [...before, { role: 'owner' as const, body: said }]) {
-    const role = one.role === 'assistant' ? 'assistant' : 'user';
-    const content = one.role === 'event' ? `[What happened] ${one.body}` : one.body;
+    const role = sideOf(one.role);
+    const content = one.role === 'event' ? `${HAPPENED}${one.body}` : one.body;
     const last = messages.at(-1);
     if (last && last.role === role && typeof last.content === 'string') last.content = `${last.content}\n\n${content}`;
     else messages.push({ role, content });
@@ -521,7 +571,7 @@ export async function converse(options: AssistantOptions, text: string, channel:
   // itself says here (no model, a key not kept) stays the panel's.
   const spoken = speaker ? await talkLanguageOf(speaker.companyId) : language;
 
-  const readable = options.reach.readable().filter((path) => !UNREADABLE.includes(path));
+  const readable = options.reach.readable().filter((path) => !unreadable(path));
   const system = [
     speaker
       ? ceoPrompt(spoken, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
@@ -545,7 +595,13 @@ export async function converse(options: AssistantOptions, text: string, channel:
   // its company's calls, in the traces every figure of its money sums; PALUGADA's
   // own are no company's, and are kept with the answer.
   const cost: AnswerCost = { model: null, inputTokens: 0, outputTokens: 0, costCents: 0 };
-  const count = async (reply: LlmTurn, latencyMs: number) => {
+  // The reservation of the turn being asked, while the model thinks: a CEO's
+  // turns are paid for before they are made (F19.12), and whatever ends the
+  // answer -- an answer, a stop, a failure -- lets go of what is still held.
+  let held: Hold | null = null;
+  // Whether the turn just counted was paid for. A CEO's account that cannot
+  // pay for a call already made ends the answer there.
+  const count = async (reply: LlmTurn, latencyMs: number): Promise<boolean> => {
     const model = reply.model ?? options.model ?? 'standard';
     cost.model = model;
     cost.inputTokens += reply.inputTokens;
@@ -554,11 +610,44 @@ export async function converse(options: AssistantOptions, text: string, channel:
     // one, and each used to be charged a cent. A company's call is carried
     // with the rest of its calls; PALUGADA's own, which no company pays for,
     // with the deployment's.
-    cost.costCents += scope
-      ? await withTenant(scope, (tx) => recordCallOutsideTask(tx, scope, {
+    if (!scope) {
+      cost.costCents += carryFor('platform').charge(reply.costCents);
+      return true;
+    }
+    const hold = held;
+    // The call is recorded and paid for from its reservation in one
+    // transaction, so a turn is never a trace without its spend, nor a
+    // spend without its trace.
+    const counted = await withTenant(scope, async (tx) => {
+      const charged = await recordCallOutsideTask(tx, scope, {
         model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens, costCents: reply.costCents, latencyMs,
-      }))
-      : carryFor('platform').charge(reply.costCents);
+      });
+      const paid = hold ? await spendTurn(tx, hold, reply.inputTokens + reply.outputTokens, charged) : true;
+      return { charged, paid };
+    });
+    held = null;
+    cost.costCents += counted.charged;
+    return counted.paid;
+  };
+  // What keeps a turn from being asked, said as the platform says it, with no
+  // model call: checked before every turn, so a stop pressed while the CEO is
+  // answering ends the answer at its next turn. A CEO's company stopped,
+  // frozen or paused at its ceiling may not spend at all; one whose account
+  // has no room for the turn may not spend this. PALUGADA's own assistant is
+  // the deployment's, not a company's work, and is held to its allowance.
+  const refusal = async (request: LlmTurnRequest): Promise<string | null> => {
+    if (!speaker) {
+      return await allowanceAdmits(request, cost.costCents) ? null
+        : say(language, 'PALUGADA\'s own conversation has spent this month\'s allowance. Raise it under This deployment, Model, or ask again next month.');
+    }
+    if (await isStopAllRequested()) return say(language, 'I cannot answer now: everything is stopped. Resume it from the console first.');
+    if (await isCompanyFrozen(speaker.companyId)) return say(language, 'I cannot answer now: {company} is frozen.', { company: speaker.company });
+    if (await isSpendPaused(speaker.companyId)) {
+      return say(language, 'I cannot answer now: {company}\'s spending is paused at its ceiling. Open Money to raise it.', { company: speaker.company });
+    }
+    const use = turnUse(request);
+    held = await holdTurn(speaker, use.input + use.output);
+    return held ? null : say(language, 'I stopped here: the CEO\'s budget has no room for the next step.');
   };
   // A reasoning model counts its thinking here, and can spend the whole of
   // it saying nothing (defect L4 of the live run of 2026-09-28): that turn is
@@ -566,19 +655,36 @@ export async function converse(options: AssistantOptions, text: string, channel:
   // "I have nothing to add" to a question that had an answer.
   let allowance = 1_500;
   const stopped = () => options.signal?.aborted === true;
+  // Where the answer ends with the platform's sentence: what was said so far,
+  // and why it goes no further.
+  const endWith = (line: string) => {
+    answer = answer ? `${answer}\n\n${line}` : line;
+  };
   try {
     for (let turn = 0; turn < MAX_TURNS && !stopped(); turn += 1) {
+      const request = { model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: allowance };
+      const refused = await refusal(request);
+      if (refused) {
+        endWith(refused);
+        break;
+      }
       const began = Date.now();
-      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: allowance }, options.signal);
-      await count(reply, Date.now() - began);
+      const reply = await options.llm.turn(request, options.signal);
+      const paid = await count(reply, Date.now() - began);
       if (stopped()) break;
       const silent = !reply.content.some((block) => block.type === 'tool_use' || (block.type === 'text' && block.text.trim() !== ''));
-      if (silent && reply.stopReason === 'max_tokens' && allowance < ANSWER_ALLOWANCE_CEILING) {
+      if (paid && silent && reply.stopReason === 'max_tokens' && allowance < ANSWER_ALLOWANCE_CEILING) {
         allowance = Math.min(ANSWER_ALLOWANCE_CEILING, allowance * 2);
         continue;
       }
       const texts = reply.content.filter((block): block is Extract<LlmBlock, { type: 'text' }> => block.type === 'text').map((block) => block.text);
       if (texts.length > 0) answer = texts.join('\n').trim();
+      // A call the account could not pay for is the last: what it said is
+      // kept, and what it asked for is not done.
+      if (!paid) {
+        endWith(say(language, 'I stopped here: the CEO\'s budget has no room for the next step.'));
+        break;
+      }
       const uses = reply.content.filter((block): block is Extract<LlmBlock, { type: 'tool_use' }> => block.type === 'tool_use');
       if (reply.stopReason !== 'tool_use' || uses.length === 0) break;
       messages.push({ role: 'assistant', content: reply.content });
@@ -604,6 +710,9 @@ export async function converse(options: AssistantOptions, text: string, channel:
         : say(language, 'The model did not answer: {reason}', { reason: (failure as Error).message.slice(0, 300) });
     }
   }
+  // A turn that never counted -- its call failed or was stopped -- spent
+  // nothing it can be charged with, and gives back all it held.
+  if (held) await letGo(held);
   // Stopped: what it had half thought is not an answer, and a card from it
   // is not something the owner asked to see.
   if (stopped()) {
@@ -633,7 +742,7 @@ async function tool(
 
   if (name === 'read') {
     const pattern = reach.routeOf('GET', path);
-    if (!pattern || UNREADABLE.includes(pattern)) throw new Error(`${path} is not a route the assistant reads`);
+    if (!pattern || unreadable(pattern)) throw new Error(`${path} is not a route the assistant reads`);
     // A CEO reads its own company, and the lists a hire is chosen from.
     if (companyId && !insideCompany(path, companyId) && !CEO_ALSO_READS.includes(pattern)) {
       throw new Error(`${path} is outside this company; the owner can ask PALUGADA about it`);

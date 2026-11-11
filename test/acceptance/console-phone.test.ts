@@ -10,7 +10,9 @@
  * overview the status of what is running was cut to "BERJA..."; the
  * figures on the money page broke inside the number ("US$200,0" over "0").
  * Drawn in a real browser at a phone's width, nothing is wider than the
- * screen, nothing scrolls sideways, and nothing is cut or broken.
+ * screen, nothing scrolls sideways, and nothing is cut or broken. The rooms
+ * (STATUS 2.207, F19.16) are held the same way: the rail that the Rooms tab
+ * shows, and a room opened full screen with a long line in it.
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +23,7 @@ import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import * as budget from '../../src/engine/budget.ts';
 import { createCompany } from '../helpers/fixtures.ts';
+import { companyRoomOf, personIn, said } from '../helpers/rooms.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { chromium, openPage } from '../helpers/browser.ts';
@@ -60,7 +63,7 @@ const MISFITS = `(() => {
   return { page: document.documentElement.scrollWidth > width + 1 ? document.documentElement.scrollWidth : null, tables, badges, sideways, figures };
 })()`;
 
-test('the work, the money and the overview fit a phone, with nothing off to the side', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
+test('the work, the money, the overview and the rooms fit a phone, with nothing off to the side', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
   assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
   const fixture = await createCompany('phone');
   const { companyId } = fixture;
@@ -90,6 +93,10 @@ test('the work, the money and the overview fit a phone, with nothing off to the 
   }
 
   const api = await consoleWithSettings({ staticRoot: BUILT });
+  // A room with a message as wide as a pasted link, which wraps rather than widening the room.
+  const owner = personIn(api, await api.signIn(), companyId);
+  const roomId = await companyRoomOf(owner);
+  await said(owner, roomId, 'Cek https://toko-kopi-senja.example/katalog/biji-kopi-arabika-gayo-wine-process-250-gram-panen-raya-oktober sebelum promo, ya.');
   // A browser that cannot be driven fails the test, and what was opened for it is
   // closed with it: left open, it keeps the file running after its tests end.
   const page = await openPage(browser as string, { width: 390, height: 844 }).catch(async (error: unknown) => {
@@ -104,15 +111,22 @@ test('the work, the money and the overview fit a phone, with nothing off to the 
     await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]') && document.body.innerText.includes('Toko Kopi Senja')`, 'the console');
 
     const misfit: Record<string, unknown> = {};
-    for (const [name, shows] of [['work', 'Tulis newsletter'], ['money', 'Promosi Ramadan'], ['overview', 'Tulis newsletter']] as const) {
-      await page.evaluate(`location.hash = '#/c/${companyId}/${name}'`);
-      await page.waitFor(`document.body.innerText.includes(${JSON.stringify(shows)})`, `the ${name} page`);
+    // Each page, once what it was opened for is drawn on it.
+    for (const [name, at, shows] of [
+      ['work', 'work', "document.body.innerText.includes('Tulis newsletter')"],
+      ['money', 'money', "document.body.innerText.includes('Promosi Ramadan')"],
+      ['overview', 'overview', "document.body.innerText.includes('Tulis newsletter')"],
+      ['rooms', 'rooms', `document.querySelector('[data-pane="rail"] [data-room="${roomId}"]')`],
+      ['room', `rooms?item=${roomId}`, "document.querySelector('[data-pane=\"room\"]')?.innerText.includes('sebelum promo')"],
+    ] as const) {
+      await page.evaluate(`location.hash = '#/c/${companyId}/${at}'`);
+      await page.waitFor(shows, `the ${name} page`);
       // A moment for the layout to settle after the data arrives.
       await new Promise((resolve) => setTimeout(resolve, 300));
       misfit[name] = await page.evaluate(MISFITS);
     }
     const fits = { page: null, tables: [], badges: [], sideways: [], figures: [] };
-    assert.deepEqual(misfit, { work: fits, money: fits, overview: fits });
+    assert.deepEqual(misfit, { work: fits, money: fits, overview: fits, rooms: fits, room: fits });
   } finally {
     await page.close();
     await api.close();

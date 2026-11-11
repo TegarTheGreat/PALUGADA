@@ -32,6 +32,26 @@ export interface Field {
   initial?: string | number | null;
   /** Take the whole row, whatever the grid. */
   wide?: boolean;
+  /**
+   * For a number: the least and the most it may be. A number outside them is said under the field in the owner's
+   * language and the form is not sent, so the server's own sentence, which names its fields, is never reached
+   * (STATUS 2.218); what was typed is left as it was rather than changed without a word.
+   */
+  min?: number;
+  max?: number;
+}
+
+/** Whether a number field holds a number outside what it may be. */
+function outside(field: Field, value: string): boolean {
+  if (field.type !== 'number' || value === '') return false;
+  const number = Number(value);
+  return (field.min !== undefined && number < field.min) || (field.max !== undefined && number > field.max);
+}
+
+/** What a field's bounds are, said. */
+function bounds(field: Field): string {
+  if (field.min !== undefined && field.max !== undefined) return t('From {least} to {most}.', { least: field.min, most: field.max });
+  return field.min !== undefined ? t('At least {least}.', { least: field.min }) : t('At most {most}.', { most: field.max ?? 0 });
 }
 
 export type Values = Record<string, string | number>;
@@ -73,6 +93,7 @@ export function ActionForm({
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+    if (fields.some((field) => outside(field, values[field.name] ?? ''))) return;
     setBusy(true);
     const collected = collect();
     try {
@@ -110,7 +131,9 @@ export function ActionForm({
               case 'textarea':
                 return <Textarea {...common} autosize minRows={3} value={value} onChange={(e) => set(field.name, e.currentTarget.value)} />;
               case 'number':
-                return <NumberInput {...common} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} allowDecimal />;
+                return <NumberInput {...common} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} allowDecimal
+                  {...(field.min !== undefined ? { min: field.min } : {})} {...(field.max !== undefined ? { max: field.max } : {})} clampBehavior="none"
+                  error={outside(field, value) ? bounds(field) : undefined} />;
               case 'money':
                 return <NumberInput {...common} {...currencyAffix()} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} min={0} decimalScale={2} {...numberSeparators()} />;
               case 'select':
@@ -126,7 +149,7 @@ export function ActionForm({
         </SimpleGrid>
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group>
-          <Button type="submit" loading={busy} {...(color ? { color } : {})}>{action ?? t('Save')}</Button>
+          <Button type="submit" loading={busy} disabled={fields.some((field) => outside(field, values[field.name] ?? ''))} {...(color ? { color } : {})}>{action ?? t('Save')}</Button>
         </Group>
       </Stack>
     </form>

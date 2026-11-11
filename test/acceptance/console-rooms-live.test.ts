@@ -266,7 +266,9 @@ const RECORDING = `(() => {
       this.title = title;
       this.options = options ?? {};
       this.onclick = null;
-      window.__notified.push(this);
+      // One with no words, made before permission is asked, is the console finding out whether this browser makes
+      // notifications from a page at all (STATUS 2.218): nothing is shown without permission, and it is not a notice.
+      if (title) window.__notified.push(this);
     }
     close() {}
   }

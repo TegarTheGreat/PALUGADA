@@ -29,6 +29,11 @@ export interface Scope {
   phone: boolean;
   openThread: (messageId: string) => void;
   /**
+   * Opens the room around a message, marked: at the top of its room, or in its thread when it is a reply (STATUS
+   * 2.218). A message found, pinned, named in Activity or linked opens this way.
+   */
+  openAt: (message: { roomId: string; threadOf: string | null; position: number | null }) => void;
+  /**
    * "Ask the team" about a message: the drawer that gives it as work. With no message (`/task` alone) the drawer
    * opens empty, and what is asked in it is posted to the room as the person's words before it is given as work.
    */
@@ -79,6 +84,62 @@ export function nameOf(person: { principal: string; name?: string | null }): str
 export function tokenOf(person: PersonRef): string {
   if (person.principal === 'owner') return '@owner';
   return `@${person.handle ?? person.name ?? ''}`;
+}
+
+/**
+ * Where a message is opened, as the Rooms page's address names it: its room
+ * around it (`<room>.<position>`), or its thread at it
+ * (`<room>~<message>.<position>`) when it is a reply; a room alone when no
+ * position is given.
+ */
+export function itemAt(message: { roomId: string; threadOf: string | null; position: number | null }): string {
+  const at = message.position === null ? '' : `.${message.position}`;
+  return message.threadOf ? `${message.roomId}~${message.threadOf}${at}` : `${message.roomId}${at}`;
+}
+
+/** A message's own address, to share: the console, opened at the message in its room or thread. */
+export function linkTo(companyId: string, message: { roomId: string; threadOf: string | null; position: number }): string {
+  return `${window.location.origin}${window.location.pathname}#/c/${companyId}/rooms?item=${encodeURIComponent(itemAt(message))}`;
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Where a token ends: before anything that could carry a handle on. A handle
+ * may hold a dot, so `@budi.setiawan` does not end `@budi`, while `@budi.` at
+ * the end of a sentence does.
+ */
+const TOKEN_END = '(?![\\w-]|\\.[\\w-])';
+
+/**
+ * The people the words name, found as the server finds them (STATUS 2.206,
+ * 2.218): everyone of the company whose token -- `@owner`, a seat's
+ * `@handle`, or `@Name` for a seat with no handle yet -- is written in the
+ * words, as a word of its own and in any case. A handle typed in full
+ * mentions its person as one chosen from the list does, in a message and in
+ * an edit. A token written only as the start of someone else's longer one --
+ * `@budi` inside `@budi.setiawan`, `@Sari` inside `@Sari Wulandari` -- names
+ * the longer one's person alone. A seat named by a name that is also
+ * someone's handle is left to the handle, unless the seat was picked from the
+ * list (`picked`).
+ */
+export function writtenMentions(body: string, people: PersonRef[], picked: readonly string[] = []): string[] {
+  const handles = new Set(people.flatMap((person) => (person.handle ? [person.handle.toLowerCase()] : [])));
+  const tokens = people.flatMap((person) => {
+    const token = person.principal === 'owner' ? 'owner' : person.handle ?? person.name;
+    return token ? [{ principal: person.principal, token }] : [];
+  });
+  return tokens.filter(({ principal, token }) => {
+    const person = people.find((one) => one.principal === principal)!;
+    if (principal !== 'owner' && !person.handle && handles.has(token.toLowerCase()) && !picked.includes(principal)) return false;
+    const longer = tokens.filter((other) => other.principal !== principal && other.token.length > token.length
+      && other.token.toLowerCase().startsWith(token.toLowerCase()));
+    for (const found of body.matchAll(new RegExp(`(^|[^\\w@])@${escaped(token)}${TOKEN_END}`, 'giu'))) {
+      const at = (found.index ?? 0) + found[1]!.length;
+      if (!longer.some((other) => new RegExp(`^@${escaped(other.token)}${TOKEN_END}`, 'iu').test(body.slice(at)))) return true;
+    }
+    return false;
+  }).map(({ principal }) => principal);
 }
 
 /** A room's name in the rail and its header: a direct room is the other people in it. */

@@ -31,11 +31,19 @@ export interface Page {
    * Presses one named key (`Enter`, `ArrowUp`, `Escape`) with the modifiers
    * held, as a keyboard sends it: what the page does with it is the page's.
    */
-  press(key: string, modifiers?: { shift?: boolean; alt?: boolean }): Promise<void>;
+  press(key: string, modifiers?: { shift?: boolean; alt?: boolean; ctrl?: boolean; meta?: boolean }): Promise<void>;
   /** Draws the page at another size, as a window resized or a phone turned. */
   viewport(size: { width: number; height: number }): Promise<void>;
   /** Runs `source` in every document this page loads from now on, before the page's own scripts. */
   beforeLoad(source: string): Promise<void>;
+  /**
+   * Presses the first element the selector finds with the mouse, at its
+   * middle, as a person's hand does: the browser moves, presses and lets go,
+   * and the page's own timing between them is what a person meets. An
+   * element's `click()` from a script runs its handler at once instead,
+   * which can hide a race a real press shows.
+   */
+  click(selector: string): Promise<void>;
   /**
    * Another tab of the same browser, at the same size: it shares the
    * browser's connections to each origin, as a person's tabs do.
@@ -190,20 +198,35 @@ async function drive(
         Enter: { code: 13, text: '\r' }, Escape: { code: 27 }, Backspace: { code: 8 }, Tab: { code: 9 },
         ArrowUp: { code: 38 }, ArrowDown: { code: 40 }, ArrowLeft: { code: 37 }, ArrowRight: { code: 39 },
       };
-      const sent = known[key];
+      // A single letter is its own key, as a shortcut such as Ctrl+K sends it.
+      const letter: { code: number; text?: string } | undefined = /^[a-z]$/.test(key) ? { code: key.toUpperCase().charCodeAt(0) } : undefined;
+      const sent = known[key] ?? letter;
       if (!sent) throw new Error(`press() knows no key called ${key}`);
-      const held = (modifiers.alt ? 1 : 0) | (modifiers.shift ? 8 : 0);
+      const held = (modifiers.alt ? 1 : 0) | (modifiers.ctrl ? 2 : 0) | (modifiers.meta ? 4 : 0) | (modifiers.shift ? 8 : 0);
+      const code = letter ? `Key${key.toUpperCase()}` : key;
       await send('Input.dispatchKeyEvent', {
-        type: 'keyDown', key, code: key, windowsVirtualKeyCode: sent.code, modifiers: held,
+        type: 'keyDown', key, code, windowsVirtualKeyCode: sent.code, modifiers: held,
         ...(sent.text ? { text: sent.text, unmodifiedText: sent.text } : {}),
       });
-      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: sent.code, modifiers: held });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: sent.code, modifiers: held });
     },
     viewport: async (size) => {
       await send('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 1, mobile: true });
     },
     beforeLoad: async (source) => {
       await send('Page.addScriptToEvaluateOnNewDocument', { source });
+    },
+    click: async (selector) => {
+      const at = await evaluate<{ x: number; y: number } | null>(`(() => {
+        const one = document.querySelector(${JSON.stringify(selector)});
+        if (!one) return null;
+        const box = one.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      })()`);
+      if (!at) throw new Error(`click() found nothing at ${selector}`);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', buttons: 1, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', buttons: 0, clickCount: 1 });
     },
     tab,
     close: async () => {

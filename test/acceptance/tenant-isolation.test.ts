@@ -583,8 +583,9 @@ test('the application role may write what the platform writes, and no more (F12,
     room_clock: { table: ['SELECT'] },
     room_messages: {
       table: ['SELECT', 'INSERT'],
+      // `mentions` changes with an edit's words (STATUS 2.218), which the guard holds.
       columns: ['body', 'edited_at', 'deleted_at', 'deleted_by', 'task_id', 'inbox_item_id', 'notice_values', 'became',
-        'became_by', 'became_at'],
+        'became_by', 'became_at', 'mentions'],
     },
     room_message_revisions: { table: ['SELECT'] },
     room_reactions: { table: ['SELECT', 'INSERT', 'DELETE'] },

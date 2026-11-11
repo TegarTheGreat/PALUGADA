@@ -4,47 +4,95 @@
  *
  * The server searches as the person, so what is listed is what they may see
  * and nothing else; this draws it, twenty at a time, newest first, and opens
- * a hit in its thread, where a reply is read and a message is shown with
- * what was said under it. The words of a hit are a person's, shown as text.
+ * a hit where it was said: the room around it, or its thread when it is a
+ * reply (STATUS 2.218). The words of a hit are a person's, shown as text.
+ *
+ * A search looks in the room that was open first, as a person in a room
+ * usually means -- one they have not joined too -- and can look in every
+ * room; it narrows to one person too, chosen or typed as Slack's are:
+ * `in:#room` and `from:@handle` (or `from:@owner`) in the words. A person
+ * named with no words lists everything they said (STATUS 2.218).
+ *
  * Nothing is kept in the browser: the words searched for live in the page's
  * memory, and go with it.
  */
 import { useEffect, useState } from 'react';
-import { Avatar, Box, Button, Checkbox, Group, Highlight, Loader, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { Avatar, Box, Button, Checkbox, Group, Highlight, Loader, Select, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconFile, IconSearch } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { relative } from '../format.ts';
 import { t } from '../i18n.ts';
 import { personPicture } from '../images.ts';
 import { nameOf, roomName, useScope } from './scope.ts';
-import type { RoomListItem, SearchHit } from './types.ts';
+import type { Person, RoomListItem, SearchHit } from './types.ts';
 
-export function SearchPanel({ query, setQuery, rooms, open }: {
+/** What was typed, with `in:#room` and `from:@person` taken out as filters; each left undefined when not typed. */
+export function narrowed(text: string, rooms: RoomListItem[], people: Person[], me: string): { words: string; roomId?: string; from?: string } {
+  let roomId: string | undefined;
+  let from: string | undefined;
+  const words = text.replace(/(^|\s)(in|from):([#@]?)(\S+)/giu, (whole, space: string, kind: string, _mark: string, name: string) => {
+    const wanted = name.toLowerCase();
+    if (kind.toLowerCase() === 'in') {
+      const room = rooms.find((one) => (one.name ?? '').toLowerCase() === wanted || roomName(one, me).toLowerCase() === wanted);
+      if (!room) return whole;
+      roomId = room.id;
+      return space;
+    }
+    const person = wanted === 'owner' ? people.find((one) => one.principal === 'owner')
+      : people.find((one) => (one.handle ?? '').toLowerCase() === wanted);
+    if (!person) return whole;
+    from = person.principal;
+    return space;
+  }).replace(/\s+/g, ' ').trim();
+  return { words, ...(roomId ? { roomId } : {}), ...(from ? { from } : {}) };
+}
+
+export function SearchPanel({ query, setQuery, rooms, from: lastRoom, open }: {
   query: string;
   setQuery: (query: string) => void;
   rooms: RoomListItem[];
-  /** Opens a hit: its room and thread. */
+  /** The room that was open when the search began, where it looks first: one the person has not joined, too. */
+  from: RoomListItem | null;
+  /** Opens a hit where it was said. */
   open: (hit: SearchHit) => void;
 }) {
   const scope = useScope();
   const [typed, setTyped] = useState(query);
   const [files, setFiles] = useState(false);
+  // Where to look and who said it; '' is every room, and anyone.
+  const [inRoom, setInRoom] = useState(lastRoom?.id ?? '');
+  const [byPerson, setByPerson] = useState('');
+  const EVERY = 'every';
+  const ANYONE = 'anyone';
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [before, setBefore] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => { setTyped(query); }, [query]);
+  // The rooms it may look in: those the person is in, and the one the search began in, joined or not.
+  const known = lastRoom && !rooms.some((one) => one.id === lastRoom.id) ? [...rooms, lastRoom] : rooms;
+  const choices = known.filter((one) => one.joined || one.id === lastRoom?.id);
+  // Filters typed in the words are the choices drawn too, so the two never disagree.
+  const asked = narrowed(query, known, scope.people, scope.me);
+  useEffect(() => {
+    if (asked.roomId !== undefined) setInRoom(asked.roomId);
+    if (asked.from !== undefined) setByPerson(asked.from);
+  }, [asked.roomId, asked.from]);
+  const room = asked.roomId ?? inRoom;
+  const person = asked.from ?? byPerson;
 
   const page = async (from: number | null) => {
-    const text = query.trim();
-    if (text.length < 2) {
+    const text = asked.words;
+    // Two letters at least; or none, with a person named, for everything they said.
+    if (text.length < 2 && !(text === '' && person)) {
       setHits(null);
       return;
     }
     setLoading(true);
     try {
-      const asked = `q=${encodeURIComponent(text)}${files ? '&files=1' : ''}${from !== null ? `&before=${from}` : ''}`;
-      const answer: { hits: SearchHit[]; before: number | null } = await api('GET', `/api/companies/${scope.companyId}/room-search?${asked}`);
+      const narrowing = `${room ? `&room=${room}` : ''}${person ? `&from=${encodeURIComponent(person)}` : ''}`;
+      const wanted = `q=${encodeURIComponent(text)}${narrowing}${files ? '&files=1' : ''}${from !== null ? `&before=${from}` : ''}`;
+      const answer: { hits: SearchHit[]; before: number | null } = await api('GET', `/api/companies/${scope.companyId}/room-search?${wanted}`);
       setHits((now) => (from === null ? answer.hits : [...(now ?? []), ...answer.hits]));
       setBefore(answer.before);
       setError(null);
@@ -54,9 +102,9 @@ export function SearchPanel({ query, setQuery, rooms, open }: {
       setLoading(false);
     }
   };
-  useEffect(() => { void page(null); }, [query, files, scope.companyId]);
+  useEffect(() => { void page(null); }, [query, files, room, person, scope.companyId]);
 
-  const roomOf = (id: string) => rooms.find((room) => room.id === id);
+  const roomOf = (id: string) => known.find((room) => room.id === id);
   return (
     <Stack gap="sm" p={{ base: 'xs', sm: 'md' }} className="search-panel" style={{ overflowY: 'auto', flex: 1 }}>
       <form onSubmit={(event) => { event.preventDefault(); setQuery(typed.trim()); }}>
@@ -71,6 +119,20 @@ export function SearchPanel({ query, setQuery, rooms, open }: {
           dir="auto"
         />
       </form>
+      <Group gap="xs" wrap="wrap" align="flex-end">
+        <Select size="xs" data-search-room aria-label={t('Where to look')} value={room || EVERY} allowDeselect={false} style={{ flex: '1 1 160px', minWidth: 0 }}
+          data={[{ value: EVERY, label: t('Every room') }, ...choices.map((one) => ({ value: one.id, label: roomName(one, scope.me) }))]}
+          onChange={(value) => {
+            setInRoom(value && value !== EVERY ? value : '');
+            if (asked.roomId !== undefined) setQuery(query.replace(/(^|\s)in:\S+/giu, ' ').trim());
+          }} />
+        <Select size="xs" data-search-from aria-label={t('Said by')} value={person || ANYONE} allowDeselect={false} searchable style={{ flex: '1 1 160px', minWidth: 0 }}
+          data={[{ value: ANYONE, label: t('Anyone') }, ...scope.people.map((one) => ({ value: one.principal, label: one.handle ? `${nameOf(one)} @${one.handle}` : nameOf(one) }))]}
+          onChange={(value) => {
+            setByPerson(value && value !== ANYONE ? value : '');
+            if (asked.from !== undefined) setQuery(query.replace(/(^|\s)from:\S+/giu, ' ').trim());
+          }} />
+      </Group>
       <Checkbox size="xs" label={t("Files' names too")} checked={files} onChange={(event) => setFiles(event.currentTarget.checked)} />
       {error && <Text c="red" size="sm">{error}</Text>}
       {hits === null && !loading && <Text size="sm" c="dimmed">{t('Type two letters or more, then press Enter.')}</Text>}
@@ -88,11 +150,11 @@ export function SearchPanel({ query, setQuery, rooms, open }: {
                   <Text size="xs" c="dimmed">{room ? roomName(room, scope.me) : t('A room')}</Text>
                   <Text size="xs" c="dimmed">{relative(hit.at)}</Text>
                 </Group>
-                {hit.excerpt && <Highlight size="sm" highlight={query.trim()} dir="auto" lineClamp={3}>{hit.excerpt}</Highlight>}
+                {hit.excerpt && <Highlight size="sm" highlight={asked.words} dir="auto" lineClamp={3}>{hit.excerpt}</Highlight>}
                 {hit.file && (
                   <Group gap={4} wrap="nowrap">
                     <IconFile size={14} />
-                    <Highlight size="xs" highlight={query.trim()} truncate dir="auto">{hit.file.name}</Highlight>
+                    <Highlight size="xs" highlight={asked.words} truncate dir="auto">{hit.file.name}</Highlight>
                   </Group>
                 )}
               </Box>

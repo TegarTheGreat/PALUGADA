@@ -13,15 +13,18 @@
  * (`MessageView.may`): pressed from a menu on a desktop, and on a phone from
  * a sheet that a long press opens, or the message's one button beside it,
  * which a keyboard, a screen reader and a narrow window without touch reach
- * too. No action is a keystroke.
+ * too. No action is a keystroke but the edit box's own: Enter saves the
+ * words and Esc gives the edit up, as the composer it opens from sends and
+ * closes (STATUS 2.218). An edit mentions whom its words name, as a message
+ * does. A message's link opens the room around it.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   ActionIcon, Anchor, Avatar, Badge, Box, Button, Drawer, Group, Menu, Modal, NavLink, Stack, Text, Textarea, Tooltip, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconCalendarEvent, IconCopy, IconDots, IconFileDescription, IconHistory, IconMessageReply, IconMoodSmile, IconPencil, IconPin,
+  IconCalendarEvent, IconCopy, IconDots, IconFileDescription, IconHistory, IconLink, IconMessageReply, IconMoodSmile, IconPencil, IconPin,
   IconPinnedOff, IconPlayerStop, IconSparkles, IconTrash, IconUsersGroup,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
@@ -37,7 +40,7 @@ import { NoticeRow } from './NoticeRow.tsx';
 import { QuestionCard } from './QuestionCard.tsx';
 import { RoomFiles } from './RoomFiles.tsx';
 import { personPicture } from '../images.ts';
-import { nameOf, tokenOf, useScope } from './scope.ts';
+import { linkTo, nameOf, tokenOf, useScope, writtenMentions } from './scope.ts';
 import type { MessageView } from './types.ts';
 import { WorkState } from './WorkState.tsx';
 
@@ -53,7 +56,7 @@ interface Action {
   color?: string;
 }
 
-export function MessageRow({ message, compact = false, inThread = false, pinned = false, editing = false, setEditing }: {
+export function MessageRow({ message, compact = false, inThread = false, pinned = false, editing = false, setEditing, focused = false }: {
   message: MessageView;
   /** The same person, the same minute, as the message above: drawn without their picture and name again. */
   compact?: boolean;
@@ -63,6 +66,8 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
   /** Being edited, as ↑ in an empty composer asks. */
   editing?: boolean;
   setEditing?: (editing: boolean) => void;
+  /** The message the room or thread was opened at: found, pinned, named in Activity or linked (STATUS 2.218). */
+  focused?: boolean;
 }) {
   const scope = useScope();
   const [sheet, setSheet] = useState(false);
@@ -97,14 +102,46 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
       failed(failure);
     }
   };
+  // New words, and whom they name now: a handle written into an edit mentions its person, and one taken out no longer
+  // does (STATUS 2.218); someone named who could not be told is said, as a post says it.
   const edit = async () => {
+    if (!words.trim() || words === message.body) return;
     try {
-      await api('POST', `/api/companies/${scope.companyId}/rooms/${message.roomId}/messages/${message.id}/edit`, { body: words });
+      const answer: { mentionsDropped: unknown[] } = await api('POST', `/api/companies/${scope.companyId}/rooms/${message.roomId}/messages/${message.id}/edit`,
+        { body: words, mentions: writtenMentions(words, scope.people) });
       setEditing?.(false);
       scope.changed();
+      if (answer.mentionsDropped.length > 0) {
+        notifications.show({ color: 'yellow', message: tp('{count} person you named was not told: they are not in this room, or their name is no longer in the words.',
+          '{count} people you named were not told: they are not in this room, or their names are no longer in the words.', answer.mentionsDropped.length) });
+      }
     } catch (failure) {
       failed(failure);
     }
+  };
+  // The edit box keeps to the composer's keys: Enter saves and Shift+Enter breaks the line on a desktop, Enter breaks
+  // the line on a phone, an input method's Enter is its own, and Esc gives the edit up without leaving the room.
+  const editKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setEditing?.(false);
+      return;
+    }
+    if (event.key !== 'Enter' || event.shiftKey || scope.phone) return;
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    event.preventDefault();
+    void edit();
+  };
+  // The message's own address, to share: whoever may see the room opens it there, around the message.
+  const copyLink = () => {
+    const link = linkTo(scope.companyId, message);
+    // A console served without HTTPS has no clipboard to write to: the link is shown, to be copied by hand.
+    if (!navigator.clipboard) {
+      notifications.show({ color: 'teal', message: link, autoClose: false });
+      return;
+    }
+    navigator.clipboard.writeText(link).then(() => notifications.show({ color: 'teal', message: t('Link copied.') }), failed);
   };
   const remove = async () => {
     try {
@@ -155,6 +192,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
     ...(!inThread && message.threadOf === null ? [{ id: 'reply', label: t('Reply in thread'), icon: <IconMessageReply size={16} />, run: () => scope.openThread(message.id) }] : []),
     ...(text ? [{ id: 'react', label: t('React'), icon: <IconMoodSmile size={16} />, run: () => setReacting(true) }] : []),
     ...(text && message.body ? [{ id: 'copy', label: t('Copy'), icon: <IconCopy size={16} />, run: () => { void navigator.clipboard?.writeText(message.body ?? ''); } }] : []),
+    ...(!message.deleted ? [{ id: 'link', label: t('Copy link'), icon: <IconLink size={16} />, run: copyLink }] : []),
     ...(message.may.edit ? [{ id: 'edit', label: t('Edit'), icon: <IconPencil size={16} />, run: () => setEditing?.(true) }] : []),
     ...(message.may.pin ? [{ id: 'pin', label: pinned ? t('Unpin') : t('Pin'), icon: pinned ? <IconPinnedOff size={16} /> : <IconPin size={16} />, run: () => void pin() }] : []),
     ...(message.may.giveAsWork ? [{ id: 'work', label: t('Ask the team about this'), icon: <IconSparkles size={16} />, run: () => scope.askWork(message) }] : []),
@@ -201,6 +239,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
 
   return (
     <Box className="message-row" data-message={message.id} data-compact={compact || undefined} data-for-me={forMe || undefined}
+      data-focused={focused || undefined}
       px={{ base: 'xs', sm: 'md' }} py={compact ? 1 : 6} {...touch}>
       <Group gap="sm" wrap="nowrap" align="flex-start">
         <Box w={36} style={{ flexShrink: 0 }}>
@@ -227,7 +266,8 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             </Text>
           ) : editing ? (
             <Stack gap={6} mt={4}>
-              <Textarea autosize minRows={1} maxRows={8} value={words} onChange={(event) => setWords(event.currentTarget.value)} autoFocus dir="auto" />
+              <Textarea autosize minRows={1} maxRows={8} value={words} onChange={(event) => setWords(event.currentTarget.value)} autoFocus dir="auto"
+                data-edit-box onKeyDown={editKey} aria-label={t('Edit your message')} />
               <Group gap="xs" justify="flex-end">
                 <Button size="compact-sm" variant="default" onClick={() => setEditing?.(false)}>{t('Cancel')}</Button>
                 <Button size="compact-sm" disabled={!words.trim() || words === message.body} onClick={() => void edit()}>{t('Save')}</Button>
@@ -275,7 +315,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
         </Box>
         {actions.length > 0 && !editing && scope.phone && (
           <Group gap={0} className="message-actions" wrap="nowrap">
-            <ActionIcon size="sm" variant="subtle" color="gray" data-actions={message.id} aria-label={t('More actions')} onClick={() => setSheet(true)}>
+            <ActionIcon size="sm" variant="subtle" color="gray" data-actions={message.id} aria-label={t('More actions on the message from {name}', { name: said })} onClick={() => setSheet(true)}>
               <IconDots size={16} />
             </ActionIcon>
           </Group>
@@ -284,14 +324,14 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
           <Group gap={0} className="message-actions" wrap="nowrap">
             {text && (
               <EmojiPicker opened={reacting} setOpened={setReacting} pick={(emoji) => void react(emoji, true)} target={
-                <ActionIcon size="sm" variant="subtle" color="gray" aria-label={t('React')} onClick={() => setReacting((open) => !open)}>
+                <ActionIcon size="sm" variant="subtle" color="gray" aria-label={t('React to the message from {name}', { name: said })} onClick={() => setReacting((open) => !open)}>
                   <IconMoodSmile size={16} />
                 </ActionIcon>
               } />
             )}
             <Menu position="bottom-end" withinPortal shadow="md">
               <Menu.Target>
-                <ActionIcon size="sm" variant="subtle" color="gray" data-actions={message.id} aria-label={t('More actions')}>
+                <ActionIcon size="sm" variant="subtle" color="gray" data-actions={message.id} aria-label={t('More actions on the message from {name}', { name: said })}>
                   <IconDots size={16} />
                 </ActionIcon>
               </Menu.Target>

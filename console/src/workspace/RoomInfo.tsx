@@ -68,10 +68,10 @@ export function RoomInfo({ opened, close, addPeople }: {
     return () => { live = false; };
   }, [room?.id, opened, room?.pins.length]);
   if (!room) return null;
-  // A pinned message, or a file's, opened in its thread, where it is read with what was said under it.
-  const openAt = (messageId: string, threadOf: string | null) => {
+  // A pinned message opened where it was said: the room around it, or its thread at it (STATUS 2.218).
+  const openAt = (message: MessageView) => {
     close();
-    scope.openThread(threadOf ?? messageId);
+    scope.openAt({ roomId: message.roomId, threadOf: message.threadOf, position: message.position });
   };
 
   const done = (failure?: unknown) => {
@@ -186,7 +186,7 @@ export function RoomInfo({ opened, close, addPeople }: {
             <Divider label={tp('{count} message is pinned here.', '{count} messages are pinned here.', room.pins.length)} labelPosition="left" />
             <Stack gap={6} data-pinned>
               {pinned.map((message) => (
-                <UnstyledButton key={message.id} className="pinned-message" onClick={() => openAt(message.id, message.threadOf)}>
+                <UnstyledButton key={message.id} className="pinned-message" onClick={() => openAt(message)}>
                   <Group gap={6} wrap="nowrap" align="flex-start">
                     <IconPin size={14} style={{ flexShrink: 0, marginTop: 3 }} />
                     <div style={{ minWidth: 0 }}>

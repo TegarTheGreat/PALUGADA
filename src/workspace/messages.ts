@@ -96,11 +96,68 @@ async function whoCanSee(tx: TenantClient, room: RoomRecord, directory: Director
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Whether the words hold the mention's token: `@owner`, a seat's `@handle`, or `@Name` for a seat with none. */
+/**
+ * Where a token ends: before anything that could carry a handle on. A handle
+ * may hold a dot (STATUS 2.209), so `@budi.setiawan` does not end `@budi`,
+ * while `@budi.` at the end of a sentence does.
+ */
+const TOKEN_END = '(?![\\w-]|\\.[\\w-])';
+
+/** What is typed to mention a person: `owner`, a seat's handle, or the name of a seat with none. */
+function tokenOf(someone: { principal: string; handle: string | null; name: string | null } | undefined): string | null {
+  if (!someone) return null;
+  return someone.principal === 'owner' ? 'owner' : someone.handle ?? someone.name ?? null;
+}
+
+/**
+ * Whether the words hold the mention's token: `@owner`, a seat's `@handle`,
+ * or `@Name` for a seat with none, as a word of its own, in any case. Where
+ * it is written only as the start of someone else's longer token -- `@Sari`
+ * inside `@Sari Wulandari` -- it names the longer one's person instead.
+ * The console finds mentions the same way (`writtenMentions`, STATUS 2.218).
+ */
 function written(body: string, principal: string, directory: Directory): boolean {
-  const token = principal === 'owner' ? 'owner' : directory.get(principal)?.handle ?? directory.get(principal)?.name ?? null;
+  const token = tokenOf(principal === 'owner' ? { principal, handle: null, name: null } : directory.get(principal));
   if (!token) return false;
-  return new RegExp(`(^|[^\\w@])@${escaped(token)}(?![\\w-])`, 'iu').test(body);
+  const longer = directory.live().flatMap((someone) => {
+    const other = tokenOf(someone);
+    return someone.principal !== principal && other && other.length > token.length && other.toLowerCase().startsWith(token.toLowerCase()) ? [other] : [];
+  });
+  for (const found of body.matchAll(new RegExp(`(^|[^\\w@])@${escaped(token)}${TOKEN_END}`, 'giu'))) {
+    const at = found.index + found[1]!.length;
+    if (!longer.some((other) => new RegExp(`^@${escaped(other)}${TOKEN_END}`, 'iu').test(body.slice(at)))) return true;
+  }
+  return false;
+}
+
+/** The people a post or an edit asks to mention: a list of at most fifty principals, or none. */
+function mentionsAsked(input: Record<string, unknown>): string[] {
+  const asked = input.mentions === undefined || input.mentions === null ? [] : input.mentions;
+  if (!Array.isArray(asked) || asked.length > 50 || !asked.every((one) => typeof one === 'string')) {
+    throw new PalugadaError('contract.violation', 'mentions is a list of at most 50 people', { field: 'mentions' });
+  }
+  return asked as string[];
+}
+
+/**
+ * Which of the people asked for are mentioned by these words in this room:
+ * a person of the company, whose name is in the words and who can see the
+ * room. The others are said back with why, so a mention that reaches nobody
+ * is never silent -- the same for a post and for an edit (STATUS 2.218).
+ */
+async function keptMentions(
+  tx: TenantClient, room: RoomRecord, directory: Directory, body: string, asked: string[],
+): Promise<{ kept: string[]; dropped: Posted['mentionsDropped'] }> {
+  const seeing = await whoCanSee(tx, room, directory);
+  const kept: string[] = [];
+  const dropped: Posted['mentionsDropped'] = [];
+  for (const principal of new Set(asked)) {
+    if (!isPerson(principal) || !directory.get(principal)?.live) dropped.push({ principal, why: 'not_a_person' });
+    else if (!written(body, principal, directory)) dropped.push({ principal, why: 'not_written' });
+    else if (!seeing.has(principal)) dropped.push({ principal, why: 'not_in_room' });
+    else kept.push(principal);
+  }
+  return { kept, dropped };
 }
 
 export interface Posted {
@@ -144,10 +201,7 @@ export async function postMessage(
   if (alsoInRoom && threadOf === null) {
     throw new PalugadaError('contract.violation', 'only a reply is also sent to the room', { field: 'alsoInRoom' });
   }
-  const asked = input.mentions === undefined || input.mentions === null ? [] : input.mentions;
-  if (!Array.isArray(asked) || asked.length > 50 || !asked.every((one) => typeof one === 'string')) {
-    throw new PalugadaError('contract.violation', 'mentions is a list of at most 50 people', { field: 'mentions' });
-  }
+  const asked = mentionsAsked(input);
   const everyone = input.mentionsRoom === true;
   if (everyone && !mayDecide(viewer)) {
     throw new PalugadaError('mention.room_not_yours', 'only the owner and approvers can notify the whole room', {});
@@ -189,15 +243,7 @@ export async function postMessage(
       if (root.thread_of !== null) throw new PalugadaError('contract.violation', 'a thread is one level deep: reply to the message it began with', { field: 'threadOf' });
     }
     slowDown(viewer);
-    const seeing = await whoCanSee(tx, room, directory);
-    const kept: string[] = [];
-    const dropped: Posted['mentionsDropped'] = [];
-    for (const principal of new Set(asked as string[])) {
-      if (!isPerson(principal) || !directory.get(principal)?.live) dropped.push({ principal, why: 'not_a_person' });
-      else if (!written(body, principal, directory)) dropped.push({ principal, why: 'not_written' });
-      else if (!seeing.has(principal)) dropped.push({ principal, why: 'not_in_room' });
-      else kept.push(principal);
-    }
+    const { kept, dropped } = await keptMentions(tx, room, directory, body, asked);
     // The company's room files are held to the owner's limit (0161), read
     // after the clock, so two posts at once cannot both pass its last bytes.
     if (staged.length > 0) await withinFilesLimit(tx, viewer.companyId, staged.reduce((sum, one) => sum + one.file.bytes.length, 0));
@@ -231,16 +277,25 @@ async function shown(tx: TenantClient, viewer: Viewer, directory: Directory, mes
   return (await messageViews(tx, viewer, directory, rows))[0]!;
 }
 
-/** New words for one's own message, within a day; what they replace is kept for the owner (0150). */
-export async function editMessage(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<MessageView> {
+/**
+ * New words for one's own message, within a day; what they replace is kept
+ * for the owner (0150). The people the new words name are mentioned as a
+ * post mentions them (STATUS 2.218): only those asked for whose name is in
+ * the words and who can see the room, the others said back with why. Someone
+ * no longer named is no longer mentioned, and someone newly named is told
+ * (0161). `mentions` left out keeps whom the message named, as long as their
+ * names are still in the words.
+ */
+export async function editMessage(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<Posted> {
   const body = typeof input.body === 'string' ? input.body : '';
   if (body.trim().length < 1 || body.length > BODY_MAX) {
     throw new PalugadaError('contract.violation', `a message says something, in at most ${BODY_MAX} characters`, { field: 'body' });
   }
+  const asked = input.mentions === undefined ? null : mentionsAsked(input);
   holdToMinute(viewer, 'edit');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
-    await visibleRoom(tx, viewer, roomId);
+    const room = await visibleRoom(tx, viewer, roomId);
     await takeClock(tx);
     const message = await messageIn(tx, roomId, messageId, { lock: true });
     if (message.kind !== 'text' || message.author !== viewer.person.principal) {
@@ -250,8 +305,11 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
     if (Date.now() - message.created_at.getTime() >= EDIT_WINDOW_MS) {
       throw new PalugadaError('message.edit_window', 'a message can be edited for a day after it is sent', { messageId });
     }
-    if (message.body !== body) await tx.query('UPDATE room_messages SET body = $2 WHERE id = $1', [messageId, body]);
-    return shown(tx, viewer, directory, messageId);
+    const { kept, dropped } = await keptMentions(tx, room, directory, body, asked ?? message.mentions);
+    if (message.body !== body) {
+      await tx.query('UPDATE room_messages SET body = $2, mentions = $3 WHERE id = $1', [messageId, body, kept]);
+    }
+    return { message: await shown(tx, viewer, directory, messageId), mentionsDropped: message.body !== body ? dropped : [] };
   });
 }
 
@@ -456,11 +514,14 @@ export async function messagePage(viewer: Viewer, roomId: string, query: URLSear
       `SELECT EXISTS (SELECT 1 FROM room_messages m WHERE ${shownHere} AND m.position < $2) AS before,
               EXISTS (SELECT 1 FROM room_messages m WHERE ${shownHere} AND m.position > $3) AS after`,
       [roomId, first ?? 0, last ?? Number.MAX_SAFE_INTEGER]);
-    const { rows: place } = await tx.query<{ read_position: string }>(
-      'SELECT read_position FROM room_places WHERE room_id = $1 AND principal = $2', [roomId, viewer.person.principal]);
+    // A mark is a member's: someone reading a room they are not in -- an open room found, linked or searched --
+    // keeps none, which is said as none rather than as the room's start, so their console opens it at its newest
+    // with nothing called new (STATUS 2.218). A place left behind by someone who left the room is not theirs to read.
+    const { rows: place } = room.member ? await tx.query<{ read_position: string }>(
+      'SELECT read_position FROM room_places WHERE room_id = $1 AND principal = $2', [roomId, viewer.person.principal]) : { rows: [] };
     return {
       messages: await messageViews(tx, viewer, directory, rows),
-      readPosition: Number(place[0]?.read_position ?? 0),
+      readPosition: room.member ? Number(place[0]?.read_position ?? 0) : null,
       hasBefore: first !== null && edges[0]!.before,
       hasAfter: last !== null && edges[0]!.after,
     };

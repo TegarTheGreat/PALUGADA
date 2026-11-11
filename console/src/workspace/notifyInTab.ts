@@ -10,6 +10,14 @@
  * notification that its person could not open. There is no service worker:
  * a closed tab tells nobody anything, and the browser's permission is asked
  * only when the person presses for it, never on load.
+ *
+ * Some browsers have notifications and will not make one from a page:
+ * Chrome on Android has the constructor, and says permission may be granted,
+ * then refuses with a TypeError that a service worker must show it. Such a
+ * browser is found before permission is asked, when a notification made to
+ * find out shows nothing, or else the first time one is refused, and is said
+ * to be unable to show one for the tab's life (STATUS 2.218); a phone is told
+ * through a relay its person links instead (STATUS 2.213).
  */
 import { useRef } from 'react';
 import { api } from '../api.ts';
@@ -22,13 +30,35 @@ import { useRoomStream } from './useRoomStream.ts';
 /** What the browser says of notifications from this console: allowed, refused, not asked yet, or none to show. */
 export type BrowserPermission = 'granted' | 'denied' | 'default' | 'unsupported';
 
+/** Whether this browser refused to make a notification from the page: kept in memory for the tab's life. */
+let refused = false;
+
 export function browserPermission(): BrowserPermission {
-  return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  return refused || typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+}
+
+/**
+ * Whether the browser refuses to make a notification from a page. Asked only
+ * while permission is not granted, when the notification made to find out
+ * cannot be shown: once granted, asking would show one.
+ */
+function refusesPages(): boolean {
+  if (Notification.permission === 'granted') return false;
+  try {
+    new Notification('', { silent: true }).close();
+    return false;
+  } catch (error) {
+    return error instanceof TypeError;
+  }
 }
 
 /** Asks the browser, from a press: it allows a question only in answer to one. */
 export async function askBrowser(): Promise<BrowserPermission> {
-  if (typeof Notification === 'undefined') return 'unsupported';
+  if (typeof Notification === 'undefined' || refused) return 'unsupported';
+  if (refusesPages()) {
+    refused = true;
+    return 'unsupported';
+  }
   return Notification.requestPermission();
 }
 
@@ -71,10 +101,17 @@ async function tell(companyId: string, me: string, frame: Change, rooms: Known):
   if (!found || found.message.author.principal === me || !found.message.body) return;
   const author = found.message.author;
   const words = found.message.body.replace(/\s+/g, ' ').trim();
-  const notice = new Notification(
-    t('{name} in {room}', { name: 'former' in author ? author.name : nameOf(author as { principal: string; name?: string | null }), room: roomName(room, me) }),
-    { body: words.length > MOST ? `${words.slice(0, MOST - 1)}…` : words, tag: frame.room },
-  );
+  let notice: Notification;
+  try {
+    notice = new Notification(
+      t('{name} in {room}', { name: 'former' in author ? author.name : nameOf(author as { principal: string; name?: string | null }), room: roomName(room, me) }),
+      { body: words.length > MOST ? `${words.slice(0, MOST - 1)}…` : words, tag: frame.room },
+    );
+  } catch (error) {
+    // Refused from a page (Chrome on Android): said in the profile from now on, rather than failing silently.
+    if (error instanceof TypeError) refused = true;
+    return;
+  }
   notice.onclick = () => {
     window.focus();
     go({ kind: 'company', companyId, page: 'rooms', section: 'company', item: found.threadOf ? `${frame.room}~${found.threadOf}` : frame.room });

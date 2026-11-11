@@ -9,8 +9,13 @@
  * The same component serves the owner on the Relays section and every person
  * in their profile (`PhoneLinks`, STATUS section 2.213); it shows only the
  * caller's own links.
+ *
+ * While a code is on the screen the links are read again every few seconds,
+ * so the moment the relay's app claims it the code goes and the profile says
+ * which phone is linked; a code that runs out unclaimed goes too, and says so
+ * (STATUS 2.218).
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Badge, Button, Code, Group, Stack, Text } from '@mantine/core';
 import { IconDeviceMobile } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
@@ -41,11 +46,38 @@ function LinkQr({ rows }: { rows: string[] }) {
   );
 }
 
+/** How often the links are read again while a code waits to be claimed. */
+const CLAIM_EVERY_MS = 3_000;
+
 export function LinkPhone({ relayId, relayName }: { relayId: string; relayName: string }) {
   const requireFactor = useFactor();
   const view = useLoad(async (): Promise<Links> => api('GET', '/api/relays/links'), [relayId]);
   const [offered, setOffered] = useState<{ code: string; qr: string[]; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // What became of the last code: the phone it linked, or that it ran out.
+  const [outcome, setOutcome] = useState<{ linked: string } | { expired: true } | null>(null);
+  // The phones already linked when the code was offered, so the one that claims it is told apart.
+  const before = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!offered) return undefined;
+    const timer = window.setInterval(() => {
+      if (Date.now() >= new Date(offered.expiresAt).getTime()) {
+        setOffered(null);
+        setOutcome({ expired: true });
+        return;
+      }
+      view.reload();
+    }, CLAIM_EVERY_MS);
+    return () => window.clearInterval(timer);
+  }, [offered]);
+  useEffect(() => {
+    if (!offered || !view.data) return;
+    const claimed = view.data.links.find((one) => one.relayId === relayId && one.status === 'active' && !before.current.has(one.id));
+    if (!claimed) return;
+    setOffered(null);
+    setOutcome({ linked: claimed.label ?? t('A phone') });
+  }, [view.data]);
 
   const link = async () => {
     setError(null);
@@ -55,6 +87,8 @@ export function LinkPhone({ relayId, relayName }: { relayId: string; relayName: 
         answer = await api('POST', '/api/relays/links', { relayId, proof });
       });
       if (done && answer) {
+        before.current = new Set((view.data?.links ?? []).filter((one) => one.status === 'active').map((one) => one.id));
+        setOutcome(null);
         setOffered(answer);
         view.reload();
       }
@@ -92,10 +126,16 @@ export function LinkPhone({ relayId, relayName }: { relayId: string; relayName: 
             run={() => api('POST', `/api/relays/links/${one.id}/end`, {})} done={view.reload} />
         </Group>
       ))}
+      {outcome && 'linked' in outcome && (
+        <Alert color="teal" variant="light" data-linked>{t('Linked: {label}', { label: outcome.linked })}</Alert>
+      )}
+      {outcome && 'expired' in outcome && (
+        <Text size="xs" c="dimmed">{t('That code ran out before a phone used it. Ask for another to link one.')}</Text>
+      )}
       {offered && (
         <Stack gap={4} align="flex-start">
           <Text size="sm">{t('Enter this code in the relay\'s app, or scan it, before {when}.', { when: dateTime(offered.expiresAt) })}</Text>
-          <Code fz="xl" style={{ letterSpacing: '0.2em' }}>{offered.code}</Code>
+          <Code fz="xl" style={{ letterSpacing: '0.2em' }} data-link-code>{offered.code}</Code>
           <LinkQr rows={offered.qr} />
         </Stack>
       )}

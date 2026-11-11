@@ -4,11 +4,13 @@
  * they joined. What has something new is bold, what names them carries a red
  * count (up to 99), and a quiet room a glyph; every number is the server's. The owner's
  * conversations with the company's CEO and with PALUGADA are pinned among
- * the direct messages, since they are the owner's own.
+ * the direct messages, since they are the owner's own. Everything that waits
+ * is marked read at once from the top (STATUS 2.218), and a person with no
+ * conversation yet is offered one where the direct messages would be.
  */
 import type { ReactNode } from 'react';
-import { Avatar, Badge, Box, Button, Group, ScrollArea, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
-import { IconBellOff, IconBolt, IconCompass, IconHash, IconLock, IconMessagePlus, IconPlus, IconSearch, IconSparkles } from '@tabler/icons-react';
+import { ActionIcon, Avatar, Badge, Box, Button, Group, ScrollArea, Stack, Text, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
+import { IconBellOff, IconBolt, IconChecks, IconCompass, IconHash, IconLock, IconMessagePlus, IconPlus, IconSearch, IconSparkles } from '@tabler/icons-react';
 import { t, tp } from '../i18n.ts';
 import { companyEmblem, personPicture, rolePicture } from '../images.ts';
 import { roomName, useScope } from './scope.ts';
@@ -24,7 +26,7 @@ export function quiet(room: RoomListItem): boolean {
   return room.notify === 'none' || (room.mutedUntil !== null && new Date(room.mutedUntil).getTime() > Date.now());
 }
 
-export function RoomRail({ rooms, selected, select, attention, newRoom, newMessage, search }: {
+export function RoomRail({ rooms, selected, select, attention, newRoom, newMessage, search, readAll }: {
   rooms: RoomListItem[];
   /** The item open now: a room's id, `activity`, `browse`, `ceo` or `palugada`. */
   selected: string | null;
@@ -35,6 +37,8 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
   newMessage: () => void;
   /** Searches what was said in the company's rooms (STATUS 2.212). */
   search: (query: string) => void;
+  /** Marks everything that waits for the person read: their rooms and their mentions (STATUS 2.218). */
+  readAll: () => void;
 }) {
   const scope = useScope();
   const owner = scope.kind === 'owner';
@@ -42,8 +46,11 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
   const direct = rooms.filter((room) => room.kind === 'direct' && room.joined);
   const shared = rooms.filter((room) => room.kind !== 'direct' && room.joined);
   const me = scope.ctx.me;
+  const waits = attention > 0 || rooms.some((room) => room.unread > 0 || room.mentions > 0);
+  // A person with no conversation yet: the heading offers one, rather than heading nothing.
+  const noDirect = !owner && direct.length === 0;
 
-  const row = (item: string, label: string, icon: ReactNode, options: { room?: RoomListItem; count?: number } = {}) => {
+  const row = (item: string, label: string, icon: ReactNode, options: { room?: RoomListItem; count?: number; press?: () => void } = {}) => {
     const room = options.room;
     const fresh = room ? room.unread > 0 && !quiet(room) : false;
     const mentions = room ? room.mentions : options.count ?? 0;
@@ -55,7 +62,7 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
         data-item={room ? undefined : item}
         data-active={selected === item || undefined}
         data-unread={fresh || undefined}
-        onClick={() => select(item)}
+        onClick={options.press ?? (() => select(item))}
       >
         <Group gap={8} wrap="nowrap">
           <Box className="rail-icon">{icon}</Box>
@@ -82,6 +89,13 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
           <Avatar size={24} radius="sm" src={companyEmblem(scope.ctx.company)} alt="" />
           <Text fw={700} truncate>{scope.ctx.company.name}</Text>
         </Group>
+        {waits && (
+          <Tooltip label={t('Mark all read')}>
+            <ActionIcon variant="subtle" color="gray" size="sm" aria-label={t('Mark all read')} data-read-all onClick={readAll}>
+              <IconChecks size={16} />
+            </ActionIcon>
+          </Tooltip>
+        )}
       </Group>
       <Box component="form" px="sm" pb={6} role="search"
         onSubmit={(event) => {
@@ -98,6 +112,7 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
           {row('activity', t('Activity'), <IconBolt size={18} />, { count: attention })}
 
           <Text className="rail-label">{t('Direct messages')}</Text>
+          {noDirect && row('new-message', t('New message'), <IconMessagePlus size={18} />, { press: newMessage })}
           {owner && ceo && row('ceo', t('{name}, CEO', { name: ceo.displayName ?? ceo.slug }),
             <Avatar size={20} radius="xl" src={rolePicture(ceo.slug, 'CEO')} alt="" />)}
           {owner && row('palugada', 'PALUGADA', <IconSparkles size={18} />)}
@@ -118,7 +133,9 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
               {t('Browse rooms')}
             </Button>
             <Button size="compact-sm" variant="subtle" justify="flex-start" leftSection={<IconPlus size={16} />} onClick={newRoom}>{t('New room')}</Button>
-            <Button size="compact-sm" variant="subtle" justify="flex-start" leftSection={<IconMessagePlus size={16} />} onClick={newMessage}>{t('New message')}</Button>
+            {!noDirect && (
+              <Button size="compact-sm" variant="subtle" justify="flex-start" leftSection={<IconMessagePlus size={16} />} onClick={newMessage}>{t('New message')}</Button>
+            )}
           </Stack>
         </Stack>
       </ScrollArea>

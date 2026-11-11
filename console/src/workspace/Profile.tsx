@@ -16,6 +16,7 @@ import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { LANGUAGES, t } from '../i18n.ts';
 import { PEOPLE_PICTURES, peoplePicture, personPicture } from '../images.ts';
+import { HANDLE } from '../handles.ts';
 import { PhoneLinks } from './LinkPhone.tsx';
 import { askBrowser, browserPermission, type BrowserPermission } from './notifyInTab.ts';
 
@@ -138,6 +139,10 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
   const ask = () => { void askBrowser().then(setPermission, () => setPermission(browserPermission())); };
   const zones = timeZones();
   const owner = draft?.principal === 'owner';
+  // A handle's shape is checked as it is typed, in the person's language, as the join page checks it (STATUS 2.218):
+  // the server's own refusal is for what only it can know, a handle already taken.
+  const handleWrong = !owner && draft !== null && draft.handle !== null && draft.handle !== '' && draft.handle !== profile?.handle
+    && !HANDLE.test(draft.handle);
 
   const save = async () => {
     if (!draft || !profile) return;
@@ -193,7 +198,12 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
             <>
               <TextInput name="handle" label={t('Handle')} description={t('How colleagues mention you, and how you sign in.')}
                 leftSection="@" value={draft.handle ?? ''} maxLength={32} autoComplete="off"
-                onChange={(event) => setDraft({ ...draft, handle: event.currentTarget.value.trim().replace(/^@/, '').toLowerCase() })} />
+                error={handleWrong ? t('3 to 32 letters, digits, dots, dashes or underscores, starting with a letter.') : undefined}
+                onChange={(event) => {
+                  // What the server said of the last handle tried is not about this one.
+                  setError(null);
+                  setDraft({ ...draft, handle: event.currentTarget.value.trim().replace(/^@/, '').toLowerCase() });
+                }} />
               <div>
                 <Text size="sm" fw={500} mb={6}>{t('Picture')}</Text>
                 <PicturePicker principal={draft.principal} value={draft.picture} onChange={(picture) => setDraft({ ...draft, picture })} />
@@ -237,7 +247,7 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
               checked={draft.ownerHearsPeople === true} onChange={(event) => setDraft({ ...draft, ownerHearsPeople: event.currentTarget.checked })} />
           )}
           {error && <Alert color="red" variant="light">{error}</Alert>}
-          <Button loading={busy} onClick={() => void save()}>{t('Save')}</Button>
+          <Button loading={busy} disabled={handleWrong} onClick={() => void save()}>{t('Save')}</Button>
           <Divider />
           {/* Link a phone (STATUS section 2.213): done at once, not saved with the rest. */}
           <PhoneLinks />

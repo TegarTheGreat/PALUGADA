@@ -80,7 +80,7 @@ import {
   setSpendLimit,
 } from '../governance/spend-guard.ts';
 import { readGovernanceLog } from '../governance/store.ts';
-import { MESSAGE_DAYS, readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
+import { MESSAGE_DAYS, messagesPast, readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
 import {
   assertOfficeHours, clearOfficeHours, officeHours, ownerWindow, setBatchWindow, setOfficeHours, setOwnerWindow,
 } from '../scheduler/windows.ts';
@@ -1921,10 +1921,25 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/companies/:companyId/retention',
-        handle: async ({ params }) => ({
-          policy: await retentionFor(params.companyId!),
-          log: await readRetentionLog(params.companyId!),
-        }),
+        handle: async ({ params, query }) => {
+          // With `messageDays`, also how many messages that window would take at the next pass, which the
+          // console says before the owner chooses it (STATUS 2.218).
+          const asked = query.get('messageDays');
+          let past: number | undefined;
+          if (asked !== null) {
+            const days = wholeNumber(Number(asked), 'messageDays');
+            if (days < MESSAGE_DAYS.least || days > MESSAGE_DAYS.most) {
+              throw new PalugadaError('contract.violation',
+                `messages are kept ${MESSAGE_DAYS.least} to ${MESSAGE_DAYS.most} days, or for good`, { field: 'messageDays' });
+            }
+            past = await messagesPast(params.companyId!, days);
+          }
+          return {
+            policy: await retentionFor(params.companyId!),
+            log: await readRetentionLog(params.companyId!),
+            ...(past === undefined ? {} : { messagesPast: past }),
+          };
+        },
       },
 
       {

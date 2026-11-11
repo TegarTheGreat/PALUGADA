@@ -19,6 +19,7 @@ import { NOTICES } from './notices.ts';
 import { IMPORT } from './import.ts';
 import { MEET } from './meet.ts';
 import { HARDENING } from './hardening.ts';
+import { POLISH } from './polish.ts';
 
 /** Every area, by its file's name: `console-i18n.test.ts` checks the list against the folder. */
 export const AREAS: Readonly<Record<string, Area>> = {
@@ -35,6 +36,7 @@ export const AREAS: Readonly<Record<string, Area>> = {
   import: IMPORT,
   meet: MEET,
   hardening: HARDENING,
+  polish: POLISH,
 };
 
 /** Every area's sentences in one language. */

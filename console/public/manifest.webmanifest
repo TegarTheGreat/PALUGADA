@@ -1,7 +1,7 @@
 {
   "name": "PALUGADA",
   "short_name": "PALUGADA",
-  "description": "The owner's console: the decisions, the work and the money of every company, in one place.",
+  "description": "Your company's rooms, work and decisions, in one place.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

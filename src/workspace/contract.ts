@@ -87,19 +87,25 @@ export type MessageView = {
          callMeeting: boolean; fileAsIssue: boolean; history: boolean };
 };
 
-/** A page of a room, with the reader's own mark. */
-export type MessagePage = { messages: MessageView[]; readPosition: number; hasBefore: boolean; hasAfter: boolean };
+/** A page of a room, with the reader's own mark: none (null) for someone not in the room, who keeps no mark there. */
+export type MessagePage = { messages: MessageView[]; readPosition: number | null; hasBefore: boolean; hasAfter: boolean };
 
 /** A thread: its root and replies; work threads also carry the work's last line, redacted. */
 export type ThreadView = { root: MessageView; replies: MessageView[]; following: boolean; progress: string | null };
 
 /**
  * What asks for a person's attention, newest first. A message in a thread
- * names its thread, so it opens where it is read, and is seen there. A
- * meeting is the reminder of a people's meeting about to start (F19.26).
+ * names its thread, so it opens where it is read, and is seen there; one at
+ * the top of a room names its position, so the room opens around it. A
+ * meeting is the reminder of a people's meeting about to start (F19.26). Who
+ * wrote it and a few of their words, read as the person, say what it is
+ * without opening it (STATUS 2.218); a card has neither.
  */
 export type ActivityItem =
-  | { kind: 'mention' | 'reply' | 'card' | 'meeting'; roomId: string; messageId: string; threadOf: string | null; at: string; seen: boolean }
+  | {
+    kind: 'mention' | 'reply' | 'card' | 'meeting'; roomId: string; messageId: string; threadOf: string | null; position: number;
+    at: string; seen: boolean; author: PersonRef | null; excerpt: string | null;
+  }
   | { kind: 'question' | 'team_item'; itemId: string; taskId: string | null; at: string }
   | { kind: 'work_done'; taskId: string; state: string; at: string };
 

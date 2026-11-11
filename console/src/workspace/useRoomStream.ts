@@ -10,10 +10,15 @@
  *
  * A frame says where and what changed, never the words, which each listener
  * reads the ordinary way. The stream is opened again when it drops, from the
- * last position it heard (`live`, ../api.ts). When the server will not serve
- * it -- the person has five tabs of the company open already, or the server
- * is older than the stream -- its listeners are told, and fall back: the work
- * pages to `/live`, the rooms to reading again every few seconds.
+ * last position it heard (`live`, ../api.ts). Its listeners are told whether
+ * it is heard, and read on their own clocks whenever it is not: until its
+ * first bytes arrive, while it is down, and while it is refused because the
+ * person has five tabs of the company open already, when it is asked for
+ * again, a little later each time, so a tab closed gives its place. A refused
+ * tab opens no other stream: over HTTP/1.1 a browser has six connections to
+ * an address, five tabs hold five, and the sixth is every tab's for its
+ * pages. Only a server older than the room stream sends the work pages to
+ * `/live`.
  */
 import { useEffect, useRef, useState } from 'react';
 import { live } from '../api.ts';
@@ -21,51 +26,62 @@ import type { RoomFrame } from './types.ts';
 
 type Listener = (frame: RoomFrame) => void;
 
+/**
+ * Whether the server serves the stream: being opened or opened again, heard,
+ * refused for the tabs open already (asked again later), or not served at all.
+ */
+export type Served = 'opening' | 'open' | 'busy' | 'absent';
+
 interface Shared {
   listeners: Set<Listener>;
-  /** Told when the server will not serve this stream. */
-  refusals: Set<() => void>;
+  /** Told each time whether the stream is served changes. */
+  watchers: Set<(served: Served) => void>;
   stop: AbortController;
-  refused: boolean;
+  served: Served;
 }
 
 const streams = new Map<string, Shared>();
 const reopenings = new Set<() => void>();
 
 /**
- * Listens to a company's room stream; `refused` is told, now or later, if the
- * server will not serve it. Answers how to stop listening.
+ * Listens to a company's room stream; `told` is told now, and each time it
+ * changes, whether the server serves it. Answers how to stop listening.
  */
-export function listenToRooms(companyId: string, listener: Listener, refused?: () => void): () => void {
+export function listenToRooms(companyId: string, listener: Listener, told?: (served: Served) => void): () => void {
   let stream = streams.get(companyId);
   if (!stream) {
-    const opened: Shared = { listeners: new Set(), refusals: new Set(), stop: new AbortController(), refused: false };
+    const opened: Shared = { listeners: new Set(), watchers: new Set(), stop: new AbortController(), served: 'opening' };
     stream = opened;
     streams.set(companyId, opened);
+    const now = (served: Served) => {
+      if (opened.served === served) return;
+      opened.served = served;
+      for (const one of opened.watchers) one(served);
+    };
     void live('GET', `/api/companies/${companyId}/room-stream`, (frame: RoomFrame) => {
       for (const one of opened.listeners) one(frame);
     }, opened.stop.signal, {
-      // Too many tabs, or a server without the room stream: each listener falls back, and nothing is tried again.
+      // A server without the room stream is not asked again; too many tabs is, as a dropped stream is.
       refused: (status, code) => {
-        if (code !== 'stream.too_many' && status !== 404) return false;
-        opened.refused = true;
-        for (const one of opened.refusals) one();
-        return true;
+        if (status === 404) now('absent');
+        else if (code === 'stream.too_many') now('busy');
+        return status === 404;
       },
       reopened: () => {
         for (const one of reopenings) one();
       },
+      hearing: (yes) => now(yes ? 'open' : 'opening'),
     });
   }
   const held = stream;
   held.listeners.add(listener);
-  if (refused) {
-    held.refusals.add(refused);
-    if (held.refused) refused();
+  if (told) {
+    held.watchers.add(told);
+    told(held.served);
   }
   return () => {
     held.listeners.delete(listener);
-    if (refused) held.refusals.delete(refused);
+    if (told) held.watchers.delete(told);
     if (held.listeners.size === 0) {
       held.stop.abort();
       streams.delete(companyId);
@@ -87,19 +103,20 @@ export function whenRoomStreamReopens(listener: () => void): () => void {
 
 /**
  * Hears every frame of the company's room stream while mounted. Answers
- * whether the stream is served: false once the server refused it, when the
- * caller reads again on its own clock instead.
+ * whether the stream is heard: false until its first bytes arrive, while it
+ * is down, and while the server refuses it, when the caller reads again on
+ * its own clock instead.
  */
 export function useRoomStream(companyId: string | null, heard: Listener): { live: boolean } {
-  const [refused, setRefused] = useState(false);
+  const [served, setServed] = useState<Served>('opening');
   const wanted = useRef(heard);
   wanted.current = heard;
   useEffect(() => {
-    setRefused(false);
+    setServed('opening');
     if (!companyId) return undefined;
-    return listenToRooms(companyId, (frame) => wanted.current(frame), () => setRefused(true));
+    return listenToRooms(companyId, (frame) => wanted.current(frame), setServed);
   }, [companyId]);
-  return { live: companyId !== null && !refused };
+  return { live: companyId !== null && served === 'open' };
 }
 
 /**

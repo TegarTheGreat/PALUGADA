@@ -80,8 +80,8 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], options: { e
 
 /**
  * The company's `/live` stream, shared by every component listening to it
- * and closed when the last one goes: only where the room stream is refused
- * (`listen` below), since the room stream carries the same frames.
+ * and closed when the last one goes: only on a server without the room
+ * stream (`listen` below), since the room stream carries the same frames.
  */
 const streams = new Map<string, { listeners: Set<(event: LiveEvent) => void>; stop: AbortController }>();
 
@@ -108,15 +108,19 @@ function listenLive(companyId: string, listener: (event: LiveEvent) => void): ()
 /**
  * The company's work as it moves: the room stream's work frames, which are
  * `/live`'s, read once per company by the server, so a tab holds one stream
- * rather than two (STATUS 2.210). Where the room stream is refused -- five
- * tabs of the company open already, or a server without it -- `/live` itself.
+ * rather than two (STATUS 2.210). On a server without the room stream,
+ * `/live` itself. A tab refused the room stream because five tabs of the
+ * company hold it already opens nothing else, and its pages read on their
+ * own clocks (`useLoad`'s `every`): over HTTP/1.1 a sixth stream would take
+ * the browser's last connection to the address, and no tab's request would
+ * be answered until a tab closed.
  */
 function listen(companyId: string, listener: (event: LiveEvent) => void): () => void {
   let fallback: (() => void) | null = null;
   const stop = listenToRooms(companyId, (frame) => {
     if (frame.kind === 'work') listener({ id: frame.id, type: frame.type, taskId: frame.taskId, actor: frame.actor, at: frame.at });
-  }, () => {
-    fallback ??= listenLive(companyId, listener);
+  }, (served) => {
+    if (served === 'absent') fallback ??= listenLive(companyId, listener);
   });
   return () => {
     stop();

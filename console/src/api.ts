@@ -82,12 +82,20 @@ export interface LiveEvent {
 export interface LiveOptions {
   /**
    * A stream the server will not serve: asked with its status and code, and
-   * when it answers true the stream is not tried again (the room stream
-   * refused for too many tabs, or not served at all: its caller falls back).
+   * when it answers true the stream is not tried again (the room stream on a
+   * server that has none: its caller falls back). Otherwise it is asked for
+   * again, a little later each time, as a dropped stream is.
    */
   refused?: (status: number, code: string | undefined) => boolean;
   /** The stream opened again after the server ended it: what it ended for may have changed who the person is. */
   reopened?: () => void;
+  /**
+   * Whether the stream is being heard: true once its first bytes arrive,
+   * false when it drops or fails and is asked for again. A stream answered
+   * but held back -- a proxy that buffers it -- is never heard, so its caller
+   * goes on reading on its own clock.
+   */
+  hearing?: (yes: boolean) => void;
 }
 
 /**
@@ -106,6 +114,7 @@ export async function live<T = LiveEvent>(
   let wait = 1_000;
   let lastId: string | null = null;
   let opened = false;
+  let flowing = false;
   while (!signal.aborted && token) {
     try {
       const response = await fetch(path, {
@@ -132,6 +141,10 @@ export async function live<T = LiveEvent>(
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (!flowing) {
+          flowing = true;
+          options.hearing?.(true);
+        }
         buffer += decoder.decode(value, { stream: true });
         let end: number;
         while ((end = buffer.indexOf('\n\n')) >= 0) {
@@ -146,6 +159,10 @@ export async function live<T = LiveEvent>(
       }
     } catch {
       if (signal.aborted) return;
+    }
+    if (flowing) {
+      flowing = false;
+      options.hearing?.(false);
     }
     await new Promise<void>((resolve) => {
       const later = window.setTimeout(resolve, wait);

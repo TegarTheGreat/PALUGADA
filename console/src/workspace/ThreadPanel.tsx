@@ -25,7 +25,7 @@ import { PendingRow, usePosting, type Pending } from './Timeline.tsx';
 import type { MessageView, ThreadView } from './types.ts';
 import { useRoomPulse } from './useRoomStream.ts';
 
-/** How often an open thread is read again when the room stream is refused (five tabs open already). */
+/** How often an open thread is read again while the room stream is not heard: refused for five tabs open already, or down. */
 const POLL_MS = 5_000;
 
 export function ThreadPanel({ roomId, rootId, close, alone }: {
@@ -53,7 +53,7 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
   }, [companyId, roomId, rootId]);
   useEffect(() => { void load(); }, [load, scope.tick]);
   // Read again when the room stream says the room changed: a frame names the message that changed, not its
-  // thread, so any change in the room reads the thread (STATUS 2.210); on a clock only where the stream is refused.
+  // thread, so any change in the room reads the thread (STATUS 2.210); on a clock only while the stream is not heard.
   const changedHere = useRoomPulse(companyId, (frame) => 'room' in frame && frame.room === roomId && frame.kind !== 'read' && frame.kind !== 'member');
   useEffect(() => { if (changedHere.pulse > 0) void load(); }, [changedHere.pulse]);
   useEffect(() => {

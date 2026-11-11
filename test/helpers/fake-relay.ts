@@ -63,6 +63,12 @@ export interface FakeRelay {
   pulls: Array<{ path: string; id: string; timestamp: string; signature: string }>;
   /** Signs an inbound envelope's body with the relay's key, as a push or a pull carries it. */
   sign: (body: Record<string, unknown>, options?: { id?: string; at?: Date; key?: KeyObject }) => Signed;
+  /**
+   * The relay takes a new key of its own: its document and its accepts name
+   * the new one from now. Answers the key it replaces, to sign a rotation
+   * with (STATUS section 2.216).
+   */
+  rotate: () => { previous: KeyObject; previousKey: Buffer; key: KeyObject };
   /** Posts a signed envelope to the deployment's inbound route for this relay (push mode). */
   push: (apiUrl: string, relayId: string, signed: Signed, options?: { headers?: Record<string, string> }) => Promise<{ status: number; body: any }>;
   close: () => Promise<void>;
@@ -93,8 +99,8 @@ export function sha256Hex(text: string): string {
 }
 
 export async function fakeRelay(options: FakeRelayOptions = {}): Promise<FakeRelay> {
-  const pair = generateKeyPairSync('ed25519');
-  const publicKey = rawPublicKey(pair.publicKey);
+  let pair = generateKeyPairSync('ed25519');
+  let publicKey = rawPublicKey(pair.publicKey);
   const received: Received[] = [];
   const inbox: Signed[] = [];
   const pulls: FakeRelay['pulls'] = [];
@@ -194,7 +200,7 @@ export async function fakeRelay(options: FakeRelayOptions = {}): Promise<FakeRel
   if (address === null || typeof address === 'string') throw new Error('the fake relay has no port');
   base = `http://127.0.0.1:${address.port}`;
 
-  return {
+  const relay: FakeRelay = {
     url: base,
     publicKey,
     fingerprint: fingerprint(publicKey),
@@ -221,11 +227,21 @@ export async function fakeRelay(options: FakeRelayOptions = {}): Promise<FakeRel
       }
       return { status: response.status, body };
     },
+    rotate: () => {
+      const previous = pair.privateKey;
+      const previousKey = publicKey;
+      pair = generateKeyPairSync('ed25519');
+      publicKey = rawPublicKey(pair.publicKey);
+      relay.publicKey = publicKey;
+      relay.fingerprint = fingerprint(publicKey);
+      return { previous, previousKey, key: pair.privateKey };
+    },
     close: () => new Promise<void>((resolve) => {
       server.closeAllConnections();
       server.close(() => resolve());
     }),
   };
+  return relay;
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {

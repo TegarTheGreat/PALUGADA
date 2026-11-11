@@ -548,3 +548,111 @@ test("a person's link ended while the relay is revoked: each waits for the relay
     await relay.close();
   }
 });
+
+test("a relay behind for the rotation's week is still sent its rotation signed by the key it pinned, and a second rotation waits for it", async () => {
+  // STATUS section 2.216 (F48).
+  const { forgetPreviousKey } = await import('../../src/relay/identity.ts');
+  const fixture = await createCompany('relay-rotate-behind');
+  let down = true;
+  const relay = await fakeRelay({ answer: () => (down ? { status: 503 } : undefined) });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId] });
+    const old = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { key: string };
+    const rotated = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
+    assert.equal(rotated.status, 200, JSON.stringify(rotated.body));
+    await sendOutbox(api.master);
+    // A second rotation while this relay has not taken the first is refused, and the owner is shown which relay.
+    const again = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
+    assert.deepEqual([again.status, again.body.code], [409, 'relay.rotation_owed']);
+    const page = await api.call('GET', '/api/control/relays', token);
+    assert.equal(page.body.relays.find((one: { id: string }) => one.id === relayId).rotationOwed, true);
+    // The week passes with the relay down.
+    const later = new Date(Date.now() + 8 * 86_400_000);
+    await forgetPreviousKey(later);
+    down = false;
+    await sendOutbox(api.master, new Date(later.getTime() + 3_600_000));
+    const told = relay.received.filter((one) => one.envelope?.type === 'keys_rotated').at(-1)!;
+    assert.ok(signedBy(Buffer.from(old.key, 'base64url'), told), 'signed by the key the relay pinned, though its week is over');
+    const { rows: [owed] } = await withControlPlane((tx) => tx.query<{ status: string }>(
+      "SELECT status FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated'", [relayId]));
+    assert.equal(owed!.status, 'delivered');
+    // Taken: the old key is forgotten, and the next rotation may go.
+    assert.equal(await forgetPreviousKey(later), true);
+    const third = await api.call('POST', '/api/control/relay-identity/rotate', token, { proof: { totp: api.code() } });
+    assert.equal(third.status, 200, JSON.stringify(third.body));
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test('a relay rotates its own key in an envelope its pinned key and its new key both sign, and the old one stands for its week', async () => {
+  // STATUS section 2.216 (F58).
+  const fixture = await createCompany('relay-own-rotation');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId] });
+    const { previous, previousKey, key } = relay.rotate();
+    const until = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const body = { v: 1, type: 'relay_key_rotated', at: new Date().toISOString(), key: relay.publicKey.toString('base64url'), previous: { key: previousKey.toString('base64url'), until } };
+    // Signed by the old key alone: whoever stole it cannot announce a key of their own.
+    const alone = await relay.push(api.url, relayId, relay.sign(body, { key: previous }));
+    assert.deepEqual([alone.status, alone.body.code], [422, 'relay.key_unproven']);
+    // Signed by both, as the deployment's own rotation is.
+    const both = relay.sign(body, { key: previous });
+    const { signV1a } = await import('../../src/relay/signature.ts');
+    both.signature = signV1a([previous, key], both.id, both.timestamp, both.body);
+    const taken = await relay.push(api.url, relayId, both);
+    assert.equal(taken.status, 200, JSON.stringify(taken.body));
+    const page = await api.call('GET', '/api/control/relays', token);
+    assert.equal(page.body.relays.find((one: { id: string }) => one.id === relayId).fingerprint, relay.fingerprint, 'the new key is pinned');
+    // Both keys are taken until the old one's week is out.
+    const byNew = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    const byOld = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }, { key: previous }));
+    assert.deepEqual([byNew.status, byOld.status], [200, 200]);
+    const { receiveFromRelay } = await import('../../src/relay/inbound.ts');
+    const late = new Date(Date.now() + 4 * 86_400_000);
+    const stale = relay.sign({ v: 1, type: 'ack', at: late.toISOString(), ids: [] }, { key: previous, at: late });
+    assert.equal((await receiveFromRelay(relayId, stale, late)).status, 401, 'after its week the old key is a stranger');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test("a paired relay is paired again in place with a key it took out of band, keeping its id, its salt and its people's links", async () => {
+  // STATUS section 2.216 (F48, F58): the way back for a relay that can verify
+  // nothing the deployment sends, or that changed its key some other way.
+  const fixture = await createCompany('relay-repin');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'summary' });
+    const linked = await linkThrough(api, token, relay, relayId, { device: true });
+    const { rows: [before] } = await withControlPlane((tx) => tx.query<{ salt: Buffer }>('SELECT salt FROM relays WHERE id = $1', [relayId]));
+    relay.rotate();
+    const typedWrong = await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: 'AAAAAAAAAAAAAAAA', companies: [fixture.companyId], proof: { totp: api.code() },
+    });
+    assert.deepEqual([typedWrong.status, typedWrong.body.code], [400, 'relay.fingerprint']);
+    const again = await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: relay.fingerprint.slice(0, 16), companies: [fixture.companyId], proof: { totp: api.code() },
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual([again.body.relay.id, again.body.relay.fingerprint, again.body.relay.share], [relayId, relay.fingerprint, 'summary']);
+    const { rows: [after] } = await withControlPlane((tx) => tx.query<{ salt: Buffer; status: string }>(
+      `SELECT r.salt, l.status FROM relays r JOIN relay_links l ON l.relay_id = r.id WHERE r.id = $1 AND l.id = $2`, [relayId, linked.linkId]));
+    assert.ok(after!.salt.equals(before!.salt), 'the same salt: every person keeps their pseudonym');
+    assert.equal(after!.status, 'active', 'and their link');
+    const ack = await relay.push(api.url, relayId, relay.sign({ v: 1, type: 'ack', at: new Date().toISOString(), ids: [] }));
+    assert.equal(ack.status, 200, 'its new key is the one taken');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});

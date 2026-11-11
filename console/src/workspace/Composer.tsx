@@ -407,7 +407,8 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
   const buttons = 2 + (mode === 'message' ? 1 + (scope.phone ? 1 : 0) : 0) + (foldMeetings ? 1 : 0)
     + (setMeeting && threadOf === null && !foldMeetings ? 1 : 0) + (callsMeeting && !foldMeetings ? 1 : 0)
     + (ask && mayAsk(scope.kind) && threadOf === null ? 1 : 0);
-  const beneath = scope.phone || (frame.width > 0 && frame.width - buttons * 40 < 240);
+  // The width measured is the composer's whole box, its padding (16 pixels a side beside a phone's) included.
+  const beneath = scope.phone || (frame.width > 0 && frame.width - 32 - buttons * 40 < 240);
   const sendButton = (
     <ActionIcon data-send size="lg" radius="xl" aria-label={mode === 'tell' ? t('Tell the work') : t('Send')}
       disabled={disabled || (!value.trim() && files.length === 0)} onClick={submit}>

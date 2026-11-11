@@ -170,6 +170,12 @@ Each of these is a test, and each exists because the mistake was made once.
   document describes none the code does not know, and its test vectors
   verify. A type is only ever added within v1.
   `test/documents/relay-protocol.test.ts`.
+- **A relay is sent no company, room, thread, item or task id.** A notice's
+  link names a handle made for that one notice (`opaqueLink`), and what it
+  opens is kept beside the envelope in the outbox and told by the owner API
+  only to the person it was for. An envelope that opens something passes it
+  as `opens` when it is enqueued, never in its link or its data.
+  `test/acceptance/relay-links.test.ts`.
 - **A person's notice is never an inbox item, and never words a link's share
   does not allow.** People's notices are planned only under the delivery
   reader, which sees no words, and read again as the person told before they

@@ -890,3 +890,51 @@ test("a run's choices reach the owner's phone redacted, as its question does, an
     await relay.close();
   }
 });
+
+test("each company is told at most its own share, under the relay's, and widening one takes the owner's device", async () => {
+  // STATUS section 2.216 (F61): the lowest of the relay's, the company's and the person's.
+  const first = await createCompany('relay-share-first');
+  const second = await createCompany('relay-share-second');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [first.companyId, second.companyId], share: 'content', mayPress: true });
+    await linkThrough(api, token, relay, relayId, { device: true });
+    // Narrowing one company is the session's.
+    const narrowed = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { companyShares: { [first.companyId]: 'signal' } });
+    assert.equal(narrowed.status, 200, JSON.stringify(narrowed.body));
+    assert.deepEqual(narrowed.body.relay.companyShares, { [first.companyId]: 'signal' });
+    await approval(first.companyId, 2, 'Pay the roaster');
+    await approval(second.companyId, 2, 'Pay the baker');
+    await handToRelay(first.companyId, relayId);
+    await handToRelay(second.companyId, relayId);
+    await sendOutbox(api.master);
+    const told = items(relay.received).map((one) => one.envelope);
+    const ofCompany = (name: string) => told.find((one) => one.share === 'content' && one.company.name === name);
+    const signalled = told.filter((one) => one.share === 'signal');
+    assert.equal(signalled.length, 1, 'the first company is told only that something happened');
+    assert.equal(JSON.stringify(signalled).includes('roaster'), false);
+    assert.deepEqual(signalled[0].offers, []);
+    assert.ok(ofCompany(await companyName(second.companyId)), 'the second company at the relay\'s own share');
+
+    // Widening a company back takes a code given now.
+    const unproved = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { companyShares: { [first.companyId]: null } });
+    assert.deepEqual([unproved.status, unproved.body.code], [403, 'approval.channel_forbidden']);
+    const widened = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { companyShares: { [first.companyId]: null }, proof: { totp: api.code() } });
+    assert.equal(widened.status, 200, JSON.stringify(widened.body));
+    assert.deepEqual(widened.body.relay.companyShares, {});
+    // A company the deployment does not have, or a level it does not know, is refused.
+    const stranger = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { companyShares: { [randomUUID()]: 'signal' } });
+    assert.deepEqual([stranger.status, stranger.body.code], [400, 'relay.companies']);
+    const odd = await api.call('POST', `/api/control/relays/${relayId}/settings`, token, { companyShares: { [first.companyId]: 'everything' } });
+    assert.deepEqual([odd.status, odd.body.code], [400, 'contract.violation']);
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+async function companyName(companyId: string): Promise<string> {
+  return (await withControlPlane((tx) => tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]))).rows[0]!.name;
+}

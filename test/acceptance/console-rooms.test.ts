@@ -1,14 +1,15 @@
 /**
  * The rooms in the console, drawn in a real browser (F19.1, F19.5 to F19.8,
- * F19.10, F19.16, F19.21; STATUS 2.207).
+ * F19.10, F19.16, F19.18, F19.21; STATUS 2.207, 2.211).
  *
  * The rooms' server is held by its own tests (STATUS 2.206); these hold what
  * only a browser shows: that a room fills the screen and sits above a phone's
  * keyboard, that Enter sends what a person meant to send and nothing else,
  * that a mention offers people and never an agent, that a person is never
  * drawn as the owner, that a press makes work and the message shows it move,
- * that the badge is the server's and comes back after a reload, and that a
- * notice's link lands in the thread it names. Each skips without Chromium.
+ * that the badge is the server's and comes back after a reload, that a
+ * notice's link lands in the thread it names, and that a meeting refused is
+ * said where it was called. Each skips without Chromium.
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -39,8 +40,12 @@ const skip = browser ? false : 'no Chromium to draw the console in';
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
 
-/** A company called Toko Kopi Senja, read in English, and the console that serves it. */
-async function started(): Promise<{ fixture: Fixture; api: Console; owner: string }> {
+/**
+ * A company called Toko Kopi Senja, read in English, and the console that
+ * serves it; with `holdsMeetings`, a deployment with a model to hold an agent
+ * meeting with (STATUS 2.211).
+ */
+async function started(options: { holdsMeetings?: boolean } = {}): Promise<{ fixture: Fixture; api: Console; owner: string }> {
   assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
   const fixture = await createCompany('rooms-console');
   await withControlPlane(async (tx) => {
@@ -48,7 +53,7 @@ async function started(): Promise<{ fixture: Fixture; api: Console; owner: strin
     await tx.query("UPDATE roles SET display_name = 'Sari' WHERE id = $1", [fixture.roleId]);
     await tx.query("UPDATE platform_control SET console_language = 'en', tour_finished_at = now()");
   });
-  const api = await consoleWithSettings({ staticRoot: BUILT });
+  const api = await consoleWithSettings({ staticRoot: BUILT, ...(options.holdsMeetings ? { holdsMeetings: true } : {}) });
   return { fixture, api, owner: await api.signIn() };
 }
 
@@ -831,6 +836,71 @@ test('a mention pressed in Activity, in a room the person has not joined, is see
     const her = personIn(api, rina.token, fixture.companyId);
     assert.deepEqual((ok(await her.activity()).items as Array<{ kind: string; seen?: boolean }>).map((one) => one.seen), [true]);
     assert.equal((ok(await her.rooms()).rooms as Array<{ id: string }>).some((one) => one.id === division.id), false, 'reading it joined it');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a meeting refused at the day\'s limit says why in its dialog, and loses neither the topic typed nor the words', { skip }, async () => {
+  // A refusal of F19.18 (the day's three, the month's money, a paused CEO, no
+  // model, a seat's asks) is said where the meeting was called, and stays
+  // said while the room is read again behind the dialog.
+  const { fixture, api, owner } = await started({ holdsMeetings: true });
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  for (let n = 1; n <= 3; n += 1) ok(await me.on(roomId, await said(me, roomId, `Topic ${n}`), 'meeting', { topic: `Topic ${n}` }), 'calling one of the day\'s three');
+  const rent = 'Our rent goes up in March; do we move or stay?';
+  await said(me, roomId, rent);
+  const DIALOG = `document.querySelector('[data-call-meeting]')`;
+  const TOPIC = `document.querySelector('[data-call-meeting] textarea')`;
+  const REFUSED = 'Three meetings have been called today. Call the next one tomorrow.';
+  const page = await drawn(api, DESKTOP);
+  /** The dialog says why, and a while later still says it and still holds what was typed. */
+  const refusedAndKept = async (topic: string, from: string) => {
+    await page.waitFor(`${DIALOG}?.innerText.includes(${JSON.stringify(REFUSED)})`, `the refusal, in the dialog, ${from}`);
+    await page.evaluate('new Promise((done) => setTimeout(done, 1_500))');
+    assert.equal(await page.evaluate<boolean>(`Boolean(${DIALOG}?.innerText.includes(${JSON.stringify(REFUSED)}))`), true, `the refusal is still said, ${from}`);
+    assert.equal(await page.evaluate<string>(`${TOPIC}.value`), topic, `the topic typed is kept, ${from}`);
+  };
+  const cancel = async () => {
+    await page.evaluate(`[...${DIALOG}.querySelectorAll('button')].find((one) => one.innerText.trim() === 'Cancel').click()`);
+    await page.waitFor(`!${DIALOG}`, 'the dialog closed');
+  };
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
+
+    // From the composer the words are the owner's, posted first, as Ask the team posts them: cancelling the
+    // meeting never takes them away.
+    const words = 'Shall we hire a second barista for the weekend?';
+    await page.evaluate(`document.querySelector('[data-composer]').focus()`);
+    await page.type(words);
+    await page.evaluate(`document.querySelector('.composer [aria-label="Call a meeting about this"]').click()`);
+    await page.waitFor(`${ROW(words)}?.getAttribute('data-message')?.length === 36`, 'the words, posted as the owner\'s');
+    await page.waitFor(TOPIC, 'the dialog that calls a meeting');
+    assert.equal(await page.evaluate<string>(`${TOPIC}.value`), words, 'the owner\'s own words are the topic to start from');
+    await page.evaluate(`${TOPIC}.select()`);
+    await page.type('Weekend staffing');
+    await page.evaluate(`document.querySelector('[data-call]').click()`);
+    await refusedAndKept('Weekend staffing', 'from the composer');
+    await cancel();
+    assert.equal((await messagesOf(api, owner, fixture.companyId, roomId)).filter((one) => one.body === words).length, 1,
+      'the words are in the room, once, after the meeting was cancelled');
+
+    // From a message's actions.
+    await page.waitFor(ROW(rent), 'the message about the rent');
+    await page.evaluate(`${ROW(rent)}.querySelector('[data-actions]').click()`);
+    await page.waitFor(`document.querySelector('[data-action="meeting"]')`, 'the message\'s actions');
+    await page.evaluate(`document.querySelector('[data-action="meeting"]').click()`);
+    await page.waitFor(TOPIC, 'the dialog that calls a meeting');
+    await page.evaluate(`${TOPIC}.select()`);
+    await page.type('Typed topic for the rent');
+    await page.evaluate(`document.querySelector('[data-call]').click()`);
+    await refusedAndKept('Typed topic for the rent', 'from a message');
+    await cancel();
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM tasks WHERE idempotency_key LIKE 'room-meeting:%'"));
+    assert.equal(rows.length, 3, 'nothing past the day\'s three was made');
   } finally {
     await page.close();
     await api.close();

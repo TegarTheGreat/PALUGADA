@@ -630,6 +630,43 @@ test('a called meeting reserves money, and refuses while paused, while its CEO i
   }
 });
 
+test('calls pressed at once keep the day\'s three, and a seat\'s last ask is spent once, on a meeting or on work', async () => {
+  // The counts are read under locks: the seat's for its asks across every
+  // door that spends one, and the company's (behind the room clock every
+  // room write takes first) for its called meetings. Read without them,
+  // presses at once would each see room for one more.
+  const { fixture, api, owner } = await workspace('meet-at-once');
+  try {
+    await meetsToday(fixture);
+    const sariSeat = await seated(fixture, 'Sari', 'approver', { asksPerDay: 1 });
+    const sari = personIn(api, sariSeat.token, fixture.companyId);
+    const room = await companyRoomOf(owner);
+    await companyRoomOf(sari);
+    const outcome = (answer: { status: number; body: { code?: string } }) => answer.status === 200 ? 'made' : `${answer.status}:${answer.body.code}`;
+
+    // The seat's last ask, pressed for a meeting, for another, and for work, at once.
+    const hers = [await said(sari, room, 'The van needs tyres.'), await said(sari, room, 'The sign is broken.'), await said(sari, room, 'Count the milk.')];
+    const spent = await Promise.all([
+      sari.on(room, hers[0]!, 'meeting', { topic: 'The van' }),
+      sari.on(room, hers[1]!, 'meeting', { topic: 'The sign' }),
+      sari.on(room, hers[2]!, 'work', { target: fixture.roleId, goal: 'Count the milk', goalId: fixture.goalId }),
+    ]);
+    assert.deepEqual(spent.map(outcome).sort(), ['429:staff.ask_limit', '429:staff.ask_limit', 'made'], 'one ask, spent once');
+
+    // The company's day, with what the seat may have called counted: the owner's presses at once fill it and no more.
+    const before = (await roomMeetings(fixture)).length;
+    const mine: string[] = [];
+    for (let n = 1; n <= 5; n += 1) mine.push(await said(owner, room, `Topic ${n}`));
+    const pressed = await Promise.all(mine.map((id, n) => owner.on(room, id, 'meeting', { topic: `Topic ${n + 1}` })));
+    const made = pressed.map(outcome);
+    assert.equal(made.filter((one) => one === 'made').length, 3 - before, `the day fills to three: ${made.join(', ')}`);
+    assert.ok(made.every((one) => one === 'made' || one === '429:meeting.too_many'), made.join(', '));
+    assert.equal((await roomMeetings(fixture)).length, 3);
+  } finally {
+    await api.close();
+  }
+});
+
 test('without a model to hold it, a meeting is refused and nothing is made', async () => {
   // The worker holds the weekly meeting only where a model can take it
   // (`holdsMeetings`); a meeting called from a room is refused for the same

@@ -1020,6 +1020,27 @@ test('a reply whose client id the person used before, elsewhere or for other wor
     const second = toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity').at(-1);
     const elsewhere = await act(w, sari.phone!, 'reply', offers(second).reply!, { body: 'Yes, at one.', clientId });
     assert.deepEqual([elsewhere.status, elsewhere.body.code], [422, 'relay.client_id_used'], 'the same id in another room is no retry');
+
+    // Asked of every message the person ever wrote, in any room, so it is
+    // found by an index that leads with the person: the rooms' own retry key
+    // is the room's now (STATUS 2.217), and without one of its own the check
+    // read every message of the company with a client id on each reply.
+    const used = await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, companyId);
+      await tx.query('SET LOCAL enable_seqscan = off');
+      const { rows: [plan] } = await tx.query<{ 'QUERY PLAN': Array<{ Plan: Record<string, unknown> }> }>(
+        `EXPLAIN (FORMAT JSON) SELECT room_id, thread_of, body FROM room_messages WHERE company_id = $1 AND author = $2 AND client_id = $3`,
+        [companyId, sari.seat.principal, clientId]);
+      const names: string[] = [];
+      const walk = (node: Record<string, unknown>) => {
+        if (typeof node['Index Name'] === 'string') names.push(node['Index Name']);
+        for (const child of (node.Plans as Array<Record<string, unknown>> | undefined) ?? []) walk(child);
+      };
+      walk(plan!['QUERY PLAN'][0]!.Plan);
+      const { rows } = await tx.query<{ indexdef: string }>('SELECT indexdef FROM pg_indexes WHERE indexname = ANY($1::text[])', [names]);
+      return rows.map((row) => row.indexdef);
+    });
+    assert.ok(used.length > 0 && used.every((one) => /\(company_id, author, client_id\)/.test(one)), used.join('; '));
   } finally {
     await w.close();
   }

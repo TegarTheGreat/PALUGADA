@@ -297,8 +297,9 @@ export async function messageViews(
  * The people's meetings set from these messages (F19.26, STATUS 2.215), by
  * message: when, for how long, who is asked, the pasted link, who set it and
  * who cancelled it. Read on the reader's own transaction, which shows only
- * the meetings of rooms they may see (0160). Its setter and the owner change
- * it while it is on.
+ * the meetings of rooms they may see (STATUS 2.215). Its setter and the
+ * owner change it while it is on and its room is open: an archived room
+ * takes no change, and archiving cancelled whatever had not begun there.
  */
 export async function peopleMeetingsOf(
   tx: TenantClient, viewer: Viewer, directory: Directory, messageIds: readonly string[],
@@ -306,11 +307,12 @@ export async function peopleMeetingsOf(
   if (messageIds.length === 0) return new Map();
   const { rows } = await tx.query<{
     id: string; message_id: string; starts_at: Date; minutes: number; attendees: string[]; call_url: string | null;
-    set_by: string; cancelled: boolean; cancelled_by: string | null;
+    set_by: string; cancelled: boolean; cancelled_by: string | null; archived: boolean;
   }>(
-    `SELECT id, message_id, starts_at, minutes, attendees::text[] AS attendees, call_url, set_by,
-            cancelled_at IS NOT NULL AS cancelled, cancelled_by
-       FROM room_meetings WHERE message_id = ANY($1::uuid[])`, [messageIds]);
+    `SELECT g.id, g.message_id, g.starts_at, g.minutes, g.attendees::text[] AS attendees, g.call_url, g.set_by,
+            g.cancelled_at IS NOT NULL AS cancelled, g.cancelled_by, r.archived_at IS NOT NULL AS archived
+       FROM room_meetings g JOIN rooms r ON r.company_id = g.company_id AND r.id = g.room_id
+      WHERE g.message_id = ANY($1::uuid[])`, [messageIds]);
   const me = viewer.person.principal;
   return new Map(rows.map((row) => [row.message_id, {
     id: row.id,
@@ -321,7 +323,7 @@ export async function peopleMeetingsOf(
     setBy: directory.refOf(row.set_by),
     cancelled: row.cancelled,
     cancelledBy: row.cancelled_by === null ? null : directory.refOf(row.cancelled_by),
-    may: { change: !row.cancelled && (row.set_by === me || viewer.kind === 'owner') },
+    may: { change: !row.cancelled && !row.archived && (row.set_by === me || viewer.kind === 'owner') },
   }]));
 }
 

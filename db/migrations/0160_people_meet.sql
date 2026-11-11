@@ -81,7 +81,8 @@ GRANT UPDATE (starts_at, minutes, attendees, call_url, cancelled_at, cancelled_b
 -- own words at the top of the room, words that became no work and no
 -- meeting of agents, as theirs, now, unreminded and on. Its room, message
 -- and setter never change. Its setter or the owner moves it, changes who is
--- asked, or cancels it, recorded as whoever did; a cancelled meeting stays
+-- asked, or cancels it, recorded as whoever did; whoever archived its room
+-- cancels it and changes nothing else (below); a cancelled meeting stays
 -- cancelled, and only its link may go, as it goes with its words. The
 -- platform only marks it reminded, which the guard counts; a meeting moved
 -- after one reminder is reminded again for its new time, and after a second
@@ -138,7 +139,11 @@ BEGIN
     IF NEW.reminded_at IS DISTINCT FROM OLD.reminded_at THEN
       RAISE EXCEPTION 'a meeting is marked reminded by the platform' USING ERRCODE = 'check_violation';
     END IF;
-    IF me IS DISTINCT FROM OLD.set_by AND me IS DISTINCT FROM 'owner' THEN
+    IF me IS DISTINCT FROM OLD.set_by AND me IS DISTINCT FROM 'owner'
+       AND NOT (OLD.cancelled_at IS NULL AND NEW.cancelled_at IS NOT NULL
+                AND NEW.starts_at = OLD.starts_at AND NEW.minutes = OLD.minutes AND NEW.attendees = OLD.attendees
+                AND NEW.call_url IS NOT DISTINCT FROM OLD.call_url
+                AND EXISTS (SELECT 1 FROM rooms r WHERE r.company_id = NEW.company_id AND r.id = NEW.room_id AND r.archived_by = me)) THEN
       RAISE EXCEPTION 'a meeting is changed by whoever set it, or the owner' USING ERRCODE = 'insufficient_privilege';
     END IF;
     IF OLD.cancelled_at IS NOT NULL THEN
@@ -206,6 +211,23 @@ END $$;
 CREATE TRIGGER room_messages_meeting_gone AFTER UPDATE OF deleted_at ON room_messages
   FOR EACH ROW WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
   EXECUTE FUNCTION app.room_messages_meeting_gone();
+
+-- A meeting's room archived is the meeting cancelled, unless it has begun:
+-- an archived room takes no words and no change, so a meeting left on there
+-- could be neither moved nor cancelled, and its people would be reminded of
+-- it all the same. Cancelled by whoever archived the room -- its creator or
+-- the owner, who may not have set it -- in the same transaction; one under
+-- way is left to end, and one cancelled before keeps who cancelled it.
+CREATE FUNCTION app.rooms_archived_meetings_gone() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  UPDATE room_meetings SET cancelled_at = clock_timestamp(), cancelled_by = NEW.archived_by
+   WHERE company_id = NEW.company_id AND room_id = NEW.id AND cancelled_at IS NULL AND starts_at > clock_timestamp();
+  RETURN NULL;
+END $$;
+CREATE TRIGGER rooms_archived_meetings_gone AFTER UPDATE OF archived_at ON rooms
+  FOR EACH ROW WHEN (OLD.archived_at IS NULL AND NEW.archived_at IS NOT NULL)
+  EXECUTE FUNCTION app.rooms_archived_meetings_gone();
 
 -- The people asked are told outside PALUGADA too: a reminder is a people's
 -- notice of its own reason, about the meeting, naming its room.

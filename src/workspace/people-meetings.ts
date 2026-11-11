@@ -23,7 +23,7 @@ import { PalugadaError } from '../errors.ts';
 import type { PeopleMeetingView } from './contract.ts';
 import { messageIdOf, messageIn } from './messages.ts';
 import { assertPeopleOf, isPerson } from './principal.ts';
-import { assertMember, ensureCompanyMember, takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
+import { assertMember, ensureCompanyMember, takeClock, visibleRoom } from './rooms.ts';
 import { directoryOf, peopleMeetingsOf, type Directory, type Viewer } from './views.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -108,26 +108,13 @@ function callUrlOf(value: unknown): string | null {
 }
 
 /**
- * Who can see a room, of the people asked: everyone of the company for the
- * company's room, a division's and an open topic room; a private room's
- * members and the owner; a direct conversation's people alone. Said before
- * anything is written, so the refusal names who cannot; the database asks
- * the same of everyone asked, whatever this says (0159).
+ * A refusal the database gave, said in the words the console explains
+ * (0159's named checks). Who may be asked is the database's to say, and only
+ * its: everyone of the company in the company's room, a division's and an
+ * open topic room; a private room's members and the owner; a direct
+ * conversation's people alone -- the rule every room table holds (0150), so
+ * a meeting cannot ask someone a room would not show.
  */
-async function assertCanSee(tx: TenantClient, room: RoomRecord, attendees: readonly string[]): Promise<void> {
-  if (room.kind === 'company' || room.kind === 'division' || (room.kind === 'topic' && !room.private)) return;
-  const { rows } = await tx.query<{ principal: string }>(
-    'SELECT principal FROM room_members WHERE room_id = $1 AND left_at IS NULL', [room.id]);
-  const seeing = new Set(rows.map((row) => row.principal));
-  if (room.kind === 'topic') seeing.add('owner');
-  const outside = attendees.filter((principal) => !seeing.has(principal));
-  if (outside.length > 0) {
-    throw new PalugadaError('people_meeting.cannot_see',
-      `everyone asked must be able to see the room, and ${outside.join(', ')} cannot`, { cannotSee: outside });
-  }
-}
-
-/** A refusal the database gave, said in the words the console explains (0159's named checks). */
 function refusal(error: unknown): unknown {
   const constraint = (error as { constraint?: string }).constraint;
   if (constraint === 'room_meetings_starts_ahead') {
@@ -178,7 +165,6 @@ export async function setPeopleMeeting(viewer: Viewer, roomId: string, body: Rec
     }
     const { rows: already } = await tx.query('SELECT 1 FROM room_meetings WHERE message_id = $1', [messageId]);
     if (already.length > 0) return shown(tx, viewer, directory, messageId);
-    await assertCanSee(tx, room, attendees);
     try {
       // No RETURNING: the row is read back as the reader, after the guard
       // has written who set it (0159).
@@ -217,9 +203,8 @@ export async function changePeopleMeeting(
     const room = await visibleRoom(tx, viewer, roomId);
     if (room.archived_at) throw new PalugadaError('room.archived', 'that room is archived', { roomId });
     await takeClock(tx);
-    const { rows } = await tx.query<{ message_id: string; set_by: string; cancelled: boolean; removed: boolean; attendees: string[] }>(
-      `SELECT g.message_id, g.set_by, g.cancelled_at IS NOT NULL AS cancelled, m.deleted_at IS NOT NULL AS removed,
-              g.attendees::text[] AS attendees
+    const { rows } = await tx.query<{ message_id: string; set_by: string; cancelled: boolean; removed: boolean }>(
+      `SELECT g.message_id, g.set_by, g.cancelled_at IS NOT NULL AS cancelled, m.deleted_at IS NOT NULL AS removed
          FROM room_meetings g JOIN room_messages m ON m.company_id = g.company_id AND m.id = g.message_id
         WHERE g.id = $1 AND g.room_id = $2 FOR UPDATE OF g`, [meetingId, roomId]);
     const meeting = rows[0];
@@ -229,9 +214,6 @@ export async function changePeopleMeeting(
     }
     if (meeting.cancelled) throw new PalugadaError('contract.violation', 'that meeting was cancelled', { meetingId });
     if (meeting.removed) throw new PalugadaError('contract.violation', 'the message that set that meeting was removed', { meetingId });
-    if (attendees !== undefined) {
-      await assertCanSee(tx, room, attendees.filter((principal) => !meeting.attendees.includes(principal)));
-    }
     const changes: string[] = [];
     const values: unknown[] = [meetingId];
     const set = (column: string, value: unknown) => {

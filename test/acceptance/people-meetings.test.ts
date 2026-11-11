@@ -19,7 +19,7 @@ import { importCompany } from '../../src/audit/import.ts';
 import { dispatchPeopleNotices, planNotices } from '../../src/owner/member-notify.ts';
 import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
-import { fakeRelay, type FakeRelay } from '../helpers/fake-relay.ts';
+import { fakeRelay, type FakeRelay, type FakeRelayOptions } from '../helpers/fake-relay.ts';
 import { linkFor, noticesOf, tell, toldTo } from '../helpers/notices.ts';
 import { linkThrough, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
 import {
@@ -95,12 +95,14 @@ interface Workspace {
   close: () => Promise<void>;
 }
 
-/** A company and the owner's console; with a relay paired for it when asked, at the share asked. */
-async function workspace(slug: string, options: { relay?: 'signal' | 'summary' | 'content' } = {}): Promise<Workspace> {
+/** A company and the owner's console; with a relay paired for it when asked, at the share asked, answering as asked. */
+async function workspace(
+  slug: string, options: { relay?: 'signal' | 'summary' | 'content'; answer?: FakeRelayOptions['answer'] } = {},
+): Promise<Workspace> {
   const fixture = await createCompany(slug);
   const api = await consoleWithSettings();
   const ownerToken = await api.signIn();
-  const relay = options.relay ? await fakeRelay() : null;
+  const relay = options.relay ? await fakeRelay(options.answer ? { answer: options.answer } : {}) : null;
   const relayId = relay ? await pairThrough(api, ownerToken, relay, { companies: [fixture.companyId], share: options.relay! }) : null;
   return {
     fixture, api, owner: personIn(api, ownerToken, fixture.companyId), relay, relayId,
@@ -315,6 +317,35 @@ test('the people asked are reminded ten minutes before, once, and only while the
     await syncRoomCards(w.fixture.companyId);
     await tell(w.fixture.companyId, w.api.master);
     assert.deepEqual(remindedOf(w.relay!, sari.phone!).map((one) => one.data.startsAt), [soon.startsAt, moved]);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a reminder still owed when the owner narrows the relay goes at the new share, without its title', async () => {
+  // What the owner narrowed a relay to is what it is sent from then on,
+  // including a reminder it was owed and has not had (STATUS 2.213).
+  let down = true;
+  const w = await workspace('meet-narrow', {
+    relay: 'content', answer: (one) => (down && one.envelope?.type === 'meeting_soon' ? { status: 503 } : undefined),
+  });
+  try {
+    const budi = await person(w, 'Budi');
+    const room = await companyRoomOf(w.owner);
+    const words = await said(budi.in, room, 'Pay day: the safe code is 5150.');
+    ok(await setMeeting(budi.in, room, { messageId: words, startsAt: inMinutes(7), minutes: 15, attendees: [budi.seat.principal] }));
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+    const [tried] = remindedOf(w.relay!, budi.phone!);
+    assert.match(String(tried.data.title), /5150/, 'at content the title went, and the relay refused it');
+    ok(await w.api.call('POST', `/api/control/relays/${w.relayId}/settings`, w.owner.token, { share: 'signal' }));
+    down = false;
+    await sendOutbox(w.api.master, new Date(Date.now() + 2 * MINUTE));
+    const sent = remindedOf(w.relay!, budi.phone!).at(-1);
+    assert.equal(sent.id, tried.id, 'the same envelope, made again');
+    assert.equal(sent.share, 'signal');
+    assert.equal(sent.text, 'A meeting starts in ten minutes.');
+    assert.deepEqual(sent.data, {}, 'neither the room, nor the time, nor the title');
   } finally {
     await w.close();
   }

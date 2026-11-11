@@ -1161,4 +1161,5 @@ The first version. What it holds, in the order an owner meets it.
   mute the room; a reply never becomes work, and a deleted message, or one
   retention removes, is withdrawn from the phone. You hear people only once
   you turn it on, inside your window, never as an inbox item, and the daily
-  digest counts the team's cards as your badge does (STATUS 2.213).
+  digest counts the team's cards as your badge does. The record of what each
+  person was told is kept a month (STATUS 2.213).

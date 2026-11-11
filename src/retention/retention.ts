@@ -22,6 +22,7 @@
  *     "March was quiet" have to stay distinguishable.
  */
 import { roomsOnControlPlane, withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { NOTICE_DAYS } from '../owner/member-notify.ts';
 import { keptPaths, peopleFolderOf, removeRoomFiles, sweepRoomFiles, type PeopleRoots } from '../workspace/files.ts';
 import { takeClock } from '../workspace/rooms.ts';
 
@@ -292,6 +293,15 @@ export async function purgeExpiredBookkeeping(companyId: string, now = new Date(
     const { rowCount: feed } = await tx.query('DELETE FROM room_feed WHERE company_id = $1 AND created_at < $2',
       [companyId, new Date(now.getTime() - ROOM_FEED_DAYS * 86_400_000)]);
     removed += feed ?? 0;
+    // What each person was told outside PALUGADA, and when: a month, whatever
+    // the event window, since it is delivery's bookkeeping and nobody's record
+    // (STATUS 2.213). Here as well as in the notify planner's hourly pass,
+    // because retention runs on every worker and the notify stage does not:
+    // a worker started with no owner's channel and no relay plans nothing,
+    // and would keep every notice made before for ever.
+    const { rowCount: notices } = await tx.query('DELETE FROM people_notices WHERE company_id = $1 AND created_at < $2',
+      [companyId, new Date(now.getTime() - NOTICE_DAYS * 86_400_000)]);
+    removed += notices ?? 0;
     await recordRetention(tx, companyId, 'bookkeeping_purged', removed, cutoff);
     return removed;
   });

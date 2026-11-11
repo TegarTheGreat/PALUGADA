@@ -48,11 +48,15 @@ interface Workspace {
 
 async function workspace(
   slug: string,
-  options: { share?: 'signal' | 'summary' | 'content'; mayPress?: boolean; mayPost?: boolean; relay?: Parameters<typeof fakeRelay>[0] } = {},
+  options: {
+    share?: 'signal' | 'summary' | 'content'; mayPress?: boolean; mayPost?: boolean; relay?: Parameters<typeof fakeRelay>[0];
+    /** Where the companies' files are, for a test whose messages carry files (STATUS 2.212). */
+    files?: { root: string };
+  } = {},
 ): Promise<Workspace> {
   const fixture = await createCompany(slug);
   const relay = await fakeRelay(options.relay);
-  const api = await consoleWithSettings();
+  const api = await consoleWithSettings(options.files ? { files: options.files } : {});
   const ownerToken = await api.signIn();
   const relayId = await pairThrough(api, ownerToken, relay, {
     companies: [fixture.companyId], share: options.share ?? 'summary',
@@ -691,6 +695,105 @@ test('a window whose first message is deleted still tells the rest, without the 
     assert.equal(told[0].data.excerpt, undefined, 'with no words: the first is gone, and the second was never its excerpt');
     assert.doesNotMatch(JSON.stringify(told), /1234|call me/);
     assert.deepEqual((await noticesOf(companyId, sari.seat.principal)).map((row) => row.settled_as), ['sent']);
+  } finally {
+    await w.close();
+  }
+});
+
+/**
+ * Retention (STATUS 2.212) and the relay (2.213) together, as the worker runs
+ * them: the message window passes, the retention stage takes the messages,
+ * and the next notify stage tells each relay that holds their words to drop
+ * them. A root that keeps its thread because a reply is still alive keeps no
+ * words, so what a relay holds of it is retracted as well. Nothing calls the
+ * relay from inside the purge, which would take a relay's row after the
+ * clock and the messages' rows, the reverse of every other order.
+ */
+test('what retention takes is retracted at the relay, a root left without its words too, with its files, and what was owed never goes', async () => {
+  const { mkdtemp, stat } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { setRetention, runRetention } = await import('../../src/retention/retention.ts');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-relay-retention-'));
+  const w = await workspace('relay-people-retention', { share: 'content', mayPost: true, files: { root } });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const dm = await direct(budi.in, sari.seat);
+    const later = () => withControlPlane((tx) => tx.query(
+      "UPDATE people_notices SET created_at = created_at - interval '11 minutes' WHERE company_id = $1", [companyId]));
+
+    // Sent, with a file: the relay holds its words, and the deployment its bytes.
+    const filed = String(ok(await budi.in.say(dm, {
+      body: 'The vault code is 1111.', files: [{ name: 'vault.pdf', data: Buffer.from('%PDF-1.4 vault').toString('base64') }],
+    }), 'posting with a file').message.id);
+    await tell(companyId, w.api.master);
+    const [sentFiled] = toldTo(w.relay, sari.phone!);
+    assert.match(sentFiled.data.excerpt, /1111/);
+    const { rows: [kept] } = await withControlPlane((tx) => tx.query<{ path: string }>(
+      'SELECT path FROM room_files WHERE company_id = $1 AND message_id = $2', [companyId, filed]));
+    const bytes = join(root, `${companyId}.people`, kept!.path);
+    await stat(bytes);
+    // Sent, and later replied to: its thread outlives it.
+    await later();
+    const rooted = await said(budi.in, dm, 'The safe is behind the 3333 painting.');
+    await tell(companyId, w.api.master);
+    const sentRoot = toldTo(w.relay, sari.phone!).find((one) => one.type === 'room_activity' && /3333/.test(one.data.excerpt ?? ''));
+    assert.ok(sentRoot, 'the root was told');
+    // Owed, and not yet sent.
+    await later();
+    const owed = await said(budi.in, dm, 'The vault code is 2222.');
+    await tell(companyId, w.api.master, { send: false });
+    // A reply that is still young when the window passes the rest.
+    const reply = await said(sari.in, dm, { body: 'Noted, thank you.', threadOf: rooted });
+    await tell(companyId, w.api.master, { send: false });
+
+    // The window passes between the last of the three and the reply.
+    const { rows: ages } = await withControlPlane((tx) => tx.query<{ id: string; created_at: Date }>(
+      'SELECT id, created_at FROM room_messages WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, [owed, reply]]));
+    const ageOf = (id: string) => ages.find((row) => row.id === id)!.created_at.getTime();
+    const at = new Date((ageOf(owed) + ageOf(reply)) / 2 + 30 * 86_400_000);
+    await setRetention(companyId, { messageDays: 30 });
+    const outcome = await runRetention(companyId, at, { filesRoot: root });
+    assert.equal(outcome.messagesPurged, 3, 'two taken outright, and the root left without its words');
+    const left = await withControlPlane((tx) => tx.query<{ id: string; body: string | null; deleted: boolean }>(
+      'SELECT id, body, deleted_at IS NOT NULL AS deleted FROM room_messages WHERE company_id = $1 ORDER BY position', [companyId]));
+    assert.deepEqual(left.rows, [
+      { id: rooted, body: null, deleted: true },
+      { id: reply, body: 'Noted, thank you.', deleted: false },
+    ]);
+    await assert.rejects(stat(bytes), /ENOENT/, 'the file went with its message');
+    const files = await withControlPlane((tx) => tx.query('SELECT 1 FROM room_files WHERE company_id = $1', [companyId]));
+    assert.equal(files.rows.length, 0, 'and its row');
+
+    // The relay loop comes round first: what was owed of a message retention took is not sent.
+    await sendOutbox(w.api.master);
+    assert.doesNotMatch(JSON.stringify(w.relay.received), /2222/, 'what retention took before it went never goes');
+    // The notify stage's next pass tells Sari's relay to drop what it holds, and drops what it was owed.
+    await tell(companyId, w.api.master);
+    const retracted = toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted');
+    assert.equal(retracted.length, 1, 'one retraction for the link');
+    assert.deepEqual(retracted[0].data.refs, [sentFiled.id, sentRoot.id].sort(), 'the message taken, and the root left without words');
+    const still = await withControlPlane((tx) => tx.query(
+      "SELECT 1 FROM relay_outbox WHERE type = 'room_activity' AND subjects && $1::text[]", [[`message:${owed}`]]));
+    assert.equal(still.rows.length, 0, 'what was owed of it is dropped');
+    for (const [notice, what] of [[sentFiled, 'the message taken'], [sentRoot, 'the root left without words']] as const) {
+      const late = await act(w, sari.phone!, 'reply', offers(notice).reply!, { body: 'Still there?', clientId: `late-${what}` });
+      assert.deepEqual([late.status, late.body.code], [422, 'relay.press_spent'], `a reply on ${what} is spent`);
+    }
+    // No token Sari was sent, or was to be sent, about what retention took is left to press.
+    const usable = await withControlPlane((tx) => tx.query<{ act: string }>(
+      'SELECT act FROM relay_offers WHERE link_id = $1 AND voided_at IS NULL AND uses < max_uses', [sari.phone!.linkId]));
+    assert.deepEqual(usable.rows, [], 'no offer is left pointing at a message retention took');
+    // The reply lives on: Budi is told of it, and nothing of his is retracted.
+    const budiHeard = toldTo(w.relay, budi.phone!);
+    assert.ok(budiHeard.some((one) => one.type === 'room_activity' && /Noted/.test(one.data.excerpt ?? '')), 'the live reply is told');
+    assert.deepEqual(budiHeard.filter((one) => one.type === 'room_activity_retracted'), []);
+
+    // The pass after says nothing more.
+    await tell(companyId, w.api.master);
+    assert.equal(toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted').length, 1);
   } finally {
     await w.close();
   }

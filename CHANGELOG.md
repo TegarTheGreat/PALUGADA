@@ -1200,15 +1200,16 @@ The first version. What it holds, in the order an owner meets it.
   room or item, only a handle that opens for the person it was for once they
   sign in; you can tell a relay less about one company than the rest; a
   relay must drop what it was told after fourteen days, and an erased
-  company is forgotten at every relay. A key rotation waits for every relay,
-  however long it is away, and is tried hourly until it has it; a relay can
-  change its own key, and one that lost track is paired again in place,
-  keeping everyone's links and taking the new key, while a company left out
-  of that pairing is told nothing more there. A relay learns from its
-  pairing where to post back. Each phone's key shows its fingerprint to
-  compare with the relay's app. The reference relay keeps what it owes
-  across a restart, prints no words unless asked, and takes acts only on
-  its own machine's loopback port (STATUS 2.216).
+  company is forgotten at every relay, one that heard only of it and ends
+  with it too. A key rotation waits for every relay, however long it is
+  away, and is tried hourly until it has it; a relay can change its own key,
+  and one that lost track is paired again in place, keeping everyone's links
+  and taking the new key, while a company left out of that pairing is told
+  nothing more there. A relay learns from its pairing where to post back.
+  Each phone's key shows its fingerprint to compare with the relay's app.
+  The reference relay keeps what it owes across a restart, prints no words
+  unless asked, and takes acts only on its own machine's loopback port
+  (STATUS 2.216).
 - The workspace holds a long history and keeps each person to their share:
   setting a message window on a company with years of talk takes it in short
   turns while people keep posting, and its archive restores whole; every
@@ -1225,19 +1226,20 @@ The first version. What it holds, in the order an owner meets it.
   read only as far as you have seen; a picture loading or the composer being
   drawn no longer leaves a room short of its newest message, or unread, and
   "Jump to newest" lands there; a room you have not joined opens at its
-  newest. A message found, pinned, named in Activity or linked opens its
-  room around it, and "Copy link" gives any message's link. A handle typed
-  in full mentions its person as one picked from the list does, in an edit
-  too, which also takes back the mention of anyone the words no longer name;
-  `@budi.setiawan` names Budi Setiawan and not `@budi`. Activity says who
-  wrote and what. Paste a screenshot or a copied file, or drop a file on the
-  composer, to attach it, and a phone's large photo is made small enough to
-  be shown in the room. Search looks in the open room first and narrows to a
-  person, by choice or by `in:#room` and `from:@handle`, which alone lists
-  all they said. "Mark all read" in the rail clears everything that waits.
-  On a phone the words have the composer's whole width, with its buttons
-  beneath; a thread beside a room no longer crushes it on a laptop, and the
-  rail no longer pushes it off an upright tablet's screen; Esc, Ctrl+K and
-  Alt+↑/↓ keep to the keyboard from the composer, and Enter saves an edit.
+  newest. A message found, pinned, named in Activity or linked, or told of
+  in a notice on your phone or in your chat, opens its room around it, and
+  "Copy link" gives any message's link. A handle typed in full mentions its
+  person as one picked from the list does, in an edit too, which also takes
+  back the mention of anyone the words no longer name; `@budi.setiawan`
+  names Budi Setiawan and not `@budi`. Activity says who wrote and what.
+  Paste a screenshot or a copied file, or drop a file on the composer, to
+  attach it, and a phone's large photo is made small enough to be shown in
+  the room. Search looks in the open room first and narrows to a person, by
+  choice or by `in:#room` and `from:@handle`, which alone lists all they
+  said. "Mark all read" in the rail clears everything that waits. On a phone
+  the words have the composer's whole width, with its buttons beneath; a
+  thread beside a room no longer crushes it on a laptop, and the rail no
+  longer pushes it off an upright tablet's screen; Esc, Ctrl+K and Alt+↑/↓
+  keep to the keyboard from the composer, and Enter saves an edit.
   Shortening how long messages are kept asks first and says how many go
   (STATUS 2.218).

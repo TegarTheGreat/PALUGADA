@@ -723,7 +723,9 @@ keeps only the address. The deployment forgets what it sent after fourteen
 days and can retract nothing later, so the protocol makes a relay drop every
 envelope's content within fourteen days of it, and show nothing older on
 arrival; an erased company is sent `company_forgotten` to every relay that
-may hold anything of it, before its rows go. Residual: what a relay already
+may hold anything of it, before its rows go, and a relay the erasure ends
+for having heard of that company alone is still sent it, and nothing else.
+Residual: what a relay already
 handed to a push service, showed on a lock screen or wrote to a log is beyond
 any retraction, and a relay that ignores the protocol keeps what it keeps.
 The reference relay prints nothing above `signal` unless its operator asks.

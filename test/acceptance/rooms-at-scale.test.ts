@@ -217,3 +217,80 @@ test('an archive of a company with tens of thousands of threads restores whole',
     'SELECT count(*) AS n FROM room_messages WHERE company_id = $1 AND position > (SELECT position FROM room_messages WHERE id = $2)',
     [restored.companyId, after]), 0, 'a new message is the newest');
 });
+
+test("planning people's notices of a burst never holds the company's clock while it decides", async () => {
+  // The planner took the company's clock with its cursor and held it while
+  // it decided, message by owed person by channel, a round trip each; three
+  // hundred @room messages to twenty linked people held every post of the
+  // company for seconds (STATUS 2.217).
+  const { consoleWithSettings } = await import('../helpers/owner-console.ts');
+  const { fakeRelay } = await import('../helpers/fake-relay.ts');
+  const { linkThrough, pairThrough } = await import('../helpers/relay.ts');
+  const { companyRoomOf, personIn, seated } = await import('../helpers/rooms.ts');
+  const { planNotices } = await import('../../src/owner/member-notify.ts');
+  const fixture = await createCompany('scale-notices');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const ownerToken = await api.signIn();
+    const relayId = await pairThrough(api, ownerToken, relay, { companies: [fixture.companyId], share: 'summary' });
+    const owner = personIn(api, ownerToken, fixture.companyId);
+    const room = await companyRoomOf(owner);
+    for (let n = 0; n < 20; n += 1) {
+      const seat = await seated(fixture, `Orang ${n}`, 'member', { handle: `orang${n}` });
+      await companyRoomOf(personIn(api, seat.token, fixture.companyId));
+      await linkThrough(api, seat.token, relay, relayId, { device: true, owner: false });
+    }
+    await planNotices(fixture.companyId);
+    // Three hundred messages to the whole room, as the owner may write them.
+    await withPeople(fixture.companyId, { principal: 'owner', name: null }, async (tx) => {
+      for (let n = 0; n < 300; n += 1) {
+        await tx.query(
+          `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, mentions_room, position)
+           VALUES ($1, $2, $3, 'text', 'owner', $4, true, 0)`, [randomUUID(), fixture.companyId, room, `@room kabar ${n}`]);
+      }
+    });
+    const { result, slowest, posts } = await slowestPostDuring(fixture, room, 50, planNotices(fixture.companyId));
+    console.log(`# planning 300 messages to 20 people: ${posts} posts meanwhile, the slowest held ${slowest} ms`);
+    assert.ok(result.planned >= 20, `every linked person is owed a notice (${result.planned})`);
+    assert.ok(slowest < 1000, `a post waited ${slowest} ms behind the planner`);
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test("the rooms' card sweep draws a busy division's work without holding the clock long", async () => {
+  // Five hundred cards drawn again held every post of the company for over
+  // a second: one statement, and one position, a card (STATUS 2.217).
+  const { consoleWithSettings } = await import('../helpers/owner-console.ts');
+  const { ok, personIn } = await import('../helpers/rooms.ts');
+  const { syncRoomCards } = await import('../../src/workspace/cards.ts');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { withTenant } = await import('../../src/db/tenant.ts');
+  const fixture = await createCompany('scale-cards');
+  const api = await consoleWithSettings();
+  try {
+    const owner = personIn(api, await api.signIn(), fixture.companyId);
+    const room = await companyRoom(fixture);
+    const division = (ok(await owner.rooms(true)).rooms as Array<{ id: string; kind: string }>).find((one) => one.kind === 'division')!.id;
+    ok(await owner.post(`/rooms/${division}`, { showsWork: 'all' }));
+    const first = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'Hitung stok' }, createdBy: 'owner',
+    });
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      `INSERT INTO tasks SELECT (jsonb_populate_record(NULL::tasks, to_jsonb(t)
+                || jsonb_build_object('id', gen_random_uuid(), 'idempotency_key', 'clone:' || gen_random_uuid()::text))).*
+         FROM tasks t, generate_series(1, 600) WHERE t.id = $1`, [first.id]));
+    await syncRoomCards(fixture.companyId);
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      "UPDATE tasks SET status = 'cancelled', finished_at = now() WHERE id IN (SELECT id FROM tasks WHERE status = 'pending' LIMIT 500)"));
+    const { result, slowest } = await slowestPostDuring(fixture, room, 20, syncRoomCards(fixture.companyId));
+    console.log(`# a sweep drawing 500 of 600 work cards again: the slowest post held ${slowest} ms`);
+    assert.ok(result >= 500, `every moved card drawn again (${result})`);
+    assert.ok(slowest < 400, `a post waited ${slowest} ms behind the sweep`);
+  } finally {
+    await api.close();
+  }
+});

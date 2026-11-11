@@ -103,6 +103,9 @@ async function askingMessageOf(tx: TenantClient, taskId: string): Promise<{ id: 
  * the cursor moved on. Returns how many rows it wrote. Run by the worker each
  * tick, after the inbox's own stages and before the owner is notified.
  */
+/** The most cards one statement of the sweep writes. */
+const CARDS_A_STATEMENT = 500;
+
 export async function syncRoomCards(companyId: string): Promise<number> {
   // A division made since the last pass has its room before a card is put in it.
   await ensureCompanyRooms(companyId);
@@ -206,12 +209,18 @@ export async function syncRoomCards(companyId: string): Promise<number> {
           AND NOT EXISTS (SELECT 1 FROM room_messages c WHERE c.room_id = r.id AND c.kind = 'work' AND c.task_id = t.id)
         ORDER BY t.created_at, t.id`,
       [now]);
-    for (const task of started) {
+    // Many cards to a statement: the clock is held from this pass's first
+    // write to its commit, and every room write of the company waits for it,
+    // so a busy division's work is drawn in one round trip rather than one a
+    // card (STATUS 2.217). The rows go in the work's order.
+    for (let from = 0; from < started.length; from += CARDS_A_STATEMENT) {
+      const some = started.slice(from, from + CARDS_A_STATEMENT);
       await tx.query(
         `INSERT INTO room_messages (id, company_id, room_id, kind, author, via, task_id, notice_values, position)
-         VALUES ($1, $2, $3, 'work', 'platform', 'platform', $4, $5, 0)`,
-        [randomUUID(), companyId, task.room_id, task.id, JSON.stringify({ state: 'pending' })]);
-      written += 1;
+         SELECT gen_random_uuid(), $1, u.room_id, 'work', 'platform', 'platform', u.task_id, '{"state":"pending"}'::jsonb, 0
+           FROM unnest($2::uuid[], $3::uuid[]) WITH ORDINALITY AS u(room_id, task_id, n) ORDER BY u.n`,
+        [companyId, some.map((task) => task.room_id), some.map((task) => task.id)]);
+      written += some.length;
     }
 
     // 3. Every card whose subject moved since it was drawn: drawn again, in
@@ -228,13 +237,21 @@ export async function syncRoomCards(companyId: string): Promise<number> {
         WHERE c.author = 'platform' AND c.kind IN ('work', 'question', 'approval', 'meeting')
           AND c.created_at > $1::timestamptz - make_interval(days => ${STATE_DAYS})`,
       [now]);
+    const redrawn: Array<{ id: string; state: string }> = [];
     for (const card of cards) {
       const state = card.item_kind !== null
         ? itemState({ kind: card.item_kind, status: card.status!, decision: card.decision, payload: card.payload ?? {} }, card.closed_reason)
         : card.task_status ?? 'gone';
-      if (state === card.drawn) continue;
-      await tx.query('UPDATE room_messages SET notice_values = $2 WHERE id = $1', [card.id, JSON.stringify({ state })]);
-      written += 1;
+      if (state !== card.drawn) redrawn.push({ id: card.id, state });
+    }
+    // Drawn again many to a statement, for the reason above.
+    for (let from = 0; from < redrawn.length; from += CARDS_A_STATEMENT) {
+      const some = redrawn.slice(from, from + CARDS_A_STATEMENT);
+      await tx.query(
+        `UPDATE room_messages c SET notice_values = jsonb_build_object('state', u.state)
+           FROM unnest($1::uuid[], $2::text[]) AS u(id, state) WHERE c.id = u.id`,
+        [some.map((card) => card.id), some.map((card) => card.state)]);
+      written += some.length;
     }
 
     // 4. Work under a person's own message, which the platform does not

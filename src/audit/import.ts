@@ -847,7 +847,7 @@ async function importSection(
   let written = 0;
   for (const row of rows) {
     // In the archive's order, so a reply after its message: a row left out
-    // takes its id from the map, and whatever names it is left out in turn.
+    // has its id taken out of the map, and whatever names it is left out in turn.
     if ((section.required ?? []).some((column) => typeof row[column] === 'string' && !remap.has(row[column] as string))) {
       if (typeof row.id === 'string') remap.delete(row.id);
       continue;

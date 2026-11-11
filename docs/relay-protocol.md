@@ -660,7 +660,7 @@ before anything else is read of it.
 | Status | Body | When |
 |---|---|---|
 | `200` | `{ "ok": true, "result": … }` | taken; a press also carries `text`, "Decided through" the relay's name, in the person's language |
-| `401` | `{ "ok": false, "code" }` | unknown or revoked relay, bad signature |
+| `401` | `{ "ok": false, "code" }` | `relay.unknown`: an unknown or revoked relay; `relay.signature`: a signature that does not verify with the key pinned |
 | `408` | `{ "ok": false, "code": "relay.stale", "tolerance": 300, "now" }` | signed more than 300 seconds from the deployment's `now` |
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
 | `410` | `{ "ok": false, "code": "relay.link_ended" }` | the link has ended |

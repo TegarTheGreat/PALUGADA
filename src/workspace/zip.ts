@@ -15,8 +15,13 @@
  * (`maxOutputLength`), whatever its header says: 64 MB for one entry, 2 GB
  * for the whole export, and no more than 200 times what it was packed to.
  * Past any of them the entry is refused as `import.too_large`, and nothing
- * larger than the cap is ever held. Each entry's CRC is checked, so a part
- * cut short or damaged on its way is found, rather than read as words.
+ * larger than the cap is ever held. What an entry unpacked to counts toward
+ * the export's cap whether or not it then passes its check, so entries that
+ * fail are no way round it. Each entry's CRC is checked, so a part cut short
+ * or damaged on its way is found, rather than read as words. And no two
+ * entries may share bytes: a directory that names one entry's bytes under
+ * many names, or one entry inside another's, would have them unpacked again
+ * and again from a file a fraction of the size, so it is no ZIP read here.
  */
 import { crc32, inflateRawSync } from 'node:zlib';
 import { PalugadaError } from '../errors.ts';
@@ -177,11 +182,33 @@ export async function openZip(source: RandomAccess, limits: ZipLimits = {}): Pro
     entries.push({ index, name, method, flags, crc, compressed, size, offset });
     at = next;
   }
-  return new ZipReader(source, entries, {
+  return new ZipReader(source, entries, endsOf(entries, directoryAt), {
     entryBytes: limits.entryBytes ?? ENTRY_BYTES,
     totalBytes: limits.totalBytes ?? TOTAL_BYTES,
     ratio: limits.ratio ?? RATIO,
   });
+}
+
+/**
+ * Where each entry's bytes must end: at the next entry's local header in the
+ * file, or at the central directory after the last. Refuses a directory whose
+ * entries share a local header, or where one entry starts before the bytes
+ * the one before it says it packed have ended. Answers, by entry index, the
+ * offset its data may not run past.
+ */
+function endsOf(entries: readonly ZipEntry[], directoryAt: number): Float64Array {
+  const ends = new Float64Array(entries.length);
+  const inFile = [...entries].sort((a, b) => a.offset - b.offset);
+  for (let at = 0; at < inFile.length; at += 1) {
+    const entry = inFile[at]!;
+    const next = inFile[at + 1]?.offset ?? directoryAt;
+    // A local header is thirty bytes before its name, and its packed bytes come after.
+    if (entry.offset + 30 + entry.compressed > next) {
+      throw notAZip(next === directoryAt ? `${entry.name} runs into the central directory` : `${entry.name} shares its bytes with another entry`);
+    }
+    ends[entry.index] = next;
+  }
+  return ends;
 }
 
 /** An opened ZIP: its entries, and each one's bytes on request, within the reader's caps. */
@@ -189,14 +216,24 @@ export class ZipReader {
   readonly entries: readonly ZipEntry[];
   readonly #source: RandomAccess;
   readonly #limits: Required<ZipLimits>;
-  /** What every entry read so far unpacked to, each counted once however often it is read. */
+  /** Where each entry's bytes must end, by its index. */
+  readonly #ends: Float64Array;
+  /** What every entry read so far unpacked to, each counted once however often it is read, and whether it passed its check or not. */
   #total = 0;
   readonly #counted = new Set<number>();
 
-  constructor(source: RandomAccess, entries: readonly ZipEntry[], limits: Required<ZipLimits>) {
+  constructor(source: RandomAccess, entries: readonly ZipEntry[], ends: Float64Array, limits: Required<ZipLimits>) {
     this.#source = source;
     this.entries = entries;
+    this.#ends = ends;
     this.#limits = limits;
+  }
+
+  /** Counts what an entry unpacked to, or might have before it was stopped, the first time it is read. */
+  #count(entry: ZipEntry, bytes: number): void {
+    if (this.#counted.has(entry.index)) return;
+    this.#counted.add(entry.index);
+    this.#total += bytes;
   }
 
   /**
@@ -220,6 +257,7 @@ export class ZipReader {
     if (header.length < 30 || header.readUInt32LE(0) !== LOCAL) throw broken(entry, 'its local header is not where the directory says');
     const dataAt = entry.offset + 30 + header.readUInt16LE(26) + header.readUInt16LE(28);
     if (dataAt + entry.compressed > this.#source.size) throw broken(entry, 'it runs past the end of the file');
+    if (dataAt + entry.compressed > this.#ends[entry.index]!) throw broken(entry, 'it runs into the entry after it');
     const packed = await this.#source.read(dataAt, entry.compressed);
     let bytes: Buffer;
     if (entry.method === 0) {
@@ -230,17 +268,16 @@ export class ZipReader {
       try {
         bytes = inflateRawSync(packed, { maxOutputLength: cap });
       } catch (error) {
+        // Stopped at the cap, or damaged part way: it may have unpacked as far as the cap first.
+        this.#count(entry, cap);
         if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE' || error instanceof RangeError) {
           throw tooLarge(entry, `it unpacks past ${cap} bytes`);
         }
         throw broken(entry, 'its packed bytes are damaged');
       }
     }
+    this.#count(entry, bytes.length);
     if (bytes.length !== entry.size || crc32(bytes) !== entry.crc) throw broken(entry, 'its bytes are not the ones it was packed from');
-    if (!this.#counted.has(entry.index)) {
-      this.#counted.add(entry.index);
-      this.#total += bytes.length;
-    }
     return bytes;
   }
 }

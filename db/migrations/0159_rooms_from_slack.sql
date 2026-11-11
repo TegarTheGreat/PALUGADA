@@ -61,6 +61,10 @@ CREATE TABLE room_imports (
   -- Until when a worker holds it to read: one reads it at a time, and
   -- another takes it up when a worker that stopped lets this pass.
   reading_until timestamptz,
+  -- How far reading it has come -- the channel, its day and the message in
+  -- that day -- saved with every batch written, so a reading that stopped,
+  -- or ran out of a tick's time, goes on from there. Null when not read yet.
+  reached       jsonb CHECK (reached IS NULL OR jsonb_typeof(reached) = 'object'),
   UNIQUE (company_id, id),
   CONSTRAINT room_imports_received CHECK (received BETWEEN 0 AND parts),
   CONSTRAINT room_imports_read_when_whole CHECK (status = 'receiving' OR received = parts OR status = 'failed'),

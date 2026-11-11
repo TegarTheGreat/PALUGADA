@@ -817,8 +817,10 @@ export class Worker {
 
       // F19.23: a Slack export whose parts have all arrived, read into rooms
       // (STATUS 2.214). Before the cards, which then find its rooms there.
+      // Ten seconds a tick at most, from where the last tick stopped: a large
+      // export is read over many ticks rather than holding up every company's.
       await this.#stage(report, 'imports', async () => {
-        await readImports(company, this.#options.erasure ?? {});
+        await readImports(company, this.#options.erasure ?? {}, { withinMs: 10_000 });
       });
 
       // F19.5, F19.16: the rooms' cards, drawn from what the stages above

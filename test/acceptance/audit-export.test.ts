@@ -777,6 +777,7 @@ test('every column of every exported table travels, or is named as deliberately 
     'room_messages.client_id': 'a browser\'s retry key, which means nothing once the message is kept',
     'room_files.path': 'where the bytes were kept on the other deployment; the archive carries no file, so a restored one is a name',
     'room_imports.reading_until': "a worker's hold on reading an import, on the other deployment",
+    'room_imports.reached': 'how far a worker had read an import whose parts stayed on the other deployment; a restored import reads none',
     'room_former_people.seat_id': "a staff seat is this deployment's, and not restored; a restored author is drawn under the name they came with, and linked again by the owner",
     'room_former_people.linked_at': 'when that link was made, which is not restored',
     'room_former_people.gave': 'the rooms that link joined its seat to, which go with it',

@@ -30,7 +30,10 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
   const view = useLoad(async () => {
     const [window_, retention, office, digest]: [
       { timezone: string; startHour: number; endHour: number },
-      { policy: { eventDays: number; traceDays: number; promptDays: number }; log: Array<{ action: string; rowsAffected: number; throughAt: string }> },
+      {
+        policy: { eventDays: number; traceDays: number; promptDays: number; messageDays: number | null };
+        log: Array<{ action: string; rowsAffected: number; throughAt: string }>;
+      },
       { hours: Hours | null },
       Digest,
     ] = await Promise.all([
@@ -122,6 +125,7 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/retention`, values)}
         />
+        <MessageWindow companyId={companyId} days={retention.policy.messageDays} saved={view.reload} />
         {retention.log.length > 0 && (
           <Table mt="md" verticalSpacing={6}>
             <Table.Tbody>
@@ -188,6 +192,45 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
  * (F19.17): the server refuses attending while the meeting's hour is outside
  * the owner's own hours, and the console says why in the server's words.
  */
+/**
+ * How long people's messages are kept (F19.15; STATUS 2.212): for good, which
+ * is how a company starts, or a month to ten years, each message by its own
+ * age. Empty keeps them; the server refuses a window under thirty days.
+ */
+function MessageWindow({ companyId, days, saved }: { companyId: string; days: number | null; saved: () => void }) {
+  const [value, setValue] = useState<string | number>(days ?? '');
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api('POST', `/api/companies/${companyId}/retention`, { messageDays: value === '' ? null : Number(value) });
+      notifications.show({ color: 'teal', message: value === '' ? t('Messages are kept for good.') : t('Saved.') });
+      saved();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Group align="flex-end" mt="md" gap="sm" wrap="wrap">
+      <NumberInput
+        label={t('Messages, days')}
+        description={t('Empty keeps what people say in the rooms for good. A window is 30 days at least; each message goes by its own age.')}
+        placeholder={t('Kept for good')}
+        value={value}
+        onChange={setValue}
+        min={30}
+        max={3650}
+        allowDecimal={false}
+        allowNegative={false}
+        style={{ flex: 1, minWidth: 220 }}
+      />
+      <Button variant="light" loading={saving} disabled={(value === '' ? null : Number(value)) === days} onClick={() => void save()}>{t('Save')}</Button>
+    </Group>
+  );
+}
+
 function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest['lastMeeting'] }) {
   const { companyId, company } = ctx;
   return (

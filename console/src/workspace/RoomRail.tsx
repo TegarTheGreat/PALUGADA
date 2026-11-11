@@ -1,14 +1,14 @@
 /**
- * The list of a person's rooms (F19.1, F19.10): Activity, the direct
- * conversations, the company room, the divisions' rooms and the topic rooms
+ * The list of a person's rooms (F19.1, F19.10): a search of what was said
+ * (F19.14), Activity, the direct conversations, the company room, the divisions' rooms and the topic rooms
  * they joined. What has something new is bold, what names them carries a red
  * count (up to 99), and a quiet room a glyph; every number is the server's. The owner's
  * conversations with the company's CEO and with PALUGADA are pinned among
  * the direct messages, since they are the owner's own.
  */
 import type { ReactNode } from 'react';
-import { Avatar, Badge, Box, Button, Group, ScrollArea, Stack, Text, UnstyledButton } from '@mantine/core';
-import { IconBellOff, IconBolt, IconCompass, IconHash, IconLock, IconMessagePlus, IconPlus, IconSparkles } from '@tabler/icons-react';
+import { Avatar, Badge, Box, Button, Group, ScrollArea, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { IconBellOff, IconBolt, IconCompass, IconHash, IconLock, IconMessagePlus, IconPlus, IconSearch, IconSparkles } from '@tabler/icons-react';
 import { t, tp } from '../i18n.ts';
 import { companyEmblem, personPicture, rolePicture } from '../images.ts';
 import { roomName, useScope } from './scope.ts';
@@ -24,7 +24,7 @@ export function quiet(room: RoomListItem): boolean {
   return room.notify === 'none' || (room.mutedUntil !== null && new Date(room.mutedUntil).getTime() > Date.now());
 }
 
-export function RoomRail({ rooms, selected, select, attention, newRoom, newMessage }: {
+export function RoomRail({ rooms, selected, select, attention, newRoom, newMessage, search }: {
   rooms: RoomListItem[];
   /** The item open now: a room's id, `activity`, `browse`, `ceo` or `palugada`. */
   selected: string | null;
@@ -33,6 +33,8 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
   attention: number;
   newRoom: () => void;
   newMessage: () => void;
+  /** Searches what was said in the company's rooms (STATUS 2.212). */
+  search: (query: string) => void;
 }) {
   const scope = useScope();
   const owner = scope.kind === 'owner';
@@ -81,7 +83,16 @@ export function RoomRail({ rooms, selected, select, attention, newRoom, newMessa
           <Text fw={700} truncate>{scope.ctx.company.name}</Text>
         </Group>
       </Group>
-      {/* The search box (section 2.212) goes here. */}
+      <Box component="form" px="sm" pb={6} role="search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const box = event.currentTarget.elements.namedItem('q') as HTMLInputElement | null;
+          const text = box?.value.trim() ?? '';
+          if (text.length >= 2) search(text);
+        }}>
+        <TextInput name="q" size="xs" placeholder={t('Search messages')} aria-label={t('Search messages')}
+          leftSection={<IconSearch size={14} />} maxLength={200} dir="auto" />
+      </Box>
       <ScrollArea style={{ flex: 1 }} type="auto" offsetScrollbars="y">
         <Stack gap={1} px={6} pb="sm">
           {row('activity', t('Activity'), <IconBolt size={18} />, { count: attention })}

@@ -81,7 +81,7 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
   const send = (sent: Sent) => {
     void posting.start({
       body: sent.body, mentions: sent.mentions, mentionsRoom: sent.mentionsRoom, alsoInRoom: sent.alsoInRoom,
-      threadOf: rootId, then: sent.tell ? 'tell' : null,
+      threadOf: rootId, then: sent.tell ? 'tell' : null, files: sent.files,
     }).catch((failure: unknown) => notifications.show({ color: 'red', message: explain(failure) }));
   };
   const retry = (pending: Pending) => {

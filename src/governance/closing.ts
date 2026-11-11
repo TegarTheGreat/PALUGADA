@@ -11,7 +11,8 @@
  * erased, and how many rows of what went.
  *
  * Then what it kept outside its rows (0096): its directory in the files
- * root, and its charter's folder in the charter repository, whose removal is
+ * root, its people's room files beside it (STATUS 2.212), and its charter's
+ * folder in the charter repository, whose removal is
  * committed there. After the rows, never before, and a failure to remove them
  * is said without bringing the rows back: the rows are most of what the
  * people in them have the right to have erased.
@@ -33,6 +34,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { CREDENTIAL_SECRETS } from '../secrets/manager.ts';
 import { removeCompanyFiles } from '../capabilities/files.ts';
+import { erasePeopleFiles, peopleFolderOf } from '../workspace/files.ts';
 import type { CharterRepository } from './charter-repository.ts';
 import { browserSecretName } from '../browser/cookies.ts';
 
@@ -126,6 +128,12 @@ export interface Erasure {
 export interface ErasureDisk {
   /** `PALUGADA_FILES_ROOT`: each company's files are the directory under it named by its id. */
   filesRoot?: string | null | undefined;
+  /**
+   * `PALUGADA_PEOPLE_FILES_ROOT`, where room files are kept when it is set;
+   * otherwise they are beside each company's folder under `filesRoot`
+   * (STATUS 2.212).
+   */
+  peopleRoot?: string | null | undefined;
   /** The charter repository, whose `companies/<slug>/` holds the company's charter. */
   charters?: Pick<CharterRepository, 'root' | 'forget'> | null | undefined;
 }
@@ -291,6 +299,12 @@ async function removeFromDisk(disk: ErasureDisk, companies: Array<{ companyId: s
         await removeCompanyFiles(disk.filesRoot, companyId);
       } catch (error) {
         left.push({ companyId, path: join(disk.filesRoot, companyId), reason: said(error) });
+      }
+      // What its people said in files (F19.4), kept beside its folder rather than in it.
+      try {
+        await erasePeopleFiles(disk, companyId);
+      } catch (error) {
+        left.push({ companyId, path: peopleFolderOf(disk, companyId) ?? companyId, reason: said(error) });
       }
     }
   }

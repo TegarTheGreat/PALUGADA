@@ -34,6 +34,7 @@ import { QUICK_REACTIONS } from './emoji.ts';
 import { MeetingCard } from './MeetingCard.tsx';
 import { NoticeRow } from './NoticeRow.tsx';
 import { QuestionCard } from './QuestionCard.tsx';
+import { RoomFiles } from './RoomFiles.tsx';
 import { personPicture } from '../images.ts';
 import { nameOf, tokenOf, useScope } from './scope.ts';
 import type { MessageView } from './types.ts';
@@ -214,7 +215,9 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
             </Group>
           )}
           {message.deleted ? (
-            <Text size="sm" c="dimmed" fs="italic">{t('This message was removed.')}</Text>
+            <Text size="sm" c="dimmed" fs="italic">
+              {message.expired ? t('Removed when its time was up.') : t('This message was removed.')}
+            </Text>
           ) : editing ? (
             <Stack gap={6} mt={4}>
               <Textarea autosize minRows={1} maxRows={8} value={words} onChange={(event) => setWords(event.currentTarget.value)} autoFocus dir="auto" />
@@ -223,7 +226,8 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
                 <Button size="compact-sm" disabled={!words.trim() || words === message.body} onClick={() => void edit()}>{t('Save')}</Button>
               </Group>
             </Stack>
-          ) : message.body !== null ? (
+          ) : message.body ? (
+            // A message of files alone says nothing, and draws no words.
             <Box className="message-body" dir="auto">
               <Prose text={message.body} mentions={named} />
               {(message.edited || roomUnwritten) && (
@@ -236,7 +240,7 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
               )}
             </Box>
           ) : null}
-          {/* A message's files (section 2.212) are drawn here. */}
+          <RoomFiles roomId={message.roomId} files={message.files} removed={message.deleted} />
           {/* A people's meeting set from this message (section 2.215) is drawn here. */}
           {message.card && (message.card.kind === 'work'
             ? <WorkState card={message.card} message={message} />

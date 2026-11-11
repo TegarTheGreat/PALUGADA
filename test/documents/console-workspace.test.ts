@@ -130,3 +130,23 @@ test('every workspace route is written out at its call', async () => {
     assert.doesNotMatch(source, /\bapi(?:<[^>]*>)?\(\s*'[A-Z]+'\s*,\s*(?![\s'`])/, `${path} calls a route by a path built elsewhere`);
   }
 });
+
+test("a file is attached from the composer, from a phone's camera too, and only a small picture is drawn", async () => {
+  // F19.16: a phone attaches what its camera takes, as a desktop attaches a
+  // file. And F19.4's files are drawn only when the server says a file is a
+  // small picture of a kind no browser runs (`inline`), from a data address
+  // the console's policy allows; everything else -- an SVG, a page -- is
+  // saved as an octet stream with its name, never opened from this origin.
+  const files = await workspace();
+  const composer = files.get('workspace/Composer.tsx') ?? '';
+  assert.match(composer, /<input[^>]*type="file"[^>]*multiple/, 'the composer attaches files');
+  assert.match(composer, /<input[^>]*accept="image\/\*"[^>]*capture="environment"/, 'and takes a picture with a phone\'s camera');
+  const drawn = files.get('workspace/RoomFiles.tsx') ?? '';
+  assert.match(files.get('workspace/MessageRow.tsx') ?? '', /<RoomFiles\b/, 'a message draws its files');
+  assert.match(drawn, /\.inline\b/, 'what is drawn is what the server says may be');
+  assert.match(drawn, /`data:\$\{[^}]+\};base64,\$\{[^}]+\}`/, 'a picture is drawn from a data address');
+  for (const blob of drawn.matchAll(/new Blob\(\[[^\]]*\],\s*\{([^}]*)\}/g)) {
+    assert.match(blob[1]!, /type:\s*'application\/octet-stream'/, 'a file is saved as bytes, never as the kind it says it is');
+  }
+  assert.doesNotMatch(drawn, /window\.open|target="_blank"|<iframe|<object|<embed/, 'a file is never opened in the console\'s origin');
+});

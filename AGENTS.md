@@ -79,6 +79,11 @@ npm run db:migrate
 `npm run test:coverage`, the same suite with coverage, whose report names the
 functions no test calls.
 
+Room files are kept in `<PALUGADA_FILES_ROOT>/<companyId>.people/`, beside
+each company's own folder, or under `PALUGADA_PEOPLE_FILES_ROOT` when it is
+set, which must not be inside a company's folder of `PALUGADA_FILES_ROOT`:
+the deployment refuses to start with one there.
+
 `npm run setup` is for running PALUGADA, not for working on it. The suite
 connects with the development URLs and reads nothing from `.env`, while
 `db:setup` takes its passwords from `.env` when one exists: in a checkout
@@ -125,6 +130,10 @@ Each of these is a test, and each exists because the mistake was made once.
   work writes an event, and it names a private or direct room only as
   `room: 'private'`. `test/acceptance/rooms-write-no-events.test.ts`,
   `test/acceptance/room-doors.test.ts`.
+- **No agent capability reaches a room file.** Room files live beside the
+  company's files, never under them, under their own id with the kind their
+  bytes show; only a small picture is drawn, and everything else is saved.
+  `test/acceptance/room-files.test.ts`.
 - **No route that reads people's words is readable by the assistant.** Every
   GET of a people's route module is under `UNREADABLE_UNDER`, both of the
   assistant's gates ask `unreadable()`, and the people's helpers throw inside

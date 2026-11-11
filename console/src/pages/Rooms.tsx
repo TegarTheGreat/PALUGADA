@@ -10,7 +10,8 @@
  * keyboard and no tab bar, and a thread is a sheet over the room.
  *
  * What is open is in the address (`?item=<room>`, `<room>~<message>` for a
- * thread, or `activity`, `browse`, and for the owner `ceo` and `palugada`),
+ * thread, or `activity`, `browse`, `search`, and for the owner `ceo` and
+ * `palugada`),
  * so a reload, the back button and a notice's link land where the person
  * was. Agents are never in a room: the company appears only as cards, and a
  * message becomes work only when someone presses for it. Nothing is kept in
@@ -36,6 +37,7 @@ import { CallMeeting } from '../workspace/MeetingCard.tsx';
 import { NewMessage } from '../workspace/NewMessage.tsx';
 import { NewRoom } from '../workspace/NewRoom.tsx';
 import { RoomInfo } from '../workspace/RoomInfo.tsx';
+import { SearchPanel } from '../workspace/SearchPanel.tsx';
 import { quiet, RoomRail } from '../workspace/RoomRail.tsx';
 import { roomName, ScopeContext, useScope, type Scope } from '../workspace/scope.ts';
 import { ThreadPanel } from '../workspace/ThreadPanel.tsx';
@@ -48,11 +50,11 @@ import { useRoomPulse } from '../workspace/useRoomStream.ts';
 type Open =
   | { kind: 'none' }
   | { kind: 'room'; roomId: string; threadId: string | null }
-  | { kind: 'activity' } | { kind: 'browse' } | { kind: 'ceo' } | { kind: 'palugada' };
+  | { kind: 'activity' } | { kind: 'browse' } | { kind: 'search' } | { kind: 'ceo' } | { kind: 'palugada' };
 
 function openOf(item: string | null, owner: boolean): Open {
   if (!item) return { kind: 'none' };
-  if (item === 'activity' || item === 'browse') return { kind: item };
+  if (item === 'activity' || item === 'browse' || item === 'search') return { kind: item };
   // The owner's own conversations; a seat has none here.
   if (item === 'ceo' || item === 'palugada') return owner ? { kind: item } : { kind: 'none' };
   const [roomId = '', threadId] = item.split('~');
@@ -77,6 +79,8 @@ export function Rooms({ ctx, route }: PageProps) {
   const [calling, setCalling] = useState<{ message: MessageView } | null>(null);
   const [making, setMaking] = useState(false);
   const [writing, setWriting] = useState<string[] | null>(null);
+  // What the rail's search asked for: the page's memory only, never the browser's.
+  const [query, setQuery] = useState('');
 
   const select = useCallback((item: string | null, replace = false) => {
     go({ ...route, item }, { replace });
@@ -181,6 +185,7 @@ export function Rooms({ ctx, route }: PageProps) {
             attention={attention}
             newRoom={() => setMaking(true)}
             newMessage={() => setWriting([])}
+            search={(text) => { setQuery(text); select('search'); }}
           />
         )}
         {showMain && (
@@ -192,6 +197,13 @@ export function Rooms({ ctx, route }: PageProps) {
               <>
                 <PaneHead back={phone ? () => select(null) : null} title={t('Activity')} />
                 <Activity rooms={rooms.data ?? []} open={(id) => select(id)} />
+              </>
+            )}
+            {open.kind === 'search' && (
+              <>
+                <PaneHead back={phone ? () => select(null) : null} title={t('Search messages')} />
+                <SearchPanel query={query} setQuery={setQuery} rooms={rooms.data ?? []}
+                  open={(hit) => select(`${hit.roomId}~${hit.threadOf ?? hit.messageId}`)} />
               </>
             )}
             {open.kind === 'browse' && (
@@ -260,7 +272,9 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
   const posting = usePosting(scope.companyId, roomId, kept);
   const failed = (failure: unknown) => notifications.show({ color: 'red', message: explain(failure) });
   const send = (sent: Sent) => {
-    void posting.start({ body: sent.body, mentions: sent.mentions, mentionsRoom: sent.mentionsRoom, alsoInRoom: false, threadOf: null, then: null })
+    void posting.start({
+      body: sent.body, mentions: sent.mentions, mentionsRoom: sent.mentionsRoom, alsoInRoom: false, threadOf: null, then: null, files: sent.files,
+    })
       .then((answer) => {
         if (answer.mentionsDropped.length > 0) {
           notifications.show({ color: 'yellow', message: tp('{count} person you named was not told: they are not in this room, or their name is no longer in the words.',

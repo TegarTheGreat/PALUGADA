@@ -24,11 +24,25 @@ export interface TenantClient {
   ): Promise<pg.QueryResult<R>>;
 }
 
+/**
+ * How a transaction begins. `oneMoment` reads the database as it was when its
+ * first statement ran, every statement of it alike, and writes nothing
+ * (REPEATABLE READ, READ ONLY): what a company's archive is taken in, so a
+ * row it carries never names one it does not. `pg_export_snapshot()` hands
+ * that moment to a control-plane transaction (`withControlPlane`'s `moment`).
+ */
+export interface Beginning {
+  oneMoment?: boolean;
+}
+
+const ONE_MOMENT = 'BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY';
+
 export async function withTenant<T>(
   companyId: string,
   fn: (tx: TenantClient) => Promise<T>,
+  beginning: Beginning = {},
 ): Promise<T> {
-  return scoped(appPool(), companyId, null, fn);
+  return scoped(appPool(), companyId, null, fn, beginning.oneMoment ? ONE_MOMENT : 'BEGIN');
 }
 
 /**
@@ -170,11 +184,12 @@ async function scoped<T>(
   companyId: string,
   reading: Reading | null,
   fn: (tx: TenantClient) => Promise<T>,
+  begin = 'BEGIN',
 ): Promise<T> {
   const client = await pool.connect();
   let committing = false;
   try {
-    await client.query('BEGIN');
+    await client.query(begin);
     if (reading === null) {
       await client.query('SELECT set_config($1, $2, true)', ['app.company_id', companyId]);
     } else {
@@ -222,18 +237,30 @@ async function commitOrFail(client: pg.PoolClient): Promise<void> {
   }
 }
 
+/** What `pg_export_snapshot()` answers: hex words joined by dashes, nothing that could end a literal. */
+const MOMENT = /^[0-9A-Fa-f]{1,16}(-[0-9A-Fa-f]{1,16}){1,2}$/;
+
 /**
  * Control-plane access, outside any tenant scope.
  *
  * Reserved for platform operations such as creating a company or reading a
  * cross-tenant digest. Passing agent-supplied input to this function defeats
  * the isolation boundary, so callers should be few and obvious.
+ *
+ * `moment` is a moment another transaction exported (`pg_export_snapshot()`,
+ * in a `oneMoment` transaction still open): this one then reads exactly what
+ * that one reads, and writes nothing.
  */
-export async function withControlPlane<T>(fn: (tx: TenantClient) => Promise<T>): Promise<T> {
+export async function withControlPlane<T>(fn: (tx: TenantClient) => Promise<T>, options: { moment?: string } = {}): Promise<T> {
+  if (options.moment !== undefined && !MOMENT.test(options.moment)) {
+    throw new Error(`a moment is what pg_export_snapshot() answered, not ${JSON.stringify(options.moment)}`);
+  }
   const client = await adminPool().connect();
   let committing = false;
   try {
-    await client.query('BEGIN');
+    await client.query(options.moment === undefined ? 'BEGIN' : ONE_MOMENT);
+    // Before any other statement, which is the only place PostgreSQL takes it.
+    if (options.moment !== undefined) await client.query(`SET TRANSACTION SNAPSHOT '${options.moment}'`);
     const result = await fn({ query: (text, values) => client.query(text, values) });
     committing = true;
     await commitOrFail(client);

@@ -42,7 +42,28 @@ export interface ExportSummary {
   companySlug: string;
   exportedAt: string;
   counts: Record<string, number>;
+  /**
+   * What the archive leaves out on purpose, by table, and why: said in the
+   * archive itself, so whoever reads it knows these are not missing.
+   */
+  leftOut: Record<string, string>;
 }
+
+/**
+ * The rooms' tables that are a person's place and attention, or delivery's
+ * bookkeeping, rather than the company's record (STATUS 2.212): where each
+ * person read to, what is owed to whom, what changed for an open room to
+ * catch up on. A restore makes each person a fresh place at the end of every
+ * room instead, so nothing restored is new to anyone.
+ */
+const LEFT_OUT: Readonly<Record<string, string>> = {
+  room_places: "a person's own place in a room -- where they read to, how loudly it tells them -- not the company's record",
+  room_access: "who may see a private room, kept by the database from the room's members, which the archive carries",
+  room_mentions: "attention a person was owed, not the company's record",
+  room_follows: "the threads a person follows, their own attention",
+  room_feed: 'what changed, for an open room to catch up on: delivery bookkeeping',
+  room_clock: "the rooms' order, which a restore takes again from the messages' order",
+};
 
 /**
  * Sections in dependency order, so an archive can be read back top to bottom.
@@ -57,12 +78,14 @@ interface Section {
   /**
    * Read through the control plane instead of the tenant scope.
    *
-   * Only for `governance_log`, which the application role is deliberately not
+   * For `governance_log`, which the application role is deliberately not
    * granted: a record of who changed the rules is an owner artefact, not
    * working material for the agents those rules constrain. Keeping that
    * withholding intact means the export cannot read it through the ordinary
    * path, so it reads it with an explicit company predicate instead -- the
-   * predicate doing the work row-level security does everywhere else.
+   * predicate doing the work row-level security does everywhere else. And
+   * for the rooms' tables, which open to no transaction that names no
+   * reader (0150), so no agent's reads them either.
    */
   viaControlPlane?: boolean;
 }
@@ -532,9 +555,71 @@ const SECTIONS: Section[] = [
             FROM gateway_devices ORDER BY created_at`,
   },
   {
+    // With how long its people's messages are kept (F19.15).
     name: 'retention_policies',
-    sql: `SELECT id, event_days, trace_days, prompt_days, created_at
+    sql: `SELECT id, event_days, trace_days, prompt_days, message_days, created_at
             FROM retention_policies WHERE company_id IS NOT NULL`,
+  },
+  // The rooms (F19, STATUS 2.212): what the company's people said, a private
+  // room's and a direct conversation's too, since the owner's export is the
+  // whole company. On the control plane with the company named, since a room
+  // table opens to no transaction that names no reader (0150). Each person's
+  // place and attention and the delivery's bookkeeping are not here
+  // (`LEFT_OUT`). Messages in their order, which a restore keeps.
+  {
+    name: 'rooms',
+    sql: `SELECT id, kind, division_id, name, about, private, direct_key, shows_work, shows_work_since,
+                 created_by, created_at, archived_at, archived_by
+            FROM rooms WHERE company_id = $1 ORDER BY created_at, id`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_members',
+    sql: `SELECT room_id, principal, name, role, added_by, joined_at, left_at, left_by
+            FROM room_members WHERE company_id = $1 ORDER BY joined_at, room_id, principal`,
+    viaControlPlane: true,
+  },
+  {
+    // Every column but the browser's retry key.
+    name: 'room_messages',
+    sql: `SELECT id, room_id, position, thread_of, also_in_room, kind, author, author_name, body, notice_code, notice_values,
+                 task_id, inbox_item_id, mentions, mentions_room, became, became_by, became_at, via, via_relay,
+                 reply_count, last_reply_position, edited_at, deleted_at, deleted_by, created_at
+            FROM room_messages WHERE company_id = $1 ORDER BY position`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_message_revisions',
+    sql: `SELECT id, message_id, body, replaced_at
+            FROM room_message_revisions WHERE company_id = $1 ORDER BY replaced_at, id`,
+    viaControlPlane: true,
+  },
+  {
+    // A removed message's reactions stay on its row and are no one's any more:
+    // only those on words still said travel, which a restore can put back.
+    name: 'room_reactions',
+    sql: `SELECT message_id, principal, emoji, created_at
+            FROM room_reactions WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND kind = 'text' AND deleted_at IS NULL)
+           ORDER BY created_at, message_id, principal, emoji`,
+    viaControlPlane: true,
+  },
+  {
+    name: 'room_pins',
+    sql: `SELECT room_id, message_id, pinned_by, pinned_at
+            FROM room_pins WHERE company_id = $1 ORDER BY pinned_at, message_id`,
+    viaControlPlane: true,
+  },
+  {
+    // A file travels as its name, its kind and its size, as a chat message's
+    // does: the archive carries no file, and where its bytes were stays here.
+    // Only a file of words still said: a removed message keeps none (STATUS 2.212).
+    name: 'room_files',
+    sql: `SELECT id, message_id, name, mime, bytes, sha256, created_at
+            FROM room_files WHERE company_id = $1
+             AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
+           ORDER BY created_at, id`,
+    viaControlPlane: true,
   },
   {
     name: 'batch_windows',
@@ -624,6 +709,17 @@ async function streamSection(
   return total;
 }
 
+/**
+ * Writes a company's archive, every section as of one moment.
+ *
+ * A company is used while its archive is taken, and each section is read
+ * after the one before: read as it was at each read, a reaction would name a
+ * message posted after the messages were read, a member a room made after the
+ * rooms were, and the archive could not be restored. So the tenant
+ * transaction reads one moment of the database (`oneMoment`), and the
+ * control-plane sections -- the governance log and the rooms -- are read in
+ * one control-plane transaction given the same moment.
+ */
 export async function exportCompany(
   companyId: string,
   write: ArchiveWriter,
@@ -635,35 +731,35 @@ export async function exportCompany(
     ]);
     const slug = rows[0]?.slug;
     if (!slug) throw new Error(`company ${companyId} not found, or not visible in this scope`);
+    const { rows: exported } = await tx.query<{ moment: string }>('SELECT pg_export_snapshot() AS moment');
 
-    const counts: Record<string, number> = {};
+    return withControlPlane(async (admin) => {
+      const counts: Record<string, number> = {};
 
-    for (const section of SECTIONS) {
-      if (section.viaControlPlane) {
-        counts[section.name] = await withControlPlane((admin) =>
-          streamSection(admin, section.name, section.sql, write, [companyId]),
-        );
-        continue;
+      for (const section of SECTIONS) {
+        counts[section.name] = section.viaControlPlane
+          ? await streamSection(admin, section.name, section.sql, write, [companyId])
+          : await streamSection(tx, section.name, section.sql, write);
       }
-      counts[section.name] = await streamSection(tx, section.name, section.sql, write);
-    }
 
-    counts.llm_traces = await streamSection(
-      tx,
-      'llm_traces',
-      options.includePrompts ? TRACES_WITH_PROMPTS : TRACES_WITHOUT_PROMPTS,
-      write,
-    );
+      counts.llm_traces = await streamSection(
+        tx,
+        'llm_traces',
+        options.includePrompts ? TRACES_WITH_PROMPTS : TRACES_WITHOUT_PROMPTS,
+        write,
+      );
 
-    return {
-      companyId,
-      companySlug: slug,
-      // Stamped by the caller's clock rather than the database's, so an
-      // archive says when it was taken rather than when a row was written.
-      exportedAt: new Date().toISOString(),
-      counts,
-    };
-  });
+      return {
+        companyId,
+        companySlug: slug,
+        // Stamped by the caller's clock rather than the database's, so an
+        // archive says when it was taken rather than when a row was written.
+        exportedAt: new Date().toISOString(),
+        counts,
+        leftOut: { ...LEFT_OUT },
+      };
+    }, { moment: exported[0]!.moment });
+  }, { oneMoment: true });
 }
 
 /**

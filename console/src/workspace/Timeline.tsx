@@ -25,6 +25,7 @@ import { Prose } from '../components/Prose.tsx';
 import { day } from '../format.ts';
 import { useLivePulse } from '../hooks.ts';
 import { t } from '../i18n.ts';
+import type { Attached } from './Composer.tsx';
 import { MessageRow } from './MessageRow.tsx';
 import { newClientId, useScope } from './scope.ts';
 import type { MessagePage, MessageView } from './types.ts';
@@ -41,6 +42,8 @@ export interface Pending {
   failed: boolean;
   /** What to do once it is kept: ask the team about it, call a meeting about it, or tell it to the thread's work. */
   then: 'ask' | 'meeting' | 'tell' | null;
+  /** The files that go with it, held in this tab's memory until it is kept. */
+  files?: Attached[];
 }
 
 /** How often an open room is read again while the room stream is not heard: refused for five tabs open already, or down. */
@@ -70,6 +73,7 @@ export function usePosting(companyId: string, roomId: string, kept: (message: Me
           body: one.body, clientId: one.clientId, mentions: one.mentions,
           ...(one.mentionsRoom ? { mentionsRoom: true } : {}),
           ...(one.threadOf ? { threadOf: one.threadOf, alsoInRoom: one.alsoInRoom } : {}),
+          ...(one.files && one.files.length > 0 ? { files: one.files.map((file) => ({ name: file.name, data: file.data })) } : {}),
         });
       setPending((now) => now.filter((other) => other.clientId !== one.clientId));
       kept(answer.message, one);
@@ -91,6 +95,7 @@ export function PendingRow({ pending, retry }: { pending: Pending; retry: (pendi
         <Box w={36} style={{ flexShrink: 0 }} />
         <Box style={{ flex: 1, minWidth: 0 }} className="message-body" dir="auto">
           <Prose text={pending.body} />
+          {(pending.files ?? []).map((file, index) => <Text key={index} size="xs" c="dimmed" dir="auto">{file.name}</Text>)}
           {pending.failed
             ? <Group gap={6}><Text size="xs" c="red">{t('Not sent')}</Text><Button size="compact-xs" variant="subtle" color="red" onClick={() => retry(pending)}>{t('Retry')}</Button></Group>
             : <Text size="xs" c="dimmed">{t('Sending…')}</Text>}

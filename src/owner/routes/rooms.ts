@@ -43,7 +43,7 @@ function refuseClaims(body: Record<string, unknown>): void {
 }
 
 /** Who is asking, in the company the path names: from the session, never the body. */
-function viewerOf(context: RouteContext): Viewer {
+export function viewerOf(context: RouteContext): Viewer {
   return {
     companyId: String(context.params.companyId ?? '').toLowerCase(),
     person: principalOf(context.session, context.staff),
@@ -60,8 +60,16 @@ function posted(handle: (viewer: Viewer, context: RouteContext) => Promise<unkno
   };
 }
 
+/**
+ * The largest post: a message's words and its five files, 24 MB together,
+ * which travel in base64, four bytes for every three (STATUS 2.212).
+ */
+const POST_MAX_BYTES = 33 * 1024 * 1024;
+
 /** Every route of the rooms. */
 export function roomRoutes(kit: RouteKit): Route[] {
+  // Where a company's room files are kept, asked only of a request that carries or removes some.
+  const folderOf = (viewer: Viewer) => kit.peopleFilesRoot(viewer.companyId);
   return [
     {
       // What waits in each company the person may see: the badge's numbers.
@@ -156,9 +164,13 @@ export function roomRoutes(kit: RouteKit): Route[] {
       handle: async (context) => threadView(viewerOf(context), roomIdOf(context.params.roomId), messageIdOf(context.params.messageId)),
     },
     {
+      // Words, and up to five files as `{ name, data }` with the bytes in base64.
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/messages',
-      handle: posted(async (viewer, { params, body }) => postMessage(viewer, roomIdOf(params.roomId), body)),
+      maxBodyBytes: POST_MAX_BYTES,
+      handle: posted(async (viewer, { params, body }) => postMessage(viewer, roomIdOf(params.roomId), body, {
+        peopleFolder: body.files === undefined || body.files === null ? null : folderOf(viewer),
+      })),
     },
     {
       method: 'POST',
@@ -171,7 +183,7 @@ export function roomRoutes(kit: RouteKit): Route[] {
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/messages/:messageId/delete',
       handle: posted(async (viewer, { params }) => ({
-        message: await deleteMessage(viewer, roomIdOf(params.roomId), messageIdOf(params.messageId)),
+        message: await deleteMessage(viewer, roomIdOf(params.roomId), messageIdOf(params.messageId), { peopleFolder: folderOf(viewer) }),
       })),
     },
     {

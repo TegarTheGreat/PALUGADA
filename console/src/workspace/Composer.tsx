@@ -10,6 +10,10 @@
  * may ask. What is not sent yet stays with the room in this tab's memory,
  * and is gone with the tab.
  *
+ * Up to five files go with a message, 24 MB together (STATUS 2.212): chosen
+ * from the device, or on a phone taken with its camera. They are read into
+ * this tab's memory only until the message is sent.
+ *
  * The words keep their own direction as they are typed, whatever the
  * console's is. The text area is the mention list's combobox: while the
  * list is open it says so, names the list and the person the arrows are on,
@@ -18,9 +22,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowUp, IconMoodSmile, IconSparkles, IconUsersGroup } from '@tabler/icons-react';
+import { IconArrowUp, IconCamera, IconMoodSmile, IconPaperclip, IconSparkles, IconUsersGroup, IconX } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
-import { count } from '../format.ts';
+import { readForUpload } from '../files.ts';
+import { count, fileSize } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { EmojiPicker } from './EmojiPicker.tsx';
 import { mentionAt, mentionChoices, MentionPicker, optionId, type MentionChoice } from './MentionPicker.tsx';
@@ -32,6 +37,16 @@ const BODY_MAX = 8_000;
 const COUNT_FROM = 7_000;
 /** `@room` asks before it tells more people than this. */
 const ROOM_ASKS_FROM = 10;
+/** How many files a message carries, and their bytes together, as the server holds them. */
+const FILES_MOST = 5;
+const FILES_BYTES = 24 * 1024 * 1024;
+
+/** A file chosen to go with the message: its name and its bytes, read into this tab's memory. */
+export interface Attached {
+  name: string;
+  data: string;
+  size: number;
+}
 
 /** Unsent words, by room and thread: this tab's memory only. */
 const drafts = new Map<string, string>();
@@ -43,6 +58,8 @@ export interface Sent {
   alsoInRoom: boolean;
   /** Told to the thread's work, once it is posted. */
   tell: boolean;
+  /** The files that go with it. */
+  files: Attached[];
 }
 
 export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet, editLast, tellable = false, disabled = false }: {
@@ -73,7 +90,10 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
   const [emoji, setEmoji] = useState(false);
   const [mode, setMode] = useState<'message' | 'tell'>('message');
   const [alsoInRoom, setAlsoInRoom] = useState(false);
+  const [files, setFiles] = useState<Attached[]>([]);
   const box = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
   const listId = useId();
   // Where the caret goes once a chosen name or emoji is written in. Placed as the words are drawn, before the
   // next key is read: placed a frame later, a key typed at once lands before the caret moves back over it.
@@ -123,9 +143,26 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
     change(value.slice(0, start) + text + value.slice(end), start + text.length);
   };
 
+  // Files chosen, or a picture taken, added to those already chosen: never more than a message carries.
+  const attach = async (chosen: FileList | null) => {
+    const list = [...(chosen ?? [])];
+    if (list.length === 0) return;
+    const total = [...files.map((one) => one.size), ...list.map((one) => one.size)].reduce((sum, size) => sum + size, 0);
+    if (files.length + list.length > FILES_MOST || total > FILES_BYTES) {
+      notifications.show({ color: 'yellow', message: t('A message carries up to five files, 24 MB in all.') });
+      return;
+    }
+    try {
+      const read = await Promise.all(list.map(async (file) => ({ ...await readForUpload(file), size: file.size })));
+      setFiles((now) => [...now, ...read]);
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+
   const submit = () => {
     const body = value.trim();
-    if (!body || disabled) return;
+    if ((!body && files.length === 0) || disabled) return;
     // A slash command opens what it names, and sends nothing. A viewer may not ask for work: the words stay as they
     // were typed, to be changed or sent as they are, and the composer says who may ask.
     const command = /^\/(task|tugas)(?:\s+([\s\S]*))?$/.exec(body);
@@ -159,9 +196,11 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
       mentionsRoom: everyone,
       alsoInRoom: threadOf !== null && alsoInRoom,
       tell: mode === 'tell',
+      files,
     });
     setValue('');
     setChosen([]);
+    setFiles([]);
     setMode('message');
   };
 
@@ -211,6 +250,20 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
           <Text size="xs">{t('This becomes company work: its words are visible to everyone in {company} and to its agents.', { company: scope.ctx.company.name })}</Text>
         </Alert>
       )}
+      {files.length > 0 && (
+        <Group gap={6} mb={6} data-attached>
+          {files.map((file, index) => (
+            <Group key={`${file.name}-${index}`} gap={4} wrap="nowrap" className="attached-file">
+              <Text size="xs" truncate maw={180} dir="auto">{file.name}</Text>
+              <Text size="xs" c="dimmed">{fileSize(file.size)}</Text>
+              <ActionIcon size="xs" variant="subtle" color="gray" aria-label={t('Remove {name}', { name: file.name })}
+                onClick={() => setFiles((now) => now.filter((_, at) => at !== index))}>
+                <IconX size={12} />
+              </ActionIcon>
+            </Group>
+          ))}
+        </Group>
+      )}
       {value.length > COUNT_FROM && (
         <Text size="xs" c={value.length >= BODY_MAX ? 'red' : 'dimmed'} ta="end" mb={2}>
           {t('{used} of {max} characters', { used: count(value.length), max: count(BODY_MAX) })}
@@ -239,7 +292,21 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
           aria-controls={picking ? listId : undefined}
           aria-activedescendant={picking ? optionId(listId, Math.min(active, choices.length - 1)) : undefined}
         />
-        {/* Attaching files (section 2.212) goes here. */}
+        {mode === 'message' && (
+          <>
+            <input ref={picker} type="file" multiple hidden onChange={(event) => { void attach(event.currentTarget.files); event.currentTarget.value = ''; }} />
+            <input ref={camera} type="file" accept="image/*" capture="environment" hidden
+              onChange={(event) => { void attach(event.currentTarget.files); event.currentTarget.value = ''; }} />
+            <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Attach a file')} disabled={disabled} onClick={() => picker.current?.click()}>
+              <IconPaperclip size={18} />
+            </ActionIcon>
+            {scope.phone && (
+              <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Take a picture')} disabled={disabled} onClick={() => camera.current?.click()}>
+                <IconCamera size={18} />
+              </ActionIcon>
+            )}
+          </>
+        )}
         <EmojiPicker opened={emoji} setOpened={setEmoji} pick={insert} target={
           <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Emoji')} onClick={() => setEmoji((open) => !open)} disabled={disabled}>
             <IconMoodSmile size={18} />
@@ -271,7 +338,8 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
             </ActionIcon>
           </Tooltip>
         )}
-        <ActionIcon data-send size="lg" radius="xl" aria-label={mode === 'tell' ? t('Tell the work') : t('Send')} disabled={disabled || !value.trim()} onClick={submit}>
+        <ActionIcon data-send size="lg" radius="xl" aria-label={mode === 'tell' ? t('Tell the work') : t('Send')}
+          disabled={disabled || (!value.trim() && files.length === 0)} onClick={submit}>
           <IconArrowUp size={18} />
         </ActionIcon>
       </Group>

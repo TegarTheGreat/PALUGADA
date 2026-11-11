@@ -763,6 +763,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       filesRoot = null;
     }
   }
+  // Where room files are kept instead of beside each company's folder (STATUS
+  // 2.212). Only with a files root: a deployment that keeps no files keeps no
+  // room files either, and says so rather than ignoring the setting.
+  const peopleRoot = filesRoot ? env.PALUGADA_PEOPLE_FILES_ROOT || null : null;
+  if (!filesRoot && env.PALUGADA_PEOPLE_FILES_ROOT) {
+    notes.push('PALUGADA_PEOPLE_FILES_ROOT is set and PALUGADA_FILES_ROOT is not: no room files are kept until it is');
+  }
   // Searching and reading pages, through the providers the owner chose.
   const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot, prices);
   // Figures worked out in Python, in a container that reaches no network:
@@ -1103,8 +1110,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // exactly like one with nothing to do.
     log,
     // What a company keeps outside its rows, so an erasure removes that
-    // too (0096): its directory in the files root, its charter's folder.
-    erasure: { filesRoot, charters: charterRepository },
+    // too (0096): its directory in the files root, its room files, its
+    // charter's folder; and where retention sweeps the room files.
+    erasure: { filesRoot, peopleRoot, charters: charterRepository },
     // Customers' mailboxes, read in the tick by whichever worker takes each.
     mail: { secrets, ...(mailCa ? { ca: mailCa } : {}), ...(filesRoot ? { filesRoot } : {}) },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
@@ -1150,8 +1158,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     mfa,
     charters: charterRepository,
     ...(browsers ? { browsers } : {}),
-    // The folder the owner hands files into and takes them out of.
-    ...(filesRoot ? { files: { root: filesRoot } } : {}),
+    // The folder the owner hands files into and takes them out of, and where room files are kept.
+    ...(filesRoot ? { files: { root: filesRoot, ...(peopleRoot ? { peopleRoot } : {}) } } : {}),
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that

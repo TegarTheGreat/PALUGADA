@@ -31,6 +31,7 @@ import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, tp, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
+import type { SearchHit as RoomHit } from './workspace/types.ts';
 import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
 import { ChooseHandle, kindLabel, ProfileDrawer, useProfile, type Profile } from './workspace/Profile.tsx';
 import type { Unread } from './workspace/types.ts';
@@ -475,6 +476,36 @@ function Console({ device, staff, recovered, signOut }: {
     }, 250);
     return () => clearTimeout(timer);
   }, [query]);
+  // What people said that matches (STATUS 2.212), asked of the rooms' own
+  // search, which runs as the person: every company's for the owner, the
+  // seat's own company's for a member of staff. Never through `/api/search`,
+  // which the owner's assistant may read.
+  const [said, setSaid] = useState<Array<{ companyId: string; company: string; hits: RoomHit[] }>>([]);
+  useEffect(() => {
+    const text = query.trim();
+    const seatCompany = staff?.companyId ?? null;
+    if (text.length < 2 || (!owner && !seatCompany)) {
+      setSaid([]);
+      return;
+    }
+    const words = `q=${encodeURIComponent(text)}`;
+    const timer = setTimeout(() => {
+      (owner
+        ? api('GET', `/api/room-search?${words}`).then((answer: { found: Array<{ companyId: string; company: string; hits: RoomHit[] }> }) => answer.found)
+        : api('GET', `/api/companies/${seatCompany}/room-search?${words}`)
+          .then((answer: { hits: RoomHit[] }) => [{ companyId: seatCompany!, company: '', hits: answer.hits.slice(0, 8) }]))
+        .then(setSaid, () => setSaid([]));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const saidActions: SpotlightActionData[] = said.flatMap((one) => one.hits.map((hit) => ({
+    id: `said-${hit.messageId}`,
+    label: hit.excerpt,
+    description: [hit.author.principal === 'owner' ? t('Owner') : hit.author.name ?? '', one.company].filter(Boolean).join(' · '),
+    leftSection: <Avatar size={18} radius="xl" src={personPicture(hit.author.principal, hit.author.picture)} alt="" />,
+    // Opened in its thread, where a reply is read and a message is drawn with what was said around it.
+    onClick: () => open('rooms', { companyId: one.companyId, item: `${hit.roomId}~${hit.threadOf ?? hit.messageId}` }),
+  })));
   const HIT_LABEL: Record<SearchHit['kind'], string> = { task: t('Task'), decision: t('Decision'), memory: t('Memory') };
   const foundActions: SpotlightActionData[] = found.map((hit) => ({
     id: `found-${hit.kind}-${hit.id}`,
@@ -600,7 +631,8 @@ function Console({ device, staff, recovered, signOut }: {
         // The pages and commands that match, then what the search found --
         // which matched on the server, perhaps in a result the title does
         // not show, so it is not filtered again here.
-        actions={[...spotlightActions.filter(matches), ...(foundActions.length > 0 ? [{ group: t('Found'), actions: foundActions }] : [])]}
+        actions={[...spotlightActions.filter(matches), ...(foundActions.length > 0 ? [{ group: t('Found'), actions: foundActions }] : []),
+          ...(saidActions.length > 0 ? [{ group: t('Messages'), actions: saidActions }] : [])]}
         filter={(_, actions) => actions}
         nothingFound={t('Nothing matches')}
         highlightQuery

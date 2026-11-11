@@ -535,6 +535,7 @@ const RETENTION_ACTIONS: Record<string, string> = {
   journal_scrubbed: N('Old model replies cleared from finished work'),
   bookkeeping_purged: N('Old bookkeeping removed'),
   work_purged: N('Old finished work removed'),
+  messages_purged: N('Old messages removed from the rooms'),
 };
 
 export function retentionSaid(action: string): string {

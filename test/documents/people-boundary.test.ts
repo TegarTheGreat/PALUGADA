@@ -105,8 +105,27 @@ async function roomTables(): Promise<string[]> {
   return [...tables].sort();
 }
 
-/** Where an agent's work runs: what a run is told, what it calls, and what wakes it. */
-const AGENT_PATH = ['src/engine', 'src/broker', 'src/runtime', 'src/context', 'src/capabilities', 'src/scheduler', 'src/inbox'];
+/**
+ * Where an agent's work runs: what a run is told, what it calls, and what
+ * wakes it; and where what a run reads is made -- its memory and lessons,
+ * the company's documents, its skills, its reports, the governance it is
+ * held to, and the chats it answers (STATUS 2.217). Several of these use the
+ * control plane, which row security does not stop, so this scan is what
+ * keeps a room's words from reaching them.
+ */
+const AGENT_PATH = [
+  'src/engine', 'src/broker', 'src/runtime', 'src/context', 'src/capabilities', 'src/scheduler', 'src/inbox',
+  'src/memory', 'src/knowledge', 'src/skills', 'src/reporting', 'src/governance', 'src/chats',
+];
+
+/**
+ * Room tables named on that path on purpose, each with why. The metrics
+ * count a company's messages for the deployment's operator: how many, never
+ * what was said, and no run reads the metrics.
+ */
+const NAMED_ON_PURPOSE: Record<string, RegExp> = {
+  'src/reporting/metrics.ts': /^\s*`SELECT c\.slug, count\(\*\) AS count FROM room_messages m JOIN companies c ON c\.id = m\.company_id$/m,
+};
 
 test("no code on an agent's path names a room table", async () => {
   const tables = await roomTables();
@@ -119,11 +138,13 @@ test("no code on an agent's path names a room table", async () => {
   for (const directory of AGENT_PATH) {
     for (const [path, text] of await sources(directory)) {
       read += 1;
-      const match = named.exec(text);
+      const allowed = NAMED_ON_PURPOSE[path];
+      if (allowed) assert.match(text, allowed, `${path} no longer names a room table as it is allowed to; update the allowance`);
+      const match = named.exec(allowed ? text.replace(allowed, '') : text);
       if (match) found.push(`${path}: ${match[0]}`);
     }
   }
-  assert.ok(read > 80, `only ${read} files on an agent's path were read; the scan is broken`);
+  assert.ok(read > 120, `only ${read} files on an agent's path were read; the scan is broken`);
   assert.deepEqual(found, [], 'a room table named where an agent\'s work runs');
 });
 

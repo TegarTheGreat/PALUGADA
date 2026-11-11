@@ -212,3 +212,61 @@ test('before a message window is chosen, the owner can be told how many messages
     await api.close();
   }
 });
+
+test('a handle written in full names only its person, not someone whose handle or name begins it', async () => {
+  const { fixture, api, owner } = await workspace('longest-token');
+  try {
+    const budi = await seated(fixture, 'Budi Santoso', 'member', { handle: 'budi' });
+    const setiawan = await seated(fixture, 'Budi Setiawan', 'member', { handle: 'budi.setiawan' });
+    // Two seats that have no handle yet, named by their names: one name begins the other.
+    const sari = await seated(fixture, 'Sari', 'member');
+    const wulandari = await seated(fixture, 'Sari Wulandari', 'member');
+    const roomId = await companyRoomOf(owner);
+    for (const seat of [budi, setiawan, sari, wulandari]) await companyRoomOf(personIn(api, seat.token, fixture.companyId));
+
+    const dotted = ok(await owner.say(roomId, { body: '@budi.setiawan tolong cek stok gayo', mentions: [budi.principal, setiawan.principal] }));
+    assert.deepEqual(dotted.message.mentions.map((one: { principal: string }) => one.principal), [setiawan.principal],
+      '@budi.setiawan names Budi Setiawan alone');
+    assert.deepEqual(dotted.mentionsDropped, [{ principal: budi.principal, why: 'not_written' }], 'and says Budi Santoso was not named');
+    assert.deepEqual(await activity(personIn(api, budi.token, fixture.companyId)), [], 'Budi Santoso is told nothing');
+
+    const ended = ok(await owner.say(roomId, { body: 'Stok sudah dicek oleh @budi.', mentions: [budi.principal] }));
+    assert.deepEqual(ended.message.mentions.map((one: { principal: string }) => one.principal), [budi.principal],
+      'a handle that ends a sentence still names its person');
+
+    const named = ok(await owner.say(roomId, { body: '@Sari Wulandari tolong kirim laporan', mentions: [sari.principal, wulandari.principal] }));
+    assert.deepEqual(named.message.mentions.map((one: { principal: string }) => one.principal), [wulandari.principal],
+      'a longer name written names its person, not the one whose name begins it');
+    const both = ok(await owner.say(roomId, { body: '@Sari dan @Sari Wulandari, rapat jam dua', mentions: [sari.principal, wulandari.principal] }));
+    assert.deepEqual(both.message.mentions.map((one: { principal: string }) => one.principal).sort(), [sari.principal, wulandari.principal].sort(),
+      'each named where it is written in full');
+
+    // An edit keeps to the same check as a post.
+    const edited = ok(await owner.on(roomId, String(ended.message.id), 'edit', { body: 'Stok sudah dicek oleh @budi.setiawan', mentions: [budi.principal, setiawan.principal] }));
+    assert.deepEqual(edited.message.mentions.map((one: { principal: string }) => one.principal), [setiawan.principal]);
+  } finally {
+    await api.close();
+  }
+});
+
+test('someone who has not joined an open room keeps no read mark in it, and the page says so', async () => {
+  const { fixture, api, owner } = await workspace('no-mark');
+  try {
+    const budi = await seated(fixture, 'Budi Santoso', 'member', { handle: 'budi' });
+    const him = personIn(api, budi.token, fixture.companyId);
+    const roomId = await companyRoomOf(owner);
+    await companyRoomOf(him);
+    const topic = String(ok(await owner.makeRoom({ name: 'gudang', private: false })).room.id);
+    for (const words of ['Rak satu penuh.', 'Rak dua kosong.']) await said(owner, topic, words);
+
+    assert.equal(ok(await him.page(topic)).readPosition, null, 'a room he is not in keeps him no mark: none, not the start of the room');
+    assert.equal(typeof ok(await him.page(roomId)).readPosition, 'number', 'the company room, which he is in, keeps one');
+    ok(await him.join(topic));
+    const joinedPage = ok(await him.page(topic));
+    assert.equal(typeof joinedPage.readPosition, 'number', 'once joined, he keeps one');
+    ok(await him.leave(topic));
+    assert.equal(ok(await him.page(topic)).readPosition, null, 'and once he leaves, none again');
+  } finally {
+    await api.close();
+  }
+});

@@ -43,6 +43,12 @@ const browser = chromium();
 const skip = browser ? false : 'no Chromium to draw the console in';
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
+/** Tablets held upright: wider than a phone, so the shell's navigation is drawn beside the rooms. */
+const TABLET = { width: 800, height: 1180 };
+const IPAD = { width: 834, height: 1194 };
+
+/** Whether the page fits its window across: nothing pushed past the right edge, so nothing scrolls sideways. */
+const NO_SIDEWAYS = `document.documentElement.scrollWidth <= window.innerWidth + 1`;
 
 /** A company called Toko Kopi Senja, read in English, and the console that serves it. */
 async function started(options: { files?: { root: string } } = {}): Promise<{ fixture: Fixture; api: Console; owner: string }> {
@@ -253,7 +259,7 @@ test('a long room with a few new messages is read once they are seen, though the
 });
 
 test('a busy room opens where the person left off, says how much is new, and is read only as far as it is seen', { skip }, async () => {
-  const { fixture, api, owner } = await started();
+  const { fixture, api, owner } = await started({ files: { root: await filesRoot() } });
   const me = personIn(api, owner, fixture.companyId);
   const budi = await joined(api, owner, fixture, 'Budi Santoso', 'member', 'budi');
   const roomId = await companyRoomOf(me);
@@ -262,24 +268,65 @@ test('a busy room opens where the person left off, says how much is new, and is 
   const mark = Number(ok(await budi.in.page(roomId)).messages.at(-1).position);
   ok(await budi.in.read(roomId, { position: mark }));
   await backlog(fixture, roomId, numbered('Hari ini nomor', 60));
+  // The newest two are large pictures, drawn after the newest page is: the way down must still reach the end.
+  ok(await me.say(roomId, { body: 'Foto rak lama.', files: [{ name: 'rak-lama.png', data: pngOf(2400, 1600) }] }), 'posting a picture');
+  ok(await me.say(roomId, { body: 'Foto rak baru.', files: [{ name: 'rak-baru.png', data: pngOf(1800, 2400) }] }), 'posting another');
   const newest = Number(ok(await budi.in.page(roomId)).messages.at(-1).position);
   const page = await drawn(api, DESKTOP);
   try {
     await staffSignsIn(page, api, budi.handle, budi.code, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
     await page.waitFor(`document.querySelector('[data-new-line]')`, 'the line where the new messages start');
-    assert.match(await page.evaluate<string>(`document.querySelector('[data-new-line]').innerText`), /60 new messages/, 'it says how many are new, more than the page drawn holds');
+    assert.match(await page.evaluate<string>(`document.querySelector('[data-new-line]').innerText`), /62 new messages/, 'it says how many are new, more than the page drawn holds');
     await pause(400);
     assert.ok(await page.evaluate<boolean>(IN_VIEW('Hari ini nomor 1.')), 'the first new message is in view');
     assert.ok(await page.evaluate<boolean>(IN_VIEW('Kemarin nomor 20.')), 'with what came just before it');
     assert.equal(await page.evaluate<boolean>(IN_VIEW('Hari ini nomor 60.')), false, 'the newest is not what it opens on');
-    await pause(2_500);
+    await pause(1_500);
     const after = await readPosition(budi.in, roomId);
     assert.ok(after < newest, 'the room is not read past what was shown');
-    // The person goes to the newest, and the room is read to there.
+    // The person presses the way to the newest with the mouse, and lands at the end once its pictures are drawn. A
+    // slower machine than this one draws React's work after the browser's next frame, so a scroll made before the
+    // newest page is drawn is heard first; the page's message port, which React schedules its work through, is held
+    // back a little here to make it so every time.
     await page.waitFor(`document.querySelector('[data-jump]')`, 'a way to the newest');
-    await click(page, '[data-jump]');
-    await page.waitFor(IN_VIEW('Hari ini nomor 60.'), 'the newest, once asked for');
+    await page.evaluate(`(() => {
+      const post = MessagePort.prototype.postMessage;
+      MessagePort.prototype.postMessage = function (...args) { setTimeout(() => post.apply(this, args), 40); };
+    })()`);
+    await page.click('[data-jump]');
+    await page.waitFor(`[...document.querySelectorAll('[role="log"] [data-files] img')].length === 2
+      && [...document.querySelectorAll('[role="log"] [data-files] img')].every((one) => one.complete)`, 'the two pictures, drawn');
+    await pause(1_200);
+    const gap = await page.evaluate<number>(GAP);
+    assert.ok(gap <= 4, `the log stopped ${gap} px short of the newest message after "Jump to newest"`);
+    assert.ok(await page.evaluate<boolean>(IN_VIEW('Foto rak baru.')), 'the newest message is in view');
+    assert.equal(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-jump]'))`), false, 'and the way down to it is gone');
     await readWithin(budi.in, roomId, 3_000, 'after going to the newest');
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a room the person has not joined opens at its newest, with no line of new messages, however long it is', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const budi = await joined(api, owner, fixture, 'Budi Santoso', 'member', 'budi');
+  await companyRoomOf(me);
+  await companyRoomOf(budi.in);
+  const topic = String(ok(await me.makeRoom({ name: 'gudang', private: false })).room.id);
+  await backlog(fixture, topic, numbered('Gudang, catatan nomor', 150));
+  const page = await drawn(api, DESKTOP);
+  try {
+    // Opened as a copied link, a search hit or Activity opens it: Budi is not in the room, so it keeps him no mark.
+    await staffSignsIn(page, api, budi.handle, budi.code, `#/c/${fixture.companyId}/rooms?item=${topic}`);
+    await page.waitFor(`[...document.querySelectorAll('[role="log"] [data-message]')].length > 0`, 'the room');
+    await pause(800);
+    assert.ok(await page.evaluate<boolean>(IN_VIEW('Gudang, catatan nomor 150.')), 'the newest message is in view');
+    assert.ok(await page.evaluate<number>(GAP) <= 4, 'the log is at its end');
+    assert.equal(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-new-line]'))`), false, 'no line says what is new: nothing is, to someone who keeps no mark');
+    assert.equal(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-unread-bar]'))`), false, 'nor a bar to mark it read');
+    assert.equal(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-jump]'))`), false, 'nor a way down: it is already there');
   } finally {
     await page.close();
     await api.close();
@@ -370,6 +417,43 @@ test('a handle typed in full mentions its person as one picked does, and so does
     assert.deepEqual(edited.mentions.map((one: { principal: string }) => one.principal), [sari.principal], 'the edit mentions Sari, and no longer Budi');
     assert.deepEqual((ok(await sari.in.activity()).items as Array<{ messageId: string }>).map((one) => one.messageId), [sent.id], "Sari's Activity has it");
     assert.deepEqual(ok(await budi.in.activity()).items, [], "Budi's has it no more");
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('a handle with a dot names only its person, not the one whose handle begins it', { skip }, async () => {
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const budi = await joined(api, owner, fixture, 'Budi Santoso', 'member', 'budi');
+  const setiawan = await joined(api, owner, fixture, 'Budi Setiawan', 'member', 'budi.setiawan');
+  const roomId = await companyRoomOf(me);
+  await companyRoomOf(budi.in);
+  await companyRoomOf(setiawan.in);
+  const page = await drawn(api, DESKTOP);
+  const sentWith = async (words: string) => {
+    await page.evaluate(`document.querySelector('[data-composer]').focus()`);
+    await page.type(words);
+    await page.press('Enter');
+    const until = Date.now() + 5_000;
+    let last = ok(await me.page(roomId)).messages.at(-1);
+    while (Date.now() < until && last?.body !== words) {
+      await pause(200);
+      last = ok(await me.page(roomId)).messages.at(-1);
+    }
+    assert.equal(last?.body, words, `"${words}" is sent`);
+    return (last.mentions as Array<{ principal: string }>).map((one) => one.principal);
+  };
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
+    assert.deepEqual(await sentWith('@budi.setiawan tolong cek stok gayo'), [setiawan.principal], '@budi.setiawan names Budi Setiawan alone');
+    assert.deepEqual(ok(await budi.in.activity()).items, [], 'Budi Santoso is told nothing');
+    assert.deepEqual(await sentWith('Sudah dicek oleh @budi.'), [budi.principal], 'a handle that ends a sentence names its person');
+    await pause(500);
+    assert.equal(await page.evaluate<boolean>(`document.body.innerText.includes('you named was not told') || document.body.innerText.includes('you named were not told')`), false,
+      'the console asked only for the people the words name, so nobody is said back as not told');
   } finally {
     await page.close();
     await api.close();
@@ -504,10 +588,11 @@ test('a thread beside the room never crushes it: the room keeps room to read, or
   const page = await drawn(api, DESKTOP);
   try {
     await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}~${rootId}`);
-    for (const size of [{ width: 1440, height: 900 }, DESKTOP, { width: 1100, height: 800 }, { width: 1024, height: 768 }, { width: 992, height: 768 }]) {
+    for (const size of [{ width: 1440, height: 900 }, DESKTOP, { width: 1100, height: 800 }, { width: 1024, height: 768 }, { width: 992, height: 768 }, TABLET, IPAD]) {
       await page.viewport(size);
       await page.waitFor(`document.querySelector('[data-pane="thread"]')`, `${size.width} px: the thread`);
       await pause(400);
+      assert.ok(await page.evaluate<boolean>(NO_SIDEWAYS), `${size.width} px: the page scrolls sideways beside the thread`);
       const room = await page.evaluate<{ width: number } | null>(`(() => { const box = document.querySelector('[data-pane="room"]')?.getBoundingClientRect(); return box ? { width: box.width } : null; })()`);
       if (room) {
         assert.ok(room.width >= 420, `${size.width} px: the room beside the thread is ${room.width} px wide`);
@@ -518,6 +603,27 @@ test('a thread beside the room never crushes it: the room keeps room to read, or
           `${size.width} px: the thread alone has a way back to the room`);
       }
     }
+    // A tablet held upright, with no thread open: the room is never pushed past the screen's edge by the rail beside
+    // it. Where the two do not fit, the room is drawn alone, with a way back to the rail.
+    await page.goto(`${api.url}/#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    for (const size of [TABLET, IPAD, { width: 900, height: 1200 }]) {
+      await page.viewport(size);
+      await page.waitFor(`document.querySelector('[data-pane="room"] [data-composer]')`, `${size.width} px: the room`);
+      await pause(400);
+      assert.ok(await page.evaluate<boolean>(NO_SIDEWAYS), `${size.width} px: the page scrolls sideways with a room open`);
+      const send = await page.evaluate<{ right: number } | null>(`(() => { const box = document.querySelector('[data-pane="room"] [data-send]')?.getBoundingClientRect(); return box ? { right: box.right } : null; })()`);
+      assert.ok(send && send.right <= size.width, `${size.width} px: the send button is on the screen (${JSON.stringify(send)})`);
+      const rail = await page.evaluate<boolean>(`Boolean(document.querySelector('.rooms-rail'))`);
+      if (!rail) {
+        assert.ok(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-pane="room"] [data-back]'))`), `${size.width} px: the room alone has a way back to the rail`);
+      }
+    }
+    await page.viewport(TABLET);
+    await page.waitFor(`document.querySelector('[data-pane="room"] [data-back]')`, 'the way back to the rail, at 800 px');
+    await page.click('[data-pane="room"] [data-back]');
+    await page.waitFor(`document.querySelector('.rooms-rail') && !document.querySelector('[data-pane="room"]')`, 'the rail, once back');
+    await pause(600);
+    assert.equal(await page.evaluate<boolean>(`Boolean(document.querySelector('[data-pane="room"]'))`), false, 'and it stays on the rail rather than opening a room again');
   } finally {
     await page.close();
     await api.close();

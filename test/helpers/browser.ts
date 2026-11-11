@@ -9,7 +9,7 @@
  * and say why.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findChromium } from '../../src/browser/chromium.ts';
@@ -36,8 +36,14 @@ export interface Page {
   viewport(size: { width: number; height: number }): Promise<void>;
   /** Runs `source` in every document this page loads from now on, before the page's own scripts. */
   beforeLoad(source: string): Promise<void>;
-  /** A picture of what the page draws now, written as a PNG to `path`: for a person to look at what a test saw. */
-  screenshot(path: string): Promise<void>;
+  /**
+   * Presses the first element the selector finds with the mouse, at its
+   * middle, as a person's hand does: the browser moves, presses and lets go,
+   * and the page's own timing between them is what a person meets. An
+   * element's `click()` from a script runs its handler at once instead,
+   * which can hide a race a real press shows.
+   */
+  click(selector: string): Promise<void>;
   /**
    * Another tab of the same browser, at the same size: it shares the
    * browser's connections to each origin, as a person's tabs do.
@@ -210,9 +216,17 @@ async function drive(
     beforeLoad: async (source) => {
       await send('Page.addScriptToEvaluateOnNewDocument', { source });
     },
-    screenshot: async (path) => {
-      const shot = await send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-      await writeFile(path, Buffer.from(shot.data, 'base64'));
+    click: async (selector) => {
+      const at = await evaluate<{ x: number; y: number } | null>(`(() => {
+        const one = document.querySelector(${JSON.stringify(selector)});
+        if (!one) return null;
+        const box = one.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      })()`);
+      if (!at) throw new Error(`click() found nothing at ${selector}`);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', buttons: 1, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', buttons: 0, clickCount: 1 });
     },
     tab,
     close: async () => {

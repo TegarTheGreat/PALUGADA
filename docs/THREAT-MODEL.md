@@ -29,14 +29,20 @@ refer to `docs/PRD.md`.
   codes, session tokens.
 - **The deployment's signing key** (section 2.10): the Ed25519 key a relay
   checks every envelope against, PALUGADA's first private signing key.
+- **People's words** (F19.3, F19.4, F19.9; section 2.11): what the owner and
+  the staff the owner seats say in a company's rooms -- private rooms and
+  direct conversations above all -- the files they attach, and the rule that
+  a colleague's words are never read as the owner's.
 
 ## 2. Who attacks, and what stops each
 
 ### 2.1 Someone on the internet
 
 **Reach.** One port. Without a session only the open routes: `/api/auth/challenge`,
-`/api/auth/sign-in`, `/api/auth/claim`, `/api/auth/claim/confirm`, `/api/hooks/:publicId`, `/api/channels/telegram`,
-`/api/channels/whatsapp`, `/api/oauth/callback`, `/api/health`,
+`/api/auth/sign-in`, `/api/auth/claim`, `/api/auth/claim/confirm`, `/api/auth/join`,
+`/api/auth/join/confirm`, `/api/hooks/:publicId`, `/api/chat-hooks/:publicId`, `/api/channels/telegram`,
+`/api/channels/whatsapp`, `/api/oauth/callback`, `/api/relay/v1/identity`,
+`/api/relay/v1/relays/:relayId/inbound` (section 2.10), `/api/health`,
 `/api/ready`, `/api/metrics`, and the console's static files.
 
 **Defences, in order.**
@@ -56,7 +62,14 @@ refer to `docs/PRD.md`.
    failures since the last success lock the factor for 15 minutes, judged one
    attempt at a time under an advisory lock (`OwnerMfa.#attempt`,
    `src/owner/mfa.ts`). A TOTP step is claimed on use (`#claimStep`). A
-   passkey needs a single-use challenge and user verification.
+   passkey needs a single-use challenge and user verification. A member of
+   staff signs in by naming a handle, and only that seat's secret is
+   compared; the owner's sign-in never tries a seat that has one. Ten wrong
+   codes for a handle in fifteen minutes, at most three of them counted from
+   one network (an IPv6 address by its /64), lock that handle alone, for a
+   minute that doubles to an hour, whether anyone holds it or not, so a
+   stranger learns nothing from which handles lock (`handle_sign_ins`,
+   `StaffSeats`, `src/owner/staff.ts`).
 4b. **The sign-in is the second factor for the session, and a stolen session
    can do what the owner can.** A session opened with a code or a passkey
    (`owner_sessions.proved_at`) passes every check that used to ask for a code
@@ -124,6 +137,9 @@ refer to `docs/PRD.md`.
   for senders that can set nothing else; a bearer trigger refuses a token in
   the address, and rotating makes the old address fail.
 - The platform serves HTTP. TLS is a proxy's job.
+- Anyone who knows a member of staff's handle can keep it locked from a
+  few networks. The owner lets it sign in again, with a code, without ending
+  anything it holds.
 - Until the owner claims it, whoever reads the deployment's log can become
   the owner. That is someone who holds the machine already, and the claim
   closes the moment an authenticator exists; a log shipped somewhere wider
@@ -507,11 +523,14 @@ providers and worker slots.
 
 **What they get.** Every company's data in clear, including prompts and
 responses in `llm_traces`, less the secrets the redactor knew
-(`src/secrets/manager.ts`).
+(`src/secrets/manager.ts`), and every room's messages, private rooms and
+direct conversations included, with the names and hashes of their files.
+The files' bytes are on disk under the files root, not in the database.
 
 **What they do not.** Sessions and recovery codes, kept as SHA-256 of 32 bytes
 and 80 bits of randomness (0050, 0086); hook tokens, as SHA-256; console
-secrets, AES-256-GCM with the name bound in (`seal`, `src/settings/store.ts`).
+secrets and each staff seat's authenticator secret, AES-256-GCM with the name
+bound in (`seal`, `src/settings/store.ts`).
 The master key is `PALUGADA_MASTER_KEY` or `master.key` in the state
 directory, never the database, and rotates with `PALUGADA_MASTER_KEY_PREVIOUS`
 (`resealSecrets`). The owner's TOTP secret and `env://`/`file://` credentials
@@ -809,6 +828,131 @@ process holding the lease moves the cursor or releases it, so a slow poll
 cannot move the cursor back. The trigger door shares the signature verifier,
 so an inbound webhook signed with Ed25519 is checked the same way.
 
+### 2.11 A member of staff, or someone holding their seat
+
+A seat (F19.2, F19.8; STATUS sections 2.202, 2.204, 2.206, 2.209 and 2.217)
+is a person the owner seated for one company: someone the owner trusts with
+part of the company, who may still be dishonest, careless, or not the person
+holding their phone or their session. Each seat has its own authenticator,
+sealed, a handle that is its own in the deployment, and one of three kinds,
+read afresh from its row on every request.
+
+**What each kind can do.**
+
+- A **viewer** reads the company's work as the staff policy allows, and talks:
+  it writes in the rooms it can see, makes rooms, opens direct
+  conversations, sets meetings with people, attaches files to its messages
+  and links its own phone.
+- A **member** also asks for work from a message (**Ask the team**), tells or
+  stops the work it asked for, and answers a run's question put to it. It may
+  hold a role that is a person.
+- An **approver** also decides what waits at tier 2 and below, answers a
+  question put to nobody, calls a meeting of the agents about a message, calls
+  a whole room with `@room`, and chooses what work a division's room shows.
+
+Every POST a seat may make is on exactly one of three lists, talk, ask and
+decide, kept by area (`staffMay`, `src/owner/staff-policy.ts`); a route on
+none of them is the owner's alone.
+
+**Defences, in order.**
+
+1. **Only what its kind allows.** Seating people, every setting, the channels
+   the owner is reached on, relays, export, import and closing, approvals for
+   a while, the conversation with the CEO and with PALUGADA, the company's
+   browser and its files, the message window and the room files' limit are
+   on no seat's list. A seat never decides tier 3, whatever code it holds
+   (`decide`, `src/inbox/inbox.ts`), and nothing reaches tier 3 from a room
+   but a link to the owner's inbox. A kind lowered holds on the seat's next
+   request, and voids the offers its phone was sent.
+2. **Only the rooms it may see.** Room tables are tenant tables whose
+   restrictive policies answer a person's transaction only for the rooms
+   that person may see: the company's, the divisions', open topic rooms, and
+   the private rooms and direct conversations they are in (0150, `withPeople`,
+   `src/db/tenant.ts`). The rule is the database's, so a search, a file, a
+   thread, a pin, a notice, a meeting's people and the room stream's frames
+   meet it however they are asked, and a stream or a notice is read again as
+   the person before it goes.
+3. **Only as itself.** Who writes is taken from the session, never a body
+   (`principalOf`, `src/workspace/principal.ts`; a body naming `author`,
+   `as`, `by`, `principal` or `via` is refused); the database forces the
+   author's name, the time and where the words came from. The owner names
+   every seat, and a name or handle that reads as another person's, the
+   owner's, PALUGADA's, the CEO's, the system's or a role's, in look-alike
+   letters too, is refused (`src/owner/confusables.ts`). The console draws
+   the owner's chip and a seat's from the principal, never from a name.
+4. **Its words are never the owner's.** A seat's request, instruction and
+   answer reach a run in the seat's name inside a colleague's fence that
+   grants nothing (`wrapColleague`, `src/context/builder.ts`), and the mark
+   that staff words are in the work follows every piece of work made from
+   it (`staffWordsIn`, `carriesStaff`, `src/engine/tasks.ts`). Such work never
+   uses the owner's approvals for a while, schedules' approvals or a
+   capability's own check; each action at tier 2 and above is a card that
+   names who asked, sent to another approver first and to the owner after a
+   day (`src/broker/broker.ts`); and no seat whose words are in the work
+   decides it, words added after the card included (`approval.own_instigation`,
+   `decide`).
+5. **Words become work only by a press.** A message is work, an instruction,
+   an answer or a decision only through a button that calls the same door
+   the console's other pages call (`src/workspace/doors.ts`); a mention, a
+   reaction or the words "approve this payment" start nothing, and a
+   reaction on a card is refused by the database. A seat tells and stops only
+   the work it asked for.
+6. **Spending is counted.** A member's asks for work are counted from the
+   work, never the rooms, under a lock, to its asks a day (20 unless the owner
+   sets another, at most 200; `staff.ask_limit`), and every ask reserves its
+   money from the role's budget before it starts, as any work does. Every
+   write of the rooms is held to a number a minute a person
+   (`src/workspace/limits.ts`), and a company's room files to a limit the
+   owner sets (10 GB unless set).
+7. **A file is a stranger's.** A room file is stored under its own id with
+   the kind its bytes show, beside the company's folder and never in it, so
+   no agent capability and not the owner's Files page reaches it
+   (`src/workspace/files.ts`). Only a small picture is drawn; everything
+   else, an SVG or a page included, is saved under its name and never opened
+   in the console's origin.
+8. **No model reads it.** No agent's transaction names a room reader, so an
+   agent reads and writes nothing in a room table, even in its own company.
+   The owner's assistant and the CEO's conversation are kept from every route
+   that reads people's words (`UNREADABLE_UNDER`,
+   `src/owner/assistant-actions.ts`), and the people's helpers refuse inside
+   the assistant's dispatch (`assistantDispatch`, `src/db/tenant.ts`).
+9. **Another seat's question stays theirs.** A question a run put to one seat,
+   and that seat's words to it, are shown to another seat only as "A question
+   for Budi"; the work's briefing, transcript and trace are refused them
+   (`hideOthersQuestions`, `src/owner/views.ts`; `seatMayReadTask`).
+10. **Ending a seat ends it.** **End the seat** ends its sessions and the
+   streams they hold within thirty seconds on every replica, takes it out of
+   every room, ends its phone's links and voids their offers, and frees its
+   handle (`StaffSeats.revoke`, `src/owner/staff.ts`). A new authenticator
+   does the same to the sessions and the phone without taking the person out
+   of their rooms.
+
+**Someone holding the seat.** A stolen phone with the seat's authenticator,
+or an open session, is that seat, at its kind, until the owner ends the seat
+or gives it a new authenticator. A seat has no recovery codes, so its
+authenticator is the only way in. A relay link to a seat's phone is held as
+section 2.10 says: a press is read against the seat now, never at tier 3.
+
+**Residual risk.**
+
+- Below tier 2, staff work is held by the colleague fence alone, which is a
+  prompt (F19.9). A member can ask a role for drafts and reads within what the
+  role is granted and steer it there.
+- Four eyes is per seat. Two seats who agree -- one asks, the other approves
+  -- pass a tier 2 action between them; the owner reads it in the history,
+  and the team's cards reach the owner only when no other approver decided
+  within the day.
+- A member's asks spend from the role's and the company's budgets, up to
+  their ceilings; there is no budget per seat.
+- Whatever a seat can see, it can copy out of PALUGADA: a screenshot is out of
+  reach, and so are a file saved from a room and opened on someone's own
+  machine.
+- The owner can read every private room, and the owner's export holds every
+  direct conversation; the staff are told so when they join, and the owner's
+  reading of a private room is not shown to its members.
+- Colleagues can tell from the badges how busy rooms are, though not what was
+  said or where.
+
 ## 3. Out of scope, or not defended
 
 - Chromium itself. Its sandbox is on unless the operator turns it off
@@ -882,3 +1026,14 @@ All under `test/acceptance/` unless named.
 | The relay and people: a reply only in the token's room and thread, never work; a stolen relay key cannot post, mark read or mute for a link with a device key; a device signature taken once; a client id not reused; who may see asked again as a notice is sent; deleted words withdrawn at the relay and blanked from the outbox; an erased company forgotten at every relay; a link's end told to its relay | `relay-people.test.ts` |
 | The relay is sent no company, room, thread, item or task id, and a notice's link opens only for the person it was for | `relay-links.test.ts` |
 | A second implementation of the protocol that pins the deployment by fingerprint, takes a new key only from the pinned key and the new one, keeps its inbox across a restart, prints nothing above signal unless asked, drops content at its fortnight, and takes acts only on loopback | `relay-reference.test.ts` |
+| A seat's kinds: every POST a seat may make on one list, a viewer asking for nothing, an approver deciding the inbox's and a meeting's alone, nothing of the owner's on any list | `test/documents/staff-routes.test.ts`, `staff.test.ts` |
+| A seat never decides tier 3; a kind changed holds at once; ending a seat ends its sessions, streams, rooms, links and handle | `staff.test.ts`, `members.test.ts`, `room-stream.test.ts`, `live.test.ts`, `relay-pairing.test.ts` |
+| Signing in by handle: one seat's secret compared, the owner's door never trying a handle's seat, a lock per handle no one network fills, a new authenticator | `staff-sign-in.test.ts` |
+| Names and handles kept apart: look-alikes, reserved words and roles refused, in a batch too | `staff-names.test.ts` |
+| Rooms by the database: an agent reads and writes nothing in a room table; a person sees only the rooms they may see and writes only as themselves; a read mark is no receipt | `people-rls.test.ts`, `rooms.test.ts`, `room-search.test.ts`, `room-stream.test.ts` |
+| A colleague's words never the owner's: fenced, marked through derived work, held at tier 2 for another approver, four eyes, no standing approval unless the owner gave one for staff work | `staff-words.test.ts`, `staff-provenance.test.ts`, `test/documents/provenance-sites.test.ts` |
+| Words become work only by a press; a reaction decides nothing; asks a day counted from the work; a seat tells and stops only its own work | `room-doors.test.ts`, `room-cards.test.ts` |
+| Every write of the rooms held to a minute; a company's room files held to a limit | `room-limits.test.ts` |
+| Room files: beside the company's folder and never under it, stored by id with the kind their bytes show, only small pictures drawn | `room-files.test.ts`, `owner-files.test.ts` |
+| No person's words reach a model: no room table on an agent's path, every read of people's words kept from the assistant, the helpers refusing inside its dispatch | `test/documents/people-boundary.test.ts`, `assistant.test.ts` |
+| Room activity writes nothing to the work's journal | `rooms-write-no-events.test.ts` |

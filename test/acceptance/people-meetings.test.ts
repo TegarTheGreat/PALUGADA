@@ -11,12 +11,14 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:net';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withPeople, withTenant } from '../../src/db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withPeople, withTenant } from '../../src/db/tenant.ts';
 import { collectExport, exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { dispatchPeopleNotices, planNotices } from '../../src/owner/member-notify.ts';
+import { purgeExpiredMessages } from '../../src/retention/retention.ts';
 import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { fakeRelay, type FakeRelay, type FakeRelayOptions } from '../helpers/fake-relay.ts';
@@ -257,17 +259,22 @@ test('the people asked are reminded ten minutes before, once, and only while the
     const sari = await person(w, 'Sari');
     const kiki = await person(w, 'Kiki');
     const dewi = await person(w, 'Dewi');
+    const eko = await person(w, 'Eko');
+    const fajar = await person(w, 'Fajar');
     const ops = String(ok(await budi.in.makeRoom({
-      name: 'Ops', private: true, members: [sari.seat.principal, kiki.seat.principal, dewi.seat.principal],
+      name: 'Ops', private: true,
+      members: [sari.seat.principal, kiki.seat.principal, dewi.seat.principal, eko.seat.principal, fajar.seat.principal],
     })).room.id);
     const soonWords = await said(budi.in, ops, 'Rota check before the lunch rush.');
     const laterWords = await said(budi.in, ops, 'Supplier call.');
     const soon = ok(await setMeeting(budi.in, ops, {
       messageId: soonWords, startsAt: inMinutes(8), minutes: 20,
-      attendees: [budi.seat.principal, sari.seat.principal, kiki.seat.principal, dewi.seat.principal],
+      attendees: [budi.seat.principal, sari.seat.principal, kiki.seat.principal, dewi.seat.principal, eko.seat.principal],
       callUrl: 'https://meet.example/rota',
     })).meeting as MeetingView;
     ok(await setMeeting(budi.in, ops, { messageId: laterWords, startsAt: inMinutes(30), minutes: 20, attendees: [sari.seat.principal] }));
+    // Fajar follows the meeting's thread, its notes, without being asked to it.
+    await said(fajar.in, ops, { body: 'I will bring last week\'s rota.', threadOf: soonWords });
     // Kiki leaves the room before the reminder: she is told nothing of it.
     ok(await budi.in.members(ops, { remove: [kiki.seat.principal] }));
     await tell(w.fixture.companyId, w.api.master);
@@ -279,10 +286,16 @@ test('the people asked are reminded ten minutes before, once, and only while the
     assert.equal(reminders[0]!.notice_values.startsAt, soon.startsAt);
     assert.ok((await meetingRows(w.fixture.companyId)).find((row) => row.id === soon.id)!.reminded_at);
 
-    // Dewi is taken out of the room after the reminder is planned and before it goes: she is told nothing.
+    // Dewi is taken out of the room after the reminder is planned and before it goes, and Eko is taken off the
+    // people asked: neither is told anything. Kiki and Dewi stay on the list, which keeps whoever was asked.
     const now = new Date();
     await planNotices(w.fixture.companyId, { now });
+    assert.deepEqual((await noticesOf(w.fixture.companyId, kiki.seat.principal)).filter((row) => row.reason === 'meeting'), [],
+      'nothing is planned for someone who left the room');
     ok(await budi.in.members(ops, { remove: [dewi.seat.principal] }));
+    ok(await changeMeeting(budi.in, ops, soon.id, {
+      attendees: [budi.seat.principal, sari.seat.principal, kiki.seat.principal, dewi.seat.principal],
+    }));
     await dispatchPeopleNotices(w.fixture.companyId, { now, linkFor });
     await sendOutbox(w.api.master, now);
 
@@ -299,11 +312,20 @@ test('the people asked are reminded ten minutes before, once, and only while the
     assert.deepEqual(remindedOf(w.relay!, kiki.phone!), [], 'Kiki left the room before it was planned');
     assert.deepEqual(remindedOf(w.relay!, dewi.phone!), [], 'Dewi left before it went');
     assert.deepEqual((await noticesOf(w.fixture.companyId, dewi.seat.principal)).map((row) => [row.reason, row.settled_as]), [['meeting', 'gone']]);
+    assert.deepEqual(remindedOf(w.relay!, eko.phone!), [], 'Eko was no longer asked when it went');
+    assert.deepEqual((await noticesOf(w.fixture.companyId, eko.seat.principal)).map((row) => [row.reason, row.settled_as]), [['meeting', 'gone']]);
+    assert.deepEqual(remindedOf(w.relay!, fajar.phone!), [], 'following the notes is not being asked');
 
-    // Activity says it, for those who can see the room; the badge counts it.
-    const activity = ok(await sari.in.activity()).items as Array<{ kind: string; roomId: string; threadOf: string | null }>;
+    // Activity says it, for those asked who can see the room; the badge counts it.
+    type Item = { kind: string; roomId: string; threadOf: string | null };
+    const activity = ok(await sari.in.activity()).items as Item[];
     assert.deepEqual(activity.filter((item) => item.kind === 'meeting').map((item) => [item.roomId, item.threadOf]), [[ops, soonWords]]);
-    assert.deepEqual((ok(await kiki.in.activity()).items as Array<{ kind: string }>).filter((item) => item.kind === 'meeting'), []);
+    assert.deepEqual((ok(await kiki.in.activity()).items as Item[]).filter((item) => item.kind === 'meeting'), []);
+    // Budi, who set it, follows its thread and is asked: a meeting. Fajar follows it and is not: a reply in a
+    // thread he follows, as every reply there is.
+    assert.ok((ok(await budi.in.activity()).items as Item[]).some((item) => item.kind === 'meeting' && item.threadOf === soonWords));
+    assert.deepEqual((ok(await fajar.in.activity()).items as Item[]).filter((item) => item.threadOf === soonWords).map((item) => item.kind),
+      ['reply'], 'a follower who was not asked is not told a meeting starts');
 
     // Once: another sweep and another pass say nothing more.
     await syncRoomCards(w.fixture.companyId);
@@ -361,14 +383,18 @@ test('a cancelled meeting reminds nobody', async () => {
 
     // Cancelled before its reminder: the sweep passes it by.
     const first = await said(budi.in, room, 'Quick sync.');
-    const early = ok(await setMeeting(budi.in, room, { messageId: first, startsAt: inMinutes(7), minutes: 10, attendees: everyone })).meeting as MeetingView;
+    const early = ok(await setMeeting(budi.in, room, {
+      messageId: first, startsAt: inMinutes(7), minutes: 10, attendees: everyone, callUrl: 'https://meet.example/sync?pwd=early',
+    })).meeting as MeetingView;
     ok(await changeMeeting(budi.in, room, early.id, { cancel: true }));
     // Cancelled once its reminder is planned, before it goes: it never goes.
     const second = await said(budi.in, room, 'Inventory.');
     const late = ok(await setMeeting(budi.in, room, { messageId: second, startsAt: inMinutes(6), minutes: 10, attendees: everyone })).meeting as MeetingView;
     // Its words removed: nobody is reminded of a meeting nothing names.
     const third = await said(budi.in, room, 'Deliveries.');
-    ok(await setMeeting(budi.in, room, { messageId: third, startsAt: inMinutes(5), minutes: 10, attendees: everyone }));
+    ok(await setMeeting(budi.in, room, {
+      messageId: third, startsAt: inMinutes(5), minutes: 10, attendees: everyone, callUrl: 'https://meet.example/vans?pwd=s3cret',
+    }));
     ok(await budi.in.on(room, third, 'delete'));
 
     await syncRoomCards(w.fixture.companyId);
@@ -389,8 +415,209 @@ test('a cancelled meeting reminds nobody', async () => {
     const drawn = await meetingOn(sari.in, room, first);
     assert.deepEqual([drawn?.cancelled, drawn?.cancelledBy?.principal], [true, budi.seat.principal], 'drawn as cancelled, by whom');
     assert.equal(await meetingOn(sari.in, room, third), null, 'a removed message carries no meeting');
-    assert.equal((await meetingRows(w.fixture.companyId)).find((row) => row.message_id === third)!.cancelled_by, budi.seat.principal,
-      'its meeting was cancelled with its words, by whoever removed them');
+    const gone = (await meetingRows(w.fixture.companyId)).find((row) => row.message_id === third)!;
+    assert.deepEqual([gone.cancelled_by, gone.call_url], [budi.seat.principal, null],
+      'its meeting was cancelled with its words, by whoever removed them, and its pasted link went with them');
+
+    // A meeting cancelled before its words were removed keeps who cancelled it, and loses its link all the same.
+    ok(await w.owner.on(room, first, 'delete'));
+    const earlier = (await meetingRows(w.fixture.companyId)).find((row) => row.message_id === first)!;
+    assert.deepEqual([earlier.cancelled_by, earlier.call_url], [budi.seat.principal, null]);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a meeting moved again and again reminds its people twice at most', async () => {
+  // Moving a meeting reminds its people again for its new time, once. Moving
+  // it more gives them no third reminder, so nobody who may set a meeting --
+  // a viewer too -- can spend the people asked's daily notices for them.
+  const w = await workspace('meet-moves', { relay: 'content' });
+  try {
+    const vera = await person(w, 'Vera', 'viewer');
+    const sari = await person(w, 'Sari');
+    const room = await companyRoomOf(w.owner);
+    const words = await said(vera.in, room, 'A quick word.');
+    const set = ok(await setMeeting(vera.in, room, {
+      messageId: words, startsAt: inMinutes(9), minutes: 5, attendees: [sari.seat.principal],
+    })).meeting as MeetingView;
+    for (const minutes of [8, 7, 6, 5]) {
+      await syncRoomCards(w.fixture.companyId);
+      await tell(w.fixture.companyId, w.api.master);
+      ok(await changeMeeting(vera.in, room, set.id, { startsAt: inMinutes(minutes) }));
+    }
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+
+    assert.equal((await remindersIn(w.fixture.companyId)).length, 2, 'two reminders in its thread');
+    assert.equal(remindedOf(w.relay!, sari.phone!).length, 2, 'two to her phone');
+    assert.deepEqual((await noticesOf(w.fixture.companyId, sari.seat.principal)).filter((row) => row.reason === 'meeting')
+      .map((row) => row.settled_as), ['sent', 'sent']);
+    const items = ok(await sari.in.activity()).items as Array<{ kind: string }>;
+    assert.equal(items.filter((item) => item.kind === 'meeting').length, 2, 'two in her Activity');
+    // Vera set it, so she follows its thread, and is not asked: its reminders are replies in a thread she follows.
+    const hers = ok(await vera.in.activity()).items as Array<{ kind: string; threadOf: string | null }>;
+    assert.deepEqual(hers.filter((item) => item.threadOf === words).map((item) => item.kind), ['reply', 'reply']);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a reminder for a time the meeting moved from is never sent', async () => {
+  const w = await workspace('meet-moved-from', { relay: 'summary' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const room = await companyRoomOf(w.owner);
+    const only = [sari.seat.principal];
+
+    // Moved after its reminder was planned, before it went: what was planned is gone.
+    const count = await said(budi.in, room, 'Stock count.');
+    const first = ok(await setMeeting(budi.in, room, { messageId: count, startsAt: inMinutes(9), minutes: 15, attendees: only })).meeting as MeetingView;
+    await syncRoomCards(w.fixture.companyId);
+    let now = new Date();
+    await planNotices(w.fixture.companyId, { now });
+    ok(await changeMeeting(budi.in, room, first.id, { startsAt: inMinutes(30) }));
+    await dispatchPeopleNotices(w.fixture.companyId, { now, linkFor });
+    // Brought nearer, reminded again, and moved an hour away before that went: an hour away is not ten minutes.
+    ok(await changeMeeting(budi.in, room, first.id, { startsAt: inMinutes(8) }));
+    await syncRoomCards(w.fixture.companyId);
+    now = new Date();
+    await planNotices(w.fixture.companyId, { now });
+    ok(await changeMeeting(budi.in, room, first.id, { startsAt: inMinutes(60) }));
+    await dispatchPeopleNotices(w.fixture.companyId, { now, linkFor });
+    await sendOutbox(w.api.master, now);
+    assert.deepEqual(remindedOf(w.relay!, sari.phone!), []);
+
+    // Reminded twice, then moved an hour away before the notify stage reached it: it is not planned at all.
+    const vans = await said(budi.in, room, 'Van schedule.');
+    const second = ok(await setMeeting(budi.in, room, { messageId: vans, startsAt: inMinutes(9), minutes: 15, attendees: only })).meeting as MeetingView;
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+    ok(await changeMeeting(budi.in, room, second.id, { startsAt: inMinutes(8) }));
+    await syncRoomCards(w.fixture.companyId);
+    ok(await changeMeeting(budi.in, room, second.id, { startsAt: inMinutes(60) }));
+    await tell(w.fixture.companyId, w.api.master);
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+
+    assert.equal(remindedOf(w.relay!, sari.phone!).length, 1, 'the van schedule\'s first reminder, and nothing for a time it moved from');
+    assert.deepEqual((await noticesOf(w.fixture.companyId, sari.seat.principal)).filter((row) => row.reason === 'meeting')
+      .map((row) => row.settled_as), ['gone', 'gone', 'sent']);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a meeting keeps whoever was asked when their seat goes, and adds only the company\'s people', async () => {
+  const w = await workspace('meet-revoked');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const kiki = await person(w, 'Kiki');
+    const room = await companyRoomOf(w.owner);
+    const words = await said(budi.in, room, 'Planning the week.');
+    const set = ok(await setMeeting(budi.in, room, {
+      messageId: words, startsAt: inMinutes(120), minutes: 30, attendees: [budi.seat.principal, sari.seat.principal],
+    })).meeting as MeetingView;
+    for (const seat of [sari.seat, kiki.seat]) {
+      ok(await w.api.call('POST', `/api/companies/${w.fixture.companyId}/staff/${seat.id}/revoke`, w.owner.token, {}), 'revoking a seat');
+    }
+    // Changed as the console changes one, with the whole list as it was.
+    const changed = ok(await changeMeeting(budi.in, room, set.id, {
+      minutes: 45, attendees: [budi.seat.principal, sari.seat.principal], callUrl: 'https://meet.example/week',
+    }), 'a change that keeps whoever was asked').meeting as MeetingView;
+    assert.deepEqual([changed.minutes, changed.callUrl, changed.attendees.map((one) => [one.principal, one.name])],
+      [45, 'https://meet.example/week', [[budi.seat.principal, 'Budi'], [sari.seat.principal, 'Sari']]]);
+    refusedWith(await changeMeeting(budi.in, room, set.id, { attendees: [budi.seat.principal, sari.seat.principal, kiki.seat.principal] }),
+      400, 'contract.violation', 'a seat that has gone is not asked anew');
+  } finally {
+    await w.close();
+  }
+});
+
+test('a meeting whose words retention took keeps no link and reminds nobody', async () => {
+  const w = await workspace('meet-retention', { relay: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const room = await companyRoomOf(w.owner);
+    // The owner's words of forty days ago, written on the control plane, which alone writes a message in the past.
+    const words = randomUUID();
+    await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, w.fixture.companyId);
+      await tx.query(
+        `INSERT INTO room_messages (id, company_id, room_id, kind, author, body, position, created_at)
+         VALUES ($1, $2, $3, 'text', 'owner', 'The old plan, once more.', 0, now() - interval '40 days')`,
+        [words, w.fixture.companyId, room]);
+    });
+    ok(await setMeeting(w.owner, room, {
+      messageId: words, startsAt: inMinutes(7), minutes: 30, attendees: ['owner', budi.seat.principal],
+      callUrl: 'https://meet.example/old?pwd=s3cret',
+    }));
+    // A note keeps its thread, so retention leaves the meeting's message without words rather than taking it.
+    await said(budi.in, room, { body: 'Notes: bring the old numbers.', threadOf: words });
+    ok(await w.owner.post('/retention', { messageDays: 30 }));
+    assert.deepEqual((await purgeExpiredMessages(w.fixture.companyId)).tombstoned, [words]);
+    assert.equal((await meetingRows(w.fixture.companyId))[0]!.call_url, null, 'the pasted link went with the words');
+
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+    assert.deepEqual(await remindersIn(w.fixture.companyId), [], 'nothing is said in a thread whose words are gone');
+    assert.deepEqual(remindedOf(w.relay!, budi.phone!), []);
+    assert.deepEqual((await noticesOf(w.fixture.companyId, budi.seat.principal)).filter((row) => row.reason === 'meeting'), []);
+    assert.ok((await meetingRows(w.fixture.companyId))[0]!.reminded_at, 'marked all the same, so the sweep stops looking at it');
+  } finally {
+    await w.close();
+  }
+});
+
+test("a meeting's reminder is no notice of words: what is said around it is counted as before", async () => {
+  // One notice for a room's words in ten minutes, the rest counted on it
+  // (STATUS 2.213): a reminder between two mentions neither closes the
+  // first's window nor opens one of its own.
+  const w = await workspace('meet-window', { relay: 'summary' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const room = await companyRoomOf(w.owner);
+    await said(budi.in, room, { body: '@sari the counts, please.', mentions: [sari.seat.principal] });
+    await tell(w.fixture.companyId, w.api.master);
+    const words = await said(budi.in, room, 'Count together.');
+    ok(await setMeeting(budi.in, room, { messageId: words, startsAt: inMinutes(7), minutes: 15, attendees: [sari.seat.principal] }));
+    await syncRoomCards(w.fixture.companyId);
+    await tell(w.fixture.companyId, w.api.master);
+    await said(budi.in, room, { body: '@sari and the till.', mentions: [sari.seat.principal] });
+    await tell(w.fixture.companyId, w.api.master);
+    assert.deepEqual((await noticesOf(w.fixture.companyId, sari.seat.principal)).map((row) => [row.reason, row.count]),
+      [['mention', 2], ['meeting', 1]], 'the second mention is counted on the first, within its ten minutes');
+  } finally {
+    await w.close();
+  }
+});
+
+test("a message is a people's meeting or work, never both", async () => {
+  // A people's meeting is no agent's work, and its thread is its notes: a
+  // message already given as work is set no meeting, and a meeting's words
+  // are given as no work.
+  const w = await workspace('meet-or-work');
+  try {
+    const room = await companyRoomOf(w.owner);
+    const given = await said(w.owner, room, 'Find a cheaper courier.');
+    ok(await w.owner.on(room, given, 'work', { target: 'company', goal: 'Find a cheaper courier', goalId: w.fixture.goalId }));
+    refusedWith(await setMeeting(w.owner, room, { messageId: given, startsAt: inMinutes(60), minutes: 30, attendees: ['owner'] }),
+      400, 'contract.violation', 'words already given as work');
+    await assert.rejects(withPeople(w.fixture.companyId, { principal: 'owner', name: null }, (tx) => tx.query(
+      `INSERT INTO room_meetings (company_id, room_id, message_id, starts_at, minutes, attendees, set_by)
+       VALUES ($1, $2, $3, now() + interval '1 day', 30, ARRAY['owner'], 'owner')`,
+      [w.fixture.companyId, room, given])), /a meeting is set from words/, 'the database refuses it too');
+
+    const review = await said(w.owner, room, 'Courier review with the team.');
+    ok(await setMeeting(w.owner, room, { messageId: review, startsAt: inMinutes(60), minutes: 30, attendees: ['owner'] }));
+    const shown = (ok(await w.owner.page(room)).messages as Array<{ id: string; may: { giveAsWork: boolean; callMeeting: boolean } }>)
+      .find((one) => one.id === review)!;
+    assert.deepEqual([shown.may.giveAsWork, shown.may.callMeeting], [false, false], 'a meeting\'s words are offered as no work');
+    refusedWith(await w.owner.on(room, review, 'work', { target: 'company', goal: 'Review couriers', goalId: w.fixture.goalId }),
+      400, 'contract.violation', 'nor given as work');
   } finally {
     await w.close();
   }
@@ -446,6 +673,9 @@ test('a call link is https and is never fetched', async () => {
     for (const callUrl of [
       'http://meet.example/x', 'javascript:alert(1)', 'ftp://meet.example/x', 'meet.example/x', 'https://meet.example/a b',
       'https://', `https://meet.example/${'x'.repeat(2000)}`, 42,
+      // Control characters, which nobody pastes in a link and some databases cannot even hold.
+      'https://meet.example/\u0000x', 'https://meet.example/\u001fx', 'https://meet.example/\u001cx', 'https://meet.example/\u0085x',
+      'https://meet.example/\u007fx',
     ]) {
       const answer = await setMeeting(budi.in, room, { ...base, callUrl });
       refusedWith(answer, 400, 'contract.violation', `a call link of ${String(callUrl).slice(0, 40)}`);
@@ -469,6 +699,11 @@ test('a call link is https and is never fetched', async () => {
     // The database holds a link to https as well.
     await assert.rejects(withPeople(w.fixture.companyId, { principal: budi.seat.principal, name: 'Budi' }, (tx) => tx.query(
       "UPDATE room_meetings SET call_url = 'http://meet.example/x' WHERE id = $1", [set.id])), /room_meetings_call_url_check/);
+    for (const control of ['\u001f', '\u007f', '\u009b']) {
+      await assert.rejects(withPeople(w.fixture.companyId, { principal: budi.seat.principal, name: 'Budi' }, (tx) => tx.query(
+        'UPDATE room_meetings SET call_url = $2 WHERE id = $1', [set.id, `https://meet.example/${control}x`])), /room_meetings_call_url_check/,
+      `the database refuses U+${control.codePointAt(0)!.toString(16).padStart(4, '0')} too`);
+    }
   } finally {
     server.close();
     await w.close();

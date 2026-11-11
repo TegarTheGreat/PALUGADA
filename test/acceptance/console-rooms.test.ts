@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { decodeBase32, stepFor, totpCode } from '../../src/owner/mfa.ts';
@@ -1003,6 +1003,66 @@ test('/meet sets a meeting of people from the words typed, drawn under them with
     assert.deepEqual(sent.map((one) => one.body), [words], 'the words were posted once, without the command');
     const meeting = (sent[0] as unknown as { peopleMeeting: { callUrl: string; attendees: Array<{ principal: string }>; minutes: number } }).peopleMeeting;
     assert.deepEqual([meeting.callUrl, meeting.attendees.map((one) => one.principal), meeting.minutes], ['https://meet.example/rota', ['owner'], 30]);
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});
+
+test('on a phone the meetings are one menu, and a meeting under way is changed from its panel where it is', { skip }, async () => {
+  // A phone's composer keeps room for the words (STATUS 2.215): setting a
+  // people's meeting and calling one of the agents are one menu there. A
+  // meeting that has begun is still its setter's to fix -- its link, its
+  // length, who is asked -- and the dialog sends a time only when it was
+  // changed, so it is not refused for starting in the past; whoever was
+  // asked is named, their seat gone or not, never written as an id.
+  const { fixture, api, owner } = await started();
+  const me = personIn(api, owner, fixture.companyId);
+  const roomId = await companyRoomOf(me);
+  const sari = await seated(fixture, 'Sari', 'member', { handle: 'sari' });
+  await companyRoomOf(personIn(api, sari.token, fixture.companyId));
+  const words = 'Quarter close: who counts what.';
+  const messageId = await said(me, roomId, words);
+  const set = ok(await me.post(`/rooms/${roomId}/people-meetings`, {
+    messageId, startsAt: new Date(Date.now() + 30 * 60_000).toISOString(), minutes: 30, attendees: ['owner', sari.principal],
+  })).meeting as { id: string };
+  ok(await api.call('POST', `/api/companies/${fixture.companyId}/staff/${sari.id}/revoke`, owner, {}), 'revoking Sari\'s seat');
+  // It began five minutes ago: moved there on the control plane, since nobody may set a meeting in the past.
+  await withControlPlane(async (tx) => {
+    await roomsOnControlPlane(tx, fixture.companyId);
+    await tx.query("UPDATE room_meetings SET starts_at = now() - interval '5 minutes' WHERE id = $1", [set.id]);
+  });
+  const began = await withControlPlane(async (tx) => (await tx.query<{ starts_at: Date }>(
+    'SELECT starts_at FROM room_meetings WHERE id = $1', [set.id])).rows[0]!.starts_at);
+  const DIALOG = `document.querySelector('[data-set-meeting]')`;
+  const page = await drawn(api, PHONE);
+  try {
+    await ownerSignsIn(page, api, `#/c/${fixture.companyId}/rooms?item=${roomId}`);
+    await page.waitFor(`document.querySelector('[data-composer]')`, 'the composer');
+    assert.equal(await page.evaluate<boolean>(
+      `Boolean(document.querySelector('.composer [aria-label="Call a meeting about this"], .composer [data-set-meeting-button]'))`), false,
+    'no button of its own for each meeting on a phone');
+    const width = await page.evaluate<number>(`document.querySelector('[data-composer]').getBoundingClientRect().width`);
+    assert.ok(width >= 120, `the words have ${width} pixels`);
+    await page.evaluate(`document.querySelector('.composer [data-meetings-menu]').click()`);
+    await page.waitFor(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((one) => one.innerText.trim());
+      return items.includes('Set a meeting') && items.includes('Call a meeting about this'); })()`, 'the menu, with both meetings');
+    await page.press('Escape');
+
+    await page.waitFor(`${ROW(words)}?.querySelector('[data-people-meeting]')`, 'the meeting under its words');
+    await page.evaluate(`[...${ROW(words)}.querySelectorAll('[data-people-meeting] button')].find((one) => one.innerText.trim() === 'Change').click()`);
+    await page.waitFor(DIALOG, 'the dialog that changes it');
+    const shown = await page.evaluate<string>(`${DIALOG}.innerText`);
+    assert.ok(shown.includes('Sari') && !shown.includes('seat:'), `whoever was asked is named: ${shown}`);
+    await page.evaluate(`${DIALOG}.querySelector('[data-call-link]').focus()`);
+    await page.type('https://meet.example/close');
+    await page.waitFor(`!document.querySelector('[data-set]').disabled`, 'Save');
+    await page.evaluate(`document.querySelector('[data-set]').click()`);
+    await page.waitFor(`!${DIALOG}`, 'the dialog closed, the change kept');
+    const row = await withControlPlane(async (tx) => (await tx.query<{ starts_at: Date; call_url: string | null; attendees: string[] }>(
+      'SELECT starts_at, call_url, attendees::text[] AS attendees FROM room_meetings WHERE id = $1', [set.id])).rows[0]!);
+    assert.deepEqual([row.starts_at.getTime(), row.call_url, row.attendees], [began.getTime(), 'https://meet.example/close', ['owner', sari.principal]],
+      'its link is changed, and it is where it was, for whom it was');
   } finally {
     await page.close();
     await api.close();

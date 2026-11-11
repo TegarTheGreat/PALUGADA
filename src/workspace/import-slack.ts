@@ -21,10 +21,11 @@
  * transaction of its own that saves how far reading came: the company's rooms
  * wait for one batch, never for a channel, a worker's tick for as long as it
  * gives, and a reading that stopped goes on from where it was.
- * What came from Slack keeps its Slack id (0159), so a second import of the
- * same export finds everything already there and adds nothing. The parts go
- * when the import is done or failed, after seven days in any case
- * (`sweepImportParts`, from the retention stage), and with the company.
+ * What came from Slack keeps its Slack id (`external_id`), so a second
+ * import of the same export finds everything already there and adds
+ * nothing. The parts go when the import is done or failed, after seven days
+ * in any case (`sweepImportParts`, from the retention stage), and with the
+ * company.
  *
  * Nothing here reaches a model: an imported message given as work is carried
  * as outside words by the doors (STATUS 2.206), whoever presses.

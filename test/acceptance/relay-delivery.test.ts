@@ -755,3 +755,138 @@ test('a notice still owed when the relay is told less is sent at the new share, 
     await relay.close();
   }
 });
+
+test("two replicas sending one relay's outbox at once still send each person's envelopes in the order they were made", async () => {
+  // STATUS section 2.216 (F13): a claim waits for the other replica's claim
+  // to commit, so it sees that replica's rows as being sent and holds a
+  // link's later rows behind them.
+  const { randomBytes, generateKeyPairSync } = await import('node:crypto');
+  const { sendDue } = await import('../../src/relay/outbox.ts');
+  const fixture = await createCompany('relay-two-replicas');
+  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const letters = (n: number) => Array.from(randomBytes(n), (byte) => ALPHABET[byte & 31]).join('');
+  const signing = { keys: [generateKeyPairSync('ed25519').privateKey], kid: '0123456789abcdef' };
+  const { relayId, links } = await withControlPlane(async (tx) => {
+    const { rows: [relay] } = await tx.query<{ id: string }>(
+      `INSERT INTO relays (name, url, envelopes_url, public_key, fingerprint, versions, status, paired_at, salt, all_companies, share, mode)
+       VALUES ('r', 'http://127.0.0.1:9/', 'http://127.0.0.1:9/v1/envelopes', $1, $2, '{1}', 'paired', now(), $3, true, 'content', 'push')
+       RETURNING id`,
+      [randomBytes(32), letters(24), randomBytes(32)]);
+    const made: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const { rows: [link] } = await tx.query<{ id: string }>(
+        `INSERT INTO relay_links (relay_id, principal, recipient_id, status, claimed_at) VALUES ($1, 'owner', $2, 'active', now()) RETURNING id`,
+        [relay!.id, letters(26)]);
+      made.push(link!.id);
+      // One active link a person: these are only queues here.
+      await tx.query("UPDATE relay_links SET status = 'ended' WHERE id = $1", [link!.id]);
+    }
+    return { relayId: relay!.id, links: made };
+  });
+  let disordered = 0;
+  for (let trial = 0; trial < 6; trial += 1) {
+    const base = Date.now() - 60_000;
+    await withControlPlane(async (tx) => {
+      await tx.query('DELETE FROM relay_outbox WHERE relay_id = $1', [relayId]);
+      for (let i = 0; i < 90; i += 1) {
+        await tx.query(
+          `INSERT INTO relay_outbox (id, relay_id, link_id, company_id, type, subjects, body, next_at, created_at)
+           VALUES ($1, $2, $3, $4, 'ping', '{}', $5, $6, $6)`,
+          [randomUUID(), relayId, links[i % 3], fixture.companyId, JSON.stringify({ link: links[i % 3], seq: Math.floor(i / 3) }), new Date(base + i)]);
+      }
+    });
+    const delivered: Array<{ link: string; seq: number }> = [];
+    const answer = (async (_url: unknown, init: { body: string }) => {
+      const envelope = JSON.parse(init.body) as { link: string; seq: number };
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      delivered.push(envelope);
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const now = new Date();
+    await Promise.all([
+      sendDue({ id: relayId, envelopesUrl: 'http://127.0.0.1:9/v1/envelopes' }, signing, { now, fetch: answer }),
+      sendDue({ id: relayId, envelopesUrl: 'http://127.0.0.1:9/v1/envelopes' }, signing, { now, fetch: answer }),
+    ]);
+    for (let pass = 0; pass < 4; pass += 1) {
+      await sendDue({ id: relayId, envelopesUrl: 'http://127.0.0.1:9/v1/envelopes' }, signing, { now: new Date(), fetch: answer });
+    }
+    assert.equal(delivered.length, 90, 'everything owed was sent');
+    for (const link of links) {
+      const seqs = delivered.filter((one) => one.link === link).map((one) => one.seq);
+      if (seqs.some((seq, index) => index > 0 && seq < seqs[index - 1]!)) disordered += 1;
+    }
+  }
+  assert.equal(disordered, 0, 'no link saw a later envelope before an earlier one');
+});
+
+test('an offer is purged four days after it was spent, not four days after it would have expired', async () => {
+  // STATUS section 2.216 (F24).
+  const fixture = await createCompany('relay-spent-purge');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'summary', mayPress: true });
+    const phone = await linkThrough(api, token, relay, relayId, { device: true });
+    const itemId = await approval(fixture.companyId, 2, 'Pay the roaster');
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const told = items(relay.received).at(-1)!.envelope;
+    const approve = told.offers.find((offer: { act: string }) => offer.act === 'approve');
+    const deployment = String(((await (await fetch(`${api.url}/api/relay/v1/identity`)).json()) as { deployment: string }).deployment);
+    const at = new Date().toISOString();
+    const { deviceSignature } = await import('../helpers/fake-relay.ts');
+    const pressed = await relay.push(api.url, relayId, relay.sign({
+      v: 1, type: 'press', at, token: approve.token,
+      device_sig: deviceSignature(phone.device!.privateKey, { deployment, relay: relayId, recipient: phone.recipient, type: 'press', token: approve.token, at }),
+    }));
+    assert.equal(pressed.status, 200, JSON.stringify(pressed.body));
+    // The offer was good for three days; five days after it was spent it is gone, though it would only now have expired.
+    await withControlPlane((tx) => tx.query(
+      "UPDATE relay_offers SET expires_at = now() + interval '2 days' WHERE inbox_item_id = $1", [itemId]));
+    await relayBookkeeping(new Date(Date.now() + 5 * 86_400_000 - 2 * 86_400_000 + 3_600_000));
+    const left = await withControlPlane((tx) => tx.query(
+      "SELECT act FROM relay_offers WHERE inbox_item_id = $1 AND act = 'approve'", [itemId]));
+    assert.equal(left.rows.length, 1, 'kept for the four days a late press is told why');
+    await relayBookkeeping(new Date(Date.now() + 5 * 86_400_000));
+    const gone = await withControlPlane((tx) => tx.query(
+      "SELECT act FROM relay_offers WHERE inbox_item_id = $1 AND act = 'approve'", [itemId]));
+    assert.equal(gone.rows.length, 0, 'purged four days after it was spent');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+test("a run's choices reach the owner's phone redacted, as its question does, and a press still answers what the run offered", async () => {
+  // STATUS section 2.216 (F8).
+  const { redactor } = await import('../../src/secrets/manager.ts');
+  const secret = 'sk-live-RELAYCHOICESECRET0216';
+  redactor.register(secret);
+  const fixture = await createCompany('relay-choices-redacted');
+  const relay = await fakeRelay();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'content', mayPress: true });
+    await linkThrough(api, token, relay, relayId, { device: true });
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      goalId: fixture.goalId, input: { goal: 'pick a key' }, createdBy: 'owner', reserveTokens: 100,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: `Use ${secret} or the test key?`, options: [secret, 'the test key'] });
+    await handToRelay(fixture.companyId, relayId);
+    await sendOutbox(api.master);
+    const told = items(relay.received).at(-1)!;
+    assert.equal(told.body.includes(secret), false, 'no secret reaches the relay, in the choices or on a button');
+    assert.deepEqual(told.envelope.data.options, ['[redacted]', 'the test key']);
+    assert.deepEqual(told.envelope.offers.map((offer: { label: string }) => offer.label), ['[redacted]', 'the test key', 'Answer']);
+    const { rows } = await withControlPlane((tx) => tx.query<{ option: string | null }>(
+      'SELECT option FROM relay_offers WHERE inbox_item_id = $1 ORDER BY created_at, option', [asked.inboxItemId]));
+    assert.ok(rows.some((row) => row.option === secret), 'the press answers with what the run offered');
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});

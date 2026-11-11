@@ -809,3 +809,95 @@ test('what retention takes is retracted at the relay, a root left without its wo
     await w.close();
   }
 });
+
+test('a person taken out of a private room after their notice was written is not sent it, then or from the dead letters', async () => {
+  // STATUS section 2.216 (F2): the relay loop asks again, as it sends,
+  // whether the person may still see the room a notice is about.
+  let down = true;
+  const w = await workspace('relay-people-removed-late', { share: 'content', relay: { answer: (one) => (down && one.envelope?.type === 'room_activity' ? { status: 503 } : undefined) } });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const room = String(ok(await budi.in.makeRoom({ name: 'HR', private: true, members: [sari.seat.principal] })).room.id);
+    await said(budi.in, room, { body: '@sari the restructuring list is final, keep it quiet', mentions: [sari.seat.principal] });
+    // Written into the outbox, then tried and failed until it is a dead letter.
+    await tell(companyId, w.api.master, { send: false });
+    for (let attempt = 0; attempt < 8; attempt += 1) await sendOutbox(w.api.master, new Date(Date.now() + attempt * 3_600_000));
+    const { rows: dead } = await withControlPlane((tx) => tx.query<{ status: string }>(
+      "SELECT status FROM relay_outbox WHERE relay_id = $1 AND type = 'room_activity'", [w.relayId]));
+    assert.deepEqual(dead.map((row) => row.status), ['dead']);
+    // Sari is taken out of the room; the relay comes back; the owner retries the dead letters.
+    ok(await budi.in.members(room, { remove: [sari.seat.principal] }), 'Sari removed');
+    const before = w.relay.received.length;
+    down = false;
+    ok(await w.api.call('POST', `/api/control/relays/${w.relayId}/retry`, w.ownerToken, {}));
+    await sendOutbox(w.api.master, new Date(Date.now() + 9 * 3_600_000));
+    assert.deepEqual(w.relay.received.slice(before).map((one) => one.envelope?.type).filter((type) => type === 'room_activity'), [],
+      'nothing of the room reaches her relay after she left it');
+    const { rows: left } = await withControlPlane((tx) => tx.query(
+      "SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND type = 'room_activity'", [w.relayId]));
+    assert.equal(left.length, 0, 'the envelope is dropped, not kept waiting');
+    const { rows: usable } = await withControlPlane((tx) => tx.query(
+      'SELECT 1 FROM relay_offers WHERE link_id = $1 AND voided_at IS NULL', [sari.phone!.linkId]));
+    assert.equal(usable.length, 0, 'and its tokens are void');
+  } finally {
+    await w.close();
+  }
+});
+
+test("a deleted message's words leave the deployment's outbox at once, from the envelope already delivered too", async () => {
+  // STATUS section 2.216 (F19): F19.4's removal takes the words at once.
+  const w = await workspace('relay-people-delete-blanks', { share: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const dm = await direct(budi.in, sari.seat);
+    const message = await said(budi.in, dm, 'The safe code is 4242.');
+    await tell(companyId, w.api.master);
+    const [sent] = toldTo(w.relay, sari.phone!);
+    assert.match(sent.data.excerpt, /4242/);
+    ok(await budi.in.on(dm, message, 'delete'));
+    await tell(companyId, w.api.master);
+    const { rows } = await withControlPlane((tx) => tx.query<{ type: string; status: string; body: string }>(
+      'SELECT type, status, body FROM relay_outbox WHERE relay_id = $1 ORDER BY created_at', [w.relayId]));
+    assert.ok(rows.some((row) => row.type === 'room_activity_retracted'), 'the relay is told to drop it');
+    assert.deepEqual(rows.filter((row) => row.body.includes('4242')).map((row) => `${row.type}:${row.status}`), [],
+      'no row the deployment keeps still holds the deleted words');
+    const kept = rows.find((row) => row.type === 'room_activity')!;
+    assert.deepEqual(Object.keys(JSON.parse(kept.body)).sort(), ['at', 'deployment', 'id', 'relay', 'to', 'type', 'v'],
+      'what is left of the delivered envelope only addresses it');
+  } finally {
+    await w.close();
+  }
+});
+
+test("a run's choices reach a seat's phone redacted, as its question does", async () => {
+  // STATUS section 2.216 (F8).
+  const { redactor } = await import('../../src/secrets/manager.ts');
+  const secret = 'sk-live-SEATCHOICESECRET0216';
+  redactor.register(secret);
+  const w = await workspace('relay-people-choices-redacted', { share: 'content', mayPress: true });
+  try {
+    const budi = await person(w, 'Budi');
+    const { companyId } = w.fixture;
+    const task = await createRootTask({
+      companyId, projectId: w.fixture.projectId, divisionId: w.fixture.divisionId, roleId: w.fixture.roleId,
+      goalId: w.fixture.goalId, input: { goal: 'Pick a key' }, createdBy: 'owner', reserveTokens: 100,
+    });
+    await transition(companyId, task.id, 'running');
+    await inbox.askOwner({
+      companyId, taskId: task.id, question: `Use ${secret} or the test key?`, options: [secret, 'the test key'],
+      addressee: { seatId: budi.seat.id, name: 'Budi', escalateAfterHours: 24 },
+    });
+    await tell(companyId, w.api.master);
+    const question = toldTo(w.relay, budi.phone!).find((one) => one.type === 'inbox_item')!;
+    assert.ok(question, 'the question is told');
+    assert.equal(JSON.stringify(question).includes(secret), false);
+    assert.deepEqual(question.data.options, ['[redacted]', 'the test key']);
+    assert.deepEqual(question.offers.map((offer: { label: string }) => offer.label), ['[redacted]', 'the test key', 'Answer']);
+  } finally {
+    await w.close();
+  }
+});

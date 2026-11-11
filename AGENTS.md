@@ -43,6 +43,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
 | `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
 | `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
+| `src/owner/staff.ts` | the staff the owner seats, of three kinds (viewer, member, approver): their invites, names kept apart, handles, sign-in by handle and its lock, a new authenticator; `src/owner/staff-policy.ts` is what each kind may read and post, a fenced block per area; `src/owner/profile.ts` is a person's own profile |
 | `src/owner/conversation-money.ts` | what the owner's conversations may spend: each CEO turn reserved and held in a row before the call, the sweep of holds a crash left, PALUGADA's own monthly allowance |
 | `src/owner/confusables.ts` | the look-alike letters people's names and handles are compared on, generated from Unicode's data by `scripts/confusables.ts` |
 | `src/owner/sentences/areas/` | one feature's server sentences in every language, spread into each file of `src/owner/sentences/` |
@@ -60,11 +61,12 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
 | `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`), a person's profile (`Profile.tsx`), the room stream every page listens to, one per tab (`useRoomStream.ts`), and the Slack importer with the old workspace's people (`ImportSlack.tsx`) |
-| `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
+| `console/public/` | the console's icons, manifest and pictures, the twelve people's pictures in `console/public/avatars/people/`; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
+| `console/src/pages/deployment/` and `console/src/pages/settings/` | sections of **This deployment** and of a company's **Settings** kept in files of their own: the relays (`Relays.tsx`) and the room files' limit (`RoomFiles.tsx`) |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
 | `test/acceptance/` | behaviour, one file per area of the specification, against a real database |
-| `test/documents/` | tests about the source and the documents: routes, translations, requirements, this file |
+| `test/documents/` | tests about the source and the documents: routes, translations, requirements, the settings page, this file |
 | `test/helpers/` | fixtures and the per-test reset |
 
 ## Setting up
@@ -148,9 +150,11 @@ Each of these is a test, and each exists because the mistake was made once.
   the assistant's dispatch. `test/documents/people-boundary.test.ts`.
 - **References between tenant tables carry the company**: composite keys on
   `(company_id, id)`, so a row cannot point into another company.
+  `test/acceptance/tenant-isolation.test.ts`.
 - **The application role has only the grants it needs** (migration 0047).
   Owner actions run on the control plane through `withControlPlane`; agent
-  work runs through `withTenant`.
+  work runs through `withTenant`. `test/acceptance/tenant-isolation.test.ts`
+  lists what the role may write, table by table.
 - **Every API route is pressed from the console**, written as
   `api('METHOD', '/api/...')` with the path spelled out.
   `test/documents/console-routes.test.ts`.
@@ -203,7 +207,9 @@ Each of these is a test, and each exists because the mistake was made once.
   owner are pictures (`console/src/images.ts`), and every image the console
   names ships in `console/public`. `test/documents/console-images.test.ts`.
 - **The console stores nothing in the browser.** The session lives in memory;
-  preferences live in the owner API.
+  preferences live in the owner API, and no service worker is registered.
+  `test/documents/console-page.test.ts`,
+  `test/documents/people-boundary.test.ts`.
 - **The console fits a phone.** Drawn in Chromium at 390 pixels, the work,
   the money, the overview, the rooms' rail and an open room have nothing
   wider than the screen, nothing that scrolls sideways, no badge cut and no
@@ -221,7 +227,17 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Every column of an exported table is exported**, or listed with a reason
   in `test/acceptance/audit-export.test.ts`. A change that adds a column to
   an exported table exports it, or lists it there, in the same commit.
-- **Every requirement in the PRD appears in `docs/STATUS.md`.**
+- **Every requirement in the PRD appears in `docs/STATUS.md`**, and a
+  requirement a section says it built is not graded not built in the table.
+  `test/documents/requirement-coverage.test.ts`.
+- **Every variable the code reads from the environment is named in
+  `docs/configuration.md`**, in full and with its effect.
+  `test/documents/configuration.test.ts`.
+- **A comment cites only what the repository holds.** The people's workspace
+  was designed in a document kept outside it; a comment states the rule
+  itself, with its PRD id (`F19.x`) or the STATUS section that records it,
+  never that document, its numbered rules or the sets it was built in.
+  `test/documents/self-knowledge.test.ts`.
 - **A version is one number everywhere**: `package.json`, its lockfile and
   the newest section of `CHANGELOG.md`. A change an owner or an operator
   would notice adds its line to that section; releasing it is
@@ -230,7 +246,8 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Nothing in `src/` is exported and reachable only from tests.**
   `test/documents/reachability.test.ts` keeps an inventory.
 - **Tests run one file at a time** (`--test-concurrency=1`): they share one
-  database and each file resets it.
+  database and each file resets it. `test/documents/self-knowledge.test.ts`
+  holds `npm test` and `npm run test:coverage` to it.
 - **A test that changes deployment-wide state** (`platform_control`) resets it
   in `test/helpers/setup.ts`, or every later file inherits it.
 - **A transaction runs its queries one at a time.** No `Promise.all` over one

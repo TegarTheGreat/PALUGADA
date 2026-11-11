@@ -48,6 +48,51 @@ test('every path the guide names exists', async () => {
   assert.deepEqual(missing, [], 'AGENTS.md names paths that are not there');
 });
 
+test('every rule the suite enforces names the test that holds it', async () => {
+  // The section opens "Each of these is a test". A rule with no test named
+  // beside it is a rule nobody can check is still held, and the final review
+  // of the people's workspace found five such (STATUS 2.219). A rule may name
+  // a helper every test runs through (`test/helpers/setup.ts`), which holds
+  // it in every file.
+  const text = await readFile(join(ROOT, 'AGENTS.md'), 'utf8');
+  const section = text.split('## Rules the suite enforces')[1]?.split('\n## ')[0] ?? '';
+  const rules = section.split(/\n(?=- \*\*)/).filter((part) => part.startsWith('- **'));
+  assert.ok(rules.length >= 20, `only ${rules.length} rules were found; the scan is broken`);
+  const untested = rules
+    .filter((rule) => !/`test\/(?:[\w.-]+\/)*[\w.-]+\.test\.ts`|`test\/helpers\/[\w.-]+\.ts`/.test(rule))
+    .map((rule) => /^- \*\*([^*]+)\*\*/.exec(rule)?.[1] ?? rule.slice(0, 60));
+  assert.deepEqual(untested, [], 'AGENTS.md states a rule the suite enforces without naming the test');
+});
+
+test('no comment cites the design the people\'s workspace was built from', async () => {
+  // The workspace was designed in a document kept outside the repository, in
+  // parts built by separate sets of changes. Comments that cite that document,
+  // its numbered rules or its sets send a reader to something they cannot
+  // open; a comment states the rule itself, with its PRD id (F19.x) or the
+  // STATUS section that records it (STATUS 2.202 says what the document was).
+  const cited = [
+    /workspace plan/i,
+    /\binvariants? I\d{1,2}\b/,
+    /[(;,] ?I\d{1,2}\)/,
+    /\b(?:a|the|each) (?:later )?set (?:that|adds|makes|builds|first|strikes)\b/,
+    /\ba later set\b|\bthe sets that\b|\bfor each set named\b/,
+  ];
+  const self = fileURLToPath(import.meta.url);
+  const found: string[] = [];
+  async function read(directory: string): Promise<void> {
+    for (const entry of await readdir(join(ROOT, directory), { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== 'node_modules' && entry.name !== 'dist') await read(path); continue; }
+      if (!/\.(?:ts|tsx|mts|sql|sh)$/.test(entry.name) || join(ROOT, path) === self) continue;
+      (await readFile(join(ROOT, path), 'utf8')).split('\n').forEach((line, index) => {
+        if (cited.some((phrase) => phrase.test(line))) found.push(`${path}:${index + 1}: ${line.trim().slice(0, 100)}`);
+      });
+    }
+  }
+  for (const directory of ['src', 'console/src', 'test', 'scripts', 'db']) await read(directory);
+  assert.deepEqual(found, [], 'cites a document the repository does not hold');
+});
+
 test('"npm run check" is the whole definition of done', async () => {
   // The guide says one command decides whether a change is finished. That is
   // only true if the command runs everything CI does before the tests.

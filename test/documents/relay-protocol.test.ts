@@ -54,6 +54,7 @@ interface Vectors {
   pull: { id: string; timestamp: string; request: string; signature: string };
   roomActivity: { value: Record<string, unknown>; canonical: string; id: string; timestamp: string; signature: string; subject: string; link: string };
   reply: { body: string; fields: Record<string, unknown>; message: string; signature: string };
+  meetingSoon: { value: Record<string, unknown>; canonical: string; id: string; timestamp: string; signature: string; subject: string; link: string };
 }
 
 async function vectors(): Promise<Vectors> {
@@ -122,6 +123,17 @@ test("the document's test vectors verify", async () => {
   assert.equal(v.reply.fields.sha256, createHash('sha256').update(v.reply.body, 'utf8').digest('hex'));
   assert.equal(`palugada-device/v1\n${jcs(v.reply.fields)}`, v.reply.message);
   assert.equal(sign(null, Buffer.from(v.reply.message, 'utf8'), device.privateKey).toString('base64url'), v.reply.signature);
+
+  // A people's meeting about to start (STATUS section 2.215): canonical,
+  // signed, and its id made from the notice it tells of.
+  const meeting = v.meetingSoon;
+  assert.equal(meeting.value.type, 'meeting_soon');
+  assert.equal(jcs(meeting.value), meeting.canonical);
+  assert.equal(signV1a([key.privateKey], meeting.id, meeting.timestamp, meeting.canonical), meeting.signature);
+  assert.equal(envelopeId({
+    deployment: String(meeting.value.deployment), relay: String(meeting.value.relay), link: meeting.link, type: 'meeting_soon', subject: meeting.subject,
+  }), meeting.id);
+  assert.deepEqual(meeting.value.offers, [], 'a reminder offers nothing to press');
 
   // A seed is the private key, so a reader can rebuild it with any library: PKCS #8 around the 32 bytes.
   const rebuilt = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
@@ -193,4 +205,8 @@ test('a relay built from the document alone checks every vector, with nothing of
   assert.ok(v1a(v.roomActivity.signature, v.roomActivity.id, v.roomActivity.timestamp, v.roomActivity.canonical, v.key.publicKey));
   assert.equal(JSON.parse(v.reply.message.split('\n')[1]!).sha256, createHash('sha256').update(v.reply.body, 'utf8').digest('hex'));
   assert.ok(verify(null, Buffer.from(v.reply.message, 'utf8'), published(v.device.publicKey), Buffer.from(v.reply.signature, 'base64url')));
+
+  // Section 6.3 again: a people's meeting about to start, signed as every envelope is.
+  assert.deepEqual(JSON.parse(v.meetingSoon.canonical), v.meetingSoon.value);
+  assert.ok(v1a(v.meetingSoon.signature, v.meetingSoon.id, v.meetingSoon.timestamp, v.meetingSoon.canonical, v.key.publicKey));
 });

@@ -594,6 +594,13 @@ test('the application role may write what the platform writes, and no more (F12,
       table: ['SELECT', 'INSERT', 'DELETE'],
       columns: ['count', 'position', 'day', 'notify_after', 'attempts', 'last_attempt_at', 'delivered_at', 'settled_as', 'last_error'],
     },
+    // People's meetings (STATUS section 2.215): a person sets, moves and
+    // cancels one, and the rooms' sweep marks it reminded; nothing is removed
+    // but with its message or its room.
+    room_meetings: {
+      table: ['SELECT', 'INSERT'],
+      columns: ['starts_at', 'minutes', 'attendees', 'call_url', 'cancelled_at', 'cancelled_by', 'reminded_at'],
+    },
   };
   for (const [table, granted] of Object.entries(ROOM_GRANTS)) {
     for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {

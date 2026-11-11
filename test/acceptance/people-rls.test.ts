@@ -44,6 +44,8 @@ after(async () => {
 const ROOM_TABLES = [
   'room_clock', 'rooms', 'room_members', 'room_places', 'room_access', 'room_messages', 'room_message_revisions',
   'room_reactions', 'room_pins', 'room_files', 'room_mentions', 'room_follows', 'room_feed',
+  // People's meetings (STATUS section 2.215): who meets whom, and when, is people's business too.
+  'room_meetings',
 ] as const;
 
 /** The owner, as the owner's own session makes them: what every owner request is in a room. */

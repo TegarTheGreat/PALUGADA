@@ -1029,10 +1029,13 @@ async function beginChannel(tx: TenantClient, reading: Reading, channel: Channel
   const members = channel.private ? channel.members.map((member) => `former:slack:${member}`) : [];
   if (members.length > 0) {
     // Named as the export's people name them; one it does not name is added by their id, and keeps a name a message gave them.
-    const named = members.filter((former) => reading.slack.users.has(former.slice('former:slack:'.length)));
-    draft.counts.people += await formersNamed(tx, companyId, new Map(named.map((former) => [former, nameOfFormer(former, reading.slack.users)])), true);
-    draft.counts.people += await formersNamed(tx, companyId,
-      new Map(members.filter((former) => !named.includes(former)).map((former) => [former, nameOfFormer(former, reading.slack.users)])), false);
+    const named = new Map<string, string>();
+    const unnamed = new Map<string, string>();
+    for (const former of members) {
+      (reading.slack.users.has(former.slice('former:slack:'.length)) ? named : unnamed).set(former, nameOfFormer(former, reading.slack.users));
+    }
+    draft.counts.people += await formersNamed(tx, companyId, named, true);
+    draft.counts.people += await formersNamed(tx, companyId, unnamed, false);
     await tx.query(
       `UPDATE room_former_people SET rooms = array_append(rooms, $3::uuid)
         WHERE company_id = $1 AND former = ANY($2::text[]) AND NOT ($3::uuid = ANY(rooms))`, [companyId, members, roomId]);

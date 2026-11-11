@@ -653,6 +653,16 @@ test("a lesson from work a member of staff asked for is a colleague's words, nev
   assert.deepEqual([found[0]!.unverified, found[0]!.staff], [true, ['Budi']]);
   assert.match(found[0]!.body, /^<<<COLLEAGUE>>>/);
   assert.deepEqual((await withTenant(fixture.companyId, (tx) => staffWordsIn(tx, searching.id))).map((word) => word.seatId), [budi]);
+  // Found again by the same work, it is not recorded again: the Work page says once that it quoted Budi from memory.
+  await new CapabilityBroker(registry).invoke({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: searching.id, idempotencyKey: 'search-refunds-again',
+  }, 'memory.search', { query: 'refund complains in full' });
+  const quoted = (taskId: string) => withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'content.staff_said' AND payload->>'from' = 'memory'", [taskId]))
+    .then((result) => result.rows[0]!.n);
+  assert.equal(await quoted(searching.id), 1, 'one line for Budi, however often the work finds him');
+  assert.equal(await quoted(owners.id), 1, 'and one for the run told the lesson');
 
   // The distiller, reading staff work's record, marks what it distils the same way.
   const llm = new RecordingLlmClient(() => JSON.stringify({ facts: [{ body: 'Complaints are refunded in full.', confidence: 0.9 }] }));

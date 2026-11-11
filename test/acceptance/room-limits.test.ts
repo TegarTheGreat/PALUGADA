@@ -136,6 +136,99 @@ test("every write of the rooms is held to a person's minute, and says so", async
   }
 });
 
+test("the rest of the rooms' writes are held to a person's minute too, a viewer's as well", async () => {
+  // Joining and leaving each take the company's room clock and tell every
+  // console, and so do a room's name, its settings, a read mark, a follow and
+  // a removal: a seat that sent them without end kept every post of the
+  // company waiting behind its own (STATUS 2.217).
+  const { fixture, api, owner } = await workspace('limits-the-rest');
+  try {
+    const viewer = await seated(fixture, 'Sari', 'viewer');
+    const sari = personIn(api, viewer.token, fixture.companyId);
+    const member = await seated(fixture, 'Dewi', 'member');
+    const dewi = personIn(api, member.token, fixture.companyId);
+    const company = await companyRoomOf(owner);
+    await companyRoomOf(sari);
+    await companyRoomOf(dewi);
+    const tooFast = (answer: { status: number; body: any }, what: string) => refusedWith(answer, 429, 'workspace.too_fast', what);
+    const open = String(ok(await owner.makeRoom({ name: 'umum' })).room.id);
+
+    // Joining and leaving: twenty a minute, each way counted.
+    for (let n = 0; n < 10; n += 1) {
+      ok(await sari.join(open), `join ${n}`);
+      ok(await sari.leave(open), `leave ${n}`);
+    }
+    tooFast(await sari.join(open), 'a twenty-first join or leave in a minute');
+
+    // How a room tells her, and following a thread: sixty a minute between them.
+    const root = await said(owner, company, 'Siapa yang ikut rapat?');
+    for (let n = 0; n < 30; n += 1) {
+      ok(await sari.settings(company, { notify: n % 2 === 0 ? 'mentions' : 'all' }), `settings ${n}`);
+      ok(await sari.post(`/rooms/${company}/threads/${root}/follow`, { on: n % 2 === 0 }), `follow ${n}`);
+    }
+    tooFast(await sari.settings(company, { notify: 'none' }), 'a sixty-first change of how a room tells her');
+    tooFast(await sari.post(`/rooms/${company}/threads/${root}/follow`, { on: true }), 'nor a follow past them');
+
+    // Read marks: one hundred and twenty a minute.
+    const position = Number(ok(await sari.page(company)).messages.at(-1).position);
+    for (let n = 0; n < 120; n += 1) ok(await sari.read(company, { position }), `read ${n}`);
+    tooFast(await sari.read(company, { position }), 'a hundred and twenty-first read mark in a minute');
+
+    // A room's name, what it is about and the work it shows, and archiving it: ten a minute.
+    const hers = String(ok(await dewi.makeRoom({ name: 'gudang' })).room.id);
+    for (let n = 1; n <= 9; n += 1) ok(await dewi.post(`/rooms/${hers}`, { about: `Stok ke-${n}.` }), `change ${n}`);
+    ok(await dewi.post(`/rooms/${hers}/archive`), 'archiving counted as a change');
+    tooFast(await dewi.post(`/rooms/${hers}`, { about: 'Lagi.' }), 'an eleventh change of a room in a minute, before the database is asked');
+
+    // Removing her own messages: counted with her edits, twenty a minute.
+    const mine: string[] = [];
+    for (let n = 0; n < 21; n += 1) mine.push(await said(dewi, company, `Catatan ${n}.`));
+    for (let n = 0; n < 20; n += 1) ok(await dewi.on(company, mine[n]!, 'delete'), `delete ${n}`);
+    tooFast(await dewi.on(company, mine[20]!, 'delete'), 'a twenty-first removal in a minute');
+
+    // Her profile: ten changes a minute.
+    for (let n = 0; n < 10; n += 1) ok(await api.call('POST', '/api/me/profile', viewer.token, { noticesPerDay: 10 + n }), `profile ${n}`);
+    tooFast(await api.call('POST', '/api/me/profile', viewer.token, { noticesPerDay: 50 }), 'an eleventh change of her profile in a minute');
+
+    // One person's minute is theirs: the owner is not held by Sari's or Dewi's.
+    ok(await owner.join(open));
+    ok(await owner.read(company, { position }));
+    ok(await api.call('POST', '/api/me/profile', owner.token, { noticesPerDay: 20 }));
+  } finally {
+    await api.close();
+  }
+});
+
+test('a reaction the database kept that is no longer one can still be taken back by its own words', async () => {
+  // The database's check is looser than the server's: a symbol in its text
+  // form, or a star, written before the server held a reaction to one emoji,
+  // stayed for good and counted towards a person's ten, since taking one back
+  // asked the server to read it as an emoji first (STATUS 2.217).
+  const { fixture, api, owner } = await workspace('limits-take-back');
+  try {
+    const seat = await seated(fixture, 'Rina', 'member');
+    const rina = personIn(api, seat.token, fixture.companyId);
+    const room = await companyRoomOf(owner);
+    await companyRoomOf(rina);
+    const words = await said(owner, room, 'Siapa yang bisa lembur?');
+    await withPeople(fixture.companyId, { principal: seat.principal, name: 'Rina' }, async (tx) => {
+      for (const emoji of ['★', '❤', '©']) {
+        await tx.query('INSERT INTO room_reactions (company_id, message_id, principal, emoji) VALUES ($1, $2, $3, $4)',
+          [fixture.companyId, words, seat.principal, emoji]);
+      }
+    });
+    for (const emoji of ['★', '❤', '©']) ok(await rina.on(room, words, 'react', { emoji, on: false }), `${emoji} taken back`);
+    const { rows } = await withControlPlane((tx) => tx.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM room_reactions WHERE message_id = $1', [words]));
+    assert.equal(rows[0]!.n, 0, 'nothing is left under the message');
+    // What is no reaction at all is still refused, either way.
+    refusedWith(await rina.on(room, words, 'react', { emoji: '★', on: true }), 400, 'reaction.not_emoji');
+    refusedWith(await rina.on(room, words, 'react', { emoji: 'x'.repeat(65), on: false }), 400, 'reaction.not_emoji');
+  } finally {
+    await api.close();
+  }
+});
+
 test("a company's room files are held to a limit the owner sets, and the owner reads what is kept", async () => {
   const { fixture, api, owner } = await workspace('limits-files');
   try {

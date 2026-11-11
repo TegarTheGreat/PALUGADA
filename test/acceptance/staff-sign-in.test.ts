@@ -339,6 +339,76 @@ test('one address cannot lock a seat out, and a handle nobody holds answers as a
   }
 });
 
+test("an IPv6 network is one address, so one machine's many addresses cannot lock a colleague out", async () => {
+  // One IPv6 host is usually given a /64, so wrong codes from four of its
+  // addresses counted as four addresses and locked the handle; and each of
+  // them had five wrong codes of its own a quarter hour (STATUS 2.217).
+  const fixture = await createCompany('sign-in-ipv6');
+  const api = await consoleWithSettings({ behindProxy: true });
+  try {
+    const owner = await api.signIn();
+    const rina = await seat(api, owner, fixture, 'Rina', { handle: 'rina' });
+    const from = async (address: string, body: Record<string, unknown>) => {
+      const response = await fetch(`${api.url}/api/auth/sign-in`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': address }, body: JSON.stringify(body),
+      });
+      return `${response.status} ${(await response.json() as { code?: string }).code ?? 'signed in'}`;
+    };
+    const wrong = wrongCodesFor(rina.secret, 12);
+    const answers: string[] = [];
+    for (let at = 0; at < 12; at += 1) {
+      // Written in every way one network's addresses are: short, in full, in capitals.
+      const address = ['2001:db8:1:2::1', '2001:0db8:0001:0002:0000:0000:0000:0002', '2001:DB8:1:2:ffff::3', '2001:db8:1:2:a:b:c:d'][at % 4]!;
+      answers.push(await from(address, { handle: 'rina', totp: wrong[at] }));
+    }
+    assert.deepEqual(answers, [...Array(5).fill('401 mfa.code_invalid'), ...Array(7).fill('429 owner.throttled')],
+      "one network is held to one address's five");
+    assert.equal((await failuresOf('rina')).counted, 3, 'and counts three towards a lock, as one address does');
+    // An IPv4 address written as IPv6 is the address it is.
+    assert.equal(await from('::ffff:203.0.113.9', { handle: 'rina', totp: wrong[0] }), '401 mfa.code_invalid');
+    for (let n = 1; n <= 4; n += 1) await from('203.0.113.9', { handle: 'rina', totp: wrong[n] });
+    assert.equal(await from('::ffff:203.0.113.9', { handle: 'rina', totp: wrong[5] }), '429 owner.throttled');
+    // Another network is another address, and Rina's own code still opens her seat.
+    assert.equal(await from('2001:db8:1:3::1', { handle: 'rina', totp: rina.code() }), '200 signed in');
+  } finally {
+    await api.close();
+  }
+});
+
+test('the owner lets a locked seat sign in again without ending anything the seat holds', async () => {
+  // A colleague who knows a handle can still lock it from several networks;
+  // the owner's only remedy was a new authenticator, which also signs the
+  // person out everywhere and unlinks their phone (STATUS 2.217).
+  const fixture = await createCompany('sign-in-unlock');
+  const api = await consoleWithSettings();
+  try {
+    const owner = await api.signIn();
+    const rina = await seat(api, owner, fixture, 'Rina', { handle: 'rina' });
+    const at = `/api/companies/${fixture.companyId}`;
+    await withControlPlane((tx) => tx.query(
+      "INSERT INTO handle_sign_ins (handle, counted, locks, locked_until) VALUES ('rina', 4, 3, now() + interval '1 hour')"));
+    const listed = async () => (ok(await api.call('GET', `${at}/staff`, owner)).seats as Array<{ id: string; lockedUntil: string | null }>)
+      .find((one) => one.id === rina.seatId)!;
+    assert.ok((await listed()).lockedUntil, 'People shows that her handle is locked');
+    refusedWith(await api.call('POST', '/api/auth/sign-in', '', { handle: 'rina', totp: rina.code() }), 429, 'auth.handle_locked');
+
+    // The owner's code, given now: the lock is what keeps guesses out.
+    refusedWith(await api.call('POST', `${at}/staff/${rina.seatId}/unlock`, owner, {}), 403, 'approval.channel_forbidden');
+    ok(await api.call('POST', `${at}/staff/${rina.seatId}/unlock`, owner, { proof: { totp: api.code() } }));
+    assert.deepEqual(await failuresOf('rina'), { counted: 0, locks: 0, locked_until: null });
+    assert.equal((await listed()).lockedUntil, null);
+    // Her session goes on as it was, and her code opens her seat again.
+    ok(await api.call('GET', '/api/me', rina.token), 'her session was not ended');
+    const signed = await api.call('POST', '/api/auth/sign-in', '', { handle: 'rina', totp: rina.code() });
+    assert.equal(signed.status, 200, JSON.stringify(signed.body));
+    // A seat that is not this company's is refused by name.
+    refusedWith(await api.call('POST', `${at}/staff/00000000-0000-4000-8000-000000000000/unlock`, owner, { proof: { totp: api.code() } }),
+      400, 'contract.violation', 'no such seat');
+  } finally {
+    await api.close();
+  }
+});
+
 test('wrong codes sent at once are judged one at a time, so no more are compared than the lock allows', async () => {
   const fixture = await createCompany('sign-in-at-once');
   const api = await consoleWithSettings({ behindProxy: true });

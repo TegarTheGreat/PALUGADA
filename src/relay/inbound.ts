@@ -46,7 +46,7 @@ import { endLinks, claimLink } from './links.ts';
 import { tokenHash } from './offers.ts';
 import { countRefusal } from './outbox.ts';
 import { covers, relayRow, type RelayRow } from './relays.ts';
-import { freshTimestamp, publicKeyFrom, SIGNATURE_TOLERANCE_SECONDS, verifyV1a } from './signature.ts';
+import { fingerprint, freshTimestamp, publicKeyFrom, SIGNATURE_TOLERANCE_SECONDS, verifyV1a } from './signature.ts';
 import { verify } from 'node:crypto';
 
 /**
@@ -54,7 +54,7 @@ import { verify } from 'node:crypto';
  * one. A type not here is refused (`relay.unknown_type`); within v1 one is
  * only ever added.
  */
-export const INBOUND_TYPES = ['press', 'reply', 'read', 'mute', 'link_claim', 'link_end', 'ack'] as const;
+export const INBOUND_TYPES = ['press', 'reply', 'read', 'mute', 'link_claim', 'link_end', 'ack', 'relay_key_rotated'] as const;
 export type InboundType = (typeof INBOUND_TYPES)[number];
 
 /** The largest envelope a relay may send. */
@@ -258,7 +258,7 @@ export async function receiveFromRelay(relayId: string, envelope: InboundEnvelop
 
   let answer: InboundAnswer;
   try {
-    answer = await act(relay, body, id, now);
+    answer = await act(relay, body, { id, timestamp: String(envelope.timestamp), signature: String(envelope.signature ?? '') }, now);
   } catch (error) {
     if (!(error instanceof Refusal)) {
       // Not a refusal: something failed that the relay did not ask for. What
@@ -414,6 +414,8 @@ async function recordRefusal(relay: RelayRow, refusal: Refusal, now: Date): Prom
 interface Body {
   v?: unknown;
   type?: unknown;
+  key?: unknown;
+  previous?: unknown;
   token?: unknown;
   answer?: unknown;
   body?: unknown;
@@ -428,7 +430,8 @@ interface Body {
 }
 
 /** The closed switch on the type. */
-async function act(relay: RelayRow, raw: Buffer, envelopeId: string, now: Date): Promise<InboundAnswer> {
+async function act(relay: RelayRow, raw: Buffer, signed: { id: string; timestamp: string; signature: string }, now: Date): Promise<InboundAnswer> {
+  const envelopeId = signed.id;
   let body: Body;
   try {
     body = JSON.parse(raw.toString('utf8')) as Body;
@@ -462,6 +465,8 @@ async function act(relay: RelayRow, raw: Buffer, envelopeId: string, now: Date):
       return linkEnd(relay, body, envelopeId, now);
     case 'ack':
       return { status: 200, body: { ok: true } };
+    case 'relay_key_rotated':
+      return relayKeyRotated(relay, body, { ...signed, body: raw }, now);
     default: {
       const never: never = type;
       throw new Refusal(422, `relay.unknown_type:${String(never)}`);
@@ -833,6 +838,46 @@ async function linkEnd(relay: RelayRow, body: Body, envelopeId: string, now: Dat
     // stops after it leaves nothing half done (STATUS section 2.216).
     const answer: InboundAnswer = { status: 200, body: { ok: true } };
     await settleIn(tx, relay.id, envelopeId, answer);
+    return answer;
+  });
+}
+
+/** How long a relay's key rotated away from is taken beside the new one, at most. */
+const RELAY_PREVIOUS_KEY_DAYS = 7;
+
+/**
+ * A relay's own new key (STATUS section 2.216), as the deployment announces
+ * its own: in an envelope both the key PALUGADA pinned now and the new key
+ * sign, naming the pinned key as `previous`. Signed by the old key alone it
+ * is refused, or whoever stole that key could announce one of their own and
+ * be pinned for good; and a key that was rotated away from, still in its
+ * week, cannot rotate. The old key is taken beside the new one until the
+ * `until` the relay names, never more than a week on.
+ */
+async function relayKeyRotated(
+  relay: RelayRow, body: Body, signed: { id: string; timestamp: string; signature: string; body: Buffer }, now: Date,
+): Promise<InboundAnswer> {
+  const next = typeof body.key === 'string' ? Buffer.from(body.key, 'base64url') : Buffer.alloc(0);
+  const previous = (body.previous ?? null) as { key?: unknown; until?: unknown } | null;
+  const until = typeof previous?.until === 'string' ? Date.parse(previous.until) : Number.NaN;
+  if (next.length !== 32 || !Number.isFinite(until)) throw new Refusal(422, 'relay.malformed');
+  if (previous?.key !== relay.public_key.toString('base64url') || next.equals(relay.public_key)
+      || !verifyV1a(signed.signature, [relay.public_key], signed.id, signed.timestamp, signed.body)
+      || !verifyV1a(signed.signature, [next], signed.id, signed.timestamp, signed.body)) {
+    throw new Refusal(422, 'relay.key_unproven');
+  }
+  const keptUntil = new Date(Math.max(now.getTime(), Math.min(until, now.getTime() + RELAY_PREVIOUS_KEY_DAYS * 86_400_000)));
+  return withControlPlane(async (tx) => {
+    const held = await relayRow(tx, relay.id, true);
+    if (!held || held.status !== 'paired' || !held.public_key.equals(relay.public_key)) throw new Refusal(422, 'relay.key_unproven');
+    const { rows: taken } = await tx.query(`SELECT 1 FROM relays WHERE public_key = $1 AND status <> 'revoked' AND id <> $2`, [next, relay.id]);
+    if (taken.length > 0) throw new Refusal(422, 'relay.key_unproven');
+    await tx.query(
+      `UPDATE relays SET previous_key = public_key, previous_until = $2, public_key = $3, fingerprint = $4 WHERE id = $1`,
+      [relay.id, keptUntil, next, fingerprint(next)]);
+    PAIRED_KEYS.delete(relay.id);
+    const answer: InboundAnswer = { status: 200, body: { ok: true, result: { fingerprint: fingerprint(next), until: keptUntil.toISOString() } } };
+    await settleIn(tx, relay.id, signed.id, answer);
     return answer;
   });
 }

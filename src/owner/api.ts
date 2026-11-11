@@ -7502,6 +7502,8 @@ const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
   'relay.owner_device': 409,
   'relay.accept': 400,
   'relay.not_paired': 400,
+  'relay.rotation_owed': 409,
+  'relay.notice_unknown': 404,
   'import.zip': 400,
   'import.part_missing': 409,
   'import.too_large': 400,

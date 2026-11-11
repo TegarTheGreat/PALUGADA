@@ -96,8 +96,8 @@ export async function relayPass(options: RelayPassOptions): Promise<RelayPassRep
   report.relays = relays.length;
   if (relays.length === 0) return report;
 
-  const { identity, keys } = await signingKeys(options.master(), options.previousMasters?.() ?? [], now);
-  const signing = { keys, kid: identity.kid };
+  const { identity, keys, rotation } = await signingKeys(options.master(), options.previousMasters?.() ?? [], now);
+  const signing = { keys, kid: identity.kid, rotation };
   const deadline = Date.now() + PASS_BUDGET_MS;
   const pulls: Array<Promise<number>> = [];
   const queue = [...relays];

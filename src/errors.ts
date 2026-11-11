@@ -241,6 +241,8 @@ export type ErrorCode =
   | 'relay.owner_device'
   | 'relay.accept'
   | 'relay.not_paired'
+  | 'relay.rotation_owed'
+  | 'relay.notice_unknown'
   | 'import.zip'
   | 'import.part_missing'
   | 'import.too_large'

@@ -69,6 +69,8 @@ export const RELAY: Area = {
       "The relay answered {status}.": "Relay menjawab {status}.",
       "The relay did not answer in time.": "Relay tidak menjawab tepat waktu.",
       "The relay could not be reached.": "Relay tidak dapat dijangkau.",
+      "A paired relay has not yet taken the last new key. Wait until it has, or revoke it, before making another.": "Ada relay terpasang yang belum menerima kunci baru terakhir. Tunggu sampai relay itu menerimanya, atau cabut relay itu, sebelum membuat kunci lain.",
+      "That notice is not yours, or is too old to open.": "Pemberitahuan itu bukan milik Anda, atau sudah terlalu lama untuk dibuka.",
     },
     kept: [],
   },

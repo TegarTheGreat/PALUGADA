@@ -110,17 +110,29 @@ export async function signingKeys(
   master: MasterKey | null,
   previousMasters: readonly MasterKey[] = [],
   now = new Date(),
-): Promise<{ identity: DeploymentIdentity; keys: KeyObject[] }> {
+): Promise<{ identity: DeploymentIdentity; keys: KeyObject[]; rotation: KeyObject[] }> {
   const identity = await ensureIdentity(master);
   const row = (await withControlPlane(readRow))!;
   // Resolved through the same manager every `db://` reference is, so a key
   // sealed under a master key being rotated out still opens.
   const opener = new DeploymentSecretManager(new InMemorySecretManager(), () => master, () => previousMasters);
   const open = async (ref: string) => ed25519FromSeed(Buffer.from(await opener.resolve(ref), 'base64')).privateKey;
-  const keys = [await open(row.secret_ref)];
-  if (row.previous_ref && row.previous_until && row.previous_until > now) keys.push(await open(row.previous_ref));
-  return { identity, keys };
+  const current = await open(row.secret_ref);
+  const previous = row.previous_ref ? await open(row.previous_ref) : null;
+  const keys = previous && row.previous_until && row.previous_until > now ? [current, previous] : [current];
+  // A rotation is signed by the key it replaces for as long as that key is
+  // kept, which is until every paired relay has taken the rotation, not
+  // only its week (STATUS section 2.216): a relay that was down for the
+  // week still verifies it with the key it pinned.
+  return { identity, keys, rotation: previous ? [current, previous] : [current] };
 }
+
+/**
+ * Whether a paired relay has not yet taken a rotation of the deployment's
+ * key: its `keys_rotated` is still owed, being sent, or given up on.
+ */
+const ROTATION_OWED = `EXISTS (SELECT 1 FROM relay_outbox o JOIN relays r ON r.id = o.relay_id
+  WHERE o.type = 'keys_rotated' AND o.status IN ('pending', 'sending', 'dead') AND r.status = 'paired')`;
 
 /**
  * A new key for the deployment. The one it replaces signs beside it for a
@@ -129,6 +141,13 @@ export async function signingKeys(
  */
 export async function rotateIdentity(master: MasterKey | null, now = new Date()): Promise<DeploymentIdentity> {
   await ensureIdentity(master);
+  // A second rotation while a paired relay has not taken the first would
+  // forget the key that relay pinned, and strand it (STATUS section 2.216).
+  const { rows: [owed] } = await withControlPlane((tx) => tx.query<{ owed: boolean }>(`SELECT ${ROTATION_OWED} AS owed`));
+  if (owed!.owed) {
+    throw new PalugadaError('relay.rotation_owed',
+      'a paired relay has not yet taken the last new key: wait until it has, or revoke it, before giving the deployment another', {});
+  }
   const made = await sealedKey(master!);
   const forgotten = await withControlPlane(async (tx) => {
     const { rows: [current] } = await tx.query<{ previous_ref: string | null }>(
@@ -145,11 +164,16 @@ export async function rotateIdentity(master: MasterKey | null, now = new Date())
   return (await readIdentity())!;
 }
 
-/** Forgets the key rotated out once its week is over. Answers whether there was one to forget. */
+/**
+ * Forgets the key rotated out once its week is over and every paired relay
+ * has taken the rotation; a relay still owed it keeps the old key alive, so
+ * the rotation it is sent verifies with the key it pinned. Answers whether
+ * there was one to forget.
+ */
 export async function forgetPreviousKey(now = new Date()): Promise<boolean> {
   const ref = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ previous_ref: string }>(
-      'SELECT previous_ref FROM relay_identity WHERE previous_until <= $1 FOR UPDATE', [now]);
+      `SELECT previous_ref FROM relay_identity WHERE previous_until <= $1 AND NOT ${ROTATION_OWED} FOR UPDATE`, [now]);
     if (!rows[0]) return null;
     await tx.query(
       'UPDATE relay_identity SET previous_key = NULL, previous_kid = NULL, previous_ref = NULL, previous_until = NULL');

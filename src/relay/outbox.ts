@@ -128,10 +128,18 @@ export async function takeBackStale(now = new Date()): Promise<number> {
 
 interface Claimed {
   id: string;
+  type: string;
   link_id: string | null;
   body: string;
   attempts: number;
   created_at: Date;
+}
+
+/** The keys envelopes are signed with now, and those a rotation is signed with while the key it replaces is kept. */
+export interface Signing {
+  keys: readonly KeyObject[];
+  kid: string;
+  rotation?: readonly KeyObject[];
 }
 
 export interface Destination {
@@ -207,7 +215,7 @@ async function dropUnseen(tx: TenantClient, relayId: string, now: Date): Promise
  */
 export async function sendDue(
   relay: Destination,
-  signing: { keys: readonly KeyObject[]; kid: string },
+  signing: Signing,
   options: { now?: Date; deadline?: number; fetch?: typeof fetch } = {},
 ): Promise<SendReport> {
   const now = options.now ?? new Date();
@@ -236,7 +244,7 @@ export async function sendDue(
          ORDER BY o.created_at, o.id
          LIMIT $3
            FOR UPDATE SKIP LOCKED)
-      RETURNING id, link_id, body, attempts, created_at`,
+      RETURNING id, type, link_id, body, attempts, created_at`,
     [relay.id, now, CLAIM_BATCH])).rows;
   });
   if (claimed.length === 0) return report;
@@ -307,7 +315,7 @@ function failureOf(status: number, error: unknown): string {
 async function sendOne(
   relay: Destination,
   row: Claimed,
-  signing: { keys: readonly KeyObject[]; kid: string },
+  signing: Signing,
   now: Date,
   send: typeof fetch,
 ): Promise<'delivered' | 'failed' | 'dead' | 'gone'> {
@@ -318,7 +326,7 @@ async function sendOne(
     // holds an envelope to five minutes of it.
     const response = await send(relay.envelopesUrl, {
       method: 'POST',
-      headers: envelopeHeaders(signing.keys, signing.kid, row.id, row.body, now),
+      headers: envelopeHeaders(row.type === 'keys_rotated' && signing.rotation ? signing.rotation : signing.keys, signing.kid, row.id, row.body, now),
       body: row.body,
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       redirect: 'error',

@@ -204,9 +204,30 @@ function onTheRelaysHost(base: URL, value: unknown, field: string): string {
 export async function addRelay(given: unknown, options: { fetch?: typeof fetch } = {}): Promise<ReturnType<typeof relayView>> {
   const base = relayAddress(given);
   const url = base.toString().replace(/\/$/, '');
+  const { key, versions, name, envelopes, inbox, features } = await readDocument(base, options.fetch);
+
+  const row = await withControlPlane(async (tx) => {
+    const { rows: live } = await tx.query('SELECT 1 FROM relays WHERE public_key = $1 AND status <> \'revoked\'', [key]);
+    if (live.length > 0) {
+      throw new PalugadaError('contract.violation', 'that relay is already here: pair it, or revoke it first', { url });
+    }
+    const { rows } = await tx.query<RelayRow>(
+      `INSERT INTO relays (name, url, envelopes_url, inbox_url, public_key, fingerprint, versions, features, mode, salt)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [name, url, envelopes, inbox, key, fingerprint(key), versions, features, inbox ? 'pull' : 'push', randomBytes(32)]);
+    return rows[0]!;
+  });
+  return relayView(row);
+}
+
+/** A relay's well-known document, read and checked: its key, its name, where it is sent to and pulled from. */
+async function readDocument(base: URL, given?: typeof fetch): Promise<{
+  key: Buffer; versions: number[]; name: string; envelopes: string; inbox: string | null; features: string[];
+}> {
+  const url = base.toString().replace(/\/$/, '');
   let document: Record<string, unknown>;
   try {
-    const response = await (options.fetch ?? globalThis.fetch)(`${url}/.well-known/palugada-relay`, {
+    const response = await (given ?? globalThis.fetch)(`${url}/.well-known/palugada-relay`, {
       signal: AbortSignal.timeout(RELAY_ANSWER_MS), redirect: 'error', headers: { accept: 'application/json' },
     });
     if (!response.ok) throw new Error(`it answered ${response.status}`);
@@ -227,25 +248,15 @@ export async function addRelay(given: unknown, options: { fetch?: typeof fetch }
   const features = Array.isArray(document.features)
     ? document.features.filter((one): one is string => typeof one === 'string').slice(0, 20).map((one) => one.slice(0, 40))
     : [];
-
-  const row = await withControlPlane(async (tx) => {
-    const { rows: live } = await tx.query('SELECT 1 FROM relays WHERE public_key = $1 AND status <> \'revoked\'', [key]);
-    if (live.length > 0) {
-      throw new PalugadaError('contract.violation', 'that relay is already here: pair it, or revoke it first', { url });
-    }
-    const { rows } = await tx.query<RelayRow>(
-      `INSERT INTO relays (name, url, envelopes_url, inbox_url, public_key, fingerprint, versions, features, mode, salt)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [name, url, envelopes, inbox, key, fingerprint(key), versions, features, inbox ? 'pull' : 'push', randomBytes(32)]);
-    return rows[0]!;
-  });
-  return relayView(row);
+  return { key, versions, name, envelopes, inbox, features };
 }
 
 /** What the owner gave to pair a relay with, checked before a factor is spent on it. */
 export interface PairingTerms {
   typed: string;
   companies: string[] | 'all';
+  /** For a relay already paired: the key its document gives now, which the accept must be signed with and is pinned in place. */
+  key: Buffer | null;
 }
 
 /**
@@ -260,17 +271,23 @@ export async function pairingTerms(relayId: string, body: Record<string, unknown
       'type at least the first sixteen characters of the fingerprint the relay\'s operator shows you', { typed: typed.length });
   }
   const relay = await withControlPlane((tx) => relayRow(tx, relayId));
-  // A relay waiting to be paired, or one that answered that it forgot this
-  // deployment, which is paired again with its settings as they were.
-  if (!relay || !(relay.status === 'pending' || (relay.status === 'paired' && relay.paused_until !== null))) {
+  // A relay waiting to be paired; or one already paired, which is paired
+  // again in place with its settings, its salt and its people's links as
+  // they were: one that answered that it forgot this deployment, one that
+  // can verify nothing the deployment sends, or one whose key changed. A
+  // paired relay's document is read again, and its key now is the one the
+  // owner compares (STATUS section 2.216).
+  if (!relay || !(relay.status === 'pending' || relay.status === 'paired')) {
     throw new PalugadaError('contract.violation', relay ? `that relay is ${relay.status}, not waiting to be paired` : 'there is no such relay', { relayId });
   }
-  const shown = Buffer.from(relay.fingerprint.slice(0, typed.length));
-  const given = Buffer.from(typed.slice(0, relay.fingerprint.length));
-  if (typed.length > relay.fingerprint.length || shown.length !== given.length || !timingSafeEqual(shown, given)) {
+  const key = relay.status === 'paired' ? (await readDocument(new URL(relay.url))).key : null;
+  const pinned = key ? fingerprint(key) : relay.fingerprint;
+  const shown = Buffer.from(pinned.slice(0, typed.length));
+  const given = Buffer.from(typed.slice(0, pinned.length));
+  if (typed.length > pinned.length || shown.length !== given.length || !timingSafeEqual(shown, given)) {
     throw new PalugadaError('relay.fingerprint', 'that is not the fingerprint of the key this relay gave', {});
   }
-  return { typed, companies: await namedCompanies(body.companies, false) };
+  return { typed, companies: await namedCompanies(body.companies, false), key };
 }
 
 /**
@@ -330,7 +347,8 @@ export async function pairRelay(
   if (answer.status !== 200) throw refuse(`it answered ${answer.status}`);
   const id = answer.headers.get('webhook-id') ?? '';
   const timestamp = answer.headers.get('webhook-timestamp') ?? '';
-  if (!verifyV1a(answer.headers.get('webhook-signature') ?? '', [relay.public_key], id, timestamp, answer.text)) {
+  const accepting = terms.key ?? relay.public_key;
+  if (!verifyV1a(answer.headers.get('webhook-signature') ?? '', [accepting], id, timestamp, answer.text)) {
     throw refuse('its accept is not signed by the key whose fingerprint you compared');
   }
   if (!freshTimestamp(timestamp, now.getTime())) throw refuse('its accept is not signed now');
@@ -345,11 +363,21 @@ export async function pairRelay(
   }
 
   const row = await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of a relay takes it.
+    const held = await relayRow(tx, relayId, true);
+    if (held && !held.public_key.equals(accepting)) {
+      const { rows: taken } = await tx.query(`SELECT 1 FROM relays WHERE public_key = $1 AND status <> 'revoked' AND id <> $2`, [accepting, relayId]);
+      if (taken.length > 0) throw refuse('another relay here has that key');
+    }
+    // A key pinned again in place replaces the one before, and any it was
+    // rotating away from: the owner compared this one.
     const { rows } = await tx.query<RelayRow>(
       `UPDATE relays SET status = 'paired', paired_at = $2, companies = $3, all_companies = $4, last_ok_at = $2, last_error = NULL,
-              paused_until = NULL, failures = 0
-        WHERE id = $1 AND (status = 'pending' OR (status = 'paired' AND paused_until IS NOT NULL)) AND pair_request_id = $5 RETURNING *`,
-      [relayId, now, terms.companies === 'all' ? [] : terms.companies, terms.companies === 'all', requestId]);
+              paused_until = NULL, failures = 0, public_key = $6, fingerprint = $7,
+              previous_key = CASE WHEN public_key = $6 THEN previous_key END,
+              previous_until = CASE WHEN public_key = $6 THEN previous_until END
+        WHERE id = $1 AND status IN ('pending', 'paired') AND pair_request_id = $5 RETURNING *`,
+      [relayId, now, terms.companies === 'all' ? [] : terms.companies, terms.companies === 'all', requestId, accepting, fingerprint(accepting)]);
     if (!rows[0]) throw refuse('it was paired or revoked meanwhile');
     return rows[0];
   });
@@ -535,6 +563,7 @@ export async function retryDead(relayId: string): Promise<{ retried: number }> {
 /** Every relay that is not revoked, with the health of its outbox and its dead letters: the owner's page. */
 export async function relaysPage(): Promise<Array<ReturnType<typeof relayView> & {
   links: number;
+  rotationOwed: boolean;
   outbox: Record<'pending' | 'sending' | 'delivered' | 'dead', number>;
   dead: Array<{ id: string; type: string; attempts: number; lastError: FailureView | null; createdAt: string }>;
 }>> {
@@ -549,11 +578,16 @@ export async function relaysPage(): Promise<Array<ReturnType<typeof relayView> &
           ORDER BY created_at DESC LIMIT 20`, [relay.id]);
       const { rows: [links] } = await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM relay_links WHERE relay_id = $1 AND status = 'active'`, [relay.id]);
+      const { rows: [rotation] } = await tx.query<{ owed: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated' AND status IN ('pending', 'sending', 'dead')) AS owed`,
+        [relay.id]);
       const outbox = { pending: 0, sending: 0, delivered: 0, dead: 0 };
       for (const count of counts) outbox[count.status] = count.n;
       page.push({
         ...relayView(relay),
         links: links!.n,
+        // Not yet taken the deployment's new key: a rotation waits for it (STATUS section 2.216).
+        rotationOwed: relay.status === 'paired' && rotation!.owed,
         outbox,
         dead: dead.map((row) => ({ id: row.id, type: row.type, attempts: row.attempts, lastError: failureView(row.last_error), createdAt: row.created_at.toISOString() })),
       });

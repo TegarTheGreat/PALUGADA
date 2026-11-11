@@ -71,10 +71,12 @@ const SECTIONS: Section[] = [
   {
     name: 'company',
     // With the measure the owner chose as its headline (0142), which the
-    // import maps once the measures are restored, and the month its fiscal
-    // year starts in (0144).
+    // import maps once the measures are restored, the month its fiscal
+    // year starts in (0144), and whether the owner attends its weekly
+    // meeting and for how long a question there waits (0156).
     sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
-                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month
+                 meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month,
+                 meeting_owner_joins, meeting_join_minutes
             FROM companies`,
   },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at, work_language FROM projects ORDER BY created_at' },
@@ -379,11 +381,13 @@ const SECTIONS: Section[] = [
     // answer does nothing. `instigators` (0148) because it is the mark that
     // a seat's words are in the work the card asks about: without it a
     // restored card would be the owner's own work, decided like it.
+    // `on_expiry` (0156) because a meeting's question that goes on without
+    // an answer must not come back as one that cancels its meeting.
     sql: `SELECT id, task_id, kind, status, title, action_summary, rationale, tier,
                  estimated_cost_cents, consequence_if_denied, capability_name,
                  expires_at, decision, decided_at, decided_via, owner_note,
                  closed_reason, notify_after, payload, action_fingerprint,
-                 consumed_at, snoozed_until, instigators, created_at
+                 consumed_at, snoozed_until, instigators, on_expiry, created_at
             FROM inbox_items ORDER BY created_at`,
   },
   {

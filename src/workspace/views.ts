@@ -172,9 +172,14 @@ export async function messageViews(
       WHERE message_id = ANY($1::uuid[]) ORDER BY created_at, id`, [ids]);
   // The work a reply's thread carries, for whether it may be told to that work.
   const roots = [...new Set(rows.map((row) => row.thread_of).filter((id): id is string => id !== null))];
-  const { rows: rootRows } = roots.length === 0 ? { rows: [] } : await tx.query<{ id: string; task_id: string | null }>(
-    'SELECT id, task_id FROM room_messages WHERE id = ANY($1::uuid[])', [roots]);
+  const { rows: rootRows } = roots.length === 0 ? { rows: [] } : await tx.query<{
+    id: string; task_id: string | null; kind: string; became: string | null; became_by: string | null;
+  }>('SELECT id, task_id, kind, became, became_by FROM room_messages WHERE id = ANY($1::uuid[])', [roots]);
   const rootTask = new Map(rootRows.map((row) => [row.id, row.task_id]));
+  // Who called a meeting a thread is about, which is who steers it besides
+  // the owner (STATUS 2.211); the weekly meeting's card was called by nobody.
+  const caller = new Map(rootRows.map((row) => [row.id,
+    row.kind === 'meeting' ? 'platform' : row.became === 'meeting' ? row.became_by : undefined]));
   const taskIds = [...new Set([...rows.map((row) => row.task_id), ...rootRows.map((row) => row.task_id)]
     .filter((id): id is string => id !== null))];
   const { rows: taskRows } = taskIds.length === 0 ? { rows: [] } : await tx.query<{ id: string; status: TaskStatus; requested_by_seat: string | null }>(
@@ -184,10 +189,12 @@ export async function messageViews(
   // the whole page on this transaction rather than once a card.
   const reading: SeatReading | undefined = viewer.seatId === null ? undefined
     : { asked: new Set(taskIds), kept: await tasksKeptFromSeat(tx, taskIds, { id: viewer.seatId }) };
-  const steers = (taskId: string | null | undefined): boolean => {
+  const steers = (taskId: string | null | undefined, calledBy?: string | null): boolean => {
     const task = taskId ? tasks.get(taskId) : undefined;
     if (!task || !LIVE(task.status) || !mayAsk(viewer)) return false;
-    return viewer.kind === 'owner' || task.requested_by_seat === viewer.seatId;
+    if (viewer.kind === 'owner') return true;
+    // A meeting is steered by the seat that called it, never by one that merely wrote in its room.
+    return calledBy !== undefined ? calledBy === me : task.requested_by_seat === viewer.seatId;
   };
 
   const views: MessageView[] = [];
@@ -197,8 +204,9 @@ export async function messageViews(
     const mine = row.author === me;
     const card = row.kind === 'work' || row.kind === 'question' || row.kind === 'approval' || row.kind === 'meeting'
       ? await cardView(tx, viewer, directory, { kind: row.kind, taskId: row.task_id, itemId: row.inbox_item_id, askedBy: null }, reading)
-      : text && row.became === 'work' && row.task_id
-        ? await cardView(tx, viewer, directory, { kind: 'work', taskId: row.task_id, itemId: null, askedBy: row.became_by }, reading)
+      : text && (row.became === 'work' || row.became === 'meeting') && row.task_id
+        // A meeting called about a message is drawn under it, as work given from one is.
+        ? await cardView(tx, viewer, directory, { kind: row.became, taskId: row.task_id, itemId: null, askedBy: row.became_by }, reading)
         : null;
     const reply = replied.find((one) => one.thread_of === row.id);
     views.push({
@@ -234,9 +242,10 @@ export async function messageViews(
         pin: !deleted,
         giveAsWork: text && !deleted && row.became === null && row.thread_of === null && mayAsk(viewer),
         tell: text && !deleted && row.became === null && row.thread_of !== null && mine && row.via === 'console'
-          && steers(rootTask.get(row.thread_of)),
-        stop: text && row.became === 'work' && steers(row.task_id),
-        callMeeting: false,
+          && steers(rootTask.get(row.thread_of), caller.get(row.thread_of)),
+        stop: text && (row.became === 'work' ? steers(row.task_id) : row.became === 'meeting' && steers(row.task_id, row.became_by)),
+        // A meeting is called about a message at the top of a room, by the owner or an approver (F19.18).
+        callMeeting: text && !deleted && row.became === null && row.thread_of === null && mayDecide(viewer),
         fileAsIssue: text && !deleted && viewer.kind === 'owner' && row.author === 'owner' && row.via === 'console',
         history: viewer.kind === 'owner' && row.edited_at !== null && !deleted,
       },
@@ -280,18 +289,19 @@ export async function cardView(
   const { rows: items } = subject.itemId === null ? { rows: [] } : await tx.query<{
     kind: string; status: string; decision: string | null; tier: number | null; title: string; action_summary: string;
     consequence_if_denied: string; expires_at: Date | null; addressee_seat: string | null; instigators: string[];
-    task_id: string | null; payload: Record<string, unknown>;
+    task_id: string | null; payload: Record<string, unknown>; closed_reason: string | null;
   }>(
     `SELECT kind, status, decision, tier, title, action_summary, consequence_if_denied, expires_at, addressee_seat,
-            instigators::text[] AS instigators, task_id, payload
+            instigators::text[] AS instigators, task_id, payload, closed_reason
        FROM inbox_items WHERE id = $1`, [subject.itemId]);
   const item = items[0];
   const taskId = subject.taskId ?? item?.task_id ?? null;
   const { rows: found } = taskId === null ? { rows: [] } : await tx.query<{
     id: string; status: TaskStatus; halt_reason: string | null; input: unknown; output: unknown;
-    requested_by_seat: string | null; role_id: string; slug: string; display_name: string | null;
+    requested_by_seat: string | null; role_id: string; slug: string; display_name: string | null; key: string | null;
   }>(
-    `SELECT t.id, t.status, t.halt_reason, t.input, t.output, t.requested_by_seat, r.id AS role_id, r.slug, r.display_name
+    `SELECT t.id, t.status, t.halt_reason, t.input, t.output, t.requested_by_seat, r.id AS role_id, r.slug, r.display_name,
+            t.idempotency_key AS key
        FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1`, [taskId]);
   const task = found[0];
   // What its runs said and made, which a seat reads only where nobody else
@@ -317,15 +327,19 @@ export async function cardView(
   const open = item?.status === 'open';
   const question = item && item.kind === 'escalation' && item.payload.askedBy === 'agent';
   const hidden = Boolean(question && item.addressee_seat && viewer.seatId !== null && item.addressee_seat !== viewer.seatId);
+  const meeting = subject.kind === 'meeting' && task ? await meetingOf(tx, task, readable) : null;
   const presses = task !== undefined && LIVE(task.status) && mayAsk(viewer)
-    && (viewer.kind === 'owner' || (task.requested_by_seat !== null && task.requested_by_seat === viewer.seatId));
+    && (viewer.kind === 'owner' || (subject.kind === 'meeting'
+      // A meeting is the seat's to steer when the seat called it; the weekly one is nobody's but the owner's.
+      ? subject.askedBy !== null && subject.askedBy === viewer.person.principal
+      : task.requested_by_seat !== null && task.requested_by_seat === viewer.seatId));
   const ownerOnly = item?.payload.ownerOnly === true;
   const tier = item?.tier ?? null;
   return {
     kind: subject.kind,
     taskId,
     itemId: subject.itemId,
-    state: item ? itemState(item) : task?.status ?? 'gone',
+    state: item ? itemState(item, item.closed_reason) : task?.status ?? 'gone',
     whyStopped: task && (task.status === 'halted' || task.status === 'failed' || task.status === 'cancelled') ? task.halt_reason : null,
     askedBy: subject.askedBy ? directory.refOf(subject.askedBy)
       : task?.requested_by_seat ? directory.refOf(`seat:${task.requested_by_seat}`) : null,
@@ -346,23 +360,91 @@ export async function cardView(
       tier: tier ?? 0, title: redactor.redact(item.title), summary: redactor.redact(item.action_summary),
       consequence: item.consequence_if_denied ? redactor.redact(item.consequence_if_denied) : null,
     } : null,
-    meeting: null,
+    meeting: meeting?.view ?? null,
     may: {
       answer: Boolean(question && open && !hidden && (viewer.kind === 'owner'
         || (!ownerOnly && ((viewer.kind !== 'viewer' && item.addressee_seat === viewer.seatId)
           || (viewer.kind === 'approver' && item.addressee_seat === null))))),
       decide: Boolean(item && item.kind === 'approval' && open && (tier ?? 0) <= 2 && (viewer.kind === 'owner'
         || (viewer.kind === 'approver' && !item.instigators.includes(viewer.seatId!)))),
-      stop: subject.kind === 'work' && presses,
-      tell: subject.kind === 'work' && presses,
-      join: false,
+      stop: (subject.kind === 'work' || subject.kind === 'meeting') && presses,
+      tell: (subject.kind === 'work' || subject.kind === 'meeting') && presses,
+      // Joining is the owner's, on a meeting not over and not yet joined (F19.17).
+      join: Boolean(meeting && viewer.kind === 'owner' && task && LIVE(task.status) && !meeting.view.joined),
     },
     inInbox: Boolean(item && item.kind === 'approval' && (tier ?? 0) >= 3),
   };
 }
 
-/** An item's state as a card draws it: open, or how it ended. */
-export function itemState(item: { kind: string; status: string; decision: string | null; payload: Record<string, unknown> }): string {
+/** The longest record a meeting card draws: the part of its summary the owner reads. */
+const RECORD_MAX = 2_000;
+/** The heading the meeting's brief asks its record to end with. */
+const RECORD_HEADING = 'What the owner needs to know';
+/** The most to-dos a meeting card lists; the rest are under Work. */
+const TODOS_SHOWN = 10;
+
+/**
+ * What a meeting card draws besides the work's state (F19.17, F19.18): the
+ * week, the agenda counted from the facts the meeting was handed, whether
+ * the owner attends it, and once it is over, its record -- the section of
+ * its summary headed for the owner, redacted -- and the to-dos it filed. Its
+ * runs' words are drawn only where the reader may read them, as a work
+ * card's result is.
+ */
+async function meetingOf(
+  tx: TenantClient, task: { id: string; status: TaskStatus; input: unknown; output: unknown; key: string | null }, readable: boolean,
+): Promise<{ view: NonNullable<CardView['meeting']> }> {
+  const input = (task.input ?? {}) as {
+    meeting?: { week?: unknown; ownerJoins?: { minutes?: unknown } };
+    facts?: {
+      scorecard?: { lines?: unknown[]; linesLeftOut?: number }; priorities?: { items?: unknown[]; leftOut?: number };
+      todos?: { items?: unknown[]; leftOut?: number }; issues?: { items?: unknown[]; leftOut?: number };
+    };
+  };
+  const counted = (part: { items?: unknown[]; lines?: unknown[]; leftOut?: number; linesLeftOut?: number } | undefined): number =>
+    (part?.items ?? part?.lines ?? []).length + (part?.leftOut ?? part?.linesLeftOut ?? 0);
+  const facts = input.facts ?? {};
+  const { rows: joined } = await tx.query<{ minutes: number }>(
+    `SELECT (payload->>'minutes')::int AS minutes FROM events
+      WHERE task_id = $1 AND type = 'meeting.owner_joined' ORDER BY occurred_at DESC, id DESC LIMIT 1`, [task.id]);
+  const planned = typeof input.meeting?.ownerJoins?.minutes === 'number' ? input.meeting.ownerJoins.minutes : null;
+  const minutes = joined[0]?.minutes ?? planned;
+  let record: string | null = null;
+  let todos: Array<{ id: string; title: string }> = [];
+  if (readable && task.status === 'completed') {
+    const summary = summarise(task.output, 20_000, RESULT_FIELDS);
+    const at = summary.indexOf(RECORD_HEADING);
+    record = redactor.redact((at >= 0 ? summary.slice(at) : summary).trim().slice(0, RECORD_MAX)) || null;
+  }
+  if (readable) {
+    const { rows } = await tx.query<{ id: string; title: string }>(
+      `SELECT id, title FROM tickets WHERE opened_by_task_id = $1 AND kind = 'work' ORDER BY created_at, id LIMIT ${TODOS_SHOWN}`, [task.id]);
+    todos = rows.map((row) => ({ id: row.id, title: redactor.redact(row.title) }));
+  }
+  return {
+    view: {
+      week: task.key?.startsWith('meeting:') && typeof input.meeting?.week === 'string' ? input.meeting.week : null,
+      agenda: {
+        scorecard: counted(facts.scorecard), priorities: counted(facts.priorities), todos: counted(facts.todos), issues: counted(facts.issues),
+      },
+      joined: minutes !== null,
+      joinMinutes: minutes,
+      called: task.key?.startsWith('room-meeting:') ?? false,
+      record,
+      todos,
+    },
+  };
+}
+
+/**
+ * An item's state as a card draws it: open, or how it ended. A meeting's
+ * question whose minutes passed went on (`went_on`), which is neither an
+ * answer nor a refusal (F19.17).
+ */
+export function itemState(
+  item: { kind: string; status: string; decision: string | null; payload: Record<string, unknown> }, closedReason: string | null = null,
+): string {
+  if (item.status === 'withdrawn' && closedReason === 'meeting_went_on') return 'went_on';
   if (item.status !== 'decided') return item.status;
   if (item.decision === 'deny') return 'denied';
   if (item.decision === 'ask') return 'asked';

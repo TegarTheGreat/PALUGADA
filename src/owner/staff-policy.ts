@@ -212,12 +212,16 @@ const PEOPLE_STAFF: AreaPolicy = {
 };
 
 // --- agent meetings (STATUS 2.211) ---
+// Calling a meeting of the company's agents about a message spends the
+// company's money on a run of its CEO, so it is an approver's, counted among
+// its asks. Joining a meeting, and whether the owner attends every week, are
+// the owner's: on no list.
 const MEETING_STAFF: AreaPolicy = {
   reads: [],
   hidden: {},
   talks: [],
   asks: [],
-  decides: [],
+  decides: ['/api/companies/:companyId/rooms/:roomId/messages/:messageId/meeting'],
 };
 
 // --- find and keep (STATUS 2.212) ---

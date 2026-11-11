@@ -513,10 +513,12 @@ export async function createRootTaskWithin(tx: TenantClient, input: CreateTaskIn
  * no worker can claim it clean in between: the outside content it carries
  * (F8.9), and the mark of each member of staff whose words it carries
  * (F19.9) -- quoted, from where it says, by the platform rather than the
- * seat, since the seat said nothing to this task itself.
+ * seat, since the seat said nothing to this task itself. A meeting called
+ * about a room's message writes that message's marks here too, beside what
+ * its facts carry (STATUS 2.211), so the marks have one shape.
  */
-async function carryWhatItIsMadeFrom(
-  tx: TenantClient, companyId: string, task: TaskRow,
+export async function carryWhatItIsMadeFrom(
+  tx: TenantClient, companyId: string, task: Pick<TaskRow, 'id' | 'projectId'>,
   outside: CreateTaskInput['carriesOutside'], staff: CreateTaskInput['carriesStaff'],
 ): Promise<void> {
   if (outside) {

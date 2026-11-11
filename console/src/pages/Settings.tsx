@@ -183,7 +183,10 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
 /**
  * The weekly operating meeting (F18.6, 0140): the day and hour the CEO holds
  * it, on the company's clock, or that it is not held. Its record is the
- * meeting's task, which the last one's line opens.
+ * meeting's task, which the last one's line opens. And whether the owner
+ * attends every week, and how long each of its questions waits for them
+ * (F19.17): the server refuses attending while the meeting's hour is outside
+ * the owner's own hours, and the console says why in the server's words.
  */
 function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest['lastMeeting'] }) {
   const { companyId, company } = ctx;
@@ -203,9 +206,18 @@ function Rhythm({ ctx, lastMeeting }: { ctx: ConsoleContext; lastMeeting: Digest
               name: 'enabled', label: t('Held'), type: 'select', required: true, initial: company.rhythm.enabled ? 'on' : 'off',
               options: [{ value: 'on', label: t('On') }, { value: 'off', label: t('Off') }],
             },
+            {
+              name: 'ownerJoins', label: t('You attend'), type: 'select', required: true, initial: company.rhythm.ownerJoins ? 'on' : 'off',
+              options: [{ value: 'on', label: t('Every week') }, { value: 'off', label: t('Only when you press Join') }],
+            },
+            {
+              name: 'joinMinutes', label: t('Minutes each question waits for you'), type: 'number', required: true,
+              initial: company.rhythm.joinMinutes,
+            },
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/rhythm`, {
             weekday: Number(values.weekday), hour: Number(values.hour), enabled: values.enabled === 'on',
+            ownerJoins: values.ownerJoins === 'on', joinMinutes: Number(values.joinMinutes),
           })}
           done={() => { notifications.show({ color: 'teal', message: t('Saved.') }); void ctx.refreshCompanies(); }}
         />

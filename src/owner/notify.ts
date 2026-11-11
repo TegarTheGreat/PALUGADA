@@ -1117,6 +1117,8 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'capability_healthy':
       return say(language, 'Withdrawn: the service passed its check again, and any work waiting for it was called back.');
     case 'nothing_waits': return say(language, 'Withdrawn: no work is waiting on it any more.');
+    // A meeting's question whose minutes passed: neither a yes nor a no (F19.17).
+    case 'meeting_went_on': return say(language, 'The meeting went on without an answer.');
     case 'handled_by_coordinator':
       return say(language, 'Withdrawn: the role it was handed to dealt with it, and nothing is left for you to decide.');
     default: return say(language, 'Withdrawn. Nothing left to press here.');

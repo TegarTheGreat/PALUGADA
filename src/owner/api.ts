@@ -66,6 +66,7 @@ import {
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
 import { cancelTask, continueAllHalted, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { JOIN_MINUTES, meetingInWindow } from '../engine/meeting.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { VERSION } from '../version.ts';
@@ -382,6 +383,13 @@ export interface OwnerApiOptions {
     /** What hears the owner speak, and what answers aloud: the providers chosen under Tools. */
     voice?: { listen?: ListenBinding; speak?: MediaBinding<SpeechProvider> };
   };
+  /**
+   * Whether the deployment has a model to hold an agent meeting with, as the
+   * worker is told (`holdsMeetings`, main.ts): without one, a meeting called
+   * from a room is refused (`meeting.no_model`, STATUS 2.211) rather than
+   * made into a task no runtime can take. Absent, it has none.
+   */
+  holdsMeetings?: boolean;
   deploymentSettings?: {
     baseEnv: NodeJS.ProcessEnv;
     env: NodeJS.ProcessEnv;
@@ -1688,7 +1696,10 @@ export class OwnerApi {
         // does (F18.6, 0140): a day of the week and an hour on the company's
         // clock. Moving or stopping it only changes when the company reviews
         // itself, never what anyone may do, so the session is enough. A
-        // field left out is kept.
+        // field left out is kept. And whether the owner attends it, and how
+        // long each of its questions waits for them (F19.17, 0156): refused
+        // while the meeting's hour is outside the owner's own hours, where
+        // its questions would wait for nobody.
         method: 'POST',
         pattern: '/api/companies/:companyId/rhythm',
         handle: async ({ params, body }) => {
@@ -1704,21 +1715,46 @@ export class OwnerApi {
           if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
             throw new PalugadaError('contract.violation', `enabled is true or false; got ${JSON.stringify(body.enabled)}`, { field: 'enabled' });
           }
-          if (weekday === undefined && hour === undefined && body.enabled === undefined) {
-            throw new PalugadaError('contract.violation', 'give weekday (0 to 6, Sunday 0), hour (0 to 23) or enabled (true or false)', {});
+          if (body.ownerJoins !== undefined && typeof body.ownerJoins !== 'boolean') {
+            throw new PalugadaError('contract.violation', `ownerJoins is true or false; got ${JSON.stringify(body.ownerJoins)}`, { field: 'ownerJoins' });
           }
-          const { rows } = await withControlPlane((tx) => tx.query<{ weekday: number; hour: number; enabled: boolean }>(
-            `UPDATE companies
-                SET meeting_weekday = coalesce($2::smallint, meeting_weekday),
-                    meeting_hour = coalesce($3::smallint, meeting_hour),
-                    meeting_enabled = coalesce($4::boolean, meeting_enabled)
-              WHERE id = $1
-              RETURNING meeting_weekday AS weekday, meeting_hour AS hour, meeting_enabled AS enabled`,
-            [params.companyId, weekday ?? null, hour ?? null, body.enabled ?? null]));
-          if (!rows[0]) {
-            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          const joinMinutes = whole(body.joinMinutes, 'joinMinutes', JOIN_MINUTES.min, JOIN_MINUTES.max,
+            `${JOIN_MINUTES.min} to ${JOIN_MINUTES.max}, the minutes each question of the meeting waits for you`);
+          if (weekday === undefined && hour === undefined && body.enabled === undefined && body.ownerJoins === undefined && joinMinutes === undefined) {
+            throw new PalugadaError('contract.violation',
+              'give weekday (0 to 6, Sunday 0), hour (0 to 23), enabled (true or false), ownerJoins (true or false) or joinMinutes (5 to 120)', {});
           }
-          return rows[0];
+          const window = await ownerWindow();
+          const rhythm = await withControlPlane(async (tx) => {
+            const { rows } = await tx.query<{
+              weekday: number; hour: number; enabled: boolean; ownerJoins: boolean; joinMinutes: number; timezone: string;
+            }>(
+              `UPDATE companies
+                  SET meeting_weekday = coalesce($2::smallint, meeting_weekday),
+                      meeting_hour = coalesce($3::smallint, meeting_hour),
+                      meeting_enabled = coalesce($4::boolean, meeting_enabled),
+                      meeting_owner_joins = coalesce($5::boolean, meeting_owner_joins),
+                      meeting_join_minutes = coalesce($6::smallint, meeting_join_minutes)
+                WHERE id = $1
+                RETURNING meeting_weekday AS weekday, meeting_hour AS hour, meeting_enabled AS enabled,
+                          meeting_owner_joins AS "ownerJoins", meeting_join_minutes AS "joinMinutes", timezone`,
+              [params.companyId, weekday ?? null, hour ?? null, body.enabled ?? null, body.ownerJoins ?? null, joinMinutes ?? null]);
+            const saved = rows[0];
+            if (!saved) {
+              throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+            }
+            // Read as saved, so moving the meeting while the owner attends
+            // it is held to the same rule as starting to attend; refused,
+            // the transaction keeps nothing of it.
+            if (saved.ownerJoins && !meetingInWindow(saved, window)) {
+              throw new PalugadaError('meeting.outside_window',
+                'the meeting hour is outside your hours, so its questions would wait for nobody: move the meeting or your hours first',
+                { weekday: saved.weekday, hour: saved.hour, timezone: saved.timezone });
+            }
+            return saved;
+          });
+          const { timezone: _timezone, ...answer } = rhythm;
+          return answer;
         },
       },
 
@@ -8229,7 +8265,7 @@ async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
   guardian: boolean;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
-  rhythm: { weekday: number; hour: number; enabled: boolean };
+  rhythm: { weekday: number; hour: number; enabled: boolean; ownerJoins: boolean; joinMinutes: number };
   fiscalYearStartMonth: number;
 }>> {
   return withControlPlane(async (tx) => {
@@ -8237,15 +8273,17 @@ async function companies(): Promise<Array<{
       id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
       guardian: boolean;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
-      rhythm: { weekday: number; hour: number; enabled: boolean };
+      rhythm: { weekday: number; hour: number; enabled: boolean; ownerJoins: boolean; joinMinutes: number };
       fiscalYearStartMonth: number;
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
       `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
               company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage, company.guardian,
-              -- When its CEO holds the weekly operating meeting (0140).
+              -- When its CEO holds the weekly operating meeting (0140), and
+              -- whether the owner attends it and for how long (0156).
               jsonb_build_object('weekday', company.meeting_weekday, 'hour', company.meeting_hour,
-                                 'enabled', company.meeting_enabled) AS rhythm,
+                                 'enabled', company.meeting_enabled, 'ownerJoins', company.meeting_owner_joins,
+                                 'joinMinutes', company.meeting_join_minutes) AS rhythm,
               -- Where its fiscal year starts, which cuts its quarters (0144).
               company.fiscal_year_start_month AS "fiscalYearStartMonth",
               CASE WHEN ceo.id IS NULL THEN NULL

@@ -18,7 +18,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowUp, IconMoodSmile, IconSparkles } from '@tabler/icons-react';
+import { IconArrowUp, IconMoodSmile, IconSparkles, IconUsersGroup } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { count } from '../format.ts';
 import { t, tp } from '../i18n.ts';
@@ -45,13 +45,18 @@ export interface Sent {
   tell: boolean;
 }
 
-export function Composer({ roomId, threadOf = null, placeholder, send, ask, editLast, tellable = false, disabled = false }: {
+export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet, editLast, tellable = false, disabled = false }: {
   roomId: string;
   threadOf?: string | null;
   placeholder: string;
   send: (sent: Sent) => void;
   /** Ask the team: the words are posted, then the drawer that gives them as work opens; with none, it opens empty. */
   ask?: (body: string) => void;
+  /**
+   * Call a meeting about these words (STATUS 2.211): they are posted as the person's own, then the dialog that calls
+   * the meeting opens on the message, so cancelling it leaves them in the room.
+   */
+  meet?: (body: string) => void;
   /** ↑ in an empty composer: edit your last message. */
   editLast?: () => void;
   /** A thread of work the reader may tell (F19.6). */
@@ -240,7 +245,20 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
             <IconMoodSmile size={18} />
           </ActionIcon>
         } />
-        {/* Setting a people's meeting (section 2.215) and telling an agent meeting (section 2.211) go here. */}
+        {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
+            the top of a room, pressed and never sent by a key. Setting a people's meeting (section 2.215) goes here too. */}
+        {meet && threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver') && (
+          <Tooltip label={t('Call a meeting about this')}>
+            <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {
+              const body = value.trim();
+              if (!body) return;
+              setValue('');
+              meet(body);
+            }}>
+              <IconUsersGroup size={18} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         {ask && mayAsk(scope.kind) && threadOf === null && (
           <Tooltip label={t('Ask the team')}>
             <ActionIcon size="lg" variant="subtle" aria-label={t('Ask the team')} disabled={disabled || !value.trim()} onClick={() => {

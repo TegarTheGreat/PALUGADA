@@ -1,8 +1,9 @@
 /**
  * What every part of the Rooms page shares while a company's rooms are open
  * (STATUS 2.207): who is reading and what they may do, the room on screen,
- * the company's people, and how to open a thread or ask the team about a
- * message. Held in memory by the page, never in the browser's storage.
+ * the company's people, and how to open a thread, ask the team about a
+ * message or call a meeting about one (STATUS 2.211). Held in memory by the
+ * page, never in the browser's storage.
  *
  * Also the few ways a person is said and written, kept in one place so a
  * message, the mention picker and a room's members never disagree: the
@@ -32,6 +33,12 @@ export interface Scope {
    * opens empty, and what is asked in it is posted to the room as the person's words before it is given as work.
    */
   askWork: (message: MessageView | null) => void;
+  /**
+   * "Call a meeting about this" (STATUS 2.211): the dialog that calls a meeting of the company's agents about a
+   * message already kept. Words from the composer are posted first, as "Ask the team" posts them, so cancelling the
+   * meeting never loses them.
+   */
+  callMeeting: (message: MessageView) => void;
   /** Something changed that the rail and the room should read again. */
   changed: () => void;
   /** Counts the changes: what reads the room reads again when it moves. */

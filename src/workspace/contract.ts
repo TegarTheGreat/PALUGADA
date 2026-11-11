@@ -55,7 +55,10 @@ export type CardView = {
   deliverables: Array<{ id: string; title: string }>;
   question: { text: string; options: string[]; addressee: PersonRef | null; hidden: boolean; endsAt: string | null } | null;
   approval: { tier: number; title: string; summary: string; consequence: string | null } | null;
-  meeting: { week: string; agenda: Record<string, number>; joined: boolean; joinMinutes: number | null } | null;
+  meeting: {
+    week: string | null; agenda: Record<string, number>; joined: boolean; joinMinutes: number | null;
+    called: boolean; record: string | null; todos: Array<{ id: string; title: string }>;
+  } | null;
   may: { answer: boolean; decide: boolean; stop: boolean; tell: boolean; join: boolean }; inInbox: boolean;
 };
 

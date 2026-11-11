@@ -38,7 +38,7 @@ export interface Company {
   /** The role the owner talks to (0068); null only while the company has no roles. */
   ceo: { roleId: string; slug: string; displayName: string | null } | null;
   /** When the CEO holds the weekly operating meeting (0140): 0 Sunday to 6 Saturday, an hour on the company's clock. */
-  rhythm: { weekday: number; hour: number; enabled: boolean };
+  rhythm: { weekday: number; hour: number; enabled: boolean; ownerJoins: boolean; joinMinutes: number };
   /** The month, 1 to 12, its fiscal year starts in (0144): quarterly planning follows it. */
   fiscalYearStartMonth: number;
 }

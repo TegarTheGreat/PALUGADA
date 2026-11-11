@@ -1123,3 +1123,14 @@ The first version. What it holds, in the order an owner meets it.
   the console over HTTP/2 if you keep many tabs open, of one company or
   several, and set `PALUGADA_LISTEN_DATABASE_URL` if your database URL goes
   through PgBouncer (STATUS 2.210).
+- Agent meetings in rooms: the CEO's weekly meeting is one quiet card in
+  the company room, with its record when it ends. You may attend it, every
+  week under Settings or once by pressing Join; its questions then come to
+  you at once and wait as many minutes as you said, and when they pass the
+  meeting goes on without your answer, which is never taken as a yes. A
+  one-way door is still a tier 3 decision in your inbox. You or an approver
+  can call a meeting about a message in a room, or about words in the
+  composer, which are posted as yours first: the CEO holds it against the
+  same scorecard, priorities, to-dos and issues, with money held first, at
+  most three a day, and a member of staff's topic reaches it as theirs
+  (STATUS 2.211).

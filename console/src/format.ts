@@ -128,11 +128,16 @@ export function megabytes(bytes: number): string {
   return new Intl.NumberFormat(locale(), { maximumFractionDigits: 1, roundingMode: 'ceil' }).format(bytes / 1_048_576);
 }
 
-export function relative(iso: string | null | undefined): string {
+/**
+ * How far off a moment is, "in 15 min." or "3 days ago". `long` spells the
+ * unit out ("in 15 minutes"), for a sentence that ends on it: the short
+ * form's own full stop would be followed by the sentence's.
+ */
+export function relative(iso: string | null | undefined, style: 'short' | 'long' = 'short'): string {
   if (!iso) return '—';
   let delta = (new Date(iso).getTime() - Date.now()) / 1000;
   if (Math.abs(delta) < 45) return delta > 0 ? t('in a moment') : t('just now');
-  const format = new Intl.RelativeTimeFormat(locale(), { numeric: 'always', style: 'short' });
+  const format = new Intl.RelativeTimeFormat(locale(), { numeric: 'always', style });
   for (const [size, unit] of UNITS) {
     if (Math.abs(delta) < size) return format.format(Math.round(delta), unit);
     delta /= size;

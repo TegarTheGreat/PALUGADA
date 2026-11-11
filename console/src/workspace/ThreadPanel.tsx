@@ -118,7 +118,8 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
   }, [newest?.position, shownHere, visible]);
 
   const mine = [...(thread?.replies ?? [])].reverse().find((one) => one.author.principal === scope.me && one.may.edit);
-  const work = thread?.root.card?.kind === 'work' ? thread.root.card : null;
+  // Work, or a meeting of the company's agents, which is told as work is (section 2.211).
+  const work = thread?.root.card?.kind === 'work' || thread?.root.card?.kind === 'meeting' ? thread.root.card : null;
 
   return (
     <Box className="rooms-thread" data-pane="thread" data-alone={alone || undefined} component="aside" aria-label={t('Thread')}>

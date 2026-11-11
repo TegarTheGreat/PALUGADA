@@ -16,7 +16,7 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  Alert, Badge, Button, FileButton, Group, List, Modal, Paper, Progress, Select, Stack, Table, Text, Title,
+  Alert, Badge, Box, Button, FileButton, Group, List, Modal, Paper, Progress, Select, Stack, Text, Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBrandSlack, IconFileZip } from '@tabler/icons-react';
@@ -91,6 +91,8 @@ function problemSaid(problem: Problem): string {
         '{entry}: {count} messages had no time or author, and were left out.', count, { entry });
     case 'unknown_folder': return t('{entry} is no channel of the export, so it was left out.', { entry });
     case 'renamed': return t('#{entry} became {name}: a room here already had its name.', { entry, name: problem.name ?? '' });
+    case 'channel_stopped':
+      return t('#{entry} could not be imported in full: what came in before it stopped is kept, and the rest of it was left out.', { entry });
     case 'direct_skipped':
       return tp('{count} direct conversation was left out: direct messages need every person linked first, and are not imported in v1.',
         '{count} direct conversations were left out: direct messages need every person linked first, and are not imported in v1.', count);
@@ -105,10 +107,15 @@ function problemSaid(problem: Problem): string {
   }
 }
 
-/** What an import says of itself: how far it is, then what came in and what did not. */
+/**
+ * What an import says of itself: how far it is, then what came in and what
+ * did not. The counts are saved as each batch is written, so they are drawn
+ * while it is read, and for one that failed part way, what it brought in.
+ */
 function Report({ report }: { report: ImportView }) {
   const counts = report.counts;
   const said = (key: string) => counts[key] ?? 0;
+  const counted = report.status === 'done' || ((report.status === 'reading' || report.status === 'failed') && said('rooms') + said('messages') > 0);
   return (
     <Stack gap="xs">
       <Group gap="xs">
@@ -125,7 +132,7 @@ function Report({ report }: { report: ImportView }) {
         </>
       )}
       {report.status === 'reading' && <Text size="sm" c="dimmed">{t('Reading the export. Rooms appear as each channel is in.')}</Text>}
-      {report.status === 'done' && (
+      {counted && (
         <List size="sm" spacing={2}>
           <List.Item>{tp('{count} room made', '{count} rooms made', said('rooms'))}</List.Item>
           <List.Item>{tp('{count} message brought in', '{count} messages brought in', said('messages'))}</List.Item>
@@ -266,36 +273,34 @@ export function FormerPeople({ companyId, seats }: { companyId: string; seats: r
       <Text size="sm" c="dimmed" mb="md">
         {t('Link each to the seat they have here: what they said is shown under that seat\'s name, and the seat joins the private channels they were in.')}
       </Text>
-      <Table.ScrollContainer minWidth={560}>
-        <Table verticalSpacing="sm">
-          <Table.Tbody>
-            {list.map((person) => (
-              <Table.Tr key={person.former}>
-                <Table.Td>
-                  <Text size="sm" fw={600}>{person.name}</Text>
-                  {person.rooms > 0 && (
-                    <Text size="xs" c="dimmed">{tp('In {count} private room', 'In {count} private rooms', person.rooms)}</Text>
-                  )}
-                </Table.Td>
-                <Table.Td>
-                  {person.seat ? (
-                    <Badge variant="light" color="teal">{t('Linked to {seat}', { seat: person.seat.name })}</Badge>
-                  ) : (
-                    <Select size="xs" placeholder={t('Choose a seat')} data={linkable.map((seat) => ({ value: seat.id, label: seat.name }))}
-                      value={chosen[person.former] ?? null} onChange={(value) => setChosen({ ...chosen, [person.former]: value })}
-                      aria-label={t('The seat {name} has here', { name: person.name })} />
-                  )}
-                </Table.Td>
-                <Table.Td ta="right">
-                  {person.seat
-                    ? <Button size="xs" variant="subtle" color="red" onClick={() => void unlink(person)}>{t('Unlink')}</Button>
-                    : <Button size="xs" variant="light" disabled={!chosen[person.former]} onClick={() => void ask(person)}>{t('Link to the seat')}</Button>}
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
+      {/* A row a person: their name, the seat, the button. On a phone the three wrap onto lines of their own, rather than a table scrolled sideways. */}
+      <Stack gap={0}>
+        {list.map((person) => (
+          <Group key={person.former} gap="sm" wrap="wrap" align="center" py="xs"
+            style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+            <Box style={{ flex: '1 1 10rem', minWidth: 0 }}>
+              <Text size="sm" fw={600} truncate>{person.name}</Text>
+              {person.rooms > 0 && (
+                <Text size="xs" c="dimmed">{tp('In {count} private room', 'In {count} private rooms', person.rooms)}</Text>
+              )}
+            </Box>
+            <Box style={{ flex: '1 1 11rem', minWidth: 0 }}>
+              {person.seat ? (
+                <Badge variant="light" color="teal" maw="100%">{t('Linked to {seat}', { seat: person.seat.name })}</Badge>
+              ) : (
+                <Select size="xs" placeholder={t('Choose a seat')} data={linkable.map((seat) => ({ value: seat.id, label: seat.name }))}
+                  value={chosen[person.former] ?? null} onChange={(value) => setChosen({ ...chosen, [person.former]: value })}
+                  aria-label={t('The seat {name} has here', { name: person.name })} />
+              )}
+            </Box>
+            <Box ml="auto">
+              {person.seat
+                ? <Button size="xs" variant="subtle" color="red" onClick={() => void unlink(person)}>{t('Unlink')}</Button>
+                : <Button size="xs" variant="light" disabled={!chosen[person.former]} onClick={() => void ask(person)}>{t('Link to the seat')}</Button>}
+            </Box>
+          </Group>
+        ))}
+      </Stack>
       <Modal opened={asking !== null} onClose={() => setAsking(null)} centered
         title={asking ? t('Link {name} to {seat}', { name: asking.person.name, seat: asking.seat.name }) : ''}>
         {asking && (

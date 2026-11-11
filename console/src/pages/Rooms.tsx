@@ -174,26 +174,33 @@ export function Rooms({ ctx, route }: PageProps) {
   // thread the room's place; a wide one shows all three.
   const showRail = !phone || open.kind === 'none';
   const showMain = open.kind !== 'none' && (phone || wide || !threadOpen);
+  // While the company has no topic room, the owner is offered their Slack workspace's (STATUS 2.214): above the
+  // company room on a wide screen, and above the rail on a phone, which opens on the rail.
+  const inviting = owner && !!rooms.data && !rooms.data.some((one) => one.kind === 'topic');
+  const rail = (
+    <RoomRail
+      rooms={rooms.data ?? []}
+      selected={open.kind === 'room' ? open.roomId : open.kind === 'none' ? null : open.kind}
+      select={(item) => select(item)}
+      attention={attention}
+      newRoom={() => setMaking(true)}
+      newMessage={() => setWriting([])}
+      search={(text) => { setQuery(text); select('search'); }}
+    />
+  );
 
   return (
     <ScopeContext.Provider value={scope}>
       <Box className="rooms" data-rooms>
-        {showRail && (
-          <RoomRail
-            rooms={rooms.data ?? []}
-            selected={open.kind === 'room' ? open.roomId : open.kind === 'none' ? null : open.kind}
-            select={(item) => select(item)}
-            attention={attention}
-            newRoom={() => setMaking(true)}
-            newMessage={() => setWriting([])}
-            search={(text) => { setQuery(text); select('search'); }}
-          />
-        )}
+        {showRail && (phone && inviting ? (
+          <Box className="rooms-stack">
+            <SlackInvite companyId={companyId} imported={changed} />
+            {rail}
+          </Box>
+        ) : rail)}
         {showMain && (
           <Box className="rooms-main" data-pane="room" component="section">
-            {/* While the company has no topic room, the owner is offered their Slack workspace's (STATUS 2.214). */}
-            {open.kind === 'room' && owner && rooms.data && shownRoom?.kind === 'company'
-              && !rooms.data.some((one) => one.kind === 'topic') && <SlackInvite companyId={companyId} imported={changed} />}
+            {open.kind === 'room' && inviting && !phone && shownRoom?.kind === 'company' && <SlackInvite companyId={companyId} imported={changed} />}
             {open.kind === 'room' && (
               <RoomPane key={open.roomId} roomId={open.roomId} threadOpen={threadOpen} back={() => select(null)} addPeople={(principals) => setWriting(principals)} />
             )}

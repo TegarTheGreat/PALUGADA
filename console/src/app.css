@@ -286,6 +286,9 @@ body { background: var(--mantine-color-body); }
   border-inline-end: 1px solid var(--mantine-color-default-border);
 }
 .rooms-main { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* On a phone, something the owner is offered above the rail, with the rail below it taking the rest. */
+.rooms-stack { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.rooms-stack > .rooms-rail { flex: 1 1 auto; }
 .rooms-thread {
   width: 400px;
   flex-shrink: 0;

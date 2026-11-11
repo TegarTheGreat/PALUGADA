@@ -15,6 +15,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
+import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { appPool, closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withPeople } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
@@ -397,6 +398,58 @@ test('a stream resumed after a gap hears what it missed, in order, once', async 
   }
 });
 
+test('a stream resumed after a gap is sent only what its person may see of it', async () => {
+  const { fixture, api, owner } = await workspace('stream-resume-own');
+  try {
+    const budi = await seated(fixture, 'Budi', 'member');
+    const sari = await seated(fixture, 'Sari', 'viewer');
+    const budiIn = personIn(api, budi.token, fixture.companyId);
+    const sariIn = personIn(api, sari.token, fixture.companyId);
+    const company = await companyRoomOf(owner);
+    await companyRoomOf(budiIn);
+    await companyRoomOf(sariIn);
+    const feed = async () => (await withControlPlane((tx) => tx.query<{ position: string; room_id: string; ref: string | null; kind: string; principal: string | null }>(
+      'SELECT position, room_id, ref, kind, principal FROM room_feed WHERE company_id = $1 ORDER BY position', [fixture.companyId]))).rows;
+    const positionOf = async (ref: string) => Number((await feed()).find((row) => row.ref === ref && row.kind === 'message')!.position);
+    // Where Sari's console last heard, before anything below was written.
+    const before = Math.max(...(await feed()).map((row) => Number(row.position)));
+
+    // While her tab is away: a private room she is not in, a direct room she is not in, a colleague's read mark ...
+    const board = await topic(owner, 'board', true, [budi.principal]);
+    const secret = await said(owner, board, 'The board meets on Friday.');
+    const direct = String(ok(await budiIn.direct([budi.principal, 'owner']), 'opening a direct room').room.id);
+    const between = await said(budiIn, direct, 'Can I leave early?');
+    const forAll = await said(owner, company, 'Stock count at four.');
+    ok(await budiIn.read(company, { position: await positionOf(forAll) }), 'Budi reads the company room');
+    // ... and what is hers: the company room, and her own read mark, from another of her devices.
+    const after = await said(owner, company, 'And coffee after.');
+    ok(await sariIn.read(company, { position: await positionOf(after) }), 'Sari reads the company room on her phone');
+    const rows = (await feed()).filter((row) => Number(row.position) > before);
+    const notHers = rows
+      .filter((row) => row.room_id === board || row.room_id === direct || (row.kind === 'read' && row.principal !== sari.principal))
+      .map((row) => Number(row.position));
+    assert.ok(notHers.length >= 5, `the feed holds what Sari may not see: ${JSON.stringify(rows)}`);
+    const hers = rows.map((row) => Number(row.position)).filter((position) => !notHers.includes(position));
+
+    const resumed = await listening(api, sari.token, fixture.companyId, String(before));
+    try {
+      await until(() => resumed.frames.some((frame) => frame.kind === 'read'), 'her own read mark, replayed');
+      await pause(300);
+      const heardAt = resumed.frames.filter((frame) => frame.position !== undefined).map((frame) => frame.position!);
+      assert.deepEqual(heardAt, hers, 'replayed: exactly what she may see, in order');
+      assert.ok(!names(resumed, board), 'a private room she is not in');
+      assert.ok(!names(resumed, direct), 'a direct room she is not in');
+      assert.deepEqual([...about(resumed, secret), ...about(resumed, between)], []);
+      assert.equal(about(resumed, forAll).length, 1, 'the company room, replayed');
+      assert.equal(about(resumed, after).length, 1);
+    } finally {
+      resumed.stop();
+    }
+  } finally {
+    await api.close();
+  }
+});
+
 test('positions follow commit order even when an earlier transaction commits later', async () => {
   const { fixture, api, owner, token } = await workspace('stream-order');
   try {
@@ -449,10 +502,14 @@ test('a cursor older than the kept changes is told to reload', async () => {
     // The feed is bookkeeping, purged after a fortnight: what came before `kept` is gone.
     await withControlPlane((tx) => tx.query('DELETE FROM room_feed WHERE company_id = $1 AND position < $2', [fixture.companyId, keptAt]));
 
+    const newest = await withControlPlane((tx) => tx.query<{ newest: string }>(
+      'SELECT max(position) AS newest FROM room_feed WHERE company_id = $1', [fixture.companyId]));
     const hears = await listening(api, token, fixture.companyId, '1');
     try {
       await until(() => hears.frames.length > 0, 'the first frame');
       assert.deepEqual(hears.frames[0], { kind: 'reset' }, 'told to read the rooms again');
+      // And where to resume from, so the next reconnection is not told to reset again.
+      assert.equal(hears.ids[0], newest.rows[0]!.newest, 'the reset carries the newest position the owner could see');
       const after = await said(owner, room, 'After.');
       await until(() => about(hears, after).length > 0, 'what came after, live');
       assert.deepEqual(about(hears, kept), [], 'nothing replayed over a gap it cannot fill');
@@ -467,6 +524,30 @@ test('a cursor older than the kept changes is told to reload', async () => {
       assert.ok(!fine.frames.some((frame) => frame.kind === 'reset'));
     } finally {
       fine.stop();
+    }
+  } finally {
+    await api.close();
+  }
+});
+
+test("a cursor ahead of the company's clock is told to reload, and hears what follows", async () => {
+  const { fixture, api, owner, token } = await workspace('stream-ahead');
+  try {
+    const room = await companyRoomOf(owner);
+    const before = await said(owner, room, 'Before.');
+    const newest = await withControlPlane((tx) => tx.query<{ newest: string }>(
+      'SELECT max(position) AS newest FROM room_feed WHERE company_id = $1', [fixture.companyId]));
+    // An id from a database since restored to an earlier moment: no position the company has reached.
+    const hears = await listening(api, token, fixture.companyId, '1000000');
+    try {
+      await until(() => hears.frames.length > 0, 'the first frame');
+      assert.deepEqual(hears.frames[0], { kind: 'reset' }, 'told to read the rooms again');
+      assert.equal(hears.ids[0], newest.rows[0]!.newest, 'from the newest position the owner could see');
+      const after = await said(owner, room, 'After.');
+      await until(() => about(hears, after).length > 0, 'what came after, live');
+      assert.deepEqual(about(hears, before), []);
+    } finally {
+      hears.stop();
     }
   } finally {
     await api.close();
@@ -592,8 +673,8 @@ test("a revoked seat's stream ends within thirty seconds", { timeout: 60_000 }, 
       await tx.query('UPDATE staff_sessions SET ended_at = now() WHERE seat_id = $1', [budi.id]);
     });
     const from = Date.now();
-    await until(() => hears.ended(), 'the stream to end', 31_000);
-    assert.ok(Date.now() - from <= 31_000);
+    await until(() => hears.ended(), 'the stream to end', 30_000);
+    assert.ok(Date.now() - from <= 30_000);
     assert.ok(!ownerHears.ended(), 'a session still live is asked again and goes on');
     ownerHears.stop();
   } finally {
@@ -641,6 +722,45 @@ test('signing out ends the streams that session opened, in another process too',
       assert.ok(!keptThere.ended());
     } finally {
       for (const stream of [there, workThere, keptThere, budiThere, sariThere]) stream.stop();
+    }
+  } finally {
+    await replica?.close();
+    await api.close();
+  }
+});
+
+test('a process that holds only /live listens again after a loss, and asks after its sessions', { timeout: 90_000 }, async () => {
+  const { fixture, api, token } = await workspace('stream-live-alone');
+  let replica: { url: string; close: () => Promise<void> } | null = null;
+  try {
+    replica = await replicaOf();
+    const kept = await api.signIn();
+    const expiring = await api.signIn();
+    const budi = await seated(fixture, 'Budi', 'viewer');
+    const work = await liveStream(replica, token, fixture.companyId);
+    const keptWork = await liveStream(replica, kept, fixture.companyId);
+    const expiringWork = await liveStream(replica, expiring, fixture.companyId);
+    const budiWork = await liveStream(replica, budi.token, fixture.companyId);
+    try {
+      await hubsAre(1, 'the process that serves /live listening');
+      // Its connection is gone: it listens again, though no room stream is open there.
+      await appPool().query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND application_name = 'palugada-hub'");
+      await hubsAre(1, 'the process that serves /live listening again', 10_000);
+      ok(await api.call('POST', '/api/auth/sign-out', token, {}), 'signing out on the first process');
+      await until(() => work.ended(), "the signed-out session's /live on the other process to end", 3_000);
+
+      // Ended where no process heard of it: a session over, a seat revoked, written straight into the database.
+      await withControlPlane(async (tx) => {
+        await tx.query('UPDATE owner_sessions SET ended_at = now() WHERE token_hash = $1', [createHash('sha256').update(expiring).digest('hex')]);
+        await tx.query('UPDATE staff_seats SET revoked_at = now() WHERE id = $1', [budi.id]);
+      });
+      const from = Date.now();
+      await until(() => expiringWork.ended() && budiWork.ended(), "the /live of a session no longer live to end", 30_000);
+      assert.ok(Date.now() - from <= 30_000);
+      assert.ok(!keptWork.ended(), 'a session still live is asked again and goes on');
+    } finally {
+      for (const stream of [work, keptWork, expiringWork, budiWork]) stream.stop();
     }
   } finally {
     await replica?.close();
@@ -792,6 +912,46 @@ test('a process that cannot listen at all still tells every stream what changed,
     hears.stop();
   } finally {
     await deaf?.close();
+    await api.close();
+  }
+});
+
+test('a listening address that takes the connection and never answers holds up neither the streams nor closing', { timeout: 60_000 }, async () => {
+  // A pooler that hangs, or a proxy that swallows what it is sent: the connection is taken, and nothing comes back.
+  const sockets: Socket[] = [];
+  const silent = createServer((socket) => { sockets.push(socket); });
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = silent.address() as AddressInfo;
+  const { fixture, api, owner, token } = await workspace('stream-silent');
+  let replica: { url: string; close: () => Promise<void> } | null = null;
+  const streams: Heard[] = [];
+  try {
+    replica = await replicaOf(`postgres://palugada_app:dev_app@127.0.0.1:${port}/nowhere`);
+    const room = await companyRoomOf(owner);
+    const took: number[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const from = Date.now();
+      streams.push(await listening(replica, token, fixture.companyId));
+      took.push(Date.now() - from);
+    }
+    assert.ok(took[0]! < 3_000, `the first stream waited ${took[0]} ms for the hub`);
+    assert.ok(took[1]! < 1_000 && took[2]! < 1_000, `a stream waits for the hub only as long as the first did: ${took.join(', ')} ms`);
+    const said1 = await said(owner, room, 'Heard without a notice.');
+    await until(() => streams.every((stream) => about(stream, said1).length > 0), 'the change, read by the clock', 7_000);
+    // The connection that never answers is given up, and another is tried.
+    await until(() => sockets.length >= 2, 'the hub trying again', 20_000);
+
+    for (const stream of streams) stream.stop();
+    const closing = replica.close();
+    replica = null;
+    const closed = await Promise.race([closing.then(() => true), pause(5_000).then(() => false)]);
+    assert.ok(closed, 'closing the API waited on a connection that never answers');
+  } finally {
+    for (const stream of streams) stream.stop();
+    // The address answers at last, by going away: whatever still waits on it is let go.
+    for (const socket of sockets) socket.destroy();
+    silent.close();
+    await replica?.close();
     await api.close();
   }
 });

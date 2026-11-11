@@ -184,6 +184,73 @@ test('three tabs on one company each still load pages and send messages', { skip
   }
 });
 
+/** Notes every request the page makes, before the console loads. */
+const REQUESTS = `(() => {
+  window.__fetched = [];
+  const real = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    window.__fetched.push(typeof input === 'string' ? input : input.url);
+    return real(input, init);
+  };
+})()`;
+
+/** A plain request from the page, answered or not within `ms`. */
+const ANSWERED = (ms: number) => `(async () => {
+  const stop = new AbortController();
+  const late = setTimeout(() => stop.abort(), ${ms});
+  try {
+    return (await fetch('/api/ready', { signal: stop.signal })).status;
+  } catch {
+    return 0;
+  } finally {
+    clearTimeout(late);
+  }
+})()`;
+
+test('a sixth tab is refused the room stream and still leaves the browser a connection for every page', { skip, timeout: 180_000 }, async () => {
+  const { fixture, api, owner } = await started();
+  const first = await drawn(api);
+  try {
+    const tabs = [first];
+    for (let index = 1; index < 6; index += 1) tabs.push(await first.tab());
+    for (const tab of tabs) {
+      await tab.beforeLoad(REQUESTS);
+      await ownerSignsIn(tab, api, `#/c/${fixture.companyId}/rooms`);
+      await tab.waitFor(`document.querySelector('[data-composer]')`, 'the company room', 15_000);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    assert.equal(await metric('palugada_room_streams'), 5, 'five tabs hold the room stream; the sixth is refused it');
+    const sixth = tabs[5]!;
+    const fetched = await sixth.evaluate<string[]>('window.__fetched');
+    assert.ok(fetched.some((url) => url.endsWith('/room-stream')), 'the sixth tab asked for the room stream');
+    assert.ok(!fetched.some((url) => url.endsWith('/live')),
+      "the sixth tab opened /live, which takes the browser's last connection to this address");
+
+    // Over HTTP/1.1 a browser has six connections to an address: five hold streams, and the sixth answers every tab.
+    for (const tab of [first, sixth]) assert.equal(await tab.evaluate<number>(ANSWERED(5_000)), 200, 'a request answered beside six tabs');
+    // The refused tab reads the room on its clock.
+    await said(personIn(api, owner, fixture.companyId), await companyRoomOf(personIn(api, owner, fixture.companyId)), 'Untuk tab keenam.');
+    await sixth.waitFor(SHOWN('Untuk tab keenam.'), 'the message in the refused tab, read on its clock', 8_000);
+
+    // A tab closed gives its place to the refused one, which asks again on its own.
+    const streamsAre = async (n: number, ms: number) => {
+      const by = Date.now() + ms;
+      let held = await metric('palugada_room_streams');
+      while (held !== n && Date.now() < by) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        held = await metric('palugada_room_streams');
+      }
+      return held;
+    };
+    await tabs[1]!.close();
+    assert.equal(await streamsAre(4, 5_000), 4, 'the closed tab let its stream go');
+    assert.equal(await streamsAre(5, 45_000), 5, 'the refused tab took the room stream once a tab closed');
+  } finally {
+    await first.close();
+    await api.close();
+  }
+});
+
 /** Stands in for the browser's notifications, and notes every request the page makes, before the console loads. */
 const RECORDING = `(() => {
   window.__notified = [];

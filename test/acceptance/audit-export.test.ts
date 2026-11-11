@@ -1097,7 +1097,9 @@ test("a company's rooms and messages travel with it, private rooms and direct me
     assert.deepEqual(files.map((row) => [row.message_id, row.name, 'path' in row]), [[talked.filed, 'harga.pdf', false]],
       'a file travels as its name: the archive carries no file');
     assert.ok((sections.room_members ?? []).some((row) => row.principal === talked.seat.principal && row.name === 'Siti Rahayu'));
-    for (const kept of ['room_places', 'room_access', 'room_feed', 'room_clock', 'room_mentions', 'room_follows']) {
+    // People's notices (STATUS 2.213) are what each person was told, and when:
+    // delivery bookkeeping too, named with the rest.
+    for (const kept of ['room_places', 'room_access', 'room_feed', 'room_clock', 'room_mentions', 'room_follows', 'people_notices']) {
       assert.equal(sections[kept], undefined, `${kept} is not the company's record`);
       assert.ok(summary.leftOut[kept], `the archive says why ${kept} is not in it`);
     }
@@ -1182,6 +1184,24 @@ test('a restored room raises no unread, mention or Activity, and its threads cou
       'SELECT kind, count(*)::int AS n FROM room_feed WHERE company_id = $1 GROUP BY kind ORDER BY kind', [restored.companyId]));
     const roomCount = (await withControlPlane((tx) => tx.query('SELECT 1 FROM rooms WHERE company_id = $1', [restored.companyId]))).rowCount;
     assert.deepEqual(feed.rows, [{ kind: 'room', n: roomCount }], 'one change per room, so an open stream reads each once, and none per message');
+
+    // Nor is anyone told of it outside PALUGADA (STATUS 2.213): a restored
+    // mention of the owner tells the owner nothing, even one who hears people
+    // and has a chat that takes their notices.
+    const { TelegramChannel } = await import('../../src/owner/telegram.ts');
+    const { planNotices } = await import('../../src/owner/member-notify.ts');
+    const telegram = new TelegramChannel({
+      token: 'test-bot-token-0000', chatId: '42',
+      fetch: async () => new Response(JSON.stringify({ ok: true, result: { message_id: 1 } })),
+    });
+    ok(await talked.api.call('POST', '/api/me/profile', talked.owner.token, { ownerHearsPeople: true }));
+    try {
+      assert.deepEqual(await planNotices(restored.companyId, { chats: [telegram] }), { planned: 0 });
+      const told = await withControlPlane((tx) => tx.query('SELECT 1 FROM people_notices WHERE company_id = $1', [restored.companyId]));
+      assert.equal(told.rows.length, 0, 'a restore owes nobody a notice');
+    } finally {
+      ok(await talked.api.call('POST', '/api/me/profile', talked.owner.token, { ownerHearsPeople: false }));
+    }
   } finally {
     await talked.api.close();
   }

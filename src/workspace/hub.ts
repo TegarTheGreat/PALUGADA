@@ -313,16 +313,23 @@ export class RoomHub implements PeopleHub {
     for (const company of this.#companies.values()) this.#soon(company, 0);
   }
 
-  /** The connection went: tried again, a little later each time, while anyone is listening. */
+  /**
+   * The connection went, or never came: tried again, a little later each
+   * time, while anyone is listening. With nobody listening it is not tried;
+   * the next stream connects again.
+   */
   #lost(client: pg.Client, generation: number): void {
     if (this.#client === client) this.#client = null;
-    if (generation !== this.#generation || this.#retry || this.#companies.size === 0) return;
+    if (generation !== this.#generation || this.#retry) return;
     const wait = this.#retryMs;
     this.#retryMs = Math.min(this.#retryMs * 2, 30_000);
     this.#retry = setTimeout(() => {
       this.#retry = null;
-      if (generation === this.#generation && !this.#client) void this.listening();
+      if (generation !== this.#generation || this.#client || this.#companies.size === 0) return;
+      void this.listening();
     }, wait);
+    // A retry alone does not keep the process up: the API's close clears it.
+    this.#retry.unref();
   }
 
   /** A NOTIFY: a company's rooms changed, its CEO conversation did, or a session's streams end. */

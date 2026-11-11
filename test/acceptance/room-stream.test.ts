@@ -605,8 +605,11 @@ test("a revoked seat's stream ends within thirty seconds", { timeout: 60_000 }, 
  * A second process of the same deployment, behind the same address: it
  * reads the same sessions and seats from the database, and enrols nothing.
  */
-async function replicaOf(): Promise<{ url: string; close: () => Promise<void> }> {
-  const replica = new OwnerApi({ mfa: new OwnerMfa({ secrets: new InMemorySecretManager(), rpId: 'palugada.local' }) });
+async function replicaOf(listenUrl?: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const replica = new OwnerApi({
+    mfa: new OwnerMfa({ secrets: new InMemorySecretManager(), rpId: 'palugada.local' }),
+    ...(listenUrl ? { listenUrl } : {}),
+  });
   const { url } = await replica.listen();
   return { url, close: () => replica.close() };
 }
@@ -775,6 +778,23 @@ test('a stream goes on hearing the rooms while the hub cannot listen, and the hu
   }
 });
 
+
+test('a process that cannot listen at all still tells every stream what changed, by the clock', async () => {
+  const { fixture, api, owner, token } = await workspace('stream-deaf');
+  // A pooler that does not keep LISTEN, or a listening address that is wrong: nothing answers there.
+  let deaf: { url: string; close: () => Promise<void> } | null = null;
+  try {
+    deaf = await replicaOf('postgres://palugada_app:dev_app@127.0.0.1:1/nowhere');
+    const room = await companyRoomOf(owner);
+    const hears = await listening(deaf, token, fixture.companyId);
+    const said1 = await said(owner, room, 'Heard without a notice.');
+    await until(() => about(hears, said1).length > 0, 'the change, read by the clock', 7_000);
+    hears.stop();
+  } finally {
+    await deaf?.close();
+    await api.close();
+  }
+});
 
 test('closing the owner API closes its listener', async () => {
   const { fixture, api, token } = await workspace('stream-close');

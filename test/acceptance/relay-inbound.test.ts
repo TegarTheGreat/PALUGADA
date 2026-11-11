@@ -970,6 +970,34 @@ test("a pulled act's answer is sent back to the relay, a lapsed one's too, and t
   }
 });
 
+test("a stranger's many addresses in one IPv6 network are one address to the open route, as they are to sign-in", async () => {
+  // The open route counts a stranger's requests by address before it reads
+  // anything (STATUS section 2.216), and one machine usually holds a whole
+  // /64: an IPv6 address is counted by its /64 here, as sign-in counts wrong
+  // codes by it (STATUS 2.217).
+  const { request } = await import('node:http');
+  const api = await consoleWithSettings({ behindProxy: true });
+  try {
+    const port = Number(new URL(api.url).port);
+    const junk = (from: string) => new Promise<number>((resolve) => {
+      const req = request({ host: '127.0.0.1', port, method: 'POST', path: `/api/relay/v1/relays/${randomUUID()}/inbound`,
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': from } }, (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      });
+      req.on('error', () => resolve(-1));
+      req.end('{}');
+    });
+    const answers: number[] = [];
+    for (let one = 1; one <= 61; one += 1) answers.push(await junk(`2001:db8:1:2::${one.toString(16)}`));
+    assert.deepEqual([...new Set(answers.slice(0, 60))], [401], 'sixty, each from an address of its own in the network');
+    assert.equal(answers.at(-1), 429, 'and the sixty-first is refused, as the sixty-first from one address is');
+    assert.equal(await junk('2001:db8:1:3::1'), 401, 'another network is another address');
+  } finally {
+    await api.close();
+  }
+});
+
 test('strangers filling the open route do not lock a paired relay out, and a refusal for too many says when to come back', async () => {
   // STATUS section 2.216.
   const { request } = await import('node:http');

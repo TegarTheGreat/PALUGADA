@@ -6,8 +6,11 @@
  * `messages.ts`); every other write of the workspace had none, so one seat --
  * a viewer too -- could make forty rooms that sat joined in colleagues'
  * rails, pin three hundred "reactions" under a message, or keep a revision a
- * second. Each write is held here to a number a minute for each person, as
- * a message is, and refused by name (`workspace.too_fast`) past it.
+ * second; and joining and leaving a room, which take the company's room
+ * clock and tell every console, could be sent without end, keeping every
+ * post of the company waiting behind them. Each write is held here to a
+ * number a minute for each person, as a message is, and refused by name
+ * (`workspace.too_fast`) past it.
  *
  * Counted in this process, like a message's rate: a person spreading their
  * writes over replicas reaches a few times the limit, not a flood, and no
@@ -27,8 +30,18 @@ export const WRITES_PER_MINUTE = {
   react: 30,
   /** A message pinned or unpinned. */
   pin: 10,
-  /** A message edited: each edit keeps the words before it, for a day. */
+  /** A message edited, each edit keeping the words before it for a day, or removed. */
   edit: 20,
+  /** A room joined or left. */
+  join: 20,
+  /** A room's name, what it is about or the work it shows changed, or the room archived. */
+  change: 10,
+  /** How a room tells the person (its notices, or quiet until a time), or a thread followed or not. */
+  place: 60,
+  /** A room or a thread read up to a message: sent as the person reads, a second after the newest is in view. */
+  read: 120,
+  /** The person's own profile: handle, picture, language, quiet hours, notices a day. */
+  profile: 10,
   /** A search of the rooms, which reads what the person may see until it has a page. */
   search: 30,
   /** A people's meeting set, moved, changed or cancelled. */
@@ -53,7 +66,12 @@ const SAID: Readonly<Record<Write, string>> = {
   members: 'changes to who is in a room',
   react: 'reactions',
   pin: 'pins',
-  edit: 'edits',
+  edit: 'edits and removals',
+  join: 'rooms joined or left',
+  change: 'changes to a room',
+  place: 'changes to how a room or a thread tells you',
+  read: 'read marks',
+  profile: 'changes to a profile',
   search: 'searches',
   meeting: 'meetings set or changed',
   import: 'import steps',

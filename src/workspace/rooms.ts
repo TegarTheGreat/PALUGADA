@@ -389,6 +389,7 @@ const SHOWS_WORK = ['asked_here', 'needs_people', 'all'] as const;
  * what the company's work puts in front of everyone there.
  */
 export async function changeRoom(viewer: Viewer, roomId: string, body: Record<string, unknown>): Promise<Room> {
+  holdToMinute(viewer, 'change');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -421,6 +422,7 @@ export async function changeRoom(viewer: Viewer, roomId: string, body: Record<st
 
 /** A topic room closed for good: by its creator or the owner, who is recorded as who archived it (0150). */
 export async function archiveRoom(viewer: Viewer, roomId: string): Promise<Room> {
+  holdToMinute(viewer, 'change');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -433,8 +435,14 @@ export async function archiveRoom(viewer: Viewer, roomId: string): Promise<Room>
   });
 }
 
-/** Joining a room anyone may: the company's, a division's, an open topic room; the owner joins a private one too. */
+/**
+ * Joining a room anyone may: the company's, a division's, an open topic room;
+ * the owner joins a private one too. Held to the person's minute with
+ * leaving: each takes the company's room clock and tells every console
+ * (STATUS 2.217).
+ */
 export async function joinRoom(viewer: Viewer, roomId: string): Promise<Room> {
+  holdToMinute(viewer, 'join');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -456,6 +464,7 @@ export async function joinRoom(viewer: Viewer, roomId: string): Promise<Room> {
 
 /** Leaving a room: what it owed the person goes with them (0150). Nobody leaves the company room or a direct one. */
 export async function leaveRoom(viewer: Viewer, roomId: string): Promise<void> {
+  holdToMinute(viewer, 'join');
   await withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
     if (room.kind === 'company') throw new PalugadaError('room.company_room_stays', 'everyone stays in the company room', { roomId });

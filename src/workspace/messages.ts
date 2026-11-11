@@ -269,6 +269,8 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
 export async function deleteMessage(
   viewer: Viewer, roomId: string, messageId: string, options: { peopleFolder?: string | null } = {},
 ): Promise<MessageView> {
+  // Counted with edits: each takes the room's clock and tells every console (STATUS 2.217).
+  holdToMinute(viewer, 'edit');
   const directory = await directoryOf(viewer.companyId);
   const { view, paths } = await withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
@@ -297,10 +299,17 @@ export async function deleteMessage(
  * most `REACTIONS_PER_PERSON` different ones from a person on a message,
  * counted after the clock, so two put on at once cannot both pass the last
  * (STATUS 2.217).
+ *
+ * One taken back is named by the words it is kept under, as well as by the
+ * emoji they are: the database keeps some an older server let in that this
+ * one would not (a star, a symbol in its text form, a restored archive's),
+ * and each must still be the person's to take back, or it stays under the
+ * message for good and counts towards their ten.
  */
 export async function react(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<MessageView['reactions']> {
   if (typeof input.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true to react and false to take it back', { field: 'on' });
-  const emoji = reactionOf(input.emoji);
+  const emoji = input.on ? reactionOf(input.emoji) : '';
+  const named = input.on ? [emoji] : takenBack(input.emoji);
   // Counted once the request is whole, before anything is read: a malformed one costs nothing and spends nothing.
   holdToMinute(viewer, 'react');
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
@@ -322,14 +331,28 @@ export async function react(viewer: Viewer, roomId: string, messageId: string, i
         `INSERT INTO room_reactions (company_id, message_id, principal, emoji) VALUES ($1, $2, $3, $4)
          ON CONFLICT DO NOTHING`, [viewer.companyId, messageId, viewer.person.principal, emoji]);
     } else {
-      await tx.query('DELETE FROM room_reactions WHERE message_id = $1 AND principal = $2 AND emoji = $3',
-        [messageId, viewer.person.principal, emoji]);
+      await tx.query('DELETE FROM room_reactions WHERE message_id = $1 AND principal = $2 AND emoji = ANY($3::text[])',
+        [messageId, viewer.person.principal, named]);
     }
     const { rows } = await tx.query<{ emoji: string; n: number; mine: boolean }>(
       `SELECT emoji, count(*)::int AS n, bool_or(principal = $2) AS mine FROM room_reactions
         WHERE message_id = $1 GROUP BY emoji ORDER BY min(created_at), emoji`, [messageId, viewer.person.principal]);
     return rows.map((row) => ({ emoji: row.emoji, count: row.n, mine: row.mine }));
   });
+}
+
+/**
+ * What a reaction taken back may be named by: its words as kept, and the
+ * emoji they are when they are one. Anything longer than the database keeps
+ * is no reaction of anyone's, and is refused as one being given would be.
+ */
+function takenBack(value: unknown): string[] {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 64) return [reactionOf(value)];
+  try {
+    return [...new Set([value, reactionOf(value)])];
+  } catch {
+    return [value];
+  }
 }
 
 /** A message pinned to its room, or unpinned: at most fifty at once. */
@@ -373,6 +396,7 @@ export async function historyOf(viewer: Viewer, roomId: string, messageId: strin
 export async function follow(viewer: Viewer, roomId: string, rootId: string, input: Record<string, unknown>): Promise<boolean> {
   const on = input.on;
   if (typeof on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true to follow and false to stop', { field: 'on' });
+  holdToMinute(viewer, 'place');
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     await visibleRoom(tx, viewer, roomId);
     const root = await messageIn(tx, roomId, rootId);

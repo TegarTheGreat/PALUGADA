@@ -12,17 +12,31 @@
  * this tab's memory, and is gone with the tab.
  *
  * Up to five files go with a message, 24 MB together (STATUS 2.212): chosen
- * from the device, or on a phone taken with its camera. They are read into
- * this tab's memory only until the message is sent.
+ * from the device, on a phone taken with its camera, pasted, or dropped on
+ * the composer (STATUS 2.218). A picture too large for a room to draw is
+ * made small enough first (`pictures.ts`). They are read into this tab's
+ * memory only until the message is sent.
+ *
+ * Whom a message mentions is whom its words name: a handle typed in full
+ * mentions its person as one chosen from the list does (STATUS 2.218).
+ *
+ * On a phone, and wherever the buttons beside the words would leave them
+ * less than 240 pixels (a room beside a thread on a small laptop), the words
+ * have the whole width, with the buttons in a row beneath them, as a phone's
+ * chat apps put them (STATUS 2.218). Ctrl+K or
+ * ⌘K opens the search of everything from here too, and Esc closes a thread
+ * or reads the room (keys.ts).
  *
  * The words keep their own direction as they are typed, whatever the
  * console's is. The text area is the mention list's combobox: while the
  * list is open it says so, names the list and the person the arrows are on,
  * so a screen reader follows the choice as a sighted person does.
  */
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ActionIcon, Alert, Box, Button, Checkbox, Group, Menu, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
+import { useElementSize } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { spotlight } from '@mantine/spotlight';
 import {
   IconArrowUp, IconCalendarEvent, IconCamera, IconMoodSmile, IconPaperclip, IconSparkles, IconUsersGroup, IconX,
 } from '@tabler/icons-react';
@@ -31,8 +45,10 @@ import { readForUpload } from '../files.ts';
 import { count, fileSize } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { EmojiPicker } from './EmojiPicker.tsx';
+import { takeComposerFocus } from './keys.ts';
 import { mentionAt, mentionChoices, MentionPicker, optionId, type MentionChoice } from './MentionPicker.tsx';
-import { mayAsk, useScope } from './scope.ts';
+import { drawable } from './pictures.ts';
+import { mayAsk, useScope, writtenMentions } from './scope.ts';
 
 /** A message's longest, as the server holds it (STATUS 2.206). */
 const BODY_MAX = 8_000;
@@ -118,6 +134,11 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
   }, [value]);
 
   useEffect(() => { drafts.set(key, value); }, [key, value]);
+  // A room opened from the keyboard (Alt+↑ or Alt+↓) gives its composer the focus, so what is typed next lands here.
+  useEffect(() => { if (threadOf === null && takeComposerFocus()) box.current?.focus(); }, []);
+  const [dropping, setDropping] = useState(false);
+  // The composer's own width: where its buttons beside the words would leave too little to write in, they go beneath.
+  const frame = useElementSize();
 
   const room = scope.room;
   const typing = mentionAt(value, caret);
@@ -155,21 +176,48 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
     change(value.slice(0, start) + text + value.slice(end), start + text.length);
   };
 
-  // Files chosen, or a picture taken, added to those already chosen: never more than a message carries.
-  const attach = async (chosen: FileList | null) => {
-    const list = [...(chosen ?? [])];
-    if (list.length === 0) return;
-    const total = [...files.map((one) => one.size), ...list.map((one) => one.size)].reduce((sum, size) => sum + size, 0);
-    if (files.length + list.length > FILES_MOST || total > FILES_BYTES) {
+  // Files chosen, pasted or dropped, or a picture taken, added to those already chosen: never more than a message
+  // carries. A picture too large to be drawn is made smaller first, so it is the smaller one that counts.
+  const attach = async (chosen: FileList | File[] | null) => {
+    const given = [...(chosen ?? [])];
+    if (given.length === 0) return;
+    if (files.length + given.length > FILES_MOST) {
       notifications.show({ color: 'yellow', message: t('A message carries up to five files, 24 MB in all.') });
       return;
     }
     try {
+      const list: File[] = [];
+      for (const file of given) list.push(await drawable(file));
+      const total = [...files.map((one) => one.size), ...list.map((one) => one.size)].reduce((sum, size) => sum + size, 0);
+      if (total > FILES_BYTES) {
+        notifications.show({ color: 'yellow', message: t('A message carries up to five files, 24 MB in all.') });
+        return;
+      }
       const read = await Promise.all(list.map(async (file) => ({ ...await readForUpload(file), size: file.size })));
       setFiles((now) => [...now, ...read]);
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
     }
+  };
+  // A picture pasted is attached, as a screenshot is in every chat; pasted words stay words.
+  const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = [...event.clipboardData.files];
+    if (pasted.length === 0 || event.clipboardData.getData('text/plain')) return;
+    event.preventDefault();
+    void attach(pasted);
+  };
+  // Files dropped anywhere on the composer are attached.
+  const carriesFiles = (event: DragEvent) => [...event.dataTransfer.types].includes('Files');
+  const dragOver = (event: DragEvent) => {
+    if (!carriesFiles(event) || disabled) return;
+    event.preventDefault();
+    setDropping(true);
+  };
+  const drop = (event: DragEvent) => {
+    setDropping(false);
+    if (!carriesFiles(event) || disabled) return;
+    event.preventDefault();
+    void attach([...event.dataTransfer.files]);
   };
 
   const submit = () => {
@@ -210,8 +258,8 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
       && !window.confirm(tp('Notify {count} person?', 'Notify {count} people?', others))) return;
     send({
       body,
-      // Only the people still named in the words: one written and then taken out is not mentioned.
-      mentions: chosen.filter((one) => body.includes(one.token)).map((one) => one.principal),
+      // The people the words name, typed in full or chosen from the list; one written and taken out is not mentioned.
+      mentions: [...new Set([...writtenMentions(body, scope.people), ...chosen.filter((one) => body.includes(one.token)).map((one) => one.principal)])],
       mentionsRoom: everyone,
       alsoInRoom: threadOf !== null && alsoInRoom,
       tell: mode === 'tell',
@@ -226,6 +274,12 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Alt with an arrow goes to another room (Rooms.tsx), whatever is being typed.
     if (event.altKey) return;
+    // Ctrl+K or ⌘K searches everything from here too, as it does from the page (the search's own keys pass text by).
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      spotlight.open();
+      return;
+    }
     if (picking) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -257,8 +311,113 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
     submit();
   };
 
+  // The buttons beside the words on a desktop, and in a row beneath them on a phone.
+  const tools: ReactNode = (
+    <>
+      {mode === 'message' && (
+        <>
+          <input ref={picker} type="file" multiple hidden onChange={(event) => { void attach(event.currentTarget.files); event.currentTarget.value = ''; }} />
+          <input ref={camera} type="file" accept="image/*" capture="environment" hidden
+            onChange={(event) => { void attach(event.currentTarget.files); event.currentTarget.value = ''; }} />
+          <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Attach a file')} disabled={disabled} onClick={() => picker.current?.click()}>
+            <IconPaperclip size={18} />
+          </ActionIcon>
+          {scope.phone && (
+            <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Take a picture')} disabled={disabled} onClick={() => camera.current?.click()}>
+              <IconCamera size={18} />
+            </ActionIcon>
+          )}
+        </>
+      )}
+      <EmojiPicker opened={emoji} setOpened={setEmoji} pick={insert} target={
+        <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Emoji')} onClick={() => setEmoji((open) => !open)} disabled={disabled}>
+          <IconMoodSmile size={18} />
+        </ActionIcon>
+      } />
+      {/* On a phone, where every button takes room from the words, the two meetings are one menu (section 2.215). */}
+      {foldMeetings && (
+        <Menu position="top-end" withinPortal>
+          <Menu.Target>
+            <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('More')} data-meetings-menu disabled={disabled}>
+              <IconCalendarEvent size={18} />
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={<IconCalendarEvent size={16} />} onClick={() => {
+              const body = value.trim();
+              setValue('');
+              setMeeting?.(body);
+            }}>
+              {t('Set a meeting')}
+            </Menu.Item>
+            <Menu.Item leftSection={<IconUsersGroup size={16} />} disabled={!value.trim()} onClick={() => {
+              const body = value.trim();
+              if (!body) return;
+              setValue('');
+              meet?.(body);
+            }}>
+              {t('Call a meeting about this')}
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      )}
+      {/* Setting a people's meeting (section 2.215): anyone's, at the top of a room, pressed and never sent by a key.
+          Words typed become its title and agenda; with none, the dialog asks for them. */}
+      {setMeeting && threadOf === null && !foldMeetings && (
+        <Tooltip label={t('Set a meeting')}>
+          <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Set a meeting')} data-set-meeting-button disabled={disabled} onClick={() => {
+            const body = value.trim();
+            setValue('');
+            setMeeting(body);
+          }}>
+            <IconCalendarEvent size={18} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+      {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
+          the top of a room, pressed and never sent by a key. */}
+      {callsMeeting && !foldMeetings && (
+        <Tooltip label={t('Call a meeting about this')}>
+          <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {
+            const body = value.trim();
+            if (!body) return;
+            setValue('');
+            meet(body);
+          }}>
+            <IconUsersGroup size={18} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+      {ask && mayAsk(scope.kind) && threadOf === null && (
+        <Tooltip label={t('Ask the team')}>
+          <ActionIcon size="lg" variant="subtle" aria-label={t('Ask the team')} disabled={disabled || !value.trim()} onClick={() => {
+            const body = value.trim();
+            if (!body) return;
+            setValue('');
+            ask(body);
+          }}>
+            <IconSparkles size={18} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+    </>
+  );
+  // How many buttons go with the words, each about 40 pixels with its gap: on a phone, or where they would leave the
+  // words less than 240 pixels, they go in a row beneath (STATUS 2.218).
+  const buttons = 2 + (mode === 'message' ? 1 + (scope.phone ? 1 : 0) : 0) + (foldMeetings ? 1 : 0)
+    + (setMeeting && threadOf === null && !foldMeetings ? 1 : 0) + (callsMeeting && !foldMeetings ? 1 : 0)
+    + (ask && mayAsk(scope.kind) && threadOf === null ? 1 : 0);
+  const beneath = scope.phone || (frame.width > 0 && frame.width - buttons * 40 < 240);
+  const sendButton = (
+    <ActionIcon data-send size="lg" radius="xl" aria-label={mode === 'tell' ? t('Tell the work') : t('Send')}
+      disabled={disabled || (!value.trim() && files.length === 0)} onClick={submit}>
+      <IconArrowUp size={18} />
+    </ActionIcon>
+  );
+
   return (
-    <Box className="composer" px={{ base: 'xs', sm: 'md' }} pb={{ base: 'xs', sm: 'md' }} pt={6}>
+    <Box className="composer" ref={frame.ref} px={{ base: 'xs', sm: 'md' }} pb={{ base: 'xs', sm: 'md' }} pt={6}
+      data-dropping={dropping || undefined} onDragOver={dragOver} onDragLeave={() => setDropping(false)} onDrop={drop}>
       {picking && <MentionPicker id={listId} choices={choices} active={Math.min(active, choices.length - 1)} pick={pick} />}
       {tellable && (
         <SegmentedControl size="xs" mb={6} value={mode} onChange={(next) => setMode(next as 'message' | 'tell')}
@@ -292,7 +451,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
         <Textarea
           ref={box}
           data-composer
-          style={{ flex: 1 }}
+          style={{ flex: 1, minWidth: 0 }}
           autosize
           minRows={1}
           maxRows={8}
@@ -302,6 +461,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
           onChange={(event) => change(event.currentTarget.value, event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
           onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={keyDown}
+          onPaste={paste}
           aria-label={placeholder}
           dir="auto"
           role="combobox"
@@ -311,97 +471,15 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
           aria-controls={picking ? listId : undefined}
           aria-activedescendant={picking ? optionId(listId, Math.min(active, choices.length - 1)) : undefined}
         />
-        {mode === 'message' && (
-          <>
-            <input ref={picker} type="file" multiple hidden onChange={(event) => { void attach(event.currentTarget.files); event.currentTarget.value = ''; }} />
-            <input ref={camera} type="file" accept="image/*" capture="environment" hidden
-              onChange={(event) => { void attach(event.currentTarget.files); event.currentTarget.value = ''; }} />
-            <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Attach a file')} disabled={disabled} onClick={() => picker.current?.click()}>
-              <IconPaperclip size={18} />
-            </ActionIcon>
-            {scope.phone && (
-              <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Take a picture')} disabled={disabled} onClick={() => camera.current?.click()}>
-                <IconCamera size={18} />
-              </ActionIcon>
-            )}
-          </>
-        )}
-        <EmojiPicker opened={emoji} setOpened={setEmoji} pick={insert} target={
-          <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Emoji')} onClick={() => setEmoji((open) => !open)} disabled={disabled}>
-            <IconMoodSmile size={18} />
-          </ActionIcon>
-        } />
-        {/* On a phone, where every button takes room from the words, the two meetings are one menu (section 2.215). */}
-        {foldMeetings && (
-          <Menu position="top-end" withinPortal>
-            <Menu.Target>
-              <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('More')} data-meetings-menu disabled={disabled}>
-                <IconCalendarEvent size={18} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item leftSection={<IconCalendarEvent size={16} />} onClick={() => {
-                const body = value.trim();
-                setValue('');
-                setMeeting?.(body);
-              }}>
-                {t('Set a meeting')}
-              </Menu.Item>
-              <Menu.Item leftSection={<IconUsersGroup size={16} />} disabled={!value.trim()} onClick={() => {
-                const body = value.trim();
-                if (!body) return;
-                setValue('');
-                meet?.(body);
-              }}>
-                {t('Call a meeting about this')}
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        )}
-        {/* Setting a people's meeting (section 2.215): anyone's, at the top of a room, pressed and never sent by a key.
-            Words typed become its title and agenda; with none, the dialog asks for them. */}
-        {setMeeting && threadOf === null && !foldMeetings && (
-          <Tooltip label={t('Set a meeting')}>
-            <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Set a meeting')} data-set-meeting-button disabled={disabled} onClick={() => {
-              const body = value.trim();
-              setValue('');
-              setMeeting(body);
-            }}>
-              <IconCalendarEvent size={18} />
-            </ActionIcon>
-          </Tooltip>
-        )}
-        {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
-            the top of a room, pressed and never sent by a key. */}
-        {callsMeeting && !foldMeetings && (
-          <Tooltip label={t('Call a meeting about this')}>
-            <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {
-              const body = value.trim();
-              if (!body) return;
-              setValue('');
-              meet(body);
-            }}>
-              <IconUsersGroup size={18} />
-            </ActionIcon>
-          </Tooltip>
-        )}
-        {ask && mayAsk(scope.kind) && threadOf === null && (
-          <Tooltip label={t('Ask the team')}>
-            <ActionIcon size="lg" variant="subtle" aria-label={t('Ask the team')} disabled={disabled || !value.trim()} onClick={() => {
-              const body = value.trim();
-              if (!body) return;
-              setValue('');
-              ask(body);
-            }}>
-              <IconSparkles size={18} />
-            </ActionIcon>
-          </Tooltip>
-        )}
-        <ActionIcon data-send size="lg" radius="xl" aria-label={mode === 'tell' ? t('Tell the work') : t('Send')}
-          disabled={disabled || (!value.trim() && files.length === 0)} onClick={submit}>
-          <IconArrowUp size={18} />
-        </ActionIcon>
+        {!beneath && tools}
+        {!beneath && sendButton}
       </Group>
+      {beneath && (
+        <Group justify="space-between" wrap="nowrap" gap={2} mt={4} data-composer-tools>
+          <Group gap={2} wrap="nowrap">{tools}</Group>
+          {sendButton}
+        </Group>
+      )}
       {threadOf !== null && mode === 'message' && (
         <Checkbox size="xs" mt={6} label={t('Also send to the room')} checked={alsoInRoom} onChange={(event) => setAlsoInRoom(event.currentTarget.checked)} />
       )}

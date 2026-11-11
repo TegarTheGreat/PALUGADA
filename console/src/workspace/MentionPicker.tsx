@@ -29,12 +29,23 @@ function folded(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
-/** Whether a person is what is being typed: by a prefix of the handle, or of any word of the name. */
-function matches(person: Person, query: string): boolean {
+/**
+ * How well a person matches what is typed, best first, or null when they do
+ * not (STATUS 2.218): their handle exactly, then a handle that begins so,
+ * then a name whose first word does (and the owner's `owner`), then one
+ * whose later word does. Enter takes the first choice, so `@sa` offers Sari
+ * of `@sari` before Budi Santoso.
+ */
+function rankOf(person: Person, query: string): number | null {
   const wanted = folded(query);
-  if (!wanted) return true;
-  const words = [person.handle ?? '', ...nameOf(person).split(/\s+/), ...(person.principal === 'owner' ? ['owner'] : [])];
-  return words.some((word) => folded(word).startsWith(wanted));
+  const handle = folded(person.principal === 'owner' ? 'owner' : person.handle ?? '');
+  const words = nameOf(person).split(/\s+/).map(folded).filter(Boolean);
+  if (!wanted) return 2;
+  if (handle && handle === wanted) return 0;
+  if (handle.startsWith(wanted)) return 1;
+  if (words[0]?.startsWith(wanted)) return 2;
+  if (words.slice(1).some((word) => word.startsWith(wanted))) return 3;
+  return null;
 }
 
 /** The id of a choice in the list `listId`, which the composer names as the one the arrows are on. */
@@ -42,12 +53,19 @@ export function optionId(listId: string, index: number): string {
   return `${listId}-${index}`;
 }
 
-/** The choices for what is typed: the room's people first, then everyone else of the company. */
+/**
+ * The choices for what is typed: the best matches first (`rankOf`), and
+ * within each, the room's people before everyone else of the company, then by
+ * name.
+ */
 export function mentionChoices(people: Person[], query: string, members: readonly string[], everyone: boolean): MentionChoice[] {
-  const found = people.filter((person) => matches(person, query))
-    .sort((one, other) => Number(!members.includes(one.principal)) - Number(!members.includes(other.principal)))
+  const found = people.flatMap((person) => {
+    const rank = rankOf(person, query);
+    return rank === null ? [] : [{ person, rank, member: members.includes(person.principal) ? 0 : 1 }];
+  })
+    .sort((one, other) => one.rank - other.rank || one.member - other.member || nameOf(one.person).localeCompare(nameOf(other.person)))
     .slice(0, 8)
-    .map((person): MentionChoice => ({ person, token: tokenOf(person) }));
+    .map(({ person }): MentionChoice => ({ person, token: tokenOf(person) }));
   return everyone && 'room'.startsWith(folded(query)) ? [...found, { room: true, token: '@room' }] : found;
 }
 

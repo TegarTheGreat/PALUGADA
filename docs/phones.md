@@ -27,10 +27,21 @@ This page is for the owner. It takes about twenty minutes the first time.
 - Nothing is sent about a person who has not linked a phone. The mention
   picker marks such a person "not told outside PALUGADA", and you too until
   you hear from people, on a phone or in your Telegram.
-- A relay is never sent a room list, a room's history, who is in a room, or
-  anyone else's notices. A deleted message, or one whose time was up under
-  your retention, is withdrawn from the relay, and one not yet sent is never
-  sent.
+- A relay is never sent a room list, a room's history, who is in a room,
+  anyone else's notices, or the id of a company, room, thread, item or task.
+  A notice's link opens PALUGADA, and shows what it is about only to the
+  person it was for, once they have signed in.
+- A person taken out of a private room is not told of it, even of a notice
+  written before. A deleted message, or one whose time was up under your
+  retention, is withdrawn from the relay, and one not yet sent is never sent.
+  A relay drops everything it was told after fourteen days, as the protocol
+  requires, because PALUGADA can withdraw nothing older. What a relay already
+  handed to ntfy, showed on a phone's lock screen, or wrote to a log, no
+  withdrawal reaches: keep shares low where that matters.
+- You can tell a relay less about one company than about the rest (its
+  **What each company's notices may say**, in the relay's settings). A
+  person is told the lowest of the relay's share, their company's, and their
+  own.
 
 ## 1. Run the reference relay
 
@@ -45,7 +56,22 @@ npm run relay:reference -- serve --deployment-fingerprint ABCD1234EFGH5678IJKL90
 
 It prints its own fingerprint. It pairs only with the deployment whose
 fingerprint you gave it, and once paired it takes no other pairing until you
-delete its state file by hand.
+delete its state file by hand, except your deployment pairing it again
+(below).
+
+Its state file keeps everything it must across a restart: its key, the
+pairing, what it still owes your deployment, and the key of each phone
+linked through it. **Whoever has that file can act as everyone linked
+through this relay**, you included: keep it as you keep a password, readable
+only by the user that runs the relay.
+
+It prints only that something arrived and for whom, and the commands for
+each notice's buttons, never the words or the links, so a log of its output
+holds nothing a share hides. Add `--print-content` only to try it out.
+
+The commands below reach the relay on a second port of its own, bound to
+this machine alone (`--local-port`, one above `--port` unless you say);
+nothing in front of the relay can forward to it.
 
 ## 2. Give it ntfy, privately
 
@@ -70,7 +96,19 @@ In the console, **This deployment, Relays**:
    raise it to `summary` (who and where) or `content` (the words) only with a
    private ntfy. Presses and replies stay off until you turn them on;
    your own phone needs a key of its own before a press or a reply of yours
-   counts.
+   counts. Under **What each company's notices may say** you can hold a
+   company below the relay's share.
+
+If the relay ever cannot verify what PALUGADA sends -- it was off through a
+whole key rotation, or lost its state file -- its card says the relay forgot
+this deployment. Start the relay with the fingerprint PALUGADA shows now,
+then press **Pair again** on its card and type the relay's fingerprint as the
+first time. Everyone's links and your settings stay as they are.
+
+PALUGADA's own key changes with **New key**, on the same page; a second one
+waits until every relay has taken the first. The reference relay changes its
+own key with `npm run relay:reference -- rotate-key`, which PALUGADA takes
+because the old key and the new both sign it.
 
 ## 4. Each person links their phone
 
@@ -82,9 +120,17 @@ reference relay, whoever runs it enters the code on the relay's machine:
 npm run relay:reference -- link ABCD2345
 ```
 
-The relay makes a key for that link and signs everything sent for it. The
-person then subscribes to their own topic in the ntfy app. Unlinking is in the
-same place, and ending a seat ends its links at once.
+The relay makes a key for that link and signs everything sent for it, and
+prints the key's fingerprint; PALUGADA shows the same fingerprint beside the
+link under **Your profile, Phones**. Compare the two: if they differ,
+unlink. The key lives on the relay, in its state file, so it protects a
+person against someone who later steals the relay's key, not against
+whoever runs the relay. The person then subscribes to their own topic in the
+ntfy app.
+
+A person has one link through a relay: linking again ends the earlier one.
+Unlinking is in the same place, and ending a seat ends its links at once;
+either way the relay is told, and forgets that phone's key.
 
 ## 5. What can come back
 

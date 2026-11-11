@@ -646,11 +646,11 @@ sends stays until the owner removes it; an export carries no file.
 
 ### 2.10 A relay, or someone holding its key or the deployment's
 
-A relay (F19.19, F19.20; `docs/relay-protocol.md`, STATUS section 2.208) is a
-service outside the deployment that tells people's phones what they are owed
-and carries back a few presses. It is someone else's machine, so everything it
-sends is treated as a stranger's until its signature says otherwise, and even
-then it can only ask.
+A relay (F19.19, F19.20; `docs/relay-protocol.md`, STATUS sections 2.208,
+2.213 and 2.216) is a service outside the deployment that tells people's
+phones what they are owed and carries back a few acts. It is someone else's
+machine, so everything it sends is treated as a stranger's until its
+signature says otherwise, and even then it can only ask.
 
 **The deployment's key.** An Ed25519 key made on first use. Its 32-byte seed
 is sealed under the master key in `deployment_secrets` like every secret the
@@ -659,14 +659,27 @@ opened only to sign an envelope or a pull (`src/relay/identity.ts`); only the
 public half is kept in the clear (`relay_identity`). A database backup without
 the master key cannot sign as the deployment (section 2.5). The application
 role has no grant on any relay table. The owner rotates it with a fresh
-factor; the old key keeps signing beside the new for a week, so a relay that
-pinned it is told by an envelope it can verify. A relay takes the new key
+factor; the old key keeps signing beside the new for a week, and keeps
+signing each relay's `keys_rotated` until that relay has taken it, so a relay
+that was down for the week is not stranded; a second rotation is refused
+while any paired relay is still owed the first. A relay takes the new key
 only from an envelope the key it pinned now and the new key both sign, so
-whoever kept the old key cannot, in its week, announce a key of their own
-(`docs/relay-protocol.md` section 2.3; the reference relay holds to it). Residual: someone holding the
-master key and a backup can sign as the deployment to every paired relay
-until the owner rotates the key and re-pairs; what they can make a relay do is
-show notices, not act in PALUGADA.
+whoever kept the old key cannot announce a key of their own
+(`docs/relay-protocol.md` section 2.3; the reference relay holds to it).
+Every pull is signed over its request line and the id of the relay it is
+for, so a pull sent to one relay cannot be replayed at another to read its
+inbox. Residual: someone holding the master key and a backup can sign as the
+deployment to every paired relay until the owner rotates the key and
+re-pairs; what they can make a relay do is show notices, not act in
+PALUGADA.
+
+**The relay's own key.** Pinned at pairing. A relay changes it only by an
+envelope the pinned key and the new key both sign, naming the pinned key as
+the one it replaces; the old key is taken beside the new for at most a week.
+A relay whose key leaked or was lost is paired again in place by the owner,
+with a fresh factor and the fingerprint of its new key typed as at pairing:
+the same id and salt, so no person's pseudonym or link changes, and the old
+key is taken no longer.
 
 **Pairing** takes the owner's factor given now, at least sixteen typed
 characters (80 bits) of the fingerprint the relay's operator shows, and the
@@ -675,44 +688,101 @@ must be signed by the key the owner compared and name this request and this
 deployment, so an accept cannot be replayed from another pairing
 (`src/relay/relays.ts`). The relay's envelopes and inbox must be on the host
 the owner gave. What a relay is told starts at `signal` -- that something
-happened, and where it opens -- with presses off; widening either takes the
-device again, and narrowing voids what it no longer allows.
+happened, and where it opens -- with presses and replies off; widening any
+of it, for the relay or for one company on it, takes the device again, and
+narrowing voids what it no longer allows.
 
 **What a relay is told** is what a person who linked a phone themselves is
-owed, at the lower of the relay's and the person's share level, and nothing
-else: never a room list, a history, a membership, a secret, a file's bytes, a
-prompt, a transcript or what a customer wrote. People and companies are HMACs
-under a salt per relay, so two relays cannot join what each knows. Titles and
-summaries are redacted on the way out. Residual: at `summary` and `content` a
-relay reads titles and words; the owner chooses that, per relay, with a fresh
-factor, and the console warns that a public ntfy topic is readable by anyone
-who guesses its name.
+owed, at the lowest of three shares -- the relay's, the one the owner set for
+that company on that relay, and the person's own -- and nothing else: never a
+room list, a history, a membership, a secret, a file's bytes, a prompt, a
+transcript or what a customer wrote. People and companies are HMACs under a
+salt per relay, and no envelope carries a company, room, thread, item or task
+id: a notice's link names a handle made for that notice alone, which the
+owner API resolves only for the person it was for, once they have signed in
+(`openNotice`, `src/relay/links.ts`). Two relays therefore cannot join what
+each knows by a person, a company or a link; they can tell that they serve
+the same deployment, which every envelope names. Titles, summaries and a
+run's choices are redacted on the way out. Whether a person may still see a
+room is asked again as each notice about it is sent, so one taken out of a
+private room is not told, then or from the dead letters. Residual: at
+`summary` and `content` a relay reads titles, room names, who wrote and, at
+`content`, their words; the owner chooses that per relay and per company,
+with a fresh factor, and the console warns that a public ntfy topic is
+readable by anyone who guesses its name.
+
+**What a relay keeps.** A deleted message's words are retracted at the relay
+and blanked at once from the deployment's own copy of what it sent, which
+keeps only the address. The deployment forgets what it sent after fourteen
+days and can retract nothing later, so the protocol makes a relay drop every
+envelope's content within fourteen days of it, and show nothing older on
+arrival; an erased company is sent `company_forgotten` to every relay that
+may hold anything of it, before its rows go. Residual: what a relay already
+handed to a push service, showed on a lock screen or wrote to a log is beyond
+any retraction, and a relay that ignores the protocol keeps what it keeps.
+The reference relay prints nothing above `signal` unless its operator asks.
 
 **What a relay can do.** Everything inbound passes, in order: a paired relay;
-its `v1a` signature within 300 seconds; an envelope id never taken before; a
-link that is this relay's and active, for a company the relay hears about;
-the device's signature when the link has a device key; then a closed list of
-types (`src/relay/inbound.ts`). Nothing is written for an unknown relay or a
-bad signature, and the open route is throttled before the database is read,
-so a stranger cannot fill a table; a paired relay, pushed from or pulled, is
-taken at sixty new envelopes a minute in each process at most, so even a
-stolen relay key cannot flood a company's record with refusals. The only act
-that changes anything is a press: it redeems a token PALUGADA sent with a notice to that person, for that
-item, once; it is refused at tier 3 even with a valid token (no offer is ever
-made there, and `decide` refuses a `chat` decision at tier 3 regardless); a
-seat's kind is read again at the press, and four eyes hold; it is recorded as
-a decision from a chat, through the relay. A stolen relay key can therefore
-press only the tier 2 and lower buttons already offered to people who linked
-a phone, once each -- and nothing at all for a link made with a device key,
-which needs the device's signature on every act, made within five minutes of
-it and, for an end, after the link was made, so a signed act kept back or an
-end of an earlier link is no act -- or for the owner, whose link counts for
-nothing without one. It can never assign, instruct, call a
-meeting, change a setting, seat anyone, pair, or export: there is no type for
-any of it. Revoking the relay refuses it at once and voids its offers. Text it sends that
-no column keeps (a NUL) is refused before anything is spent, and a press that
-fails for a reason that is no refusal gives its token back, so a relay cannot
-spend a person's button by making the decision fail.
+its `v1a` signature within 300 seconds; a body that names version 1; an
+envelope id never taken before; a link that is this relay's and active, for a
+company the relay hears about; the device's signature when the link has a
+device key, taken once and within five minutes of the moment it signs; then a
+closed list of types (`src/relay/inbound.ts`). Nothing is written for an
+unknown relay or a bad signature. The open route verifies a paired relay's
+signature against keys held in memory before anything else, so a paired
+relay is held only to its own sixty new envelopes a minute in each process,
+pushed or pulled, while every other request is throttled per address and
+for the route before the database is read: a stranger can neither fill a
+table nor shut a paired relay out, and even a stolen relay key cannot flood
+a company's record with refusals. An envelope a stopped replica left half
+taken is taken over after two minutes, with whatever it spent given back.
+
+The acts that change anything are four, each redeeming a token PALUGADA sent
+with a notice to that person through that relay, and nothing else:
+
+- **press** -- once, for that item; refused at tier 3 even with a valid token
+  (no offer is ever made there, and `decide` refuses a `chat` decision at
+  tier 3 regardless); a seat's kind is read again at the press, and four eyes
+  hold; recorded as a decision from a chat, through the relay.
+- **reply** -- only while the owner allows replies through that relay, with a
+  reply token (twenty uses, seven days); it lands in the room and thread the
+  token names and no other, as a plain message by that person, who must still
+  be in the room, and is never work or an instruction to work. A client id
+  the person used before for other words or another room is refused rather
+  than answered with the old message.
+- **read** -- moves that person's read mark in the token's room or thread to
+  the moment the notice named (five uses).
+- **mute** -- quiets that room's notices to that person for at most thirty
+  days; a mention still comes through.
+
+A relay key stolen after a person linked can therefore, for a link without a
+device key, press the tier 2 and lower buttons already offered to that
+person, once each; post into the rooms and threads that person was told of,
+within the reply tokens' uses and days, where the owner allowed replies;
+mark those rooms read; and mute them. For a link made with a device key it
+can do none of it: every act needs the device's signature, made within five
+minutes of the act, taken once, and for an end, after the link was made, so
+a signed act kept back, sent again or carried from an earlier link is no
+act. The owner's link counts for nothing without a device key. A relay can
+never assign, instruct, call a meeting, change a setting, seat anyone, pair,
+or export: there is no type for any of it. Revoking the relay refuses it at
+once and voids its offers. Text it sends that no column keeps (a NUL) is
+refused before anything is spent, and an act that fails for a reason that is
+no refusal gives its token back, so a relay cannot spend a person's button
+by making the act fail.
+
+**A device key guards against a stolen relay key, not against the relay.**
+PALUGADA takes a link's device key from the relay's own signed claim, so the
+relay's operator, or whoever holds the relay's key at the moment a person
+links, could put a key of its own there and then act as that person within
+the limits above. The console shows the device key's fingerprint beside the
+link, and the protocol asks a relay's app to show the same on the phone, so
+the person can compare; the reference relay keeps its device keys in its
+state file beside its own, so a link made through it is only as safe as that
+file. Residual: a person who does not compare is not protected against a
+dishonest relay at linking; the owner should link only through a relay whose
+app makes the device key on the phone, or one they run themselves.
+
 Residual: a relay can withhold or delay notices, and can show a person a
 notice PALUGADA never sent; the link it carries opens PALUGADA, where the
 truth is.
@@ -725,8 +795,10 @@ within five seconds with its answer unread, and a pull within the wait it asks
 for and ten seconds more and 8 MiB, past which nothing of it is taken. A relay
 cannot make the deployment hold more than that of what it streams. A
 relay that answers slowly holds up nothing the worker does: the loop is not a
-stage of its tick. The trigger door shares the signature verifier, so an
-inbound webhook signed with Ed25519 is checked the same way.
+stage of its tick. The pull is leased to one process at a time, and only the
+process holding the lease moves the cursor or releases it, so a slow poll
+cannot move the cursor back. The trigger door shares the signature verifier,
+so an inbound webhook signed with Ed25519 is checked the same way.
 
 ## 3. Out of scope, or not defended
 
@@ -795,7 +867,9 @@ All under `test/acceptance/` unless named.
 | The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |
 | A stranger's file: the path is the platform's, the bytes decide, never replaced, never through a link, bounded | `customer-attachments.test.ts` |
-| The relay: a sealed identity showing only its public half; pairing with a fresh factor, sixteen typed characters and a bound accept; a document read to a bound; widening takes the device; revocation at once | `relay-pairing.test.ts` |
-| The relay: canonical signed envelopes; share levels; no button at tier 3 or on an incident; a slow relay holds up no tick | `relay-delivery.test.ts`, `test/documents/relay-protocol.test.ts` |
-| The relay: signature, freshness, once, nothing written for a stranger, throttled per address before the database; a press once, never at tier 3, the device's signature at its own moment and for its own link, the owner's link inert without one, a seat read again, four eyes; text no column keeps refused, a failed press given back; a pull read to a bound | `relay-inbound.test.ts` |
-| A second implementation of the protocol that pins the deployment by fingerprint, and takes a new key only from the pinned key and the new one | `relay-reference.test.ts` |
+| The relay: a sealed identity showing only its public half; pairing with a fresh factor, sixteen typed characters and a bound accept; a document read to a bound; widening takes the device; revocation at once; a rotation kept until every relay took it; a relay's own key rotated only by both keys; pairing again in place | `relay-pairing.test.ts` |
+| The relay: canonical signed envelopes; share levels, each company's under the relay's; no button at tier 3 or on an incident; a run's choices redacted; each person's order across replicas; a slow relay holds up no tick | `relay-delivery.test.ts`, `test/documents/relay-protocol.test.ts` |
+| The relay: signature, freshness, version, once, nothing written for a stranger, a paired relay never shut out by strangers; a press once, never at tier 3, the device's signature at its own moment and for its own link, the owner's link inert without one, a seat read again, four eyes; text no column keeps refused, a failed act given back, a stopped replica's act taken over; a pull read to a bound, signed for its relay, leased to one process, its answers sent back | `relay-inbound.test.ts` |
+| The relay and people: a reply only in the token's room and thread, never work; a stolen relay key cannot post, mark read or mute for a link with a device key; a device signature taken once; a client id not reused; who may see asked again as a notice is sent; deleted words withdrawn at the relay and blanked from the outbox; an erased company forgotten at every relay; a link's end told to its relay | `relay-people.test.ts` |
+| The relay is sent no company, room, thread, item or task id, and a notice's link opens only for the person it was for | `relay-links.test.ts` |
+| A second implementation of the protocol that pins the deployment by fingerprint, takes a new key only from the pinned key and the new one, keeps its inbox across a restart, prints nothing above signal unless asked, drops content at its fortnight, and takes acts only on loopback | `relay-reference.test.ts` |

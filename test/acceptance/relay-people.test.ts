@@ -17,7 +17,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
-import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { roomsOnControlPlane, withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { createRootTask, createRootTaskWithin, transition } from '../../src/engine/tasks.ts';
 import { instructTask } from '../../src/engine/owner-control.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -154,6 +154,8 @@ test("a mention and a direct message reach that person's relay, and nobody else'
     const toSari = toldTo(w.relay, sari.phone!);
     assert.equal(toSari.length, 2);
     assert.ok(toSari.every((one) => one.to.recipient === sari.phone!.recipient));
+    // The owner allowed no replies through this relay: a read mark and a mute, and nothing to write with.
+    assert.deepEqual(toSari.map((one) => Object.keys(offers(one)).sort()), [['mute', 'read'], ['mute', 'read']]);
     // The other relay, which Budi and Ayu linked through, hears nothing of it.
     assert.deepEqual(other.received.filter((one) => ['room_activity', 'inbox_item'].includes(one.envelope?.type)), []);
     assert.deepEqual([toldTo(other, budi.phone!), toldTo(other, ayu.phone!)], [[], []]);
@@ -583,6 +585,112 @@ test('a notice still owed when the owner narrows the relay is sent at the new sh
     const reply = offers(tried).reply!;
     const refused = await act(w, sari.phone!, 'reply', reply, { body: 'Late reply.', clientId: 'late-1' });
     assert.equal(refused.status, 422);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a message retention takes, or whose delete was cut short, is retracted by the next pass, and what was not sent never goes', async () => {
+  const w = await workspace('relay-people-purged', { share: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const dm = await direct(budi.in, sari.seat);
+    const later = () => withControlPlane((tx) => tx.query(
+      "UPDATE people_notices SET created_at = created_at - interval '11 minutes' WHERE company_id = $1", [companyId]));
+    // Sent: the relay holds its words.
+    const taken = await said(budi.in, dm, 'The vault code is 1111.');
+    await tell(companyId, w.api.master);
+    const [sent] = toldTo(w.relay, sari.phone!);
+    assert.match(sent.data.excerpt, /1111/);
+    // Owed, and not yet sent.
+    await later();
+    const cut = await said(budi.in, dm, 'The vault code is 2222.');
+    await tell(companyId, w.api.master, { send: false });
+
+    // Retention takes the first outright and leaves the second a tombstone,
+    // or a delete commits and its process stops before it says so: nothing
+    // is told of either.
+    await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, companyId);
+      await tx.query('DELETE FROM room_messages WHERE company_id = $1 AND id = $2', [companyId, taken]);
+      await tx.query('UPDATE room_messages SET deleted_at = now() WHERE company_id = $1 AND id = $2', [companyId, cut]);
+    });
+    // The relay loop comes round first: what was owed of a removed message is not sent.
+    await sendOutbox(w.api.master);
+    assert.doesNotMatch(JSON.stringify(w.relay.received), /2222/, 'a removed message is never sent');
+
+    // The notify stage's next pass tells the relay to drop what it holds, and drops what it was owed.
+    await tell(companyId, w.api.master);
+    const retracted = toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted');
+    assert.equal(retracted.length, 1);
+    assert.deepEqual(retracted[0].data.refs, [sent.id]);
+    const owed = await withControlPlane((tx) => tx.query(
+      "SELECT 1 FROM relay_outbox WHERE type = 'room_activity' AND subjects && $1::text[]", [[`message:${cut}`]]));
+    assert.equal(owed.rows.length, 0, 'what was owed of it is dropped');
+    const read = await act(w, sari.phone!, 'read', offers(sent).read!);
+    assert.deepEqual([read.status, read.body.code], [422, 'relay.press_spent'], 'and its tokens are void');
+
+    // The pass after says nothing more.
+    await tell(companyId, w.api.master);
+    assert.equal(toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted').length, 1);
+    assert.doesNotMatch(JSON.stringify(w.relay.received), /2222/);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a notice on its way when its message is deleted is never sent again, and the relay is told to drop it', async () => {
+  const w = await workspace('relay-people-in-flight', { share: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const dm = await direct(budi.in, sari.seat);
+    const message = await said(budi.in, dm, 'The alarm code is 6060.');
+    await tell(companyId, w.api.master, { send: false });
+    // A process took it to send, and stopped before it learned how the send went.
+    const { rows: [owed] } = await withControlPlane((tx) => tx.query<{ id: string }>(
+      `UPDATE relay_outbox SET status = 'sending', claimed_at = now() - interval '11 minutes'
+        WHERE link_id = $1 AND type = 'room_activity' RETURNING id`, [sari.phone!.linkId]));
+    assert.ok(owed);
+    ok(await budi.in.on(dm, message, 'delete'));
+
+    // The loop takes it back and does not send it: the relay may have it, so it is told to drop it.
+    await sendOutbox(w.api.master);
+    assert.doesNotMatch(JSON.stringify(w.relay.received), /6060/, 'never sent again');
+    const told = toldTo(w.relay, sari.phone!);
+    assert.deepEqual(told.map((one) => one.type), ['room_activity_retracted']);
+    assert.deepEqual(told[0].data.refs, [owed.id]);
+    await tell(companyId, w.api.master);
+    const left = await withControlPlane((tx) => tx.query('SELECT 1 FROM relay_outbox WHERE id = $1', [owed.id]));
+    assert.equal(left.rows.length, 0, 'and it is dropped');
+  } finally {
+    await w.close();
+  }
+});
+
+test('a window whose first message is deleted still tells the rest, without the words', async () => {
+  const w = await workspace('relay-people-window', { share: 'content' });
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const { companyId } = w.fixture;
+    const dm = await direct(budi.in, sari.seat);
+    const first = await said(budi.in, dm, 'The pin is 1234.');
+    await said(budi.in, dm, 'And call me when you can.');
+    const { planNotices } = await import('../../src/owner/member-notify.ts');
+    assert.equal((await planNotices(companyId)).planned, 1, 'two messages, one window');
+    ok(await budi.in.on(dm, first, 'delete'));
+    await tell(companyId, w.api.master);
+
+    const told = toldTo(w.relay, sari.phone!);
+    assert.deepEqual(told.map((one) => one.type), ['room_activity'], 'the second is told');
+    assert.equal(told[0].data.count, 2);
+    assert.equal(told[0].data.excerpt, undefined, 'with no words: the first is gone, and the second was never its excerpt');
+    assert.doesNotMatch(JSON.stringify(told), /1234|call me/);
+    assert.deepEqual((await noticesOf(companyId, sari.seat.principal)).map((row) => row.settled_as), ['sent']);
   } finally {
     await w.close();
   }

@@ -13,6 +13,11 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { copyFile, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { roomsOnControlPlane, withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
@@ -32,6 +37,7 @@ import { fakeRelay, type FakeRelay } from '../helpers/fake-relay.ts';
 import { linkThrough, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
 import { noticesOf, tell, toldTo } from '../helpers/notices.ts';
 import { companyRoomOf, ok, personIn, said, seated, type Console, type PersonIn, type Seat } from '../helpers/rooms.ts';
+import { migrate } from '../../scripts/migrate.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -52,10 +58,13 @@ interface Workspace {
 }
 
 /** A company, the owner's console, and a relay paired for the company. */
-async function workspace(slug: string, options: { share?: 'signal' | 'summary' | 'content'; mayPress?: boolean } = {}): Promise<Workspace> {
+async function workspace(
+  slug: string,
+  options: { share?: 'signal' | 'summary' | 'content'; mayPress?: boolean; telegram?: TelegramChannel } = {},
+): Promise<Workspace> {
   const fixture = await createCompany(slug);
   const relay = await fakeRelay();
-  const api = await consoleWithSettings();
+  const api = await consoleWithSettings(options.telegram ? { telegram: options.telegram } : {});
   const ownerToken = await api.signIn();
   const relayId = await pairThrough(api, ownerToken, relay, {
     companies: [fixture.companyId], share: options.share ?? 'summary', ...(options.mayPress ? { mayPress: true } : {}),
@@ -465,6 +474,22 @@ test("the owner's day stays at or under ten items with five busy seats and peopl
     const room = await companyRoomOf(w.owner);
     const seats: Person[] = [];
     for (const name of ['Ayu', 'Bayu', 'Citra', 'Dewi', 'Eko']) seats.push(await person(w, name, 'member', { phone: false }));
+    // Each seat is busy with work too: three pieces each, every one waiting
+    // on a card the team decides, and no approver seated but the owner.
+    const { companyId } = w.fixture;
+    for (const one of seats) {
+      for (const goal of ['Email the list', 'Post the photo', 'Pay the printer']) {
+        const taskId = await withTenant(companyId, async (tx) => (await createRootTaskWithin(tx, {
+          companyId, projectId: w.fixture.projectId, divisionId: w.fixture.divisionId, roleId: w.fixture.roleId,
+          goalId: w.fixture.goalId, input: { goal: `${one.seat.name}: ${goal}` }, createdBy: 'staff', requestedBySeat: one.seat.id, reserveTokens: 100,
+        })).id);
+        await transition(companyId, taskId, 'running');
+        await inbox.requestApproval({
+          companyId, taskId, capabilityName: 'email.send', tier: 2, actionSummary: `${one.seat.name}: ${goal}`, rationale: 'ready',
+          consequenceIfDenied: 'not done', instigators: [one.seat.id],
+        });
+      }
+    }
     for (const one of seats) {
       const dm = await direct(one.in, 'owner');
       const topic = String(ok(await one.in.makeRoom({ name: `${one.seat.name}'s corner` })).room.id);
@@ -488,8 +513,10 @@ test("the owner's day stays at or under ten items with five busy seats and peopl
     assert.ok(rows.filter((row) => row.settled_as === 'sent').length <= 10);
     assert.ok(rows.some((row) => row.settled_as === 'capped'), 'past the day\'s ten, counted rather than sent');
     const seen = await inbox.ownerInbox(w.fixture.companyId);
-    assert.ok(seen.items.length + seen.team.filter((entry) => entry.day !== null).length <= 10);
-    assert.equal(seen.items.length, 0, 'and none of it is an inbox item');
+    const teamDays = seen.team.filter((entry) => entry.day !== null);
+    assert.ok(teamDays.length >= 1, "the team's fifteen cards reach the owner");
+    assert.ok(seen.items.length + teamDays.length <= 10, `the owner's day is ${seen.items.length + teamDays.length} items`);
+    assert.equal(seen.items.length, 0, 'and none of the notices is an inbox item');
   } finally {
     await w.close();
   }
@@ -558,4 +585,151 @@ test("a notice's link opens its room and thread at the deployment's own address,
   assert.deepEqual([...room.searchParams.entries()], [['company', 'c1'], ['room', 'r1'], ['thread', 'm1']]);
   assert.deepEqual([...new URL(make({ companyId: 'c1', itemId: 'i1' })!).searchParams.entries()], [['company', 'c1'], ['item', 'i1']]);
   assert.equal(noticeLinks(() => null)!({ companyId: 'c1', taskId: 't1' }), null);
+});
+
+test('a person taken out of a private room before a notice is planned is owed none', async () => {
+  const w = await workspace('notify-removed-early');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const room = String(ok(await w.owner.makeRoom({ name: 'Board', private: true, members: [budi.seat.principal, sari.seat.principal] })).room.id);
+    const id = await said(budi.in, room, mention(sari.seat));
+    // She saw the mention, so it is no longer hers to clear when she leaves,
+    // and then she was taken out of the room.
+    const position = Number((ok(await sari.in.page(room)).messages as Array<{ id: string; position: number }>).find((one) => one.id === id)!.position);
+    ok(await sari.in.read(room, { position }));
+    ok(await w.owner.members(room, { remove: [sari.seat.principal] }));
+    // Asked as the notices are planned, before anything is sent: she can no longer see the room.
+    const { planNotices } = await import('../../src/owner/member-notify.ts');
+    assert.equal((await planNotices(w.fixture.companyId)).planned, 0);
+    assert.deepEqual(await noticesOf(w.fixture.companyId, sari.seat.principal), []);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a mention in a room whose notice already went is told as a mention', async () => {
+  const w = await workspace('notify-heavier');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const dm = await direct(budi.in, sari.seat);
+    await said(budi.in, dm, 'Morning.');
+    await said(budi.in, dm, 'About the stock count.');
+    await tell(w.fixture.companyId, w.api.master);
+    // In the same ten minutes, and after she muted the room.
+    ok(await sari.in.settings(dm, { mutedUntil: new Date(Date.now() + 3_600_000).toISOString() }));
+    await said(budi.in, dm, 'Still here.');
+    await said(budi.in, dm, { body: '@sari the till is short, now', mentions: [sari.seat.principal] });
+    await said(budi.in, dm, { body: '@sari and the safe', mentions: [sari.seat.principal] });
+    await tell(w.fixture.companyId, w.api.master);
+    const told = toldTo(w.relay, sari.phone!);
+    assert.deepEqual(told.map((one) => [one.data.reasons, one.data.count]), [[['direct'], 2], [['mention'], 2]],
+      'the words before it are counted on the first; the mention opens a notice of its own, and the next mention counts on it');
+  } finally {
+    await w.close();
+  }
+});
+
+/** Who the mention picker marks as told outside PALUGADA, by name, as a seat's console reads the people list. */
+async function marks(w: Workspace, asker: Seat, names: Record<string, string>): Promise<Record<string, boolean>> {
+  const people = ok(await w.api.call('GET', `/api/companies/${w.fixture.companyId}/people`, asker.token)).people as Array<{ principal: string; linked: boolean }>;
+  return Object.fromEntries(people.map((one) => [names[one.principal] ?? one.principal, one.linked]));
+}
+
+test('the mention picker marks who is told outside PALUGADA: a seat with a phone, and the owner only when they hear people', async () => {
+  const w = await workspace('notify-linked');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari', 'member', { phone: false });
+    const names = { owner: 'owner', [budi.seat.principal]: 'budi', [sari.seat.principal]: 'sari' };
+    const ownerPhone = await ownerHears(w, false);
+    assert.deepEqual(await marks(w, budi.seat, names), { owner: false, budi: true, sari: false }, 'a phone, and the owner does not hear people');
+    ok(await w.api.call('POST', '/api/me/profile', w.ownerToken, { ownerHearsPeople: true }));
+    assert.deepEqual(await marks(w, budi.seat, names), { owner: true, budi: true, sari: false });
+    ok(await w.api.call('POST', `/api/relays/links/${ownerPhone.linkId}/end`, w.ownerToken, {}));
+    assert.deepEqual(await marks(w, budi.seat, names), { owner: false, budi: true, sari: false }, 'no phone, and no chat that takes them');
+  } finally {
+    await w.close();
+  }
+});
+
+test("the owner who hears people in their chat alone is marked as told", async () => {
+  const telegram = new TelegramChannel({
+    token: 'test-bot-token-0000', chatId: '42',
+    fetch: async () => new Response(JSON.stringify({ ok: true, result: { message_id: 1 } })),
+  });
+  const w = await workspace('notify-linked-chat', { telegram });
+  try {
+    const budi = await person(w, 'Budi');
+    const names = { owner: 'owner', [budi.seat.principal]: 'budi' };
+    assert.deepEqual(await marks(w, budi.seat, names), { owner: false, budi: true }, 'a chat, and the owner does not hear people');
+    ok(await w.api.call('POST', '/api/me/profile', w.ownerToken, { ownerHearsPeople: true }));
+    assert.deepEqual(await marks(w, budi.seat, names), { owner: true, budi: true }, "the owner's chat takes people's notices");
+  } finally {
+    await w.close();
+  }
+});
+
+/**
+ * A deployment that had rooms before people's notices: the planner starts
+ * from the present, not from the first word ever written, or its first pass
+ * would tell everyone of everything the rooms had said, to chats and to
+ * phones linked before. Run on a database of its own, migrated to just
+ * before people's notices, given a company whose rooms have talked, and
+ * migrated again.
+ */
+test('migrating a deployment whose rooms have talked starts its notices at the present', async () => {
+  const superuserUrl = process.env.PALUGADA_SUPERUSER_URL ?? 'postgres://postgres:postgres@localhost:5432/postgres';
+  const name = `palugada_notices_cursor_${process.pid}`;
+  const inside = (url: string) => {
+    const at = new URL(url);
+    at.pathname = `/${name}`;
+    return at.toString();
+  };
+  const source = new URL('../../db/migrations/', import.meta.url).pathname;
+  const files = (await readdir(source)).filter((file) => file.endsWith('.sql')).sort();
+  const told = files.find((file) => /^\d{4}_people_are_told\.sql$/.test(file));
+  assert.ok(told, "the people's notices migration is there");
+  const before = await mkdtemp(join(tmpdir(), 'palugada-before-notices-'));
+  const all = await mkdtemp(join(tmpdir(), 'palugada-all-'));
+  for (const file of files) {
+    await copyFile(join(source, file), join(all, file));
+    if (file < told) await copyFile(join(source, file), join(before, file));
+  }
+  const superuser = new pg.Client({ connectionString: superuserUrl });
+  await superuser.connect();
+  const ownerUrl = process.env.PALUGADA_OWNER_URL;
+  try {
+    await superuser.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    await superuser.query(`CREATE DATABASE ${name} OWNER palugada_owner`);
+    const setup = new pg.Client({ connectionString: inside(superuserUrl) });
+    await setup.connect();
+    try {
+      for (const extension of ['pgcrypto', 'vector', 'pg_trgm']) await setup.query(`CREATE EXTENSION IF NOT EXISTS ${extension}`);
+      process.env.PALUGADA_OWNER_URL = inside(connectionString('owner'));
+      await migrate(before);
+      // A company whose rooms have said 42 things, and one whose rooms never spoke.
+      const { rows: [talked] } = await setup.query<{ id: string }>("INSERT INTO companies (slug, name) VALUES ('warung', 'Warung') RETURNING id");
+      const { rows: [quiet] } = await setup.query<{ id: string }>("INSERT INTO companies (slug, name) VALUES ('studio', 'Studio') RETURNING id");
+      await setup.query('INSERT INTO room_clock (company_id, position) VALUES ($1, 42), ($2, 0)', [talked!.id, quiet!.id]);
+
+      assert.deepEqual(await migrate(all), files.filter((file) => file >= told));
+      const { rows } = await setup.query<{ company_id: string; position: string; through: string }>(
+        'SELECT company_id, position, notices_through AS through FROM room_clock ORDER BY position DESC');
+      assert.deepEqual(rows.map((row) => [row.company_id, Number(row.position), Number(row.through)]),
+        [[talked!.id, 42, 42], [quiet!.id, 0, 0]]);
+      const { rows: forced } = await setup.query<{ forced: boolean }>("SELECT relforcerowsecurity AS forced FROM pg_class WHERE relname = 'room_clock'");
+      assert.equal(forced[0]!.forced, true, 'and its row security is forced again');
+    } finally {
+      await setup.end();
+    }
+  } finally {
+    if (ownerUrl === undefined) delete process.env.PALUGADA_OWNER_URL;
+    else process.env.PALUGADA_OWNER_URL = ownerUrl;
+    await superuser.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    await superuser.end();
+    await rm(before, { recursive: true, force: true });
+    await rm(all, { recursive: true, force: true });
+  }
 });

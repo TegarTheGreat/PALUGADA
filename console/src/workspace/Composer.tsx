@@ -21,7 +21,7 @@
  * so a screen reader follows the choice as a sighted person does.
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ActionIcon, Alert, Box, Button, Checkbox, Group, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
+import { ActionIcon, Alert, Box, Button, Checkbox, Group, Menu, SegmentedControl, Text, Textarea, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowUp, IconCalendarEvent, IconCamera, IconMoodSmile, IconPaperclip, IconSparkles, IconUsersGroup, IconX,
@@ -89,6 +89,10 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
   disabled?: boolean;
 }) {
   const scope = useScope();
+  // Calling a meeting of the company's agents (section 2.211) is the owner's and an approver's, at the top of a room.
+  const callsMeeting = meet !== undefined && threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver');
+  // On a phone, setting a people's meeting and calling one of agents are one menu, so the words keep their room.
+  const foldMeetings = scope.phone && callsMeeting && setMeeting !== undefined;
   const key = `${roomId}~${threadOf ?? ''}`;
   const [value, setValue] = useState(() => drafts.get(key) ?? '');
   const [chosen, setChosen] = useState<Array<{ principal: string; token: string }>>([]);
@@ -327,9 +331,36 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
             <IconMoodSmile size={18} />
           </ActionIcon>
         } />
+        {/* On a phone, where every button takes room from the words, the two meetings are one menu (section 2.215). */}
+        {foldMeetings && (
+          <Menu position="top-end" withinPortal>
+            <Menu.Target>
+              <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('More')} data-meetings-menu disabled={disabled}>
+                <IconCalendarEvent size={18} />
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={<IconCalendarEvent size={16} />} onClick={() => {
+                const body = value.trim();
+                setValue('');
+                setMeeting?.(body);
+              }}>
+                {t('Set a meeting')}
+              </Menu.Item>
+              <Menu.Item leftSection={<IconUsersGroup size={16} />} disabled={!value.trim()} onClick={() => {
+                const body = value.trim();
+                if (!body) return;
+                setValue('');
+                meet?.(body);
+              }}>
+                {t('Call a meeting about this')}
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        )}
         {/* Setting a people's meeting (section 2.215): anyone's, at the top of a room, pressed and never sent by a key.
             Words typed become its title and agenda; with none, the dialog asks for them. */}
-        {setMeeting && threadOf === null && (
+        {setMeeting && threadOf === null && !foldMeetings && (
           <Tooltip label={t('Set a meeting')}>
             <ActionIcon size="lg" variant="subtle" color="gray" aria-label={t('Set a meeting')} data-set-meeting-button disabled={disabled} onClick={() => {
               const body = value.trim();
@@ -342,7 +373,7 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet
         )}
         {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
             the top of a room, pressed and never sent by a key. */}
-        {meet && threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver') && (
+        {callsMeeting && !foldMeetings && (
           <Tooltip label={t('Call a meeting about this')}>
             <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {
               const body = value.trim();

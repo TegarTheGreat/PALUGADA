@@ -146,10 +146,11 @@ export function MessageRow({ message, compact = false, inThread = false, pinned 
   };
 
   const text = message.kind === 'text' && !message.deleted;
-  // A people's meeting is set from one's own words at the top of a room one is in and may write in (STATUS 2.215).
+  // A people's meeting is set from one's own words at the top of a room one is in and may write in, words that became no
+  // work (STATUS 2.215).
   const room = scope.room?.id === message.roomId ? scope.room : null;
   const setsMeeting = text && message.author.principal === scope.me && message.threadOf === null && message.peopleMeeting === null
-    && room !== null && room.joined && !room.archived;
+    && message.became === null && room !== null && room.joined && !room.archived;
   const actions: Action[] = [
     ...(!inThread && message.threadOf === null ? [{ id: 'reply', label: t('Reply in thread'), icon: <IconMessageReply size={16} />, run: () => scope.openThread(message.id) }] : []),
     ...(text ? [{ id: 'react', label: t('React'), icon: <IconMoodSmile size={16} />, run: () => setReacting(true) }] : []),

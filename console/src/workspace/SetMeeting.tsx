@@ -15,6 +15,11 @@
  * open room. The server refuses anyone else, and the database too. A call
  * link is `https://` only, and nothing here or on the server ever opens it.
  *
+ * A change sends its time only when the person changed it, so a meeting
+ * under way keeps its start while its link, its length or its people are
+ * fixed; and whoever was asked is named from the meeting itself, though
+ * they left the room or their seat has gone, and may be taken off.
+ *
  * The Rooms page holds this, as it holds Ask the team, so the room read again
  * behind it takes away neither a refusal nor what was typed.
  */
@@ -54,6 +59,8 @@ export function SetMeeting({ setting, close }: {
   const meeting = setting?.message?.peopleMeeting ?? null;
   const [words, setWords] = useState('');
   const [when, setWhen] = useState('');
+  // The time the dialog opened on: a change sends a time only when it differs.
+  const [whenAtOpen, setWhenAtOpen] = useState('');
   const [minutes, setMinutes] = useState<number>(30);
   const [attendees, setAttendees] = useState<string[]>([]);
   const [link, setLink] = useState('');
@@ -80,11 +87,13 @@ export function SetMeeting({ setting, close }: {
     setWords('');
     if (meeting) {
       setWhen(localInput(new Date(meeting.startsAt)));
+      setWhenAtOpen(localInput(new Date(meeting.startsAt)));
       setMinutes(meeting.minutes);
       setAttendees(meeting.attendees.map((person) => person.principal));
       setLink(meeting.callUrl ?? '');
     } else {
       setWhen(localInput(nextHour()));
+      setWhenAtOpen('');
       setMinutes(30);
       // A direct conversation's meeting is for its people; elsewhere the setter starts with themselves.
       setAttendees(room?.kind === 'direct' ? [...members] : [scope.me]);
@@ -92,21 +101,30 @@ export function SetMeeting({ setting, close }: {
     }
   }, [opening]);
 
-  const data = useMemo(() => choices.map((person) => ({
-    value: person.principal,
-    label: person.handle ? `${nameOf(person)} (@${person.handle})` : nameOf(person),
-  })), [choices]);
+  // Those who can see the room, and whoever the meeting asked already, by the name the meeting gives them.
+  const data = useMemo(() => {
+    const offered = choices.map((person) => ({
+      value: person.principal,
+      label: person.handle ? `${nameOf(person)} (@${person.handle})` : nameOf(person),
+    }));
+    const known = new Set(offered.map((one) => one.value));
+    const asked = (meeting?.attendees ?? []).filter((person) => !known.has(person.principal))
+      .map((person) => ({ value: person.principal, label: nameOf(person) }));
+    return [...offered, ...asked];
+  }, [choices, meeting]);
 
   const startsAt = when ? new Date(when) : null;
   const linkTyped = link.trim();
   const linkWrong = linkTyped !== '' && (!/^https:\/\/\S+$/.test(linkTyped) || linkTyped.length > CALL_URL_MOST);
   const needsWords = setting !== null && setting.message === null && posted === null;
+  // A new meeting always has a time to send; a change only when it was moved.
+  const moved = meeting === null || when !== whenAtOpen;
   const ready = startsAt !== null && !Number.isNaN(startsAt.getTime()) && attendees.length > 0 && !linkWrong
     && minutes >= MINUTES.least && minutes <= MINUTES.most && (!needsWords || words.trim().length > 0);
 
   const submit = async () => {
     if (!setting || !ready || !startsAt) return;
-    if (startsAt.getTime() <= Date.now()) {
+    if (moved && startsAt.getTime() <= Date.now()) {
       setError(t('A meeting starts in the future.'));
       return;
     }
@@ -115,7 +133,7 @@ export function SetMeeting({ setting, close }: {
     try {
       if (meeting) {
         await api('POST', `/api/companies/${scope.companyId}/rooms/${setting.roomId}/people-meetings/${meeting.id}`, {
-          startsAt: startsAt.toISOString(), minutes, attendees, callUrl: linkTyped || null,
+          ...(moved ? { startsAt: startsAt.toISOString() } : {}), minutes, attendees, callUrl: linkTyped || null,
         });
         notifications.show({ color: 'teal', message: t('The meeting is changed. The people asked are reminded ten minutes before it starts.') });
       } else {

@@ -28,7 +28,7 @@
  * names, and the sweep in the retention stage removes it (`sweepRoomFiles`).
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, type Stats } from 'node:fs';
 import { link, lstat, mkdir, open, readdir, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { base64Bytes, displayName, sniffReceived } from '../chats/attachments.ts';
@@ -146,6 +146,34 @@ export function filesToAttach(value: unknown): Attaching[] {
   return looked;
 }
 
+/** What is at a path, the link itself where it is a link; null where nothing is, or it cannot be looked at. */
+async function statOf(at: string): Promise<Stats | null> {
+  try {
+    return await lstat(at);
+  } catch {
+    return null;
+  }
+}
+
+/** Removes a file if it is there: one already gone is what was asked for. */
+async function removeIfThere(at: string): Promise<void> {
+  try {
+    await unlink(at);
+  } catch {
+    // Already gone, or never written: there is nothing to remove, and the
+    // sweep finds whatever a failure here left.
+  }
+}
+
+/** A folder of the people folder as it is, never made: null when it is not there, or is not a folder. */
+async function folderThere(folder: string, parts: readonly string[]): Promise<string | null> {
+  try {
+    return await folderAt(folder, parts, false);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A folder of the people folder, made if it is not there, one level at a
  * time: a link put where a folder goes is found before anything is written
@@ -156,7 +184,7 @@ async function folderAt(folder: string, parts: readonly string[], make: boolean)
   let here = folder;
   for (const part of ['', ...parts]) {
     here = part ? join(here, part) : here;
-    let found = await lstat(here).catch(() => null);
+    let found = await statOf(here);
     if (found === null) {
       if (!make) return null;
       try {
@@ -164,7 +192,7 @@ async function folderAt(folder: string, parts: readonly string[], make: boolean)
         continue;
       } catch (failure) {
         if ((failure as NodeJS.ErrnoException).code !== 'EEXIST') throw failure;
-        found = await lstat(here).catch(() => null);
+        found = await statOf(here);
       }
     }
     if (!found?.isDirectory()) {
@@ -216,7 +244,7 @@ export async function stageFiles(folder: string | null, files: readonly Attachin
 /** Removes a post's staged names; what was linked into its room stays under its room's name. */
 export async function unstage(folder: string | null, staged: readonly Staged[]): Promise<void> {
   if (folder === null) return;
-  for (const one of staged) await unlink(join(folder, 'incoming', `${one.id}.${one.file.ext}`)).catch(() => undefined);
+  for (const one of staged) await removeIfThere(join(folder, 'incoming', `${one.id}.${one.file.ext}`));
 }
 
 /**
@@ -279,9 +307,14 @@ export async function readRoomFile(viewer: Viewer, roomId: string, fileId: strin
   const gone = () => new PalugadaError('file.not_kept', 'that file is no longer kept', { fileId });
   if (row.path === null || folder === null) throw gone();
   const parts = row.path.split('/');
-  const here = await folderAt(folder, parts.slice(0, -1), false).catch(() => null);
+  const here = await folderThere(folder, parts.slice(0, -1));
   if (here === null) throw gone();
-  const handle = await open(join(here, parts.at(-1)!), constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => null);
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    handle = await open(join(here, parts.at(-1)!), constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    // Gone, or a link where the file was, which O_NOFOLLOW refuses: either way not a kept file.
+  }
   if (handle === null) throw gone();
   let bytes: Buffer;
   try {
@@ -304,7 +337,7 @@ export async function removeRoomFiles(folder: string | null, paths: readonly str
   if (folder === null) return;
   for (const path of paths) {
     if (!/^rooms\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.[a-z0-9]{1,10}$/.test(path)) continue;
-    await unlink(join(folder, path)).catch(() => undefined);
+    await removeIfThere(join(folder, path));
   }
 }
 
@@ -338,19 +371,19 @@ export async function sweepRoomFiles(companyId: string, folder: string | null, n
   if (folder === null) return 0;
   let removed = 0;
   const stale = async (at: string) => {
-    const found = await lstat(at).catch(() => null);
+    const found = await statOf(at);
     return found !== null && !found.isDirectory() && now.getTime() - found.mtimeMs >= SWEEP_GRACE_MS;
   };
   // A staged file is never a kept one: once its post is done it is a name too many.
-  const incoming = await folderAt(folder, ['incoming'], false).catch(() => null);
+  const incoming = await folderThere(folder, ['incoming']);
   if (incoming !== null) {
     for (const file of await readdir(incoming)) {
       if (!(await stale(join(incoming, file)))) continue;
-      await unlink(join(incoming, file)).catch(() => undefined);
+      await removeIfThere(join(incoming, file));
       removed += 1;
     }
   }
-  const rooms = await folderAt(folder, ['rooms'], false).catch(() => null);
+  const rooms = await folderThere(folder, ['rooms']);
   if (rooms === null) return removed;
   const named = new Set(await withControlPlane(async (tx) => (await tx.query<{ path: string }>(
     'SELECT path FROM room_files WHERE company_id = $1 AND path IS NOT NULL', [companyId])).rows.map((row) => row.path)));
@@ -359,7 +392,7 @@ export async function sweepRoomFiles(companyId: string, folder: string | null, n
     for (const file of await readdir(join(rooms, room.name), { withFileTypes: true })) {
       const path = `rooms/${room.name}/${file.name}`;
       if (named.has(path) || !(await stale(join(rooms, room.name, file.name)))) continue;
-      await unlink(join(rooms, room.name, file.name)).catch(() => undefined);
+      await removeIfThere(join(rooms, room.name, file.name));
       removed += 1;
     }
   }
@@ -374,7 +407,7 @@ export async function sweepRoomFiles(companyId: string, folder: string | null, n
 export async function erasePeopleFiles(roots: PeopleRoots, companyId: string): Promise<string | null> {
   const folder = peopleFolderOf(roots, companyId);
   if (folder === null) return null;
-  if (await lstat(folder).catch(() => null) === null) return folder;
+  if (await statOf(folder) === null) return folder;
   await rm(folder, { recursive: true, force: true });
   return folder;
 }

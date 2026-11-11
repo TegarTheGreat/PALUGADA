@@ -977,3 +977,198 @@ test('closing the owner API closes its listener', async () => {
   }
   assert.equal(left, before, 'the listener outlived the API');
 });
+
+/**
+ * The stream and the relay (STATUS 2.213): a person's phone answers through
+ * the same doors the console uses, so what it does is heard on the room
+ * stream as the console's own acts are -- a read mark by the reader's other
+ * devices alone, a reply by everyone who may see the room.
+ */
+test("a read mark and a reply made through the relay are heard on the room stream, the read mark by the reader's devices alone", async () => {
+  const { fakeRelay, deviceSignature, sha256Hex } = await import('../helpers/fake-relay.ts');
+  const { linkThrough, pairThrough } = await import('../helpers/relay.ts');
+  const { tell, toldTo } = await import('../helpers/notices.ts');
+  const { fixture, api, owner, token } = await workspace('stream-relay');
+  const relay = await fakeRelay();
+  try {
+    const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'content', mayPost: true });
+    const budi = await seated(fixture, 'Budi', 'member', { handle: 'budi' });
+    const sari = await seated(fixture, 'Sari', 'member', { handle: 'sari' });
+    const budiIn = personIn(api, budi.token, fixture.companyId);
+    const sariIn = personIn(api, sari.token, fixture.companyId);
+    const room = await companyRoomOf(owner);
+    await companyRoomOf(budiIn);
+    await companyRoomOf(sariIn);
+    const phone = await linkThrough(api, sari.token, relay, relayId, { device: true, owner: false });
+    const laptop = await anotherDevice(sari.id);
+    const sariHears = await listening(api, laptop, fixture.companyId);
+    const budiHears = await listening(api, budi.token, fixture.companyId);
+    const ownerHears = await listening(api, token, fixture.companyId);
+    try {
+      const asked = await said(budiIn, room, { body: '@sari can you check the stock?', mentions: [sari.principal] });
+      await until(() => about(sariHears, asked).length > 0, 'the mention');
+      await tell(fixture.companyId, api.master);
+      const [notice] = toldTo(relay, phone);
+      const tokens = Object.fromEntries((notice.offers ?? []).map((offer: { act: string; token: string }) => [offer.act, offer.token]));
+      const { deployment } = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { deployment: string };
+      /** An act as Sari's phone sends it through the relay, signed by its device. */
+      const act = async (type: 'read' | 'reply', extra: { body?: string; clientId?: string } = {}) => {
+        const at = new Date().toISOString();
+        const fields: Record<string, unknown> = { deployment, relay: relayId, recipient: phone.recipient, type, token: tokens[type], at };
+        if (type === 'reply') Object.assign(fields, { sha256: sha256Hex(extra.body ?? ''), clientId: extra.clientId });
+        const answer = await relay.push(api.url, relayId, relay.sign({
+          v: 1, type, at, token: tokens[type], ...extra, device_sig: deviceSignature(phone.device!.privateKey, fields),
+        }));
+        assert.equal(answer.status, 200, `the ${type} was refused: ${JSON.stringify(answer.body)}`);
+      };
+
+      await act('read');
+      const reads = (stream: Heard) => stream.frames.filter((frame) => frame.kind === 'read');
+      await until(() => reads(sariHears).length > 0, "the read mark, on Sari's laptop");
+      assert.equal(reads(sariHears)[0]!.room, room);
+
+      await act('reply', { body: 'Checked: twelve bags left.', clientId: 'phone-1' });
+      const { rows: [reply] } = await withControlPlane((tx) => tx.query<{ id: string; via: string }>(
+        "SELECT id, via FROM room_messages WHERE company_id = $1 AND body = 'Checked: twelve bags left.'", [fixture.companyId]));
+      assert.equal(reply!.via, 'relay');
+      for (const [stream, who] of [[sariHears, "Sari's laptop"], [budiHears, 'Budi'], [ownerHears, 'the owner']] as const) {
+        await until(() => about(stream, reply!.id).some((frame) => frame.kind === 'message'), `the reply, heard by ${who}`);
+      }
+      assert.deepEqual(reads(budiHears), [], "a colleague hears nobody else's read mark");
+      assert.deepEqual(reads(ownerHears), [], 'nor does the owner');
+      for (const stream of [sariHears, budiHears, ownerHears]) {
+        assert.ok(!stream.raw().includes('twelve bags'), 'a reply from a phone is framed without its words, as any other');
+      }
+    } finally {
+      sariHears.stop();
+      budiHears.stop();
+      ownerHears.stop();
+    }
+  } finally {
+    await api.close();
+    await relay.close();
+  }
+});
+
+/**
+ * The stream and the agents' meetings (STATUS 2.211): a meeting is a card in
+ * the company room, drawn when the meeting is made and drawn again as it
+ * moves, and an open room hears both as it hears any card -- the card's
+ * first drawing as a new message, each change after as a card frame -- with
+ * no week, no agenda and no record in the frame.
+ */
+test('a meeting card is heard when it is posted and each time it moves, and its frames carry none of its record', async () => {
+  const { defineMetric } = await import('../../src/domain/metrics.ts');
+  const { ensureWeeklyMeeting } = await import('../../src/engine/meeting.ts');
+  const { syncRoomCards } = await import('../../src/workspace/cards.ts');
+  const { fixture, api, owner, token } = await workspace('stream-meeting');
+  try {
+    // Due today, from midnight in Jakarta, with a line on the scorecard for its agenda.
+    const local = new Date(Date.now() + 7 * 3_600_000);
+    await withControlPlane((tx) => tx.query(
+      `UPDATE companies SET timezone = 'Asia/Jakarta', meeting_weekday = $2, meeting_hour = 0, meeting_enabled = true WHERE id = $1`,
+      [fixture.companyId, local.getUTCDay()]));
+    await defineMetric(fixture.companyId, {
+      goalId: fixture.goalId, slug: 'calls', name: 'Sales calls made', unit: 'count', target: 50, reviewEvery: 'week', ownerRoleId: fixture.roleId,
+    });
+    const sari = await seated(fixture, 'Sari', 'member');
+    const room = await companyRoomOf(owner);
+    await companyRoomOf(personIn(api, sari.token, fixture.companyId));
+    const sariHears = await listening(api, sari.token, fixture.companyId);
+    const ownerHears = await listening(api, token, fixture.companyId);
+    try {
+      const meeting = await ensureWeeklyMeeting(fixture.companyId, new Date());
+      assert.ok(meeting, 'the meeting is due');
+      assert.ok(await syncRoomCards(fixture.companyId) > 0, 'the card is drawn');
+      const { rows: [card] } = await withControlPlane((tx) => tx.query<{ id: string }>(
+        "SELECT id FROM room_messages WHERE company_id = $1 AND kind = 'meeting' AND task_id = $2", [fixture.companyId, meeting]));
+      for (const stream of [sariHears, ownerHears]) {
+        await until(() => about(stream, card!.id).some((frame) => frame.kind === 'message' && frame.room === room), 'the card, posted');
+      }
+
+      await transition(fixture.companyId, meeting!, 'running');
+      await transition(fixture.companyId, meeting!, 'completed', {
+        output: { summary: 'What the owner needs to know\nThe espresso machine is due for its service in March.' },
+      });
+      assert.ok(await syncRoomCards(fixture.companyId) > 0, 'the card is drawn again');
+      for (const stream of [sariHears, ownerHears]) {
+        await until(() => about(stream, card!.id).some((frame) => frame.kind === 'card'), 'the card, moved');
+        for (const frame of about(stream, card!.id)) {
+          assert.deepEqual(Object.keys(frame).filter((key) => !['position', 'kind', 'room', 'ref', 'mentioned'].includes(key)), [],
+            `a card's frame said more than where and what: ${JSON.stringify(frame)}`);
+        }
+        for (const word of ['espresso', 'owner needs to know', 'Sales calls']) {
+          assert.ok(!stream.raw().includes(word), `the stream carried "${word}"`);
+        }
+      }
+    } finally {
+      sariHears.stop();
+      ownerHears.stop();
+    }
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * The stream and keeping (STATUS 2.212): a message's files are framed as the
+ * message is, with no name, and what retention takes is framed as removed,
+ * a root left without its words too, so an open room draws its page again
+ * and drops them. The feed retention keeps is two weeks, and a stream that
+ * comes back from before what is kept is told to read everything again.
+ */
+test("a message's files are framed with no name, what retention takes is framed as removed, and a stream from before the kept feed is told to reload", async () => {
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { setRetention, runRetention } = await import('../../src/retention/retention.ts');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-stream-files-'));
+  const fixture = await createCompany('stream-kept');
+  const api = await consoleWithSettings({ files: { root } });
+  const token = await api.signIn();
+  const owner = personIn(api, token, fixture.companyId);
+  try {
+    const sari = await seated(fixture, 'Sari', 'member');
+    const room = await companyRoomOf(owner);
+    await companyRoomOf(personIn(api, sari.token, fixture.companyId));
+    const hears = await listening(api, sari.token, fixture.companyId);
+    try {
+      const filed = String(ok(await owner.say(room, {
+        body: 'The new price list.', files: [{ name: 'harga-rahasia-2027.pdf', data: Buffer.from('%PDF-1.4 harga').toString('base64') }],
+      }), 'posting with a file').message.id);
+      const rooted = await said(owner, room, 'Who takes the Saturday shift?');
+      await until(() => about(hears, filed).length > 0 && about(hears, rooted).length > 0, 'both messages');
+      assert.ok(!hears.raw().includes('harga-rahasia'), "a file's name is never framed");
+      assert.ok(!hears.raw().includes('.pdf'), 'nor its kind');
+      const first = about(hears, filed)[0]!.position!;
+      // A reply a month younger keeps the root's thread alive, without its words.
+      const { rows: [aged] } = await withControlPlane((tx) => tx.query<{ at: Date }>(
+        'SELECT created_at AS at FROM room_messages WHERE id = $1', [rooted]));
+      await pause(20);
+      const reply = await said(personIn(api, sari.token, fixture.companyId), room, { body: 'I will.', threadOf: rooted });
+      const { rows: [young] } = await withControlPlane((tx) => tx.query<{ at: Date }>(
+        'SELECT created_at AS at FROM room_messages WHERE id = $1', [reply]));
+      await until(() => about(hears, reply).length > 0, 'the reply');
+
+      await setRetention(fixture.companyId, { messageDays: 30 });
+      const at = new Date((aged!.at.getTime() + young!.at.getTime()) / 2 + 30 * 86_400_000);
+      assert.equal((await runRetention(fixture.companyId, at, { filesRoot: root })).messagesPurged, 2);
+      for (const [id, what] of [[filed, 'the message taken'], [rooted, 'the root left without its words']] as const) {
+        await until(() => about(hears, id).some((frame) => frame.kind === 'delete'), `${what}, framed as removed`);
+      }
+      assert.deepEqual(about(hears, reply).map((frame) => frame.kind), ['message'], 'the reply that lives on is not removed');
+
+      // The feed retention kept starts after the messages' own rows, which went with the two weeks.
+      const late = await listening(api, sari.token, fixture.companyId, String(first));
+      try {
+        await until(() => late.frames.some((frame) => frame.kind === 'reset'), 'the stream from before the kept feed, told to reload');
+      } finally {
+        late.stop();
+      }
+    } finally {
+      hears.stop();
+    }
+  } finally {
+    await api.close();
+  }
+});

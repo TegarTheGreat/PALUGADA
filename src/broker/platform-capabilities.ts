@@ -32,6 +32,7 @@ import { GOAL_STATUSES, proposeGoalChange, type GoalStatus, type GoalWarning } f
 import { PLAN_LINES_MAX, proposeGoalPlan, type PlanLineInput } from '../domain/goal-plans.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
 import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
+import { JOIN_MINUTES } from '../engine/meeting.ts';
 import { assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
 import { queryMeaning } from '../knowledge/meaning.ts';
@@ -923,15 +924,19 @@ export interface OwnerAskInput {
    */
   to?: string;
   /**
-   * Only in a meeting the owner joined (F19.17): how many minutes, 1 to 120
+   * Only in a meeting the owner joined (F19.17): how many minutes, 5 to 120
    * and no more than the owner gave the meeting, the question waits for the
    * owner before the meeting goes on without the answer.
    */
   waitMinutes?: number;
 }
 
-/** The longest a meeting's question may be told to wait, in minutes: the most the owner can give a meeting (0156). */
-const WAIT_MINUTES_MAX = 120;
+/**
+ * How long a meeting's question may be told to wait, in minutes: what the
+ * owner can give a meeting (0156). A run gives the owner no less time than
+ * the owner could give themselves (STATUS 2.217).
+ */
+const WAIT_MINUTES = JOIN_MINUTES;
 
 export interface OwnerAskResult {
   answered: boolean;
@@ -1057,7 +1062,7 @@ export function ownerAskCapability(
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
         key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
         to: { type: 'string', maxLength: 120, description: 'The person this is for, by name, when it is someone the company has seated and not the owner. They are named in your brief; a name no one has is refused saying who there is.' },
-        waitMinutes: { type: 'integer', minimum: 1, maximum: WAIT_MINUTES_MAX, description: 'Only in a meeting the owner attends, as your brief says: how many minutes the question waits for the owner before the meeting goes on without the answer.' },
+        waitMinutes: { type: 'integer', minimum: WAIT_MINUTES.min, maximum: WAIT_MINUTES.max, description: 'Only in a meeting the owner attends, as your brief says: how many minutes the question waits for the owner before the meeting goes on without the answer.' },
       },
     },
     adapter: 'platform',
@@ -1073,9 +1078,9 @@ export function ownerAskCapability(
       }
       const wait = input.waitMinutes;
       if (wait !== undefined) {
-        if (typeof wait !== 'number' || !Number.isInteger(wait) || wait < 1 || wait > WAIT_MINUTES_MAX) {
+        if (typeof wait !== 'number' || !Number.isInteger(wait) || wait < WAIT_MINUTES.min || wait > WAIT_MINUTES.max) {
           throw new PalugadaError('contract.violation',
-            `waitMinutes is a whole number of minutes from 1 to ${WAIT_MINUTES_MAX}, no more than the owner gave the meeting`, { field: 'waitMinutes' });
+            `waitMinutes is a whole number of minutes from ${WAIT_MINUTES.min} to ${WAIT_MINUTES.max}, no more than the owner gave the meeting`, { field: 'waitMinutes' });
         }
         // Asked of the owner alone, never of a seat: refused before anyone is looked up.
         if (input.to !== undefined && String(input.to).trim() !== '') {
